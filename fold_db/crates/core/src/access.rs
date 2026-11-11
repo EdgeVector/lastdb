@@ -31,18 +31,6 @@ pub mod peer_cred {
     }
 
     impl PeerCredential {
-        pub fn new(uid: u32, pid: Option<i32>) -> Self {
-            Self { uid, pid }
-        }
-
-        pub fn uid(&self) -> u32 {
-            self.uid
-        }
-
-        pub fn pid(&self) -> Option<i32> {
-            self.pid
-        }
-
         pub fn evaluate(&self, owner_uid: u32) -> PeerCredVerdict {
             if self.uid == owner_uid {
                 PeerCredVerdict::SameUser { pid: self.pid }
@@ -83,7 +71,10 @@ pub mod peer_cred {
         if rc != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(PeerCredential::new(cred.uid, Some(cred.pid)))
+        Ok(PeerCredential {
+            uid: cred.uid,
+            pid: Some(cred.pid),
+        })
     }
 
     #[cfg(target_os = "macos")]
@@ -109,7 +100,10 @@ pub mod peer_cred {
             ));
         }
         let pid = read_peer_pid(fd).ok();
-        Ok(PeerCredential::new(cred.cr_uid, pid))
+        Ok(PeerCredential {
+            uid: cred.cr_uid,
+            pid,
+        })
     }
 
     #[cfg(target_os = "macos")]

@@ -38,8 +38,6 @@ pub(super) fn check_expectation(
         .is_some_and(|record| record.alternates != mutation.alternates)
     {
         let message = "deletion must supply the record's complete current alternate keys";
-        // A contributor submission is already durable in the inbox. A wrong
-        // alternate set cannot succeed on retry, so record it as a reject.
         if mutation.contribution.is_some() {
             return Err(SchemaError::InvalidField(message.into()));
         }
@@ -136,12 +134,10 @@ impl MutationManager {
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
         let mut key = mutation.key_value.clone();
-        crate::schema::types::key_comparison::normalize::canonical_key(profile, &mut key)?;
+        crate::schema::types::key_comparison::canonical_key(profile, &mut key)?;
         Ok(key)
     }
 
-    /// Source batches own distinct mutation identities. Derived Delete peers
-    /// retain their source identity and validate only their keys and layouts.
     pub(super) fn validate_mutation_batch(
         &self,
         mutations: &[Mutation],
@@ -155,17 +151,7 @@ impl MutationManager {
                 )));
             }
         }
-        self.validate_mutation_keys_and_layouts(mutations)
-    }
-
-    pub(super) fn validate_mutation_keys_and_layouts(
-        &self,
-        mutations: &[Mutation],
-    ) -> Result<(), SchemaError> {
-        for field in mutations
-            .iter()
-            .flat_map(|mutation| mutation.record_fields.keys())
-        {
+        for field in mutations.iter().flat_map(|m| m.record_fields.keys()) {
             Schema::validate_field_name(field).map_err(SchemaError::InvalidData)?;
         }
         let mut schemas = BTreeMap::new();

@@ -9,9 +9,8 @@ use lastdb_model::record_value::{InlineWrite, StoredRecord};
 
 use super::portable_journal::schema_fingerprint;
 use super::validation::{check_expectation, require_contribution_author, validate_field_value};
-use super::write::AuthoredMutation;
 use super::write_effects::ChangedRecord;
-use super::MutationManager;
+use super::{AuthoredMutation, MutationManager};
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FileWrite, Mutation, MutationType, Schema};
@@ -49,9 +48,7 @@ impl MutationManager {
                     let profile = schema.require_record_keys()?.alternates[name]
                         .range_profile()
                         .map_err(SchemaError::InvalidData)?;
-                    *range = crate::schema::types::key_comparison::normalize::canonical_range(
-                        profile, range,
-                    )?;
+                    *range = crate::schema::types::key_comparison::canonical_range(profile, range)?;
                 }
             }
             addresses.push(records.record_address(&schema, &key)?);

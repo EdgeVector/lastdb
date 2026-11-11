@@ -1,16 +1,15 @@
-//! Record domain store: key codecs, write/read scopes, replay fence, and writer watch.
+//! Record domain store: key codecs, paged hash spans, write/read scopes, replay fence, and writer watch.
 
 mod reads;
-mod spans;
 mod writes;
 
 pub(crate) use reads::{KeyedRecord, RangeWalk};
-pub(crate) use spans::{RecordBound, RecordSpan, SpanKey};
 pub(crate) use writes::RecordChange;
-pub use writes::{key_fingerprint, RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
+pub use writes::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 
+use crate::schema::types::field::FilterUtils;
 use crate::schema::types::key_comparison::KeyComparisonContext;
-use crate::schema::types::{Schema, SchemaError};
+use crate::schema::types::{KeyValue, Schema, SchemaError};
 use crate::storage::disk_pack::transaction::blocked::write_scopes;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
@@ -19,12 +18,13 @@ use crate::storage::format::control::{
 };
 use crate::storage::format::{read::ReadStore, records::RecordFormat};
 use futures::{future::BoxFuture, FutureExt};
+use lastdb_model::field_key_codec::FieldKeyCodec;
+use lastdb_model::record_space::{record_hash_prefix, record_space_uuid};
+use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// Seconds without another task's write scope after which a background job runs flat out.
 pub const QUIET_SECS_ENV: &str = "LASTDB_MAINTENANCE_QUIET_SECS";
-/// Default quiet period: 60 seconds.
 pub const DEFAULT_QUIET_SECS: u64 = 60;
 
 /// Tracks other tasks' write scopes so background maintenance yields when writers are active.
@@ -76,6 +76,39 @@ impl Default for WriterWatch {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum RecordBound<'a> {
+    All,
+    Prefix(&'a str),
+    Between(&'a str, &'a str),
+}
+
+pub(crate) struct RecordSpan {
+    hash: String,
+    codec: FieldKeyCodec,
+    base: String,
+    start: String,
+    end: String,
+}
+
+pub(crate) struct SpanKey {
+    pub(crate) range: String,
+    pub(crate) key: KeyValue,
+    pub(crate) physical: String,
+    pub(crate) record: StoredRecord,
+}
+
+pub(crate) struct SpanPage {
+    pub(crate) keys: Vec<SpanKey>,
+    pub(crate) next: Option<String>,
+}
+
+impl RecordSpan {
+    pub(crate) fn storage_range<'a>(&self, physical: &'a str) -> &'a str {
+        physical.get(self.base.len()..).unwrap_or_default()
+    }
+}
+
 /// Record store for a home: one record at each primary key in the `main` namespace.
 #[derive(Clone)]
 pub struct RecordStore {
@@ -104,17 +137,14 @@ impl RecordStore {
         Ok(Arc::new(KeyComparisonContext::for_schema(schema)?))
     }
 
-    pub(crate) fn primary_codec(
-        &self,
-        schema: &Schema,
-    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, SchemaError> {
+    pub(crate) fn primary_codec(&self, schema: &Schema) -> Result<FieldKeyCodec, SchemaError> {
         let profile = schema
             .require_record_keys()?
             .primary
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
-        let space = lastdb_model::record_space::record_space_uuid(&schema.name);
-        Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
+        let space = record_space_uuid(&schema.name);
+        Ok(FieldKeyCodec::from_node_key(
             &self.node_key,
             &space,
             profile,
@@ -125,7 +155,7 @@ impl RecordStore {
         &self,
         schema: &Schema,
         name: &str,
-    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, SchemaError> {
+    ) -> Result<FieldKeyCodec, SchemaError> {
         let profile = schema
             .require_record_keys()?
             .alternates
@@ -134,11 +164,7 @@ impl RecordStore {
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
         let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
-        Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
-            &self.node_key,
-            &id,
-            profile,
-        ))
+        Ok(FieldKeyCodec::from_node_key(&self.node_key, &id, profile))
     }
 
     pub(crate) fn reader(&self) -> &ReadStore {
@@ -210,4 +236,99 @@ impl RecordStore {
         }
         validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
     }
+
+    pub(crate) fn record_span(
+        &self,
+        schema: &Schema,
+        hash: &str,
+        bound: RecordBound<'_>,
+        from_range: Option<&str>,
+    ) -> Result<Option<RecordSpan>, SchemaError> {
+        let space = record_space_uuid(&schema.name);
+        let codec = self.primary_codec(schema)?;
+        let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
+        let base = record_hash_prefix(&space, &storage_hash);
+        let stored = |range: &str| {
+            codec
+                .storage_range(&space, range)
+                .map(|range| format!("{base}{range}"))
+                .map_err(codec_error)
+        };
+        let (mut start, end) = match bound {
+            RecordBound::All => (base.clone(), FilterUtils::create_prefix_end(&base)?),
+            RecordBound::Prefix(prefix) => {
+                codec.require_text_range_prefix().map_err(codec_error)?;
+                let start = stored(prefix)?;
+                let end = FilterUtils::create_prefix_end(&start)?;
+                (start, end)
+            }
+            RecordBound::Between(start, end) => (stored(start)?, stored(end)?),
+        };
+        if let Some(from) = from_range.and_then(|range| stored(range).ok()) {
+            start = start.max(from);
+        }
+        if start >= end {
+            return Ok(None);
+        }
+        Ok(Some(RecordSpan {
+            hash: hash.to_owned(),
+            codec,
+            base,
+            start,
+            end,
+        }))
+    }
+
+    pub(crate) async fn record_span_page(
+        &self,
+        span: &RecordSpan,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<SpanPage, SchemaError> {
+        let start = after.map_or_else(|| span.start.clone(), |cursor| format!("{cursor}\0"));
+        let page = self
+            .main_store
+            .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
+            .await
+            .map_err(|error| SchemaError::InvalidData(format!("read record keys: {error}")))?;
+        let mut keys = Vec::with_capacity(page.rows.len());
+        for (physical, value) in page.rows {
+            let physical = text(physical)?;
+            let range = physical
+                .get(span.base.len()..)
+                .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?
+                .to_owned();
+            let api_range = span.codec.api_range(&range).map_err(codec_error)?;
+            keys.push(SpanKey {
+                range,
+                key: KeyValue::new(Some(span.hash.clone()), Some(api_range)),
+                physical,
+                record: reads::decode(&value)?,
+            });
+        }
+        Ok(SpanPage {
+            keys,
+            next: page.resume.map(text).transpose()?,
+        })
+    }
+
+    pub(crate) fn span_key(
+        &self,
+        span: &RecordSpan,
+        physical: &str,
+    ) -> Result<KeyValue, SchemaError> {
+        let range = physical
+            .get(span.base.len()..)
+            .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?;
+        let api_range = span.codec.api_range(range).map_err(codec_error)?;
+        Ok(KeyValue::new(Some(span.hash.clone()), Some(api_range)))
+    }
+}
+
+fn text(key: Vec<u8>) -> Result<String, SchemaError> {
+    String::from_utf8(key).map_err(|_| SchemaError::InvalidData("a record key is not text".into()))
+}
+
+fn codec_error(error: impl std::fmt::Display) -> SchemaError {
+    SchemaError::InvalidData(error.to_string())
 }

@@ -1,21 +1,41 @@
 //! Operator and manifest retention-policy management on [`SchemaStore`].
 
 use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
+use crate::schema::manifest_retention::{
+    ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
+};
 use crate::schema::schema_types::{RetentionSource, SchemaRetentionPolicy};
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::format::schemas::keys::*;
 use std::collections::HashMap;
 
+fn invalid(msg: impl Into<String>) -> SchemaError {
+    SchemaError::InvalidData(msg.into())
+}
+
+fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
+    keys.iter()
+        .map(|key| retention_age_latest_key(schema_name, key))
+        .collect()
+}
+
 impl SchemaStore {
+    async fn get_policy(
+        &self,
+        schema_name: &str,
+    ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
+        Ok(self
+            .schema_states_store
+            .get_item(&retention_policy_key(schema_name))
+            .await?)
+    }
+
     pub async fn get_schema_retention_policy(
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
         self.require_installed_schema(schema_name).await?;
-        let policy = self
-            .schema_states_store
-            .get_item(&retention_policy_key(schema_name))
-            .await?;
+        let policy = self.get_policy(schema_name).await?;
         if policy.is_some() {
             self.require_retention_format(schema_name).await?;
         }
@@ -30,36 +50,89 @@ impl SchemaStore {
         self.require_installed_schema(schema_name).await?;
         self.require_retention_format(schema_name).await?;
         if policy.ttl_seconds == 0 {
-            return Err(SchemaError::InvalidData(
-                "schema retention ttl_seconds must be greater than zero".to_string(),
+            return Err(invalid(
+                "schema retention ttl_seconds must be greater than zero",
             ));
         }
         if policy.hash_partitions.iter().any(String::is_empty) {
-            return Err(SchemaError::InvalidData(
-                "schema retention hash partitions must not be empty".to_string(),
+            return Err(invalid(
+                "schema retention hash partitions must not be empty",
             ));
         }
-        let key = retention_policy_key(schema_name);
-        let current = self
-            .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&key)
-            .await?;
+        let current = self.get_policy(schema_name).await?;
         let policy = SchemaRetentionPolicy::operator_over(
             current.as_ref(),
             policy.ttl_seconds,
             policy.hash_partitions,
         );
-        if current.as_ref() == Some(&policy) {
-            return Ok(());
+        if current.as_ref() != Some(&policy) {
+            self.put_policy(schema_name, &policy).await?;
         }
-        self.format
-            .put_state(StateChange::Policy {
-                schema: schema_name,
-                policy: &policy,
-            })
-            .await?;
-        self.format.flush_states().await?;
         Ok(())
+    }
+
+    pub async fn plan_manifest_retention(
+        &self,
+        schema_name: &str,
+        ttl_seconds: u64,
+    ) -> Result<ManifestRetentionPlan, SchemaError> {
+        let current = self.get_policy(schema_name).await?;
+        let (next, status, shortened) = next_manifest_policy(current.as_ref(), ttl_seconds);
+        Ok(ManifestRetentionPlan {
+            anchor: schema_name.to_string(),
+            current,
+            next,
+            status,
+            shortened,
+        })
+    }
+
+    pub async fn apply_manifest_retention(
+        &self,
+        schema_name: &str,
+        ttl_seconds: u64,
+        owner_app: &str,
+        allow_shorter: bool,
+    ) -> Result<ManifestRetentionOutcome, SchemaError> {
+        let schema = self
+            .get_schema(schema_name)
+            .await?
+            .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
+        if schema.owner_app_id.as_deref() != Some(owner_app) {
+            return Err(invalid(format!(
+                "{schema_name} is not owned by {owner_app}"
+            )));
+        }
+        self.require_retention_format(schema_name).await?;
+        if ttl_seconds == 0 {
+            return Err(invalid(
+                "manifest retention ttl_seconds must be greater than zero",
+            ));
+        }
+        let plan = self
+            .plan_manifest_retention(schema_name, ttl_seconds)
+            .await?;
+        if plan.shortened && !allow_shorter {
+            return Err(invalid(format!(
+                "the manifest TTL of {schema_name} would be shortened to {ttl_seconds}s, and \
+                 records between the two TTLs would expire. Confirm it explicitly"
+            )));
+        }
+        let effective = if let Some(next) = plan.next {
+            self.put_policy(schema_name, &next).await?;
+            next
+        } else {
+            plan.current
+                .clone()
+                .ok_or_else(|| invalid("manifest retention left no policy in force"))?
+        };
+        Ok(ManifestRetentionOutcome {
+            anchor: plan.anchor,
+            status: plan.status,
+            previous: plan.current,
+            effective,
+            shortened: plan.shortened,
+        })
     }
 
     pub async fn clear_schema_retention_policy(
@@ -67,39 +140,36 @@ impl SchemaStore {
         schema_name: &str,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
-        if self.restore_shadowed_manifest_policy(schema_name).await? {
-            return Ok(());
+        if let Some(ttl_seconds) = self.get_policy(schema_name).await?.and_then(|current| {
+            current
+                .overridden_manifest_ttl_seconds
+                .filter(|_| current.source == RetentionSource::Operator)
+        }) {
+            return self
+                .put_policy(schema_name, &SchemaRetentionPolicy::manifest(ttl_seconds))
+                .await;
         }
-        let keys = vec![
-            StateDelete::Key {
+        let mut keys = vec![StateDelete::Key {
+            schema: schema_name,
+            kind: StateKey::Policy,
+        }];
+        for (kind, prefix) in [
+            (Tracking::Age, retention_age_prefix(schema_name)),
+            (Tracking::Latest, retention_age_latest_prefix(schema_name)),
+            (
+                Tracking::Partition,
+                retention_hash_partition_prefix(schema_name),
+            ),
+        ] {
+            keys.push(StateDelete::Selected {
                 schema: schema_name,
-                kind: StateKey::Policy,
-            },
-            StateDelete::Selected {
-                schema: schema_name,
-                kind: Tracking::Age,
+                kind,
                 keys: self
                     .schema_states_store
-                    .list_keys_with_prefix(&retention_age_prefix(schema_name))
+                    .list_keys_with_prefix(&prefix)
                     .await?,
-            },
-            StateDelete::Selected {
-                schema: schema_name,
-                kind: Tracking::Latest,
-                keys: self
-                    .schema_states_store
-                    .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
-                    .await?,
-            },
-            StateDelete::Selected {
-                schema: schema_name,
-                kind: Tracking::Partition,
-                keys: self
-                    .schema_states_store
-                    .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
-                    .await?,
-            },
-        ];
+            });
+        }
         self.format.delete_states(keys).await?;
         self.format.flush_states().await?;
         Ok(())
@@ -110,7 +180,7 @@ impl SchemaStore {
         schema_name: &str,
         ages: &[(KeyValue, u64)],
     ) -> Result<(), SchemaError> {
-        if ages.is_empty() || !self.has_retention_policy(schema_name).await? {
+        if ages.is_empty() || self.get_policy(schema_name).await?.is_none() {
             return Ok(());
         }
         let mut clocks = HashMap::<KeyValue, u64>::new();
@@ -122,17 +192,12 @@ impl SchemaStore {
         }
         let mut unique: Vec<_> = clocks.keys().cloned().collect();
         unique.sort_by(KeyValue::cmp_storage_order);
-        let latest_keys: Vec<_> = unique
-            .iter()
-            .map(|key| retention_age_latest_key(schema_name, key))
-            .collect();
         let previous = self
             .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
+            .get_items::<SchemaRetentionAgeEntry>(&latest_keys(schema_name, &unique))
             .await?;
         let mut puts = Vec::with_capacity(unique.len() * 2);
         let mut stale = Vec::new();
-        drop(latest_keys);
         for (key, old) in unique.iter().zip(previous) {
             let written_at = clocks[key];
             let entry = SchemaRetentionAgeEntry {
@@ -175,13 +240,10 @@ impl SchemaStore {
         if keys.is_empty() {
             return Ok(());
         }
-        let latest_keys: Vec<_> = keys
-            .iter()
-            .map(|key| retention_age_latest_key(schema_name, key))
-            .collect();
+        let latest = latest_keys(schema_name, keys);
         let previous = self
             .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
+            .get_items::<SchemaRetentionAgeEntry>(&latest)
             .await?;
         let old = keys
             .iter()
@@ -195,7 +257,7 @@ impl SchemaStore {
                 StateDelete::Selected {
                     schema: schema_name,
                     kind: Tracking::Latest,
-                    keys: latest_keys,
+                    keys: latest,
                 },
                 StateDelete::Selected {
                     schema: schema_name,
@@ -213,7 +275,7 @@ impl SchemaStore {
         schema_name: &str,
         keys: &[KeyValue],
     ) -> Result<(), SchemaError> {
-        if keys.is_empty() || !self.has_retention_policy(schema_name).await? {
+        if keys.is_empty() || self.get_policy(schema_name).await?.is_none() {
             return Ok(());
         }
         let mut hashes: Vec<_> = keys.iter().filter_map(|key| key.hash.clone()).collect();
@@ -232,14 +294,6 @@ impl SchemaStore {
         self.format.batch_states(entries).await?;
         self.format.flush_states().await?;
         Ok(())
-    }
-
-    async fn has_retention_policy(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        Ok(self
-            .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-            .await?
-            .is_some())
     }
 
     pub async fn list_schema_retention_policies(
@@ -262,31 +316,58 @@ impl SchemaStore {
         Ok(out)
     }
 
-    async fn restore_shadowed_manifest_policy(
+    async fn put_policy(
         &self,
         schema_name: &str,
-    ) -> Result<bool, SchemaError> {
-        let Some(current) = self
-            .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-            .await?
-        else {
-            return Ok(false);
-        };
-        let Some(ttl_seconds) = current
-            .overridden_manifest_ttl_seconds
-            .filter(|_| current.source == RetentionSource::Operator)
-        else {
-            return Ok(false);
-        };
-        let restored = SchemaRetentionPolicy::manifest(ttl_seconds);
+        policy: &SchemaRetentionPolicy,
+    ) -> Result<(), SchemaError> {
         self.format
             .put_state(StateChange::Policy {
                 schema: schema_name,
-                policy: &restored,
+                policy,
             })
             .await?;
         self.format.flush_states().await?;
-        Ok(true)
+        Ok(())
+    }
+}
+
+fn next_manifest_policy(
+    current: Option<&SchemaRetentionPolicy>,
+    ttl_seconds: u64,
+) -> (Option<SchemaRetentionPolicy>, ManifestRetentionStatus, bool) {
+    match current {
+        None => (
+            Some(SchemaRetentionPolicy::manifest(ttl_seconds)),
+            ManifestRetentionStatus::Applied,
+            false,
+        ),
+        Some(policy) if policy.source == RetentionSource::Manifest => {
+            if policy.ttl_seconds == ttl_seconds {
+                return (None, ManifestRetentionStatus::Unchanged, false);
+            }
+            (
+                Some(SchemaRetentionPolicy {
+                    ttl_seconds,
+                    ..policy.clone()
+                }),
+                ManifestRetentionStatus::Updated,
+                ttl_seconds < policy.ttl_seconds,
+            )
+        }
+        Some(policy) => {
+            let status = ManifestRetentionStatus::OperatorOverride;
+            if policy.overridden_manifest_ttl_seconds == Some(ttl_seconds) {
+                return (None, status, false);
+            }
+            (
+                Some(SchemaRetentionPolicy {
+                    overridden_manifest_ttl_seconds: Some(ttl_seconds),
+                    ..policy.clone()
+                }),
+                status,
+                false,
+            )
+        }
     }
 }

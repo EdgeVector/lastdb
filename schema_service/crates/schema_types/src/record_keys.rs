@@ -18,31 +18,13 @@ pub enum RecordKeyKind {
 pub struct RecordKeyDefinition {
     pub kind: RecordKeyKind,
     /// An alternate name must still be supplied; null explicitly selects no address.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
     pub allow_absent: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range_type: Option<FieldValueType>,
 }
 
 impl RecordKeyDefinition {
-    #[must_use]
-    pub const fn hash() -> Self {
-        Self {
-            kind: RecordKeyKind::Hash,
-            allow_absent: false,
-            range_type: None,
-        }
-    }
-
-    #[must_use]
-    pub fn hash_range(range_type: FieldValueType) -> Self {
-        Self {
-            kind: RecordKeyKind::HashRange,
-            allow_absent: false,
-            range_type: Some(range_type),
-        }
-    }
-
     pub fn range_profile(&self) -> Result<FieldRangeProfile, String> {
         match (self.kind, &self.range_type) {
             (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_)) => {
@@ -99,8 +81,4 @@ impl RecordKeys {
         }
         Ok(())
     }
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
 }

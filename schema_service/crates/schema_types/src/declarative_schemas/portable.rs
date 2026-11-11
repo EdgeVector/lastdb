@@ -57,7 +57,9 @@ impl PortableSchemaDefinition {
         catalog_id: &str,
         mut definition: DeclarativeSchemaDefinition,
     ) -> Result<Self, String> {
-        Self::validate_catalog_id(catalog_id)?;
+        if !is_digest(catalog_id) {
+            return Err("schema catalog ID must be a lowercase SHA-256".into());
+        }
         if definition.identity_hash.as_deref() != Some(catalog_id) {
             return Err("definition lacks the exact supported catalog identity".into());
         }
@@ -82,22 +84,9 @@ impl PortableSchemaDefinition {
         })
     }
 
-    pub fn validate_catalog_id(id: &str) -> Result<(), String> {
-        if is_digest(id) {
-            Ok(())
-        } else {
-            Err("schema catalog ID must be a lowercase SHA-256".into())
-        }
-    }
-
     #[must_use]
     pub fn id(&self) -> &PortableSchemaId {
         &self.id
-    }
-
-    #[must_use]
-    pub fn catalog_id(&self) -> &str {
-        &self.catalog_id
     }
 
     #[must_use]

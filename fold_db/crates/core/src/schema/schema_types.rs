@@ -96,10 +96,6 @@ impl SchemaWithState {
     pub fn new(schema: DeclarativeSchemaDefinition, state: SchemaState) -> Self {
         Self { schema, state }
     }
-
-    pub fn name(&self) -> &str {
-        &self.schema.name
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

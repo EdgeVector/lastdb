@@ -1,6 +1,6 @@
 //! Captured query entry points: keyed reads, counts, and alternate key pages.
 
-use super::{HashRangeQueryProcessor, QueryRecords};
+use super::QueryRecords;
 use crate::alternate_keys::{self, AlternateEntry};
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
@@ -19,9 +19,8 @@ pub struct AlternatePage {
 
 /// Main query executor for keyed reads, counts, and alternate pages.
 pub struct QueryExecutor {
-    db_ops: Arc<DbOperations>,
+    pub(super) db_ops: Arc<DbOperations>,
     schema_manager: Arc<SchemaCore>,
-    hash_range_processor: HashRangeQueryProcessor,
 }
 
 impl QueryExecutor {
@@ -29,7 +28,6 @@ impl QueryExecutor {
         Self {
             db_ops: Arc::clone(db_ops),
             schema_manager,
-            hash_range_processor: HashRangeQueryProcessor::new(Arc::clone(db_ops)),
         }
     }
 
@@ -91,8 +89,7 @@ impl QueryExecutor {
                 query.schema_name
             )));
         };
-        self.hash_range_processor
-            .query_with_filter(&schema, query.filter.take(), window)
+        self.query_with_filter(&schema, query.filter.take(), window)
             .await
     }
 
@@ -128,11 +125,7 @@ impl QueryExecutor {
             return Ok(None);
         }
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
-        let count = self
-            .hash_range_processor
-            .count_rows(&schema, count_filter)
-            .await?;
-        Ok(Some(count))
+        Ok(Some(self.count_rows(&schema, count_filter).await?))
     }
 
     pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
@@ -158,12 +151,10 @@ impl QueryExecutor {
         let mut after = None;
         let mut count = 0usize;
         loop {
-            let entries = self
-                .db_ops
-                .records()
+            let store = self.db_ops.records();
+            let entries = store
                 .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
                 .await?;
-            let store = self.db_ops.records();
             let addresses = entries
                 .iter()
                 .map(|entry| store.record_key(&schema, &entry.primary))

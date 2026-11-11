@@ -34,10 +34,7 @@ pub(crate) async fn retention_tip_clocks(
         .iter()
         .zip(records)
         .filter_map(|(key, record)| {
-            let record = record?;
-            if !record.is_live() {
-                return None;
-            }
+            let record = record.filter(|r| r.is_live())?;
             Some((key.clone(), record.written_at()? / 1_000_000_000))
         })
         .collect())
@@ -47,13 +44,9 @@ pub mod budget {
     use crate::alternate_keys::MAX_ALTERNATE_ENTRIES;
     use crate::schema::types::Schema;
 
-    pub const ERASE_CHUNK_KEYS: usize = 64;
-    pub const PURGE_OPERATIONS_PER_FIELD: usize = 4;
-    pub const DELETE_OPERATIONS_PER_FIELD: usize = 5;
+    const ERASE_CHUNK_KEYS: usize = 64;
     const CHUNK_FIXED_OPERATIONS: usize = 8;
-    pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
-    pub const PURGE_READS_PER_FIELD: usize = 12;
-    pub const DELETE_READS_PER_FIELD: usize = 13;
+    const WRITE_REQUEST_READ_KEYS: usize = 40_000;
     const ALTERNATE_READS_PER_ENTRY: usize = 4;
     const APPLIED_DELETE_OPERATIONS_PER_KEY: usize = 2;
     const APPLIED_DELETE_READS_PER_KEY: usize = 2;
@@ -67,66 +60,55 @@ pub mod budget {
     impl EraseShape {
         #[must_use]
         pub fn of(schema: &Schema) -> Self {
-            let alternates = schema
-                .record_keys
-                .as_ref()
-                .map_or(0, |keys| keys.alternates.len());
             Self {
                 fields: schema
                     .fields
                     .as_ref()
                     .map_or(1, |fields| fields.len().max(1)),
-                alternates,
+                alternates: schema
+                    .record_keys
+                    .as_ref()
+                    .map_or(0, |keys| keys.alternates.len()),
             }
         }
     }
 
     fn operations_per_field(delete: bool) -> usize {
         if delete {
-            DELETE_OPERATIONS_PER_FIELD
+            5
         } else {
-            PURGE_OPERATIONS_PER_FIELD
+            4
         }
     }
 
     fn reads_per_field(delete: bool) -> usize {
         if delete {
-            DELETE_READS_PER_FIELD
+            13
         } else {
-            PURGE_READS_PER_FIELD
+            12
         }
     }
 
-    #[must_use]
-    pub fn erase_operations_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> usize {
+    fn fits(delete: bool, keys: usize, shape: EraseShape, limit: usize) -> bool {
         let chunks = keys.div_ceil(ERASE_CHUNK_KEYS);
-        keys.saturating_mul(shape.fields)
+        let chunk_ops = chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS));
+        let ops = keys
+            .saturating_mul(shape.fields)
             .saturating_mul(operations_per_field(delete))
-            .saturating_add(
-                chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)),
-            )
+            .saturating_add(chunk_ops)
             .saturating_add(keys.saturating_mul(shape.alternates))
-            .saturating_add(keys.saturating_mul(APPLIED_DELETE_OPERATIONS_PER_KEY))
-    }
-
-    #[must_use]
-    pub fn erase_reads_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> usize {
-        let chunks = keys.div_ceil(ERASE_CHUNK_KEYS);
-        keys.saturating_mul(shape.fields)
+            .saturating_add(keys.saturating_mul(APPLIED_DELETE_OPERATIONS_PER_KEY));
+        let reads = keys
+            .saturating_mul(shape.fields)
             .saturating_mul(reads_per_field(delete))
-            .saturating_add(
-                chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)),
-            )
+            .saturating_add(chunk_ops)
             .saturating_add(
                 keys.saturating_mul(shape.alternates)
                     .saturating_mul(ALTERNATE_READS_PER_ENTRY),
             )
-            .saturating_add(keys.saturating_mul(APPLIED_DELETE_READS_PER_KEY))
-    }
-
-    fn fits(delete: bool, keys: usize, shape: EraseShape, limit: usize) -> bool {
-        erase_operations_upper_bound(delete, keys, shape) <= limit
-            && erase_reads_upper_bound(delete, keys, shape) <= WRITE_REQUEST_READ_KEYS
+            .saturating_add(keys.saturating_mul(APPLIED_DELETE_READS_PER_KEY));
+        ops <= limit
+            && reads <= WRITE_REQUEST_READ_KEYS
             && keys.saturating_mul(shape.alternates) <= MAX_ALTERNATE_ENTRIES
     }
 

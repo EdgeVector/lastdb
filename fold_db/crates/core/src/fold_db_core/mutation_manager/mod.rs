@@ -1,11 +1,9 @@
-//! Mutation Manager — handles all mutation operations.
+//! Mutation Manager — public write entry points, native transaction commits, and Search outbox.
 
 pub mod portable_checkpoint;
-mod portable_definitions;
 mod portable_journal;
 pub mod portable_replay;
 mod validation;
-mod write;
 mod write_effects;
 mod write_records;
 
@@ -13,33 +11,35 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::{future::BoxFuture, FutureExt};
+use lastdb_model::portable_mutation::Stamp;
+
 use crate::db_operations::search_index::inbox_fields::{inbox_fields, searchable_fields};
 use crate::db_operations::search_index::{
-    IndexChange, IndexChangeBatch, IndexChangeKind, SearchOutboxSink,
+    deliver_outbox, IndexChange, IndexChangeBatch, IndexChangeKind,
 };
 use crate::db_operations::DbOperations;
+use crate::schema::mutation_author::sign_mutation_author_clock;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
-use crate::schema::SchemaCore;
+use crate::schema::{SchemaCore, SchemaError};
+use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::JournalSchema;
+
+pub(super) struct AuthoredMutation {
+    pub(super) mutation: Mutation,
+    pub(super) stamp: Stamp,
+    pub(super) shared_schema: Option<JournalSchema>,
+}
 
 /// Whether the acknowledgment claims disk.
-///
-/// The default write path acknowledges after the resident commit and lets the
-/// per-schema FIFO lane write the envelope afterwards, so the honest answer is
-/// [`Self::Queued`]. A caller that waited for the local persist token gets
-/// [`Self::Durable`]. Design law §4.8: the response states the durability state
-/// separately rather than letting `success` imply it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResidentDurability {
-    /// The envelope is on the persist lane; disk has not been waited for.
     Queued,
-    /// The local persist token completed before this receipt was returned.
     Durable,
 }
 
 impl ResidentDurability {
-    /// Wire spelling, stable for the `/api/mutation` and `/api/mutations/batch`
-    /// payloads.
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -50,65 +50,41 @@ impl ResidentDurability {
 }
 
 /// Per-class operation counts for one resident commit.
-///
-/// Counts cover complete records accepted in the native transaction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitOperations {
-    /// `MutationType::Create` rows applied.
     pub created: u64,
-    /// `MutationType::Replace` rows applied.
     pub updated: u64,
-    /// `MutationType::Delete` and `MutationType::Purge` rows applied.
     pub deleted: u64,
 }
 
 impl ResidentCommitOperations {
-    /// Every complete operation accepted by this commit.
     #[must_use]
     pub fn total(&self) -> u64 {
         self.created
             .saturating_add(self.updated)
             .saturating_add(self.deleted)
     }
-
-    /// Fold `other` into this set. Hard-erasure peels and the create/update
-    /// pipeline each produce a partial set for the same logical batch.
-    pub fn merge(&mut self, other: Self) {
-        self.created = self.created.saturating_add(other.created);
-        self.updated = self.updated.saturating_add(other.updated);
-        self.deleted = self.deleted.saturating_add(other.deleted);
-    }
 }
 
 /// Stage times for one resident commit, in microseconds.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitStages {
-    /// Record preparation for every schema in the batch.
     pub prepare_us: u64,
-    /// Whole-batch wall clock to the acknowledgment, including finalize.
     pub ack_us: u64,
 }
 
 /// One logical resident commit's answer to its caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResidentCommitReceipt {
-    /// One server-generated identity per accepted input, in caller order.
     pub mutation_ids: Vec<String>,
-    /// Complete-record revisions, indexed by the server-generated mutation ID.
     pub record_revisions: BTreeMap<String, String>,
-    /// The one committed revision for the primary record and every exact
-    /// projection in this batch (`None` only for an empty batch).
     pub revision: Option<u64>,
-    /// Per-class operation counts.
     pub operations: ResidentCommitOperations,
-    /// Whether the acknowledgment claims disk.
     pub durability: ResidentDurability,
-    /// Stage times for this commit.
     pub stages: ResidentCommitStages,
 }
 
 impl ResidentCommitReceipt {
-    /// An empty commit: no mutation reached the pipeline.
     #[must_use]
     pub fn empty() -> Self {
         Self {
@@ -122,26 +98,16 @@ impl ResidentCommitReceipt {
     }
 }
 
-/// Manages mutation operations for the FoldDB system
+/// Manages mutation operations for the FoldDB system.
 pub struct MutationManager {
-    /// Database operations for persistence
     db_ops: Arc<DbOperations>,
-    /// Schema manager for schema operations
     schema_manager: Arc<SchemaCore>,
-    /// Signing keypair for the author clock
     signer: Arc<crate::security::Ed25519KeyPair>,
-    /// Explicit Search app inbox for this database instance. Daemon boots pass
-    /// this so two `Host::boot` calls in one process do not race through
-    /// process-global `LASTDB_HOME`.
     search_outbox_inbox: Option<PathBuf>,
-    /// Resident high-water author clock for this device. Boot point-loads the
-    /// durable state once; requests advance and sign in memory and persist the
-    /// high-water state atomically in the native write batch.
     author_clock_state: std::sync::Mutex<crate::schema::types::MutationAuthorClockState>,
 }
 
 impl MutationManager {
-    /// Creates a new MutationManager instance
     pub fn new(
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
@@ -158,8 +124,153 @@ impl MutationManager {
         }
     }
 
-    /// Build one Search change batch without durable side effects. An upsert
-    /// carries only the searchable fields, with file keys removed.
+    pub fn write_mutations(
+        &self,
+        mutations: Vec<Mutation>,
+    ) -> BoxFuture<'_, Result<Vec<String>, SchemaError>> {
+        async move { Ok(self.write_mutations_receipt(mutations).await?.mutation_ids) }.boxed()
+    }
+
+    pub async fn write_mutations_receipt(
+        &self,
+        mut mutations: Vec<Mutation>,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
+        Box::pin(async move {
+            let now = crate::clock::unix_nanos();
+            self.validate_mutation_batch(&mutations)?;
+            if mutations.is_empty() {
+                return Ok(ResidentCommitReceipt::empty());
+            }
+            self.prepare_mutation_author_clocks(&mut mutations, now)?;
+            let revision = mutations.first().map(|m| m.logical_counter);
+            self.reject_blocked_mutation_targets(&mutations)?;
+            for mutation in &mutations {
+                mutation.validate_record_intent()?;
+            }
+            let start = std::time::Instant::now();
+            let mut receipt = self.commit_native_batch(mutations, start).await?;
+            receipt.revision = revision;
+            Ok(receipt)
+        })
+        .await
+    }
+
+    fn prepare_mutation_author_clocks(
+        &self,
+        mutations: &mut [Mutation],
+        now: u64,
+    ) -> Result<(), SchemaError> {
+        let local_writer_id = self.signer.public_key_base64();
+        let mut resident_state = self
+            .author_clock_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = *resident_state;
+        let (mut times, logical_counter) = state
+            .advance_local_batch(now, mutations.len())
+            .ok_or_else(|| {
+                SchemaError::InvalidData("mutation author-clock range exhausted".into())
+            })?;
+        for mutation in mutations {
+            mutation.imported_written_at =
+                Some(times.next().expect("one reserved time per local mutation"));
+            mutation.logical_counter = logical_counter;
+            mutation.author_clock_writer_id = local_writer_id.clone();
+            mutation.author_clock_signature_version =
+                crate::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
+            mutation.author_clock_signature =
+                sign_mutation_author_clock(mutation, self.signer.as_ref());
+        }
+        *resident_state = state;
+        Ok(())
+    }
+
+    async fn commit_native_batch(
+        &self,
+        mutations: Vec<Mutation>,
+        start: std::time::Instant,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
+        self.require_replay_cutoff(&mutations).await?;
+        let runtime = self.db_ops.native_runtime();
+        let mut stages = ResidentCommitStages::default();
+        let (mutation_ids, record_revisions, operations) =
+            transaction::request_scope(Arc::clone(&runtime), async {
+                runtime.record_read_stage("request-start", mutations.len());
+                if let Some(admission) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
+                    if mutations.len() != 1 {
+                        return Err(SchemaError::InvalidData(
+                            "a contribution requires one native mutation".into(),
+                        ));
+                    }
+                    if self
+                        .db_ops
+                        .metadata()
+                        .stage_contribution_receipt(&admission.receipt_id, &admission.intent_digest)
+                        .await?
+                    {
+                        return Ok((
+                            vec![mutations[0].uuid.clone()],
+                            BTreeMap::new(),
+                            ResidentCommitOperations::default(),
+                        ));
+                    }
+                }
+                let mut record_revisions = BTreeMap::new();
+                let operations = count_applied_operations(&mutations);
+                let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
+                let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
+                for (mutation, stamp) in mutations.iter().zip(&stamps) {
+                    record_revisions.insert(mutation.uuid.clone(), stamp.stamp.revision());
+                }
+                let mutation_ids = mutations.iter().map(|m| m.uuid.clone()).collect();
+                let authored = mutations
+                    .into_iter()
+                    .zip(stamps)
+                    .map(|(mutation, authored)| AuthoredMutation {
+                        mutation,
+                        stamp: authored.stamp,
+                        shared_schema: authored.shared_schema,
+                    })
+                    .collect();
+                let group_count = self
+                    .stage_record_groups(authored, &mut stages, &runtime)
+                    .await?;
+                runtime.record_read_stage("stored-stages-done", group_count);
+                self.stage_native_author_clock().await?;
+                Ok::<_, SchemaError>((mutation_ids, record_revisions, operations))
+            })
+            .await?;
+        stages.ack_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+        Ok(ResidentCommitReceipt {
+            mutation_ids,
+            record_revisions,
+            revision: None,
+            operations,
+            durability: ResidentDurability::Durable,
+            stages,
+        })
+    }
+
+    async fn stage_native_author_clock(&self) -> Result<(), SchemaError> {
+        let writer = self.signer.public_key_base64();
+        let state = *self
+            .author_clock_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut durable = self
+            .db_ops
+            .metadata()
+            .author_clock(&writer)
+            .await?
+            .unwrap_or_default();
+        durable.observe_remote(state.physical_nanos, state.logical_counter);
+        Ok(self
+            .db_ops
+            .metadata()
+            .stage_author_clock(&writer, &durable)
+            .await?)
+    }
+
     fn build_index_change_batch<'a>(
         schema_name: &str,
         schema: &Schema,
@@ -172,33 +283,23 @@ impl MutationManager {
         let searchable = searchable_fields(schema);
         let mut changes = Vec::with_capacity(schema_mutations.len());
         for (mutation, key_value) in schema_mutations.zip(mutation_key_values) {
-            match mutation.mutation_type {
-                MutationType::Create | MutationType::Replace => {
-                    changes.push(IndexChange {
-                        mutation_id: mutation.uuid.clone(),
-                        kind: IndexChangeKind::Upsert,
-                        key_value: key_value.clone(),
-                        record_fields: inbox_fields(&mutation.record_fields, searchable.as_ref()),
-                    });
-                }
-                // Purge is hard-erase: Search must drop vectors the same way
-                // as Delete. Skipping Purge left stale embeddings forever once
-                // delete routes through purge (Search only reacts to
-                // IndexChangeKind::Tombstone).
+            let (kind, record_fields) = match mutation.mutation_type {
+                MutationType::Create | MutationType::Replace => (
+                    IndexChangeKind::Upsert,
+                    inbox_fields(&mutation.record_fields, searchable.as_ref()),
+                ),
                 MutationType::Delete | MutationType::Purge => {
-                    changes.push(IndexChange {
-                        mutation_id: mutation.uuid.clone(),
-                        kind: IndexChangeKind::Tombstone,
-                        key_value: key_value.clone(),
-                        record_fields: HashMap::default(),
-                    });
+                    (IndexChangeKind::Tombstone, HashMap::default())
                 }
-            }
+            };
+            changes.push(IndexChange {
+                mutation_id: mutation.uuid.clone(),
+                kind,
+                key_value: key_value.clone(),
+                record_fields,
+            });
         }
-        if changes.is_empty() {
-            return None;
-        }
-        Some(IndexChangeBatch {
+        (!changes.is_empty()).then(|| IndexChangeBatch {
             format_version: 1,
             schema_name: schema_name.to_string(),
             searchable_fields: searchable,
@@ -206,12 +307,23 @@ impl MutationManager {
         })
     }
 
-    /// Send one batch after a native commit. A sink error becomes a storage error.
     pub(crate) fn deliver_search_outbox(
         inbox: Option<PathBuf>,
         batch: &IndexChangeBatch,
     ) -> Result<(), crate::storage::StorageError> {
-        SearchOutboxSink::deliver(inbox, batch)
+        deliver_outbox(inbox, batch)
             .map_err(|error| crate::storage::StorageError::BackendError(error.to_string()))
     }
+}
+
+fn count_applied_operations(mutations: &[Mutation]) -> ResidentCommitOperations {
+    let mut operations = ResidentCommitOperations::default();
+    for mutation in mutations {
+        match mutation.mutation_type {
+            MutationType::Create => operations.created += 1,
+            MutationType::Replace => operations.updated += 1,
+            MutationType::Delete | MutationType::Purge => operations.deleted += 1,
+        }
+    }
+    operations
 }

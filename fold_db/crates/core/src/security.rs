@@ -1,7 +1,7 @@
-//! Ed25519 key pair generation, message signing, and verification.
+//! Ed25519 key pair generation and message signing.
 
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use thiserror::Error;
 
@@ -58,10 +58,6 @@ impl Ed25519KeyPair {
 
     pub fn sign(&self, message: &[u8]) -> Signature {
         self.signing_key.sign(message)
-    }
-
-    pub fn verify(&self, message: &[u8], signature: &Signature) -> bool {
-        self.verifying_key.verify(message, signature).is_ok()
     }
 }
 

@@ -1,12 +1,11 @@
 //! Warm set byte limit, byte accounting, and LRU eviction over decoded records.
 
-mod records;
-
 use lastdb_model::record_value::{FileMarker, RecordMeta, StoredRecord};
 use serde_json::Value;
-use std::sync::OnceLock;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, OnceLock};
 
-pub(crate) use records::RecordCoordinate;
+pub(crate) type RecordCoordinate = (String, String);
 
 pub const DEFAULT_CORE_WARM_BYTES: usize = 256 * 1024 * 1024;
 pub const CORE_WARM_BYTES_ENV: &str = "LASTDB_CORE_WARM_BYTES";
@@ -58,25 +57,27 @@ pub struct CoreWarmByteStats {
     pub over_limit_admissions: u64,
 }
 
+struct WarmRecord {
+    record: Arc<StoredRecord>,
+    bytes: usize,
+    tick: u64,
+    charge: usize,
+}
+
 #[derive(Default)]
-struct WarmBytes {
+pub(crate) struct CoreWarmSet {
+    clock: u64,
+    entries: HashMap<Arc<RecordCoordinate>, WarmRecord>,
+    order: BTreeMap<u64, Arc<RecordCoordinate>>,
+    hits: u64,
+    misses: u64,
+    purged: u64,
     record_bytes: usize,
     peak_bytes: usize,
     purged_bytes: u64,
     over_limit_admissions: u64,
 }
 
-#[derive(Default)]
-pub(crate) struct CoreWarmSet {
-    clock: u64,
-    records: records::RecordTable,
-    hits: u64,
-    misses: u64,
-    purged: u64,
-    bytes: WarmBytes,
-}
-
-const PURGE_BATCH: usize = 64;
 const JSON_MAP_ENTRY: usize = 96;
 const ARC_HEADER: usize = 2 * std::mem::size_of::<usize>();
 const RECORD_BASE: usize = 128;
@@ -87,8 +88,12 @@ const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
         CoreWarmStats {
-            records: self.records.len(),
-            held: self.records.held(),
+            records: self.entries.len(),
+            held: self
+                .entries
+                .values()
+                .filter(|entry| Arc::strong_count(&entry.record) > 1)
+                .count(),
             hits: self.hits,
             misses: self.misses,
             purged: self.purged,
@@ -96,23 +101,15 @@ impl CoreWarmSet {
     }
 
     pub(crate) fn byte_stats(&mut self) -> CoreWarmByteStats {
-        self.bytes.peak_bytes = self.bytes.peak_bytes.max(self.bytes.record_bytes);
+        self.peak_bytes = self.peak_bytes.max(self.record_bytes);
         CoreWarmByteStats {
             limit_bytes: core_warm_bytes(),
-            used_bytes: self.bytes.record_bytes,
-            peak_bytes: self.bytes.peak_bytes,
-            record_bytes: self.bytes.record_bytes,
-            purged_bytes: self.bytes.purged_bytes,
-            over_limit_admissions: self.bytes.over_limit_admissions,
+            used_bytes: self.record_bytes,
+            peak_bytes: self.peak_bytes,
+            record_bytes: self.record_bytes,
+            purged_bytes: self.purged_bytes,
+            over_limit_admissions: self.over_limit_admissions,
         }
-    }
-
-    pub(super) fn charge_record(&mut self, charge: usize) {
-        self.bytes.record_bytes += charge;
-    }
-
-    pub(super) fn release_record(&mut self, charge: usize) {
-        self.bytes.record_bytes -= charge;
     }
 
     pub(crate) fn purge_clean_to_bytes(&mut self, target: usize) -> (usize, usize, usize) {
@@ -121,46 +118,149 @@ impl CoreWarmSet {
         (purged, before, self.byte_stats().used_bytes)
     }
 
-    fn fits(&self, incoming: usize) -> bool {
-        self.bytes.record_bytes.saturating_add(incoming) <= core_warm_bytes()
+    pub(crate) fn record_lookup(
+        &mut self,
+        coordinates: &[RecordCoordinate],
+    ) -> Vec<Option<(Arc<StoredRecord>, usize)>> {
+        coordinates
+            .iter()
+            .map(|coordinate| {
+                let found = self.touch_record(coordinate);
+                if found.is_some() {
+                    self.hits = self.hits.saturating_add(1);
+                } else {
+                    self.misses = self.misses.saturating_add(1);
+                }
+                found
+            })
+            .collect()
     }
 
-    pub(super) fn trim_to_limit(&mut self, incoming: usize) {
-        let limit = core_warm_bytes();
-        if self.fits(incoming) {
+    pub(crate) fn admit_records(
+        &mut self,
+        records: Vec<(RecordCoordinate, Arc<StoredRecord>, usize)>,
+    ) {
+        if records.is_empty() {
             return;
         }
-        self.purge_clean_until(limit.saturating_sub(incoming));
-        if !self.fits(incoming) {
-            self.bytes.over_limit_admissions = self.bytes.over_limit_admissions.saturating_add(1);
+        for (coordinate, record, bytes) in records {
+            self.remove_record(&coordinate);
+            let charge = record_charge(&coordinate, &record);
+            let tick = self.next_tick();
+            let key = Arc::new(coordinate);
+            self.order.insert(tick, Arc::clone(&key));
+            self.entries.insert(
+                key,
+                WarmRecord {
+                    record,
+                    bytes,
+                    tick,
+                    charge,
+                },
+            );
+            self.record_bytes += charge;
+        }
+        let limit = core_warm_bytes();
+        if self.record_bytes > limit {
+            self.purge_clean_until(limit);
+            if self.record_bytes > limit {
+                self.over_limit_admissions = self.over_limit_admissions.saturating_add(1);
+            }
+        }
+    }
+
+    pub(crate) fn invalidate_records(&mut self, changes: &[RecordCoordinate]) {
+        if self.entries.is_empty() {
+            return;
+        }
+        for coordinate in changes {
+            self.remove_record(coordinate);
         }
     }
 
     fn purge_clean_until(&mut self, target: usize) -> usize {
-        let before = self.bytes.record_bytes;
-        let mut purged = 0;
-        'scan: loop {
-            let victims = self.record_victims(PURGE_BATCH);
-            if victims.is_empty() {
+        if self.record_bytes <= target {
+            return 0;
+        }
+        let before = self.record_bytes;
+        let needed = before - target;
+        let mut released_plan = 0usize;
+        let mut victims = Vec::new();
+        for key in self.order.values() {
+            if released_plan >= needed {
                 break;
             }
-            for (_, key) in victims {
-                if self.bytes.record_bytes <= target {
-                    break 'scan;
-                }
-                if self.purge_record(&key) {
-                    purged += 1;
+            if let Some(entry) = self.entries.get::<RecordCoordinate>(key) {
+                if Arc::strong_count(&entry.record) == 1 {
+                    released_plan = released_plan.saturating_add(entry.charge);
+                    victims.push(Arc::clone(key));
                 }
             }
         }
+        let mut purged = 0;
+        for key in victims {
+            if self.record_bytes <= target {
+                break;
+            }
+            if self
+                .entries
+                .get::<RecordCoordinate>(&key)
+                .is_some_and(|entry| Arc::strong_count(&entry.record) == 1)
+                && self.remove_record(&key)
+            {
+                purged += 1;
+            }
+        }
         self.purged = self.purged.saturating_add(purged as u64);
-        let released = before.saturating_sub(self.bytes.record_bytes) as u64;
-        self.bytes.purged_bytes = self.bytes.purged_bytes.saturating_add(released);
+        let released = before.saturating_sub(self.record_bytes) as u64;
+        self.purged_bytes = self.purged_bytes.saturating_add(released);
         purged
+    }
+
+    fn next_tick(&mut self) -> u64 {
+        if self.clock == u64::MAX {
+            let all = std::mem::take(&mut self.order);
+            self.clock = 0;
+            for (_, key) in all {
+                self.clock += 1;
+                self.entries
+                    .get_mut::<RecordCoordinate>(&key)
+                    .expect("ordered warm record")
+                    .tick = self.clock;
+                self.order.insert(self.clock, key);
+            }
+        }
+        self.clock += 1;
+        self.clock
+    }
+
+    fn touch_record(
+        &mut self,
+        coordinate: &RecordCoordinate,
+    ) -> Option<(Arc<StoredRecord>, usize)> {
+        if !self.entries.contains_key(coordinate) {
+            return None;
+        }
+        let tick = self.next_tick();
+        let entry = self.entries.get_mut(coordinate).expect("warm record");
+        let old = std::mem::replace(&mut entry.tick, tick);
+        let found = (Arc::clone(&entry.record), entry.bytes);
+        let key = self.order.remove(&old).expect("ordered warm record");
+        self.order.insert(tick, key);
+        Some(found)
+    }
+
+    fn remove_record(&mut self, coordinate: &RecordCoordinate) -> bool {
+        let Some(entry) = self.entries.remove(coordinate) else {
+            return false;
+        };
+        self.order.remove(&entry.tick);
+        self.record_bytes -= entry.charge;
+        true
     }
 }
 
-pub(super) fn record_charge(coordinate: &(String, String), record: &StoredRecord) -> usize {
+fn record_charge(coordinate: &RecordCoordinate, record: &StoredRecord) -> usize {
     let fields = record
         .fields
         .iter()
