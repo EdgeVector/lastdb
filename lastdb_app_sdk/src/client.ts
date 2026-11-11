@@ -59,6 +59,8 @@ import {
   parseSchemaListResponse,
   resolveLoadedSchema,
 } from './responseParsers.js';
+import { createNodeDatabase, databaseScope, listNodeDatabases } from './databases.js';
+import type { CreateDatabaseRequest, ListedDatabase } from './databases.js';
 import {
   authenticationRequiredReason,
   casConflictDetailOf,
@@ -140,14 +142,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     private readonly transport: Transport,
     options: LastDbClientOptions<DatabaseId> = {},
   ) {
-    const databaseId = options.databaseId;
-    if (databaseId !== undefined && (
-      typeof databaseId !== 'string' || databaseId.length === 0 ||
-      databaseId.length > 64 || /[^A-Za-z0-9_-]/.test(databaseId)
-    )) {
-      throw new RequestRejectedError('database_id', 'Invalid LastDB database ID or alias');
-    }
-    this.databasePath = databaseId === undefined ? null : `/api/databases/${databaseId}`;
+    this.databasePath = databaseScope(options.databaseId);
   }
 
   /** Where this client is pointed (for diagnostics). */
@@ -560,6 +555,23 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       res.status,
       res.body,
     );
+  }
+
+  /** `GET /api/databases`. Personal and received shares stay in the list. */
+  listDatabases(): Promise<ListedDatabase[]> {
+    return listNodeDatabases(this.transport);
+  }
+
+  /** `POST /api/databases`. The new database is shareable and owned by this node. */
+  createDatabase(request: CreateDatabaseRequest): Promise<ListedDatabase> {
+    return createNodeDatabase(this.transport, request);
+  }
+
+  /**
+   * A client for one database id or name. This client stays on its current database.
+   */
+  select(databaseId: string): LastDbClient<string> {
+    return new LastDbClient(this.appId, this.transport, { databaseId });
   }
 
   /**

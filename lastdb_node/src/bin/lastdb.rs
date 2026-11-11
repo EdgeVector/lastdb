@@ -22,6 +22,9 @@ use status_ops_cmds::*;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
 use mutate_cmds::*;
+#[path = "lastdb/database_cmds.rs"]
+mod database_cmds;
+use database_cmds::*;
 
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -285,9 +288,24 @@ fn run(cli: Cli) -> Result<(), String> {
         },
         Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
         Command::Share(action) => share_cmds::run(cli.data_dir, cli.db.as_deref(), action),
-        Command::Db {
-            action: DatabaseCommand::List { json },
-        } => list_databases(cli.data_dir, json),
+        Command::Db { action } => match action {
+            DatabaseCommand::List { json } => list_databases(cli.data_dir, json),
+            DatabaseCommand::Create {
+                name,
+                spec_name,
+                spec_version,
+                json,
+            } => create_database(
+                cli.data_dir,
+                &name,
+                spec_name.as_deref(),
+                spec_version,
+                json,
+            ),
+            DatabaseCommand::Select { selector, json } => {
+                select_database(cli.data_dir, &selector, json)
+            }
+        },
         Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
             record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
