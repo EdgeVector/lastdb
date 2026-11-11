@@ -26,6 +26,8 @@ members = [
     "mutation_log_mem",
     # Shared-sync step over that port. Off unless the caller enables it.
     "mutation_log_sync",
+    # Read-only per-database cutover evidence. No I/O and no signed-only activation.
+    "database_cutover",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
     # cloud sync over the owner Unix socket (no ingestion, no discovery, no

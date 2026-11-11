@@ -22,6 +22,8 @@ use status_ops_cmds::*;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
 use mutate_cmds::*;
+#[path = "lastdb/cutover_cmds.rs"]
+mod cutover_cmds;
 #[path = "lastdb/database_cmds.rs"]
 mod database_cmds;
 use database_cmds::*;
@@ -311,5 +313,6 @@ fn run(cli: Cli) -> Result<(), String> {
             record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }
         Command::App { action } => app_command(cli.data_dir, action),
+        Command::Cutover(action) => cutover_cmds::run(cli.data_dir, action),
     }
 }

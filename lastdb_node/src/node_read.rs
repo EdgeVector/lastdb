@@ -1,11 +1,11 @@
 //! `LastDBNode` authorization for one canonical POST.
 //!
-//! This is J's signer at `3a5f3b8de` (same `node_read.rs` blob as `bfc46f6e2`).
 //! H verifies [`NodeReadToken::digest`] of the exact HTTP body. The token JSON
 //! includes `database_id`. Create, cutover, access, and the member-list read
 //! use [`authorization`]. [`authorization_post`] is the same token for a POST
-//! path that enum does not name: a shareable data route, or I's delivery fetch.
+//! path that enum does not name: a shareable data route, or a delivery fetch.
 //! Personal data routes stay on `log_sync::sign`. Dev and prod use this helper.
+//! The daemon does not post cutover.
 
 use base64::Engine as _;
 use cloud_backup_protocol::v2::share_access::{

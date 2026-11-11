@@ -762,6 +762,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "database_cutover"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "database_policy"
 version = "0.1.0"
 
@@ -1851,6 +1860,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloud_backup_protocol",
+ "database_cutover",
  "database_policy",
  "dirs",
  "fold_db",
