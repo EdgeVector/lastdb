@@ -14,6 +14,7 @@ pub use crate::identity::{
 
 mod recovery;
 pub use recovery::LAST_BOOT_ERROR_FILE;
+pub(crate) mod owned;
 
 /// The booted minimal host: core database plus node identity and runtime handles.
 pub struct Host {
@@ -25,6 +26,7 @@ pub struct Host {
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
+    pub(crate) owned: owned::Tables,
 }
 
 impl Host {
@@ -76,6 +78,7 @@ impl Host {
 
         fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
             .map_err(|error| format!("Search queue preparation failed: {error}"))?;
+        let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         recovery::clear_last_boot_error(home);
         tracing::info!(
@@ -94,6 +97,7 @@ impl Host {
             user_hash,
             uds_workers: OnceLock::new(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
+            owned,
         })
     }
 

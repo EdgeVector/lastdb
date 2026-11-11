@@ -12,7 +12,9 @@ unfiltered cursor pages and records the time of each page, reads past a run
 of more deleted records than one request examines, lets the TTL sweep read
 past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
 expiry tracking spans more than one native batch (`record_drop_tracking.py`). Blob and
-inline files survive a restart (`record_inline_files.py`). LastDB Files imports
+inline files survive a restart (`record_inline_files.py`). Owned named
+databases keep stable ids and isolated keys across that restart
+(`record_named_databases.py`). LastDB Files imports
 a file into a separate local publication home using the built CLI.
 It runs no test runner or benchmark. The home contains generated data only and
 never reads or copies a primary.
@@ -35,6 +37,7 @@ from record_requests import mutation as native_mutation, conditioned  # noqa: E4
 import record_drop_tracking  # noqa: E402
 import record_inline_files  # noqa: E402
 import record_share_files  # noqa: E402
+import record_named_databases  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -402,6 +405,7 @@ def main():
         retry = conditioned(node, [mutation("RecordById", {"hash": "four"},
             {"id": "four", "bucket": "b5"})])[0]
         acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
+        record_named_databases.prepare(node, args.cli.resolve(strict=True), output)
         node.stop()
         record_format_refusal.exercise(node)
         node.start()
@@ -418,6 +422,7 @@ def main():
                 "a delete or a write after a delete changed across the restart")
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
+        record_named_databases.check(node, args.cli.resolve(strict=True), output)
         record_share_files.exercise(args.cli.resolve(strict=True), node, root)
     finally:
         node.close()

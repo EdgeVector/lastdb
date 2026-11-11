@@ -98,7 +98,7 @@ fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
 
 async fn read_policy(host: &Host, name: &str) -> Result<Option<SchemaRetentionPolicy>, String> {
     match host
-        .db
+        .records()
         .db_ops()
         .schemas()
         .get_schema_retention_policy(name)
@@ -167,7 +167,7 @@ pub(super) async fn finish_declare_retention(
         return Err(reason);
     }
     let outcome = host
-        .db
+        .records()
         .db_ops()
         .schemas()
         .apply_manifest_retention(
@@ -222,7 +222,7 @@ async fn assess(
     layout: RetentionLayout,
 ) -> Result<Assessment, String> {
     let metadata = host
-        .db
+        .records()
         .schema_manager()
         .get_schema_metadata(anchor)
         .map_err(|e| format!("failed to read schema {anchor}: {e}"))?;
@@ -231,7 +231,7 @@ async fn assess(
         .filter(|s| s.owner_app_id.as_deref() != Some(declare.namespace.as_str()))
         .map(|s| s.owner_app_id.clone().unwrap_or_else(|| "unowned".into()));
     let plan = host
-        .db
+        .records()
         .db_ops()
         .schemas()
         .plan_manifest_retention(anchor, ttl_seconds)
@@ -242,7 +242,7 @@ async fn assess(
         .is_ok_and(|p| p.status == ManifestRetentionStatus::Applied);
     let existing_records_may_expire = match (layout.range_keyed && new_policy, metadata.as_ref()) {
         (true, Some(schema)) => host
-            .db
+            .records()
             .db_ops()
             .records()
             .schema_may_hold_records(schema)
