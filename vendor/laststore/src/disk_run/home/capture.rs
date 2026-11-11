@@ -6,7 +6,7 @@ use super::{
     RUN_HOME_MARKER,
 };
 use crate::disk_run::MetadataMemo;
-use crate::space::sync_directory;
+use crate::durability::sync_directory;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};

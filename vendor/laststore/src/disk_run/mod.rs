@@ -10,6 +10,7 @@ mod writer;
 
 pub(crate) use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
 pub use merge::{ReaderRef, RunRange};
+pub(crate) use reader::MetadataMemo;
 pub use reader::RunReader;
 pub(crate) use writer::PreparedRun;
 pub use writer::{RunSummary, RunWriter};

@@ -3,7 +3,7 @@
 use super::range::RunRangePage;
 use super::read::RunRead;
 use crate::disk_run::codec::corrupt;
-use crate::disk_run::reader_stream::SelectedBody;
+use crate::disk_run::reader::stream::SelectedBody;
 use crate::disk_run::{RunReader, MAX_RUN_KEY_BYTES};
 use crate::{Error, Result};
 

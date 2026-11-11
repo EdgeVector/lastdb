@@ -1,13 +1,13 @@
 //! Home creation, owner lock acquisition, crash-leftover removal, and stopped-home reads.
 
-use super::codec::corrupt;
 use super::manifest::{Manifest, RunFile};
 use super::{
     read_descriptor, ReadBudget, RunHome, RunRead, RunReadCosts, CAS_DELETE, CURRENT,
     DESCRIPTOR_BYTES, DESCRIPTOR_MAGIC, LOCK, NODE_CLEANUP, RUNS, RUN_HOME_MARKER,
 };
+use crate::disk_run::codec::corrupt;
 use crate::disk_run::{MetadataMemo, RunOptions, RunReader, RUN_SUFFIX};
-use crate::space::{sync_directory, sync_dirty_file};
+use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use rustix::fs::FlockOperation;
 use std::collections::HashSet;

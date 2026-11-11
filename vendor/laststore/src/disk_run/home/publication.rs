@@ -5,8 +5,8 @@ use super::manifest::{Manifest, RunFile, CURRENT, MAX_CURRENT_BYTES, MAX_LEVELS,
 use super::{RunHome, RunRoot};
 use crate::disk_run::space::MergeSpace;
 use crate::disk_run::{PreparedRun, RunReader};
+use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::{encode_frame, min_encoded_len, FrameHeader};
-use crate::space::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};

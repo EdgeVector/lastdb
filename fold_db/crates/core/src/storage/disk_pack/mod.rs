@@ -4,7 +4,7 @@ use super::error::{StorageError, StorageResult};
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use laststore::space::SpaceReservation;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod blob_backup;

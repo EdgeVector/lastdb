@@ -44,7 +44,7 @@ pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::RunOptions;
-use crate::space::sync_directory;
+use crate::durability::sync_directory;
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
 use open::build_empty;
