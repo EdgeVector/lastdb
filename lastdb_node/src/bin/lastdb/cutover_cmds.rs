@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use database_cutover::verify;
 
-use super::cli_defs::{CutoverCommand, CutoverEvidenceArgs, CutoverRequestArgs};
+use super::cli_defs::{CutoverCommand, CutoverEvidenceArgs};
 
 #[path = "cutover_io.rs"]
 mod io;
