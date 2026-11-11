@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc};
 
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::Version;
-use cloud_backup_protocol::{canonical_bytes, AccountId, CloudScope, DecimalU64, Id};
+use cloud_backup_protocol::{canonical_bytes, AccountId, CloudScope, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, MutationLog, PrincipalId, Recovery,
@@ -19,6 +19,7 @@ use super::cutover;
 use super::http::{self, Endpoint};
 use super::paths;
 use super::registry::Database;
+use super::status;
 use super::wire;
 
 #[derive(Clone)]
@@ -77,10 +78,12 @@ impl CloudLog {
         self.member_revision
     }
 
+    pub(crate) fn environment(&self) -> &'static str {
+        self.environment_label
+    }
+
     pub(crate) async fn service_view(&self, database: &Database) -> cutover::ServiceView {
-        let Ok(body) = canonical_bytes(&serde_json::json!({
-            "database_id": self.database_id.as_str(),
-        })) else {
+        let Ok(body) = wire::database_body(self.database_id.as_str()) else {
             return cutover::ServiceView::Unavailable;
         };
         match self
@@ -89,7 +92,7 @@ impl CloudLog {
                 &self.keypair,
                 &self.scope,
                 &self.database_id,
-                paths::HEAD,
+                paths::ACCESS,
                 &body,
                 self.member_revision,
                 65_536,
@@ -97,7 +100,7 @@ impl CloudLog {
             .await
         {
             Ok((status, bytes)) => {
-                cutover::classify(status, &bytes, database, self.environment_label)
+                status::classify(status, &bytes, database, self.environment_label)
             }
             Err(_) => cutover::ServiceView::Unavailable,
         }
@@ -172,22 +175,6 @@ impl CloudLog {
         }
     }
 
-    pub(crate) async fn reject_submission(
-        &self,
-        writer: &Writer,
-        writer_seq: u64,
-    ) -> Result<(), LogError> {
-        let body = canonical_bytes(&wire::RejectRequest {
-            database_id: self.database_id.as_str(),
-            caller: self.principal.as_str(),
-            node_public_key: writer.key.as_str(),
-            device_id: writer.device.as_str(),
-            writer_seq: DecimalU64::new(writer_seq),
-        })
-        .map_err(|_| LogError::InvalidEntry)?;
-        self.post(paths::REJECT, body).await.map(|_| ())
-    }
-
     pub(crate) async fn snapshot_bytes(&self, snapshot_ref: &str) -> Result<Vec<u8>, LogError> {
         let body = canonical_bytes(&wire::SnapshotBytesRequest {
             database_id: self.database_id.as_str(),
@@ -249,24 +236,16 @@ impl CloudLog {
 
 impl MutationLog for CloudLog {
     fn append(&mut self, batch: AppendBatch) -> Result<AppendOutcome, LogError> {
+        self.same_reader(&batch.writer.key)?;
+        self.same_device(&batch.writer.device)?;
         let body = wire::append_request(&batch)?;
         wire::append_outcome(&self.call(paths::APPEND, body)?)
     }
 
     fn head(&self, reader: &PrincipalId) -> Result<Option<ScopedHead>, LogError> {
-        let body = json_body(&wire::ListRequest {
-            database_id: self.database_id.as_str(),
-            reader: reader.as_str(),
-            after: DecimalU64::new(0),
-            limit: DecimalU64::new(0),
-            now_ms: DecimalU64::new(0),
-        })?;
-        let bytes = self.call(paths::HEAD, body)?;
-        let page = wire::list_page(&bytes).ok();
-        Ok(page.map(|page| ScopedHead {
-            cursor: page.next,
-            stamp: page.entries.last().map(|entry| entry.entry.stamp()),
-        }))
+        self.same_reader(reader)?;
+        let body = wire::database_body(self.database_id.as_str())?;
+        wire::scoped_head(&self.call(paths::HEAD, body)?)
     }
 
     fn list(
@@ -274,29 +253,23 @@ impl MutationLog for CloudLog {
         reader: &PrincipalId,
         after: u64,
         limit: usize,
-        now_ms: u64,
+        _now_ms: u64,
     ) -> Result<ListPage, LogError> {
-        let body = json_body(&wire::ListRequest {
-            database_id: self.database_id.as_str(),
-            reader: reader.as_str(),
-            after: DecimalU64::new(after),
-            limit: DecimalU64::new(limit as u64),
-            now_ms: DecimalU64::new(now_ms),
-        })?;
-        wire::list_page(&self.call(paths::LIST, body)?)
+        self.same_reader(reader)?;
+        let body = wire::list_body(
+            self.database_id.as_str(),
+            self.device.as_str(),
+            after,
+            limit,
+        )?;
+        wire::list_page(self.database_id.as_str(), &self.call(paths::LIST, body)?)
     }
 
     fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError> {
-        let body = json_body(&wire::AckRequest {
-            database_id: self.database_id.as_str(),
-            node_public_key: reader.key.as_str(),
-            device_id: reader.device.as_str(),
-            through: DecimalU64::new(through),
-        })?;
-        let bytes = self.call(paths::ACK, body)?;
-        let response: wire::TipResponse =
-            serde_json::from_slice(&bytes).map_err(|_| LogError::UnexpectedOutcome)?;
-        Ok(response.tip.get())
+        self.same_reader(&reader.key)?;
+        self.same_device(&reader.device)?;
+        let body = wire::ack_body(self.database_id.as_str(), reader.device.as_str(), through)?;
+        wire::acknowledged(&self.call(paths::ACK, body)?)
     }
 
     fn register_reader(&mut self, _reader: &Writer) -> Result<(), LogError> {
@@ -311,25 +284,19 @@ impl MutationLog for CloudLog {
         _now_ms: u64,
     ) -> Result<Recovery, LogError> {
         // G returns snapshot_through on the list error. There is no recover route.
-        // byte_cloud_restore::native::restore_at installs an owner byte-backup
-        // file set. It does not install I's mutation-log/delivery/snapshot parts
-        // into databases/<id>/data. The cursor must not advance.
+        // E2 owns installation. SnapshotRequired keeps the cursor where it is.
+        // restore_at installs an owner byte-backup file set, not this log.
         Err(LogError::SnapshotRequired)
     }
 
     fn grant(
         &mut self,
-        caller: &PrincipalId,
-        principal: PrincipalId,
-        capability: Capability,
+        _caller: &PrincipalId,
+        _principal: PrincipalId,
+        _capability: Capability,
     ) -> Result<(), LogError> {
-        let body = json_body(&wire::GrantRequest {
-            database_id: self.database_id.as_str(),
-            caller: caller.as_str(),
-            principal: principal.as_str(),
-            capability: wire::capability_name(&capability),
-        })?;
-        self.call(paths::GRANT, body).map(|_| ())
+        // G does not publish mutation-log/grant. Membership updates are not this route.
+        Err(LogError::UnexpectedOutcome)
     }
 
     fn revoke(
@@ -338,9 +305,9 @@ impl MutationLog for CloudLog {
         principal: &PrincipalId,
         capability: &Capability,
     ) -> Result<(), LogError> {
-        let body = json_body(&wire::GrantRequest {
+        self.same_reader(caller)?;
+        let body = json_body(&wire::RevokeRequest {
             database_id: self.database_id.as_str(),
-            caller: caller.as_str(),
             principal: principal.as_str(),
             capability: wire::capability_name(capability),
         })?;
@@ -350,29 +317,49 @@ impl MutationLog for CloudLog {
     fn snapshot(
         &mut self,
         caller: &PrincipalId,
-        at_ms: u64,
-        snapshot_ref: SnapshotRef,
+        _at_ms: u64,
+        _snapshot_ref: SnapshotRef,
     ) -> Result<Snapshot, LogError> {
-        let body = json_body(&wire::SnapshotRequest {
-            database_id: self.database_id.as_str(),
-            caller: caller.as_str(),
-            at_ms: DecimalU64::new(at_ms),
-            snapshot_ref: snapshot_ref.as_str(),
-        })?;
+        // G cuts the snapshot from the authenticated principal and its own clock.
+        self.same_reader(caller)?;
+        let body = wire::database_body(self.database_id.as_str())?;
         wire::snapshot(&self.call(paths::SNAPSHOT, body)?)
     }
 
     fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {
-        let body = json_body(&wire::TipRequest {
-            database_id: self.database_id.as_str(),
-            reader: reader.as_str(),
-            node_public_key: writer.key.as_str(),
-            device_id: writer.device.as_str(),
-        })?;
-        let bytes = self.call(paths::WRITER_TIP, body)?;
-        let response: wire::TipResponse =
-            serde_json::from_slice(&bytes).map_err(|_| LogError::UnexpectedOutcome)?;
-        Ok(response.tip.get())
+        if reader != &writer.key {
+            return Err(LogError::Unauthorized);
+        }
+        self.same_device(&writer.device)?;
+        match self.head(reader)? {
+            None => Ok(0),
+            Some(head) => match head.stamp {
+                Some(stamp)
+                    if stamp.writer.key == writer.key && stamp.writer.device == writer.device =>
+                {
+                    Ok(stamp.sequence)
+                }
+                _ => Err(LogError::UnexpectedOutcome),
+            },
+        }
+    }
+}
+
+impl CloudLog {
+    fn same_reader(&self, reader: &PrincipalId) -> Result<(), LogError> {
+        if reader == &self.principal {
+            Ok(())
+        } else {
+            Err(LogError::Unauthorized)
+        }
+    }
+
+    fn same_device(&self, device: &mutation_log::DeviceId) -> Result<(), LogError> {
+        if device == &self.device {
+            Ok(())
+        } else {
+            Err(LogError::Unauthorized)
+        }
     }
 }
 

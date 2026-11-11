@@ -1,11 +1,11 @@
 //! Daemon adapter for the cloud mutation log.
 //!
-//! Exemem's signed mutation-log reply is the only signed-only switch. Each
-//! owned database has its own reply. A local file does not start sync or stop
-//! byte backup. This module does not change backup policy. It does not install
-//! a snapshot: `byte_cloud_restore::native::restore_at` restores an owner
-//! byte-backup file set, and I's `mutation-log/delivery/snapshot` parts have
-//! no installer for `databases/<id>/data`.
+//! Exemem's authenticated mutation-log reply is the only signed-only switch.
+//! Each owned database has its own reply. A local file does not start sync or
+//! stop byte backup. This module does not change backup policy and does not
+//! install a snapshot. E2 owns installation through the normal replay path.
+//! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
+//! file set and is not that installer.
 
 mod apply;
 mod cloud;
@@ -20,6 +20,7 @@ mod registry;
 mod run;
 mod session;
 mod sign;
+mod status;
 mod turn;
 mod wire;
 

@@ -51,7 +51,7 @@ async fn one_turn(host: &Host) -> Pause {
     }
     let mut pause = Pause::Snapshot;
     for database in &databases {
-        let next = if database.native {
+        let next = if fresh_native(database) {
             native::turn(host, database).await
         } else {
             receipt_turn(host, database).await
@@ -59,6 +59,10 @@ async fn one_turn(host: &Host) -> Pause {
         pause = shorter(pause, next);
     }
     pause
+}
+
+fn fresh_native(database: &Database) -> bool {
+    database.native && database.kind == "shareable" && database.spec.is_some()
 }
 
 async fn receipt_turn(host: &Host, database: &Database) -> Pause {
@@ -90,15 +94,17 @@ async fn prepare(host: &Host, database: &Database) -> Prep {
     let view = log.service_view(database).await;
     cutover::observe(&database.id, view);
     match cutover::gate_for(&database.id) {
-        Gate::Legacy | Gate::Native | Gate::Closed(cutover::Hold::Native) => {
-            Prep::Pause(Pause::Idle)
-        }
-        Gate::Closed(cutover::Hold::Receipt(_)) => {
+        Gate::Legacy => Prep::Pause(Pause::Idle),
+        Gate::Closed(_) => {
             warn_once(
                 &CLOSED_WARNED,
-                "signed-only confirmation is unavailable and legacy resume stays closed",
+                "service confirmation is unavailable and legacy resume stays closed",
             );
             Prep::Pause(Pause::Retry)
+        }
+        Gate::Native => {
+            let revision = probe_revision(&host.home, &database.id, &database.kind);
+            Prep::Pause(open_native(host, database, revision, log, &device).await)
         }
         Gate::SignedOnly(commit) => open_signed(host, commit, log, &device).await,
     }

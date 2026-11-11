@@ -1,9 +1,9 @@
 //! Apply a pulled page on the booted store. The caller acks only after this returns.
 //!
-//! A reset is not installed. `byte_cloud_restore::native::restore_at` writes a
-//! byte-backup file set into the owner home. I serves mutation-log snapshot
-//! parts at `POST /api/cloud/backups/v2/mutation-log/delivery/snapshot`. No
-//! function in this tree installs those parts into `databases/<id>/data`.
+//! A reset is not installed here. E2 owns snapshot installation through the
+//! normal replay path. This module stages bytes when a reset arrives and does
+//! not replace the live store. `byte_cloud_restore::native::restore_at` writes
+//! an owner byte-backup file set and is not that installer.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -147,12 +147,12 @@ async fn validate_submission(
     entry: &Entry,
 ) -> Result<bool, String> {
     let Some(decoded) = payload::decode(&entry.payload) else {
-        return reject(log, entry).await;
+        return reject(entry);
     };
     let namespace_matches =
         payload::namespace_of(&decoded.schema).as_ref() == Some(&entry.namespace);
     if !namespace_matches || classify_shareable(&entry.namespace) == NamespaceKind::AppPrivate {
-        return reject(log, entry).await;
+        return reject(entry);
     }
     match host
         .db
@@ -172,14 +172,13 @@ async fn validate_submission(
     }
 }
 
-async fn reject(log: &CloudLog, entry: &Entry) -> Result<bool, String> {
-    match log.reject_submission(&entry.writer, entry.writer_seq).await {
-        Ok(()) => Ok(true),
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "submission reject failed");
-            Ok(false)
-        }
-    }
+fn reject(entry: &Entry) -> Result<bool, String> {
+    tracing::warn!(
+        target: "lastdbd::log_sync",
+        writer_seq = entry.writer_seq,
+        "submission stays unacked because reject is not a route"
+    );
+    Ok(false)
 }
 
 async fn reappend(log: &CloudLog, state: &mut SyncState, entry: &Entry) -> Result<bool, String> {

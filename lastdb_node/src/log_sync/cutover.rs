@@ -2,23 +2,20 @@
 //!
 //! A local file is not that commit. `cutover-record.json`, `cutover-request.json`,
 //! and a missing, stale, or unreadable local receipt leave that database on its
-//! current path. This process remembers a commit only after `mutation-log/head`
-//! returns D's `CutoverReceipt` for that database and realm. A fresh named
-//! database is remembered only after `mutation-log/create-database` returns a
-//! live created or already-exists reply. If that database was already confirmed
-//! and the service then gives no current reply, that database stays closed:
-//! no legacy resume and no ack. Other databases are unchanged. H has not
-//! published the service verifying key, so this process does not honor an
-//! on-disk copy of the receipt.
+//! current path. This process remembers a commit only after `mutation-log/access`
+//! returns `CutoverReceipt` for that database and realm. The receipt has no
+//! service signature. A fresh shareable database with a spec is remembered only
+//! after `mutation-log/create-database` returns `NativeDatabase` for that id
+//! and realm. The same body confirms an equal retry. HTTP 409 does not. If that
+//! database was already confirmed and the service then gives no current reply,
+//! that database stays closed: no legacy resume and no ack. Other databases
+//! are unchanged. A saved receipt is not authority.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use cloud_backup_protocol::v2::Version;
-use cloud_backup_protocol::{input_digest, DecimalU64};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Serialize;
 
 use super::disk;
 use super::registry::{self, Database};
@@ -26,8 +23,7 @@ use super::session;
 
 pub(crate) const SCHEMA: &str = "lastdb.database_cutover/v1";
 pub(crate) const ADAPTER_REVISION: &str = "log-sync-1";
-const RECEIPT_DOMAIN: &str = "lastdb:share:cutover-receipt:v1";
-const RECEIPT_LIMIT: usize = 65_536;
+pub(crate) const RECEIPT_LIMIT: usize = 65_536;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Gate {
@@ -48,23 +44,28 @@ pub(crate) enum Hold {
     Native,
 }
 
-/// What the latest mutation-log head said about this database.
+/// What the latest `mutation-log/access` body said about this database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ServiceView {
-    /// The reply is a verified signed-only receipt for this database.
+    /// Authenticated `CutoverReceipt` for this database. No service signature.
     Commit(Commit),
-    /// The service answered and did not confirm signed-only.
+    /// Authenticated `NativeDatabase` for this database. No receipt.
+    Native,
+    /// Authenticated `OpenDatabase`, or a 2xx body that is not a receipt.
     Open,
     /// Transport, server error, or a body that cannot be read.
+    ///
+    /// HTTP 404 is this arm. It is not an open database. An unconfirmed
+    /// database stays on legacy. A confirmed database stays closed.
     Unavailable,
 }
 
 /// What the latest signed create said about one fresh named database.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NativeView {
-    /// The service created the database or reported that it already exists.
+    /// The TLS body is `NativeDatabase` for this id and realm.
     Live,
-    /// Transport, server error, or a body that is not that create reply.
+    /// Transport, server error, or any other body, including HTTP 409.
     Unavailable,
 }
 
@@ -92,24 +93,6 @@ struct Live {
     closed: bool,
 }
 
-/// D's receipt. Unknown fields are rejected, so a head cursor is not a commit.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReceiptWire {
-    version: Version,
-    environment: String,
-    database_id: String,
-    evidence_sha256: String,
-    grant_revision: DecimalU64,
-    signature: String,
-}
-
-enum Parsed {
-    Commit(Commit),
-    Open,
-    Unavailable,
-}
-
 #[derive(Serialize)]
 struct DaemonReady {
     kind: &'static str,
@@ -124,29 +107,6 @@ struct DaemonReady {
     final_write_fence: &'static str,
 }
 
-pub(crate) fn classify(
-    status: u16,
-    body: &[u8],
-    database: &Database,
-    environment: &str,
-) -> ServiceView {
-    if status == 404 {
-        return ServiceView::Open;
-    }
-    if !(200..300).contains(&status) || body.is_empty() || body.len() > RECEIPT_LIMIT {
-        return ServiceView::Unavailable;
-    }
-    let value: Value = match serde_json::from_slice(body) {
-        Ok(value) => value,
-        Err(_) => return ServiceView::Unavailable,
-    };
-    match commit_of(&value, database, environment) {
-        Parsed::Commit(commit) => ServiceView::Commit(commit),
-        Parsed::Open => ServiceView::Open,
-        Parsed::Unavailable => ServiceView::Unavailable,
-    }
-}
-
 pub(crate) fn observe(database_id: &str, view: ServiceView) {
     let mut live = lock();
     match view {
@@ -159,6 +119,16 @@ pub(crate) fn observe(database_id: &str, view: ServiceView) {
                 },
             );
         }
+        ServiceView::Native => {
+            live.insert(
+                database_id.to_owned(),
+                Live {
+                    activation: Activation::Native,
+                    closed: false,
+                },
+            );
+        }
+        // An open body clears a receipt only. A native activation stays.
         ServiceView::Open => {
             if matches!(
                 live.get(database_id).map(|item| &item.activation),
@@ -277,51 +247,6 @@ pub(crate) fn label_ok(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn commit_of(value: &Value, database: &Database, environment: &str) -> Parsed {
-    if !receipt_shaped(value) {
-        return Parsed::Open;
-    }
-    let wire: ReceiptWire = match serde_json::from_value(value.clone()) {
-        Ok(wire) => wire,
-        Err(_) => return Parsed::Unavailable,
-    };
-    if wire.environment != environment
-        || wire.database_id != database.id
-        || wire.grant_revision.get() == 0
-        || !hex64(&wire.evidence_sha256)
-        || !hex_len(&wire.signature, 128)
-        || receipt_digest(&wire).is_err()
-    {
-        return Parsed::Unavailable;
-    }
-    Parsed::Commit(Commit {
-        database_id: database.id.clone(),
-        database_kind: database.kind.clone(),
-        environment: environment.to_owned(),
-        grant_revision: wire.grant_revision.get(),
-        evidence_sha256: wire.evidence_sha256,
-    })
-}
-
-fn receipt_shaped(value: &Value) -> bool {
-    value.get("evidence_sha256").is_some() || value.get("signature").is_some()
-}
-
-fn receipt_digest(wire: &ReceiptWire) -> Result<(), ()> {
-    input_digest(
-        RECEIPT_DOMAIN,
-        &(
-            &wire.version,
-            wire.environment.as_str(),
-            wire.database_id.as_str(),
-            wire.evidence_sha256.as_str(),
-            wire.grant_revision,
-        ),
-    )
-    .map(|_| ())
-    .map_err(|_| ())
-}
-
 fn close_if_present(live: &mut HashMap<String, Live>, database_id: &str) {
     if let Some(item) = live.get_mut(database_id) {
         item.closed = true;
@@ -333,15 +258,4 @@ fn lock() -> std::sync::MutexGuard<'static, HashMap<String, Live>> {
     LIVE.get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn hex64(value: &str) -> bool {
-    hex_len(value, 64)
-}
-
-fn hex_len(value: &str, len: usize) -> bool {
-    value.len() == len
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }

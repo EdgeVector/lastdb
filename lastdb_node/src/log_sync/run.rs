@@ -89,7 +89,7 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
             ) {
                 turn::warn_once(
                     &SNAPSHOT_WARNED,
-                    "list cursor is below the snapshot floor; POST /api/cloud/backups/v2/mutation-log/delivery/snapshot is not installed by byte_cloud_restore::native::restore_at",
+                    "list cursor is below the snapshot floor and this adapter does not install the snapshot",
                 );
             }
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "pull failed");
