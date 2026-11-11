@@ -75,29 +75,55 @@ impl LogState {
     ///
     /// The floor is the minimum device ack, and also the expired prefix,
     /// and it never passes the latest snapshot. A floor that would drop
-    /// entries is refused unless a snapshot ref covers it. `caller` is the
-    /// publisher key or an owner key.
+    /// entries is refused unless a snapshot ref covers it. A young pending
+    /// submission stays, including when the floor moves past it. A rejected
+    /// one, an incorporated one, and one older than 30 days are dropped.
+    /// `caller` is the publisher key or an owner key.
     pub fn trim(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
-        let desired = self.desired_floor(now_ms);
-        if desired <= self.trimmed_through {
-            return Ok(self.clone());
-        }
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return Err(LogError::SnapshotRequired);
-        };
-        let floor = desired
-            .min(snapshot.through_delivery_seq)
-            .max(self.trimmed_through);
-        if floor <= self.trimmed_through {
-            return Ok(self.clone());
-        }
+        let floor = self.covered_floor(now_ms)?;
         let mut next = self.clone();
-        remember_trimmed(&mut next, floor);
-        prune_incorporated(&mut next, floor);
-        next.entries.retain(|entry| entry.delivery_seq > floor);
+        let dropped = drop_covered(&mut next, floor, now_ms);
+        if !dropped && floor == self.trimmed_through {
+            return Ok(self.clone());
+        }
         next.trimmed_through = floor;
         Ok(next)
+    }
+
+    /// Mark one pending submission so a later trim can drop it.
+    ///
+    /// `caller` is the publisher key or an owner key. The submission must
+    /// still be stored and not already copied.
+    pub fn reject_submission(
+        &self,
+        caller: &PrincipalId,
+        writer: &Writer,
+        writer_seq: u64,
+    ) -> Result<Self, LogError> {
+        self.authorize_maintainer(caller)?;
+        let stored = self
+            .entries
+            .iter()
+            .find(|row| row.entry.writer == *writer && row.entry.writer_seq == writer_seq)
+            .ok_or(LogError::UnknownSubmission)?;
+        if !pending_submission(self, stored) {
+            return Err(LogError::UnknownSubmission);
+        }
+        let mut next = self.clone();
+        next.rejected.insert((writer.clone(), writer_seq));
+        Ok(next)
+    }
+
+    fn covered_floor(&self, now_ms: u64) -> Result<u64, LogError> {
+        let desired = self.desired_floor(now_ms);
+        if desired <= self.trimmed_through {
+            return Ok(self.trimmed_through);
+        }
+        let snapshot = self.snapshot.as_ref().ok_or(LogError::SnapshotRequired)?;
+        Ok(desired
+            .min(snapshot.through_delivery_seq)
+            .max(self.trimmed_through))
     }
 
     /// Highest delivery sequence that may be dropped.
@@ -193,27 +219,52 @@ impl LogState {
     }
 }
 
-fn remember_trimmed(state: &mut LogState, floor: u64) {
-    for stored in &state.entries {
-        if stored.delivery_seq > floor {
+fn drop_covered(state: &mut LogState, floor: u64, now_ms: u64) -> bool {
+    let mut dropped = false;
+    let mut kept = Vec::new();
+    for stored in std::mem::take(&mut state.entries) {
+        if stored.delivery_seq > floor || live_pending(state, &stored, now_ms) {
+            kept.push(stored);
             continue;
         }
-        let writer = stored.entry.writer.clone();
-        let seq = stored.entry.writer_seq;
-        let previous = state.trimmed_tips.get(&writer).copied().unwrap_or(0);
-        state.trimmed_tips.insert(writer, previous.max(seq));
+        dropped = true;
+        note_dropped(state, &stored, now_ms);
     }
+    state.entries = kept;
+    dropped
 }
 
-fn prune_incorporated(state: &mut LogState, floor: u64) {
-    let dropped: Vec<(Writer, u64)> = state
-        .entries
-        .iter()
-        .filter(|stored| stored.delivery_seq <= floor && stored.entry.incorporated_from.is_none())
-        .map(|stored| (stored.entry.writer.clone(), stored.entry.writer_seq))
-        .collect();
-    for key in dropped {
-        state.incorporated.remove(&key);
+fn live_pending(state: &LogState, stored: &StoredEntry, now_ms: u64) -> bool {
+    pending_submission(state, stored)
+        && !state
+            .rejected
+            .contains(&(stored.entry.writer.clone(), stored.entry.writer_seq))
+        && now_ms.saturating_sub(stored.accepted_at_ms) < MAX_RETENTION_MS
+}
+
+fn pending_submission(state: &LogState, stored: &StoredEntry) -> bool {
+    let DatabaseKind::Shareable { publisher } = &state.kind else {
+        return false;
+    };
+    stored.entry.incorporated_from.is_none()
+        && stored.entry.writer.key != *publisher
+        && !state
+            .incorporated
+            .contains(&(stored.entry.writer.clone(), stored.entry.writer_seq))
+}
+
+fn note_dropped(state: &mut LogState, stored: &StoredEntry, now_ms: u64) {
+    let key = (stored.entry.writer.clone(), stored.entry.writer_seq);
+    let expired = pending_submission(state, stored)
+        && !state.rejected.contains(&key)
+        && now_ms.saturating_sub(stored.accepted_at_ms) >= MAX_RETENTION_MS;
+    let previous = state.trimmed_tips.get(&key.0).copied().unwrap_or(0);
+    state
+        .trimmed_tips
+        .insert(key.0.clone(), previous.max(key.1));
+    state.incorporated.remove(&key);
+    if expired {
+        state.expired_submissions.insert(key);
     }
 }
 

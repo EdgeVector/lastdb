@@ -146,6 +146,9 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
         }
         match stored_entry(state, &entry.writer, entry.writer_seq) {
             Some(stored) if same_content(&stored.entry, entry) => {}
+            None if submission_expired(state, &entry.writer, entry.writer_seq) => {
+                return Err(LogError::SubmissionExpired);
+            }
             None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => {}
             Some(_) | None => return Err(LogError::Conflict),
         }
@@ -158,6 +161,10 @@ fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'
         .entries
         .iter()
         .find(|stored| stored.entry.writer == *writer && stored.entry.writer_seq == seq)
+}
+
+fn submission_expired(state: &LogState, writer: &Writer, seq: u64) -> bool {
+    state.expired_submissions.contains(&(writer.clone(), seq))
 }
 
 fn trimmed_tip(state: &LogState, writer: &Writer) -> u64 {
@@ -211,6 +218,9 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     };
     if &entry.writer.key != publisher {
         return Err(LogError::InvalidEntry);
+    }
+    if submission_expired(state, &from.writer, from.writer_seq) {
+        return Err(LogError::SubmissionExpired);
     }
     let Some(stored) = stored_entry(state, &from.writer, from.writer_seq) else {
         return Err(LogError::UnknownSubmission);

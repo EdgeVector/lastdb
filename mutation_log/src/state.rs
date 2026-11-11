@@ -36,6 +36,12 @@ pub struct LogState {
     /// adapter stores this set with the log. Trim drops a key when the
     /// submission it names is dropped.
     pub incorporated: BTreeSet<(Writer, u64)>,
+    /// Pending submissions the publisher rejected. Trim may drop them.
+    pub rejected: BTreeSet<(Writer, u64)>,
+    /// Pending submissions dropped because they aged out.
+    ///
+    /// A retry or a re-append of one of these is [`LogError::SubmissionExpired`].
+    pub expired_submissions: BTreeSet<(Writer, u64)>,
 }
 
 impl LogState {
@@ -55,6 +61,8 @@ impl LogState {
             snapshot: None,
             trimmed_through: 0,
             incorporated: BTreeSet::new(),
+            rejected: BTreeSet::new(),
+            expired_submissions: BTreeSet::new(),
         }
     }
 

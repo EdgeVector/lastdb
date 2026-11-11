@@ -59,6 +59,8 @@ pub enum LogError {
     AckAhead,
     /// Trim would drop entries, and no snapshot pointer covers that floor.
     SnapshotRequired,
+    /// A pending submission aged out before the publisher copied it.
+    SubmissionExpired,
 }
 
 impl fmt::Display for LogError {
@@ -130,6 +132,9 @@ impl fmt::Display for LogError {
             Self::AckAhead => write!(formatter, "ack is ahead of the log head"),
             Self::SnapshotRequired => {
                 write!(formatter, "trim needs a snapshot that covers the floor")
+            }
+            Self::SubmissionExpired => {
+                write!(formatter, "pending submission expired before it was copied")
             }
         }
     }
