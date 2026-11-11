@@ -75,10 +75,7 @@ impl SchemaStore {
             })
     }
 
-    pub(self) async fn require_installed_schema(
-        &self,
-        schema_name: &str,
-    ) -> Result<(), SchemaError> {
+    async fn require_installed_schema(&self, schema_name: &str) -> Result<(), SchemaError> {
         if self.get_schema(schema_name).await?.is_some() {
             Ok(())
         } else {

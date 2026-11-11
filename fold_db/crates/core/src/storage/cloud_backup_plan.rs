@@ -175,16 +175,16 @@ pub enum Step {
 /// Plan state. `(state, chunk) -> (state, Save | Need | Done)`.
 #[derive(Debug)]
 pub struct PlanState {
-    pub(super) files: Vec<PlanFile>,
-    pub(super) scope: CloudScope,
+    files: Vec<PlanFile>,
+    scope: CloudScope,
     totals: PlanTotals,
-    pub(super) phase: Phase,
+    phase: Phase,
     awaiting: Option<Range>,
     save: Option<Pending>,
 }
 
 #[derive(Debug)]
-pub(super) enum Phase {
+enum Phase {
     Choose(usize),
     Pack(Box<Pack>),
     Span(Box<Span>),
@@ -329,7 +329,7 @@ impl PlanState {
         }
     }
 
-    pub(super) fn stage(&mut self, object: PlannedObject, phase: Phase) {
+    fn stage(&mut self, object: PlannedObject, phase: Phase) {
         let index = self.totals.objects;
         self.totals.packs += u64::from(object.pack);
         self.totals.multi_file_packs += u64::from(object.pack && object.segments.len() > 1);
