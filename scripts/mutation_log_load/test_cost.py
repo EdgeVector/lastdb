@@ -236,7 +236,7 @@ class CapAndRun(unittest.TestCase):
         self.assertGreater(report["summary"]["throttle_rate"], 0)
         self.assertEqual(report["summary"]["contention_rate"], 0)
 
-    def test_a_throttle_that_never_succeeds_is_a_correctness_failure(self):
+    def test_a_throttle_that_never_succeeds_exits_incomplete_3(self):
         def hook(path, _parsed, _log):
             if path.endswith("/append"):
                 return 503, THROTTLED, 1
