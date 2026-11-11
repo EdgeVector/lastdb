@@ -19,7 +19,7 @@
 //! the complete range (a count, a condition pass) fails with a read limit.
 
 use crate::db_operations::record_store::{
-    KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey, PAGE_READ_KEYS,
+    KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey,
 };
 use crate::db_operations::{note_page_resume, page_can_resume, PageResume};
 use crate::fold_db_core::query::hash_range_query::HashRangeQueryProcessor;
@@ -29,6 +29,8 @@ use crate::schema::types::{KeyValue, KeyValuePageOrder};
 use crate::schema::{Schema, SchemaError};
 use std::collections::VecDeque;
 
+/// Maximum keys examined in one range request before ending the page early.
+const PAGE_READ_KEYS: usize = 8_192;
 /// The smallest and the largest number of keys one step reads.
 const MIN_STEP: usize = 32;
 const MAX_STEP: usize = 1024;
@@ -107,7 +109,6 @@ impl HashRangeQueryProcessor {
             None => (None, 0, usize::MAX),
             Some(KeyWindow::Offset { offset, limit }) => (None, offset, limit),
             Some(KeyWindow::After { after, limit }) => (Some(after), 0, limit),
-            Some(KeyWindow::AfterRecord { .. }) => return Err(record_cursor_error()),
         };
         let records = self.db_ops.records();
         let from_range = after.as_ref().and_then(|after| after.range.as_deref());
@@ -262,25 +263,17 @@ fn range_limit_error(offset: bool) -> SchemaError {
     }
 }
 
-fn record_cursor_error() -> SchemaError {
-    SchemaError::InvalidCursor(
-        "a record walk cursor continues only an unfiltered read; continue a read of one hash \
-         with the next_cursor of that read"
-            .into(),
-    )
-}
-
 /// The API hash and the range bound of a selector that reads one range under
 /// one hash. A Hash schema has one record for each hash, so its selectors
 /// read by key.
 pub(super) fn range_under_hash<'a>(
     schema: &Schema,
-    filter: Option<&'a HashRangeFilter>,
+    filter: &'a HashRangeFilter,
 ) -> Option<(&'a str, RecordBound<'a>)> {
     if schema.schema_type != DeclarativeSchemaType::HashRange {
         return None;
     }
-    match filter? {
+    match filter {
         HashRangeFilter::HashKey(hash) => Some((hash.as_str(), RecordBound::All)),
         HashRangeFilter::HashRangePrefix { hash, prefix } => {
             Some((hash.as_str(), RecordBound::Prefix(prefix)))
@@ -288,6 +281,6 @@ pub(super) fn range_under_hash<'a>(
         HashRangeFilter::HashRangeRange { hash, start, end } => {
             Some((hash.as_str(), RecordBound::Between(start, end)))
         }
-        _ => None,
+        HashRangeFilter::HashRangeKey { .. } | HashRangeFilter::HashRangeKeys(_) => None,
     }
 }

@@ -145,7 +145,7 @@ impl SharedRestore {
         if writer.stage != self.stage
             || self
                 .stage
-                .join(lastdb_identity::IDENTITY_KEY_FILE)
+                .join(crate::identity::IDENTITY_KEY_FILE)
                 .try_exists()?
             || crate::cloud::cloud_credentials_path(&self.stage).try_exists()?
         {

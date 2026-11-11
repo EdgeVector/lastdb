@@ -118,10 +118,6 @@ impl QueryTally {
 pub struct PageEnd {
     /// The page ended before its window was full while keys remained.
     pub resume: Option<PageResume>,
-    /// The record key position of each row of an unfiltered record walk, in
-    /// record key order: the reply keeps the first rows of the walk and its
-    /// cursor names the position of the last row it keeps.
-    pub walk: Vec<(KeyValue, String)>,
 }
 
 /// The position after which the next page of a read starts.
@@ -129,9 +125,6 @@ pub struct PageEnd {
 pub enum PageResume {
     /// A range under one hash: the API key of the last key the read examined.
     Key(KeyValue),
-    /// An unfiltered record walk: the record key suffix of the last record
-    /// the walk examined. A deleted record has no API key.
-    Record(String),
 }
 
 /// True when the caller installed a tally that continues a page that ends
@@ -146,11 +139,6 @@ pub fn page_can_resume() -> bool {
 /// Note where a page that ended early goes on, if a tally is installed.
 pub fn note_page_resume(resume: PageResume) {
     let _ = QUERY_TALLY.try_with(|tally| tally.end.borrow_mut().resume = Some(resume));
-}
-
-/// Note the record key position of each row of a record walk page.
-pub fn note_walk_positions(rows: Vec<(KeyValue, String)>) {
-    let _ = QUERY_TALLY.try_with(|tally| tally.end.borrow_mut().walk = rows);
 }
 
 /// Note how many page keys a query emitted in each key form, if a tally is

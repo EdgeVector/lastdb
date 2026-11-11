@@ -6,7 +6,7 @@ use crate::byte_cloud_backup::{
     recovery::RecoveryPoint,
     work::Work,
 };
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Destination, Stream, Version};
 use fold_db::storage::disk_pack::mutation_log::Frontiers;
 use std::time::Duration;

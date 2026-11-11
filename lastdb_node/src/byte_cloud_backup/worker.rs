@@ -3,7 +3,7 @@ use super::{
     model::Saved, publication, retry, source::Source, store::Store, transfer, BackupError, Phase,
     Result,
 };
-use cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
+use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
@@ -229,7 +229,7 @@ async fn upload_and_publish(
     while next < capture.object_count()? {
         publication::check_work(store, saved, pause)?;
         capture.set_coordinator_spool_bytes(
-            store.bytes() + lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES,
+            store.bytes() + fold_db::storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES,
         )?;
         let mut batch = Vec::new();
         while next < capture.object_count()? && batch.len() < parallelism {

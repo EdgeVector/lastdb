@@ -127,7 +127,7 @@ def signed_records(declarations):
     raw = serialization.load_der_public_key(key["PublicKey"]).public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     public = base64.b64encode(raw).decode()
-    profile = json.loads((Path(__file__).resolve().parents[2] / "folddb_profile/environments.json").read_text())
+    profile = json.loads((Path(__file__).resolve().parents[2] / "lastdb_node/environments.json").read_text())
     if (public != os.environ["REGISTRY_CI_PROD_PUBLIC_KEY"]
             or public != profile["environments"]["prod"]["registry_ci_publisher_key"]):
         raise ValueError("The CI publisher identity differs from its public configuration")
@@ -142,7 +142,7 @@ def signed_records(declarations):
 
 def publish(proved):
     missing = missing_declarations(proved)
-    profile = json.loads((Path(__file__).resolve().parents[2] / "folddb_profile/environments.json").read_text())
+    profile = json.loads((Path(__file__).resolve().parents[2] / "lastdb_node/environments.json").read_text())
     base = profile["environments"]["prod"]["registry_api"].rstrip("/")
     body = {key: proved[key] for key in ("source", "run_url", "lastdb_source", "lastdb_build", "api_version", "outbox_format_version")}
     declarations = missing or [{**proved["apps"][app]["declaration"], "channel": channel}

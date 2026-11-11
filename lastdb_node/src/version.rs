@@ -8,10 +8,10 @@
 
 /// The current HTTP API version this node speaks.
 ///
-/// Re-exported from `lastdb_uds::uds_router::API_VERSION`. This is the
+/// Re-exported from `crate::lastdb_uds::uds_router::API_VERSION`. This is the
 /// request-grammar version reported by `GET /api/version` and checked during
 /// app install resolution.
-pub const CURRENT_API_VERSION: u32 = lastdb_uds::uds_router::API_VERSION;
+pub const CURRENT_API_VERSION: u32 = crate::lastdb_uds::uds_router::API_VERSION;
 
 /// The oldest HTTP API version this node still supports.
 ///

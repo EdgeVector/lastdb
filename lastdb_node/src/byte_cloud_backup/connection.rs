@@ -3,12 +3,12 @@ use super::{
     store::{self, Store},
     BackupError, Result,
 };
-use cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
+use crate::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::{
     v2::{context::ContextReadRequest, Destination, Version},
     AccountId, Digest, Id,
 };
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use sha2::{Digest as _, Sha256};
 
 pub(crate) mod files;

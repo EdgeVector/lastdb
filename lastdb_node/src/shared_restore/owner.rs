@@ -2,8 +2,8 @@
 
 use super::recovery::{RecoveryObject, SharedRecoverySource};
 use crate::byte_cloud_restore::{RecoveryKeys, RestoreError, Result};
-use cloud_backup_client::shared_recovery::{BackupTransportError, SharedRecoveryClient};
-use cloud_backup_client::AuthClient;
+use crate::cloud_backup_client::shared_recovery::{BackupTransportError, SharedRecoveryClient};
+use crate::cloud_backup_client::AuthClient;
 use cloud_backup_protocol::shared::{
     LogBatch, LogHead, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectParent, RecoveryView,
     SealedObject, SnapshotManifest, WriterStream,

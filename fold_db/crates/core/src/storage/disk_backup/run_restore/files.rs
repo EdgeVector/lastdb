@@ -282,7 +282,7 @@ fn inspect(path: &Path) -> StorageResult<(Digest, u64)> {
     let before = file.metadata()?;
     let mut hasher = Sha256::new();
     let mut buffer =
-        vec![0u8; lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize];
+        vec![0u8; lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize];
     let mut count = 0u64;
     loop {
         let bytes = file.read(&mut buffer)?;

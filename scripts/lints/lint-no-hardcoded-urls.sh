@@ -2,11 +2,11 @@
 # lint-no-hardcoded-urls.sh
 #
 # Enforces the cross-environment URL registry: all gateway hostnames must
-# live in folddb_profile/environments.json (the single source of truth).
+# live in lastdb_node/environments.json (the single source of truth).
 # Any hardcoded occurrence elsewhere — Rust, shell, JSON, Markdown — is
-# drift waiting to happen. folddb_profile/build.rs generates
+# drift waiting to happen. lastdb_node/build.rs generates
 # the per-(env, key) constants in OUT_DIR; Rust callers go through
-# `folddb_profile::endpoints::*`.
+# `lastdb_node::profile::endpoints::*`.
 #
 # Failure exit: 1.
 
@@ -28,13 +28,13 @@ cd "$REPO_ROOT"
 # list would print `[]`, which matches nearly every file.
 HOSTNAMES=$(
     jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region" and .key != "portal") | .value | strings' \
-        folddb_profile/environments.json \
+        lastdb_node/environments.json \
     | sed -E 's|^https?://||; s|/.*$||' \
     | sort -u
 )
 
 # Allowlist: where these hostnames are allowed to appear.
-#   folddb_profile/environments.json — the registry itself
+#   lastdb_node/environments.json — the registry itself
 #   target/              — generated artifacts (cargo build output)
 #   scripts/lints/lint-no-hardcoded-urls.sh — this file (allowed because it
 #                                        derives the list dynamically; no
@@ -44,7 +44,7 @@ HOSTNAMES=$(
 #                          checkouts of the same files)
 
 ALLOW_PATHS=(
-    './folddb_profile/environments.json'
+    './lastdb_node/environments.json'
     './target/'
     './scripts/lints/lint-no-hardcoded-urls.sh'
     './.git/'
@@ -87,10 +87,10 @@ done
 if [ "$errors" -gt 0 ]; then
     cat >&2 <<'EOF'
 
-The cross-environment URLs are owned by folddb_profile/environments.json
+The cross-environment URLs are owned by lastdb_node/environments.json
 (the single source of truth). Do not hardcode them anywhere else.
 
-  Rust:  use folddb_profile::endpoints::{schema_service_url, ...}
+  Rust:  use lastdb_node::profile::endpoints::{schema_service_url, ...}
          or, for env-pinned access, schema_service_url_for(Environment::Dev).
   Docs:  reference the env name (dev/prod), not the literal URL.
 

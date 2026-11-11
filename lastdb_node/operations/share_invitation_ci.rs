@@ -1,9 +1,9 @@
 //! CI-only real cryptography and local registration on disposable generated homes.
 //! This does not qualify cloud publication, guest recovery, or live Share invite.
 use chrono::{Duration, SecondsFormat, Utc};
-use cloud_backup_client::byte_backup::{GuestReadPermission, ShareEnvironment};
 use cloud_backup_protocol::{v2::Stream, AccountId, CloudScope, DecimalU64, Digest, Id};
 use fold_db::security::Ed25519KeyPair;
+use lastdb_node::cloud_backup_client::byte_backup::{GuestReadPermission, ShareEnvironment};
 use lastdb_node::{
     registered_share,
     share_invitation::{seal_invitation, ShareContact, ShareRecipient},
@@ -41,7 +41,7 @@ impl Home {
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(home.join(lastdb_identity::IDENTITY_KEY_FILE))?;
+            .open(home.join(lastdb_node::identity::IDENTITY_KEY_FILE))?;
         file.write_all(seed)?;
         file.sync_all()?;
         Ok(home)
@@ -63,7 +63,7 @@ fn seed() -> [u8; 32] {
 
 fn permission(publisher: &Ed25519KeyPair, id: Id, hours: i64) -> Result<GuestReadPermission> {
     let public = publisher.public_key_bytes();
-    let account = lastdb_identity::user_hash_from_pubkey(&publisher.public_key_base64())?;
+    let account = lastdb_node::identity::user_hash_from_pubkey(&publisher.public_key_base64())?;
     let stream = Stream {
         scope: CloudScope {
             account_id: AccountId::try_from(account)?,

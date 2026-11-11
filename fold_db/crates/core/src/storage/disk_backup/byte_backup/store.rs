@@ -73,7 +73,7 @@ impl Store {
             .checked_add(self.coordinator.load(Ordering::Acquire))
             .and_then(|bytes| bytes.checked_add(extra))
             .ok_or_else(|| invalid("byte source combined spool overflow"))?;
-        if total > lastdb_storage_policy::BACKUP_RESOURCES.durable_spool_bytes {
+        if total > lastdb_model::storage_policy::BACKUP_RESOURCES.durable_spool_bytes {
             return Err(invalid("byte source combined spool bound"));
         }
         Ok(())
@@ -124,7 +124,7 @@ impl Store {
     }
     pub fn write_raw(&self, name: &str, bytes: &[u8]) -> StorageResult<()> {
         let maximum = if name.starts_with("payload-") && name.ends_with(".enc") {
-            lastdb_storage_policy::backup_transport::METADATA_PACK_BYTES + 29
+            lastdb_model::storage_policy::backup_transport::METADATA_PACK_BYTES + 29
         } else {
             RECORD_MAX + 29
         };

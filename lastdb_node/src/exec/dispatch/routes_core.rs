@@ -15,7 +15,7 @@ pub(super) async fn dispatch_core(
         DataRoute::MutationBatch => {
             heap_route!(execute_mutations_batch_route, req, ctx, host).await
         }
-        DataRoute::ListSchemas => heap_route!(execute_list_schemas_route, req, ctx, host).await,
+        DataRoute::ListSchemas => execute_list_schemas_route(req, ctx, host),
         DataRoute::ListRecordKeys => {
             heap_route!(execute_list_record_keys_route, req, ctx, host).await
         }

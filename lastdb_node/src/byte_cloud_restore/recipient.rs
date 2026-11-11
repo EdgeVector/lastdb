@@ -210,7 +210,7 @@ impl RestoreSession {
         let home = self.root.join("home");
         for path in [
             self.selection.destination.clone(),
-            home.join(lastdb_identity::IDENTITY_KEY_FILE),
+            home.join(crate::identity::IDENTITY_KEY_FILE),
             crate::cloud::cloud_credentials_path(&home),
         ] {
             match fs::symlink_metadata(path) {

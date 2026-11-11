@@ -17,7 +17,7 @@ APPS = ("brain", "lastsecrets", "search")
 
 def app_sources():
     from stable_registry import catalog
-    text = Path("lastdb_uds/src/uds_router.rs").read_text()
+    text = Path("lastdb_node/src/lastdb_uds/uds_router.rs").read_text()
     match = re.search(r"pub const API_VERSION: u32 = ([0-9]+);", text)
     if match is None:
         raise ValueError("The source has no definite API version")

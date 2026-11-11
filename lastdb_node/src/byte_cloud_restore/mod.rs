@@ -24,8 +24,8 @@ pub use recipient::{StagedRecord, StagedRecordQuery};
 pub use report::RestoreReport;
 pub use session::RestoreSession;
 
-use cloud_backup_client::byte_backup::BackupTransportError;
-use cloud_backup_client::byte_backup::{ByteBackupClient, ByteBackupReader};
+use crate::cloud_backup_client::byte_backup::BackupTransportError;
+use crate::cloud_backup_client::byte_backup::{ByteBackupClient, ByteBackupReader};
 use cloud_backup_protocol::ErrorCode;
 use context::{NativeFileProof, NativeInventory, VerifiedNativeContext};
 pub(crate) use file_proof::check_capacity;

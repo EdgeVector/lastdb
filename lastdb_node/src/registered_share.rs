@@ -1,9 +1,9 @@
 //! Stable database handles for shares accepted by this running node.
 mod worker;
 
+use crate::cloud_backup_client::byte_backup::ShareEnvironment;
 use crate::share_cache::{ShareCache, ShareCacheError, ShareReader, ShareSnapshot};
 use crate::{byte_cloud_backup::connection::files::Directory, share_publication};
-use cloud_backup_client::byte_backup::ShareEnvironment;
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use serde::Serialize;
 use std::path::{Path, PathBuf};

@@ -42,7 +42,7 @@ impl RecoveryKeys {
             .map_err(|_| RestoreError::Invalid("recovery key"))?;
         let keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|_| RestoreError::Invalid("recovery derivation"))?;
-        let account_id = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())
+        let account_id = crate::identity::user_hash_from_pubkey(&pair.public_key_base64())
             .map_err(|_| RestoreError::Invalid("recovery account"))?;
         Ok(Self {
             seed,

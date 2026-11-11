@@ -17,7 +17,7 @@ use uuid::Uuid;
 const MAX_FILES: usize = 131_072;
 // Only UUIDs and Arc handles are retained; names and metadata are not collected.
 const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
-const RETAINED_LIMIT: u64 = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+const RETAINED_LIMIT: u64 = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
 
 /// File lengths and allocated bytes; directory inode blocks are excluded.
 /// Allocated bytes use the filesystem's 512-byte block count and can include

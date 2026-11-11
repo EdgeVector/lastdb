@@ -55,7 +55,7 @@ impl Capture {
         }
     }
     pub fn recommended_parallelism(&self) -> Result<usize> {
-        Ok(lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams)
+        Ok(fold_db::storage_policy::BACKUP_RESOURCES.concurrent_streams)
     }
     pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> Result<()> {
         match self {

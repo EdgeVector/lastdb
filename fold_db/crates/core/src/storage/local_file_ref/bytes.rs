@@ -40,7 +40,7 @@ pub(crate) async fn read_referenced(
 }
 
 fn read_plaintext(path: &std::path::Path, size_bytes: u64, sha256: &str) -> StorageResult<Vec<u8>> {
-    if size_bytes > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if size_bytes > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
         return Err(StorageError::WriteResourceLimit {
             detail: "local file reference exceeds the in-memory file cap".into(),
         });
@@ -126,7 +126,8 @@ async fn materialize_one(
             return Ok(false);
         }
     }
-    if entry.size_bytes > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if entry.size_bytes > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+    {
         return Err(StorageError::WriteResourceLimit {
             detail: format!(
                 "local file {} exceeds the in-memory seal cap",

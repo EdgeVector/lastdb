@@ -2,9 +2,9 @@
 //! objects in path order; this file keeps them and the file records in the
 //! job store.
 use super::*;
-use cloud_backup_plan::{Chunk, PlanFile, PlanState, Range, Step};
 use cloud_backup_protocol::v2::{transfer::TransferInput, Object, Version};
 use cloud_backup_protocol::Id;
+use fold_db::cloud_backup_plan::{Chunk, PlanFile, PlanState, Range, Step};
 use fold_db::storage::disk_pack::mutation_log::MutationLogReader;
 use model::{destination, ObjectRecord, Segment};
 use std::io::Read;
@@ -40,10 +40,10 @@ fn drive(
     capture: &mut LogCapture,
     files: &[PlanFile],
     scope: &cloud_backup_protocol::CloudScope,
-) -> Result<cloud_backup_plan::PlanTotals> {
+) -> Result<fold_db::cloud_backup_plan::PlanTotals> {
     let mut plan = PlanState::start(files, scope);
     let mut source = None;
-    let mut buffer = [0u8; cloud_backup_plan::READ_BYTES as usize];
+    let mut buffer = [0u8; fold_db::cloud_backup_plan::READ_BYTES as usize];
     let mut pending = None;
     loop {
         let step = match pending.take() {

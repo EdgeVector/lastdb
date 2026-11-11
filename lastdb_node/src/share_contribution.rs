@@ -10,11 +10,11 @@ pub use apply::{WriteRequest, WriteRule};
 pub(crate) use crypto::inbox_key;
 pub(crate) use outbox::{submit_registered, validate_grant, SubmitError};
 
+use crate::cloud_backup_client::byte_backup::{ByteBackupClient, GuestAppendPermission};
 use crate::host::Host;
 use crate::share_invitation::ShareContact;
 use crate::share_publication::{self, PublicationIdentity, WriteMode};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use cloud_backup_client::byte_backup::{ByteBackupClient, GuestAppendPermission};
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest, contributions::ReadAudience, Stream, Version,
 };

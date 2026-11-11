@@ -1,7 +1,7 @@
 //! `POST /api/queries/batch`: several independent reads in one request.
 
 use super::*;
-use lastdb_host::HostNode as _;
+use crate::lastdb_host::HostNode as _;
 
 /// Most queries one `POST /api/queries/batch` request may carry.
 const QUERY_BATCH_MAX_QUERIES: usize = 64;
@@ -47,9 +47,7 @@ pub(super) async fn execute_query_batch_route(
             };
             let response = render(
                 response_format
-                    .run(handlers::execute_query(
-                        host, query, limit, offset, cursor, false,
-                    ))
+                    .run(handlers::execute_query(host, query, limit, offset, cursor))
                     .await,
                 ctx,
             );

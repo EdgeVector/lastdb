@@ -97,7 +97,7 @@ impl RunRead {
             .bytes
             .checked_sub(self.costs.budget_bytes)
             .ok_or(Error::ReadBudgetExceeded)?;
-        let global = lastdb_storage_policy::BACKUP_RESOURCES
+        let global = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(self.shared_metadata_bytes.max(self.retained_bytes()))
             .and_then(|n| n.checked_sub(self.costs.budget_bytes))
@@ -105,7 +105,7 @@ impl RunRead {
             .ok_or(Error::ReadBudgetExceeded)?;
         Ok(logical
             .min(global)
-            .min(lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes))
+            .min(lastdb_model::storage_policy::BACKUP_RESOURCES.decoded_values_bytes))
     }
     fn compound_key(&self, collection: &str, key: &[u8]) -> Result<Vec<u8>> {
         let length = collection
@@ -113,7 +113,8 @@ impl RunRead {
             .checked_add(key.len())
             .and_then(|n| n.checked_add(2))
             .ok_or(Error::ReadBudgetExceeded)?;
-        let frame_buffers = 2 * lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let frame_buffers =
+            2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
         let needed = (length as u64)
             .checked_add(frame_buffers)
             .ok_or(Error::ReadBudgetExceeded)?;

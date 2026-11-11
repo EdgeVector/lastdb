@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use super::QueryRecords;
 
-use super::hash_range_query::{FieldQueryOptions, HashRangeQueryProcessor};
+use super::hash_range_query::HashRangeQueryProcessor;
 
 mod alternate;
 mod count;
@@ -83,10 +83,8 @@ impl QueryExecutor {
             .await
     }
 
-    /// [`Self::query`], hydrating one page of `window`: an
-    /// offset page, a keyset page, or a record walk page after a record key
-    /// position ([`KeyWindow::AfterRecord`], an unfiltered read only). The
-    /// preconditions of [`Self::query_windowed`] apply.
+    /// [`Self::query`], hydrating one page of `window`: an offset page or a
+    /// keyset page. The preconditions of [`Self::query_windowed`] apply.
     pub async fn query_window(
         &self,
         query: Query,

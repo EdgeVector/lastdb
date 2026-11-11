@@ -33,7 +33,7 @@ from support import (CREDENTIALS_FILE, OperationError, child_environment, decode
 
 
 def endpoint():
-    path = Path(__file__).resolve().parents[2] / "folddb_profile/environments.json"
+    path = Path(__file__).resolve().parents[2] / "lastdb_node/environments.json"
     value = decode_json(path.read_bytes())["environments"]["prod"]["exemem_api"]
     require(isinstance(value, str) and re.fullmatch(
         r"https://[a-z0-9]+\.execute-api\.us-east-1\.amazonaws\.com", value), "prod_endpoint")

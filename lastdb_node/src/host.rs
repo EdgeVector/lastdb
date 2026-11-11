@@ -26,7 +26,7 @@ use fold_db::storage::config::DatabaseConfig;
 /// Canonical definition lives in `lastdb_identity`, the identity crate shared
 /// with `fold_db_node` so both binaries resolve the SAME identity from the
 /// SAME node home.
-pub use lastdb_identity::IDENTITY_KEY_FILE;
+pub use crate::identity::IDENTITY_KEY_FILE;
 
 /// The booted minimal host: the core database plus the node identity.
 pub struct Host {
@@ -46,19 +46,19 @@ pub struct Host {
     pub user_hash: String,
     /// UDS worker pool (set after boot once accept loops start). Used by
     /// `/api/status` for ops visibility; empty until `attach_uds_workers`.
-    pub uds_workers: OnceLock<lastdb_uds::UdsWorkerPool>,
+    pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     /// Explicit byte backup admission, worker completion and shutdown pause.
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// Serializes shared upload, replay and snapshot work for this running home.
     pub shared_sync: crate::backup_runtime::SharedSyncRuntime,
     /// Mutation ids for owner-socket writes. The daemon passes this into [`Self::boot`].
-    ids: Arc<dyn lastdb_host::IdGen>,
+    ids: Arc<dyn crate::lastdb_host::IdGen>,
 }
 
 /// Derive the canonical user hash from a base64 Ed25519 public key. Canonical
 /// implementation lives in `lastdb_identity` (shared with `fold_db_node`) so
 /// every binary derives the same owner identity.
-pub use lastdb_identity::{load_or_generate_seed_with_meta, user_hash_from_pubkey};
+pub use crate::identity::{load_or_generate_seed_with_meta, user_hash_from_pubkey};
 
 mod boot;
 mod ids;
@@ -75,7 +75,10 @@ impl Host {
     /// untouched. It never falls back to serving a fresh empty DB over existing
     /// data, and never uses cloud bootstrap as a heal for a local decrypt
     /// failure.
-    pub async fn boot(home: &Path, ids: Arc<dyn lastdb_host::IdGen>) -> Result<Self, String> {
+    pub async fn boot(
+        home: &Path,
+        ids: Arc<dyn crate::lastdb_host::IdGen>,
+    ) -> Result<Self, String> {
         let data_path = Self::prepare_boot_home(home)?;
         let search_outbox_inbox =
             fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
@@ -126,13 +129,13 @@ impl Host {
     }
 
     /// Attach the UDS worker pool for status surfaces (idempotent; first wins).
-    pub fn attach_uds_workers(&self, pool: lastdb_uds::UdsWorkerPool) {
+    pub fn attach_uds_workers(&self, pool: crate::lastdb_uds::UdsWorkerPool) {
         let _ = self.uds_workers.set(pool);
     }
 }
 
-/// The minimal daemon drives the shared owner-socket handlers (`lastdb_host::handlers`).
-impl lastdb_host::HostNode for Host {
+/// The minimal daemon drives the shared owner-socket handlers (`crate::lastdb_host::handlers`).
+impl crate::lastdb_host::HostNode for Host {
     fn fold_db(&self) -> &Arc<FoldDB> {
         &self.db
     }
@@ -141,7 +144,7 @@ impl lastdb_host::HostNode for Host {
         self.keypair.public_key_base64()
     }
 
-    fn ids(&self) -> &dyn lastdb_host::IdGen {
+    fn ids(&self) -> &dyn crate::lastdb_host::IdGen {
         self.ids.as_ref()
     }
 }
@@ -150,12 +153,12 @@ impl lastdb_host::HostNode for Host {
 /// `LASTDB_HOME`, then a persisted `lastdb admin service-home`, then `~/.lastdb`.
 pub fn resolve_home(data_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     match data_dir {
-        Some(dir) => folddb_profile::paths::expand_tilde_path(dir),
+        Some(dir) => crate::profile::paths::expand_tilde_path(dir),
         None if crate::service_home::explicit_home_override_present() => {
-            folddb_profile::paths::folddb_home()
+            crate::profile::paths::folddb_home()
         }
         None => crate::service_home::configured_home()?
-            .map_or_else(folddb_profile::paths::folddb_home, Ok),
+            .map_or_else(crate::profile::paths::folddb_home, Ok),
     }
 }
 

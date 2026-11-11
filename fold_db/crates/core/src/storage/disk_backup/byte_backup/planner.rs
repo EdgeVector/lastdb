@@ -6,7 +6,9 @@ use super::{
     model::{ObjectRecord, Segment, State},
     protocol, Inner, StorageError, StorageResult,
 };
-use cloud_backup_plan::{Chunk, PlanError, PlanFile, PlanState, PlannedObject, Range, Step};
+use crate::storage::cloud_backup_plan::{
+    Chunk, PlanError, PlanFile, PlanState, PlannedObject, Range, Step,
+};
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Object, Version,
@@ -54,10 +56,10 @@ fn drive(
     files: &[PlanFile],
     inventory: &[SnapshotFile],
     scope: &cloud_backup_protocol::CloudScope,
-) -> StorageResult<cloud_backup_plan::PlanTotals> {
+) -> StorageResult<crate::storage::cloud_backup_plan::PlanTotals> {
     let mut plan = PlanState::start(files, scope);
     let mut source = None;
-    let mut buffer = [0u8; cloud_backup_plan::READ_BYTES as usize];
+    let mut buffer = [0u8; crate::storage::cloud_backup_plan::READ_BYTES as usize];
     let mut pending = None;
     loop {
         let step = match pending.take() {
@@ -240,7 +242,7 @@ pub(super) fn save(
     inner.store.write("job.json", state)
 }
 pub(super) fn expected_receipt(input: &TransferInput) -> StorageResult<ObjectReceipt> {
-    cloud_backup_plan::expected_receipt(input).map_err(protocol)
+    crate::storage::cloud_backup_plan::expected_receipt(input).map_err(protocol)
 }
 
 impl From<PlanError> for StorageError {

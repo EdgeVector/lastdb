@@ -1,5 +1,5 @@
 use super::{Result, SharedObjectUploader};
-use cloud_backup_client::shared_objects::SharedObjectClient;
+use crate::cloud_backup_client::shared_objects::SharedObjectClient;
 use cloud_backup_protocol::shared::objects::{SharedObjectRequest, SharedObjectRole};
 use cloud_backup_protocol::shared::{FileDependency, LogBatch, WriterStream};
 use fold_db::security::Ed25519KeyPair;

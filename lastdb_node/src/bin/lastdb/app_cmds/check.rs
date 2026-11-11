@@ -10,7 +10,7 @@ pub(crate) fn app_check(
     mode: lastdb_node::app_publish::CheckMode,
     confirm_expire_existing: bool,
 ) -> Result<Vec<lastdb_node::app_publish::CheckOutcome>, String> {
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     if probe_health(&socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — schema checks run against your local Mini; start the daemon first",

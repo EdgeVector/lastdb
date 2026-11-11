@@ -26,7 +26,7 @@ pub(super) struct RunSource {
 }
 impl RunSource {
     pub fn open(runtime: Arc<PackRuntime>, root: PathBuf, key: &[u8; 32]) -> StorageResult<Self> {
-        let resources = lastdb_storage_policy::BACKUP_RESOURCES;
+        let resources = lastdb_model::storage_policy::BACKUP_RESOURCES;
         // Each transport can hold a producer, queued and HTTP-consumer buffer.
         // Keep the existing codec's plaintext/ciphertext/JSON work space as well.
         let workspace = resources
@@ -171,7 +171,7 @@ impl RunSource {
             .retained_bytes()
             .saturating_add(self.main.reader_bytes())
             .saturating_add(self.cas.as_ref().map_or(0, CapturedRunHome::reader_bytes));
-        if retained > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes {
+        if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
             return Err(invalid("run paired read allowance"));
         }
         let mut main = self

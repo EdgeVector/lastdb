@@ -7,12 +7,12 @@
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: canonical byte framing, JSON key order, hex, and key-prefix rules."
+doc = "Leaf helpers with no domain meaning: canonical byte framing, hex, and key-prefix rules."
 modules = [
   "canonical",
   "hex",
-  "json_order",
   "kind_partition",
+  "storage_policy",
 ]
 
 [[layer]]

@@ -31,11 +31,16 @@ impl MutationLogConfig {
 
     /// `None`, empty, and every non-truthy string stay off.
     ///
-    /// Truthy values are `env_flag`'s set: `1`, `true`, `yes`, and `on`.
+    /// Truthy values are `1`, `true`, `yes`, and `on`.
     #[must_use]
     pub fn from_value(raw: Option<&str>) -> Self {
         Self {
-            enabled: raw.is_some_and(env_flag::truthy),
+            enabled: raw.is_some_and(|s| {
+                matches!(
+                    s.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            }),
         }
     }
 

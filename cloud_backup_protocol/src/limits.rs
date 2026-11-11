@@ -5,17 +5,14 @@ use serde::Serialize;
 
 /// Maximum canonical JSON bytes of a request.
 pub const REQUEST_JSON_MAX_BYTES: u64 = 256 * 1024;
-/// Maximum native files, taken from the storage-policy backup file cap.
-pub const NATIVE_FILES_MAX: usize = lastdb_storage_policy::BACKUP_FILES_MAX;
-/// Maximum decoded-value bytes, taken from `BACKUP_RESOURCES`.
-pub const DECODED_VALUES_MAX_BYTES: u64 =
-    lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes;
-/// Maximum stream-buffer bytes, taken from `BACKUP_RESOURCES`.
-pub const STREAM_BUFFER_MAX_BYTES: u64 =
-    lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes;
-/// Maximum durable local spool bytes, taken from `BACKUP_RESOURCES`.
-pub const DURABLE_LOCAL_SPOOL_MAX_BYTES: u64 =
-    lastdb_storage_policy::BACKUP_RESOURCES.durable_spool_bytes;
+/// Maximum native files, matching `lastdb_model::storage_policy::BACKUP_FILES_MAX`.
+pub const NATIVE_FILES_MAX: usize = 65_552;
+/// Maximum decoded-value bytes, matching `BACKUP_RESOURCES.decoded_values_bytes`.
+pub const DECODED_VALUES_MAX_BYTES: u64 = 64 * 1024 * 1024;
+/// Maximum stream-buffer bytes, matching `BACKUP_RESOURCES.stream_buffer_bytes`.
+pub const STREAM_BUFFER_MAX_BYTES: u64 = 1024 * 1024;
+/// Maximum durable local spool bytes, matching `BACKUP_RESOURCES.durable_spool_bytes`.
+pub const DURABLE_LOCAL_SPOOL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Post-decode bound only. The HTTP adapter must bound raw bytes before decode.
 pub fn encoded_json_bytes<T: Serialize>(value: &T, maximum: u64) -> Result<u64, ProtocolError> {

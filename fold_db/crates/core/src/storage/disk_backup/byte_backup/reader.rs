@@ -22,7 +22,7 @@ impl ByteBackupCapture {
         }
         self.require_export(&state)?;
         if self.inner.readers.load(Ordering::Acquire)
-            >= lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams
+            >= lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams
         {
             return Err(invalid("byte source stream admission"));
         }
@@ -96,7 +96,7 @@ impl ByteBackupReader {
         }
         let maximum = buffer
             .len()
-            .min(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize);
+            .min(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize);
         let count = if let Some(payload) = &mut self.payload {
             payload.read(&mut buffer[..maximum])?
         } else {

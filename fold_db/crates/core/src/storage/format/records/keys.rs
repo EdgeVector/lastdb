@@ -137,7 +137,7 @@ pub(crate) fn alternate_bounds(
         HashRangeFilter::HashRangeRange { hash, start, end } => {
             Ok((encode(hash, start)?, encode(hash, end)?))
         }
-        _ => Err(invalid(
+        HashRangeFilter::HashRangeKeys(_) => Err(invalid(
             "alternate reads require an exact key or a range under one hash",
         )),
     }

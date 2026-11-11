@@ -60,7 +60,7 @@ impl Block {
         {
             return Err(corrupt("stream block identity or length"));
         }
-        let memory_available = lastdb_storage_policy::BACKUP_RESOURCES
+        let memory_available = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(input.memory_bytes())
             .and_then(|n| n.checked_sub(retained))
@@ -210,7 +210,7 @@ impl RunReader {
                 .saturating_add(input.memory_bytes())
                 .saturating_add(self.metadata_bytes())
                 .saturating_add(self.reserved_memory)
-                > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes
+                > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
         {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -377,7 +377,7 @@ impl RunReader {
 }
 
 fn preflight_frame(retained: u64) -> Result<()> {
-    let resources = lastdb_storage_policy::BACKUP_RESOURCES;
+    let resources = lastdb_model::storage_policy::BACKUP_RESOURCES;
     let minimum = 2 * resources.stream_buffer_bytes + 16;
     if retained
         .checked_add(minimum)

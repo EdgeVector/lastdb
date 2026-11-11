@@ -77,24 +77,6 @@ pub(super) fn change_visible_to_caller(
 // Schemas (host-local: catalog listing / fetch / owner declare)
 // ---------------------------------------------------------------------------
 
-/// Count live records through the ordinary bounded query route. A failed or
-/// unavailable count is unknown, never evidence that the schema is empty.
-pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option<usize> {
-    let mgr = host.db.schema_manager();
-    let schema = mgr.resolve_schema(canonical).await.ok()??;
-    if schema.fields.as_ref().is_none_or(Vec::is_empty) {
-        return Some(0);
-    }
-
-    let query = fold_db::schema::types::Query::new(canonical.to_string());
-    host.db
-        .query_executor()
-        .count_query_rows(&query)
-        .await
-        .ok()
-        .flatten()
-}
-
 /// `GET /api/list?schema=` — paged API keys for live schema records.
 pub(super) async fn execute_list_record_keys_route(
     req: &UdsRequest,

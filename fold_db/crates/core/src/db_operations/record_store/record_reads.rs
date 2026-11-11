@@ -1,16 +1,11 @@
-//! Record reads of a home: by key, or by one walk of the record
-//! space of a schema. A range under one hash reads its keys in pages
-//! (`record_spans.rs`). An unfiltered page walks in record key order, one
-//! bounded page at a time (`record_walk.rs`).
+//! Record reads of a home by key or paged key listing. A range under one hash
+//! reads its keys in pages (`record_spans.rs`).
 //!
 //! The stored record carries its API address independently of its fields.
 //! Physical addresses retain their blinded hashes and typed range ordering.
 
-use super::record_walk::{WalkWindow, PAGE_READ_KEYS};
 use super::RecordStore;
-use crate::db_operations::{note_page_key_forms, note_page_resume, page_can_resume, PageResume};
-use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
-use crate::schema::types::field::{FilterUtils, HashRangeFilter, SAMPLE_PEEK_CAP};
+use crate::schema::types::field::{FilterUtils, HashRangeFilter};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, KeyValuePageOrder, Schema};
@@ -30,24 +25,21 @@ pub(crate) type RecordKeyPage = (Vec<(String, String)>, Option<String>, bool);
 
 impl RecordStore {
     /// The live records that one canonical key selector names, in page
-    /// order. `None` reads the first page of the default size in record key
-    /// order (`record_walk.rs`). A range under one hash of a HashRange schema
-    /// reads its keys in pages (`record_spans.rs`), so this read refuses it.
+    /// order. A range under one hash of a HashRange schema reads its keys in
+    /// pages (`record_spans.rs`), so this read refuses it.
     pub(crate) async fn select_records(
         &self,
         schema: &Schema,
-        comparison: &KeyComparisonContext,
-        filter: Option<&HashRangeFilter>,
+        filter: &HashRangeFilter,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         use HashRangeFilter as F;
         let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
-        let mut page = None;
         let mut rows = match filter {
-            Some(F::HashRangeKey { hash, range }) => {
+            F::HashRangeKey { hash, range } => {
                 self.records_at(schema, &[api_key(ranged, hash, range)])
                     .await?
             }
-            Some(F::HashRangeKeys(keys)) => {
+            F::HashRangeKeys(keys) => {
                 let keys: Vec<_> = keys
                     .iter()
                     .map(|(hash, range)| api_key(ranged, hash, range))
@@ -55,42 +47,20 @@ impl RecordStore {
                 self.records_at(schema, &keys).await?
             }
             // A Hash schema has one record for each hash.
-            Some(
-                F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. },
-            ) if !ranged => {
+            F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. }
+                if !ranged =>
+            {
                 self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)])
                     .await?
             }
-            // A sample is the first live records in record key order. The
-            // walk reads past deleted records in bounded pages, so deleted
-            // records do not use up the sample.
-            Some(F::SampleN(count)) => {
-                let take = (*count).min(SAMPLE_PEEK_CAP);
-                self.walk_first(schema, comparison, take).await?
-            }
-            // A `Page` is a window over every live record in page order: the
-            // count and the condition reads need the complete set. The read
-            // allowance of the request bounds it.
-            Some(F::Page { offset, limit }) => {
-                page = Some((*offset, *limit));
-                self.walk_records(schema, comparison).await?
-            }
-            // The first page of the default size, in record key order.
-            None => {
-                self.walk_first(schema, comparison, DEFAULT_UNFILTERED_PAGE_LIMIT)
-                    .await?
-            }
-            Some(_) => {
+            F::HashKey(_) | F::HashRangePrefix { .. } | F::HashRangeRange { .. } => {
                 return Err(SchemaError::InvalidData(
-                    "records are read only by key, by one hash, or by page".into(),
+                    "HashRange range selectors are read through range_rows".into(),
                 ))
             }
         };
         rows.retain(|(_, record)| record.is_live());
         rows.sort_by(|a, b| a.0.cmp_page_order(&b.0));
-        if let Some((offset, limit)) = page {
-            rows = rows.into_iter().skip(offset).take(limit).collect();
-        }
         Ok(rows)
     }
 
@@ -116,70 +86,6 @@ impl RecordStore {
             .zip(records)
             .filter_map(|(key, record)| record.map(|record| (key, record)))
             .collect())
-    }
-
-    /// The first `take` live records of a schema in record key order
-    /// (`record_walk.rs`).
-    ///
-    /// A run of deleted records can use the read allowance before `take`
-    /// records are found. A caller that continues a page that ends early
-    /// gets the short page and the record key position where the walk
-    /// stopped (`PageResume::Record`); any other caller gets a read limit
-    /// error, never a short page that looks complete.
-    async fn walk_first(
-        &self,
-        schema: &Schema,
-        comparison: &KeyComparisonContext,
-        take: usize,
-    ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let window = WalkWindow {
-            after: None,
-            skip: 0,
-            take,
-        };
-        let mut page = self
-            .walk_record_window(schema, comparison, window, |_| true)
-            .await?;
-        if let Some(stopped) = page.stopped.take() {
-            if !page_can_resume() {
-                return Err(SchemaError::ReadResourceLimit {
-                    detail: format!(
-                        "a sample passed {PAGE_READ_KEYS} deleted records before it was full; \
-                         read the schema in pages with next_cursor"
-                    ),
-                });
-            }
-            note_page_resume(PageResume::Record(stopped));
-        }
-        Ok(page.into_keyed())
-    }
-
-    /// One walk of every record in the record space of a schema. The store's
-    /// read allowance bounds the walk.
-    async fn walk_records(
-        &self,
-        schema: &Schema,
-        comparison: &KeyComparisonContext,
-    ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let prefix = space_prefix(schema);
-        let rows = self
-            .main_store
-            .scan_prefix(prefix.as_bytes())
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            let record = decode(&value)?;
-            if record.is_live() {
-                let key = String::from_utf8(key).unwrap_or_default();
-                let suffix = key.strip_prefix(prefix.as_str()).unwrap_or_default();
-                out.push((
-                    walk_key(schema, comparison, &record, suffix)?,
-                    Arc::new(record),
-                ));
-            }
-        }
-        Ok(out)
     }
 
     /// One page of the live record keys of a schema, optionally under one
@@ -271,7 +177,7 @@ impl RecordStore {
 const RECORD_PROBE_ROWS: usize = 16;
 
 /// `rk:{S}:`: the prefix of every record of one schema.
-pub(super) fn space_prefix(schema: &Schema) -> String {
+fn space_prefix(schema: &Schema) -> String {
     format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name))
 }
 
@@ -287,16 +193,6 @@ fn recovered_key(
     record: &StoredRecord,
 ) -> Result<KeyValue, SchemaError> {
     comparison.canonical_key(record.key.clone())
-}
-
-pub(super) fn walk_key(
-    schema: &Schema,
-    comparison: &KeyComparisonContext,
-    record: &StoredRecord,
-    _suffix: &str,
-) -> Result<KeyValue, SchemaError> {
-    note_page_key_forms(1, 0);
-    recovered_key(schema, comparison, record)
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {

@@ -24,7 +24,6 @@
 use fold_db::db_operations::{with_query_page_tally, PageResume};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::operations::Query;
-use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 use fold_db::schema::types::KeyValuePageOrder;
 
@@ -99,7 +98,7 @@ pub(super) async fn fill_page(
                 *after = floors.start(&backlog.schema_name, hash);
                 *leading = true;
             }
-            let filter = range_filter(&backlog.schema_type, hash, backlog.cutoff);
+            let filter = range_filter(hash, backlog.cutoff);
             let page = range_page(host, &backlog.schema_name, filter, after.clone(), limit).await?;
             if !page.keys.is_empty() {
                 *leading = false;
@@ -141,17 +140,13 @@ pub(super) async fn fill_page(
     Ok(())
 }
 
-fn range_filter(kind: &DeclarativeSchemaType, hash: &str, cutoff: u64) -> HashRangeFilter {
+fn range_filter(hash: &str, cutoff: u64) -> HashRangeFilter {
     let start = "0".repeat(AGE_KEY_DIGITS);
     let end = format!("{cutoff:0AGE_KEY_DIGITS$}");
-    if matches!(kind, DeclarativeSchemaType::HashRange) {
-        HashRangeFilter::HashRangeRange {
-            hash: hash.to_string(),
-            start,
-            end,
-        }
-    } else {
-        HashRangeFilter::RangeRange { start, end }
+    HashRangeFilter::HashRangeRange {
+        hash: hash.to_string(),
+        start,
+        end,
     }
 }
 
@@ -182,13 +177,7 @@ async fn range_page(
     })
     .await;
     let rows = rows.map_err(|error| error.to_string())?;
-    let resume = match end.resume {
-        Some(PageResume::Key(key)) => Some(key),
-        Some(PageResume::Record(_)) => {
-            return Err("TTL discovery read ended at a record walk position".into())
-        }
-        None => None,
-    };
+    let resume = end.resume.map(|PageResume::Key(key)| key);
     Ok(RangePage {
         keys: rows.into_keys().collect(),
         resume,

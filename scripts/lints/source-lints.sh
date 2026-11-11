@@ -12,19 +12,11 @@ CRATES=(
   fold_db/crates
   schema_service/crates
   lastdb_node
-  lastdb_host
-  lastdb_uds
-  lastdb_identity
-  lastdb_storage_policy
   cloud_backup_protocol
-  cloud_backup_client
-  cloud_backup_plan
   mutation_log
   mutation_log_mem
   mutation_log_sync
   app_identity_crypto
-  folddb_profile
-  env_flag
 )
 scopes=()
 for crate in "${CRATES[@]}"; do

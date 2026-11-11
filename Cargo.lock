@@ -579,44 +579,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "cloud_backup_client"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "cloud_backup_protocol",
- "folddb_profile",
- "futures",
- "lastdb_model",
- "lastdb_storage_policy",
- "observability",
- "reqwest 0.12.28",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-util",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "cloud_backup_plan"
-version = "0.1.0"
-dependencies = [
- "cloud_backup_protocol",
- "lastdb_storage_policy",
- "serde",
- "sha2",
-]
-
-[[package]]
 name = "cloud_backup_protocol"
 version = "0.1.0"
 dependencies = [
  "json-canon",
- "lastdb_storage_policy",
  "serde",
  "serde_json",
  "sha2",
@@ -988,10 +954,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_flag"
-version = "0.1.0"
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1049,18 +1011,14 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "cloud_backup_plan",
  "cloud_backup_protocol",
  "ed25519-compact",
  "ed25519-dalek",
- "env_flag",
  "futures",
  "hkdf",
  "lastdb_model",
- "lastdb_storage_policy",
  "laststore",
  "libc",
- "observability",
  "rand 0.8.8",
  "schema_types",
  "serde",
@@ -1072,15 +1030,6 @@ dependencies = [
  "tracing",
  "uuid",
  "zeroize",
-]
-
-[[package]]
-name = "folddb_profile"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "thiserror 1.0.69",
- "tracing",
 ]
 
 [[package]]
@@ -1881,29 +1830,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
 
 [[package]]
-name = "lastdb_host"
-version = "0.1.0"
-dependencies = [
- "env_flag",
- "fold_db",
- "lastdb_uds",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "lastdb_identity"
-version = "0.1.0"
-dependencies = [
- "base64",
- "fold_db",
- "sha2",
-]
-
-[[package]]
 name = "lastdb_model"
 version = "0.1.0"
 dependencies = [
@@ -1926,24 +1852,18 @@ dependencies = [
  "bip39",
  "chrono",
  "clap",
- "cloud_backup_client",
- "cloud_backup_plan",
  "cloud_backup_protocol",
- "env_flag",
+ "dirs",
  "fold_db",
- "folddb_profile",
  "futures",
  "hex",
  "hkdf",
- "lastdb_host",
- "lastdb_identity",
- "lastdb_storage_policy",
- "lastdb_uds",
  "laststore",
  "libc",
  "observability",
  "rand 0.8.8",
  "reqwest 0.12.28",
+ "ring",
  "rustix",
  "schema_types",
  "semver",
@@ -1952,27 +1872,12 @@ dependencies = [
  "sha2",
  "signal-hook-registry",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
  "x25519-dalek",
  "zeroize",
-]
-
-[[package]]
-name = "lastdb_storage_policy"
-version = "0.1.0"
-
-[[package]]
-name = "lastdb_uds"
-version = "0.1.0"
-dependencies = [
- "env_flag",
- "fold_db",
- "lastdb_storage_policy",
- "libc",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -1982,7 +1887,7 @@ dependencies = [
  "aes-gcm",
  "crc32fast",
  "hkdf",
- "lastdb_storage_policy",
+ "lastdb_model",
  "openssl",
  "rustix",
  "serde",
@@ -2081,16 +1986,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
-name = "mime_guess"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-dependencies = [
- "mime",
- "unicase",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,7 +2014,6 @@ version = "0.1.0"
 name = "mutation_log_mem"
 version = "0.1.0"
 dependencies = [
- "env_flag",
  "mutation_log",
 ]
 
@@ -2896,7 +2790,6 @@ dependencies = [
  "base64",
  "bytes",
  "encoding_rs",
- "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -2910,7 +2803,6 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
- "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -3948,12 +3840,6 @@ checksum = "b72f89f0ca32e4db1c04e2a72f5345d59796d4866a1ee0609084569f73683dc8"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "unicase"
-version = "2.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-ident"

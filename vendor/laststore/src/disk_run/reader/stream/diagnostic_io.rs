@@ -98,7 +98,7 @@ impl RunReader {
             .max(1024)
             .checked_next_power_of_two()
             .ok_or_else(|| cap("decoder_window"))? as u64;
-        let buffers = 4 * lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let buffers = 4 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
         if window
             .saturating_add(buffers)
             .saturating_add(maximum as u64)

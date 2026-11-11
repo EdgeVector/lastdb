@@ -19,6 +19,7 @@
 //! Normal constructors use the native packed engine. They refuse a nonempty
 //! home of another format.
 
+pub mod cloud_backup_plan;
 pub mod config;
 /// The account-key proof record of a node home. It lives with the store it
 /// reads, above the crypto primitives it seals with.

@@ -37,7 +37,7 @@ impl RunRead {
     /// Fork the exact held root with preallocation-bounded backup reads enabled.
     pub fn fork_bounded(&self, budget: ReadBudget) -> Result<Self> {
         let retained = self.shared_metadata_bytes.max(self.retained_bytes());
-        let available = lastdb_storage_policy::BACKUP_RESOURCES
+        let available = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(retained)
             .ok_or(Error::ReadBudgetExceeded)?;

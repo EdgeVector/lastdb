@@ -1,5 +1,5 @@
 //! Protected backup credentials and account identity.
-use cloud_backup_client::AuthClient;
+use crate::cloud_backup_client::AuthClient;
 use cloud_backup_protocol::AccountId;
 use std::path::Path;
 
@@ -18,6 +18,6 @@ pub fn account_from_phrase(phrase: &str) -> Result<AccountId, String> {
     );
     let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid recovery identity".to_owned())?;
-    let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let account = crate::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
     AccountId::try_from(account).map_err(|_| "invalid recovery account".to_owned())
 }

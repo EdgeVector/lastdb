@@ -23,7 +23,7 @@ impl MutationLogCapture {
             || state.terminal.is_some()
             || state.released
             || self.inner.readers.load(Ordering::Acquire)
-                >= lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams
+                >= lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams
         {
             return Err(invalid("mutation capture reader admission"));
         }
@@ -62,7 +62,7 @@ impl Read for MutationLogReader {
         let maximum = self
             .remaining
             .min(buffer.len() as u64)
-            .min(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
+            .min(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
             as usize;
         let count = self.file.read(&mut buffer[..maximum])?;
         if count == 0 {

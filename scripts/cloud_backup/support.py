@@ -198,7 +198,7 @@ def baseline_from_environment():
 
 
 def dev_endpoint():
-    path = Path(__file__).resolve().parents[2] / "folddb_profile/environments.json"
+    path = Path(__file__).resolve().parents[2] / "lastdb_node/environments.json"
     require(path.is_file() and path.stat().st_size <= 65536, "compiled_profile")
     value = decode_json(path.read_bytes())
     endpoint = value["environments"]["dev"]["exemem_api"]

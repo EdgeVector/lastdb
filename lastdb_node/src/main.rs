@@ -18,9 +18,9 @@ mod shutdown_runtime;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use lastdb_uds::uds::UdsSocket;
-use lastdb_uds::uds_router;
-use lastdb_uds::worker_pool::UdsWorkerPool;
+use lastdb_node::lastdb_uds::uds::UdsSocket;
+use lastdb_node::lastdb_uds::uds_router;
+use lastdb_node::lastdb_uds::worker_pool::UdsWorkerPool;
 
 use lastdb_node::cloud;
 use lastdb_node::host::{self, Host};
@@ -168,7 +168,8 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 
     let socket = UdsSocket::bind_at(
-        socket_path.unwrap_or_else(|| data_dir.join(lastdb_uds::uds::SOCKET_FILE_NAME)),
+        socket_path
+            .unwrap_or_else(|| data_dir.join(lastdb_node::lastdb_uds::uds::SOCKET_FILE_NAME)),
     )
     .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
     println!("lastdbd serving the owner socket");
@@ -251,7 +252,7 @@ fn run() -> Result<(), String> {
 
     // Refuse an unservable data dir before any boot work.
     if socket_path.is_none() {
-        lastdb_uds::uds::preflight_data_dir(&data_dir)
+        lastdb_node::lastdb_uds::uds::preflight_data_dir(&data_dir)
             .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
     }
 

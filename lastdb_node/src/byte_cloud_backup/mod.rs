@@ -43,7 +43,7 @@ pub(crate) fn is_publication_home(home: &std::path::Path) -> std::io::Result<boo
 }
 
 pub fn require_enabled() -> Result<()> {
-    if env_flag::var_truthy("LASTDB_BYTE_BACKUP_V2_ENABLED") {
+    if fold_db::env_flag::var_truthy("LASTDB_BYTE_BACKUP_V2_ENABLED") {
         Ok(())
     } else {
         Err(BackupError::Disabled)

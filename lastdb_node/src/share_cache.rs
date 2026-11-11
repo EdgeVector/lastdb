@@ -7,9 +7,9 @@ use crate::byte_cloud_restore::{
     GuestReplayCache, RestoreError, RestoreSession, StagedRecord, StagedRecordQuery,
     MANAGED_SHARE_DIRECTORY as MANAGED_DIRECTORY,
 };
+use crate::cloud_backup_client::byte_backup::{ByteBackupReader, ShareEnvironment};
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use cloud_backup_client::byte_backup::{ByteBackupReader, ShareEnvironment};
 use cloud_backup_protocol::{v2::Stream, Digest, Id, NativeRoot};
 use files::{Entry, Lock};
 use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore::RunSnapshotReader};

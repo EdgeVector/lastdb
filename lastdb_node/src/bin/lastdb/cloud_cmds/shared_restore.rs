@@ -2,11 +2,11 @@
 
 use super::super::SharedRestoreCommand;
 use super::recovery_home::files;
-use cloud_backup_client::AuthClient;
 use cloud_backup_protocol::Id;
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
+use lastdb_node::cloud_backup_client::AuthClient;
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::shared_restore::{restore_owner, OwnerRestoreSelection, SharedRestore};
 use std::path::Path;
 use zeroize::Zeroizing;

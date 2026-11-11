@@ -1,10 +1,10 @@
 //! Explicit protected catch-up for an already enrolled shared writer.
 
 use crate::byte_cloud_restore::RestoreError;
+use crate::cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
 use crate::shared_restore::recovery::{
     exact_file_versions, open_log_plaintext, MAX_SEALED_LOG_BYTES,
 };
-use cloud_backup_client::shared_peer::{BackupTransportError, SharedPeerClient};
 use cloud_backup_protocol::shared::peer::{PeerHeads, PeerHeadsRequest, PeerNextRequest};
 use cloud_backup_protocol::shared::{StreamCut, WriterStream};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id};

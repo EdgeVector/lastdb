@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::byte_cloud_backup::{transfer, wait, work::Work};
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::{limits::MAX_BATCH_ITEMS, Destination, Object, Version};
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id};
 use std::sync::atomic::AtomicBool;

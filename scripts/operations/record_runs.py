@@ -20,6 +20,7 @@ it stays. record_home.py runs this module on its CI daemon.
 """
 import threading
 import time
+import urllib.parse
 from record_requests import mutation as native_mutation, conditioned
 
 FIELDS = ["id", "bucket", "value"]
@@ -156,53 +157,37 @@ def range_reads(node):
     return pages
 
 
-def walks(node, scan):
-    body = {"schema_name": "RecordRun", "filter": None}
-    rows, pages, short = drain(lambda request: scan(node, request)[0], body, LIMIT)
-    require(ids(rows) == ["a-first", "z-last"],
-            "the walk past deleted records differs: " + repr(ids(rows)))
-    require(pages >= 2, "the walk proof did not exercise its cursor")
-    print(f"Walk cursor crossed the erased keys with {short} short pages", flush=True)
-    return pages
+def listed_hashes(node, schema):
+    """Every live primary hash of `schema` via paged GET /api/list."""
+    keys, cursor = [], None
+    for _ in range(MAX_PAGES):
+        target = f"/api/list?schema={schema}&limit=500"
+        if cursor:
+            target += "&cursor=" + urllib.parse.quote(cursor, safe="")
+        page = node.call(target)[0]["list"]
+        keys.extend(item["hash"] for item in page["keys"])
+        cursor = page.get("next_cursor")
+        if not page["has_more"]:
+            return keys
+    raise RuntimeError(f"/api/list for {schema} did not finish in {MAX_PAGES} pages")
 
 
-def incomplete_sample(node, scan):
-    """A sample that the run of deleted records ends early says so, and the walk continues it."""
-    page, _ = scan(node, {"schema_name": "RecordRun", "filter": {"SampleN": 5}})
-    shown = {name: page.get(name) for name in ["has_more", "total_count", "next_cursor"]}
-    sample = ids(page["results"])
-    if not page.get("has_more"):
-        require(sample == ["a-first", "z-last"] and page.get("next_cursor") is None,
-                "the complete sample differs from the two live keys")
-        return
-    require(sample == ["a-first"],
-            "the partial sample before the erased keys differs: " + repr(sample))
-    require(page.get("has_more") is True and page.get("total_count") is None and page.get("next_cursor"),
-            "a sample that a run of deleted records ended early reads as complete: " + repr(shown))
-    body = {"schema_name": "RecordRun", "filter": None}
-    rows, _, _ = drain(lambda request: scan(node, request)[0], body, LIMIT, page["next_cursor"])
-    require(ids(rows) == ["z-last"], "the walk from the sample cursor differs: " + repr(ids(rows)))
-
-
-def opaque_keys(node, scan):
-    """A Hash schema with no hash key field keeps no key field in its records."""
+def opaque_keys(node):
+    """A Hash schema with no hash key field keeps its API key independently of its fields."""
     names = [f"n{number}" for number in range(5)]
     write(node, [mutation("RecordNoKey", {"hash": name}, {"value": name}, "create")
                  for name in names])
     write(node, [mutation("RecordNoKey", {"hash": "n2"}, {}, "delete")])
-    body = {"schema_name": "RecordNoKey", "filter": None}
-    rows, _, _ = drain(lambda request: scan(node, request)[0], body, 2)
+    listed = sorted(listed_hashes(node, "RecordNoKey"))
+    require(listed == ["n0", "n1", "n3", "n4"],
+            "the key list of a schema with no key field differs: " + repr(listed))
+    rows = node.call("/api/query", {"schema_name": "RecordNoKey",
+                                    "filter": {"HashRangeKeys": [[name, ""] for name in names]}})[0]["results"]
     values = sorted(row["fields"]["value"] for row in rows)
     require(values == ["n0", "n1", "n3", "n4"],
-            "the walk of a schema with no key field differs: " + repr(values))
+            "the keyed batch read of a schema with no key field differs: " + repr(values))
     require(all(row["key"]["hash"] == row["fields"]["value"] for row in rows),
             "a record lost its independently stored API key")
-    page, _ = scan(node, {**body, "limit": 10})
-    require(page.get("key_form") == "api", "the walk page key form differs: "
-            + repr(page.get("key_form")))
-    sample, _ = scan(node, {**body, "filter": {"SampleN": 3}})
-    require(len(sample["results"]) == 3,
-            f"a sample of 3 returned {len(sample['results'])} rows")
 
 
 def wait_gone(node, keys, message, seconds=SWEEP_SECONDS):
@@ -271,18 +256,17 @@ def ledger(node):
     return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
 
 
-def dropped_rows(node, scan):
-    """Every live record of RecordDrop, by walk and by its alternate key."""
-    body = {"schema_name": "RecordDrop", "filter": None}
-    walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
+def dropped_rows(node):
+    """Every live record of RecordDrop, by key list and by its alternate key."""
+    listed = listed_hashes(node, "RecordDrop")
     page = node.call("/api/query", {"schema_name": "RecordDrop",
                                     "filter": {"HashKey": "bd"}, "key_name": "by_bucket",
                                     "limit": 1_000})[0]
     require(not page.get("has_more"), "the alternate read of RecordDrop was truncated")
-    return ids(walked), ids(page["results"])
+    return listed, ids(page["results"])
 
 
-def drop_release(node, scan):
+def drop_release(node):
     """A schema drop releases the rows of the schema and leaves the other schemas."""
     names = [f"d{number:04d}" for number in range(DROP_RECORDS)]
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name},
@@ -294,15 +278,15 @@ def drop_release(node, scan):
         "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
     require(len(primary["results"]) == DROP_RECORDS - 10,
             f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
-    walked, alternate = dropped_rows(node, scan)
-    require(len(walked) == len(alternate) == DROP_RECORDS - 10,
-            f"RecordDrop holds {len(walked)} walked and {len(alternate)} alternate records before the drop")
+    listed, alternate = dropped_rows(node)
+    require(len(listed) == len(alternate) == DROP_RECORDS - 10,
+            f"RecordDrop holds {len(listed)} listed and {len(alternate)} alternate records before the drop")
     reply = node.call("/api/schemas/drop", {"schema": "RecordDrop", "must_exist": True})[0]
     require(reply["existed"], "the schema drop did not find RecordDrop: " + repr(reply))
     seed(node, DROPPED)
-    walked, alternate = dropped_rows(node, scan)
-    require(walked == [] and alternate == [],
-            f"the schema installed again after its drop holds {len(walked)} walked and "
+    listed, alternate = dropped_rows(node)
+    require(listed == [] and alternate == [],
+            f"the schema installed again after its drop holds {len(listed)} listed and "
             f"{len(alternate)} alternate records")
     # The drop releases the entries of the current alternate revision. The schema has no other:
     # an installed schema refuses a change of its alternate keys.
@@ -311,9 +295,9 @@ def drop_release(node, scan):
     refused(lambda: seed(node, changed), ["alternate"])
     write(node, [mutation("RecordDrop", {"hash": "d0001"},
                           {"id": "d0001", "bucket": "fresh", "value": "new"}, "create")])
-    walked, alternate = dropped_rows(node, scan)
-    require(walked == ["d0001"] and alternate == [],
-            f"a new record after the drop reads as {walked} by walk and {alternate} under the old bucket")
+    listed, alternate = dropped_rows(node)
+    require(listed == ["d0001"] and alternate == [],
+            f"a new record after the drop reads as {listed} by list and {alternate} under the old bucket")
     body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
     rows, _, _ = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
     require(ids(rows) == ["a-first", "z-last"], "the drop of RecordDrop changed RecordRun: " + repr(ids(rows)))
@@ -341,17 +325,16 @@ def race_writer(node, stop, outcome):
                 return
 
 
-def race_rows(node, scan):
-    """Every live record of RecordRace, by walk and by its alternate key."""
-    body = {"schema_name": "RecordRace", "filter": None}
-    walked, _, _ = drain(lambda request: scan(node, request)[0], body, 100)
+def race_rows(node):
+    """Every live record of RecordRace, by key list and by its alternate key."""
+    listed = listed_hashes(node, "RecordRace")
     page = node.call("/api/query", {"schema_name": "RecordRace",
                                     "filter": {"HashKey": "race"}, "key_name": "by_bucket",
                                     "limit": 1_000})[0]
-    return ids(walked), ids(page["results"])
+    return listed, ids(page["results"])
 
 
-def drop_race(node, scan):
+def drop_race(node):
     """A write during a schema drop is refused, and the drop leaves no record of the schema."""
     names = [f"r{number:05d}" for number in range(RACE_RECORDS)]
     write(node, [mutation("RecordRace", {"hash": name}, {"id": name, "bucket": "race", "value": name},
@@ -377,36 +360,32 @@ def drop_race(node, scan):
     require(reply["existed"], "the schema drop did not find RecordRace: " + repr(reply))
     require(outcome["blocked"] >= 1, "no write met the drop while it ran: " + repr(outcome))
     seed(node, RACED)
-    walked, alternate = race_rows(node, scan)
-    require(walked == [] and alternate == [],
-            f"the drop left {len(walked)} walked and {len(alternate)} alternate records of a "
+    listed, alternate = race_rows(node)
+    require(listed == [] and alternate == [],
+            f"the drop left {len(listed)} listed and {len(alternate)} alternate records of a "
             f"writer that wrote during it: {outcome}")
     return outcome
 
 
-def check(node, scan):
-    """`scan(node, body)` is one unfiltered /api/query with the full-scan opt-in."""
+def check(node):
     install(node)
     deleted_run(node)
     range_pages = range_reads(node)
-    walk_pages = walks(node, scan)
-    incomplete_sample(node, scan)
-    opaque_keys(node, scan)
+    opaque_keys(node)
     print(f"Deleted runs: {RUN} deleted records under one hash; the range read took {range_pages} "
-          f"pages and the walk {walk_pages} pages of {LIMIT}, both complete and in key order; "
-          "count and sample reported complete results or resumable reads; a schema with no key field walked and sampled "
-          "with opaque keys", flush=True)
+          f"pages of {LIMIT}, complete and in key order; count reported complete results or "
+          "resumable reads; a schema with no key field listed and read by key", flush=True)
     ttl_resume(node)
     print(f"TTL resume: the sweep read past {RUN} deleted records and erased the expired records "
           "after them, twice, and wrote their audit rows", flush=True)
     ttl_below_floor(node)
     print(f"TTL floor: {FLOOR_ROUNDS} writes below the floor of a hash were each erased within "
           f"{FLOOR_SECONDS} s", flush=True)
-    drop_release(node, scan)
+    drop_release(node)
     print(f"Schema drop: the drop of a schema with {DROP_RECORDS} records and an "
           "alternate key released them; the schema installed again held none of them and "
           "refused a change of its alternate keys; another schema kept its records", flush=True)
-    outcome = drop_race(node, scan)
+    outcome = drop_race(node)
     print(f"Drop race: a writer wrote {outcome['written']} batches before the drop, the drop "
           f"refused {outcome['blocked']} batches as blocked and {outcome['missing']} found no "
           f"schema after it; the schema installed again held none of the {RACE_RECORDS} records "

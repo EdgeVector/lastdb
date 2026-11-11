@@ -1,6 +1,6 @@
 //! Only mutation handler waits leave the bounded socket worker.
 use super::*;
-use lastdb_uds::worker_pool::ConnectionWork;
+use lastdb_node::lastdb_uds::worker_pool::ConnectionWork;
 use std::os::unix::net::UnixStream;
 
 pub(super) fn serve(

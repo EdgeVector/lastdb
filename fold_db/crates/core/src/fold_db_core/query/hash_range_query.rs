@@ -1,63 +1,19 @@
 //! HashRange Query Processor
 //!
 //! A home keeps one record at each primary key. A query reads the
-//! records that its key selector names (`records.rs`), applies the
-//! conditions, the order and the window to whole records, then returns
-//! each stored record.
+//! records that its key selector names (`records.rs`), applies the keyed
+//! window, and returns each stored record.
 
 use crate::db_operations::DbOperations;
-use crate::schema::types::field::{HashRangeFilter, KeyWindow};
+use crate::schema::types::field::HashRangeFilter;
 use crate::schema::{Schema, SchemaError};
-use futures::FutureExt;
 use std::sync::Arc;
 
-mod condition_rules;
 mod count;
 mod filter;
-mod predicates;
 mod records;
-mod redacted_filter;
 
-pub use condition_rules::FieldQueryOptions;
-
-/// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
-/// [`redacted_filter::RedactedHashRangeFilter`] view.
-///
-/// Exists so the query log lines keep the `Some(..)`/`None` shape they always
-/// had while the key material inside goes through `redact_id!`. Printing the
-/// filter with `{:?}` here used to write the user's own keys — brain slugs,
-/// card slugs, search terms — verbatim into a plaintext log file, on a node
-/// whose database is encrypted at rest. The format-time deny-list cannot catch
-/// that: it matches on *field names*, and anything interpolated into a tracing
-/// macro's message is one opaque `message` field by the time it is seen.
-struct OptRedactedFilter<'a>(&'a Option<HashRangeFilter>);
-
-impl std::fmt::Display for OptRedactedFilter<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
-            Some(filter) => write!(
-                f,
-                "Some({})",
-                redacted_filter::RedactedHashRangeFilter(filter)
-            ),
-            None => f.write_str("None"),
-        }
-    }
-}
-
-/// A [`HashRangeFilter::Page`] spanning every record — `offset 0`,
-/// `limit usize::MAX`. Used by [`HashRangeQueryProcessor::count_rows`] and
-/// the condition pass to read every candidate record. An unfiltered (`None`)
-/// read would instead return one page of the default size
-/// (`DEFAULT_UNFILTERED_PAGE_LIMIT`) and under-count any larger schema.
-fn full_span_page() -> HashRangeFilter {
-    HashRangeFilter::Page {
-        offset: 0,
-        limit: usize::MAX,
-    }
-}
-
-/// Processor for record queries of a home.
+/// Processor for keyed record queries of a home.
 pub struct HashRangeQueryProcessor {
     db_ops: Arc<DbOperations>,
 }

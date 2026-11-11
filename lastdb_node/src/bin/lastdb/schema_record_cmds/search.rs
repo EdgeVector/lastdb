@@ -8,7 +8,7 @@ pub(crate) fn search_rebuild_command(
 ) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     // Refuse if daemon holds the store (exclusive open would race).
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
     if probe_health(&socket).is_ok() {
         return Err(format!(
             "lastdbd is running at {} — stop the daemon before offline search-rebuild (exclusive home open)",
