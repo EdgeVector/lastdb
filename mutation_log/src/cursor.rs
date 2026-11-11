@@ -8,12 +8,12 @@ use crate::{DatabaseKind, LogState, NamespaceKind, NamespacePolicy, PrincipalId,
 /// moves when another stream appends. Readers of more than one stream use
 /// delivery sequence, because one writer sequence cannot name both.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CursorSpace {
+pub enum CursorSpace {
     Delivery,
     Stream(crate::StreamId),
 }
 
-pub(crate) fn cursor_space(state: &LogState, reader: &PrincipalId) -> CursorSpace {
+pub fn cursor_space(state: &LogState, reader: &PrincipalId) -> CursorSpace {
     if is_publisher(state, reader) {
         return CursorSpace::Delivery;
     }

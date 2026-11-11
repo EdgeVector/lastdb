@@ -1,7 +1,61 @@
 use crate::error::SyncError;
 use mutation_log::{
-    DatabaseId, DatabaseKind, LogError, Namespace, PrincipalId, StoredEntry, StreamId,
+    CursorSpace, DatabaseId, DatabaseKind, LogError, MutationLog, Namespace, PrincipalId,
+    StoredEntry, StreamId,
 };
+
+/// Cursor saved for one participant, including the sequence space it counts in.
+///
+/// A grant change can move a principal from delivery sequence to a stream's
+/// writer sequence. The number is not reused in the new space: the cursor
+/// restarts at zero there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReadCursor {
+    /// Global delivery sequence.
+    Delivery(u64),
+    /// Writer sequence of one stream.
+    Stream {
+        /// Stream whose writer sequence this cursor counts.
+        stream: StreamId,
+        /// Last writer sequence read on `stream`.
+        through: u64,
+    },
+}
+
+impl ReadCursor {
+    pub(crate) fn at(space: CursorSpace, through: u64) -> Self {
+        match space {
+            CursorSpace::Delivery => Self::Delivery(through),
+            CursorSpace::Stream(stream) => Self::Stream { stream, through },
+        }
+    }
+
+    /// Position to pass to `list` in `current`.
+    ///
+    /// A different space restarts at zero instead of treating the old number
+    /// as a writer sequence or a delivery sequence.
+    pub(crate) fn position_in(&self, current: &CursorSpace) -> u64 {
+        if self.same_space(current) {
+            self.through()
+        } else {
+            0
+        }
+    }
+
+    fn through(&self) -> u64 {
+        match self {
+            Self::Delivery(through) | Self::Stream { through, .. } => *through,
+        }
+    }
+
+    fn same_space(&self, current: &CursorSpace) -> bool {
+        match (self, current) {
+            (Self::Delivery(_), CursorSpace::Delivery) => true,
+            (Self::Stream { stream, .. }, CursorSpace::Stream(current)) => stream == current,
+            _ => false,
+        }
+    }
+}
 
 /// What one participant does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,14 +95,17 @@ pub enum Outcome {
         /// Next writer sequence for this participant.
         next_seq: u64,
     },
-    /// The batch was already stored.
-    Duplicate,
+    /// The batch was already stored. `next_seq` is the next sequence the stream accepts.
+    Duplicate {
+        /// Next writer sequence for this participant.
+        next_seq: u64,
+    },
     /// Entries this participant may apply locally.
     Pulled {
         /// Visible entries, oldest first.
         entries: Vec<StoredEntry>,
-        /// Cursor for the next pull.
-        cursor: u64,
+        /// Cursor for the next pull, in the space it was read from.
+        cursor: ReadCursor,
     },
 }
 
@@ -87,7 +144,7 @@ pub struct SyncState {
     pub(crate) database_id: DatabaseId,
     pub(crate) kind: DatabaseKind,
     pub(crate) role: SyncRole,
-    pub(crate) cursor: u64,
+    pub(crate) cursor: ReadCursor,
     pub(crate) next_seq: u64,
 }
 
@@ -102,13 +159,27 @@ impl SyncState {
         role: SyncRole,
     ) -> Result<Self, SyncError> {
         check_role(&kind, &role)?;
+        let cursor = opening_cursor(&kind, &role);
         Ok(Self {
             database_id,
             kind,
             role,
-            cursor: 0,
+            cursor,
             next_seq: 1,
         })
+    }
+
+    /// Set `next_seq` from the stream tip already stored in `log`.
+    ///
+    /// A fresh [`Self::open`] starts at 1. A process that rejoins a stream
+    /// calls this before appending, so the next mutation does not reuse a
+    /// stored sequence.
+    pub fn resume<L: MutationLog>(state: &Self, log: &L) -> Result<Self, SyncError> {
+        let stream = crate::step::write_stream(state)?.clone();
+        let tip = log.writer_tip(state.reader(), &stream)?;
+        let mut next = state.clone();
+        next.next_seq = tip.checked_add(1).ok_or(LogError::SequenceExhausted)?;
+        Ok(next)
     }
 
     pub(crate) fn reader(&self) -> &PrincipalId {
@@ -118,6 +189,25 @@ impl SyncState {
             | SyncRole::Receiver { principal }
             | SyncRole::Contributor { principal, .. } => principal,
         }
+    }
+}
+
+fn opening_cursor(kind: &DatabaseKind, role: &SyncRole) -> ReadCursor {
+    match role {
+        SyncRole::Device { .. } | SyncRole::Publisher { .. } => ReadCursor::Delivery(0),
+        SyncRole::Receiver { .. } => match kind {
+            DatabaseKind::Shareable {
+                publisher_stream, ..
+            } => ReadCursor::Stream {
+                stream: publisher_stream.clone(),
+                through: 0,
+            },
+            DatabaseKind::Personal => ReadCursor::Delivery(0),
+        },
+        SyncRole::Contributor { stream, .. } => ReadCursor::Stream {
+            stream: stream.clone(),
+            through: 0,
+        },
     }
 }
 

@@ -1,6 +1,6 @@
 use mutation_log::{
-    step, AppendBatch, AppendOutcome, Capability, Command, ListPage, LogError, LogState,
-    NamespacePolicy, Outcome, PrincipalId, ScopedHead, Snapshot,
+    step, AppendBatch, AppendOutcome, Capability, Command, CursorSpace, ListPage, LogError,
+    LogState, NamespacePolicy, Outcome, PrincipalId, ScopedHead, Snapshot, StreamId,
 };
 
 use crate::MutationLog;
@@ -135,6 +135,14 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
                 _ => None,
             },
         )
+    }
+
+    fn cursor_space(&self, reader: &PrincipalId) -> Result<CursorSpace, LogError> {
+        Ok(mutation_log::cursor_space(&self.state, reader))
+    }
+
+    fn writer_tip(&self, reader: &PrincipalId, stream: &StreamId) -> Result<u64, LogError> {
+        self.state.writer_tip(reader, stream)
     }
 
     fn snapshot(&mut self, caller: &PrincipalId, at_ms: u64) -> Result<Snapshot, LogError> {

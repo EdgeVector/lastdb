@@ -1,8 +1,7 @@
 use crate::error::SyncError;
 use crate::model::{Outcome, SyncEvent, SyncState};
 use crate::step::{propose, Effect};
-use mutation_log::{AppendOutcome, LogError, LIST_PAGE_LIMIT};
-use mutation_log_mem::MutationLog;
+use mutation_log::{AppendOutcome, LogError, MutationLog, LIST_PAGE_LIMIT};
 
 /// Apply one participant event through `log`.
 ///
@@ -24,9 +23,9 @@ fn apply<L: MutationLog>(log: &mut L, effect: Effect) -> Result<Outcome, SyncErr
         Effect::Append(batch) => append(log, batch),
         Effect::Pull {
             reader,
-            after,
+            cursor,
             now_ms,
-        } => pull(log, &reader, after, now_ms),
+        } => pull(log, &reader, &cursor, now_ms),
     }
 }
 
@@ -44,20 +43,26 @@ fn append<L: MutationLog>(
             delivery_seqs,
             next_seq,
         }),
-        AppendOutcome::Duplicate => Ok(Outcome::Duplicate),
+        AppendOutcome::Duplicate { next_seq } => Ok(Outcome::Duplicate { next_seq }),
     }
 }
 
 fn pull<L: MutationLog>(
     log: &mut L,
     reader: &mutation_log::PrincipalId,
-    after: u64,
+    cursor: &crate::ReadCursor,
     now_ms: u64,
 ) -> Result<Outcome, SyncError> {
-    let page = log.list(reader, after, LIST_PAGE_LIMIT, now_ms)?;
+    let current = log.cursor_space(reader)?;
+    let page = log.list(
+        reader,
+        cursor.position_in(&current),
+        LIST_PAGE_LIMIT,
+        now_ms,
+    )?;
     log.ack(reader, page.next)?;
     Ok(Outcome::Pulled {
-        cursor: page.next,
+        cursor: crate::ReadCursor::at(current, page.next),
         entries: page.entries,
     })
 }
@@ -65,9 +70,10 @@ fn pull<L: MutationLog>(
 pub(crate) fn commit(state: &SyncState, outcome: &Outcome) -> SyncState {
     let mut next = state.clone();
     match outcome {
-        Outcome::Appended { next_seq, .. } => next.next_seq = *next_seq,
-        Outcome::Pulled { cursor, .. } => next.cursor = *cursor,
-        Outcome::Duplicate => {}
+        Outcome::Appended { next_seq, .. } | Outcome::Duplicate { next_seq } => {
+            next.next_seq = *next_seq;
+        }
+        Outcome::Pulled { cursor, .. } => next.cursor = cursor.clone(),
     }
     next
 }

@@ -8,8 +8,10 @@ use crate::{drive, Outcome, SyncEvent, SyncRole, SyncState};
 
 mod path;
 mod personal;
+mod retry;
 mod role;
 mod share;
+mod space;
 
 type Policy = fn(&Namespace) -> NamespaceKind;
 type MemLog = InMemoryMutationLog<Policy>;
@@ -39,7 +41,7 @@ fn namespace(name: &str) -> Namespace {
 }
 
 fn open_log(state: LogState) -> MemLog {
-    crate::MutationLogConfig::from_value(Some("on"))
+    mutation_log_mem::MutationLogConfig::from_value(Some("on"))
         .open(state, hearth as Policy)
         .expect("enabled config installs the log")
 }
@@ -95,6 +97,6 @@ fn pull(log: &mut MemLog, state: &SyncState, now_ms: u64) -> (SyncState, Vec<Sto
             assert_eq!(next.cursor, cursor);
             (next, entries)
         }
-        Outcome::Appended { .. } | Outcome::Duplicate => panic!("pull stored an entry"),
+        Outcome::Appended { .. } | Outcome::Duplicate { .. } => panic!("pull stored an entry"),
     }
 }

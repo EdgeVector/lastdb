@@ -10,7 +10,7 @@ pub(crate) enum Effect {
     Append(AppendBatch),
     Pull {
         reader: mutation_log::PrincipalId,
-        after: u64,
+        cursor: crate::ReadCursor,
         now_ms: u64,
     },
 }
@@ -36,7 +36,7 @@ pub(crate) fn propose(
         ),
         SyncEvent::Pull { now_ms } => Ok(Effect::Pull {
             reader: state.reader().clone(),
-            after: state.cursor,
+            cursor: state.cursor.clone(),
             now_ms,
         }),
         SyncEvent::Reappend {
@@ -132,7 +132,7 @@ fn writer(state: &SyncState) -> Result<&mutation_log::PrincipalId, SyncError> {
     }
 }
 
-fn write_stream(state: &SyncState) -> Result<&StreamId, SyncError> {
+pub(crate) fn write_stream(state: &SyncState) -> Result<&StreamId, SyncError> {
     match &state.role {
         SyncRole::Device { stream, .. } | SyncRole::Contributor { stream, .. } => Ok(stream),
         SyncRole::Publisher { .. } => publisher_stream(state),

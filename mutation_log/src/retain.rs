@@ -9,7 +9,9 @@ impl LogState {
     /// Acknowledge `through` in the cursor space this consumer can see.
     ///
     /// The bound is the last entry that consumer can read, not the raw head.
-    /// The stored value is that cursor. Trim coverage is derived from it, so a
+    /// The stored value is that cursor. An ack at or below the stored cursor
+    /// is a no-op, so a rolled-back pull can ack an earlier page without
+    /// getting stuck. Trim coverage is derived from the stored cursor, so a
     /// caught-up receiver does not pin hidden entries and cannot probe them.
     pub fn ack(
         &self,
@@ -25,8 +27,8 @@ impl LogState {
             return Err(LogError::AckAhead);
         }
         let previous = self.acks.get(consumer).copied().unwrap_or(0);
-        if through < previous {
-            return Err(LogError::AckRegress);
+        if through <= previous {
+            return Ok(self.clone());
         }
         let mut next = self.clone();
         next.acks.insert(consumer.clone(), through);

@@ -45,6 +45,12 @@ order only. Devices and contributors each have a writer stream. A stream's
 - `last + 1` is accepted
 - a higher value is a gap, and the batch is not stored
 
+A duplicate reports the next acceptable writer sequence, one past the stored
+tip. A caller whose response was lost can retry, then append the next mutation
+at that sequence. Copying a submission onto the publisher stream is also
+idempotent on `(submission_stream, writer_seq)`. Repeating that copy stores
+nothing and does not move the publisher tip.
+
 There is no ULID idempotency row. Merge order is the stamp
 `(authored_at_ms, source_stream, sequence)`. An append is one transaction of
 at most 90 entries, and each stream has at most one append in flight.
@@ -66,10 +72,14 @@ Testable rule:
 1. A receiver of a share reads only entries the publisher authored into the
    shared database's log. The read is scoped to `(database_id, publisher stream)`.
    The receiver's cursor is that stream's writer sequence, not the global
-   delivery sequence. A receiver who has read every publisher entry is caught
-   up: the ack does not pin the trim floor on a hidden delivery sequence, and
-   `list` does not expire that cursor. `CursorExpired.snapshot_through` is in
-   the same writer sequence, so it does not reveal another stream's position.
+   delivery sequence. The saved cursor names its sequence space. If grants
+   move the principal into a different space, the old number is not reused;
+   the cursor restarts at zero in the new space. A receiver who has read every
+   publisher entry is caught up: the ack does not pin the trim floor on a
+   hidden delivery sequence, and `list` does not expire that cursor.
+   `CursorExpired.snapshot_through` is in the same writer sequence, so it does
+   not reveal another stream's position. An ack at or below the cursor already
+   stored for that principal is a no-op.
 2. A contributor's submission is not readable by other receivers. It is a
    submission stream. Only the publisher, and the submitting contributor for
    that contributor's own entries, can read it.
@@ -160,6 +170,8 @@ Pure core, no I/O, crate `mutation_log`:
 - `mutation_log/src/cursor.rs` — receiver cursor in the publisher stream sequence
 - `mutation_log/src/retain.rs` — ack, snapshot, trim floor
 - `mutation_log/src/namespace.rs` — `NamespacePolicy`
+- `mutation_log/src/port.rs` — `MutationLog` port. Adapters implement it. The
+  sync step depends on this trait, not on an adapter.
 - `mutation_log/src/tests/` — the invariant, including app-private namespaces
   and the refusal to grant a personal database to a receiver
 
@@ -180,9 +192,11 @@ and does not read the process environment itself.
 Shared-sync step, crate `mutation_log_sync`. Personal devices and share
 participants call the same `drive`. There is no format parameter and no
 contributor cap. `select_path` returns the existing `lastdb_node` shared-sync
-worker when `MutationLogConfig` is off, and it does not build a log. The
-worker does not call this crate, and the product still does not read
-`LASTDB_MUTATION_LOG`.
+worker when the caller passes `enabled == false`, and it does not build a log.
+The shell reads `MutationLogConfig` and passes that flag. The worker does not
+call this crate, and the product still does not read `LASTDB_MUTATION_LOG`.
+The crate depends on `MutationLog` only. `mutation_log_mem` is the in-memory
+adapter used by its tests.
 
 - `mutation_log_sync/src/lib.rs` — `select_path`
 - `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
