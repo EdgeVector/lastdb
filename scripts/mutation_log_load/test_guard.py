@@ -1,4 +1,4 @@
-"""Offline checks for the DEV load target. No network."""
+"""Offline checks for the DEV table, region, and load database. No network."""
 
 import json
 import sys
@@ -7,114 +7,86 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from guard import (DEV_TABLE, GuardError, allow_bucket, allow_endpoint,
-                   allow_prefix, allow_role, allow_table, allow_table_arn,
-                   cleanup_plan, database_id_for_run, load_endpoints,
-                   refuse_prod_environment, retain_keys)
-from plan import TRIM_WRITERS, STEADY_MS, operations, scenario, still_running
-from sign import canonical
+from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
+                   allow_region, allow_stream, allow_table, allow_table_arn,
+                   database_id_for_run, delete_batch, load_endpoints, query_request,
+                   record_ids_from_query, unprocessed_ids)
+from plan import STEADY_MS, TRIM_WRITERS, scenario, still_running
+from routes import path_for, require_entries_above, require_trim
 
 
 DEV = "https://dev.example.test"
 PROD = "https://prod.example.test"
-PREFIX = "mutation-log/c1da11d0-load-17/"
-ROLE = "arn:aws:iam::152335099025:role/LastDBMutationLogDev"
 
 
 class TargetGuard(unittest.TestCase):
-    def test_dev_table_and_load_prefix_are_accepted(self):
+    def test_only_the_dev_table_in_us_west_2(self):
+        self.assertEqual(allow_region(DEV_REGION), DEV_REGION)
         self.assertEqual(allow_table(DEV_TABLE), DEV_TABLE)
-        self.assertEqual(allow_prefix(PREFIX), PREFIX)
-        self.assertEqual(allow_endpoint(DEV, DEV, PROD), DEV)
+        arn = "arn:aws:dynamodb:{0}:{1}:table/{2}".format(DEV_REGION, DEV_ACCOUNT, DEV_TABLE)
+        self.assertEqual(allow_table_arn(arn, DEV_TABLE), arn)
+        prod = arn.replace(DEV_REGION, "us-east-1")
+        with self.assertRaises(GuardError):
+            allow_table_arn(prod, DEV_TABLE)
+        with self.assertRaises(GuardError):
+            allow_region("us-east-1")
+        with self.assertRaises(GuardError):
+            allow_table("ExememMutationLog-prod")
+
+    def test_load_database_id_is_accepted_and_other_ids_are_not(self):
         self.assertEqual(database_id_for_run("17"), "c1da11d0-load-17")
-
-    def test_other_table_is_refused(self):
-        for name in ("ExememMutationLog-prod", "ExememCloudControl-dev", "other"):
+        self.assertEqual(allow_stream("c1da11d0-load-17"), "c1da11d0-load-17")
+        for value in ("c1da11d0-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                      "mutation-log/c1da11d0-load-17", "c1da11d0-load-", ""):
             with self.assertRaises(GuardError):
-                allow_table(name)
-
-    def test_other_prefix_is_refused(self):
-        for prefix in (
-            "mutation-log/c1da11d0-real/",
-            "mutation-log/c1da11d0-load",
-            "mutation-log/other/c1da11d0-load-1/",
-            "mutation-log/c1da11d0-load-1/../secret",
-            "/mutation-log/c1da11d0-load-1/",
-        ):
-            with self.assertRaises(GuardError):
-                allow_prefix(prefix)
+                allow_stream(value)
 
     def test_prod_endpoint_is_refused(self):
+        self.assertEqual(allow_endpoint(DEV, DEV, PROD), DEV)
         with self.assertRaises(GuardError):
             allow_endpoint(PROD, DEV, PROD)
-        with self.assertRaises(GuardError):
-            allow_endpoint("https://other.example.test", DEV, PROD)
-        with self.assertRaises(GuardError):
-            refuse_prod_environment(PROD, ["keep", "note " + PROD])
-
-    def test_prod_role_and_bucket_are_refused(self):
-        with self.assertRaises(GuardError):
-            allow_role("arn:aws:iam::152335099025:role/LastDBProd")
-        with self.assertRaises(GuardError):
-            allow_role("arn:aws:iam::999999999999:role/LastDBMutationLogDev")
-        self.assertEqual(allow_role(ROLE), ROLE)
-        with self.assertRaises(GuardError):
-            allow_bucket("mutation-log-prod")
-        self.assertEqual(allow_bucket("mutation-log-dev"), "mutation-log-dev")
-
-    def test_table_arn_must_be_the_dev_table(self):
-        arn = "arn:aws:dynamodb:us-west-2:152335099025:table/" + DEV_TABLE
-        self.assertEqual(allow_table_arn(arn, DEV_TABLE), arn)
-        with self.assertRaises(GuardError):
-            allow_table_arn(arn.replace(DEV_TABLE, "ExememMutationLog-prod"), DEV_TABLE)
-
-    def test_cleanup_stays_on_the_load_prefix(self):
-        plan = cleanup_plan(DEV_TABLE, PREFIX, "mutation-log-dev")
-        self.assertEqual(plan["dynamodb"]["operation"], "Query")
-        self.assertEqual(plan["dynamodb"]["TableName"], DEV_TABLE)
-        self.assertNotIn("Scan", json.dumps(plan))
-        self.assertEqual(plan["s3"]["Prefix"], PREFIX)
-        self.assertEqual(retain_keys([PREFIX + "a"], PREFIX), [PREFIX + "a"])
-        with self.assertRaises(GuardError):
-            retain_keys(["mutation-log/customer/a"], PREFIX)
-        with self.assertRaises(GuardError):
-            cleanup_plan("ExememMutationLog-prod", PREFIX, "mutation-log-dev")
-
-    def test_registry_dev_is_not_prod(self):
-        registry = Path(__file__).resolve().parents[2] / "folddb_profile" / "environments.json"
+        registry = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
         dev, prod = load_endpoints(registry)
         self.assertNotEqual(dev, prod)
-        self.assertEqual(allow_endpoint(dev, dev, prod), dev)
         with self.assertRaises(GuardError):
             allow_endpoint(prod, dev, prod)
 
-    def test_trim_has_more_than_100_writers_and_steady_is_three_minutes(self):
-        trim = scenario("trim")
-        self.assertGreater(trim.writers, 100)
-        self.assertEqual(trim.writers, TRIM_WRITERS)
-        ops = list(operations(trim))
-        self.assertEqual(sum(1 for op in ops if op[0] == "append"), TRIM_WRITERS)
-        self.assertEqual(ops[-1][0], "trim")
-        steady = scenario("100")
-        self.assertEqual(steady.steady_ms, STEADY_MS)
-        self.assertTrue(still_running(steady, STEADY_MS - 1, 0))
-        self.assertFalse(still_running(steady, STEADY_MS, 0))
-        full = scenario("5")
-        self.assertIsNone(full.steady_ms)
-        self.assertTrue(still_running(full, STEADY_MS * 10, 0))
-        self.assertFalse(still_running(full, 0, 1))
-        self.assertEqual(scenario("20").writers, 20)
+    def test_cleanup_uses_record_id_and_retries_unprocessed_keys(self):
+        plan = delete_batch(DEV_TABLE, "c1da11d0-load-17", ["entry-1"])
+        encoded = json.dumps(plan)
+        self.assertNotIn("sk", encoded)
+        self.assertIn("record_id", encoded)
+        self.assertEqual(plan["RequestItems"][DEV_TABLE][0]["DeleteRequest"]["Key"]["record_id"]["S"],
+                         "entry-1")
+        query = query_request(DEV_TABLE, "c1da11d0-load-17")
+        self.assertEqual(query["TableName"], DEV_TABLE)
+        self.assertNotIn("Scan", json.dumps(query))
+        response = {"Items": [{"database_id": {"S": "c1da11d0-load-17"},
+                               "record_id": {"S": "entry-1"}}]}
+        self.assertEqual(record_ids_from_query(response, "c1da11d0-load-17"), ["entry-1"])
+        pending = {"UnprocessedItems": {DEV_TABLE: plan["RequestItems"][DEV_TABLE]}}
+        self.assertEqual(unprocessed_ids(pending, DEV_TABLE, "c1da11d0-load-17"), ["entry-1"])
+        with self.assertRaises(GuardError):
+            unprocessed_ids(
+                {"UnprocessedItems": {"Other": []}}, DEV_TABLE, "c1da11d0-load-17")
 
-    def test_signature_text_is_body_hash_method_path_database_and_time(self):
-        text = canonical("post", "/mutation-log/c1da11d0-load-17/append",
-                         "c1da11d0-load-17", 10, b"{}").decode("utf-8")
-        body_hash, method, path, database_id, timestamp = text.split("\n")
-        self.assertEqual(len(body_hash), 64)
-        self.assertEqual(method, "POST")
-        self.assertTrue(path.startswith("/mutation-log/c1da11d0-load-"))
-        self.assertEqual(database_id, "c1da11d0-load-17")
-        self.assertEqual(timestamp, "10")
-        allow_prefix(path.lstrip("/"))
+    def test_routes_and_trim_proof(self):
+        self.assertEqual(path_for("create-database"),
+                         "/api/cloud/backups/v2/mutation-log/create-database")
+        self.assertEqual(scenario("trim").writers, TRIM_WRITERS)
+        self.assertGreater(TRIM_WRITERS, 100)
+        self.assertEqual(require_trim("0", {"through": "4", "dropped": "4"}), (4, 4))
+        with self.assertRaises(Exception):
+            require_trim("4", {"through": "4", "dropped": "1"})
+        require_entries_above(4, {"entries": [{"delivery_seq": "5"}]})
+        with self.assertRaises(Exception):
+            require_entries_above(4, {"entries": [{"delivery_seq": "4"}]})
+        steady = scenario("100")
+        self.assertEqual(steady.writers, 100)
+        self.assertEqual(steady.steady_ms, STEADY_MS)
+        self.assertTrue(still_running(steady, STEADY_MS - 1))
+        self.assertFalse(still_running(steady, STEADY_MS))
+        self.assertTrue(still_running(scenario("5"), STEADY_MS * 10))
 
 
 if __name__ == "__main__":

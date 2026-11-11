@@ -30,3 +30,10 @@ def format_summary(summary):
         "  errors: {errors}".format(**summary),
         "  throughput: {throughput_per_s:.2f} req/s".format(**summary),
     ])
+
+
+def combine_exit(load_status, cleanup_status):
+    """A cleanup failure must not replace the load's own status."""
+    if load_status:
+        return load_status
+    return cleanup_status

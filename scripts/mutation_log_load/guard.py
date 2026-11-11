@@ -1,20 +1,22 @@
-"""Refuse every target except the DEV mutation-log load prefix.
+"""Refuse every target except the DEV mutation-log table in us-west-2.
 
-The only DynamoDB table is ``ExememMutationLog-dev``. The only object
-prefix is ``mutation-log/c1da11d0-load-``. The only HTTP endpoint is the
-DEV Exemem API from ``folddb_profile/environments.json``. A PROD
-endpoint, any other table, or any other prefix is a hard failure.
+DEV and PROD share account 152335099025, so the region is the guard.
+The only table is ``ExememMutationLog-dev``. The only database id is
+``c1da11d0-load-<run>``. Snapshot bytes are rows in that table. This
+module has no object-store target.
 """
 
 import json
 import re
 
+
 DEV_TABLE = "ExememMutationLog-dev"
-LOAD_PREFIX = "mutation-log/c1da11d0-load-"
+DEV_REGION = "us-west-2"
 DEV_ACCOUNT = "152335099025"
+STREAM_ID = re.compile(r"c1da11d0-load-[1-9][0-9]{0,18}")
 ROLE_ARN = re.compile(
     r"arn:aws:iam::" + DEV_ACCOUNT + r":role/[A-Za-z0-9+=,.@_-]{1,64}")
-DATABASE_ID = re.compile(r"c1da11d0-load-[A-Za-z0-9-]{1,80}")
+BATCH_LIMIT = 25
 
 
 class GuardError(Exception):
@@ -22,7 +24,6 @@ class GuardError(Exception):
 
 
 def load_endpoints(path):
-    """Return ``(dev_endpoint, prod_endpoint)`` from the URL registry."""
     value = json.loads(path.read_text(encoding="utf-8"))
     environments = value["environments"]
     dev = environments["dev"]["exemem_api"].rstrip("/")
@@ -39,6 +40,26 @@ def allow_endpoint(endpoint, dev, prod):
     return chosen
 
 
+def refuse_prod_environment(prod_endpoint, values):
+    for value in values:
+        if prod_endpoint and prod_endpoint in str(value):
+            raise GuardError("endpoint")
+
+
+def allow_region(region):
+    if region != DEV_REGION:
+        raise GuardError("region")
+    return region
+
+
+def allow_region_environment(environ):
+    for name in ("AWS_REGION", "AWS_DEFAULT_REGION"):
+        value = environ.get(name)
+        if value not in (None, "", DEV_REGION):
+            raise GuardError("region")
+    return DEV_REGION
+
+
 def allow_table(name):
     if name != DEV_TABLE:
         raise GuardError("table")
@@ -46,38 +67,11 @@ def allow_table(name):
 
 
 def allow_table_arn(arn, table):
-    expected = ":table/" + allow_table(table)
-    if not arn.endswith(expected) or DEV_ACCOUNT not in arn or "prod" in arn.lower():
+    expected = "arn:aws:dynamodb:{0}:{1}:table/{2}".format(
+        allow_region(DEV_REGION), DEV_ACCOUNT, allow_table(table))
+    if arn != expected:
         raise GuardError("table")
     return arn
-
-
-def refuse_prod_environment(prod_endpoint, values):
-    """A PROD URL in the process environment is a hard failure."""
-    for value in values:
-        if prod_endpoint in str(value):
-            raise GuardError("endpoint")
-
-
-def allow_prefix(prefix):
-    if not prefix.startswith(LOAD_PREFIX) or prefix != prefix.strip():
-        raise GuardError("prefix")
-    if ".." in prefix or "\\" in prefix or prefix.startswith("/"):
-        raise GuardError("prefix")
-    rest = prefix[len("mutation-log/"):]
-    database = rest.split("/", 1)[0]
-    if not DATABASE_ID.fullmatch(database):
-        raise GuardError("prefix")
-    return prefix
-
-
-def allow_bucket(name):
-    lowered = name.lower()
-    if "prod" in lowered or not lowered.endswith("-dev"):
-        raise GuardError("bucket")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", name):
-        raise GuardError("bucket")
-    return name
 
 
 def allow_role(arn):
@@ -86,42 +80,70 @@ def allow_role(arn):
     return arn
 
 
-def database_id_for_run(run_id):
-    if not re.fullmatch(r"[1-9][0-9]{0,18}", run_id):
+def allow_stream(value):
+    if not isinstance(value, str) or len(value) > 64 or not STREAM_ID.fullmatch(value):
         raise GuardError("database")
-    database_id = "c1da11d0-load-" + run_id
-    allow_prefix("mutation-log/" + database_id + "/")
-    return database_id
+    return value
 
 
-def prefix_for(database_id):
-    prefix = "mutation-log/" + database_id + "/"
-    return allow_prefix(prefix)
+def database_id_for_run(run_id):
+    return allow_stream("c1da11d0-load-" + str(run_id))
 
 
-def cleanup_plan(table, prefix, bucket):
-    """Query and list shapes. Both stay inside the load target."""
+def query_request(table, database_id):
     allow_table(table)
-    allow_prefix(prefix)
-    allow_bucket(bucket)
-    database_id = prefix[len("mutation-log/"):].split("/", 1)[0]
+    allow_stream(database_id)
     return {
-        "dynamodb": {
-            "operation": "Query",
-            "TableName": table,
-            "KeyConditionExpression": "database_id = :id",
-            "ExpressionAttributeValues": {":id": {"S": database_id}},
-        },
-        "s3": {"operation": "ListObjectsV2", "Bucket": bucket, "Prefix": prefix},
+        "TableName": table,
+        "KeyConditionExpression": "database_id = :id",
+        "ExpressionAttributeValues": {":id": {"S": database_id}},
+        "ConsistentRead": True,
     }
 
 
-def retain_keys(keys, prefix):
-    """Keep only keys under ``prefix``. A stranger key is a hard failure."""
-    allow_prefix(prefix)
-    chosen = []
-    for key in keys:
-        if not isinstance(key, str) or not key.startswith(prefix):
-            raise GuardError("prefix")
-        chosen.append(key)
-    return chosen
+def delete_batch(table, database_id, record_ids):
+    allow_table(table)
+    allow_stream(database_id)
+    if not record_ids or len(record_ids) > BATCH_LIMIT:
+        raise GuardError("batch")
+    deletes = []
+    for record_id in record_ids:
+        if not isinstance(record_id, str) or not record_id or len(record_id) > 1024:
+            raise GuardError("record")
+        deletes.append({"DeleteRequest": {"Key": {
+            "database_id": {"S": database_id},
+            "record_id": {"S": record_id},
+        }}})
+    return {"RequestItems": {table: deletes}}
+
+
+def unprocessed_ids(response, table, database_id):
+    """Ids still to delete. A key for another database is a hard failure."""
+    allow_table(table)
+    allow_stream(database_id)
+    pending = response.get("UnprocessedItems", {})
+    if not isinstance(pending, dict) or set(pending) - {table}:
+        raise GuardError("table")
+    ids = []
+    for item in pending.get(table, []):
+        key = item.get("DeleteRequest", {}).get("Key", {})
+        if key.get("database_id", {}).get("S") != database_id:
+            raise GuardError("database")
+        record_id = key.get("record_id", {}).get("S")
+        if not isinstance(record_id, str) or not record_id:
+            raise GuardError("record")
+        ids.append(record_id)
+    return ids
+
+
+def record_ids_from_query(response, database_id):
+    allow_stream(database_id)
+    ids = []
+    for item in response.get("Items", []):
+        if item.get("database_id", {}).get("S") != database_id:
+            raise GuardError("database")
+        record_id = item.get("record_id", {}).get("S")
+        if not isinstance(record_id, str) or not record_id:
+            raise GuardError("record")
+        ids.append(record_id)
+    return ids

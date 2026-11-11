@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""DEV mutation-log load. Refuses every target except the load prefix.
+"""DEV mutation-log load. Unit tests do not call this command.
 
-Unit tests do not call this command. It sends signed requests only to the
-DEV Exemem API from the URL registry, and it deletes only the
-``c1da11d0-load-`` database it created.
+One throwaway Ed25519 key signs every request as a LastDBNode token.
+The run creates the load database, drives the writers, and leaves cleanup
+to a later step so a cleanup failure cannot replace the load's status.
 """
 
 import argparse
@@ -20,17 +20,18 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger, format_estimate
-from drive import drive
-from guard import (DEV_TABLE, GuardError, allow_bucket, allow_endpoint,
-                   allow_role, allow_table, allow_table_arn, cleanup_plan,
-                   database_id_for_run, load_endpoints, prefix_for,
-                   refuse_prod_environment, retain_keys)
-from plan import scenario
-from sign import headers
+from drive import LoadError, Session, drive
+from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
+                   allow_region_environment, allow_role, allow_stream,
+                   allow_table, allow_table_arn, database_id_for_run,
+                   delete_batch, load_endpoints, query_request, record_ids_from_query,
+                   refuse_prod_environment, unprocessed_ids)
+from plan import phases
 from stats import format_summary
+from node_auth import NodeKey, account_id, authorization
 
 
-REGISTRY = Path(__file__).resolve().parents[2] / "folddb_profile" / "environments.json"
+REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -38,28 +39,35 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise GuardError("endpoint")
 
 
-def post(endpoint, secret, method, path, body, database_id):
-    timestamp = time.time_ns() // 1_000_000
-    signed = headers(secret, method, path, database_id, timestamp, body)
+def post(endpoint, key, database_id, method, path, body):
+    issued = time.time_ns() // 1_000_000
+    header, _digest = authorization(key, method, path, database_id, issued)
     request = urllib.request.Request(
-        endpoint + path, data=body, method=method, headers=signed)
+        endpoint + path, data=body, method=method,
+        headers={"Authorization": header, "Content-Type": "application/json"})
     opener = urllib.request.build_opener(NoRedirect)
     started = time.monotonic()
     try:
         with opener.open(request, timeout=20) as response:
-            response.read(1024)
+            payload = response.read(65536)
             status = response.status
     except urllib.error.HTTPError as error:
-        error.read(1024)
+        payload = error.read(65536)
         status = error.code
-    return status, (time.monotonic() - started) * 1000
+    elapsed = (time.monotonic() - started) * 1000
+    try:
+        parsed = json.loads(payload) if payload else {}
+    except json.JSONDecodeError:
+        parsed = None
+    return status, parsed, elapsed
 
 
 def aws(service, operation, payload):
     environment = dict(os.environ, AWS_IGNORE_CONFIGURED_ENDPOINT_URLS="true",
-                       AWS_EC2_METADATA_DISABLED="true", AWS_PAGER="")
-    command = ["aws", service, operation, "--region", "us-west-2",
-               "--output", "json", "--no-cli-pager", "--cli-input-json",
+                       AWS_EC2_METADATA_DISABLED="true", AWS_PAGER="",
+                       AWS_REGION=DEV_REGION, AWS_DEFAULT_REGION=DEV_REGION)
+    command = ["aws", service, operation, "--region", DEV_REGION, "--output", "json",
+               "--no-cli-pager", "--cli-input-json",
                json.dumps(payload, separators=(",", ":"))]
     result = subprocess.run(command, capture_output=True, env=environment,
                             timeout=40, check=False)
@@ -70,65 +78,103 @@ def aws(service, operation, payload):
     return json.loads(result.stdout)
 
 
-def cleanup(table, prefix, bucket, database_id, ledger):
-    plan = cleanup_plan(table, prefix, bucket)
-    query = aws("dynamodb", "query", plan["dynamodb"])
-    ledger.record()
-    for item in query.get("Items", []):
-        found = item.get("database_id", {}).get("S")
-        if found != database_id or "sk" not in item:
-            raise GuardError("table")
-        aws("dynamodb", "delete-item", {
-            "TableName": table,
-            "Key": {"database_id": {"S": database_id}, "sk": item["sk"]},
-        })
-        ledger.record()
-    listed = aws("s3api", "list-objects-v2", plan["s3"])
-    ledger.record()
-    keys = retain_keys([row["Key"] for row in listed.get("Contents", [])], prefix)
-    for key in keys:
-        aws("s3api", "delete-object", {"Bucket": bucket, "Key": key})
-        ledger.record()
+def cleanup(table, database_id, ledger):
+    pending, start, pages = [], None, 0
+    while pages < 64:
+        request = query_request(table, database_id)
+        if start is not None:
+            if start.get("database_id", {}).get("S") != database_id:
+                raise GuardError("database")
+            request["ExclusiveStartKey"] = start
+        found = aws("dynamodb", "query", request)
+        ledger.record("read")
+        pending.extend(record_ids_from_query(found, database_id))
+        start = found.get("LastEvaluatedKey")
+        pages += 1
+        if not start:
+            break
+    stalls = 0
+    while pending:
+        chunk = pending[:25]
+        response = aws("dynamodb", "batch-write-item",
+                       delete_batch(table, database_id, chunk))
+        ledger.record("write", 64 * len(chunk))
+        left = unprocessed_ids(response, table, database_id)
+        pending = left + pending[len(chunk):]
+        stalls = stalls + 1 if left == chunk else 0
+        if stalls > 8:
+            raise GuardError("batch")
 
 
-def main(argv):
-    parser = argparse.ArgumentParser(description="DEV mutation-log load")
-    parser.add_argument("--level", required=True, choices=("5", "20", "100", "trim"))
-    parser.add_argument("--confirm-deployed", required=True)
-    args = parser.parse_args(argv)
-    if args.confirm_deployed != "yes":
-        raise GuardError("deployed")
+def target():
     dev, prod = load_endpoints(REGISTRY)
     refuse_prod_environment(prod, os.environ.values())
     endpoint = allow_endpoint(dev, dev, prod)
     table = allow_table(os.environ.get("LASTDB_MUTATION_LOG_DEV_TABLE", DEV_TABLE))
-    bucket = allow_bucket(os.environ["LASTDB_MUTATION_LOG_DEV_BUCKET"])
+    allow_region_environment(os.environ)
     allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"])
-    secret = os.environ["LASTDB_MUTATION_LOG_DEV_SIGNING_KEY"].encode("utf-8")
     database_id = database_id_for_run(os.environ["GITHUB_RUN_ID"])
-    prefix = prefix_for(database_id)
+    allow_stream(database_id)
     described = aws("dynamodb", "describe-table", {"TableName": table})
     allow_table_arn(described.get("Table", {}).get("TableArn", ""), table)
-    ledger = Ledger()
-    report = {"stopped": "error", "summary": None}
-    try:
-        def transport(method, path, body):
-            return post(endpoint, secret, method, path, body, database_id)
+    return endpoint, table, database_id
 
-        report = drive(scenario(args.level), database_id, transport, ledger,
-                       lambda: time.monotonic() * 1000)
-    finally:
-        cleanup(table, prefix, bucket, database_id, ledger)
-        text = format_estimate(ledger.estimate())
-        if report.get("summary") is not None:
-            text = text + "\n" + format_summary(report["summary"])
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="DEV mutation-log load")
+    parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
+    parser.add_argument("--level", choices=("5", "20", "100", "trim", "all"))
+    parser.add_argument("--confirm-deployed", required=True)
+    parser.add_argument("--ledger", required=True)
+    parser.add_argument("--summary", required=True)
+    args = parser.parse_args(argv)
+    if args.confirm_deployed != "yes":
+        raise GuardError("deployed")
+    if args.phase == "load" and args.level is None:
+        raise GuardError("level")
+    endpoint, table, database_id = target()
+    ledger = Ledger()
+    summary_path = Path(args.summary)
+    if args.phase == "cleanup":
+        saved = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
+        ledger.restore(saved)
+        cleanup(table, database_id, ledger)
+        text = format_estimate(ledger.snapshot())
+        if summary_path.is_file():
+            text += "\n" + format_summary(json.loads(summary_path.read_text(encoding="utf-8")))
         print(text)
-    return 2 if report["stopped"] == "cap" else 0
+        return 0
+    key = NodeKey.generate()
+    ident = account_id(key.public)
+    reports = []
+
+    def transport(method, path, body):
+        return post(endpoint, key, database_id, method, path, body)
+
+    session = Session(database_id, ident, key.public.hex(), transport, ledger,
+                      lambda: time.time_ns() // 1_000_000)
+    try:
+        for spec in phases(args.level):
+            report = drive(spec, session)
+            reports.append(report)
+            if report["stopped"] != "complete":
+                break
+    finally:
+        Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")
+        if reports:
+            summary_path.write_text(json.dumps(reports[-1]["summary"]), encoding="utf-8")
+            print(format_estimate(ledger.snapshot()))
+            print(format_summary(reports[-1]["summary"]))
+    if any(report["stopped"] == "error" for report in reports):
+        return 1
+    if any(report["stopped"] == "cap" for report in reports):
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:]))
-    except (GuardError, KeyError) as error:
+    except (GuardError, LoadError, KeyError, OSError) as error:
         print("mutation-log load refused: {0}".format(error), file=sys.stderr)
         sys.exit(1)
