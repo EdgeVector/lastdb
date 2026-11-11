@@ -193,8 +193,9 @@ publisher as above. The default mode, `publisher-only`, gives the publisher
 exclusive write access.
 
 Read invitations and write grants are separate. To let a verified recipient
-add comments, give `share contributors grant` a JSON rules file like this one,
-using the installed schema's exact definition ID.
+add comments or remove their own reactions, give `share contributors grant`
+a JSON rules file like this one, using the installed schema's exact definition
+ID. A rule action is `create`, `replace`, or `delete`. `purge` is never granted.
 
 ```json
 [
@@ -234,8 +235,10 @@ invitation has expired, use a fresh one from the publisher.
 Attach a write grant once with `lastdb share contributors accept trip --grant
 GRANT`, then use `lastdb --db trip mutate --request-file MUTATION`. Supply the
 schema definition ID in the ordinary mutation JSON. The contributor grant
-allows conditional create at an absent key for the named schema. A
-`submitted` receipt confirms upload to the publisher's private inbox. To retry
+allows an absent create, or a replace or delete of a record that writer
+created, at the record's expected revision. A `submitted` receipt confirms
+upload to the publisher's private inbox. The publisher must accept the
+optional revision field before a writer sends it. To retry
 the same request after a transport failure, pass the same `--mutation-id`.
 The publisher checks the current grant and commits allowed writes to its own
 mutation journal, retaining the verified contributor key. `share contributors

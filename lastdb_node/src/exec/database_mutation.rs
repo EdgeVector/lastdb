@@ -7,6 +7,7 @@ use crate::registered_share::RegisteredShare;
 use crate::share_contribution::{submit_registered, SubmitError, WriteRequest};
 use cloud_backup_protocol::{Digest, Id};
 use fold_db::schema::types::{cas::CasExpectation, MutationType};
+use lastdb_host::handlers::MutationComponents;
 
 const MAX_WIRE_BYTES: usize = 16 * 1024;
 
@@ -39,16 +40,12 @@ pub(super) async fn mutate(
         Ok(components) => components,
         Err(reject) => return reject.response(),
     };
-    if components.mutation_type != MutationType::Create
-        || components.expected != CasExpectation::Absent
-        || components.source_file_name.is_some()
-        || components.metadata.is_some()
-        || components.file.is_some()
-        || components.file_write.is_some()
-        || components.inline_write.is_some()
-        || components.convergence.waits()
-    {
-        return error_response(422, "share contributions support expected-absent record creation without file or metadata changes and use asynchronous convergence", ctx);
+    if !contribution_supported(&components) {
+        return error_response(
+            422,
+            "share contributions support an absent create, or a replace or delete at an expected revision, without files, metadata, or synchronous convergence",
+            ctx,
+        );
     }
     let Some(definition_id) = components
         .definition_id
@@ -64,6 +61,10 @@ pub(super) async fn mutate(
         key: components.key_value,
         record: components.record_fields.into_iter().collect(),
         alternates: components.alternates,
+        revision: match &components.expected {
+            CasExpectation::Revision { revision } => Some(revision.clone()),
+            CasExpectation::Absent => None,
+        },
     };
     let sequence = match submit_registered(
         share.identity_home(),
@@ -91,6 +92,29 @@ pub(super) async fn mutate(
             UdsResponse::new(202, "Accepted", bytes).with_header("Content-Type", "application/json")
         }
         Err(_) => content_free(500, "Internal Server Error"),
+    }
+}
+
+fn contribution_supported(components: &MutationComponents) -> bool {
+    if components.source_file_name.is_some()
+        || components.metadata.is_some()
+        || components.file.is_some()
+        || components.file_write.is_some()
+        || components.inline_write.is_some()
+        || components.convergence.waits()
+        || (components.mutation_type == MutationType::Delete
+            && !components.record_fields.is_empty())
+    {
+        return false;
+    }
+    match (&components.mutation_type, &components.expected) {
+        (MutationType::Create, CasExpectation::Absent) => true,
+        (MutationType::Replace | MutationType::Delete, CasExpectation::Revision { revision })
+            if !revision.is_empty() =>
+        {
+            true
+        }
+        _ => false,
     }
 }
 

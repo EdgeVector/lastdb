@@ -43,10 +43,44 @@ def check_addressing(command, cli, owner, publication, publication_id):
     written = command(cli, *selected, "mutate", "--request-file", request)
     require(written.returncode == 0 and "record_revision" in json.loads(written.stdout),
             "ordinary publisher mutation failed: " + written.stderr)
+    revision = json.loads(written.stdout)["record_revision"]
+    print("Owner direct create committed:", revision, flush=True)
     read = command(cli, *selected, "get", "lastdb-files/FileChunk", "--key-hash",
                    "local-operation", "--key-range", "0000", "--json")
     require(read.returncode == 0 and json.loads(read.stdout)["results"][0]["fields"]["data"] == "ordinary write",
             "ordinary publisher read did not observe the committed record")
+    request.write_text(json.dumps({
+        "type": "mutation", "schema": "lastdb-files/FileChunk",
+        "key_value": {"hash": "local-operation", "range": "0000"},
+        "alternates": {}, "record": {"data": "ordinary rewrite"},
+        "mutation_type": "replace",
+        "expected": {"type": "revision", "revision": revision},
+    }))
+    written = command(cli, *selected, "mutate", "--request-file", request)
+    require(written.returncode == 0, "ordinary publisher replace failed: " + written.stderr)
+    revision = json.loads(written.stdout)["record_revision"]
+    print("Owner direct replace committed:", revision, flush=True)
+    read = command(cli, *selected, "get", "lastdb-files/FileChunk", "--key-hash",
+                   "local-operation", "--key-range", "0000", "--json")
+    require(read.returncode == 0 and json.loads(read.stdout)["results"][0]["fields"]["data"] == "ordinary rewrite",
+            "ordinary publisher replace did not replace the record")
+    request.write_text(json.dumps({
+        "type": "mutation", "schema": "lastdb-files/FileChunk",
+        "key_value": {"hash": "local-operation", "range": "0000"},
+        "alternates": {}, "record": {},
+        "mutation_type": "delete",
+        "expected": {"type": "revision", "revision": revision},
+    }))
+    written = command(cli, *selected, "mutate", "--request-file", request)
+    require(written.returncode == 0, "ordinary publisher delete failed: " + written.stderr)
+    print("Owner direct delete committed:", json.loads(written.stdout)["record_revision"], flush=True)
+    read = command(cli, *selected, "get", "lastdb-files/FileChunk", "--key-hash",
+                   "local-operation", "--key-range", "0000", "--json")
+    require(read.returncode == 0 and json.loads(read.stdout)["results"] == [],
+            "ordinary publisher delete left the record in place: " + read.stdout)
+    written = command(cli, *selected, "mutate", "--request-file", request)
+    require(written.returncode != 0, "a repeated owner delete must conflict")
+    print("Owner repeated delete conflicted:", written.stderr.strip(), flush=True)
 
     original = command(cli, "--db", "personal", "get", "RecordById", "--key-hash", "one", "--json",
                        node=owner)
@@ -59,6 +93,44 @@ def check_addressing(command, cli, owner, publication, publication_id):
     wrong = command(cli, "--db", publication_id, "mutate", "--request-file", request, node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
+
+
+def check_contributor_rules(command, cli, owner, home):
+    """Rule admission is local. Intake needs Exemem, which this home does not have."""
+    contact_path = home.parent / "writer.contact"
+    contact = command(cli, "--data-dir", owner.home, "share", "contact", "--out", contact_path)
+    require(contact.returncode == 0, "share contact failed: " + contact.stderr)
+    writer = json.loads(contact.stdout)["recipient_public_key"]
+    definition = "ab" * 32
+    rules_path = home.parent / "contributor-rules.json"
+    grant_out = home.parent / "contributor-grant.bin"
+
+    def grant(actions, operation):
+        rules_path.write_text(json.dumps([
+            {"schema": "photos/Comment", "definition_id": definition, "action": action}
+            for action in actions
+        ]))
+        return command(
+            cli, "--data-dir", owner.home, "share", "contributors", "grant",
+            "--home", home, "--recipient", contact_path, "--recipient-key", writer,
+            "--rules", rules_path, "--operation-id", operation,
+            "--expected-version", "0", "--out", grant_out,
+        )
+
+    admitted = grant(("create", "replace", "delete"), "11111111-1111-4111-8111-111111111111")
+    require(admitted.returncode != 0
+            and "invalid contributor write rules" not in admitted.stderr
+            and "share publisher has no saved Exemem credentials" in admitted.stderr,
+            "create, replace, and delete were not admitted locally: " + admitted.stderr)
+    print("Contributor create, replace, and delete rules passed local admission:",
+          admitted.stderr.strip(), flush=True)
+    purged = grant(("purge",), "22222222-2222-4222-8222-222222222222")
+    require(purged.returncode != 0 and "invalid contributor write rules" in purged.stderr,
+            "purge was not refused: " + purged.stderr)
+    print("Contributor purge rule refused:", purged.stderr.strip(), flush=True)
+    print("Contributor create, replace-own, and delete-own are not exercised here. "
+          "This generated home has no Exemem credentials, so a writer cannot submit "
+          "and the publisher cannot pull another writer's replace or delete.", flush=True)
 
 
 def check_files(command, cli, publication, publication_id, other_id, source, manifest):
@@ -138,6 +210,7 @@ def exercise(cli, owner, root):
         ungranted = revoke(contributor_home, publisher_key)
         require(ungranted.returncode == 1 and "contributor grant version conflict" in ungranted.stderr,
                 "the contributor mode must open its local policy and refuse an absent grant")
+        check_contributor_rules(command, cli, owner, contributor_home)
         publication.start()
         # The pattern shifts at each 32 KiB chunk boundary and includes a short tail.
         payload = bytes(range(251)) * 2100 + b"LastDB Files product operation\n"
@@ -155,5 +228,6 @@ def exercise(cli, owner, root):
                     contributors["publication_id"], path, receipt)
     finally:
         publication.close()
-    print("LastDB Share: write modes, multi-batch Files save, database addressing, and retired commands passed",
+    print("LastDB Share: write modes, contributor rule admission, owner direct replace and delete, "
+          "multi-batch Files save, database addressing, and retired commands passed",
           flush=True)

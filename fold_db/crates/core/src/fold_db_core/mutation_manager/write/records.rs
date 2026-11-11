@@ -1,5 +1,5 @@
 //! Complete record replacements and their nested effects share one native commit.
-use super::super::cas_rules::check_expectation;
+use super::super::cas_rules::{check_expectation, require_contribution_author};
 use super::super::key_values::validate_field_value;
 use super::super::portable_journal::schema_fingerprint;
 use super::record_effects::ChangedRecord;
@@ -256,6 +256,7 @@ fn prepare_record(
         PortableEffect::Local
     };
     check_expectation(mutation, before.as_deref())?;
+    require_contribution_author(mutation, before.as_deref())?;
     let mut after = replace_record(
         schema,
         mutation,
