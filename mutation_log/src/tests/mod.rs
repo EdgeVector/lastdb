@@ -13,8 +13,8 @@ pub fn database(name: &str) -> DatabaseId {
     DatabaseId::new(name).expect("database id")
 }
 
-pub fn stream(name: &str) -> StreamId {
-    StreamId::new(name).expect("stream id")
+pub fn device(name: &str) -> DeviceId {
+    DeviceId::new(name).expect("device id")
 }
 
 pub fn principal(name: &str) -> PrincipalId {
@@ -23,6 +23,13 @@ pub fn principal(name: &str) -> PrincipalId {
 
 pub fn namespace(name: &str) -> Namespace {
     Namespace::new(name).expect("namespace")
+}
+
+pub fn writer_of(key: &PrincipalId, device_name: &str) -> Writer {
+    Writer {
+        key: key.clone(),
+        device: device(device_name),
+    }
 }
 
 pub fn hearth(namespace: &Namespace) -> NamespaceKind {
@@ -35,18 +42,16 @@ pub fn hearth(namespace: &Namespace) -> NamespaceKind {
 
 pub fn entry(
     database: &DatabaseId,
-    writer: &StreamId,
-    author: &PrincipalId,
+    writer: &Writer,
     namespace_name: &str,
     seq: u64,
     at: u64,
 ) -> Entry {
     Entry {
         database_id: database.clone(),
-        stream: writer.clone(),
+        writer: writer.clone(),
         writer_seq: seq,
         authored_at_ms: at,
-        author: author.clone(),
         namespace: namespace(namespace_name),
         incorporated_from: None,
         payload: vec![seq as u8],
@@ -55,16 +60,14 @@ pub fn entry(
 
 pub fn apply(
     state: &LogState,
-    author: &PrincipalId,
-    writer: &StreamId,
+    writer: &Writer,
     entries: Vec<Entry>,
     accepted_at_ms: u64,
 ) -> LogState {
     let begun = step(
         state,
         Command::BeginAppend {
-            author: author.clone(),
-            stream: writer.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -73,8 +76,7 @@ pub fn apply(
     let appended = step(
         &begun,
         Command::Append(AppendBatch {
-            author: author.clone(),
-            stream: writer.clone(),
+            writer: writer.clone(),
             entries,
             accepted_at_ms,
         }),
@@ -85,8 +87,7 @@ pub fn apply(
     step(
         &appended,
         Command::FinishAppend {
-            caller: author.clone(),
-            stream: writer.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -94,15 +95,77 @@ pub fn apply(
     .state
 }
 
-pub fn shareable() -> (LogState, PrincipalId, StreamId) {
+pub fn shareable() -> (LogState, PrincipalId, Writer) {
     let publisher = principal("publisher");
-    let published = stream("publisher");
+    let writer = writer_of(&publisher, "publisher");
     let state = LogState::open(
         database("social-family"),
         DatabaseKind::Shareable {
             publisher: publisher.clone(),
-            publisher_stream: published.clone(),
         },
     );
-    (state, publisher, published)
+    (state, publisher, writer)
+}
+
+pub fn grant_owner(state: &LogState, caller: &PrincipalId, owner: &PrincipalId) -> LogState {
+    step(
+        state,
+        Command::Grant {
+            caller: caller.clone(),
+            principal: owner.clone(),
+            capability: Capability::Owner,
+        },
+        &hearth,
+    )
+    .expect("owner")
+    .state
+}
+
+pub fn grant_receive(
+    state: &LogState,
+    publisher: &PrincipalId,
+    receiver: &PrincipalId,
+) -> LogState {
+    step(
+        state,
+        Command::Grant {
+            caller: publisher.clone(),
+            principal: receiver.clone(),
+            capability: Capability::Receive,
+        },
+        &hearth,
+    )
+    .expect("receive")
+    .state
+}
+
+pub fn grant_submit(
+    state: &LogState,
+    publisher: &PrincipalId,
+    contributor: &PrincipalId,
+) -> LogState {
+    step(
+        state,
+        Command::Grant {
+            caller: publisher.clone(),
+            principal: contributor.clone(),
+            capability: Capability::Submit,
+        },
+        &hearth,
+    )
+    .expect("submit")
+    .state
+}
+
+pub fn ack(state: &LogState, consumer: &PrincipalId, through: u64) -> LogState {
+    step(
+        state,
+        Command::Ack {
+            consumer: consumer.clone(),
+            through,
+        },
+        &hearth,
+    )
+    .expect("ack")
+    .state
 }

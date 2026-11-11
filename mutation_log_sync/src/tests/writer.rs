@@ -5,20 +5,13 @@ use mutation_log::LogError;
 #[test]
 fn append_before_resume_is_refused() {
     let phone = principal("phone");
-    let phone_stream = stream("phone");
     let mut log = personal_log();
-    log.grant(
-        &phone,
-        phone.clone(),
-        Capability::Device {
-            stream: phone_stream.clone(),
-        },
-    )
-    .expect("grant");
+    log.grant(&phone, phone.clone(), Capability::Owner)
+        .expect("grant");
     let state = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone.clone(), phone_stream),
+        owner_role(phone.clone(), "phone"),
     )
     .expect("state");
     let refused = drive(
@@ -32,16 +25,14 @@ fn append_before_resume_is_refused() {
 }
 
 #[test]
-fn two_writers_on_one_stream_conflict_instead_of_dropping() {
-    let (mut log, publisher, published) = share_log();
-    let kind = share_kind(&publisher, &published);
+fn same_writer_conflict_keeps_the_first_payload() {
+    let (mut log, publisher) = share_log();
+    let kind = share_kind(&publisher);
     let open = || {
         SyncState::open(
             database("family"),
             kind.clone(),
-            SyncRole::Publisher {
-                principal: publisher.clone(),
-            },
+            publisher_role(publisher.clone(), "phone"),
         )
         .expect("publisher")
     };
@@ -74,15 +65,51 @@ fn two_writers_on_one_stream_conflict_instead_of_dropping() {
     .expect("identical retry");
     assert!(matches!(retry, Outcome::Duplicate { .. }));
     let (_right, seen) = pull(&mut log, &right, 4);
-    assert_eq!(
-        payloads_of(&seen),
-        vec![b"kept".to_vec(), b"alpha".to_vec()]
-    );
+    assert_eq!(payloads(&seen), vec![b"kept".to_vec(), b"alpha".to_vec()]);
 }
 
-fn payloads_of(entries: &[mutation_log::StoredEntry]) -> Vec<Vec<u8>> {
-    entries
-        .iter()
-        .map(|stored| stored.entry.payload.clone())
-        .collect()
+#[test]
+fn two_devices_of_one_key_append_without_conflict() {
+    let owner = principal("owner");
+    let mut log = personal_log();
+    log.grant(&owner, owner.clone(), Capability::Owner)
+        .expect("owner");
+    let phone = SyncState::resume(
+        &SyncState::open(
+            database("home"),
+            DatabaseKind::Personal,
+            owner_role(owner.clone(), "phone"),
+        )
+        .expect("phone"),
+        &log,
+    )
+    .expect("resume phone");
+    let laptop = SyncState::resume(
+        &SyncState::open(
+            database("home"),
+            DatabaseKind::Personal,
+            owner_role(owner.clone(), "laptop"),
+        )
+        .expect("laptop"),
+        &log,
+    )
+    .expect("resume laptop");
+    let (phone, phone_written) = drive(
+        &phone,
+        &mut log,
+        append_event("notes", b"phone", 1),
+        &hearth,
+    )
+    .expect("phone");
+    let (_laptop, laptop_written) = drive(
+        &laptop,
+        &mut log,
+        append_event("notes", b"laptop", 2),
+        &hearth,
+    )
+    .expect("laptop");
+    assert!(matches!(phone_written, Outcome::Appended { .. }));
+    assert!(matches!(laptop_written, Outcome::Appended { .. }));
+    let (_phone, seen) = pull(&mut log, &phone, 3);
+    assert_eq!(payloads(&seen), vec![b"phone".to_vec(), b"laptop".to_vec()]);
 }

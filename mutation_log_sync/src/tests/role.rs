@@ -3,7 +3,7 @@ use crate::SyncError;
 use mutation_log::LogError;
 
 #[test]
-fn personal_rejects_a_receiver_and_shareable_rejects_a_device() {
+fn personal_rejects_a_receiver_and_shareable_rejects_an_owner() {
     let owner = principal("owner");
     let personal = SyncState::open(
         database("home"),
@@ -16,11 +16,10 @@ fn personal_rejects_a_receiver_and_shareable_rejects_a_device() {
     );
 
     let publisher = principal("publisher");
-    let published = stream("publisher");
     let shareable = SyncState::open(
         database("family"),
-        share_kind(&publisher, &published),
-        device(principal("phone"), stream("phone")),
+        share_kind(&publisher),
+        owner_role(principal("phone"), "phone"),
     );
     assert_eq!(
         shareable,
@@ -30,13 +29,13 @@ fn personal_rejects_a_receiver_and_shareable_rejects_a_device() {
 
 #[test]
 fn a_receiver_cannot_append() {
-    let (mut log, publisher, published) = share_log();
+    let (mut log, publisher) = share_log();
     let receiver = principal("receiver");
     log.grant(&publisher, receiver.clone(), Capability::Receive)
         .expect("grant");
     let state = SyncState::open(
         database("family"),
-        share_kind(&publisher, &published),
+        share_kind(&publisher),
         SyncRole::Receiver {
             principal: receiver,
         },

@@ -1,66 +1,13 @@
 use crate::error::SyncError;
 use mutation_log::{
-    CursorSpace, DatabaseId, DatabaseKind, LogError, MutationLog, Namespace, PrincipalId,
-    StoredEntry, StreamId,
+    DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, StoredEntry,
+    Writer,
 };
-
-/// Cursor saved for one participant, including the sequence space it counts in.
-///
-/// A grant change can move a principal from delivery sequence to a stream's
-/// writer sequence. The number is not reused in the new space: the cursor
-/// restarts at zero there.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReadCursor {
-    /// Global delivery sequence.
-    Delivery(u64),
-    /// Writer sequence of one stream.
-    Stream {
-        /// Stream whose writer sequence this cursor counts.
-        stream: StreamId,
-        /// Last writer sequence read on `stream`.
-        through: u64,
-    },
-}
-
-impl ReadCursor {
-    pub(crate) fn at(space: CursorSpace, through: u64) -> Self {
-        match space {
-            CursorSpace::Delivery => Self::Delivery(through),
-            CursorSpace::Stream(stream) => Self::Stream { stream, through },
-        }
-    }
-
-    /// Position to pass to `list` in `current`.
-    ///
-    /// A different space restarts at zero instead of treating the old number
-    /// as a writer sequence or a delivery sequence.
-    pub(crate) fn position_in(&self, current: &CursorSpace) -> u64 {
-        if self.same_space(current) {
-            self.through()
-        } else {
-            0
-        }
-    }
-
-    fn through(&self) -> u64 {
-        match self {
-            Self::Delivery(through) | Self::Stream { through, .. } => *through,
-        }
-    }
-
-    fn same_space(&self, current: &CursorSpace) -> bool {
-        match (self, current) {
-            (Self::Delivery(_), CursorSpace::Delivery) => true,
-            (Self::Stream { stream, .. }, CursorSpace::Stream(current)) => stream == current,
-            _ => false,
-        }
-    }
-}
 
 /// What one participant does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SyncEvent {
-    /// Append one local mutation on this participant's stream.
+    /// Append one local mutation for this participant's writer.
     Append {
         /// Namespace of the schema, without the schema name.
         namespace: Namespace,
@@ -76,7 +23,7 @@ pub enum SyncEvent {
         /// Shell clock, used for retention.
         now_ms: u64,
     },
-    /// Publisher copies one submission onto the publisher stream.
+    /// Publisher key copies one submission into the log.
     Reappend {
         /// The submission entry the publisher read.
         entry: mutation_log::Entry,
@@ -95,7 +42,7 @@ pub enum Outcome {
         /// Next writer sequence for this participant.
         next_seq: u64,
     },
-    /// The batch was already stored. `next_seq` is the next sequence the stream accepts.
+    /// The batch was already stored. `next_seq` is the next sequence the writer accepts.
     Duplicate {
         /// Next writer sequence for this participant.
         next_seq: u64,
@@ -104,82 +51,85 @@ pub enum Outcome {
     Pulled {
         /// Visible entries, oldest first.
         entries: Vec<StoredEntry>,
-        /// Cursor for the next pull, in the space it was read from.
-        cursor: ReadCursor,
+        /// Delivery sequence for the next pull.
+        cursor: u64,
     },
 }
 
 /// How this participant uses the database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SyncRole {
-    /// A device of a personal database.
-    Device {
-        /// Device principal.
+    /// One device of a personal database's owner key.
+    Owner {
+        /// Owner node key.
         principal: PrincipalId,
-        /// Device stream.
-        stream: StreamId,
+        /// Device of that key.
+        device: DeviceId,
     },
-    /// Author of a shareable database's publisher stream.
+    /// One device of a shareable database's publisher key.
     Publisher {
-        /// Publisher principal.
+        /// Publisher node key.
         principal: PrincipalId,
+        /// Device of that key.
+        device: DeviceId,
     },
-    /// Reader of a shareable database's publisher stream.
+    /// Reader of entries whose writer key is the publisher key.
     Receiver {
-        /// Receiver principal.
+        /// Receiver node key.
         principal: PrincipalId,
     },
-    /// Writer of one submission stream.
+    /// One device of a contributor key.
     Contributor {
-        /// Contributor principal.
+        /// Contributor node key.
         principal: PrincipalId,
-        /// Submission stream.
-        stream: StreamId,
+        /// Device of that key.
+        device: DeviceId,
     },
 }
 
-/// One participant's cursor and writer sequence for one database.
+/// One participant's delivery cursor and writer sequence for one database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncState {
     pub(crate) database_id: DatabaseId,
     pub(crate) kind: DatabaseKind,
     pub(crate) role: SyncRole,
-    pub(crate) cursor: ReadCursor,
+    pub(crate) cursor: u64,
     pub(crate) next_seq: u64,
     pub(crate) resumed: bool,
 }
 
 impl SyncState {
-    /// Start a participant at cursor 0. `next_seq` is 1 until [`Self::resume`].
+    /// Start a participant at delivery cursor 0. `next_seq` is 1 until [`Self::resume`].
     ///
-    /// Append is refused until `resume` loads the stream tip. A personal
-    /// database accepts a device only. A shareable database accepts a
-    /// publisher, a receiver, or a contributor, and rejects a device grant.
+    /// Append is refused until `resume` loads the writer tip. A personal
+    /// database accepts an owner only. A shareable database accepts a
+    /// publisher, a receiver, or a contributor, and rejects an owner grant.
     pub fn open(
         database_id: DatabaseId,
         kind: DatabaseKind,
         role: SyncRole,
     ) -> Result<Self, SyncError> {
         check_role(&kind, &role)?;
-        let cursor = opening_cursor(&kind, &role);
         Ok(Self {
             database_id,
             kind,
             role,
-            cursor,
+            cursor: 0,
             next_seq: 1,
             resumed: false,
         })
     }
 
-    /// Set `next_seq` from the stream tip already stored in `log`.
+    /// Set `next_seq` from the writer tip already stored in `log`.
     ///
     /// [`crate::drive`] refuses an append until this has run. A process that
-    /// rejoins a stream calls it before appending, so the next mutation does
-    /// not reuse a stored sequence.
+    /// rejoins calls it before appending, so the next mutation does not reuse
+    /// a stored sequence. A receiver has nothing to resume.
     pub fn resume<L: MutationLog>(state: &Self, log: &L) -> Result<Self, SyncError> {
-        let stream = crate::step::write_stream(state)?.clone();
-        let tip = log.writer_tip(state.reader(), &stream)?;
+        let Some(writer) = crate::step::role_writer(state) else {
+            return Ok(state.clone());
+        };
+        let tip = log.writer_tip(state.reader(), &writer)?;
         let mut next = state.clone();
         next.next_seq = tip.checked_add(1).ok_or(LogError::SequenceExhausted)?;
         next.resumed = true;
@@ -188,43 +138,24 @@ impl SyncState {
 
     pub(crate) fn reader(&self) -> &PrincipalId {
         match &self.role {
-            SyncRole::Device { principal, .. }
-            | SyncRole::Publisher { principal }
+            SyncRole::Owner { principal, .. }
+            | SyncRole::Publisher { principal, .. }
             | SyncRole::Receiver { principal }
             | SyncRole::Contributor { principal, .. } => principal,
         }
     }
 }
 
-fn opening_cursor(kind: &DatabaseKind, role: &SyncRole) -> ReadCursor {
-    match role {
-        SyncRole::Device { .. } | SyncRole::Publisher { .. } => ReadCursor::Delivery(0),
-        SyncRole::Receiver { .. } => match kind {
-            DatabaseKind::Shareable {
-                publisher_stream, ..
-            } => ReadCursor::Stream {
-                stream: publisher_stream.clone(),
-                through: 0,
-            },
-            DatabaseKind::Personal => ReadCursor::Delivery(0),
-        },
-        SyncRole::Contributor { stream, .. } => ReadCursor::Stream {
-            stream: stream.clone(),
-            through: 0,
-        },
-    }
-}
-
 fn check_role(kind: &DatabaseKind, role: &SyncRole) -> Result<(), SyncError> {
     match kind {
         DatabaseKind::Personal => personal_role(role),
-        DatabaseKind::Shareable { publisher, .. } => shareable_role(publisher, role),
+        DatabaseKind::Shareable { publisher } => shareable_role(publisher, role),
     }
 }
 
 fn personal_role(role: &SyncRole) -> Result<(), SyncError> {
     match role {
-        SyncRole::Device { .. } => Ok(()),
+        SyncRole::Owner { .. } => Ok(()),
         SyncRole::Publisher { .. } | SyncRole::Receiver { .. } | SyncRole::Contributor { .. } => {
             Err(LogError::PersonalNotShareable.into())
         }
@@ -233,12 +164,16 @@ fn personal_role(role: &SyncRole) -> Result<(), SyncError> {
 
 fn shareable_role(publisher: &PrincipalId, role: &SyncRole) -> Result<(), SyncError> {
     match role {
-        SyncRole::Device { .. } => Err(LogError::DeviceGrantNotShareable.into()),
-        SyncRole::Publisher { principal } if principal != publisher => {
+        SyncRole::Owner { .. } => Err(LogError::DeviceGrantNotShareable.into()),
+        SyncRole::Publisher { principal, .. } if principal != publisher => {
             Err(LogError::Unauthorized.into())
         }
         SyncRole::Publisher { .. } | SyncRole::Receiver { .. } | SyncRole::Contributor { .. } => {
             Ok(())
         }
     }
+}
+
+pub(crate) fn writer_of(key: PrincipalId, device: DeviceId) -> Writer {
+    Writer { key, device }
 }

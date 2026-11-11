@@ -1,25 +1,21 @@
 use crate::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, LogState, NamespacePolicy,
-    PrincipalId, ScopedHead, Snapshot, StreamId,
+    PrincipalId, ScopedHead, Snapshot, Writer,
 };
 
 /// One log operation. The shell supplies every value. Nothing here reads the world.
 pub enum Command {
-    /// Mark one stream's append open.
+    /// Mark one writer's append open.
     BeginAppend {
-        /// Principal who will write.
-        author: PrincipalId,
-        /// Stream they will extend.
-        stream: StreamId,
+        /// Writer (node key, device) that will append.
+        writer: Writer,
     },
-    /// Apply one batch on an open stream.
+    /// Apply one batch on an open writer.
     Append(AppendBatch),
-    /// Mark the stream's append closed.
+    /// Mark the writer's append closed.
     FinishAppend {
-        /// Principal who opened the append.
-        caller: PrincipalId,
-        /// Stream whose append is closing.
-        stream: StreamId,
+        /// Writer (node key, device) whose append is closing.
+        writer: Writer,
     },
     /// Read the last entry visible to a principal.
     Head {
@@ -30,48 +26,48 @@ pub enum Command {
     List {
         /// Who is reading.
         reader: PrincipalId,
-        /// Cursor this reader already has, in that reader's sequence space.
+        /// Delivery sequence this reader already has.
         after: u64,
         /// Maximum visible entries to return.
         limit: usize,
         /// Shell clock reading, used for the retention floor.
         now_ms: u64,
     },
-    /// Record a consumer's cursor.
+    /// Record a consumer's delivery cursor.
     Ack {
         /// Consumer who has the entries.
         consumer: PrincipalId,
-        /// Highest cursor the consumer has in the sequence space it can see.
+        /// Highest delivery sequence the consumer has scanned.
         through: u64,
     },
     /// Allow a principal to read or append.
     Grant {
-        /// Publisher, or a device grantee making the grant.
+        /// Publisher key, or an owner key making the grant.
         caller: PrincipalId,
-        /// Principal receiving the grant.
+        /// Node key receiving the grant.
         principal: PrincipalId,
         /// Capability they receive.
         capability: Capability,
     },
     /// Remove a grant. This is how a participant is removed.
     Revoke {
-        /// Publisher, or a device grantee removing the grant.
+        /// Publisher key, or an owner key removing the grant.
         caller: PrincipalId,
-        /// Principal losing the grant.
+        /// Node key losing the grant.
         principal: PrincipalId,
         /// Capability they lose.
         capability: Capability,
     },
     /// Cut a snapshot at the current head.
     Snapshot {
-        /// Publisher, or a device grantee.
+        /// Publisher key, or an owner key.
         caller: PrincipalId,
         /// Shell clock reading.
         at_ms: u64,
     },
     /// Drop the trimmable prefix.
     Trim {
-        /// Publisher, or a device grantee.
+        /// Publisher key, or an owner key.
         caller: PrincipalId,
         /// Shell clock reading.
         now_ms: u64,
@@ -81,11 +77,11 @@ pub enum Command {
 /// What a successful step did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// The stream's append is open.
+    /// The writer's append is open.
     AppendBegun,
     /// The batch was classified and, when it had new entries, stored.
     Appended(AppendOutcome),
-    /// The stream's append is closed.
+    /// The writer's append is closed.
     AppendFinished,
     /// The last visible entry, or nothing visible yet.
     Head(Option<ScopedHead>),
@@ -93,7 +89,7 @@ pub enum Outcome {
     Page(ListPage),
     /// The ack was stored.
     Acked {
-        /// Stored cursor.
+        /// Stored delivery sequence.
         through: u64,
     },
     /// The grant was stored, or it was already present.
@@ -127,17 +123,14 @@ pub fn step(
     policy: &impl NamespacePolicy,
 ) -> Result<StepResult, LogError> {
     let (state, outcome) = match command {
-        Command::BeginAppend { author, stream } => {
-            (state.begin_append(&author, &stream)?, Outcome::AppendBegun)
-        }
+        Command::BeginAppend { writer } => (state.begin_append(&writer)?, Outcome::AppendBegun),
         Command::Append(batch) => {
             let (state, append) = state.append(&batch, policy)?;
             (state, Outcome::Appended(append))
         }
-        Command::FinishAppend { caller, stream } => (
-            state.finish_append(&caller, &stream)?,
-            Outcome::AppendFinished,
-        ),
+        Command::FinishAppend { writer } => {
+            (state.finish_append(&writer)?, Outcome::AppendFinished)
+        }
         Command::Head { reader } => (
             state.clone(),
             Outcome::Head(state.head_for(&reader, policy)?),
@@ -151,10 +144,7 @@ pub fn step(
             state.clone(),
             Outcome::Page(state.list(&reader, after, limit, now_ms, policy)?),
         ),
-        Command::Ack { consumer, through } => (
-            state.ack(&consumer, through, policy)?,
-            Outcome::Acked { through },
-        ),
+        Command::Ack { consumer, through } => ack(state, &consumer, through)?,
         Command::Grant {
             caller,
             principal,
@@ -175,18 +165,34 @@ pub fn step(
             let (state, snapshot) = state.cut_snapshot(&caller, at_ms)?;
             (state, Outcome::Snapshot(snapshot))
         }
-        Command::Trim { caller, now_ms } => {
-            let state = state.trim(&caller, now_ms, policy)?;
-            let through = state.trimmed_through;
-            let snapshot_due = state.snapshot_due(now_ms, policy);
-            (
-                state,
-                Outcome::Trimmed {
-                    through,
-                    snapshot_due,
-                },
-            )
-        }
+        Command::Trim { caller, now_ms } => trim(state, &caller, now_ms)?,
     };
     Ok(StepResult { state, outcome })
+}
+
+fn ack(
+    state: &LogState,
+    consumer: &PrincipalId,
+    through: u64,
+) -> Result<(LogState, Outcome), LogError> {
+    let state = state.ack(consumer, through)?;
+    let stored = state.acks.get(consumer).copied().unwrap_or(through);
+    Ok((state, Outcome::Acked { through: stored }))
+}
+
+fn trim(
+    state: &LogState,
+    caller: &PrincipalId,
+    now_ms: u64,
+) -> Result<(LogState, Outcome), LogError> {
+    let state = state.trim(caller, now_ms)?;
+    let through = state.trimmed_through;
+    let snapshot_due = state.snapshot_due(now_ms);
+    Ok((
+        state,
+        Outcome::Trimmed {
+            through,
+            snapshot_due,
+        },
+    ))
 }

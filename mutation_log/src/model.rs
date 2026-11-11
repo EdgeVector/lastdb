@@ -1,27 +1,37 @@
-use crate::{DatabaseId, Namespace, PrincipalId, StreamId};
+use crate::{DatabaseId, DeviceId, Namespace, PrincipalId};
+
+/// One writer inside a database log: the node key plus the device.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Writer {
+    /// Node key that authored the entry.
+    pub key: PrincipalId,
+    /// Device of that node key.
+    pub device: DeviceId,
+}
 
 /// Merge key. Global delivery order is not this order.
 ///
-/// The tuple is `(authored_at_ms, source_stream, sequence)`.
+/// The tuple is `(authored_at_ms, writer, sequence)`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Stamp {
     /// When the author composed the entry. The shell supplies the clock reading.
     pub authored_at_ms: u64,
-    /// Stream that wrote the entry.
-    pub source_stream: StreamId,
-    /// Writer sequence on that stream.
+    /// Writer (node key, device) that composed the entry.
+    pub writer: Writer,
+    /// Writer sequence for that writer. Gap-free per writer, not global.
     pub sequence: u64,
 }
 
-/// Where a publisher re-append came from. Receivers see this on the publisher stream.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Where a publisher re-append came from.
+///
+/// The key is the submission's writer and its writer sequence, once in total.
+/// A second device of the publisher key does not copy it again.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Incorporation {
-    /// Submission stream the contributor wrote.
-    pub submission_stream: StreamId,
-    /// Writer sequence on that submission stream.
+    /// Writer (node key, device) that stored the submission.
+    pub writer: Writer,
+    /// Writer sequence of that submission.
     pub writer_seq: u64,
-    /// Contributor who wrote the submission.
-    pub contributor: PrincipalId,
 }
 
 /// One mutation the log can store. The payload is opaque to this crate.
@@ -29,17 +39,15 @@ pub struct Incorporation {
 pub struct Entry {
     /// Database this entry belongs to.
     pub database_id: DatabaseId,
-    /// Stream that wrote it.
-    pub stream: StreamId,
-    /// Gap-free sequence on `stream`. Zero is rejected.
+    /// Writer (node key, device) that authored it.
+    pub writer: Writer,
+    /// Gap-free sequence for `writer`. Zero is rejected.
     pub writer_seq: u64,
     /// Authoring time, supplied by the shell.
     pub authored_at_ms: u64,
-    /// Principal who wrote this stream entry.
-    pub author: PrincipalId,
     /// Namespace of the schema, without the schema name.
     pub namespace: Namespace,
-    /// Set when the publisher copied a submission onto the publisher stream.
+    /// Set when the publisher key copied a submission into the log.
     pub incorporated_from: Option<Incorporation>,
     /// Opaque record bytes. This crate does not decode them.
     pub payload: Vec<u8>,
@@ -51,7 +59,7 @@ impl Entry {
     pub fn stamp(&self) -> Stamp {
         Stamp {
             authored_at_ms: self.authored_at_ms,
-            source_stream: self.stream.clone(),
+            writer: self.writer.clone(),
             sequence: self.writer_seq,
         }
     }
@@ -86,65 +94,39 @@ pub enum DatabaseKind {
     Personal,
     /// A database receivers may be granted.
     ///
-    /// Only official namespaces can be appended. Receivers read `publisher_stream`.
+    /// Only official namespaces can be appended. A receiver reads entries
+    /// whose writer key is `publisher`, including re-appends.
     Shareable {
-        /// Principal who authors the readable log and incorporates submissions.
+        /// Node key that authors the readable entries and incorporates submissions.
         publisher: PrincipalId,
-        /// The only stream a receiver may read.
-        publisher_stream: StreamId,
-    },
-}
-
-/// Why a stream exists inside one database.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StreamRole {
-    /// The shareable database's publisher stream.
-    Publisher,
-    /// One device of the personal database.
-    Device {
-        /// Device principal allowed to append this stream.
-        owner: PrincipalId,
-    },
-    /// A contributor's pending submissions.
-    Submission {
-        /// Contributor allowed to append and read this stream.
-        author: PrincipalId,
     },
 }
 
 /// What a grant allows. A grant does not name storage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Capability {
-    /// Append one personal-database device stream and read that database.
-    Device {
-        /// Device stream this principal appends.
-        stream: StreamId,
-    },
-    /// Read the publisher stream of a shareable database.
+    /// Read and append a personal database from any device of this node key.
+    Owner,
+    /// Read entries whose writer key is the publisher key.
     Receive,
-    /// Append one submission stream and read that principal's own entries there.
-    Submit {
-        /// Submission stream this contributor appends.
-        stream: StreamId,
-    },
+    /// Append pending submissions from any device of this node key, and read those entries.
+    Submit,
 }
 
 /// One read or append grant on the log's database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
-    /// Principal who holds the capability.
+    /// Node key that holds the capability.
     pub principal: PrincipalId,
-    /// What that principal may do.
+    /// What that key may do.
     pub capability: Capability,
 }
 
-/// One append transaction for a single stream.
+/// One append transaction for a single writer (node key, device).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppendBatch {
-    /// Principal writing the stream.
-    pub author: PrincipalId,
-    /// Stream the entries extend.
-    pub stream: StreamId,
+    /// Writer (node key, device) the entries extend.
+    pub writer: Writer,
     /// Entries in writer-sequence order. At most [`crate::APPEND_BATCH_LIMIT`].
     pub entries: Vec<Entry>,
     /// When the shell accepted the batch. Every stored entry in the batch shares it.

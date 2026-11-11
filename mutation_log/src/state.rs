@@ -1,22 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{
-    AckCursor, Capability, DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot,
-    StreamId, StreamRole,
-};
-
-/// Progress of one writer stream.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StreamProgress {
-    /// Last accepted writer sequence. Zero means the stream has no entries.
-    pub last_writer_seq: u64,
-    /// Highest writer sequence already dropped on this stream.
-    pub trimmed_writer_seq: u64,
-    /// What kind of stream this is.
-    pub role: StreamRole,
-}
+use crate::{DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, Writer};
 
 /// The whole log as a value. The shell stores it. This crate does not.
+///
+/// One log per database. Writer tips are keyed by writer (node key, device).
+/// There is no separate log, cursor, or storage per device or per person.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.
@@ -25,153 +14,104 @@ pub struct LogState {
     pub kind: DatabaseKind,
     /// Delivery head. Absent while the log has no entries.
     pub head: Option<Head>,
-    /// Writer streams known to this database.
-    pub streams: BTreeMap<StreamId, StreamProgress>,
+    /// Last accepted writer sequence for each writer. Missing means zero.
+    pub tips: BTreeMap<Writer, u64>,
+    /// Highest writer sequence already dropped for each writer.
+    pub trimmed_tips: BTreeMap<Writer, u64>,
     /// Who may read or append. This list is not a storage path.
     pub grants: Vec<Grant>,
-    /// Highest cursor each consumer has acknowledged, tagged with its space.
-    pub acks: BTreeMap<PrincipalId, AckCursor>,
+    /// Highest delivery sequence each consumer has acknowledged.
+    pub acks: BTreeMap<PrincipalId, u64>,
     /// Retained entries in delivery order.
     pub entries: Vec<crate::StoredEntry>,
-    /// Open appends, keyed by stream. The value is the principal who opened it.
-    pub inflight: BTreeMap<StreamId, PrincipalId>,
+    /// Open appends, one per writer (node key, device).
+    pub inflight: BTreeSet<Writer>,
     /// Latest snapshot cut, if the shell has taken one.
     pub snapshot: Option<Snapshot>,
     /// Highest delivery sequence already dropped.
     pub trimmed_through: u64,
-    /// Submissions already copied onto the publisher stream.
+    /// Submissions already copied by the publisher key.
     ///
-    /// The key is `(submission_stream, writer_seq)`. A persistent adapter stores
-    /// this set with the log. Trim drops a key when the submission it names is
-    /// dropped, so a later re-append of that submission is refused.
-    pub incorporated: BTreeSet<(StreamId, u64)>,
+    /// The key is `(submission writer, writer_seq)`, once in total. A persistent
+    /// adapter stores this set with the log. Trim drops a key when the
+    /// submission it names is dropped.
+    pub incorporated: BTreeSet<(Writer, u64)>,
 }
 
 impl LogState {
-    /// Open an empty log. A shareable log starts with its publisher stream.
+    /// Open an empty log for one database.
     #[must_use]
     pub fn open(database_id: DatabaseId, kind: DatabaseKind) -> Self {
-        let mut streams = BTreeMap::new();
-        if let DatabaseKind::Shareable {
-            publisher_stream, ..
-        } = &kind
-        {
-            streams.insert(publisher_stream.clone(), publisher_progress());
-        }
         Self {
             database_id,
             kind,
             head: None,
-            streams,
+            tips: BTreeMap::new(),
+            trimmed_tips: BTreeMap::new(),
             grants: Vec::new(),
             acks: BTreeMap::new(),
             entries: Vec::new(),
-            inflight: BTreeMap::new(),
+            inflight: BTreeSet::new(),
             snapshot: None,
             trimmed_through: 0,
             incorporated: BTreeSet::new(),
         }
     }
 
-    /// Open one append on `stream`. A second open on the same stream is refused.
-    pub fn begin_append(&self, author: &PrincipalId, stream: &StreamId) -> Result<Self, LogError> {
-        self.authorize_append(author, stream)?;
-        if self.inflight.contains_key(stream) {
+    /// Open one append for `writer`. A second open for the same writer is refused.
+    pub fn begin_append(&self, writer: &Writer) -> Result<Self, LogError> {
+        self.authorize_append(writer)?;
+        if self.inflight.contains(writer) {
             return Err(LogError::AppendInFlight);
         }
         let mut next = self.clone();
-        next.inflight.insert(stream.clone(), author.clone());
+        next.inflight.insert(writer.clone());
         Ok(next)
     }
 
-    /// Close an open append. Only the principal who opened it may close it.
-    pub fn finish_append(&self, caller: &PrincipalId, stream: &StreamId) -> Result<Self, LogError> {
-        match self.inflight.get(stream) {
-            Some(owner) if owner == caller => {
-                let mut next = self.clone();
-                next.inflight.remove(stream);
-                Ok(next)
-            }
-            Some(_) => Err(LogError::Unauthorized),
-            None => Err(LogError::AppendNotOpen),
+    /// Close an open append for `writer`.
+    pub fn finish_append(&self, writer: &Writer) -> Result<Self, LogError> {
+        if !self.inflight.contains(writer) {
+            return Err(LogError::AppendNotOpen);
         }
+        self.authorize_append(writer)?;
+        let mut next = self.clone();
+        next.inflight.remove(writer);
+        Ok(next)
     }
 
-    /// Last accepted writer sequence on `stream`, or zero when it has no entries.
+    /// Last accepted writer sequence for `writer`, or zero when it has no entries.
     ///
-    /// `reader` must be allowed to append that stream.
-    pub fn writer_tip(&self, reader: &PrincipalId, stream: &StreamId) -> Result<u64, LogError> {
-        self.authorize_append(reader, stream)?;
-        Ok(self
-            .streams
-            .get(stream)
-            .map_or(0, |progress| progress.last_writer_seq))
+    /// `reader` must be that writer's node key, and that key must be allowed to append.
+    pub fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {
+        if reader != &writer.key {
+            return Err(LogError::Unauthorized);
+        }
+        self.authorize_append(writer)?;
+        Ok(self.tips.get(writer).copied().unwrap_or(0))
     }
 
-    pub(crate) fn authorize_append(
-        &self,
-        author: &PrincipalId,
-        stream: &StreamId,
-    ) -> Result<(), LogError> {
+    pub(crate) fn authorize_append(&self, writer: &Writer) -> Result<(), LogError> {
         match &self.kind {
-            DatabaseKind::Personal => self.authorize_device(author, stream),
-            DatabaseKind::Shareable {
-                publisher,
-                publisher_stream,
-            } => {
-                if stream == publisher_stream {
-                    return author_is(author, publisher);
-                }
-                self.authorize_submission(author, stream)
-            }
-        }
-    }
-
-    fn authorize_device(&self, author: &PrincipalId, stream: &StreamId) -> Result<(), LogError> {
-        let granted = self.grants.iter().any(|grant| {
-            grant.principal == *author
-                && matches!(&grant.capability, Capability::Device { stream: granted } if granted == stream)
-        });
-        if !granted {
-            return Err(LogError::Unauthorized);
-        }
-        match self.streams.get(stream).map(|progress| &progress.role) {
-            Some(StreamRole::Device { owner }) if owner == author => Ok(()),
-            _ => Err(LogError::Unauthorized),
-        }
-    }
-
-    fn authorize_submission(
-        &self,
-        author: &PrincipalId,
-        stream: &StreamId,
-    ) -> Result<(), LogError> {
-        let granted = self.grants.iter().any(|grant| {
-            grant.principal == *author
-                && matches!(&grant.capability, Capability::Submit { stream: granted } if granted == stream)
-        });
-        if !granted {
-            return Err(LogError::Unauthorized);
-        }
-        match self.streams.get(stream).map(|progress| &progress.role) {
-            Some(StreamRole::Submission { author: owner }) if owner == author => Ok(()),
-            _ => Err(LogError::Unauthorized),
+            DatabaseKind::Personal => authorize_owner(self, &writer.key),
+            DatabaseKind::Shareable { publisher } if &writer.key == publisher => Ok(()),
+            DatabaseKind::Shareable { .. } => authorize_submit(self, &writer.key),
         }
     }
 }
 
-fn author_is(author: &PrincipalId, expected: &PrincipalId) -> Result<(), LogError> {
-    if author == expected {
+fn authorize_owner(state: &LogState, key: &PrincipalId) -> Result<(), LogError> {
+    if crate::auth::holds_owner(state, key) {
         Ok(())
     } else {
         Err(LogError::Unauthorized)
     }
 }
 
-fn publisher_progress() -> StreamProgress {
-    StreamProgress {
-        last_writer_seq: 0,
-        trimmed_writer_seq: 0,
-        role: StreamRole::Publisher,
+fn authorize_submit(state: &LogState, key: &PrincipalId) -> Result<(), LogError> {
+    if crate::auth::holds_submit(state, key) {
+        Ok(())
+    } else {
+        Err(LogError::Unauthorized)
     }
 }

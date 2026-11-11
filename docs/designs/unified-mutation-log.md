@@ -11,14 +11,17 @@ LastDB uses one ordered, encrypted cloud mutation log per `database_id`.
 The same log serves personal multi-device sync and shares. It covers every
 cloud database format. There is no per-type exception and no contributor cap.
 
+one stream per DB, entries tagged by node key plus device
+
 A database is one of two kinds:
 
-- **Personal.** Not shareable. The user's own devices read and append it.
-  App-private namespaces live here. `hearth/PhotoMeta` is the example: the
-  namespace is `hearth`, and the schema name stays inside the entry.
-- **Shareable.** Official namespaces only. A receiver may read only the
-  publisher stream of that database. An example is a database such as
-  `social-family`.
+- **Personal.** Not shareable. The owner key reads and appends it from any
+  of its devices. App-private namespaces live here. `hearth/PhotoMeta` is the
+  example: the namespace is `hearth`, and the schema name stays inside the
+  entry.
+- **Shareable.** Official namespaces only. A receiver reads entries whose
+  writer key is the publisher key, including re-appends. An example is a
+  database such as `social-family`.
 
 An app may split its data across both. The shareable database holds standard
 or official types. The personal database holds what is not meant to be shared.
@@ -35,40 +38,58 @@ This change does not delete those constants. `cloud_backup_protocol`'s
 `MAX_WRITERS` (1024) is a separate manifest bound and is also still live.
 Neither bound exists in the new log.
 
+## Share access v2
+
+The node's Ed25519 public key is the identity, and it is the same on every
+device. In this log that key is `PrincipalId`. Exemem's publisher-signed
+member list for one share is `grant` and `revoke` on that database. Read
+means `Receive`. Read+append means `Receive` plus `Submit`. One share is one
+`database_id`, and that is one log. A device id tags the writer; it does not
+create another log, cursor, or store.
+
 ## Log shape
 
 Each database has one log and a small head. The head's sequence is delivery
-order only. Devices and contributors each have a writer stream. Each device
-uses its own stream. Two processes writing one stream can still race; the
-core does not treat that as success. A stream's `writer_seq` is gap-free:
+order only. A writer is the pair `(node key, device)`. Two devices of one
+key have independent sequences and do not conflict. Two processes writing as
+the same writer can still race; the core does not treat that as success. A
+writer's `writer_seq` is gap-free:
 
 - `writer_seq <= last` with the same content is a duplicate
-- `writer_seq <= last` with different content is `Conflict`, and the call is not `Ok`
+- `writer_seq <= last` with different content, while the entry is still stored, is `Conflict`, and the call is not `Ok`
+- `writer_seq <= last` after that entry has been trimmed is a duplicate
 - `last + 1` is accepted
 - a higher value is a gap, and the batch is not stored
 
 A duplicate reports the next acceptable writer sequence, one past the stored
 tip. A caller whose response was lost can retry, then append the next mutation
 at that sequence. A participant appends only after resume loads that tip.
-Copying a submission onto the publisher stream is idempotent on
-`(submission_stream, writer_seq)` when the payload matches the stored
-submission. Repeating that exact copy stores nothing and does not move the
-publisher tip. A different payload is rejected. A batch that mixes an already
-copied submission with a new entry is rejected. The `incorporated` set is
-stored with the log. Trim drops a key when the submission it names is dropped,
-and a later re-append of that submission is refused. A persistent adapter
-stores the set alongside the log.
+Copying a submission is idempotent on `(writer, writer_seq)` of the
+submission, once in total, when the payload matches the stored submission.
+Repeating that exact copy, from any device of the publisher key, stores
+nothing and does not move that device's tip. A different payload is
+`Conflict`. A batch that mixes an already copied submission with a new entry
+is rejected. The repeat check runs before the submission lookup, so an exact
+retry of a copy whose submission was trimmed is a duplicate. A new writer
+sequence that names a trimmed submission is refused. The `incorporated` set
+is stored with the log. Trim drops a key when the submission it names is
+dropped. A persistent adapter stores the set alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp
-`(authored_at_ms, source_stream, sequence)`. An append is one transaction of
-at most 90 entries, and each stream has at most one append in flight.
+`(authored_at_ms, writer, sequence)`. An append is one transaction of
+at most 90 entries, and each writer has at most one append in flight.
 
 The operations are append, head, list, ack, grant, revoke, and snapshot.
-The trim floor is the minimum ack across consumers, and also a 30-day maximum
-retention. The floor does not move past the latest snapshot. A consumer whose
-cursor is below the floor gets `CursorExpired` and re-bootstraps from the
-snapshot. Until a snapshot exists, aged entries stay readable and the step
-reports that a snapshot is due.
+Every cursor and every ack is a delivery sequence. `list` returns the
+readable entries and sets `next` to the last delivery sequence scanned,
+including entries that reader cannot see, so hidden entries are covered.
+The trim floor is the minimum of those delivery acks, and also a 30-day
+maximum retention. The floor does not move past the latest snapshot. A
+caught-up receiver can ack through hidden submissions, so that ack does not
+pin trim behind them. A consumer whose cursor is below the floor gets
+`CursorExpired`. The sync step restarts that read from
+`snapshot_through`. Until a snapshot exists, aged entries stay readable and
+the step reports that a snapshot is due.
 
 ## Sharing invariant
 
@@ -77,44 +98,36 @@ publishers log. No one else's."
 
 Testable rule:
 
-1. A receiver of a share reads only entries the publisher authored into the
-   shared database's log. The read is scoped to `(database_id, publisher stream)`.
-   The receiver's cursor is that stream's writer sequence, not the global
-   delivery sequence. The saved cursor names its sequence space. If grants
-   move the principal into a different space, the old number is not reused;
-   the cursor restarts at zero in the new space, and the client applies the
-   entries it reads again idempotently. The stored ack is tagged with that
-   same space. A grant or revoke that changes the space resets the ack to
-   the start, so retention stays held back until the principal reads in the
-   new space. A receiver who has read every publisher entry is caught up: the
-   ack does not pin the trim floor on a hidden delivery sequence, and `list`
-   does not expire that cursor. `CursorExpired.snapshot_through` is in the
-   same writer sequence, so it does not reveal another stream's position. An
-   ack at or below the cursor already stored in the same space is a no-op.
-2. A contributor's submission is not readable by other receivers. It is a
-   submission stream. Only the publisher, and the submitting contributor for
-   that contributor's own entries, can read it.
-3. Other receivers see a contribution only after the publisher re-appends it
-   onto the publisher stream.
+1. A receiver of a share reads only entries whose writer key is the publisher
+   key in that database's log, including re-appends. The cursor is the
+   delivery sequence. An ack at or below the stored delivery sequence is a
+   no-op. An ack past the log head is `AckAhead`.
+2. A contributor's pending entry is not readable by other receivers. Only
+   the publisher key, and that contributor key for its own pending entries,
+   can read it.
+3. Other receivers see a contribution only after the publisher key re-appends
+   it.
 4. A receiver does not see the publisher's personal database, the publisher's
-   other databases, or any entry whose database id or stream is outside that
-   scope.
+   other databases, or any entry whose database id or writer key is outside
+   that scope.
 5. App-private namespaces are rejected on append into a shareable database
    (`AppPrivateNamespace`). The read filter also drops them if one is present,
    including for the publisher.
 6. App-private namespaces are allowed in the personal database.
 7. A personal database cannot be granted to a receiver
-   (`PersonalNotShareable`). A contributor grant is rejected there too.
+   (`PersonalNotShareable`). A contributor grant is rejected there too. An
+   owner grant is rejected on a shareable database
+   (`DeviceGrantNotShareable`).
 
 Removing a participant is `revoke`. `can_read` is false on the returned
-state, and that principal's open append is cleared. This log does not rotate
-keys, re-key a database, or move an epoch.
+state, and every open append for that key is cleared, on every device. This
+log does not rotate keys, re-key a database, or move an epoch.
 
 Enforcement for stored bytes is Exemem's read path, not only the client.
 This pure core models the same rule so a later read path can call it. The
 client is not the enforcement point.
 
-`can_read(principal, database, stream)` and `filter_readable(entries, reader, database, policy)`
+`can_read(principal, database, entry)` and `filter_readable(entries, reader, database, policy)`
 are that rule. `filter_readable` takes the database and the namespace policy
 as well as the reader, because a slice of entries does not carry them.
 
@@ -173,12 +186,11 @@ sibling. That registration is a follow-up. This change does not edit the SDK.
 Pure core, no I/O, crate `mutation_log`:
 
 - `mutation_log/src/lib.rs` — step entry and the batch, page, and retention bounds
-- `mutation_log/src/model.rs` — entries, stamps, database kind, grants
-- `mutation_log/src/state.rs` — log value, one in-flight append per stream
+- `mutation_log/src/model.rs` — entries, stamps, database kind, grants, writer
+- `mutation_log/src/state.rs` — log value, one in-flight append per writer
 - `mutation_log/src/append.rs` — dedupe, gap, app-private rejection
 - `mutation_log/src/auth.rs` — `can_read`, grant, revoke
 - `mutation_log/src/read.rs` — `filter_readable`, list, merge order
-- `mutation_log/src/cursor.rs` — receiver cursor in the publisher stream sequence
 - `mutation_log/src/retain.rs` — ack, snapshot, trim floor
 - `mutation_log/src/namespace.rs` — `NamespacePolicy`
 - `mutation_log/src/port.rs` — `MutationLog` port. Adapters implement it. The
@@ -192,7 +204,8 @@ contributor cap. `MutationLogConfig` defaults off. `open` returns nothing
 unless the caller passes an enabled value. The product does not read
 `LASTDB_MUTATION_LOG` and does not construct the adapter, so the live Share
 path is unchanged. The shell classifies a string with `env_flag::truthy`
-and does not read the process environment itself.
+and does not read the process environment itself. `mutation_log_mem` is the
+test adapter.
 
 - `mutation_log_mem/src/lib.rs` — config, default off
 - `mutation_log_mem/src/port.rs` — `MutationLog`: append, head, list, ack,
@@ -200,19 +213,19 @@ and does not read the process environment itself.
 - `mutation_log_mem/src/memory.rs` — in-memory adapter over `step`
 - `mutation_log_mem/src/tests.rs` — the same sharing rules, through the port
 
-Shared-sync step, crate `mutation_log_sync`. Personal devices and share
+Shared-sync step, crate `mutation_log_sync`. Personal writers and share
 participants call the same `drive`. There is no format parameter and no
 contributor cap. `select_path` returns the existing `lastdb_node` shared-sync
 worker when the caller passes `enabled == false`, and it does not build a log.
 The shell reads `MutationLogConfig` and passes that flag. The worker does not
 call this crate, and the product still does not read `LASTDB_MUTATION_LOG`.
-The crate depends on `MutationLog` only. `mutation_log_mem` is the in-memory
-adapter used by its tests.
+The crate depends on `MutationLog` only.
 
 - `mutation_log_sync/src/lib.rs` — `select_path`
 - `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
 - `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`.
-  Append waits until `SyncState::resume` has loaded the stream tip.
+  Append waits until `SyncState::resume` has loaded the writer tip. A pull
+  whose cursor is below the floor lists again from the latest snapshot.
 - `mutation_log_sync/src/tests/` — personal round trip, share round trip, flag off
 
 ## Later changes
@@ -221,6 +234,7 @@ These are not the current code.
 
 - The `lastdb_node` shared-sync worker adopts `select_path` when a shell
   passes an enabled `MutationLogConfig`. Today the worker stays the existing path.
+- Exemem persists one encrypted log per `database_id` and calls this step.
 - Exemem's read path enforces `can_read` for stored bytes.
 - The official-namespace module supplies `NamespacePolicy`.
 - One node registers an owned shareable database beside `personal`. The SDK

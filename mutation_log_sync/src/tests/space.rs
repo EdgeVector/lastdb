@@ -1,37 +1,28 @@
-use super::retry::payloads;
 use super::*;
+use crate::SyncError;
+use mutation_log::{
+    step, AppendBatch, Command, Entry, LogError, LogState, Writer, MAX_RETENTION_MS,
+};
 
 #[test]
-fn lost_submit_grant_restarts_the_cursor_in_the_publisher_space() {
-    let (mut log, publisher, published) = share_log();
+fn lost_submit_grant_keeps_the_delivery_cursor() {
+    let (mut log, publisher) = share_log();
     let person = principal("both");
-    let submission = stream("both");
     log.grant(&publisher, person.clone(), Capability::Receive)
         .expect("receive");
-    log.grant(
-        &publisher,
-        person.clone(),
-        Capability::Submit {
-            stream: submission.clone(),
-        },
-    )
-    .expect("submit");
-    let kind = share_kind(&publisher, &published);
+    log.grant(&publisher, person.clone(), Capability::Submit)
+        .expect("submit");
+    let kind = share_kind(&publisher);
     let publisher_state = SyncState::open(
         database("family"),
         kind.clone(),
-        SyncRole::Publisher {
-            principal: publisher.clone(),
-        },
+        publisher_role(publisher.clone(), "phone"),
     )
     .expect("publisher");
     let mut reader = SyncState::open(
         database("family"),
         kind,
-        SyncRole::Contributor {
-            principal: person.clone(),
-            stream: submission,
-        },
+        contributor_role(person.clone(), "phone"),
     )
     .expect("reader");
     let publisher_state = append(
@@ -46,40 +37,31 @@ fn lost_submit_grant_restarts_the_cursor_in_the_publisher_space() {
         append_event("photos", b"second", 3),
     );
     let (reader, _) = pull(&mut log, &reader, 4);
-    assert!(matches!(reader.cursor, crate::ReadCursor::Delivery(_)));
-    log.revoke(
-        &publisher,
-        &person,
-        &Capability::Submit {
-            stream: stream("both"),
-        },
-    )
-    .expect("revoke submit");
+    let saved = reader.cursor;
+    log.revoke(&publisher, &person, &Capability::Submit)
+        .expect("revoke submit");
     let (reader, seen) = pull(&mut log, &reader, 5);
-    assert!(matches!(
-        reader.cursor,
-        crate::ReadCursor::Stream { stream, .. } if stream == published
-    ));
-    assert_eq!(payloads(&seen), vec![b"album".to_vec(), b"second".to_vec()]);
+    assert_eq!(reader.cursor, saved);
+    assert!(seen.is_empty());
+    let fresh = log.list(&person, 0, 90, 5).expect("fresh read");
+    assert_eq!(
+        payloads(&fresh.entries),
+        vec![b"album".to_vec(), b"second".to_vec()]
+    );
+    let resumed = SyncState::resume(&reader, &log);
+    assert_eq!(resumed, Err(SyncError::Log(LogError::Unauthorized)));
 }
 
 #[test]
 fn resumed_writer_continues_after_the_stored_tip() {
     let phone = principal("phone");
-    let phone_stream = stream("phone");
     let mut log = personal_log();
-    log.grant(
-        &phone,
-        phone.clone(),
-        Capability::Device {
-            stream: phone_stream.clone(),
-        },
-    )
-    .expect("grant");
+    log.grant(&phone, phone.clone(), Capability::Owner)
+        .expect("grant");
     let opened = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone.clone(), phone_stream.clone()),
+        owner_role(phone.clone(), "phone"),
     )
     .expect("state");
     let state = SyncState::resume(&opened, &log).expect("resume");
@@ -93,7 +75,7 @@ fn resumed_writer_continues_after_the_stored_tip() {
     let rejoined = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone, phone_stream),
+        owner_role(phone, "phone"),
     )
     .expect("rejoin");
     assert_eq!(rejoined.next_seq, 1);
@@ -109,4 +91,113 @@ fn resumed_writer_continues_after_the_stored_tip() {
     assert!(matches!(created, Outcome::Appended { .. }));
     let (_next, seen) = pull(&mut log, &next, 3);
     assert_eq!(payloads(&seen), vec![b"landed".to_vec(), b"after".to_vec()]);
+}
+
+#[test]
+fn expired_cursor_restarts_from_the_snapshot() {
+    let publisher = principal("publisher");
+    let published = writer(&publisher, "phone");
+    let receiver = principal("receiver");
+    let mut state = LogState::open(database("family"), share_kind(&publisher));
+    state = step(
+        &state,
+        Command::Grant {
+            caller: publisher.clone(),
+            principal: receiver.clone(),
+            capability: Capability::Receive,
+        },
+        &hearth,
+    )
+    .expect("grant")
+    .state;
+    let old = mutation_log::Entry {
+        database_id: database("family"),
+        writer: published.clone(),
+        writer_seq: 1,
+        authored_at_ms: 1,
+        namespace: namespace("photos"),
+        incorporated_from: None,
+        payload: b"old".to_vec(),
+    };
+    state = append_batch(&state, &published, vec![old], 0);
+    state = step(
+        &state,
+        Command::Snapshot {
+            caller: publisher.clone(),
+            at_ms: 1,
+        },
+        &hearth,
+    )
+    .expect("snapshot")
+    .state;
+    let fresh = mutation_log::Entry {
+        database_id: database("family"),
+        writer: published.clone(),
+        writer_seq: 2,
+        authored_at_ms: 2,
+        namespace: namespace("photos"),
+        incorporated_from: None,
+        payload: b"fresh".to_vec(),
+    };
+    state = append_batch(&state, &published, vec![fresh], MAX_RETENTION_MS);
+    state = step(
+        &state,
+        Command::Trim {
+            caller: publisher.clone(),
+            now_ms: MAX_RETENTION_MS,
+        },
+        &hearth,
+    )
+    .expect("trim")
+    .state;
+    assert_eq!(state.entries.len(), 1);
+    let mut log = open_log(state);
+    let reader = SyncState::open(
+        database("family"),
+        share_kind(&publisher),
+        SyncRole::Receiver {
+            principal: receiver,
+        },
+    )
+    .expect("receiver");
+    let (reader, seen) = pull(&mut log, &reader, MAX_RETENTION_MS);
+    assert_eq!(payloads(&seen), vec![b"fresh".to_vec()]);
+    assert!(reader.cursor >= 1);
+}
+
+fn append_batch(
+    state: &LogState,
+    writer: &Writer,
+    entries: Vec<Entry>,
+    accepted_at_ms: u64,
+) -> LogState {
+    let begun = step(
+        state,
+        Command::BeginAppend {
+            writer: writer.clone(),
+        },
+        &hearth,
+    )
+    .expect("begin")
+    .state;
+    let appended = step(
+        &begun,
+        Command::Append(AppendBatch {
+            writer: writer.clone(),
+            entries,
+            accepted_at_ms,
+        }),
+        &hearth,
+    )
+    .expect("append")
+    .state;
+    step(
+        &appended,
+        Command::FinishAppend {
+            writer: writer.clone(),
+        },
+        &hearth,
+    )
+    .expect("finish")
+    .state
 }

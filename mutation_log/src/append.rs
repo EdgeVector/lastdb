@@ -1,6 +1,6 @@
 use crate::{
-    AppendBatch, DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, StoredEntry,
-    APPEND_BATCH_LIMIT,
+    AppendBatch, DatabaseKind, Entry, LogError, LogState, NamespaceKind, NamespacePolicy,
+    StoredEntry, Writer, APPEND_BATCH_LIMIT,
 };
 
 /// Result of an append that did not fail.
@@ -8,10 +8,10 @@ use crate::{
 pub enum AppendOutcome {
     /// The batch stored nothing.
     ///
-    /// `next_seq` is the next writer sequence this stream will accept: one past
+    /// `next_seq` is the next writer sequence this writer will accept: one past
     /// the stored tip, not one past a sequence this call did not store.
     Duplicate {
-        /// Next acceptable writer sequence on the batch's stream.
+        /// Next acceptable writer sequence for this writer.
         next_seq: u64,
     },
     /// The new suffix was stored as one transaction.
@@ -24,80 +24,79 @@ pub enum AppendOutcome {
 impl LogState {
     /// Apply one batch. A gap or an app-private namespace stores nothing.
     ///
-    /// Dedupe uses the writer sequence. A sequence at or below the stream's
-    /// last accepted value is a duplicate. The next value is accepted. A
-    /// higher value is a gap. A repeated sequence with the same content is a
-    /// duplicate. Different content is [`LogError::Conflict`]. An incorporation
-    /// matches the stored submission, including its payload. A batch that mixes
-    /// an already copied submission with a new entry is rejected.
+    /// Dedupe is per writer (node key, device). A sequence at or below that
+    /// writer's tip is a duplicate when the content matches, and a conflict
+    /// when the stored entry differs. A trimmed sequence at or below the tip
+    /// is a duplicate. The next value is accepted. A higher value is a gap.
+    /// An exact re-append is a duplicate once in total. A different payload
+    /// on a stored submission is [`LogError::Conflict`].
     pub fn append(
         &self,
         batch: &AppendBatch,
         policy: &impl NamespacePolicy,
     ) -> Result<(Self, AppendOutcome), LogError> {
-        validate_batch(self, batch)?;
-        self.authorize_append(&batch.author, &batch.stream)?;
-        reject_app_private(self, batch, policy)?;
-        if !self.inflight.contains_key(&batch.stream) {
-            return Err(LogError::AppendNotOpen);
-        }
-        let last = self
-            .streams
-            .get(&batch.stream)
-            .map(|progress| progress.last_writer_seq)
-            .ok_or(LogError::Unauthorized)?;
-        let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
+        check_batch(self, batch, policy)?;
+        let last = self.tips.get(&batch.writer).copied().unwrap_or(0);
         confirm_repeats(self, batch, last)?;
+        let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
         let start = classify_seqs(last, &seqs)?;
-        if start == seqs.len() || fresh_is_repeat(self, batch, start)? {
+        if start == seqs.len() {
             return Ok((self.clone(), duplicate_outcome(last)?));
         }
-        let added = (seqs.len() - start) as u64;
-        let delivery = self.head.as_ref().map_or(0, |head| head.delivery_seq);
-        if delivery.checked_add(added).is_none() {
-            return Err(LogError::InvalidSequence);
+        require_fresh(self, batch, start)?;
+        if fresh_is_repeat(self, batch, start)? {
+            return Ok((self.clone(), duplicate_outcome(last)?));
         }
+        ensure_delivery_room(self, seqs.len() - start)?;
         Ok(commit(self, batch, start))
     }
 }
 
-fn validate_batch(state: &LogState, batch: &AppendBatch) -> Result<(), LogError> {
+fn check_batch(
+    state: &LogState,
+    batch: &AppendBatch,
+    policy: &impl NamespacePolicy,
+) -> Result<(), LogError> {
     if batch.entries.is_empty() {
         return Err(LogError::EmptyBatch);
     }
     if batch.entries.len() > APPEND_BATCH_LIMIT {
         return Err(LogError::BatchTooLarge);
     }
+    state.authorize_append(&batch.writer)?;
     for entry in &batch.entries {
-        if entry.database_id != state.database_id {
-            return Err(LogError::WrongDatabase);
-        }
-        if entry.stream != batch.stream || entry.author != batch.author {
-            return Err(LogError::StreamMismatch);
-        }
-        require_submission(state, entry)?;
+        check_entry(state, batch, entry, policy)?;
+    }
+    if !state.inflight.contains(&batch.writer) {
+        return Err(LogError::AppendNotOpen);
     }
     Ok(())
 }
 
-fn on_publisher_stream(state: &LogState, stream: &crate::StreamId) -> bool {
-    matches!(&state.kind, DatabaseKind::Shareable { publisher_stream, .. } if publisher_stream == stream)
-}
-
-fn reject_app_private(
+fn check_entry(
     state: &LogState,
     batch: &AppendBatch,
+    entry: &Entry,
     policy: &impl NamespacePolicy,
 ) -> Result<(), LogError> {
-    if !matches!(state.kind, DatabaseKind::Shareable { .. }) {
-        return Ok(());
+    if entry.database_id != state.database_id {
+        return Err(LogError::WrongDatabase);
     }
-    if batch
-        .entries
-        .iter()
-        .any(|entry| policy.classify(&entry.namespace) == NamespaceKind::AppPrivate)
+    if entry.writer != batch.writer {
+        return Err(LogError::WriterMismatch);
+    }
+    if matches!(state.kind, DatabaseKind::Shareable { .. })
+        && policy.classify(&entry.namespace) == NamespaceKind::AppPrivate
     {
         return Err(LogError::AppPrivateNamespace);
+    }
+    Ok(())
+}
+
+fn ensure_delivery_room(state: &LogState, added: usize) -> Result<(), LogError> {
+    let delivery = state.head.as_ref().map_or(0, |head| head.delivery_seq);
+    if delivery.checked_add(added as u64).is_none() {
+        return Err(LogError::InvalidSequence);
     }
     Ok(())
 }
@@ -145,29 +144,34 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
         if entry.writer_seq > last {
             continue;
         }
-        let matched = state.entries.iter().find(|stored| {
-            stored.entry.stream == entry.stream && stored.entry.writer_seq == entry.writer_seq
-        });
-        match matched {
+        match stored_entry(state, &entry.writer, entry.writer_seq) {
             Some(stored) if same_content(&stored.entry, entry) => {}
-            _ => return Err(LogError::Conflict),
+            None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => {}
+            Some(_) | None => return Err(LogError::Conflict),
         }
     }
     Ok(())
 }
 
-fn same_content(stored: &crate::Entry, entry: &crate::Entry) -> bool {
+fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'a StoredEntry> {
+    state
+        .entries
+        .iter()
+        .find(|stored| stored.entry.writer == *writer && stored.entry.writer_seq == seq)
+}
+
+fn trimmed_tip(state: &LogState, writer: &Writer) -> u64 {
+    state.trimmed_tips.get(writer).copied().unwrap_or(0)
+}
+
+fn same_content(stored: &Entry, entry: &Entry) -> bool {
     stored.payload == entry.payload
         && stored.namespace == entry.namespace
-        && stored.author == entry.author
         && stored.incorporated_from == entry.incorporated_from
 }
 
 fn fresh_is_repeat(state: &LogState, batch: &AppendBatch, start: usize) -> Result<bool, LogError> {
     let fresh = &batch.entries[start..];
-    if fresh.is_empty() {
-        return Ok(false);
-    }
     let mut copied = false;
     let mut unseen = false;
     for entry in fresh {
@@ -183,32 +187,41 @@ fn fresh_is_repeat(state: &LogState, batch: &AppendBatch, start: usize) -> Resul
     Ok(copied)
 }
 
-fn already_copied(state: &LogState, entry: &crate::Entry) -> bool {
-    match &entry.incorporated_from {
-        Some(from) => state
+fn already_copied(state: &LogState, entry: &Entry) -> bool {
+    entry.incorporated_from.as_ref().is_some_and(|from| {
+        state
             .incorporated
-            .contains(&(from.submission_stream.clone(), from.writer_seq)),
-        None => false,
-    }
+            .contains(&(from.writer.clone(), from.writer_seq))
+    })
 }
 
-fn require_submission(state: &LogState, entry: &crate::Entry) -> Result<(), LogError> {
+fn require_fresh(state: &LogState, batch: &AppendBatch, start: usize) -> Result<(), LogError> {
+    for entry in batch.entries.iter().skip(start) {
+        require_submission(state, entry)?;
+    }
+    Ok(())
+}
+
+fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     let Some(from) = &entry.incorporated_from else {
         return Ok(());
     };
-    if !on_publisher_stream(state, &entry.stream) {
+    let DatabaseKind::Shareable { publisher } = &state.kind else {
+        return Err(LogError::InvalidEntry);
+    };
+    if &entry.writer.key != publisher {
         return Err(LogError::InvalidEntry);
     }
-    let matched = state.entries.iter().any(|stored| {
-        stored.entry.incorporated_from.is_none()
-            && stored.entry.stream == from.submission_stream
-            && stored.entry.writer_seq == from.writer_seq
-            && stored.entry.author == from.contributor
-            && stored.entry.namespace == entry.namespace
-            && stored.entry.payload == entry.payload
-    });
-    if matched {
+    let Some(stored) = stored_entry(state, &from.writer, from.writer_seq) else {
+        return Err(LogError::UnknownSubmission);
+    };
+    if stored.entry.incorporated_from.is_none()
+        && stored.entry.namespace == entry.namespace
+        && stored.entry.payload == entry.payload
+    {
         Ok(())
+    } else if stored.entry.incorporated_from.is_none() {
+        Err(LogError::Conflict)
     } else {
         Err(LogError::UnknownSubmission)
     }
@@ -234,13 +247,11 @@ fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, App
         });
         if let Some(from) = &entry.incorporated_from {
             next.incorporated
-                .insert((from.submission_stream.clone(), from.writer_seq));
+                .insert((from.writer.clone(), from.writer_seq));
         }
     }
-    if let Some(progress) = next.streams.get_mut(&batch.stream) {
-        if let Some(entry) = batch.entries.last() {
-            progress.last_writer_seq = entry.writer_seq;
-        }
+    if let Some(entry) = batch.entries.last() {
+        next.tips.insert(batch.writer.clone(), entry.writer_seq);
     }
     (next, AppendOutcome::Accepted { delivery_seqs })
 }

@@ -5,11 +5,10 @@ use crate::{
 
 /// Head a reader is allowed to see.
 ///
-/// `cursor` is not the raw delivery head. A share receiver's cursor is the
-/// publisher stream's writer sequence. Hidden submissions do not move it.
+/// `cursor` is the delivery sequence of the last visible entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
-    /// Cursor in the sequence space this reader may observe.
+    /// Delivery sequence of the last visible entry.
     pub cursor: u64,
     /// Stamp of the last visible entry.
     pub stamp: Stamp,
@@ -20,17 +19,19 @@ pub struct ScopedHead {
 pub struct ListPage {
     /// Visible entries, oldest first.
     pub entries: Vec<StoredEntry>,
-    /// Cursor for the next call, in this reader's sequence space.
-    /// Unchanged when the page is empty. Hidden entries do not advance it.
+    /// Last delivery sequence scanned, including entries this reader cannot see.
+    ///
+    /// The next call passes this value as `after`, so hidden entries are covered.
+    /// Unchanged when nothing after `after` was scanned.
     pub next: u64,
 }
 
 /// Entries `reader` may see. Hidden entries are omitted, not redacted in place.
 ///
-/// A share receiver gets publisher-stream entries whose namespace is official.
-/// A submission is returned only to its author and to the publisher. An entry
-/// from another database is omitted. An app-private namespace on a shareable
-/// database is omitted for every reader.
+/// A share receiver gets entries whose writer key is the publisher key and whose
+/// namespace is official. A pending submission is returned only to its author
+/// key and to the publisher key. An entry from another database is omitted.
+/// An app-private namespace on a shareable database is omitted for every reader.
 pub fn filter_readable<'a>(
     entries: &'a [StoredEntry],
     reader: &PrincipalId,
@@ -69,7 +70,7 @@ pub fn entry_visible(
     if stored.entry.database_id != database.database_id {
         return false;
     }
-    if !can_read(reader, database, &stored.entry.stream) {
+    if !can_read(reader, database, &stored.entry) {
         return false;
     }
     shareable_namespace_allowed(database, stored, policy)
@@ -96,14 +97,13 @@ impl LogState {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        let space = crate::cursor::cursor_space(self, reader);
         Ok(self
             .entries
             .iter()
             .rev()
             .find(|stored| entry_visible(self, stored, reader, policy))
             .map(|stored| ScopedHead {
-                cursor: crate::cursor::cursor_of(&space, stored),
+                cursor: stored.delivery_seq,
                 stamp: stored.entry.stamp(),
             }))
     }
@@ -123,11 +123,13 @@ impl LogState {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        let floor = self.effective_floor(now_ms, policy);
-        let mark = crate::cursor::expiry_mark(self, reader, floor, policy);
-        if after < mark {
+        let floor = self.effective_floor(now_ms);
+        if after < floor {
             return Err(LogError::CursorExpired {
-                snapshot_through: crate::cursor::snapshot_mark(self, reader, policy),
+                snapshot_through: self
+                    .snapshot
+                    .as_ref()
+                    .map_or(0, |cut| cut.through_delivery_seq),
             });
         }
         Ok(page(self, reader, after, limit, policy))
@@ -141,18 +143,16 @@ fn page(
     limit: usize,
     policy: &impl NamespacePolicy,
 ) -> ListPage {
-    let space = crate::cursor::cursor_space(state, reader);
     let mut entries = Vec::new();
     let mut next = after;
     for stored in &state.entries {
+        if stored.delivery_seq <= after {
+            continue;
+        }
+        next = stored.delivery_seq;
         if !entry_visible(state, stored, reader, policy) {
             continue;
         }
-        let cursor = crate::cursor::cursor_of(&space, stored);
-        if cursor <= after {
-            continue;
-        }
-        next = cursor;
         entries.push(stored.clone());
         if entries.len() == limit {
             break;

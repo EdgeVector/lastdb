@@ -2,17 +2,16 @@ use super::*;
 
 #[test]
 fn duplicate_accepts_next_and_gap_stores_nothing() {
-    let (state, publisher, published) = shareable();
-    let photos = entry(&state.database_id, &published, &publisher, "photos", 1, 10);
-    let state = apply(&state, &publisher, &published, vec![photos], 10);
+    let (state, publisher, writer) = shareable();
+    let photos = entry(&state.database_id, &writer, "photos", 1, 10);
+    let state = apply(&state, &writer, vec![photos], 10);
     assert_eq!(state.head.as_ref().map(|head| head.delivery_seq), Some(1));
 
-    let again = entry(&state.database_id, &published, &publisher, "photos", 1, 10);
+    let again = entry(&state.database_id, &writer, "photos", 1, 10);
     let begun = step(
         &state,
         Command::BeginAppend {
-            author: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -21,8 +20,7 @@ fn duplicate_accepts_next_and_gap_stores_nothing() {
     let duplicate = step(
         &begun,
         Command::Append(AppendBatch {
-            author: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
             entries: vec![again],
             accepted_at_ms: 11,
         }),
@@ -35,12 +33,11 @@ fn duplicate_accepts_next_and_gap_stores_nothing() {
     );
     assert_eq!(duplicate.state.entries.len(), 1);
 
-    let skipped = entry(&state.database_id, &published, &publisher, "photos", 3, 12);
+    let skipped = entry(&state.database_id, &writer, "photos", 3, 12);
     let gap = step(
         &begun,
         Command::Append(AppendBatch {
-            author: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
             entries: vec![skipped],
             accepted_at_ms: 12,
         }),
@@ -57,31 +54,30 @@ fn duplicate_accepts_next_and_gap_stores_nothing() {
     let closed = step(
         &duplicate.state,
         Command::FinishAppend {
-            caller: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
     .expect("finish")
     .state;
 
-    let next = entry(&state.database_id, &published, &publisher, "photos", 2, 13);
-    let state = apply(&closed, &publisher, &published, vec![next], 13);
+    let next = entry(&state.database_id, &writer, "photos", 2, 13);
+    let state = apply(&closed, &writer, vec![next], 13);
     assert_eq!(state.entries.len(), 2);
     assert_eq!(state.entries[1].delivery_seq, 2);
+    let _ = publisher;
 }
 
 #[test]
 fn prefix_duplicates_then_one_new_entry_are_one_transaction() {
-    let (state, publisher, published) = shareable();
-    let first = entry(&state.database_id, &published, &publisher, "photos", 1, 1);
-    let state = apply(&state, &publisher, &published, vec![first.clone()], 1);
-    let second = entry(&state.database_id, &published, &publisher, "photos", 2, 2);
+    let (state, _publisher, writer) = shareable();
+    let first = entry(&state.database_id, &writer, "photos", 1, 1);
+    let state = apply(&state, &writer, vec![first.clone()], 1);
+    let second = entry(&state.database_id, &writer, "photos", 2, 2);
     let begun = step(
         &state,
         Command::BeginAppend {
-            author: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -90,8 +86,7 @@ fn prefix_duplicates_then_one_new_entry_are_one_transaction() {
     let applied = step(
         &begun,
         Command::Append(AppendBatch {
-            author: publisher,
-            stream: published,
+            writer,
             entries: vec![first, second],
             accepted_at_ms: 2,
         }),
@@ -107,84 +102,36 @@ fn prefix_duplicates_then_one_new_entry_are_one_transaction() {
 }
 
 #[test]
-fn one_inflight_append_per_stream_and_batch_limit() {
+fn one_inflight_append_per_writer_and_batch_limit() {
     let owner = principal("owner");
-    let phone = stream("phone");
-    let laptop = stream("laptop");
+    let phone = writer_of(&owner, "phone");
+    let laptop = writer_of(&owner, "laptop");
     let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
-    state = step(
-        &state,
-        Command::Grant {
-            caller: owner.clone(),
-            principal: owner.clone(),
-            capability: Capability::Device {
-                stream: phone.clone(),
-            },
-        },
-        &hearth,
-    )
-    .expect("phone")
-    .state;
-    state = step(
-        &state,
-        Command::Grant {
-            caller: owner.clone(),
-            principal: owner.clone(),
-            capability: Capability::Device {
-                stream: laptop.clone(),
-            },
-        },
-        &hearth,
-    )
-    .expect("laptop")
-    .state;
+    state = grant_owner(&state, &owner, &owner);
     state = step(
         &state,
         Command::BeginAppend {
-            author: owner.clone(),
-            stream: phone.clone(),
+            writer: phone.clone(),
         },
         &hearth,
     )
     .expect("open phone")
     .state;
-    state = step(
-        &state,
-        Command::BeginAppend {
-            author: owner.clone(),
-            stream: laptop,
-        },
-        &hearth,
-    )
-    .expect("open laptop")
-    .state;
-    let second = step(
-        &state,
-        Command::BeginAppend {
-            author: owner,
-            stream: phone,
-        },
-        &hearth,
-    );
+    state = step(&state, Command::BeginAppend { writer: laptop }, &hearth)
+        .expect("open laptop")
+        .state;
+    let second = step(&state, Command::BeginAppend { writer: phone }, &hearth);
     assert_eq!(second, Err(LogError::AppendInFlight));
 
-    let (share, publisher, published) = shareable();
+    let (share, _publisher, writer) = shareable();
     let mut entries = Vec::new();
     for seq in 1..=91 {
-        entries.push(entry(
-            &share.database_id,
-            &published,
-            &publisher,
-            "photos",
-            seq,
-            seq,
-        ));
+        entries.push(entry(&share.database_id, &writer, "photos", seq, seq));
     }
     let opened = step(
         &share,
         Command::BeginAppend {
-            author: publisher.clone(),
-            stream: published.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -193,8 +140,7 @@ fn one_inflight_append_per_stream_and_batch_limit() {
     let too_big = step(
         &opened,
         Command::Append(AppendBatch {
-            author: publisher,
-            stream: published,
+            writer,
             entries,
             accepted_at_ms: 1,
         }),
@@ -207,32 +153,74 @@ fn one_inflight_append_per_stream_and_batch_limit() {
 #[test]
 fn merge_order_follows_the_stamp_and_delivery_order_does_not() {
     let owner = principal("owner");
-    let phone = stream("phone");
-    let laptop = stream("laptop");
+    let phone = writer_of(&owner, "phone");
+    let laptop = writer_of(&owner, "laptop");
     let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
-    for writer in [&phone, &laptop] {
-        state = step(
-            &state,
-            Command::Grant {
-                caller: owner.clone(),
-                principal: owner.clone(),
-                capability: Capability::Device {
-                    stream: writer.clone(),
-                },
-            },
-            &hearth,
-        )
-        .expect("grant")
-        .state;
-    }
-    let later = entry(&state.database_id, &phone, &owner, "hearth", 1, 200);
-    let earlier = entry(&state.database_id, &laptop, &owner, "hearth", 1, 100);
-    state = apply(&state, &owner, &phone, vec![later], 1);
-    state = apply(&state, &owner, &laptop, vec![earlier], 2);
+    state = grant_owner(&state, &owner, &owner);
+    let later = entry(&state.database_id, &phone, "hearth", 1, 200);
+    let earlier = entry(&state.database_id, &laptop, "hearth", 1, 100);
+    state = apply(&state, &phone, vec![later], 1);
+    state = apply(&state, &laptop, vec![earlier], 2);
     assert_eq!(state.entries[0].delivery_seq, 1);
-    assert_eq!(state.entries[0].entry.stream, phone);
+    assert_eq!(state.entries[0].entry.writer.device.as_str(), "phone");
     let merged = merge_order(&state.entries);
-    assert_eq!(merged[0].entry.stream, laptop);
-    assert_eq!(merged[1].entry.stream, phone);
+    assert_eq!(merged[0].entry.writer.device.as_str(), "laptop");
+    assert_eq!(merged[1].entry.writer.device.as_str(), "phone");
     assert_eq!(merged[0].delivery_seq, 2);
+}
+
+#[test]
+fn two_devices_of_one_key_append_without_conflict() {
+    let owner = principal("owner");
+    let phone = writer_of(&owner, "phone");
+    let laptop = writer_of(&owner, "laptop");
+    let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
+    state = grant_owner(&state, &owner, &owner);
+    let phone_begun = step(
+        &state,
+        Command::BeginAppend {
+            writer: phone.clone(),
+        },
+        &hearth,
+    )
+    .expect("phone begin")
+    .state;
+    let both = step(
+        &phone_begun,
+        Command::BeginAppend {
+            writer: laptop.clone(),
+        },
+        &hearth,
+    )
+    .expect("laptop begin")
+    .state;
+    let phone_entry = entry(&state.database_id, &phone, "notes", 1, 1);
+    let laptop_entry = entry(&state.database_id, &laptop, "notes", 1, 2);
+    let stored = step(
+        &both,
+        Command::Append(AppendBatch {
+            writer: phone,
+            entries: vec![phone_entry],
+            accepted_at_ms: 1,
+        }),
+        &hearth,
+    )
+    .expect("phone");
+    let stored = step(
+        &stored.state,
+        Command::Append(AppendBatch {
+            writer: laptop,
+            entries: vec![laptop_entry],
+            accepted_at_ms: 2,
+        }),
+        &hearth,
+    )
+    .expect("laptop");
+    assert!(matches!(
+        stored.outcome,
+        Outcome::Appended(AppendOutcome::Accepted { .. })
+    ));
+    assert_eq!(stored.state.entries.len(), 2);
+    let visible = filter_readable(&stored.state.entries, &owner, &stored.state, &hearth);
+    assert_eq!(visible.len(), 2);
 }

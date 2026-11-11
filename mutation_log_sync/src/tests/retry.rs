@@ -4,20 +4,13 @@ use crate::SyncEvent;
 #[test]
 fn lost_append_response_retry_then_a_new_mutation_lands() {
     let phone = principal("phone");
-    let phone_stream = stream("phone");
     let mut log = personal_log();
-    log.grant(
-        &phone,
-        phone.clone(),
-        Capability::Device {
-            stream: phone_stream.clone(),
-        },
-    )
-    .expect("grant");
+    log.grant(&phone, phone.clone(), Capability::Owner)
+        .expect("grant");
     let opened = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone, phone_stream),
+        owner_role(phone, "phone"),
     )
     .expect("state");
     let state = SyncState::resume(&opened, &log).expect("resume");
@@ -50,33 +43,21 @@ fn lost_append_response_retry_then_a_new_mutation_lands() {
 
 #[test]
 fn lost_reappend_response_does_not_drop_the_next_contribution() {
-    let (mut log, publisher, published) = share_log();
+    let (mut log, publisher) = share_log();
     let contributor = principal("contributor");
-    let submission = stream("contrib");
-    log.grant(
-        &publisher,
-        contributor.clone(),
-        Capability::Submit {
-            stream: submission.clone(),
-        },
-    )
-    .expect("submit");
-    let kind = share_kind(&publisher, &published);
+    log.grant(&publisher, contributor.clone(), Capability::Submit)
+        .expect("submit");
+    let kind = share_kind(&publisher);
     let publisher_state = SyncState::open(
         database("family"),
         kind.clone(),
-        SyncRole::Publisher {
-            principal: publisher.clone(),
-        },
+        publisher_role(publisher.clone(), "phone"),
     )
     .expect("publisher");
     let contributor_state = SyncState::open(
         database("family"),
         kind,
-        SyncRole::Contributor {
-            principal: contributor,
-            stream: submission.clone(),
-        },
+        contributor_role(contributor.clone(), "phone"),
     )
     .expect("contributor");
     let publisher_state = append(
@@ -90,7 +71,7 @@ fn lost_reappend_response_does_not_drop_the_next_contribution() {
         append_event("photos", b"pending", 2),
     );
     let (publisher_state, inbox) = pull(&mut log, &publisher_state, 3);
-    let pending = submission_entry(&inbox, &submission);
+    let pending = pending_entry(&inbox, &contributor);
     drive(
         &publisher_state,
         &mut log,
@@ -125,7 +106,7 @@ fn lost_reappend_response_does_not_drop_the_next_contribution() {
         .expect("receive");
     let receiver_state = SyncState::open(
         database("family"),
-        share_kind(&publisher, &published),
+        share_kind(&publisher),
         SyncRole::Receiver {
             principal: receiver,
         },
@@ -141,36 +122,24 @@ fn lost_reappend_response_does_not_drop_the_next_contribution() {
 
 #[test]
 fn retried_reappend_publishes_one_copy() {
-    let (mut log, publisher, published) = share_log();
+    let (mut log, publisher) = share_log();
     let contributor = principal("contributor");
-    let submission = stream("contrib");
     let receiver = principal("receiver");
-    log.grant(
-        &publisher,
-        contributor.clone(),
-        Capability::Submit {
-            stream: submission.clone(),
-        },
-    )
-    .expect("submit");
+    log.grant(&publisher, contributor.clone(), Capability::Submit)
+        .expect("submit");
     log.grant(&publisher, receiver.clone(), Capability::Receive)
         .expect("receive");
-    let kind = share_kind(&publisher, &published);
+    let kind = share_kind(&publisher);
     let publisher_state = SyncState::open(
         database("family"),
         kind.clone(),
-        SyncRole::Publisher {
-            principal: publisher.clone(),
-        },
+        publisher_role(publisher.clone(), "phone"),
     )
     .expect("publisher");
     let contributor_state = SyncState::open(
         database("family"),
         kind.clone(),
-        SyncRole::Contributor {
-            principal: contributor,
-            stream: submission.clone(),
-        },
+        contributor_role(contributor.clone(), "phone"),
     )
     .expect("contributor");
     let receiver_state = SyncState::open(
@@ -192,7 +161,7 @@ fn retried_reappend_publishes_one_copy() {
         append_event("photos", b"pending", 2),
     );
     let (publisher_state, inbox) = pull(&mut log, &publisher_state, 3);
-    let pending = submission_entry(&inbox, &submission);
+    let pending = pending_entry(&inbox, &contributor);
     let (publisher_state, first) = drive(
         &publisher_state,
         &mut log,
@@ -231,20 +200,13 @@ fn retried_reappend_publishes_one_copy() {
 #[test]
 fn rolled_back_pull_is_not_stuck_on_ack_regress() {
     let phone = principal("phone");
-    let phone_stream = stream("phone");
     let mut log = personal_log();
-    log.grant(
-        &phone,
-        phone.clone(),
-        Capability::Device {
-            stream: phone_stream.clone(),
-        },
-    )
-    .expect("grant");
+    log.grant(&phone, phone.clone(), Capability::Owner)
+        .expect("grant");
     let mut writer = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone.clone(), phone_stream),
+        owner_role(phone, "phone"),
     )
     .expect("state");
     for index in 0..91 {
@@ -266,20 +228,13 @@ fn rolled_back_pull_is_not_stuck_on_ack_regress() {
     assert!(rolled.is_ok());
 }
 
-fn submission_entry(entries: &[StoredEntry], stream: &StreamId) -> mutation_log::Entry {
+fn pending_entry(entries: &[StoredEntry], key: &PrincipalId) -> mutation_log::Entry {
     entries
         .iter()
-        .find(|stored| &stored.entry.stream == stream)
+        .find(|stored| &stored.entry.writer.key == key && stored.entry.incorporated_from.is_none())
         .expect("submission")
         .entry
         .clone()
-}
-
-pub(super) fn payloads(entries: &[StoredEntry]) -> Vec<Vec<u8>> {
-    entries
-        .iter()
-        .map(|stored| stored.entry.payload.clone())
-        .collect()
 }
 
 fn copies_of(entries: &[StoredEntry], payload: &[u8]) -> usize {

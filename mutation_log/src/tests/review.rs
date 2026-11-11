@@ -2,12 +2,11 @@ use super::*;
 
 #[test]
 fn mixed_batch_cannot_store_a_forged_copy() {
-    let (state, publisher, published, _person, submission) = copied_submission();
-    let forged = copy_of(&state, &publisher, &published, &submission, 2, b"FORGED");
-    let mut real = copy_of(&state, &publisher, &published, &submission, 3, b"two");
-    real.incorporated_from.as_mut().expect("from").writer_seq = 2;
-    let stored = try_append(&state, &publisher, &published, vec![forged, real]);
-    assert_eq!(stored.as_ref().err(), Some(&LogError::UnknownSubmission));
+    let (state, _publisher, published, _person, submission) = copied_submission();
+    let forged = copy_of(&state, &published, &submission, 2, 1, b"FORGED");
+    let real = copy_of(&state, &published, &submission, 3, 2, b"two");
+    let stored = try_append(&state, &published, vec![forged, real]);
+    assert_eq!(stored.as_ref().err(), Some(&LogError::Conflict));
     assert!(state
         .entries
         .iter()
@@ -16,39 +15,38 @@ fn mixed_batch_cannot_store_a_forged_copy() {
 
 #[test]
 fn exact_incorporation_repeat_is_duplicate_and_a_changed_payload_is_not() {
-    let (state, publisher, published, _person, submission) = copied_submission();
-    let again = copy_of(&state, &publisher, &published, &submission, 2, b"one");
-    let repeat = try_append(&state, &publisher, &published, vec![again]).expect("repeat");
+    let (state, _publisher, published, _person, submission) = copied_submission();
+    let again = copy_of(&state, &published, &submission, 2, 1, b"one");
+    let repeat = try_append(&state, &published, vec![again]).expect("repeat");
     assert_eq!(
         repeat.outcome,
         Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
     );
     assert_eq!(repeat.state.entries.len(), state.entries.len());
 
-    let forged = copy_of(&state, &publisher, &published, &submission, 2, b"FORGED");
-    let changed = try_append(&state, &publisher, &published, vec![forged]);
-    assert_eq!(changed.as_ref().err(), Some(&LogError::UnknownSubmission));
+    let forged = copy_of(&state, &published, &submission, 2, 1, b"FORGED");
+    let changed = try_append(&state, &published, vec![forged]);
+    assert_eq!(changed.as_ref().err(), Some(&LogError::Conflict));
 }
 
 #[test]
 fn mixed_incorporated_and_new_entries_are_rejected() {
-    let (state, publisher, published, _person, submission) = copied_submission();
-    let again = copy_of(&state, &publisher, &published, &submission, 2, b"one");
-    let mut second = copy_of(&state, &publisher, &published, &submission, 3, b"two");
-    second.incorporated_from.as_mut().expect("from").writer_seq = 2;
-    let mixed = try_append(&state, &publisher, &published, vec![again, second]);
+    let (state, _publisher, published, _person, submission) = copied_submission();
+    let again = copy_of(&state, &published, &submission, 2, 1, b"one");
+    let second = copy_of(&state, &published, &submission, 3, 2, b"two");
+    let mixed = try_append(&state, &published, vec![again, second]);
     assert_eq!(mixed.as_ref().err(), Some(&LogError::MixedIncorporation));
     assert_eq!(state.entries.len(), 3);
 }
 
 #[test]
 fn repeated_writer_seq_with_different_content_is_conflict() {
-    let (state, publisher, published) = shareable();
-    let first = entry(&state.database_id, &published, &publisher, "photos", 1, 1);
-    let state = apply(&state, &publisher, &published, vec![first], 1);
-    let mut other = entry(&state.database_id, &published, &publisher, "photos", 1, 1);
+    let (state, _publisher, published) = shareable();
+    let first = entry(&state.database_id, &published, "photos", 1, 1);
+    let state = apply(&state, &published, vec![first], 1);
+    let mut other = entry(&state.database_id, &published, "photos", 1, 1);
     other.payload = b"other".to_vec();
-    let conflict = try_append(&state, &publisher, &published, vec![other]);
+    let conflict = try_append(&state, &published, vec![other]);
     assert_eq!(conflict.as_ref().err(), Some(&LogError::Conflict));
     assert_eq!(state.entries.len(), 1);
     assert_eq!(state.entries[0].entry.payload, vec![1]);
@@ -59,91 +57,107 @@ fn reappend_of_a_trimmed_submission_is_rejected() {
     let (mut state, publisher, published, person, submission) = copied_submission();
     state = ack(&state, &publisher, 3);
     state = ack(&state, &person, 2);
-    state = step(
-        &state,
-        Command::Snapshot {
-            caller: publisher.clone(),
-            at_ms: 4,
-        },
-        &hearth,
-    )
-    .expect("snapshot")
-    .state;
-    state = step(
-        &state,
-        Command::Trim {
-            caller: publisher.clone(),
-            now_ms: 4,
-        },
-        &hearth,
-    )
-    .expect("trim")
-    .state;
+    state = snapshot(&state, &publisher, 4);
+    state = trim(&state, &publisher, 4);
     assert!(state
         .entries
         .iter()
-        .all(|row| row.entry.stream != submission));
-    let again = copy_of(&state, &publisher, &published, &submission, 2, b"one");
-    let refused = try_append(&state, &publisher, &published, vec![again]);
+        .all(|row| row.entry.writer.key != person));
+    let again = copy_of(&state, &published, &submission, 2, 1, b"one");
+    let refused = try_append(&state, &published, vec![again]);
     assert_eq!(refused.as_ref().err(), Some(&LogError::UnknownSubmission));
 }
 
-fn copied_submission() -> (LogState, PrincipalId, StreamId, PrincipalId, StreamId) {
+#[test]
+fn trimmed_writer_seq_retry_is_duplicate() {
+    let (state, publisher, published) = shareable();
+    let first = entry(&state.database_id, &published, "photos", 1, 1);
+    let mut state = apply(&state, &published, vec![first.clone()], 1);
+    state = ack(&state, &publisher, 1);
+    state = snapshot(&state, &publisher, 2);
+    state = trim(&state, &publisher, 2);
+    assert!(state.entries.is_empty());
+    let repeat = try_append(&state, &published, vec![first]).expect("trimmed retry");
+    assert_eq!(
+        repeat.outcome,
+        Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
+    );
+    let mut changed = entry(&state.database_id, &published, "photos", 1, 1);
+    changed.payload = b"other".to_vec();
+    let also = try_append(&state, &published, vec![changed]).expect("trimmed bytes are gone");
+    assert_eq!(
+        also.outcome,
+        Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
+    );
+}
+
+#[test]
+fn trimmed_reappend_retry_is_duplicate() {
+    let (mut state, publisher, published, person, _submission) = copied_submission();
+    let stored = state
+        .entries
+        .iter()
+        .find(|row| row.entry.writer == published)
+        .expect("publisher entry")
+        .entry
+        .clone();
+    state = ack(&state, &publisher, 3);
+    state = ack(&state, &person, 3);
+    state = snapshot(&state, &publisher, 4);
+    state = trim(&state, &publisher, 4);
+    assert!(state.entries.is_empty());
+    let repeat = try_append(&state, &published, vec![stored.clone()]).expect("exact retry");
+    assert_eq!(
+        repeat.outcome,
+        Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
+    );
+    let mut fresh = stored;
+    fresh.writer_seq = 2;
+    let refused = try_append(&state, &published, vec![fresh]);
+    assert_eq!(refused.as_ref().err(), Some(&LogError::UnknownSubmission));
+}
+
+fn copied_submission() -> (LogState, PrincipalId, Writer, PrincipalId, Writer) {
     let (mut state, publisher, published) = shareable();
     let person = principal("contributor");
-    let submission = stream("contrib");
-    state = step(
-        &state,
-        Command::Grant {
-            caller: publisher.clone(),
-            principal: person.clone(),
-            capability: Capability::Submit {
-                stream: submission.clone(),
-            },
-        },
-        &hearth,
-    )
-    .expect("grant")
-    .state;
-    let mut first = entry(&state.database_id, &submission, &person, "photos", 1, 1);
+    let submission = writer_of(&person, "contrib");
+    state = grant_submit(&state, &publisher, &person);
+    let mut first = entry(&state.database_id, &submission, "photos", 1, 1);
     first.payload = b"one".to_vec();
-    let mut second = entry(&state.database_id, &submission, &person, "photos", 2, 2);
+    let mut second = entry(&state.database_id, &submission, "photos", 2, 2);
     second.payload = b"two".to_vec();
-    state = apply(&state, &person, &submission, vec![first, second], 2);
-    let copied = copy_of(&state, &publisher, &published, &submission, 1, b"one");
-    state = apply(&state, &publisher, &published, vec![copied], 3);
+    state = apply(&state, &submission, vec![first, second], 2);
+    let copied = copy_of(&state, &published, &submission, 1, 1, b"one");
+    state = apply(&state, &published, vec![copied], 3);
     (state, publisher, published, person, submission)
 }
 
 fn copy_of(
     state: &LogState,
-    publisher: &PrincipalId,
-    published: &StreamId,
-    submission: &StreamId,
+    publisher: &Writer,
+    submission: &Writer,
     seq: u64,
+    from_seq: u64,
     payload: &[u8],
 ) -> Entry {
-    let mut entry = entry(&state.database_id, published, publisher, "photos", seq, seq);
+    let mut entry = entry(&state.database_id, publisher, "photos", seq, seq);
     entry.payload = payload.to_vec();
     entry.incorporated_from = Some(Incorporation {
-        submission_stream: submission.clone(),
-        writer_seq: 1,
-        contributor: principal("contributor"),
+        writer: submission.clone(),
+        writer_seq: from_seq,
     });
     entry
 }
 
 fn try_append(
     state: &LogState,
-    author: &PrincipalId,
-    writer: &StreamId,
+    writer: &Writer,
     entries: Vec<Entry>,
 ) -> Result<StepResult, LogError> {
     let begun = step(
         state,
         Command::BeginAppend {
-            author: author.clone(),
-            stream: writer.clone(),
+            writer: writer.clone(),
         },
         &hearth,
     )
@@ -152,8 +166,7 @@ fn try_append(
     step(
         &begun,
         Command::Append(AppendBatch {
-            author: author.clone(),
-            stream: writer.clone(),
+            writer: writer.clone(),
             entries,
             accepted_at_ms: 9,
         }),
@@ -161,15 +174,28 @@ fn try_append(
     )
 }
 
-fn ack(state: &LogState, consumer: &PrincipalId, through: u64) -> LogState {
+fn snapshot(state: &LogState, caller: &PrincipalId, at_ms: u64) -> LogState {
     step(
         state,
-        Command::Ack {
-            consumer: consumer.clone(),
-            through,
+        Command::Snapshot {
+            caller: caller.clone(),
+            at_ms,
         },
         &hearth,
     )
-    .expect("ack")
+    .expect("snapshot")
+    .state
+}
+
+fn trim(state: &LogState, caller: &PrincipalId, now_ms: u64) -> LogState {
+    step(
+        state,
+        Command::Trim {
+            caller: caller.clone(),
+            now_ms,
+        },
+        &hearth,
+    )
+    .expect("trim")
     .state
 }
