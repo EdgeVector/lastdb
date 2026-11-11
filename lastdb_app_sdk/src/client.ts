@@ -1,42 +1,18 @@
 /**
  * The LastDB runtime app client.
  *
- * Wraps the node's production `/api/*` dialect: connect → request-consent →
- * poll → query/mutation-with-capability. Every method maps the node's
- * discriminated responses to the typed errors in `errors.ts` — no catch-all.
- *
- * Data path routes: `lastdb_uds/src/uds_router/route_table.rs`; their
- * handlers live in `lastdb_host/src/handlers/` and `lastdb_node/src/exec/`.
- * The capability headers are `X-App-Capability` (base64 JSON
- * CapabilityToken) and `X-Capability-Ts` (unix epoch seconds).
+ * Wraps the node's Unix-socket `/api/*` data plane and maps discriminated
+ * responses to the typed errors in `errors.ts`.
  */
 
 import { randomUUID } from 'node:crypto';
-import {
-  capabilityStoreKey,
-  defaultCapabilityStore,
-  type CapabilityStore,
-} from './capabilityStore.js';
 import {
   LASTDB_API_ROUTES,
   LASTDB_SDK_API_VERSION,
 } from './apiRoutes.js';
 import {
-  verifyCapabilityBlob,
-} from './capabilityToken.js';
-import {
-  AppInSandboxError,
   AuthenticationRequiredError,
-  CapabilityDeniedError,
-  CapabilityRevokedError,
-  CapabilityVerificationError,
   CasConflictError,
-  ConsentDeniedError,
-  ConsentExpiredError,
-  ConsentRequestNotFoundError,
-  ConsentTimeoutError,
-  FullScanNotAllowedError,
-  InvalidScopeError,
   NodeTooOldError,
   PermissionDeniedError,
   QueryPaginationError,
@@ -44,7 +20,6 @@ import {
   ShareSubmissionUncertainError,
   TransportError,
   UnexpectedResponseError,
-  UnknownAppError,
 } from './errors.js';
 import {
   openDiscoveredSocket,
@@ -52,49 +27,36 @@ import {
   type Transport,
 } from './transport.js';
 import {
-  QueryBatchItem,
-  QueryBatchOutcome,
-  ConnectOptions,
-  ConsentScope,
-  AutoIdentityResult,
-  ChangesOptions,
-  ChangesResult,
-  QueryCursor,
-  ListOptions,
-  ListResult,
-  LoadedSchema,
-  NodeVersion,
-  DeclareSchemaRequest,
-  DeclareSchemaResult,
-  MutationOp,
-  MutationOptions,
-  MutationResult,
-  ShareSubmissionResult,
-  QueryAllOptions,
-  QueryFilter,
-  QueryPage,
-  QueryResult,
-  QueryRow,
-  RequestConsentResult,
-  SchemaDescriptor,
-  SchemaResolver,
-  SearchOptions,
-  SearchResult,
+  type QueryBatchItem,
+  type QueryBatchOutcome,
+  type ConnectOptions,
+  type AutoIdentityResult,
+  type ChangesOptions,
+  type ChangesResult,
+  type QueryCursor,
+  type ListOptions,
+  type ListResult,
+  type LoadedSchema,
+  type NodeVersion,
+  type DeclareSchemaRequest,
+  type DeclareSchemaResult,
+  type MutationOp,
+  type MutationOptions,
+  type MutationResult,
+  type ShareSubmissionResult,
+  type QueryAllOptions,
+  type QueryFilter,
+  type QueryPage,
+  type QueryResult,
+  type QueryRow,
+  type SchemaDescriptor,
 } from './types.js';
-import {
-  ResolvedSchema,
-  normalizeSchemaResolution,
-  mapFieldRecord,
-  mapPredicateFields,
-  mapQueryResult,
-} from './schemaMapping.js';
 import {
   parseListResponse,
   parseQueryResponse,
   isObject,
   parseMutationId,
   parseChangesResponse,
-  parseSearchResponse,
   parseNodeVersion,
   parseAutoIdentityResponse,
   parseSchemaListResponse,
@@ -102,47 +64,17 @@ import {
 } from './responseParsers.js';
 import {
   authenticationRequiredReason,
-  capabilityDetailOf,
   casConflictDetailOf,
-  delay,
   toError,
-  BatchEntry,
+  type BatchEntry,
   pairBatchReplies,
 } from './clientHelpers.js';
-
-/** The HTTP header carrying `base64(JSON CapabilityToken)`. */
-const CAPABILITY_HEADER = 'X-App-Capability';
-/** The HTTP header carrying the per-request capability timestamp (epoch secs). */
-const CAPABILITY_TS_HEADER = 'X-Capability-Ts';
-/** Design-mandated poll cadence for `consent-status` (~2s). */
-const DEFAULT_POLL_INTERVAL_MS = 2000;
 
 function queryRowDedupKey(row: QueryRow): string {
   if (row.keyValue !== null) {
     return `kv:${JSON.stringify([row.keyValue.hash, row.keyValue.range])}`;
   }
   return `rendered:${row.key}`;
-}
-
-/** Options for {@link LastDbClient.awaitConsent}. */
-export interface AwaitConsentOptions {
-  /** Hard client-side ceiling. Throws {@link ConsentTimeoutError} past it. */
-  timeoutMs?: number;
-  /** Poll interval (default 2000ms, per the design). */
-  pollIntervalMs?: number;
-}
-
-/** Serialize a {@link ConsentScope} to the node's `scope` string. */
-function scopeToString(scope: ConsentScope): string {
-  if (scope === 'wildcard') {
-    return 'wildcard';
-  }
-  return `explicit:${scope.explicit.join(',')}`;
-}
-
-/** Current unix epoch seconds, as the `X-Capability-Ts` value. */
-function nowEpochSecs(): string {
-  return String(Math.floor(Date.now() / 1000));
 }
 
 function isMutationId(id: string): boolean {
@@ -152,19 +84,13 @@ function isMutationId(id: string): boolean {
 }
 
 /**
- * Connect to a LastDB node over its Unix-domain socket. An explicit
- * `socketPath` is used verbatim. With no `socketPath`, discovery reads
- * `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
- * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The discovered file must
- * exist. Attempts to auto-load a stored capability for `appId` unless one
- * is supplied inline.
+ * Connect to a LastDB node over its Unix-domain socket and verify the required
+ * API version before issuing data-plane requests.
  */
 export async function connect<DatabaseId extends string | undefined = undefined>(
   options: ConnectOptions<DatabaseId>,
 ): Promise<LastDbClient<DatabaseId>> {
   const { appId, socketPath } = options;
-  // Self-reported client label for Mini op telemetry. Prefer explicit
-  // clientId; otherwise use appId. Never clobber a caller-supplied header.
   const defaultHeaders: Record<string, string> = {
     ...(options.defaultHeaders ?? {}),
   };
@@ -187,58 +113,9 @@ export async function connect<DatabaseId extends string | undefined = undefined>
         timeoutMs: options.timeoutMs,
       });
 
-  // The capability store keys by (appId, nodeTarget) so a capability minted
-  // by one node is never replayed against another. The transport's `target`
-  // is `unix:<socket>`.
-  const nodeTarget = transport.target;
-  const store =
-    options.capabilityStore ??
-    defaultCapabilityStore(options.keychainService);
-  const storeKey = capabilityStoreKey(appId, nodeTarget);
-  const verifyCapability = options.verifyCapability ?? false;
-
-  let capability = options.capability ?? null;
-  if (capability !== null) {
-    // An inline capability the caller passed explicitly: under verification,
-    // a bad one is a hard error (fail fast, don't replay a doomed token).
-    if (verifyCapability) {
-      const v = verifyCapabilityBlob(capability, appId);
-      if (!v.ok) {
-        throw new CapabilityVerificationError(v.problem, appId, v.tokenAppId);
-      }
-    }
-  } else {
-    // Wrong-node detection: a stored capability bound to a different node is
-    // treated as absent (returns null), never blindly sent.
-    capability = await store.load(storeKey, { expectedNode: nodeTarget });
-    // Under verification, a cached blob that fails decode / audience / JCS
-    // integrity is discarded (treated as absent) rather than replayed into a
-    // guaranteed 403 — the "or invalid" branch of the client contract.
-    if (
-      verifyCapability &&
-      capability !== null &&
-      !verifyCapabilityBlob(capability, appId).ok
-    ) {
-      await store.remove(storeKey);
-      capability = null;
-    }
-  }
-  const client = new LastDbClient<DatabaseId>(
-    appId,
-    transport,
-    store,
-    capability,
-    storeKey,
-    nodeTarget,
-    {
-      verifyCapability,
-      schemaResolver: options.schemaResolver,
-      databaseId: options.databaseId,
-    },
-  );
-  // The compatibility handshake runs before any data request so an app that
-  // is newer than the node fails on ONE line that names the fix, not on its
-  // first write with a 400 that hides which side moved.
+  const client = new LastDbClient<DatabaseId>(appId, transport, {
+    databaseId: options.databaseId,
+  });
   const required = Math.max(LASTDB_SDK_API_VERSION, options.requireApiVersion ?? 0);
   if (required > 0) {
     await client.requireApiVersion(required, options.appLabel ?? appId);
@@ -248,21 +125,15 @@ export async function connect<DatabaseId extends string | undefined = undefined>
 
 /** Behavior switches for {@link LastDbClient} (set via {@link ConnectOptions}). */
 export interface LastDbClientOptions<DatabaseId extends string | undefined = undefined> {
-  /** See `ConnectOptions.verifyCapability`. Default `false`. */
-  verifyCapability?: boolean;
-  /** See `ConnectOptions.schemaResolver`. Default pass-through. */
-  schemaResolver?: SchemaResolver;
   /** See `ConnectOptions.databaseId`. */
   databaseId?: DatabaseId;
 }
 
-/** A connected LastDB app client. Construct via {@link connect}. */
 /** Most queries the node accepts in one `/api/queries/batch` request. */
 const QUERY_BATCH_MAX_ITEMS = 64;
 
+/** A connected LastDB app client. Construct via {@link connect} or `ownerClient`. */
 export class LastDbClient<DatabaseId extends string | undefined = undefined> {
-  private readonly verifyCapability: boolean;
-  private readonly schemaResolver: SchemaResolver | null;
   private readonly databasePath: string | null;
   /** Definition ids from declare, keyed by the schema name `mutate` sends. */
   private readonly definitionIds = new Map<string, string>();
@@ -270,16 +141,8 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   constructor(
     readonly appId: string,
     private readonly transport: Transport,
-    private readonly store: CapabilityStore,
-    private capability: string | null,
-    /** The node-scoped capability-store key: `capabilityStoreKey(appId, node)`. */
-    private readonly storeKey: string,
-    /** The canonical node target this client is bound to (transport `target`). */
-    private readonly nodeTarget: string,
     options: LastDbClientOptions<DatabaseId> = {},
   ) {
-    this.verifyCapability = options.verifyCapability ?? false;
-    this.schemaResolver = options.schemaResolver ?? null;
     const databaseId = options.databaseId;
     if (databaseId !== undefined && (
       typeof databaseId !== 'string' || databaseId.length === 0 ||
@@ -295,18 +158,8 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return this.transport.target;
   }
 
-  /** Whether a capability is currently loaded. */
-  get hasCapability(): boolean {
-    return this.capability !== null;
-  }
-
-  // -------------------------------------------------------------------------
-  // Version handshake
-  // -------------------------------------------------------------------------
-
   /**
-   * `GET /api/version` — the client↔node compatibility handshake. Reads no
-   * node state and needs no capability. Both node sockets serve the route.
+   * `GET /api/version` — the client↔node compatibility handshake.
    */
   async version(): Promise<NodeVersion> {
     const res = await this.transport.send('GET', LASTDB_API_ROUTES.version);
@@ -322,10 +175,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
 
   /**
    * Refuse to proceed against a node whose `api_version` is below `required`.
-   * Throws {@link NodeTooOldError}, whose message is the one line an operator
-   * needs (`… Run: brew upgrade lastdb …`). Returns the node's version on
-   * success so a caller can log it. `connect({ requireApiVersion })` calls
-   * this for you.
    */
   async requireApiVersion(required: number, appLabel?: string): Promise<NodeVersion> {
     const node = await this.version();
@@ -341,176 +190,14 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return node;
   }
 
-  // -------------------------------------------------------------------------
-  // Consent flow
-  // -------------------------------------------------------------------------
-
-  /**
-   * `POST /api/apps/request-consent`. Returns a `requestId` to poll with
-   * {@link awaitConsent}. The owner grants via `folddb consent grant <appId>`.
-   */
-  async requestConsent(
-    scope: ConsentScope = 'wildcard',
-  ): Promise<RequestConsentResult> {
-    const res = await this.transport.send('POST', LASTDB_API_ROUTES.requestConsent, {
-      body: { app_id: this.appId, scope: scopeToString(scope) },
-    });
-    if (res.status === 202) {
-      const body = res.body as { request_id: string; expires_at: string };
-      return { requestId: body.request_id, expiresAt: body.expires_at };
-    }
-    if (res.status === 404) {
-      throw new UnknownAppError(this.appId);
-    }
-    if (res.status === 403) {
-      // The node discriminates with `reason: "app_in_sandbox"`.
-      throw new AppInSandboxError(this.appId);
-    }
-    if (res.status === 400) {
-      throw new InvalidScopeError(this.errorText(res.body, 'invalid scope'));
-    }
-    throw new UnexpectedResponseError(
-      `request-consent returned ${res.status}`,
-      res.status,
-      res.body,
-    );
-  }
-
-  /**
-   * Poll `GET /api/apps/consent-status/{requestId}` until the owner grants the
-   * request, then store and return the base64 capability. Throws the matching
-   * typed error on denied / revoked / expired, and {@link ConsentTimeoutError}
-   * if the request is still pending when `timeoutMs` elapses.
-   */
-  async awaitConsent(
-    requestId: string,
-    options: AwaitConsentOptions = {},
-  ): Promise<string> {
-    const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
-    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    const deadline = Date.now() + timeoutMs;
-
-    for (;;) {
-      const capability = await this.pollConsentOnce(requestId);
-      if (capability !== null) {
-        // Under `verifyCapability`, gate the granted token BEFORE adopting it:
-        // audience binding (the token must be bound to THIS app id) and the
-        // JCS integrity binding (envelope.payload_hash ==
-        // sha256(JCS(token-minus-envelope))). Without the gate, a mis-minted
-        // or substituted token would be stored and replayed once before the
-        // node's signature check 403'd it as `capability_bad_sig`.
-        if (this.verifyCapability) {
-          const v = verifyCapabilityBlob(capability, this.appId);
-          if (!v.ok) {
-            throw new CapabilityVerificationError(
-              v.problem,
-              this.appId,
-              v.tokenAppId,
-            );
-          }
-        }
-        await this.storeCapability(capability);
-        return capability;
-      }
-      if (Date.now() + pollIntervalMs > deadline) {
-        throw new ConsentTimeoutError(requestId, timeoutMs);
-      }
-      await delay(pollIntervalMs);
-    }
-  }
-
-  /**
-   * One `consent-status` poll. Returns the base64 capability on `granted`,
-   * `null` while still `pending`, and throws the typed terminal error
-   * otherwise. Exposed for callers that want to drive their own poll loop.
-   */
-  async pollConsentOnce(requestId: string): Promise<string | null> {
-    const res = await this.transport.send(
-      'GET',
-      LASTDB_API_ROUTES.consentStatus(requestId),
-    );
-    switch (res.status) {
-      case 202:
-        return null; // pending
-      case 200: {
-        const body = res.body as { status: string; capability: string };
-        return body.capability;
-      }
-      case 403: {
-        const body = res.body as { status?: string };
-        if (body?.status === 'revoked') {
-          throw new CapabilityRevokedError(requestId);
-        }
-        throw new ConsentDeniedError(requestId);
-      }
-      case 408:
-        throw new ConsentExpiredError(requestId);
-      case 404:
-        throw new ConsentRequestNotFoundError(requestId);
-      default:
-        throw new UnexpectedResponseError(
-          `consent-status returned ${res.status}`,
-          res.status,
-          res.body,
-        );
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Capability storage
-  // -------------------------------------------------------------------------
-
-  /**
-   * Persist `capability` for this app **on this node** and use it on
-   * subsequent calls. The entry is keyed by (appId, node) and records the
-   * bound node, so it is never loaded for a different node.
-   */
-  async storeCapability(capability: string): Promise<void> {
-    this.capability = capability;
-    await this.store.store(this.storeKey, capability, this.nodeTarget);
-  }
-
-  /**
-   * Load this app's stored capability **for this node** into the client.
-   * Returns it, or `null` if none is stored (including the wrong-node case:
-   * a capability bound to a different node is treated as absent). Called
-   * automatically by `connect`.
-   */
-  async loadCapability(): Promise<string | null> {
-    let cap = await this.store.load(this.storeKey, {
-      expectedNode: this.nodeTarget,
-    });
-    // Under `verifyCapability`, a cached blob that fails decode / audience /
-    // JCS integrity is discarded (treated as absent) rather than replayed
-    // into a guaranteed 403.
-    if (
-      this.verifyCapability &&
-      cap !== null &&
-      !verifyCapabilityBlob(cap, this.appId).ok
-    ) {
-      await this.store.remove(this.storeKey);
-      cap = null;
-    }
-    this.capability = cap;
-    return cap;
-  }
-
-  // -------------------------------------------------------------------------
-  // Data path
-  // -------------------------------------------------------------------------
-
   /**
    * `GET /api/list` — return one page of live primary or alternate keys.
-   * Named lists also return primary_keys for mutations. Read the keys whose
-   * fields you need. A page is not a census: follow `next_cursor` while
-   * `has_more` is true.
    */
   async list(
     schemaName: string,
     opts: ListOptions = {},
   ): Promise<ListResult> {
-    const resolved = await this.resolveDataPathSchema(schemaName);
-    const params = new URLSearchParams({ schema: resolved.nodeSchemaName });
+    const params = new URLSearchParams({ schema: schemaName });
     if (opts.keyName !== undefined) params.set('key_name', opts.keyName);
     if (opts.hash !== undefined) params.set('hash', opts.hash);
     if (opts.limit !== undefined) {
@@ -522,63 +209,35 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     const res = await this.transport.send(
       'GET',
       `${this.dataPath(LASTDB_API_ROUTES.list)}?${params.toString()}`,
-      { headers: this.capabilityHeaders() },
     );
     if (res.status === 200) {
       return {
         ...parseListResponse(res.body, opts.keyName),
-        schema: resolved.appSchemaName,
+        schema: schemaName,
       };
     }
     throw this.mapDataError('list', res.status, res.body);
   }
 
   /**
-   * `POST /api/query`. Reads fields from `schemaName` (a schema or a view).
-   * Auto-attaches the capability headers when one is loaded.
-   *
-   * Pagination: the node ALWAYS pages — with no `limit` it still caps the
-   * response at its default page size (100, `DEFAULT_QUERY_LIMIT`), so a
-   * >100-row schema is silently truncated; check `result.page?.hasMore` or
-   * use {@link queryAll} to drain it. `filter.limit`/`filter.offset` are
-   * forwarded verbatim as the request's top-level pagination fields, and only
-   * when set (default 100, clamp 1000, `total_count`/`has_more` metadata).
+   * `POST /api/query` — keyed point, multi-get, or range read under one hash.
    */
   async query(
     schemaName: string,
     filter: QueryFilter = {},
-    opts: { allowFullScan?: boolean } = {},
   ): Promise<QueryResult> {
-    const resolved = await this.resolveDataPathSchema(schemaName);
-    const body = this.queryBody(resolved, filter);
-    const headers: Record<string, string> = { ...this.capabilityHeaders() };
-    if (opts.allowFullScan === true) {
-      // Mini hard-refuses unfiltered product scans without this admin opt-in.
-      headers['X-LastDB-Allow-Full-Scan'] = '1';
-    }
+    const body = this.queryBody(schemaName, filter);
     const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.query), {
-      headers,
       body,
     });
     if (res.status === 200) {
-      return mapQueryResult(parseQueryResponse(res.body), resolved);
+      return { ...parseQueryResponse(res.body), schema: schemaName };
     }
     throw this.mapDataError('query', res.status, res.body);
   }
 
   /**
-   * `POST /api/queries/batch`. Reads several independent queries, possibly
-   * from different schemas, in one request, and returns one outcome per item
-   * in request order. Items are independent: none reads another's result.
-   *
-   * A failing item returns `{ ok: false, error }` with the typed error
-   * `query` would have thrown; the other items still return rows. The call
-   * itself throws only when the whole request is refused (auth, capability,
-   * malformed) or the transport fails.
-   *
-   * More than 64 items go out as several requests, joined in order. The
-   * full-scan opt-in is never sent, so an unkeyed item fails with the node's
-   * refusal.
+   * `POST /api/queries/batch` — read several independent keyed queries in one request.
    */
   async queryBatch(
     items: readonly QueryBatchItem[],
@@ -586,26 +245,14 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     const outcomes: QueryBatchOutcome[] = new Array<QueryBatchOutcome>(
       items.length,
     );
-    const ready: BatchEntry[] = [];
-    await Promise.all(
-      items.map(async (item, index) => {
-        try {
-          const resolved = await this.resolveDataPathSchema(item.schemaName);
-          ready.push({ index, item, resolved });
-        } catch (error) {
-          outcomes[index] = { ok: false, error: toError(error) };
-        }
-      }),
-    );
-    ready.sort((a, b) => a.index - b.index);
+    const ready: BatchEntry[] = items.map((item, index) => ({ index, item }));
 
     for (let start = 0; start < ready.length; start += QUERY_BATCH_MAX_ITEMS) {
       const chunk = ready.slice(start, start + QUERY_BATCH_MAX_ITEMS);
-      const queries = chunk.map(({ item, resolved }) =>
-        this.queryBody(resolved, item.filter ?? {}),
+      const queries = chunk.map(({ item }) =>
+        this.queryBody(item.schemaName, item.filter ?? {}),
       );
       const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.queryBatch), {
-        headers: this.capabilityHeaders(),
         body: { queries },
       });
       if (res.status !== 200) {
@@ -618,7 +265,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return outcomes;
   }
 
-  /** One batch item's outcome from its `{status, response}` reply entry. */
   private batchOutcome(
     entry: BatchEntry,
     reply: { status: number; response: unknown },
@@ -632,7 +278,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     try {
       return {
         ok: true,
-        result: mapQueryResult(parseQueryResponse(reply.response), entry.resolved),
+        result: { ...parseQueryResponse(reply.response), schema: entry.item.schemaName },
       };
     } catch (error) {
       return { ok: false, error: toError(error) };
@@ -640,37 +286,15 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * Drain a query past the node's page cap: issues `query()` repeatedly with
-   * `limit`/`offset` until the node reports no more rows, and returns every
-   * unique row as one {@link QueryResult}.
-   *
-   * Termination is two-signal: the node's own `page.hasMore` when it reports
-   * pagination metadata (production), else a short page
-   * (`rows.length < pageSize`). `opts.maxRows` (default 100k) is the safety
-   * ceiling — when hit, the result's `page.hasMore` is `true` so the
-   * truncation stays visible.
-   *
-   * Production offset pagination has historically been unstable, so `queryAll`
-   * dedupes by row key across pages and throws {@link QueryPaginationError}
-   * when a follow-up page makes no unique progress or when a completed drain
-   * cannot match the node's `totalCount`.
+   * Auto-paginate a keyed query across pages until `hasMore` is false or `maxRows` is reached.
    */
   async queryAll(
     schemaName: string,
     filter: Omit<QueryFilter, 'limit' | 'offset' | 'cursor'> = {},
     opts: QueryAllOptions = {},
   ): Promise<QueryResult> {
-    if (filter.filter === undefined && opts.allowFullScan !== true) {
-      // Unfiltered queryAll is a full schema drain — deprecated for product
-      // apps (`brain design-lastdb-scan-deprecation-path`). Point reads
-      // (`filter: { HashKey: id }`) and partition reads (HashRange) never hit
-      // this gate; only a genuinely unfiltered drain does.
-      throw new FullScanNotAllowedError(schemaName);
-    }
     const pageSize = opts.pageSize ?? 100;
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000) {
-      // Production clamps limit to MAX_QUERY_LIMIT (1000); a clamped page
-      // would silently desync the offset arithmetic, so reject up front.
       throw new Error(
         `queryAll pageSize must be an integer in [1, 1000], got ${pageSize}`,
       );
@@ -686,15 +310,11 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     let truncatedByMaxRows = false;
 
     for (;;) {
-      const page = await this.query(
-        schemaName,
-        {
-          ...filter,
-          limit: pageSize,
-          ...(cursor === null ? { offset } : { cursor }),
-        },
-        { allowFullScan: opts.allowFullScan === true },
-      );
+      const page = await this.query(schemaName, {
+        ...filter,
+        limit: pageSize,
+        ...(cursor === null ? { offset } : { cursor }),
+      });
       schema = page.schema || schema;
       lastPage = page.page;
       let newRows = 0;
@@ -711,7 +331,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       const hasMore =
         page.page !== null
           ? page.page.hasMore
-          : page.rows.length >= pageSize; // no metadata: stop on a short page
+          : page.rows.length >= pageSize;
       if (!hasMore) {
         break;
       }
@@ -719,8 +339,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
         truncatedByMaxRows = true;
         break;
       }
-      // A page that a run of deleted records ended early can hold no new
-      // row; its cursor still moves past the keys it examined.
       const nextCursor = page.page?.nextCursor ?? null;
       const moved = nextCursor !== null
         && JSON.stringify(nextCursor) !== JSON.stringify(cursor);
@@ -739,13 +357,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       }
     }
 
-    // A drain that the node ended (`has_more: false`) is complete by the
-    // node's own signal. The exact count is a cross-check when the node gave
-    // one; it is NOT a requirement. Since 2026-08-02 the node skips the count
-    // on ascending key-restricted pages ("Skip non-load-bearing query
-    // counts"), so requiring it here refused every keyed drain — `situations
-    // list` against a live primary answered `queryAll collected 1 unique
-    // rows` for a one-row partition. Fail closed only on a REAL mismatch.
     if (
       !truncatedByMaxRows &&
       lastPage !== null &&
@@ -780,8 +391,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * `POST /api/mutation`. Writes one row into `schemaName`. A received Share
-   * returns a submission receipt. The publisher decides whether to apply it.
+   * `POST /api/mutation`. Writes one complete conditional record into `schemaName`.
    */
   async mutate(
     schemaName: string,
@@ -793,11 +403,10 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     op: MutationOp,
     options: MutationOptions = {},
   ): Promise<MutationResult | ShareSubmissionResult> {
-    const resolved = await this.resolveDataPathSchema(schemaName);
     const body: Record<string, unknown> = {
       type: 'mutation',
-      schema: resolved.nodeSchemaName,
-      record: mapFieldRecord(op.record ?? {}, resolved.appToNodeFields),
+      schema: schemaName,
+      record: op.record ?? {},
       key_value: op.key,
       alternates: op.alternates,
       mutation_type: op.mutationType,
@@ -812,15 +421,14 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     if (op.durability !== undefined) {
       body.durability = op.durability;
     }
-    const definitionId =
-      this.definitionIds.get(resolved.nodeSchemaName) ?? this.definitionIds.get(schemaName);
+    const definitionId = this.definitionIds.get(schemaName);
     if (definitionId !== undefined) {
       body.definition_id = definitionId;
     }
     const mutationId = this.databasePath === null
       ? undefined
       : options.mutationId ?? randomUUID();
-    const headers = this.capabilityHeaders();
+    const headers: Record<string, string> = {};
     if (mutationId !== undefined) {
       if (!isMutationId(mutationId)) {
         throw new RequestRejectedError('mutation_id', 'Mutation ID must be a non-nil lowercase UUID');
@@ -886,8 +494,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
 
   /**
    * Remember the definition id a declare response returned for `schemaName`.
-   * Later `mutate` calls for that schema send it. The id is the node's
-   * portable definition id. This client does not hash the declaration.
    */
   rememberDefinition(schemaName: string, definitionId: string): void {
     if (!/^[0-9a-f]{64}$/.test(definitionId)) {
@@ -901,9 +507,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * `POST /api/schemas/declare` on the owner socket. Stores `definition_id`
-   * under the response schema name so the next `mutate` for that schema
-   * sends it.
+   * `POST /api/schemas/declare` on the owner socket.
    */
   async declareSchema(request: DeclareSchemaRequest): Promise<DeclareSchemaResult> {
     const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.schemasDeclare), {
@@ -933,9 +537,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * Read durable changed-row metadata since an opaque cursor. The node owns
-   * scope: a verified app sees only its authorized schemas, and `target` can
-   * only narrow that set. Rows are hints; point-read product state after wake.
+   * Read durable changed-row metadata since an opaque cursor (`POST /api/app/changes`).
    */
   async changes(opts: ChangesOptions = {}): Promise<ChangesResult> {
     const body: Record<string, unknown> = {};
@@ -943,7 +545,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     if (opts.limit !== undefined) body.limit = opts.limit;
     if (opts.target !== undefined) body.target = opts.target;
     const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.appChanges), {
-      headers: this.capabilityHeaders(),
       body,
     });
     if (res.status === 200) return parseChangesResponse(res.body);
@@ -951,55 +552,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * `POST /api/app/search` — the **node-authoritative scoped search**
-   * (`folddb_app_api.md` operation 5). Embeds `query`, ranks it over the
-   * node's native index, and returns the top-k hits **only from schemas the
-   * app has been granted** (its access-scope set `S(A)`).
-   *
-   * Scope is decided by the NODE, not the app. The node derives `S(A)` from the
-   * capability's verified `app_id` against its own grant ledger; the app never
-   * names its scope and **cannot widen it**. The single optional `opts.target`
-   * is *intersected* with `S(A)` (never unioned) — a target outside scope just
-   * yields no hits from it, with a normal `200`. There is deliberately no way
-   * for the app to pass a schema allowlist.
-   *
-   * Auto-attaches the capability headers (`X-App-Capability` + `X-Capability-Ts`)
-   * the same way `query`/`mutate` do. The node REJECTS a header-less call with
-   * `403 {reason: "capability_required"}` (mapped to {@link PermissionDeniedError})
-   * rather than handing back the owner's whole-index search.
-   *
-   * Each hit is a full {@link QueryRow} envelope (`key`, `fields`, `metadata`)
-   * plus the relevance `score` and the `schemaName` /
-   * `schemaDisplayName` the hit came from.
-   */
-  async search(query: string, opts: SearchOptions = {}): Promise<SearchResult> {
-    const body: Record<string, unknown> = { query };
-    if (opts.k !== undefined) {
-      body.k = opts.k;
-    }
-    // The single node-intersected `target` — NOT an app-controlled allowlist.
-    if (opts.target !== undefined) {
-      body.target = opts.target;
-    }
-    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.appSearch), {
-      headers: this.capabilityHeaders(),
-      body,
-    });
-    if (res.status === 200) {
-      return parseSearchResponse(res.body);
-    }
-    throw this.mapDataError('search', res.status, res.body);
-  }
-
-  // -------------------------------------------------------------------------
-  // Owner / host node helpers
-  // -------------------------------------------------------------------------
-
-  /**
    * `GET /api/system/auto-identity`. Resolves the local owner identity.
-   * A not-yet-provisioned node returns
-   * `{ provisioned: false }` for the node's canonical 503, so callers can pivot
-   * to bootstrap without treating it as a transport failure.
    */
   async autoIdentity(): Promise<AutoIdentityResult> {
     const res = await this.transport.send(
@@ -1028,9 +581,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /**
-   * `GET /api/schemas`. Lists schemas loaded in the owner node and normalizes
-   * the fields host-context apps use to resolve their own canonical schema hash
-   * without hand-parsing raw route JSON.
+   * `GET /api/schemas` — list schemas loaded on the node.
    */
   async listSchemas(): Promise<LoadedSchema[]> {
     const res = await this.transport.send('GET', this.dataPath(LASTDB_API_ROUTES.schemas));
@@ -1046,8 +597,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
 
   /**
    * Resolve an app-owned schema descriptor to the loaded canonical schema entry.
-   * Matching uses `owner_app_id` + `descriptive_name`, and when `fields` is
-   * supplied requires the exact same field set regardless of order.
    */
   async resolveSchema(
     descriptor: SchemaDescriptor,
@@ -1055,22 +604,17 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return resolveLoadedSchema(await this.listSchemas(), descriptor);
   }
 
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
   private dataPath(route: string): string {
     return this.databasePath === null
       ? route
       : `${this.databasePath}${route.slice('/api'.length)}`;
   }
 
-  /** The `/api/query` request body for one resolved schema and filter. */
   private queryBody(
-    resolved: ResolvedSchema,
+    schemaName: string,
     filter: QueryFilter,
   ): Record<string, unknown> {
-    const body: Record<string, unknown> = { schema_name: resolved.nodeSchemaName };
+    const body: Record<string, unknown> = { schema_name: schemaName };
     if (filter.keyName !== undefined) {
       body.key_name = filter.keyName;
     }
@@ -1086,35 +630,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     if (filter.cursor !== undefined) {
       body.cursor = filter.cursor;
     }
-    if (filter.where !== undefined) {
-      body.where = mapPredicateFields(filter.where, resolved.appToNodeFields);
-    }
     return body;
-  }
-
-  /** Capability headers, present only when a capability is loaded. */
-  private capabilityHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {};
-    if (this.capability !== null) {
-      headers[CAPABILITY_HEADER] = this.capability;
-      headers[CAPABILITY_TS_HEADER] = nowEpochSecs();
-    }
-    return headers;
-  }
-
-  /**
-   * Resolve an app schema name to the node-facing schema + field maps (the
-   * data-path schema mapping used by `query`/`mutate`). Distinct from the
-   * public {@link resolveSchema} owner-host helper, which resolves a
-   * {@link SchemaDescriptor} to a {@link LoadedSchema}; they were merged from
-   * two concurrent PRs that both chose the name `resolveSchema`, so the private
-   * data-path one is named `resolveDataPathSchema` to avoid the collision.
-   */
-  private async resolveDataPathSchema(
-    appSchemaName: string,
-  ): Promise<ResolvedSchema> {
-    const result = await this.schemaResolver?.(appSchemaName);
-    return normalizeSchemaResolution(appSchemaName, result);
   }
 
   /** Map a non-200 data-path response to a typed error. */
@@ -1134,40 +650,20 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       );
     }
     if (status === 409 && b.error === 'cas_conflict') {
-      // A CAS precondition (`MutationOp.expected`) did not hold: the node
-      // returns `409 {error:"cas_conflict", schema?, key?, expected?,
-      // actual?, message?}`. Surface it as the typed CasConflictError so an app
-      // can re-read + retry instead of hand-detecting the conflict off a
-      // generic error body.
       return new CasConflictError(casConflictDetailOf(body), body ?? null);
     }
     if (status === 403) {
-      // Discriminated capability 403 (app_identity v3.1, gap #4): the
-      // verifier's body is `{status: 403, reason: "<reason>", ...detail}` —
-      // surface the reason VERBATIM plus any detail field, so an app can run
-      // the eight-reason contract (`capabilityDenialReaction`). A 403 without
-      // a `reason` keeps the legacy `{kind: "permission_denied"}` mapping.
-      if (typeof b.reason === 'string') {
-        return new CapabilityDeniedError(b.reason, capabilityDetailOf(body));
-      }
-      return new PermissionDeniedError(b.error ?? `${verb} permission denied`);
+      return new PermissionDeniedError(
+        b.error ?? b.reason ?? `${verb} permission denied`,
+      );
     }
     if (status === 400) {
-      // `unknown_key` is the node telling us it does not know a key we sent:
-      // this client is newer than the node. It is a version-skew fact, not a
-      // request-shape bug, so it gets the typed error whose message names
-      // the fix. (The node never echoes the key — its I4 rule.)
       if (b.kind === 'unknown_key') {
         return new NodeTooOldError(
           { reason: 'unknown_key', reported: null, build: null, app: this.appId },
           body ?? null,
         );
       }
-      // Production 400 bodies are not uniform: the dev mirror sends
-      // `{kind, error}`, production handlers send `{error}` or `{message}`
-      // (or richer envelopes). Prefer `error`, fall back to the node's
-      // `message`, and carry the WHOLE body on the error so nothing the node
-      // said is lost (mirrors the 403 CapabilityDeniedError's detail).
       return new RequestRejectedError(
         b.kind ?? 'invalid_request',
         b.error ?? b.message ?? `${verb} rejected`,
@@ -1179,11 +675,5 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       status,
       body,
     );
-  }
-
-  /** Extract an `error` string from a node error body, with a fallback. */
-  private errorText(body: unknown, fallback: string): string {
-    const b = (body ?? {}) as { error?: string };
-    return b.error ?? fallback;
   }
 }

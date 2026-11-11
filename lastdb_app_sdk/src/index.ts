@@ -1,9 +1,7 @@
 /**
  * @lastdb/app-sdk — the runtime SDK for LastDB apps.
  *
- * Wraps a node's production `/api/*` surface: connect → request consent →
- * await grant → query/mutate with the granted capability. See the README for
- * a 10-line quickstart.
+ * Wraps a node's Unix-socket `/api/*` data plane.
  */
 
 export { connect, LastDbClient } from './client.js';
@@ -14,10 +12,9 @@ export {
   parseListResponse,
   parseQueryResponse,
   resolveLoadedSchema,
-  parseSearchResponse,
   parseChangesResponse,
 } from './responseParsers.js';
-export type { AwaitConsentOptions, LastDbClientOptions } from './client.js';
+export type { LastDbClientOptions } from './client.js';
 
 export {
   LASTDB_API_ROUTES,
@@ -28,39 +25,6 @@ export { ownerClient } from './ownerClient.js';
 export type { OwnerClientOptions } from './ownerClient.js';
 
 export {
-  capabilityStoreKey,
-  defaultCapabilityStore,
-  DEFAULT_KEYCHAIN_SERVICE,
-  FileCapabilityStore,
-  KeychainUnavailableError,
-  KeychainWithFileFallbackStore,
-  loadCapabilityOrThrow,
-  MacKeychainStore,
-} from './capabilityStore.js';
-export type {
-  CapabilityStore,
-  LoadOptions,
-  SecurityRunner,
-  SecurityRunResult,
-} from './capabilityStore.js';
-
-export { canonicalize, canonicalizeBytes, JcsError } from './jcs.js';
-
-export {
-  CAPABILITY_GRANT_PURPOSE,
-  decodeCapabilityBlob,
-  sha256Hex,
-  tokenIntegrityValid,
-  verifyCapabilityBlob,
-} from './capabilityToken.js';
-export type {
-  CapabilityBlobProblem,
-  CapabilityBlobVerification,
-  CapabilityToken,
-  SignatureEnvelope,
-} from './capabilityToken.js';
-
-export {
   udsTransport,
   REQUEST_ID_HEADER,
 } from './transport.js';
@@ -68,7 +32,6 @@ export type { Transport, RawResponse } from './transport.js';
 
 export type {
   ConnectOptions,
-  ConsentScope,
   AutoIdentityResult,
   KeyValue,
   QueryCursor,
@@ -77,11 +40,9 @@ export type {
   ListResult,
   LoadedSchema,
   NodeVersion,
-  RequestConsentResult,
   QueryAllOptions,
   QueryBatchItem,
   QueryBatchOutcome,
-  QueryFieldPredicate,
   QueryFilter,
   QueryPage,
   QueryResult,
@@ -90,6 +51,7 @@ export type {
   FileMarker,
   SchemaDescriptor,
   CasExpectation,
+  MutationConvergence,
   MutationDurability,
   MutationOp,
   MutationOptions,
@@ -100,16 +62,8 @@ export type {
   ChangesOptions,
   ChangeEvent,
   ChangesResult,
-  SearchOptions,
-  SearchHit,
-  SearchResult,
   Row,
   RowFields,
-  SchemaAdapter,
-  SchemaMapping,
-  ResolveResult,
-  SchemaResolver,
-  SchemaResolverResult,
   JsonValue,
 } from './types.js';
 
@@ -119,35 +73,17 @@ export {
   TransportError,
   UnexpectedResponseError,
   ShareSubmissionUncertainError,
-  UnknownAppError,
-  AppInSandboxError,
-  InvalidScopeError,
-  ConsentDeniedError,
-  CapabilityRevokedError,
-  ConsentExpiredError,
-  ConsentRequestNotFoundError,
-  ConsentTimeoutError,
   PermissionDeniedError,
   QueryPaginationError,
-  FullScanNotAllowedError,
-  CapabilityDeniedError,
-  CapabilityVerificationError,
   CasConflictError,
   RequestRejectedError,
   NodeTooOldError,
   nodeTooOldMessage,
-  CapabilityNotFoundError,
   classifyPermissionReason,
-  CAPABILITY_DENIAL_REASONS,
-  isCapabilityDenialReason,
-  capabilityDenialReaction,
 } from './errors.js';
 export type {
   AuthenticationRequiredReason,
   PermissionCategory,
-  CapabilityDenialReason,
-  CapabilityDenialDetail,
-  CapabilityDenialReaction,
   CasConflictDetail,
   NodeTooOldDetail,
   NodeTooOldReason,

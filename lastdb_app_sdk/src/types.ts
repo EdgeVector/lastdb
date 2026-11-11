@@ -1,9 +1,5 @@
 /**
  * Wire types for the LastDB runtime `/api/*` surface.
- *
- * These mirror the JSON the node accepts and returns — confirmed against the
- * handlers on `origin/main`. We do NOT invent fields the node would reject;
- * unknown JSON is carried as `Record<string, JsonValue>` rather than typed.
  */
 
 export type JsonValue =
@@ -17,16 +13,11 @@ export type JsonValue =
 /** The field values of a result row, keyed by field name. */
 export type RowFields = Record<string, JsonValue>;
 
-/**
- * A result row — fields keyed by name. Kept as the flattened convenience
- * shape (`QueryRow.fields` is the same data); `query()` also returns the full
- * {@link QueryRow} envelope so the row `key` and `metadata` are reachable.
- */
+/** A result row — fields keyed by name. */
 export type Row = RowFields;
 
 /**
- * Explicit record coordinates. API 28 requires a nonempty hash and a range
- * only for a hash_range declaration. Queries return this object as `key`;
+ * Explicit record coordinates. Queries return this object as `key`;
  * mutations send it as `key_value`. Coordinates are independent of fields.
  */
 export interface KeyValue {
@@ -38,11 +29,6 @@ export interface KeyValue {
 export interface QueryCursor extends KeyValue {
   /** Opaque schema, field-type, key-format, and query compatibility identifier. */
   comparison?: string | null;
-  /**
-   * Opaque record key position of an unfiltered record walk page. A walk
-   * cursor has this in place of a hash and a range: a page that a run of
-   * deleted records ends early has no row key to name.
-   */
   record?: string | null;
   alternate_primary?: KeyValue | null;
 }
@@ -67,9 +53,6 @@ export interface ListRecordKey {
 
 /**
  * One keys-only `GET /api/list` page.
- *
- * The pagination names intentionally match Mini's public list envelope. The
- * cursor is opaque: pass it back unchanged via {@link ListOptions.cursor}.
  */
 export interface ListResult {
   schema: string;
@@ -103,35 +86,18 @@ export interface FileMarker {
 }
 
 /**
- * The one metadata block of a record (decision D7): the source file name and
- * the metadata map of the complete replacement, the marker of the record's
- * file, and its inline file. A field has no metadata of its own.
+ * The one metadata block of a record: the source file name and metadata map of
+ * the complete replacement, the marker of the record's file, and its inline file.
  */
 export interface RecordMetadata {
-  /** The source file name of the record, or `null` when it has none. */
   source_file_name: string | null;
-  /** The metadata map of the record, when set. */
   metadata?: Record<string, string>;
-  /** The record's file, when it has one. */
   file?: FileMarker;
-  /**
-   * The marker of the record's inline file (64 KiB at most, such as a
-   * thumbnail), when it has one. The bytes live in their own row next to the
-   * record, so a query never returns them. `mutate` never sends the inline
-   * file, and a replacement keeps it.
-   */
   inline_file?: FileMarker;
 }
 
 /**
- * The full per-row envelope the node returns for `/api/query`. The node's
- * `results` array carries one object per result key shaped
- * `{ key, fields, metadata }` — see `lastdb_host`
- * `handlers::query::response::format_rows` (the `/api/query` row builder).
- *
- * A real app needs `key` to update/delete a specific row, and typically
- * `metadata` for provenance — flattening to bare `fields` (the pre-gap-#3
- * behavior) threw these away.
+ * The full per-row envelope the node returns for `/api/query`.
  */
 export interface QueryRow {
   /** Complete-record token, required for replace/delete. */
@@ -139,35 +105,22 @@ export interface QueryRow {
   /** Every declared alternate address, including explicitly absent sparse addresses. */
   alternates: Record<string, KeyValue | null>;
   /**
-   * The row's storage key rendered to a string. The node returns `key` as a
-   * structured `{hash, range}` object; the SDK renders it the same way
-   * fold_db's `KeyValue::Display` does (`"hash:range"`, `"hash"`, or
-   * `"range"`). NOTE the rendered form is ambiguous for range values
-   * containing `:` — for row addressing prefer the structured
-   * {@link QueryRow.keyValue}.
+   * The row's storage key rendered to a string (`"hash:range"`, `"hash"`, or
+   * `"range"`). Prefer {@link QueryRow.keyValue} for unambiguous row addressing.
    */
   key: string;
   /**
-   * The row's STRUCTURED storage key (`{hash, range}`). Pass it back verbatim
-   * as `MutationOp.key` to update or delete this exact row — unlike the
-   * rendered `key` string, it is never ambiguous. `null` only when the key
-   * has neither a hash nor a range.
+   * The row's structured storage key (`{hash, range}`). Pass it back verbatim
+   * as `MutationOp.key` to update or delete this exact row.
    */
   keyValue: KeyValue | null;
   /** Coordinates of the named alternate key; keyValue remains the primary mutation key. */
   matchedKey?: KeyValue | null;
   /** The row's field values, keyed by field name. */
   fields: RowFields;
-  /**
-   * The one metadata block of the record, or `null` when the record has none
-   * or the reply carries no metadata (`response_format: "values"`).
-   */
+  /** The one metadata block of the record, or `null` when absent. */
   metadata: RecordMetadata | null;
 }
-
-// ---------------------------------------------------------------------------
-// connect()
-// ---------------------------------------------------------------------------
 
 /**
  * Connection options. Pass `socketPath` to use that Unix socket verbatim.
@@ -182,296 +135,63 @@ export interface ConnectOptions<DatabaseId extends string | undefined = undefine
   /** Database ID or local alias registered on this node. Omit for the default database. */
   databaseId?: DatabaseId;
   /**
-   * Headers attached to EVERY request this client sends (consent flow + data
-   * path), under a per-call header of the same name (which wins).
+   * Headers attached to every request this client sends, under a per-call
+   * header of the same name (which wins).
    */
   defaultHeaders?: Record<string, string>;
   /**
-   * Best-effort ops label for Mini request telemetry (`X-LastDB-Client`).
-   * Not a security boundary — any process can claim any string. Defaults to
-   * {@link ConnectOptions.appId} when unset. Pass explicitly to override
-   * (e.g. CLI vs library package name).
+   * Best-effort client label (`X-LastDB-Client`). Defaults to {@link ConnectOptions.appId}.
    */
   clientId?: string;
   /**
-   * Per-request transport timeout in milliseconds for consent and data-plane
-   * HTTP calls. Defaults to 30_000 so a wedged node cannot leave app requests
-   * pending forever.
+   * Per-request transport timeout in milliseconds (default 30_000).
    */
   timeoutMs?: number;
   /**
-   * Capability store used by `storeCapability` / `loadCapability` and by an
-   * auto-load on `connect`. Defaults to an OS-keychain store with a file
-   * fallback (see `capabilityStore.ts`). Entries are keyed by (appId, node),
-   * so a capability minted by one node is never replayed against another.
-   */
-  capabilityStore?: import('./capabilityStore.js').CapabilityStore;
-  /**
-   * macOS Keychain service label the default store keeps capabilities under
-   * (default `com.folddb.app-sdk.capability`). Ignored when a custom
-   * `capabilityStore` is supplied. Lets two apps / environments keep their
-   * keychain namespaces apart without writing a custom store.
-   */
-  keychainService?: string;
-  /**
-   * Pre-loaded capability (base64 CapabilityToken). When omitted, `connect`
-   * attempts to load one for `appId` from the capability store; if none is
-   * found the client starts un-capable (query/mutate will run owner-context
-   * on a dev node, or be refused on an enforcing production node until
-   * `awaitConsent` provides one).
-   */
-  capability?: string;
-  /**
-   * Verify capability blobs client-side (gap #4). When `true`, the SDK runs
-   * decode + audience binding (`token.app_id === appId`) + the RFC 8785 JCS
-   * integrity binding (`envelope.payload_hash ==
-   * sha256(JCS(token-minus-envelope))`, byte-identical to the node's Rust
-   * canonicalizer) at every point a capability is adopted:
-   *
-   * - a granted token (`awaitConsent`) that fails is REJECTED with
-   *   `CapabilityVerificationError` (never stored);
-   * - a cached token (`connect` auto-load / `loadCapability`) that fails is
-   *   DISCARDED and treated as absent (never replayed into a guaranteed 403);
-   * - an inline `capability` that fails makes `connect` throw.
-   *
-   * Default `false` (verbatim token-carrier behavior, e.g. for a dev node's
-   * `app trust` override or a test double whose "capability" is an opaque
-   * string). Recommended `true` against a production node.
-   */
-  verifyCapability?: boolean;
-  /**
-   * Optional app-facing schema resolver for the data path. When present,
-   * `query` / `queryAll` / `mutate` call it with the app's schema name before
-   * hitting the node. Prefer returning `ResolveResult { identity, schema,
-   * adapter, outcome }` from Schema Service resolution: writes are rewritten
-   * through `adapter.appToCatalog` before storage, and reads are mapped back
-   * through `adapter.catalogToApp` (or the reverse one-to-one map). Omitted
-   * schemas and fields pass through unchanged.
-   */
-  schemaResolver?: SchemaResolver;
-  /**
-   * The node request-grammar version this app needs (see
-   * `LASTDB_SDK_API_VERSION` for the lowest node version this SDK needs). When
-   * set, `connect` reads `GET /api/version` first and throws
-   * `NodeTooOldError` — one line that names the fix — when the node reports
-   * a lower number. `0` (or unset) declares no requirement and skips the
-   * read. Declare it in the app's
-   * manifest and pass it through; raise it only when the app starts sending
-   * a key an older node would refuse.
+   * Minimum node request-grammar version this app requires.
    */
   requireApiVersion?: number;
   /**
-   * Who is asking, for the `NodeTooOldError` message (e.g. `brain 0.8.1`).
-   * Defaults to `appId`.
+   * Who is asking, for the `NodeTooOldError` message (defaults to `appId`).
    */
   appLabel?: string;
 }
 
 /**
- * The node's answer to `GET /api/version`, the client↔node compatibility
- * handshake.
+ * The node's answer to `GET /api/version`.
  */
 export interface NodeVersion {
-  /** The request-grammar version the node speaks. */
   apiVersion: number;
-  /** The node's baked build string (`null` when unknown). */
   build: string | null;
-  /** Capability flags the node advertises (same map as `/health`). */
   capabilities: Record<string, boolean>;
-  /** Process-lifetime instance id (`null` when unknown). */
   instanceId: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// Consent flow — request / poll bodies
-// ---------------------------------------------------------------------------
-
 /**
- * Consent scope. `"wildcard"` requests `{appId}/*` (one prompt covers the
- * app's whole lifecycle); `{ explicit: [...] }` requests named schemas only.
- * Serialized to the node's `scope` string (`"wildcard"` or
- * `"explicit:a,b"`).
- */
-export type ConsentScope = 'wildcard' | { explicit: string[] };
-
-/** `POST /api/apps/request-consent` success body (`202`). */
-export interface RequestConsentResult {
-  requestId: string;
-  /** RFC 3339 timestamp when a still-pending request expires. */
-  expiresAt: string;
-}
-
-// ---------------------------------------------------------------------------
-// Query / mutation
-// ---------------------------------------------------------------------------
-
-/**
- * Optional query filter. The node's `/api/query` accepts a `fold_db` `Query`
- * — `schema_name` plus an optional range filter — alongside
- * top-level `limit`/`offset` pagination fields. A query returns each stored
- * record; the request does not name fields. Production nodes also accept a
- * top-level `cursor` (`KeyValue`) on ascending keyed reads without conditions,
- * custom value ordering, or a predicate limit. Other reads use offsets.
- * `queryAll` follows `page.nextCursor` when the node returns one and otherwise
- * advances by offset.
- *
- * Pagination: the node applies `limit` (default 100 — `DEFAULT_QUERY_LIMIT`
- * — clamped to `MAX_QUERY_LIMIT` 1000) and `offset`, and reports
- * `total_count`/`has_more` so truncation is detectable (surfaced as
- * {@link QueryResult.page}). Even when you pass NO limit the node still caps
- * the page at its default — use `LastDbClient.queryAll` to drain a >100-row
- * schema.
+ * Keyed query parameters for `POST /api/query`.
  */
 export interface QueryFilter {
-  /** Named alternate key within the resolved schema. Omit for the primary key. */
+  /** Named alternate key within the schema. Omit for the primary key. */
   keyName?: string;
-  /**
-   * A `fold_db` range filter object, passed through verbatim under the
-   * query's `filter` key for Range schemas. Shape is node-defined; left
-   * opaque so the SDK never invents a filter dialect the node rejects.
-   */
+  /** Key/range filter object passed through verbatim under `filter`. */
   filter?: JsonValue;
-  /**
-   * Page size. Forwarded verbatim as the request's top-level `limit`; the
-   * node clamps it to `MAX_QUERY_LIMIT` (1000) and defaults it to
-   * `DEFAULT_QUERY_LIMIT` (100) when omitted.
-   */
+  /** Page size (node defaults to 100, clamps to 1000). */
   limit?: number;
-  /**
-   * Page offset (rows to skip), applied by the node after fold_db returns.
-   * Forwarded verbatim as the request's top-level `offset`; defaults to 0 on
-   * both node kinds when omitted.
-   */
+  /** Page offset (defaults to 0). */
   offset?: number;
-  /**
-   * Keyset cursor returned by a prior page's `page.nextCursor`. Forwarded
-   * verbatim as top-level `cursor`.
-   *
-   * Send a cursor only on an ascending keyed read with the same key selector
-   * and no field conditions, custom value ordering, or predicate limit.
-   * The node refuses unsupported cursor combinations. Such reads use offsets
-   * and return `next_cursor: null`.
-   */
+  /** Keyset cursor returned by a prior page's `page.nextCursor`. */
   cursor?: QueryCursor;
-  /**
-   * Field predicates, forwarded as the request's top-level `where`
-   * (`fold_db` `Query.field_predicates`). Multiple predicates are AND'd.
-   * A match still returns the whole stored record.
-   *
-   * Predicate `field` names are app-facing and are mapped to node-side names.
-   *
-   * A `where` is a filter, NOT an index: the node still walks the candidate
-   * keys the `filter` selects. Keep the key filter as narrow as possible and
-   * use `where` to trim within it.
-   */
-  where?: QueryFieldPredicate[];
 }
 
 /**
- * One field predicate (`fold_db` `FieldPredicate`). Externally tagged:
- * exactly one variant key per object, e.g.
- * `{ eq: { field: 'state', value: 'available' } }`.
- */
-export type QueryFieldPredicate =
-  /** field value == value */
-  | { eq: { field: string; value: JsonValue } }
-  /** field value is one of values */
-  | { in: { field: string; values: JsonValue[] } }
-  /** field timestamp >= instant (RFC3339 string, or Unix seconds/millis) */
-  | { after: { field: string; instant: JsonValue } }
-  /** field timestamp <= instant (RFC3339 string, or Unix seconds/millis) */
-  | { before: { field: string; instant: JsonValue } }
-  /** field exists and is not null */
-  | { present: { field: string } }
-  /** field is missing or null */
-  | { absent: { field: string } };
-
-// ---------------------------------------------------------------------------
-// Schema name / field mapping
-// ---------------------------------------------------------------------------
-
-/** Mapping for one app-facing schema name on the query/mutate data path. */
-export interface SchemaMapping {
-  /**
-   * Schema id/name the node expects. Omit to use the app-facing name
-   * unchanged (the name==id case).
-   */
-  nodeSchemaName?: string;
-  /**
-   * App field name -> node field name. Missing fields pass through unchanged.
-   * The map must be one-to-one if the caller wants read rows and metadata to
-   * reverse cleanly back to app field names.
-   */
-  fields?: Record<string, string>;
-}
-
-/**
- * Edge adapter for one app-facing schema. `appToCatalog` rewrites caller field
- * names into the catalog/global names stored by the node; `catalogToApp`
- * optionally rewrites rows back for caller convenience. When `catalogToApp` is
- * omitted, the SDK derives it from the one-to-one `appToCatalog` map.
- */
-export interface SchemaAdapter {
-  appToCatalog?: Record<string, string>;
-  catalogToApp?: Record<string, string>;
-}
-
-/**
- * Schema Service-style resolver result for the data path. `identity` is the
- * global schema identity the app resolved to; `schema` is the node-facing
- * runtime schema name/id when it differs from `identity`. The SDK never stores
- * app-local dialect fields: query and mutation requests are rewritten through
- * `adapter.appToCatalog` before they reach the node.
- */
-export interface ResolveResult {
-  identity: string;
-  schema?: string;
-  adapter?: SchemaAdapter;
-  outcome?: string;
-}
-
-/**
- * Resolve an app-facing schema name to the node-facing data-path contract.
- * Returning `undefined` / `null` means pass-through; returning a string is a
- * shorthand for `{ nodeSchemaName: string }`. New callers should prefer
- * `ResolveResult { identity, schema, adapter, outcome }`, which makes the
- * global identity and edge adapter explicit.
- */
-export type SchemaResolverResult =
-  | string
-  | SchemaMapping
-  | ResolveResult
-  | null
-  | undefined;
-
-export type SchemaResolver = (
-  appSchemaName: string,
-) => SchemaResolverResult | Promise<SchemaResolverResult>;
-
-/**
- * Pagination metadata the node's `/api/query` returns alongside its
- * `results` page, surfaced verbatim (snake_case → camelCase). See
- * `lastdb_host` `handlers::query::paging::page_payload`.
+ * Pagination metadata returned by `/api/query` alongside its `results` page.
  */
 export interface QueryPage {
-  /**
-   * Total records matching the query before `offset`/`limit` were applied,
-   * when the node ran the count. `undefined` means the node intentionally
-   * reported pagination state but declined to compute the exact count.
-   * Capped at the node's internal fetch cap (10k) for unfiltered queries —
-   * when `hasMore` is true and `totalCount` equals that cap there may be
-   * more records the node did not load.
-   */
   totalCount?: number;
-  /** Number of records actually returned in this page (`rows.length`). */
   returnedCount: number;
-  /** Page size the node applied (its default when the request sent none). */
   limit: number;
-  /** Page offset the node applied (0 when the request sent none). */
   offset: number;
-  /** True when more records exist beyond the returned page. */
   hasMore: boolean;
-  /** Cursor to pass as `QueryFilter.cursor` for the next page, when available. */
   nextCursor: QueryCursor | null;
 }
 
@@ -479,148 +199,33 @@ export interface QueryPage {
 export interface QueryResult {
   schema: string;
   rowCount: number;
-  /**
-   * The result rows as full envelopes (`key` + `fields` + `metadata`).
-   * Use `rows[i].key` to address a specific row for a
-   * follow-up update/delete; `rows[i].fields` is the flattened field map.
-   */
   rows: QueryRow[];
-  /**
-   * Pagination metadata (`null` when the body carries none). `page.hasMore`
-   * is the truncation signal: a plain `query()` against a >100-row schema
-   * returns only the node's default page.
-   */
   page: QueryPage | null;
 }
 
-/** Options for `LastDbClient.queryAll` — the auto-paginating query helper. */
+/** Options for `LastDbClient.queryAll` — the auto-paginating keyed query helper. */
 export interface QueryAllOptions {
-  /**
-   * Page size per request (the `limit` sent on each page). Defaults to 100,
-   * production's `DEFAULT_QUERY_LIMIT`; production clamps anything above
-   * `MAX_QUERY_LIMIT` (1000), which would wedge the offset arithmetic, so
-   * values above 1000 are rejected client-side.
-   */
+  /** Page size per request (default 100, max 1000). */
   pageSize?: number;
-  /**
-   * Safety ceiling on the total rows fetched across pages (default 100_000).
-   * `queryAll` stops fetching once reached and returns what it has — it never
-   * loops unbounded against a pathological node.
-   */
+  /** Safety ceiling on total rows fetched across pages (default 100_000). */
   maxRows?: number;
-  /**
-   * Required opt-in to drain an **unfiltered** schema (no `filter.filter`
-   * key/range restriction) — a full "scan" in LastDB's DynamoDB-style access
-   * model (`brain design-lastdb-scan-deprecation-path`). Unfiltered scans are
-   * deprecated for product apps: they are the dominant cause of node load
-   * under `lastdb ops`. Point reads (`filter: { HashKey: id }`) and partition
-   * reads (HashRange) never require this flag. Defaults to `false`; a
-   * `queryAll` call with no `filter.filter` and `allowFullScan` unset throws
-   * {@link FullScanNotAllowedError} instead of draining the whole schema.
-   */
-  allowFullScan?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Scoped search (operation 5)
-// ---------------------------------------------------------------------------
-
-/**
- * Options for {@link LastDbClient.search} — the node-authoritative scoped
- * search (`POST /api/app/search`, `folddb_app_api.md` operation 5).
- *
- * Deliberately MINIMAL. The app does NOT pass a schema allowlist and cannot
- * widen its scope: the node derives the access-scope set `S(A)` itself from the
- * capability's verified `app_id` against its own grant ledger. The single
- * optional `target` is **intersected** with `S(A)` (never unioned), so naming a
- * schema the app isn't granted simply yields no hits from it — the SDK exposes
- * no way to imply the app controls scope.
- */
-export interface SearchOptions {
-  /**
-   * Number of top hits to return. The node defaults it (currently 20) and
-   * clamps it to its maximum (currently 100) when omitted/over the cap; the SDK
-   * forwards it verbatim and does not impose its own default.
-   */
-  k?: number;
-  /**
-   * OPTIONAL single schema to narrow the search to. The node **intersects** it
-   * with the app's access-scope `S(A)` — it can only ever shrink the result
-   * set, never widen it. A `target` outside `S(A)` yields zero hits and a
-   * normal `200` (no existence-confirming error). This is NOT an allowlist:
-   * the app names at most one schema to narrow to, and scope remains
-   * node-authoritative.
-   */
-  target?: string;
 }
 
 /**
- * One ranked hit from {@link LastDbClient.search}. It is a full
- * {@link QueryRow} envelope (`key`, `fields`, `metadata` — the same shape
- * `query()` returns) plus the search-only attribution fields the
- * node adds to each hit:
- *
- * - `score` — the relevance score the node attached (cosine similarity), or
- *   `null` when the node reported none.
- * - `schemaName` — the schema the hit came from (always within the app's
- *   `S(A)`, since forbidden schemas never enter the ranking).
- * - `schemaDisplayName` — the schema's human-readable name, or `null`.
- */
-export interface SearchHit extends QueryRow {
-  /** Relevance score the node attached (cosine), or `null` when none. */
-  score: number | null;
-  /** The schema this hit came from (always within the app's access scope). */
-  schemaName: string;
-  /** The schema's display name, or `null` when the node reported none. */
-  schemaDisplayName: string | null;
-}
-
-/**
- * `POST /api/app/search` success body, parsed. The hits are returned in the
- * node's relevance order (highest `score` first).
- *
- * **Scope is node-authoritative.** This result contains hits ONLY from schemas
- * the app has been granted (its `S(A)`): the node ranks over that subset by
- * traversal, so the app cannot observe — or infer the existence of — content
- * outside its scope. The app does not (and cannot) widen this.
- */
-export interface SearchResult {
-  /** Ranked hits, each a full row envelope plus `score` + schema attribution. */
-  hits: SearchHit[];
-}
-
-// ---------------------------------------------------------------------------
-// Owner / host node helpers
-// ---------------------------------------------------------------------------
-
-/**
- * One schema entry from `GET /api/schemas`, normalized from the node's
- * flattened `SchemaWithState` JSON. This endpoint is owner/host context: it is
- * intentionally not capability-scoped to an app's access set.
+ * One schema entry from `GET /api/schemas`.
  */
 export interface LoadedSchema {
-  /** Runtime schema name. App schemas use `app_id/name`. */
   name: string;
-  /** Explicit identity hash when the node reports one; falls back to `name`. */
   identityHash: string | null;
-  /** Human-readable schema name (`descriptive_name` on the wire). */
   descriptiveName: string | null;
-  /** Owning app namespace (`owner_app_id`), when this is an app-owned schema. */
   ownerAppId: string | null;
-  /** Declared data field names. */
   fields: string[];
 }
 
 /** Descriptor used to resolve an app-owned loaded schema from `/api/schemas`. */
 export interface SchemaDescriptor {
-  /** Owning app namespace, e.g. `fbrain` or `fsituations`. */
   ownerAppId: string;
-  /** The schema's declarative `descriptive_name`, e.g. `Situation`. */
   descriptiveName: string;
-  /**
-   * Optional exact field-set guard. When supplied, matching ignores order and
-   * requires the loaded schema to carry exactly the same declared fields.
-   */
   fields?: readonly string[];
 }
 
@@ -650,16 +255,15 @@ interface MutationTarget {
   convergence?: MutationConvergence;
   durability?: MutationDurability;
 }
+
 interface CompleteRecord {
   record: RowFields;
   /** Absence clears metadata and the file marker. Copy these from a full read when retaining them. */
   metadata?: RecordMetadata | null;
 }
+
 /**
- * Omitted payload fields disappear. The SDK performs no read or field merge.
- * When the client knows the definition this schema declared, `mutate` sends
- * that id. On a shared schema, a full replace then keeps stored fields that
- * definition does not declare.
+ * Complete conditional record mutation. Omitted payload fields disappear.
  */
 export type MutationOp = MutationTarget & (
   | (CompleteRecord & { mutationType: 'create'; expected: { type: 'absent' } })
@@ -686,7 +290,7 @@ export interface ShareSubmissionResult {
   submissionSequence: number;
 }
 
-/** `POST /api/schemas/declare`. The node hashes the definition. The SDK does not. */
+/** `POST /api/schemas/declare`. */
 export interface DeclareSchemaRequest {
   namespace: string;
   schema: Record<string, unknown>;
@@ -703,11 +307,8 @@ export interface DeclareSchemaResult {
 
 /** Options for the durable, node-scoped app change feed. */
 export interface ChangesOptions {
-  /** Opaque cursor returned by a prior call. Omit to begin at retained start. */
   since?: string;
-  /** Maximum raw feed rows examined by the node (1..500). */
   limit?: number;
-  /** Optional single schema target; the node intersects it with caller scope. */
   target?: string;
 }
 
@@ -728,23 +329,16 @@ export interface ChangesResult {
   changes: ChangeEvent[];
   nextCursor: string;
   hasMore: boolean;
-  /** Cursor fell behind bounded feed retention; rescan declared product keys. */
   gap: boolean;
 }
 
 /** One item of {@link LastDbClient.queryBatch}: the arguments of `query`. */
 export interface QueryBatchItem {
-  /** App schema name, as passed to `query`. */
   schemaName: string;
-  /** Same filter as `query`. A batch never sends the full-scan opt-in. */
   filter?: QueryFilter;
 }
 
-/**
- * Outcome of one {@link QueryBatchItem}, in request order. A failing item
- * carries the same typed error `query` would have thrown for it; the other
- * items still return their results.
- */
+/** Outcome of one {@link QueryBatchItem}, in request order. */
 export type QueryBatchOutcome =
   | { ok: true; result: QueryResult }
   | { ok: false; error: Error };
