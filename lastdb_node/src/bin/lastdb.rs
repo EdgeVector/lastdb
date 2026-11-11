@@ -313,11 +313,6 @@ fn run(cli: Cli) -> Result<(), String> {
             record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }
         Command::App { action } => app_command(cli.data_dir, action),
-        Command::Cutover(action) => {
-            if cli.data_dir.is_some() {
-                return Err("cutover does not open a data directory".into());
-            }
-            cutover_cmds::run(action)
-        }
+        Command::Cutover(action) => cutover_cmds::run(cli.data_dir, action),
     }
 }

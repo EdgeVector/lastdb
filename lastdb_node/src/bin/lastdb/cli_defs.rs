@@ -114,7 +114,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AppCommand,
     },
-    /// Check evidence for one existing database. Exemem commits signed-only.
+    /// Check or send the cutover for one existing database. Exemem commits signed-only.
     #[command(subcommand)]
     Cutover(CutoverCommand),
 }

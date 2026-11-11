@@ -1,29 +1,33 @@
 # Per-database cutover
 
-One product operation moves an existing database from legacy bearer reads to signed node-key reads. The operation is the same in `dev` and in `prod`. Exemem commits that change. A verified service response is the only authority. This tool does not perform the commit, does not call Exemem, and does not deploy.
-
-The local command is read-only preparation:
+One product operation moves an existing database from legacy bearer reads to signed node-key reads. The operation is the same in `dev` and in `prod`. Exemem stores the committed receipt. The live TLS body is the only authority. This tool can send that request. It does not write a local receipt, deploy the service, or start a migration.
 
 ```
 lastdb cutover verify --database-id ID --environment dev|prod --evidence DIR [--json]
+lastdb cutover request --database-id ID --evidence DIR [--data-dir HOME] [--json]
 ```
 
-`database_cutover` reads no clock, opens no file, and does not contact the cloud. The shell passes the six evidence files. `verify` returns the evidence digest those files bind. It writes nothing. Success prints `activated=false`. That digest is not a signed-only commit.
+`verify` checks the six evidence files and returns the digest they bind. It writes nothing and does not contact the cloud. Success prints `activated=false`. That digest is not a signed-only commit.
 
-A fresh named database does not use this command. The normal signed create registers it and places it in the authorized signed state, with its spec and its initial grants. It does not need these evidence files, a legacy position, a legacy token, or a separate environment procedure. E, D, G, H, and I own that bootstrap. K dogfoods it through the normal client.
+`request` runs the same check against the realm of the saved cloud connection, then sends one publisher-signed receipt. The path is `POST /api/cloud/backups/v2/mutation-log/cutover` (`MUTATION_LOG_CUTOVER_PATH`). The body is `CutoverReceipt`. The response is accepted only when it is that same receipt. Success prints the live receipt. It does not print `activated` or `written`.
+
+A fresh named database does not use either command. `lastdb db create` registers it. The success body is `NativeDatabase` (`state: native`). It needs no evidence files, no legacy position, and no cutover. A cutover of a stored native database is `share.cutover.native`. E, D, G, H, and I own that create. K dogfoods it through the normal client.
 
 Approved source: Brain design `lastdb-named-databases-unified-log-sharing-revocation` (2026-11-11). Migrate one existing database at a time. Verify the node-key grants, then switch every read path for that database to signed-only together. That switch is Exemem's commit. Legacy bearer passes stop authorizing reads for that database when the service commits, including on a device that still holds stale local state. Old server rows stay until a later retirement step. This command does not check that step and does not delete rows.
 
 ## What this tool refuses
 
-- An `environment` other than `dev` or `prod`. Both realms use these same checks. A file whose environment is not the realm the operator named is refused.
-- A path whose canonical location is inside the primary LastDB home. The shell treats `$HOME/.lastdb` and `$LASTDB_HOME` as that home, and canonicalizes a home that exists.
-- `--data-dir`. The command does not open a data directory.
+- An evidence realm other than `dev` or `prod`. Both realms use the same checks. `verify` uses `--environment`. `request` uses the saved connection and refuses evidence for the other realm.
+- Evidence whose canonical path is inside `$HOME/.lastdb` or `$LASTDB_HOME`.
+- A credential home whose canonical path is inside `$HOME/.lastdb`. `request` reads that home for the saved connection and the existing `identity.key`. It does not treat every `LASTDB_HOME` as the primary. It does not create an identity.
+- `--data-dir` on `verify`. Verify does not open a data directory.
 - `--db`. Cutover is not on the selector allow-list.
-- The daemon socket, the cloud, and Exemem.
-- A local request file, a resume gate, and a second-device proof. Those flows do not decide access. This command does not write `cutover-request.json` or `cutover-record.json`.
+- The daemon socket and the local store. Neither command opens them.
+- A node key that is not `authority_node_key`, a missing saved connection, or a connection whose endpoint is not the HTTPS origin for its `dev` or `prod` realm.
+- A live receipt whose fields differ from the receipt that was sent, or a body that is not `CutoverReceipt`.
+- A local request file, a resume gate, a second-device proof, and a cached receipt. Neither command writes `cutover-request.json` or `cutover-record.json`.
 - Retirement. No command deletes legacy data.
-- Unknown JSON fields. A bearer token cannot be stored in these files. Parse errors name the file and do not echo the body.
+- Unknown JSON fields. A bearer token cannot be stored in the evidence files. Parse errors name the file and do not echo the body. A refused HTTP body is printed only when it is a `ProtocolError` (`code` and static `field`). Otherwise the status code is the only HTTP detail.
 
 ## Identity
 
@@ -89,7 +93,7 @@ This crate does not import the cloud backup protocol.
 
 ## Evidence digest
 
-The digest is SHA-256, lowercase hex, of these lines. Each line ends with one newline. Timestamps are not inputs. The realm is not an input: D's receipt signs `environment` beside this digest. Member rows are sorted by node key, capability, then state. Writer tips are sorted by node key, device id, then sequence.
+The digest is SHA-256, lowercase hex, of these lines. Each line ends with one newline. Timestamps are not inputs. The realm is not an input. `CutoverReceipt` carries `environment` beside this digest. Nothing signs the receipt digest. The node signature covers the exact receipt bytes. Member rows are sorted by node key, capability, then state. Writer tips are sorted by node key, device id, then sequence.
 
 ```
 schema lastdb.database_cutover/v1
@@ -115,50 +119,50 @@ Reason text is `code: detail`. The detail does not include evidence values. Code
 
 ## Service transition
 
-The transition is one idempotent, publisher-authorized Exemem change for one existing database. It runs only after the grants are valid and the direct URL is drained. One durable service state then closes every legacy read route for that database. J does not execute it.
-
-D's local commit `953e4cc4e` defines the response and does not define the HTTP action that returns it. The response object is `CutoverReceipt` and only that object. J does not copy the type. Domain `lastdb:share:cutover-receipt:v1`. The signed array is `version` (JSON integer 2), `environment`, `database_id`, `evidence_sha256`, `grant_revision`. The signature is not in the array. The signer is the service key, not the publisher key and not the node key. A zero `grant_revision` is `share.cutover.grant_revision`. `evidence_sha256` is this tool's digest. D does not recompute the evidence lines.
-
-`is_mutation_log_path` is only the seven data paths: append, head, list, ack, snapshot, snapshot bytes, and trim. `authorize_request` returns `share.cutover.required` when no receipt is stored. The transition cannot be one of those seven paths. A call on them would require the receipt it is trying to obtain.
-
-G's dispatch arms today are `create-database`, `append`, `head`, `list`, `ack`, `revoke`, `snapshot`, and `trim`. None of them is this transition. `create-database` is the fresh-database bootstrap. H's published routes are the member-list update and the member-list read. I's delivery routes are for after a receipt exists. E's `/api/cloud/backups/v2/log/` draft is not this family.
-
-### Proposed action
-
-D, G, H, and I accept one new POST before any client calls it. J does not hard-code the path and does not send it.
+The transition is one idempotent publisher request for one existing database. D #1500 (`1f7e4a058`) defines the body and the route. The client imports `CutoverReceipt`. It does not copy the type.
 
 ```
 POST /api/cloud/backups/v2/mutation-log/cutover
 ```
 
-The lambda path omits `/api`, matching the other actions. The path is the same in `dev` and in `prod`. There is no `/log/` alias, no environment prefix, and no feature flag. The action stays outside `is_mutation_log_path`. D adds the constant beside the other route constants when this path is accepted. Until that constant exists, E does not call a cutover URL.
+The path is the same in `dev` and in `prod`. There is no second path, no `/log/` alias, and no environment flag. The action stays outside `is_mutation_log_path`. Create, cutover, and access are outside that set.
 
-The request binds the four values the receipt will sign, other than version and the service signature: `database_id`, `environment`, `evidence_sha256`, and `grant_revision`. `grant_revision` is D's decimal string, the same integer `verify` printed. A retry with those same four values returns the stored receipt and does not mint a second state. A different digest or revision for a database that already has a receipt is refused and does not replace the stored receipt.
+The body is canonical JSON of `CutoverReceipt`: `state` `committed`, `version` `2`, `environment` `dev` or `prod`, `database_id`, `evidence_sha256`, and `grant_revision`. `grant_revision` is a decimal string. Zero is `share.cutover.grant_revision`. `evidence_sha256` is this tool's digest. D does not recompute the evidence lines. Domain `lastdb:share:cutover-receipt:v1`. The digest array is `version`, `environment`, `database_id`, `evidence_sha256`, `grant_revision`. `state` is not in the array. Nothing signs that digest. There is no service-signature field.
 
-Authorization uses paths that already exist:
+`database_id` on the wire is D's `Id`: a 36-character lowercase UUID, not all zeros. The evidence checker still accepts the wider selector alphabet. `request` refuses an id that is not an `Id`.
 
-- Shareable: the publisher account key that already signs `MemberListUpdate`. That key is not a node key and not a new credential. The member-list update is the existing publisher-authorized idempotent mutation: publisher signature, no `LastDBNode` nonce, same signed bytes ack again.
-- Personal: the node-read verifier G and H already use for personal logs. Personal evidence has no member list. The one active owner node key is `authority_node_key`.
-- The cloud client still presents `X-API-Key` to the configured Exemem base URL. That header is the existing account credential. It is not a second cutover login.
+The node signs the exact body bytes with `lastdb_node::node_read::authorization`. That helper builds `NodeReadToken`, including `database_id`, and signs the lowercase hex of `NodeReadToken::digest(body)`. The header is `LastDBNode`, then a space, then base64url of the token JSON, a dot, and base64url of the 64-byte signature. Each call uses a new nonce. The same helper is used in both realms. The realm comes from the saved connection.
 
-The success body is `CutoverReceipt`. H verifies `signature` over `CutoverReceipt::digest` with the service key before the receipt is stored or passed to `authorize_request`. E and J consume that authenticated response. They do not switch because a local file exists, is missing, or is unreadable.
+The account scope comes from the existing recovery client. That context read still sends `X-API-Key`. The cutover POST does not. It sends `Authorization` only. The signer must be the evidence authority: the personal owner or the shareable publisher node key already in `identity.key`.
 
-This tree's cloud client trusts HTTPS and `X-API-Key`. It does not pin a service Ed25519 key, and share-invitation checks use the publisher key. J therefore does not cache a receipt and does not treat a written file, or a TLS response, as activation. No new key-distribution system is added here. When the response path H already uses names that public key, a later change may cache a receipt only after the signature check succeeds and `database_id`, `environment`, `evidence_sha256`, and `grant_revision` match this check.
+A repeated call sends the same receipt bytes and a new nonce. `authorize_legacy_cutover` returns `AlreadyStored` when the stored receipt is equal, and `share.cutover.conflict` when it is not. The client accepts any live `CutoverReceipt` that validates and compares equal to the receipt it sent. It does not cache that body. A saved copy is not the service write.
+
+`authorize_request` still returns `share.cutover.required` when no signed state is stored. The first store is `authorize_legacy_cutover` plus the conditional write. It is not a data-route call.
+
+### What is not on the service yet
+
+The client sends the canonical request anyway. Three current trees do not complete the first store:
+
+- E's `lastdb_node::log_sync::sign::authorization` is the data-route header. Its token has no `database_id` field, and its digest omits `database_id` and `environment`. H treats a token without `database_id` as a legacy proof. Cutover calls `node_read::authorization`. E should call that helper for this POST only. E's data-route signer stays until G accepts `NodeReadToken`.
+- G's mutation-log match does not include `cutover`. A POST to the canonical path is `http.route` / not found. `commit_cutover_receipt` is present and unused by that match. G's `TokenBody` is `deny_unknown_fields` and has no `database_id`, so it rejects this header on the data routes.
+- I dispatches `mutation-log/delivery/signed-only`, not `mutation-log/cutover`. `signed-only` parses the receipt fields. `Open` returns `mutation_log.cutover` integrity mismatch and does not call `authorize_legacy_cutover` or `commit_cutover_receipt`. The first store cannot succeed there. An equal stored receipt is echoed. `Native` is `share.cutover.native`.
+
+No second path and no invented signature fill those gaps.
 
 ## Operator order
 
-1. A fresh named database stops here. Create and sync it with the normal client. Do not build these six files.
-2. For an existing database, Lane E fences legacy appends, drains the final writes, and takes a fresh full snapshot through that exact position. It writes `snapshot.json`, `legacy-position.json`, `final-writes.json`, and `daemon-ready.json`. The daemon file is a digest input and a promise. It is not the switch.
-3. Lane I copies the current node-key grants and writes `grants.json` and `delivery-ready.json`. The delivery file is a digest input and a promise. It is not the close.
-4. The operator runs `verify` for that database and realm. The command writes nothing.
-5. After D, G, H, and I accept the action above, the publisher requests that one transition. The verified `CutoverReceipt` is the commit. Until the action exists, nobody sends it and nobody treats a local file as the commit.
-6. Lane E starts signed mutation-log sync for that database only after that verified receipt. Before it, E does not send `NodeReadProof::digest` on the mutation-log paths and does not hard-code the realm as `dev`.
+1. A fresh named database stops at `lastdb db create`. Do not build these six files.
+2. For an existing database, Lane E fences legacy appends, drains the final writes, and takes a fresh full snapshot through that exact position. It writes the four snapshot, position, fence, and daemon files. The daemon file is a digest input and a promise. It is not the switch.
+3. Lane I writes `grants.json` and `delivery-ready.json` from the current grant view. The delivery file is a digest input and a promise. It is not the close.
+4. The operator may run `verify`. That check only reports the digest. `request` runs it again before the POST.
+5. The publisher runs `request` from a non-primary home that already has the cloud connection and `identity.key`. The live matching receipt is the commit. This session does not run that command.
+6. Lane E starts signed mutation-log sync for that database only after that receipt is stored. Data routes keep E's current signer until G accepts `NodeReadToken`.
 7. Legacy rows stay. Retirement is a later step. This command does not authorize it.
 
 ## Lane boundary
 
-Lane C adds create, list, and select on the same CLI enum. The `Cutover` variant has to stay. This command does not create a database and does not select one with `--db`.
+Lane C's `lastdb db create` stays the fresh-database operation. `Command::Cutover` stays off the `--db` allow-list. Cutover does not create a database.
 
-Lane D owns `CutoverReceipt` and the mutation-log route family. This crate does not import that crate and does not vendor the receipt. Positions here are canonical decimal strings. The route family is `/api/cloud/backups/v2/mutation-log/`. This tool does not call it.
+Lane D owns `CutoverReceipt`, `NodeReadToken`, and `MUTATION_LOG_CUTOVER_PATH`. `database_cutover` does not import that crate. The send lives in `lastdb_node`.
 
-Lane A merges first. This change does not publish before the lead coordinates, and it does not merge before `benchmark-complete` and the other required gates are green. Nothing here activates an unmigrated database, changes the primary, or starts a production migration.
+This change does not publish before the lead coordinates, and it does not merge before `benchmark-complete` and the other required gates are green. Nothing here activates an unmigrated database, changes the primary, or starts a production migration.
