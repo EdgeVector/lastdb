@@ -13,12 +13,12 @@ pub(crate) enum ShareCommand {
         /// Whether this share accepts privately submitted contributor mutations.
         #[arg(long, default_value = "publisher-only", value_parser = ["publisher-only", "publisher-validated"])]
         write_mode: String,
-        /// Catalog spec name. Share creation denies a missing or unknown spec.
+        /// Catalog spec name. Omit it to keep the legacy publication path.
         #[arg(long)]
-        spec: String,
-        /// Registry spec version. Catalog label `1.0` is version `1`.
-        #[arg(long, default_value_t = 1)]
-        spec_version: u32,
+        spec: Option<String>,
+        /// Registry spec version for `--spec`. Omitted version means `1`.
+        #[arg(long)]
+        spec_version: Option<u32>,
     },
     /// Export this LastDB identity's public contact code.
     Contact {

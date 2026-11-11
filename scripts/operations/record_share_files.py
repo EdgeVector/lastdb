@@ -166,8 +166,7 @@ def exercise(cli, owner, root):
 
     def create(home, *options):
         result = command(cli, "--data-dir", owner.home, "share", "create",
-                         "--into", home, "--env", "dev",
-                         "--spec", "lastdb-files", "--spec-version", "1", *options)
+                         "--into", home, "--env", "dev", *options)
         require(result.returncode == 0, "share create failed: " + result.stderr)
         return json.loads(result.stdout)
 

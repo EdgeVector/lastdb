@@ -1,11 +1,13 @@
-//! Share-create gate over `database_policy`. A missing new binding is a denial.
+//! Legacy share creation and explicit spec checks.
 //!
-//! A version-1 publication marker with no `spec` object is a legacy publication.
-//! That absence is not a catalog binding and is not treated as `lastdb-files`.
+//! `lastdb share create --into` with no spec stays on the legacy path.
+//! That absence is not a catalog binding and is not `lastdb-files`.
+//! An explicit spec is validated before a home exists. Named-database
+//! admission stays fail-closed through `database_policy::admit_share`.
 use database_policy::{admit_share, PolicyError, SpecBinding};
 use serde::{Deserialize, Serialize};
 
-/// Registry `spec` object stored on a new publication marker.
+/// Registry `spec` object stored on a publication marker that named one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicationSpec {
@@ -13,6 +15,19 @@ pub struct PublicationSpec {
     pub name: String,
     /// Registry version. Catalog label `1.0` is `1`.
     pub version: u32,
+}
+
+/// No spec keeps the legacy path. A name without a version uses version `1`.
+/// A version without a name is incomplete. An explicit spec must be admitted.
+pub(crate) fn binding_for_create(
+    name: Option<&str>,
+    version: Option<u32>,
+) -> Result<Option<SpecBinding>, String> {
+    match (name, version) {
+        (None, None) => Ok(None),
+        (None, Some(_)) => Err("share publication spec binding is incomplete".into()),
+        (Some(name), version) => Ok(Some(require_new(name, version.unwrap_or(1))?)),
+    }
 }
 
 pub(crate) fn require_new(name: &str, version: u32) -> Result<SpecBinding, String> {
@@ -33,12 +48,14 @@ pub(crate) fn resolve_stored(
     }
 }
 
-/// Existing files homes have no spec object. A bound home must be lastdb-files.
+/// The Files import command. A marker with no spec stays on that legacy
+/// command and is not the `lastdb-files` spec. Any other explicit spec is
+/// refused here; a social `Photo` file uses `file_is_shareable` instead.
 pub(crate) fn require_files(name: Option<&str>, version: Option<u32>) -> Result<(), String> {
     match resolve_stored(name, version)? {
         None => Ok(()),
         Some(binding) if binding == SpecBinding::legacy_files_publication() => Ok(()),
-        Some(_) => Err("file sharing requires the lastdb-files publication spec".into()),
+        Some(_) => Err("share files import does not accept this spec".into()),
     }
 }
 

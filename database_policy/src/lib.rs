@@ -62,7 +62,7 @@ impl SpecBinding {
         }
     }
 
-    /// Existing file publications, including a version-1 marker with no spec fields.
+    /// Explicit `lastdb-files` version 1. A missing spec is not this binding.
     pub fn legacy_files_publication() -> Self {
         Self {
             name: "lastdb-files".to_owned(),
@@ -237,8 +237,7 @@ pub fn schemas(binding: &SpecBinding) -> Result<&'static [SchemaSpec], PolicyErr
     Ok(catalog::share_spec(binding.name(), binding.version())?.schemas)
 }
 
-/// True when the bound spec lists this schema. Its records, including original
-/// bytes identified by the record key, may be published. Source access is separate.
+/// True when the bound spec lists this schema. This does not make a file eligible.
 pub fn schema_is_shareable(
     binding: &SpecBinding,
     namespace: &str,
@@ -248,6 +247,20 @@ pub fn schema_is_shareable(
     Ok(listed
         .iter()
         .any(|item| item.namespace == namespace && item.name == schema))
+}
+
+/// True only for eligible file bytes on a listed schema.
+///
+/// Social `Photo` and `lastdb-files` `FileChunk` qualify. A listed schema
+/// with no file, and every private schema, is `Ok(false)`. A bad binding
+/// is an error. A missing spec is not classified here.
+pub fn file_is_shareable(
+    binding: &SpecBinding,
+    namespace: &str,
+    schema: &str,
+) -> Result<bool, PolicyError> {
+    let listed = schema_is_shareable(binding, namespace, schema)?;
+    Ok(listed && catalog::carries_file(namespace, schema))
 }
 
 /// True only when the bound spec lists this field. Other fields stay in `personal`.

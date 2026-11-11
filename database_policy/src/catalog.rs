@@ -63,6 +63,15 @@ const FILES: ShareSpec = ShareSpec {
     ],
 };
 
+/// Social `Photo` carries the original file. `FileChunk` is the Files publication.
+/// Other schemas, including personal ones, do not make a file eligible.
+pub(crate) fn carries_file(namespace: &str, schema: &str) -> bool {
+    matches!(
+        (namespace, schema),
+        ("social", "Photo") | ("lastdb-files", "FileChunk")
+    )
+}
+
 pub(crate) fn share_spec(name: &str, version: u32) -> Result<&'static ShareSpec, PolicyError> {
     match (name, version) {
         ("lastdb-files", 1) => Ok(&FILES),

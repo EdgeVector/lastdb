@@ -149,10 +149,15 @@ pub fn prepare(
     owner_home: &Path,
     environment: ShareEnvironment,
     write_mode: WriteMode,
-    spec_name: &str,
-    spec_version: u32,
+    spec_name: Option<&str>,
+    spec_version: Option<u32>,
 ) -> Result<PreparedPublication, String> {
-    let binding = crate::share_spec::require_new(spec_name, spec_version)?;
+    let spec = crate::share_spec::binding_for_create(spec_name, spec_version)?.map(|binding| {
+        crate::share_spec::PublicationSpec {
+            name: binding.name().to_owned(),
+            version: binding.version(),
+        }
+    });
     let owner = owner_seed(owner_home)?;
     let signer = signer(&owner)?;
     let id =
@@ -165,10 +170,7 @@ pub fn prepare(
             publisher: publisher(&signer)?,
             environment,
             write_mode,
-            spec: Some(crate::share_spec::PublicationSpec {
-                name: binding.name().to_owned(),
-                version: binding.version(),
-            }),
+            spec,
         },
         seed,
     })
@@ -181,7 +183,7 @@ fn spec_parts(spec: Option<&crate::share_spec::PublicationSpec>) -> (Option<&str
     }
 }
 
-/// Refuse file import unless this home is a legacy publication or lastdb-files.
+/// Refuse arbitrary file import unless this home is legacy or `lastdb-files`.
 pub fn require_files_publication(home: &Path) -> Result<(), String> {
     let marker = read_marker(&owned(home)?)?
         .ok_or("file sharing requires the home created by share create")?;

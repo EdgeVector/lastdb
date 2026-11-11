@@ -12,6 +12,6 @@ LastDB reserves the database names `graph`, `social`, `medical`, `finance`, and 
 
 `personal` is the non-shareable database. The binding is null. App-private schemas, fields, and files stay there, including `hearth/PhotoMeta` and `social-graph`.
 
-`lastdb-files` is not a reserved database name. It is the publication spec for the existing `FileCatalog` and `FileChunk` records that `lastdb share files` writes. A new share is created only with an admitted spec. A version-1 publication marker with no spec object stays on the legacy publication path. That absence is not classified as `lastdb-files`.
+`lastdb-files` is not a reserved database name. It is the publication spec for the existing `FileCatalog` and `FileChunk` records that `lastdb share files` writes. `lastdb share create --into` with no `--spec` stays on the legacy path and writes no spec. That absence is not classified as `lastdb-files`. An explicit `--spec` is validated, and a denied spec writes nothing. A social `Photo` file is eligible on the social spec. A private file, including `hearth/PhotoMeta`, is not.
 
 Within one major version a schema changes only by adding optional fields. A breaking change is a new schema name and a copy of the records. An app keeps its own extensions in its namespace in the personal database, keyed by the standard record id.
