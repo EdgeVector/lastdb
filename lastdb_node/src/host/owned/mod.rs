@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use tokio::sync::watch;
+
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
@@ -98,6 +100,7 @@ struct State {
 
 pub(crate) struct Tables {
     state: RwLock<State>,
+    changed: watch::Sender<u64>,
 }
 
 struct CommitError {
@@ -121,13 +124,29 @@ impl Tables {
         if registry::read(home)?.is_none() {
             registry::write(home, &file).map_err(|error| error.to_string())?;
         }
+        let (changed, _) = watch::channel(0);
         Ok(Self {
             state: RwLock::new(State {
                 registry_owner: file.owner,
                 owned: file.owned,
                 stores,
             }),
+            changed,
         })
+    }
+
+    /// Wakes after a sibling store is opened. The payload is only a counter.
+    pub(crate) fn subscribe_stores(&self) -> watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    pub(crate) fn stores(&self) -> Result<Vec<(String, Arc<FoldDB>)>, OwnedError> {
+        let state = self.read()?;
+        Ok(state
+            .stores
+            .iter()
+            .map(|(id, db)| (id.clone(), Arc::clone(db)))
+            .collect())
     }
 
     pub(crate) fn owner(&self) -> Result<Entry, OwnedError> {
@@ -189,6 +208,9 @@ impl Tables {
             }
             return Err(error.kind);
         }
+        self.changed.send_modify(|generation| {
+            *generation = generation.saturating_add(1);
+        });
         Ok(entry)
     }
 

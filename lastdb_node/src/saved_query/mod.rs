@@ -7,11 +7,13 @@
 //! a database file. The daemon applies each database's own content key when
 //! it serves the ordinary routes.
 
+mod catalog;
 mod definition;
 mod plan;
 mod policy;
 mod record;
 
+pub use catalog::{QueryCatalog, CATALOG_KEY};
 pub use definition::{label_ok, Definition, Link, RangeSelect, Read};
 pub use plan::{
     plan, FileMark, LedgerEntry, LiveRow, Plan, Projected, Receipt, RecordKey, Remove, Step, Write,

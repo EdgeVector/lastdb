@@ -3,12 +3,11 @@
 
 use std::collections::BTreeMap;
 
+use crate::saved_query::{FileMark, LiveRow, RecordKey, Remove, Step, Write};
 use base64::Engine as _;
-use lastdb_node::saved_query::{FileMark, LiveRow, RecordKey, Remove, Step, Write};
 use serde_json::{json, Map, Value};
 
-use super::http::Store;
-use crate::DatabaseTarget;
+use super::http::{DatabaseTarget, Store};
 
 pub(super) fn apply(
     store: &Store,
@@ -36,7 +35,7 @@ pub(super) fn read_live(
     }
     let mut live = BTreeMap::new();
     for ((namespace, schema), keys) in grouped {
-        for chunk in keys.chunks(lastdb_node::saved_query::MAX_RECORDS) {
+        for chunk in keys.chunks(crate::saved_query::MAX_RECORDS) {
             read_chunk(store, destination, &namespace, &schema, chunk, &mut live)?;
         }
     }

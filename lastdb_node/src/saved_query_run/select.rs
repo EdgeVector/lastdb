@@ -3,13 +3,12 @@
 
 use std::collections::BTreeMap;
 
-use lastdb_node::saved_query::{
-    DeclareSchema, Definition, LiveRow, Projected, RangeSelect, Read, RecordKey, MAX_RECORDS,
+use crate::saved_query::{
+    DeclareSchema, Definition, Link, LiveRow, Projected, RangeSelect, Read, RecordKey, MAX_RECORDS,
 };
 use serde_json::{json, Value};
 
-use super::http::Store;
-use crate::DatabaseTarget;
+use super::http::{DatabaseTarget, Store};
 
 pub(super) fn select(
     store: &Store,
@@ -75,7 +74,7 @@ fn expect_read_key(read: &Read, key: &RecordKey) -> Result<(), String> {
 fn expand_link(
     store: &Store,
     source: &DatabaseTarget,
-    link: &lastdb_node::saved_query::Link,
+    link: &Link,
     reads: &BTreeMap<RecordKey, Value>,
     rows: &mut BTreeMap<RecordKey, Value>,
 ) -> Result<(), String> {
@@ -87,7 +86,7 @@ fn expand_link(
             continue;
         };
         let schema = format!("{}/{}", link.namespace, link.schema);
-        let found = store.query(source, &schema, json!({"HashKey": hash}))?;
+        let found = store.query(source, &schema, json!({ "HashKey": hash }))?;
         if found.len() > 1 {
             return Err("saved query link returned more than one record".into());
         }

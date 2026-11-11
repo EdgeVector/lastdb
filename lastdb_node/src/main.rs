@@ -77,7 +77,7 @@ fn serve_node(
         worker_pool.clone(),
     );
 
-    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, share)?;
+    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, share, socket.path())?;
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
 
