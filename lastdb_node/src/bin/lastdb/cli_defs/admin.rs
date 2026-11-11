@@ -17,9 +17,6 @@ pub(crate) enum AdminCommand {
     /// Prepare recovery credentials and operate on exact backup jobs.
     #[command(subcommand)]
     Backup(AdminBackupCommand),
-    /// Publish, synchronize or restore an enrolled shared database.
-    #[command(subcommand)]
-    Shared(AdminSharedCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -93,18 +90,6 @@ pub(crate) enum AdminBackupCommand {
     },
     /// Prepare recovery credentials from an existing account without registering.
     PrepareRecoveryHome(PrepareRecoveryArgs),
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum AdminSharedCommand {
-    /// Upload a frozen DEV database snapshot, then upload the writer's queued changes.
-    Snapshot(SnapshotArgs),
-    /// Restore a held shared snapshot and its captured tails into a fresh home.
-    Restore(SharedRestoreCommand),
-    /// Resume publication of a sealed shared restore workspace.
-    ResumeRestore(ResumeSharedRestoreArgs),
-    /// Operate the journal of a stopped enrolled DEV writer.
-    Writer(SharedWriterCommand),
 }
 
 #[derive(Subcommand, Debug)]

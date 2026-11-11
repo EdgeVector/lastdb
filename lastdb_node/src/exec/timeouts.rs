@@ -1,6 +1,7 @@
 //! Wall-clock route timeout budgets and blocking runtime entrypoints.
 
 use super::*;
+use std::time::Duration;
 
 const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
 const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
@@ -109,7 +110,6 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
         | DataRoute::SyncByteBackupV2Connect
-        | DataRoute::SyncSharedSnapshot
         | DataRoute::DeclareSchema
         | DataRoute::DropSchema => admin_handler_timeout(),
         DataRoute::Status => Duration::from_secs(2),

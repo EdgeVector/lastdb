@@ -19,8 +19,6 @@ use db_cmds::*;
 mod cloud_cmds;
 #[path = "lastdb/share_cmds.rs"]
 mod share_cmds;
-#[path = "lastdb/snapshot_cmd.rs"]
-mod snapshot_cmd;
 use cloud_cmds::*;
 #[path = "lastdb/status_ops_cmds.rs"]
 mod status_ops_cmds;

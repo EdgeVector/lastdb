@@ -4,15 +4,6 @@ use super::{error, LogBatch, LogHead, SharedReadGrant, StreamCut, WriterStream, 
 use crate::{input_digest, AccountId, DecimalU64, Digest, ErrorCode, Id, ProtocolError};
 use serde::{Deserialize, Serialize, Serializer};
 
-/// Capture the peer stream directory and its current accepted boundaries.
-pub const HEADS_PATH: &str = "/cloud/shared/v1/peers/heads";
-/// Read one continuation from a retained accepted stream.
-pub const NEXT_PATH: &str = "/cloud/shared/v1/peers/next";
-/// Get a temporary exact read for an accepted batch's file dependency.
-pub const FILE_PATH: &str = "/cloud/shared/v1/peers/file";
-/// Get a temporary exact read for one accepted encrypted log segment.
-pub const SEGMENT_PATH: &str = "/cloud/shared/v1/peers/segment";
-
 /// Capture peer stream heads for an admitted reader stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -152,17 +143,6 @@ pub enum PeerAuthorityRequest<'a> {
 }
 
 impl PeerAuthorityRequest<'_> {
-    /// The protected service route for this operation.
-    #[must_use]
-    pub fn path(self) -> &'static str {
-        match self {
-            Self::Heads(_) => HEADS_PATH,
-            Self::Next(_) => NEXT_PATH,
-            Self::File(_) => FILE_PATH,
-            Self::Segment(_) => SEGMENT_PATH,
-        }
-    }
-
     /// Bind the operation, exact request, account, device, and proof expiry.
     pub fn authority_digest(
         self,

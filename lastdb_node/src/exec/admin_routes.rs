@@ -25,22 +25,14 @@ pub(in crate::exec) fn execute_status_route(ctx: &AccessContext, host: &Host) ->
         });
     let durability = match crate::byte_cloud_backup::status(host) {
         Ok(s) => {
-            if let Some(shared) = s.shared_sync {
-                json!({
-                    "observed": true, "automatic_enabled": shared.enabled,
-                    "running": shared.progress.running,
-                    "degraded": shared.progress.blocked_reason.is_some(),
-                })
-            } else {
-                let degraded = s.blocked_reason.is_some()
-                    || s.automatic_backup
-                        .as_ref()
-                        .is_some_and(|a| a.paused.is_some());
-                json!({
-                    "observed": true, "automatic_enabled": s.automatic_backup_enabled,
-                    "running": s.running, "phase": s.phase, "degraded": degraded,
-                })
-            }
+            let degraded = s.blocked_reason.is_some()
+                || s.automatic_backup
+                    .as_ref()
+                    .is_some_and(|a| a.paused.is_some());
+            json!({
+                "observed": true, "automatic_enabled": s.automatic_backup_enabled,
+                "running": s.running, "phase": s.phase, "degraded": degraded,
+            })
         }
         Err(_) => json!({ "observed": false, "automatic_enabled": false, "running": false }),
     };

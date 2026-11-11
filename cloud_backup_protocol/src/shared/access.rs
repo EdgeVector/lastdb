@@ -4,15 +4,6 @@ use super::{error, LogHead, RecoveryView, SealedObject};
 use crate::{input_digest, AccountId, DecimalU64, Digest, ErrorCode, Id, ProtocolError, Text};
 use serde::{Deserialize, Serialize, Serializer};
 
-/// Open a bounded recovery hold at the current shared snapshot and writer heads.
-pub const RECOVERY_OPEN_PATH: &str = "/cloud/shared/v1/recovery/open";
-/// Read the exact public manifest retained by a recovery hold.
-pub const RECOVERY_MANIFEST_PATH: &str = "/cloud/shared/v1/recovery/manifest";
-/// Read one exact continuation from a retained stream in a recovery hold.
-pub const RECOVERY_LOG_PATH: &str = "/cloud/shared/v1/recovery/logs";
-/// Issue a temporary signed GET for one exact held object version.
-pub const RECOVERY_OBJECT_PATH: &str = "/cloud/shared/v1/recovery/objects";
-
 /// Open a new recovery hold, or fetch the manifest for an existing hold.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -160,17 +151,6 @@ pub enum RecoveryAuthorityRequest<'a> {
 }
 
 impl RecoveryAuthorityRequest<'_> {
-    /// The authenticated service route for this request.
-    #[must_use]
-    pub fn path(self) -> &'static str {
-        match self {
-            Self::Open(_) => RECOVERY_OPEN_PATH,
-            Self::Manifest(_) => RECOVERY_MANIFEST_PATH,
-            Self::Log(_) => RECOVERY_LOG_PATH,
-            Self::Object(_) => RECOVERY_OBJECT_PATH,
-        }
-    }
-
     /// Bind the exact operation, body, account, device, and proof expiry.
     pub fn authority_digest(
         self,

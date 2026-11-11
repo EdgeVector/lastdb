@@ -15,7 +15,6 @@ WORKFLOWS = {
     "bench.yml": "LastDB benchmarks",
     "cloud-backup-daily.yml": "Daily cloud recovery check",
     "cloud-backup-recovery.yml": "Cloud backup recovery",
-    "cloud-shared-daily.yml": "Daily shared DEV operations",
     "nightly-release.yml": "Nightly LastDB release",
 }
 RESULTS = {"success", "failure", "cancelled", "skipped"}

@@ -184,21 +184,12 @@ keeps it personal-only, so a shareable database rejects it.
 `scripts/operations/record_share_files.py` writes those same schemas on a
 share home.
 
-Share snapshots carry the caller's schema (`SnapshotSchema` in
-`lastdb_node/src/shared_restore/recovery/manifest.rs`). Contributor rules
-check the caller's schema string
+Contributor rules check the caller's schema string
 (`lastdb_node/src/share_contribution/apply.rs`) and do not name a catalog.
-The shared-writer schema CLI defines the declaration it is given
-(`lastdb_node/src/bin/lastdb/cloud_cmds/shared_writer/schema.rs`).
-Its qualification plan uploads snapshot objects and does not name a schema
-(`lastdb_node/src/bin/lastdb/cloud_cmds/shared_writer/qualification.rs`).
-Cloud share proofs publish `CloudSharedProof`,
-`CloudSharedProofAlias`, and `CloudSharedLater` under a generated
-`cloud-proof-<database>` namespace (`scripts/cloud_backup/shared_recovery.py`,
-`scripts/cloud_backup/shared_automatic.py`). `CloudProofLocalOnly` is
-device-local (`scripts/cloud_backup/shared_multiwriter.py`). A generated
-namespace is not a stable list entry. `photos/Comment` in the contributor
-proof and the SDK readme is an example, not a standard schema.
+The legacy shared snapshot, shared-writer CLI, and shared recovery scripts
+are deleted with the shared v1 client. They are not a namespace list.
+`photos/Comment` in the contributor proof and the SDK readme is an example,
+not a standard schema.
 
 Anything not on the list is app-private. A shareable database rejects it
 (`AppPrivateNamespace`). A personal database still accepts it.
@@ -272,9 +263,8 @@ creates the PROD table, and imports a mandatory fresh full snapshot per
 database with a receipt.
 
 The client cutover then makes the log the only path and deletes the legacy
-V2 mutation-log chain and the per-writer share sync. That PR replaces the
-legacy `lastdb_node` shared-sync worker. There is no flag. The daemon does
-not call this log yet, so its behavior is unchanged.
+V2 mutation-log chain and the per-writer share sync. There is no flag. The
+daemon does not call this log yet, so its behavior is unchanged.
 
 Old server rows stay until a second device acks and keyed reads match.
 

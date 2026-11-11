@@ -301,14 +301,6 @@ impl PackNamespacedStore {
     }
 }
 
-/// Create the device-private disk home after authenticating a downloaded shared snapshot.
-pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    if admit(path, key)? == SHARED_RECORD_PROFILE {
-        create_private(path, key)?;
-    }
-    Ok(())
-}
-
 fn create_private(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let private = RunHome::create(&path.join(PRIVATE_DIR), &private_key(key)).map_err(map)?;
     private

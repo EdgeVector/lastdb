@@ -1,7 +1,6 @@
 //! Data-route executor for the `lastdbd` owner control socket.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
@@ -67,7 +66,6 @@ use reply::{content_free, envelope, error_response, json_ok, render, HostError};
 use timeouts::{data_route_budget, execute_data_route_with_timeout, with_handler_timeout_budget};
 use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
-pub use crate::shared_snapshot::sequence::SharedSnapshotRequest;
 pub use database_routes::{
     execute_database_request, execute_deferred_database_mutation, is_deferred_database_mutation,
 };
@@ -128,7 +126,6 @@ pub(in crate::exec) async fn execute_data_route(
         DataRoute::BootIdentity => admin_routes::execute_boot_identity_route(host),
         DataRoute::SyncByteBackupV2 => execute_byte_backup(req, ctx, host).await,
         DataRoute::SyncByteBackupV2Connect => connect_byte_backup(req, ctx, host).await,
-        DataRoute::SyncSharedSnapshot => heap_route!(shared_snapshot, req, ctx, host).await,
         DataRoute::DbSchemas => {
             heap_route_ctx_host!(admin_routes::execute_db_schemas_route, ctx, host).await
         }
@@ -195,23 +192,6 @@ async fn connect_byte_backup(req: &UdsRequest, ctx: &AccessContext, host: &Host)
     };
     match byte_cloud_backup::connect_existing(host, request).await {
         Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
-        Err(error) => error_response(409, &error.to_string(), ctx),
-    }
-}
-
-async fn shared_snapshot(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    if !ctx.is_owner {
-        return error_response(403, "shared snapshot is owner-only", ctx);
-    }
-    if req.body.len() > 8192 {
-        return error_response(413, "shared snapshot request exceeds its byte limit", ctx);
-    }
-    let Ok(request) = serde_json::from_slice(&req.body) else {
-        return error_response(400, "invalid shared snapshot request", ctx);
-    };
-    let budget = admin_handler_timeout().saturating_sub(Duration::from_secs(1));
-    match crate::shared_snapshot::sequence::run_shared_snapshot(host, &request, budget).await {
-        Ok(result) => json_ok(&envelope(&result, ctx.user_id.as_str())),
         Err(error) => error_response(409, &error.to_string(), ctx),
     }
 }

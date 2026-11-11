@@ -148,7 +148,7 @@ def _type_name(text, names, schema):
 
 def _roots_in_function(fn, params, names, schema, usage):
     text = fn.text.decode()
-    posts = ".post(" in text or "canonical_bytes(" in text or "post_shared_append(" in text
+    posts = ".post(" in text or "canonical_bytes(" in text
     if posts:
         for path in params.values():
             usage.request_roots.add(path)

@@ -36,7 +36,7 @@ pub use crate::storage::disk_cleanup::{
 pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES};
 pub use physical::CAS_COLLECTION;
 pub use read::PackReadScope;
-pub use run_node::{prepare_shared_restored_run, CAS_DIR, RUN_DIR};
+pub use run_node::{CAS_DIR, RUN_DIR};
 pub use view::{
     NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeStorageDiagnostics,
 };

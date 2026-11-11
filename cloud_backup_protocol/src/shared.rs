@@ -14,8 +14,7 @@ mod recovery;
 
 pub use access::{
     RecoveryAuthorityRequest, RecoveryHoldRequest, RecoveryLogRequest, RecoveryObjectParent,
-    RecoveryObjectRequest, SharedReadGrant, RECOVERY_LOG_PATH, RECOVERY_MANIFEST_PATH,
-    RECOVERY_OBJECT_PATH, RECOVERY_OPEN_PATH,
+    RecoveryObjectRequest, SharedReadGrant,
 };
 pub use append::{
     append_authority_digest, AppendContext, AppendDecision, BatchObject, BatchReceipt,
@@ -38,8 +37,6 @@ pub const MAX_BATCH_FILES: usize = 1_024;
 pub const MAX_BATCH_FILE_BYTES: u64 = 512 * 1024 * 1024;
 /// Maximum single sealed file, including native envelope overhead.
 pub const MAX_SINGLE_BATCH_FILE_BYTES: u64 = MAX_BATCH_FILE_BYTES + 64;
-/// Shared append path after the service API prefix.
-pub const APPEND_PATH: &str = "/cloud/shared/v1/logs/append";
 
 /// A log stream within one shared database.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

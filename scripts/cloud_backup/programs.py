@@ -15,12 +15,8 @@ from support import CHUNK, OperationError, decode_json, require, stable
 
 
 RESTORE_REFUSALS = {
-    b"Invalid data: Invalid operation: portable author state: restore the complete shared snapshot and mutation logs before binding": "shared_restore_required",
-    b"refusing: the last session did not end cleanly. Start the daemon and stop it gracefully, then retry.": "shared_writer_clean_shutdown_required",
-    b"the database already has a snapshot; restore before binding": "shared_publisher_restore_required",
-    b"Invalid data: a later shared schema definition changes the key, the alternate keys or an existing field; declare a new schema name": "shared_incompatible_definition",
-    b"native backup service error: RetryLater": "shared_service_retry_later",
-    b"native backup service error: OutcomeUnknown": "shared_service_outcome_unknown",
+    b"native backup service error: RetryLater": "service_retry_later",
+    b"native backup service error: OutcomeUnknown": "service_outcome_unknown",
     b"invalid restore client native metadata": "client_native_metadata",
     b"invalid restore client mutation log root": "client_mutation_log_metadata",
     b"invalid restore run client page": "client_native_page",
@@ -32,47 +28,6 @@ RESTORE_REFUSALS = {
     b"restore protocol validation failed": "protocol",
     b"restore source unavailable: byte transport": "byte_transport",
     b"restore source unavailable: object grant": "object_grant",
-    b"restore source unavailable: shared recovery device signature refused": "shared_device_signature_refused",
-    b"restore source unavailable: authenticated shared recovery transport": "shared_recovery_transport",
-    b"restore source unavailable: captured shared log continuation": "shared_log_continuation",
-    b"restore source unavailable: shared recovery hold expired": "shared_hold_expired",
-    b"invalid restore selected shared snapshot ID": "shared_snapshot_selection",
-    b"invalid restore snapshot manifest JSON": "shared_manifest_json",
-    b"invalid restore noncanonical snapshot manifest": "shared_manifest_order",
-    b"invalid restore snapshot manifest scope": "shared_manifest_scope",
-    b"invalid restore shared object authentication": "shared_object_authentication",
-    b"invalid restore verified native checkpoint inventory": "shared_native_inventory",
-    b"invalid restore unlisted native checkpoint file": "shared_unlisted_native_file",
-    b"invalid restore staged native writer open": "shared_writer_open",
-    b"invalid restore staged replay checkpoint": "shared_checkpoint_progress",
-    b"invalid restore checkpoint schema binding": "shared_checkpoint_schema",
-    b"invalid restore shared mutation log": "shared_mutation_log",
-    b"invalid restore shared object digest": "shared_object_digest",
-    b"invalid restore commit native replay candidates": "shared_replay_commit",
-    b"invalid restore seal portable restore progress": "shared_replay_progress",
-}
-SHARED_STAGES = {name.encode(): name for name in ("selection", "manifest-read", "manifest-verify",
-    "checkpoint-install", "tail-read", "writer-open", "replay-activate")}
-SNAPSHOT_REFUSALS = {
-    b"invalid restore shared writer state": "snapshot_writer_state",
-    b"invalid restore snapshot requires a dedicated shared disk home": "snapshot_dedicated_home",
-    b"invalid restore owned session directory": "snapshot_owned_directory",
-    b"invalid restore owned session file": "snapshot_owned_file",
-    b"invalid restore saved DEV credentials": "snapshot_saved_credentials",
-    b"invalid restore shared snapshot requires saved DEV credentials": "snapshot_dev_endpoint",
-    b"invalid restore shared device key": "snapshot_device_key",
-    b"invalid restore shared writer pending prefix is missing": "snapshot_pending_prefix",
-    b"invalid restore shared writer tail is missing": "snapshot_writer_tail",
-    b"restore source unavailable: authenticated shared snapshot transport": "snapshot_transport",
-    b"restore source unavailable: shared writer upload; retry with the same workspace": "snapshot_log_upload",
-    b"restore limit: snapshot deadline reached. Retry with the same workspace": "snapshot_deadline",
-    b"invalid restore saved snapshot disk files changed": "snapshot_original_files_changed",
-    b"invalid restore snapshot disk hold is closed": "snapshot_hold_closed",
-    b"invalid restore snapshot accepted log positions": "snapshot_accepted_positions",
-    b"invalid restore frozen disk file length": "snapshot_file_length",
-    b"restore limit: snapshot file inventory deadline": "snapshot_file_inventory_deadline",
-    b"missing published snapshot ID": "snapshot_receipt_identity",
-    b"missing uploaded writer position": "snapshot_receipt_position",
 }
 PROOF_STAGES = {name.encode(): name for name in (
     "native_reader", "admission", "validation", "restore", "profile", "physical_root",
@@ -144,27 +99,11 @@ def cli_refusal(stderr, exit_code, command=None):
         detail = body.get("error") if isinstance(body, dict) else None
         text = detail.encode() if isinstance(detail, str) else routed[3] if body is None else b""
         result["error_head"] = error_head(text)
-    snapshot_http = re.fullmatch(rb"shared snapshot returned HTTP/1.1 ([0-9]{3}) [^:]+: (.{1,4096})", message)
-    if snapshot_http:
-        result["snapshot_http_status"] = int(snapshot_http[1])
-        try:
-            body = decode_json(snapshot_http[2])
-        except OperationError:
-            body = None
-        message = (body["error"].encode()
-                   if isinstance(body, dict) and isinstance(body.get("error"), str) else snapshot_http[2])
-    if message in SNAPSHOT_REFUSALS:
-        return {**result, "reason": SNAPSHOT_REFUSALS[message]}
-    if message.startswith((b"V2 restore retains session ", b"shared restore retained workspace ")):
+    if message.startswith(b"V2 restore retains session "):
         # The CLI inserts its private workspace path before this separator.
         _path, separator, message = message.partition(b": ")
         if not separator:
             return result
-    if message.startswith(b"shared restore "):
-        stage, separator, message = message[len(b"shared restore "):].partition(b": ")
-        if not separator or stage not in SHARED_STAGES:
-            return result
-        result["shared_stage"] = SHARED_STAGES[stage]
     if message in RESTORE_REFUSALS:
         return {**result, "reason": RESTORE_REFUSALS[message]}
     prefix = b"native restore proof "
@@ -277,16 +216,10 @@ class Programs:
             return ["backup", "list" if verb == "discover" else verb, *rest]
         if arguments[:2] == ["db", "cleanup"]:
             return ["admin", "storage", *arguments[1:]]
-        if arguments[0] == "snapshot":
-            return ["admin", "shared", *arguments]
         if arguments[0] == "cloud":
             verb, *rest = arguments[1:]
             if verb in ("recover-credentials-home", "prepare-recovery-home"):
                 return ["admin", "backup", verb, *rest]
-            if verb in ("shared-writer", "restore-shared", "resume-shared-restore"):
-                name = {"shared-writer": "writer", "restore-shared": "restore",
-                        "resume-shared-restore": "resume-restore"}[verb]
-                return ["admin", "shared", name, *rest]
         return arguments
 
     def command(self, home, arguments, input_bytes=None, extra=None, timeout=120):

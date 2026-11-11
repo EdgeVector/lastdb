@@ -8,19 +8,6 @@ use crate::{
 };
 use serde::{Deserialize, Serialize, Serializer};
 
-/// Upload authority for the exact object and its logical role.
-pub const PREPARE_PATH: &str = "/cloud/shared/v1/objects/prepare";
-/// Advance stored-byte verification for the exact submitted object.
-pub const COMPLETE_PATH: &str = "/cloud/shared/v1/objects/complete";
-/// Bind one ordered inventory page to exact verified objects.
-pub const INVENTORY_PAGE_PATH: &str = "/cloud/shared/v1/snapshots/inventory/page";
-/// Read the publisher's current snapshot head.
-pub const SNAPSHOT_HEAD_PATH: &str = "/cloud/shared/v1/snapshots/head";
-/// Resolve exact accepted log ends for a publisher's local checkpoint.
-pub const SNAPSHOT_LOG_ENDS_PATH: &str = "/cloud/shared/v1/snapshots/log-ends";
-/// Conditionally publish the verified snapshot and covers.
-pub const SNAPSHOT_PUBLISH_PATH: &str = "/cloud/shared/v1/snapshots/publish";
-
 /// An exact unpublished snapshot staging ID has been permanently closed.
 pub fn staging_expired(error: &ProtocolError) -> bool {
     error.code == ErrorCode::JobClosed && error.field == "shared.snapshot.staging_expired"
@@ -295,19 +282,6 @@ pub enum ObjectAuthorityRequest<'a> {
 }
 
 impl ObjectAuthorityRequest<'_> {
-    /// Canonical route for the signed operation.
-    #[must_use]
-    pub fn path(self) -> &'static str {
-        match self {
-            Self::Prepare(_) => PREPARE_PATH,
-            Self::Complete(_) => COMPLETE_PATH,
-            Self::InventoryPage(_) => INVENTORY_PAGE_PATH,
-            Self::Head(_) => SNAPSHOT_HEAD_PATH,
-            Self::LogEnds(_) => SNAPSHOT_LOG_ENDS_PATH,
-            Self::Publish(_) => SNAPSHOT_PUBLISH_PATH,
-        }
-    }
-
     /// Bind the device signature to this operation and the exact input.
     pub fn authority_digest(
         self,
