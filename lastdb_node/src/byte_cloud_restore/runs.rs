@@ -1,8 +1,9 @@
 //! Restore the exact paired disk V2 files, verify extent coverage, and open run restore proof.
 use super::{
-    bounded_bytes, download, inventory::Inventory, local, native, verify_file, ByteBackupReader,
-    NativeFileProof, NativeInventory, RecoveryDecryption, RestoreError, RestoreReport,
-    RestoreSession, Result, VerifiedNativeContext,
+    bounded_bytes, download,
+    inventory::{digest_bytes, Inventory},
+    local, native, recipient, verify_file, ByteBackupReader, NativeFileProof, RecoveryDecryption,
+    RestoreError, RestoreReport, RestoreSession, Result,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::v2::Destination;
@@ -16,6 +17,7 @@ use fold_db::storage::disk_pack::{
     run_restore,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 pub(super) async fn restore(
     session: &RestoreSession,
@@ -25,9 +27,9 @@ pub(super) async fn restore(
     root: &ClientRoot,
     inventory: Inventory,
 ) -> Result<RestoreReport> {
-    let total = stage(session, client, decryption, root, inventory).await?;
+    let totals = stage(session, client, decryption, root, inventory).await?;
     let proof = verify_stage(session, decryption, root)?;
-    VerifiedNativeContext::new(session, &root.native_root).finish_run(identity_seed, total, &proof)
+    recipient::finish_run(session, &root.native_root, identity_seed, totals, &proof)
 }
 
 pub(super) async fn stage(
@@ -35,14 +37,53 @@ pub(super) async fn stage(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     root: &ClientRoot,
+    inventory: Inventory,
+) -> Result<(u64, u64)> {
+    let mut files = 0u64;
+    let mut bytes = 0u64;
+    let data = session.root.join("home/data");
+    stage_pages(
+        session,
+        client,
+        &root.pages,
+        inventory,
+        &data,
+        |index, raw| {
+            let page = ClientPage::decode(raw, decryption.content_key(), &session.accepted().begin)
+                .map_err(|_| RestoreError::Invalid("run client page"))?;
+            root.validate_page(&page)
+                .map_err(|_| RestoreError::Invalid("run page context"))?;
+            if page.page_index != index {
+                return Err(RestoreError::Invalid("run page identity"));
+            }
+            add_totals(&mut files, &mut bytes, &page, root)?;
+            page.native_files
+                .into_iter()
+                .map(|file| {
+                    let dest = run_backup_destination(file.path.as_str())
+                        .map_err(|_| RestoreError::Invalid("run native path"))?;
+                    Ok((file, dest))
+                })
+                .collect()
+        },
+    )
+    .await?;
+    if (files, bytes) != (root.native_file_count, root.native_bytes) {
+        return Err(RestoreError::Invalid("complete run native totals"));
+    }
+    Ok((files, bytes))
+}
+
+pub(super) async fn stage_pages(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    pages: &[ClientPageReference],
     mut inventory: Inventory,
-) -> Result<NativeInventory> {
-    let mut coverage = Coverage::new_pages(&root.pages, session, &mut inventory)?;
-    let mut total = NativeInventory { files: 0, bytes: 0 };
-    for batch in root
-        .pages
-        .chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS)
-    {
+    target: &Path,
+    mut decode: impl FnMut(u32, &[u8]) -> Result<Vec<(ClientNativeFile, Destination)>>,
+) -> Result<()> {
+    let mut coverage = Coverage::new_pages(pages, session, &mut inventory)?;
+    for batch in pages.chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS) {
         let selectors = batch
             .iter()
             .map(|page| ReadSelector::Receipt {
@@ -54,38 +95,17 @@ pub(super) async fn stage(
             grant.validate_for_receipt(inventory.receipt(&expected.receipt_id)?)?;
             inventory.use_receipt(&expected.receipt_id)?;
             let path = download::fetch(session, client, &grant, true).await?;
-            let page = ClientPage::decode(
+            let typed = decode(
+                expected.page_index,
                 &bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-                decryption.content_key(),
-                &session.accepted().begin,
-            )
-            .map_err(|_| RestoreError::Invalid("run client page"))?;
-            root.validate_page(&page)
-                .map_err(|_| RestoreError::Invalid("run page context"))?;
-            if page.page_index != expected.page_index {
-                return Err(RestoreError::Invalid("run page identity"));
-            }
-            coverage.page_with(&page.native_files, &mut inventory, |file| {
-                run_backup_destination(file.path.as_str())
-                    .map_err(|_| RestoreError::Invalid("run native path"))
-            })?;
-            add_totals(&mut total, &page, root)?;
-            native::restore_at(
-                session,
-                client,
-                &mut inventory,
-                &page.native_files,
-                &session.root.join("home/data"),
-            )
-            .await?;
+            )?;
+            coverage.add_page(&typed, &mut inventory)?;
+            let files: Vec<_> = typed.into_iter().map(|(file, _)| file).collect();
+            native::restore_at(session, client, &mut inventory, &files, target).await?;
         }
     }
-    if total.files != root.native_file_count || total.bytes != root.native_bytes {
-        return Err(RestoreError::Invalid("complete run native totals"));
-    }
     coverage.finish()?;
-    inventory.finish()?;
-    Ok(total)
+    inventory.finish()
 }
 
 pub(super) fn verify_stage(
@@ -95,10 +115,8 @@ pub(super) fn verify_stage(
 ) -> Result<run_restore::RunRestoreGuard> {
     let data = session.root.join("home/data");
     local::prepare_native_ephemera(&data)?;
-    if root.run.cas.is_none() {
-        run_restore::install_empty_cas_home(&data, decryption.content_key())
-            .map_err(RestoreError::native_proof)?;
-    }
+    run_restore::install_empty_cas_home(&data, decryption.content_key())
+        .map_err(RestoreError::native_proof)?;
     let proof = run_restore::verify(
         &data,
         &root.run,
@@ -122,24 +140,27 @@ pub(super) fn verify_stage(
     Ok(proof)
 }
 
-fn add_totals(total: &mut NativeInventory, page: &ClientPage, root: &ClientRoot) -> Result<()> {
-    total.files = total
-        .files
+fn add_totals(
+    files: &mut u64,
+    bytes: &mut u64,
+    page: &ClientPage,
+    root: &ClientRoot,
+) -> Result<()> {
+    *files = files
         .checked_add(page.native_files.len() as u64)
         .ok_or(RestoreError::Limit("run native file count"))?;
     for file in &page.native_files {
-        total.bytes = total
-            .bytes
+        *bytes = bytes
             .checked_add(file.native_bytes.get())
             .ok_or(RestoreError::Limit("run native byte count"))?;
     }
-    if total.files > root.native_file_count || total.bytes > root.native_bytes {
+    if *files > root.native_file_count || *bytes > root.native_bytes {
         return Err(RestoreError::Invalid("run native totals"));
     }
     Ok(())
 }
 
-pub(super) struct Coverage {
+struct Coverage {
     metadata: BTreeSet<[u8; 32]>,
     data: BTreeMap<[u8; 32], Object>,
 }
@@ -149,7 +170,7 @@ struct Object {
 }
 
 impl Coverage {
-    pub(super) fn new_pages(
+    fn new_pages(
         pages: &[ClientPageReference],
         session: &RestoreSession,
         inventory: &mut Inventory,
@@ -174,24 +195,22 @@ impl Coverage {
             return Err(RestoreError::Invalid("run metadata destination"));
         }
         inventory.charge(fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
-        if !self.metadata.insert(digest(id)?) {
+        if !self.metadata.insert(digest_bytes(id)?) {
             return Err(RestoreError::Invalid("duplicate run metadata receipt"));
         }
         Ok(())
     }
 
-    pub(super) fn page_with(
+    fn add_page(
         &mut self,
-        files: &[ClientNativeFile],
+        files: &[(ClientNativeFile, Destination)],
         inventory: &mut Inventory,
-        destination: impl Fn(&ClientNativeFile) -> Result<Destination>,
     ) -> Result<()> {
-        for file in files {
-            let destination = destination(file)?;
+        for (file, destination) in files {
             for extent in &file.extents {
                 let receipt = inventory.receipt(&extent.receipt_id)?;
-                let id = digest(&extent.receipt_id)?;
-                if self.metadata.contains(&id) || receipt.object.destination != destination {
+                let id = digest_bytes(&extent.receipt_id)?;
+                if self.metadata.contains(&id) || receipt.object.destination != *destination {
                     return Err(RestoreError::Invalid("run native receipt destination"));
                 }
                 let bytes = receipt.object.bytes.get();
@@ -223,7 +242,7 @@ impl Coverage {
         Ok(())
     }
 
-    pub(super) fn finish(&self) -> Result<()> {
+    fn finish(&self) -> Result<()> {
         for object in self.data.values() {
             let mut cursor = 0;
             for (&start, &end) in &object.ranges {
@@ -265,11 +284,4 @@ impl Object {
         self.ranges.insert(start, end);
         Ok(())
     }
-}
-
-fn digest(value: &Digest) -> Result<[u8; 32]> {
-    hex::decode(value.as_str())
-        .map_err(|_| RestoreError::Invalid("run receipt digest"))?
-        .try_into()
-        .map_err(|_| RestoreError::Invalid("run receipt digest"))
 }

@@ -1,20 +1,16 @@
 //! Mutation restore chain planning, route proofs, and checkpoint staging/release.
-use super::super::{
-    bounded_bytes, download, inventory::Inventory, load_closure, native, runs::Coverage,
-};
+use super::super::{inventory::Inventory, load_closure, runs::stage_pages};
 use super::*;
 use crate::byte_cloud_log::MutationLogPage;
-use cloud_backup_protocol::v2::{access::ReadSelector, inventory::InventoryRoot, AcceptedBackup};
+use cloud_backup_protocol::v2::{inventory::InventoryRoot, AcceptedBackup};
 use cloud_backup_protocol::Digest;
 use fold_db::cloud_backup_plan::ClientNativeFile;
-use fold_db::storage::disk_pack::{
-    byte_backup::CODEC_ENVELOPE_MAX_BYTES, mutation_log::LogPosition,
-};
+use fold_db::storage::disk_pack::mutation_log::LogPosition;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::path::PathBuf;
+
+const CHAIN_RESERVE: u64 = 2 * 256 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,14 +64,7 @@ pub(super) async fn prepare(
             || plan.links == 0
             || plan.links > MAX_CHAIN
             || plan.cached.as_ref().is_some_and(|start| {
-                cache.is_none_or(|cache| {
-                    start.accepted.head() != *cache.head
-                        || !cache
-                            .through
-                            .map_or(start.accepted == latest.base, |saved| {
-                                *saved == start.position
-                            })
-                })
+                !matches_cache(cache, &start.accepted, &start.position, &latest.base)
             })
         {
             return Err(RestoreError::Invalid("saved mutation restore plan"));
@@ -105,7 +94,7 @@ pub(super) async fn prepare(
                 return Err(RestoreError::Invalid("saved mutation ancestor"));
             }
         } else {
-            save(session, &link, &accepted)?;
+            session.write_spool_json(&link, CHAIN_RESERVE, &accepted)?;
         }
         count += 1;
         clear_cache(session)?;
@@ -132,21 +121,32 @@ pub(super) async fn prepare(
         links: count,
         cached,
     };
-    save(session, &path, &plan)?;
+    session.write_spool_json(&path, CHAIN_RESERVE, &plan)?;
     Ok(plan)
+}
+
+fn matches_cache(
+    cache: Option<&GuestReplayCache<'_>>,
+    accepted: &AcceptedBackup,
+    position: &LogPosition,
+    base: &AcceptedBackup,
+) -> bool {
+    cache.is_some_and(|cache| {
+        accepted.head() == *cache.head
+            && cache
+                .through
+                .map_or(accepted == base, |saved| *saved == *position)
+    })
 }
 
 fn cached_predecessor(
     cache: Option<&GuestReplayCache<'_>>,
     root: &MutationLogRoot,
 ) -> Result<Option<CachedStart>> {
-    let Some(cache) = cache.filter(|cache| root.previous.head() == *cache.head) else {
+    if cache.is_none_or(|cache| root.previous.head() != *cache.head) {
         return Ok(None);
-    };
-    if !cache
-        .through
-        .map_or(root.previous == root.base, |saved| *saved == root.from)
-    {
+    }
+    if !matches_cache(cache, &root.previous, &root.from, &root.base) {
         return Err(RestoreError::Invalid(
             "cached mutation checkpoint predecessor",
         ));
@@ -159,28 +159,6 @@ fn cached_predecessor(
 
 pub(super) fn link_path(session: &RestoreSession, index: u32) -> PathBuf {
     session.root.join(format!("chain/link-{index:08}.json"))
-}
-
-pub(super) fn save(session: &RestoreSession, path: &Path, value: &impl Serialize) -> Result<()> {
-    let previous = match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_file() => meta
-            .blocks()
-            .checked_mul(512)
-            .ok_or(RestoreError::Limit("chain metadata size"))?,
-        Ok(_) => return Err(RestoreError::Invalid("chain metadata file")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(error.into()),
-    };
-    session.remove_spool_file(&path.with_extension("pending"))?;
-    session.reserve_spool(2 * 256 * 1024)?;
-    if let Err(error) = local::atomic_json(path, value) {
-        if path.with_extension("pending").try_exists()? {
-            session.add_spool_file(&path.with_extension("pending"))?;
-        }
-        return Err(error);
-    }
-    session.spool_bytes.fetch_sub(previous, Ordering::Relaxed);
-    session.add_spool_file(path)
 }
 
 impl Routing {
@@ -274,7 +252,7 @@ impl Routing {
             }
             return Ok(());
         }
-        save(session, &path, self)
+        session.write_spool_json(&path, CHAIN_RESERVE, self)
     }
 }
 
@@ -291,12 +269,9 @@ pub(super) fn clear_cache(session: &RestoreSession) -> Result<()> {
         let name = name
             .to_str()
             .ok_or(RestoreError::Invalid("mutation cache name"))?;
-        let digest = name.strip_suffix(".object").is_some_and(|id| {
-            id.len() == 64
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        });
+        let digest = name
+            .strip_suffix(".object")
+            .is_some_and(|id| Digest::try_from(id.to_owned()).is_ok());
         if !digest && name != "payload.object" {
             return Err(RestoreError::Invalid("mutation cache entry"));
         }
@@ -315,53 +290,38 @@ pub(super) async fn download_checkpoint(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     root: &MutationLogRoot,
-    mut inventory: Inventory,
+    inventory: Inventory,
     link_index: u32,
 ) -> Result<()> {
-    let mut coverage = Coverage::new_pages(&root.pages, session, &mut inventory)?;
     let mut routes = Routing::new(session, root, &inventory, link_index)?;
-    for batch in root
-        .pages
-        .chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS)
-    {
-        let selectors = batch
-            .iter()
-            .map(|page| ReadSelector::Receipt {
-                receipt_id: page.receipt_id.clone(),
-            })
-            .collect();
-        let grants = download::grants(session, client, selectors).await?;
-        for (expected, grant) in batch.iter().zip(grants) {
-            grant.validate_for_receipt(inventory.receipt(&expected.receipt_id)?)?;
-            inventory.use_receipt(&expected.receipt_id)?;
-            let path = download::fetch(session, client, &grant, true).await?;
-            let page = MutationLogPage::decode(
-                &bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-                decryption.content_key(),
-                &session.accepted().begin,
-            )
-            .map_err(|_| RestoreError::Invalid("mutation file page"))?;
+    let target = session.root.join("replay-files");
+    stage_pages(
+        session,
+        client,
+        &root.pages,
+        inventory,
+        &target,
+        |index, raw| {
+            let page =
+                MutationLogPage::decode(raw, decryption.content_key(), &session.accepted().begin)
+                    .map_err(|_| RestoreError::Invalid("mutation file page"))?;
             root.validate_page(&page)
                 .map_err(|_| RestoreError::Invalid("mutation file page context"))?;
-            if page.page_index != expected.page_index {
+            if page.page_index != index {
                 return Err(RestoreError::Invalid("mutation page order"));
             }
-            coverage.page_with(&page.files, &mut inventory, |file| {
-                root.validate_file(file)
-                    .map_err(|_| RestoreError::Invalid("mutation native file identity"))
-            })?;
             routes.page(&page.files, root)?;
-            native::restore_at(
-                session,
-                client,
-                &mut inventory,
-                &page.files,
-                &session.root.join("replay-files"),
-            )
-            .await?;
-        }
-    }
-    coverage.finish()?;
-    inventory.finish()?;
+            page.files
+                .into_iter()
+                .map(|file| {
+                    let dest = root
+                        .validate_file(&file)
+                        .map_err(|_| RestoreError::Invalid("mutation native file identity"))?;
+                    Ok((file, dest))
+                })
+                .collect()
+        },
+    )
+    .await?;
     routes.save(session, root)
 }

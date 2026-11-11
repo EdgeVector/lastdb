@@ -2,8 +2,8 @@
 use super::session::{acquire_native_work, RestoreMode};
 use super::{
     load_closure, local, logs, reader_error, runs, snapshot_closure, ByteBackupReader,
-    NativeInventory, RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result,
-    VerifiedNativeContext, RESTORE_RECEIPT_NAME, RESTORE_RECEIPT_VERSION,
+    RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result, RESTORE_RECEIPT_NAME,
+    RESTORE_RECEIPT_VERSION,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::recovery::RecoveryProfile;
@@ -35,12 +35,12 @@ impl RestoreSession {
         let accepted = match reader
             .guest_head()
             .await
-            .map_err(|error| reader_error(reader, error))?
+            .map_err(|error| reader_error(reader, &error))?
         {
             HeadReadResult::Ok { response } => response
                 .accepted
                 .ok_or(RestoreError::Source("share has no published backup"))?,
-            HeadReadResult::Error { error } => return Err(reader_error(reader, error.into())),
+            HeadReadResult::Error { error } => return Err(reader_error(reader, &error.into())),
         };
         if &accepted.job().stream != stream {
             return Err(RestoreError::Invalid("guest stream"));
@@ -49,7 +49,7 @@ impl RestoreSession {
     }
 
     pub(crate) fn begin_guest_at(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
-        Self::begin_with_mode(destination, accepted, RestoreMode::Recipient)
+        Self::begin_in(destination, accepted, RestoreMode::Recipient, true)
     }
 
     pub(crate) fn begin_managed_guest(slot: &Path, accepted: AcceptedBackup) -> Result<Self> {
@@ -72,7 +72,12 @@ impl RestoreSession {
         for path in [registry, entry, slot] {
             local::directory(path)?;
         }
-        Self::begin_in(&slot.join("unactivated"), accepted, RestoreMode::Recipient)
+        Self::begin_in(
+            &slot.join("unactivated"),
+            accepted,
+            RestoreMode::Recipient,
+            false,
+        )
     }
 
     pub(crate) async fn stage_guest_recovery(
@@ -107,7 +112,7 @@ impl RestoreSession {
             proof
                 .validate_context(&data, &root.native_root)
                 .map_err(RestoreError::native_proof)?;
-            if proof.totals().map_err(RestoreError::native_proof)? != (total.files, total.bytes) {
+            if proof.totals().map_err(RestoreError::native_proof)? != total {
                 return Err(RestoreError::Invalid("verified recipient inventory"));
             }
             (proof, None)
@@ -150,10 +155,23 @@ struct Receipt {
     report: RestoreReport,
 }
 
-pub(super) fn published_context(
-    session: &VerifiedNativeContext<'_>,
-) -> Result<Option<RestoreReport>> {
-    let destination = session.destination;
+pub fn verify_restore_receipt(bytes: &[u8], destination: &Path) -> Result<()> {
+    let receipt: Receipt =
+        serde_json::from_slice(bytes).map_err(|_| RestoreError::Invalid("restore receipt"))?;
+    if receipt.version != RESTORE_RECEIPT_VERSION
+        || receipt.session_id.is_nil()
+        || receipt.report.destination != destination
+        || receipt.report.native_files == 0
+        || receipt.report.native_bytes == 0
+        || Digest::try_from(receipt.report.commit_sha256).is_err()
+    {
+        return Err(RestoreError::Invalid("restore provenance"));
+    }
+    Ok(())
+}
+
+pub(super) fn published(session: &RestoreSession) -> Result<Option<RestoreReport>> {
+    let destination = &session.selection.destination;
     match fs::symlink_metadata(destination) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -162,30 +180,31 @@ pub(super) fn published_context(
     }
     let receipt: Receipt = local::read_json(&destination.join(RESTORE_RECEIPT_NAME), 64 * 1024)?;
     if receipt.version != RESTORE_RECEIPT_VERSION
-        || receipt.session_id != session.session_id
-        || receipt.report.commit_sha256 != session.commit_sha256.as_str()
+        || receipt.session_id != session.selection.session_id
+        || receipt.report.commit_sha256 != session.accepted().commit_sha256.as_str()
         || receipt.report.destination != *destination
     {
         return Err(RestoreError::Invalid("published receipt"));
     }
-    sync_publish_parents(session.root, destination)?;
+    sync_publish_parents(&session.root, destination)?;
     local::atomic_json(&session.root.join("result.json"), &receipt.report)?;
     Ok(Some(receipt.report))
 }
 
-pub(super) fn finish_run_context(
-    session: &VerifiedNativeContext<'_>,
+pub(super) fn finish_run(
+    session: &RestoreSession,
+    native_root: &NativeRoot,
     identity_seed: &[u8; 32],
-    inventory: NativeInventory,
+    (native_files, native_bytes): (u64, u64),
     proof: &RunRestoreGuard,
 ) -> Result<RestoreReport> {
     proof
-        .validate_context(&session.data_root(), session.native_root)
+        .validate_context(&session.root.join("home/data"), native_root)
         .map_err(|_| RestoreError::Invalid("verified run publication"))?;
-    let (files, bytes) = proof
+    let totals = proof
         .totals()
         .map_err(|_| RestoreError::Invalid("verified run totals"))?;
-    if files != inventory.files || bytes != inventory.bytes {
+    if totals != (native_files, native_bytes) {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
     let home = session.root.join("home");
@@ -193,22 +212,23 @@ pub(super) fn finish_run_context(
     if crate::cloud::cloud_credentials_path(&home).try_exists()? {
         return Err(RestoreError::Invalid("restore cloud configuration"));
     }
+    let destination = &session.selection.destination;
     let report = RestoreReport {
-        commit_sha256: session.commit_sha256.as_str().into(),
-        native_files: inventory.files,
-        native_bytes: inventory.bytes,
-        verified_records: proof.verified_records(),
-        destination: session.destination.to_path_buf(),
+        commit_sha256: session.accepted().commit_sha256.as_str().into(),
+        native_files,
+        native_bytes,
+        verified_records: 0,
+        destination: destination.clone(),
     };
     local::atomic_json(
         &home.join(RESTORE_RECEIPT_NAME),
         &Receipt {
             version: RESTORE_RECEIPT_VERSION,
-            session_id: session.session_id,
+            session_id: session.selection.session_id,
             report: report.clone(),
         },
     )?;
-    activate_owned_home(session.root, session.destination)?;
+    activate_owned_home(&session.root, destination)?;
     local::atomic_json(&session.root.join("result.json"), &report)?;
     Ok(report)
 }

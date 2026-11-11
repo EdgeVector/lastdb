@@ -1,13 +1,17 @@
 //! A bounded client plan for unchanged complete native mutation batches.
 mod planner;
+
 use super::{store::Store, work::LogContext, BackupError, Result};
 use cloud_backup_protocol::v2::{
     jobs::{JobResult, JobStatus},
     transfer::{ObjectReceipt, TransferInput},
-    Begin, Commit, Destination,
+    AcceptedBackup, Begin, Commit, Destination,
 };
 use cloud_backup_protocol::{bytes_sha256, Digest, RecoveryDescriptor};
-use fold_db::storage::disk_pack::byte_backup::{ByteBackupCaptureStatus, ByteBackupObject};
+use fold_db::cloud_backup_plan::{expected_receipt, PlanSegment};
+use fold_db::storage::disk_pack::byte_backup::{
+    ByteBackupCaptureStatus, ByteBackupObject, CODEC_ENVELOPE_MAX_BYTES,
+};
 use fold_db::storage::disk_pack::mutation_log::{
     FrozenLogCapture, MutationLogCapture, MutationLogReader,
 };
@@ -16,92 +20,78 @@ use std::collections::VecDeque;
 use std::io::{self, Cursor, Read};
 use std::sync::Arc;
 
-pub(super) const MAX_OBJECTS: u64 = 8192;
+const MAX_OBJECTS: u64 = 8192;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Segment {
-    pub file: usize,
-    pub offset: u64,
-    pub bytes: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ObjectRecord {
-    pub input: TransferInput,
-    pub segments: Vec<Segment>,
-    pub payload: Option<String>,
-    pub receipt: Option<ObjectReceipt>,
+struct ObjectRecord {
+    input: TransferInput,
+    segments: Vec<PlanSegment>,
+    payload: Option<String>,
+    receipt: Option<ObjectReceipt>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Plan {
-    pub version: u16,
-    pub frozen_sha256: Digest,
-    pub context: LogContext,
-    pub objects: u64,
-    pub files: u64,
-    pub native_bytes: u64,
-    pub packs: u64,
-    pub multi_file_packs: u64,
-    pub ready: bool,
+struct Plan {
+    version: u16,
+    frozen_sha256: Digest,
+    context: LogContext,
+    objects: u64,
+    files: u64,
+    native_bytes: u64,
+    packs: u64,
+    multi_file_packs: u64,
+    ready: bool,
 }
 
-pub(super) fn expected(input: &TransferInput) -> Result<ObjectReceipt> {
-    Ok(fold_db::cloud_backup_plan::expected_receipt(input)?)
-}
-pub(super) fn object_name(index: u64) -> String {
+fn object_name(index: u64) -> String {
     format!("log-object-{index:08}.json")
 }
-pub(super) fn file_name(index: usize) -> String {
-    format!("log-file-{index:08}.json")
-}
-pub(super) fn payload_name(index: u64) -> String {
+fn payload_name(index: u64) -> String {
     format!("log-payload-{index:08}.enc")
 }
 
 impl ObjectRecord {
-    pub fn validate(&self, frozen: &FrozenLogCapture, index: u64) -> Result<()> {
+    fn validate(&self, frozen: &FrozenLogCapture, index: u64) -> Result<()> {
         self.input.validate()?;
+        let max_members = fold_db::storage_policy::backup_transport::MAX_PACK_MEMBERS;
         if index >= MAX_OBJECTS
             || self.input.job != frozen.begin.job
+            || self.input.object.destination != Destination::R2
             || self
                 .payload
-                .as_ref()
-                .is_some_and(|name| *name != payload_name(index))
-            || self.segments.len() > fold_db::storage_policy::backup_transport::MAX_PACK_MEMBERS
+                .as_deref()
+                .is_some_and(|n| n != payload_name(index))
+            || self.segments.len() > max_members
             || self.segments.is_empty() != self.payload.is_some()
         {
             return Err(BackupError::Invalid);
         }
-        let mut bytes = 0u64;
-        for segment in &self.segments {
-            let file = frozen.files.get(segment.file).ok_or(BackupError::Invalid)?;
-            if segment.bytes == 0
-                || segment
-                    .offset
-                    .checked_add(segment.bytes)
-                    .is_none_or(|end| end > file.bytes)
-                || self.input.object.destination != Destination::R2
-            {
-                return Err(BackupError::Identity);
-            }
-            bytes = bytes.checked_add(segment.bytes).ok_or(BackupError::Limit)?;
-        }
         if self.payload.is_some() {
-            if self.input.object.destination != Destination::R2
-                || self.input.object.bytes.get()
-                    > fold_db::storage::disk_pack::byte_backup::CODEC_ENVELOPE_MAX_BYTES
-            {
+            if self.input.object.bytes.get() > CODEC_ENVELOPE_MAX_BYTES {
                 return Err(BackupError::Invalid);
             }
-        } else if bytes != self.input.object.bytes.get() {
-            return Err(BackupError::Identity);
+        } else {
+            let mut bytes = 0u64;
+            for seg in &self.segments {
+                let file = frozen.files.get(seg.file).ok_or(BackupError::Invalid)?;
+                if seg.bytes == 0
+                    || seg
+                        .offset
+                        .checked_add(seg.bytes)
+                        .is_none_or(|end| end > file.bytes)
+                {
+                    return Err(BackupError::Identity);
+                }
+                bytes = bytes.checked_add(seg.bytes).ok_or(BackupError::Limit)?;
+            }
+            if bytes != self.input.object.bytes.get() {
+                return Err(BackupError::Identity);
+            }
         }
         if let Some(receipt) = &self.receipt {
-            if *receipt != expected(&self.input)? {
+            if *receipt != expected_receipt(&self.input)? {
                 return Err(BackupError::Identity);
             }
         }
@@ -109,17 +99,15 @@ impl ObjectRecord {
     }
 }
 
-pub(super) struct LogCapture {
+pub(in crate::byte_cloud_backup) struct LogCapture {
     core: Arc<MutationLogCapture>,
     frozen: FrozenLogCapture,
     store: Store,
     plan: Plan,
 }
+
 impl LogCapture {
-    pub fn recovery_point(
-        &self,
-        accepted: &cloud_backup_protocol::v2::AcceptedBackup,
-    ) -> super::recovery::RecoveryPoint {
+    pub fn recovery_point(&self, accepted: &AcceptedBackup) -> super::recovery::RecoveryPoint {
         super::recovery::RecoveryPoint {
             accepted: accepted.clone(),
             base: self.plan.context.base.clone(),
@@ -128,6 +116,7 @@ impl LogCapture {
             frontiers: self.frozen.through.frontiers,
         }
     }
+
     pub fn prepare(
         core: MutationLogCapture,
         store: &Store,
@@ -179,19 +168,19 @@ impl LogCapture {
                 return Err(BackupError::Invalid);
             }
             store.write("log-plan.json", &capture.plan)?;
-            planner::build(&mut capture, recovery, key)?;
+            capture.build(recovery, key)?;
         }
         Ok(capture)
     }
-    pub fn begin(&self) -> Result<Begin> {
-        Ok(self.frozen.begin.clone())
+
+    pub fn begin(&self) -> &Begin {
+        &self.frozen.begin
     }
-    pub fn object_count(&self) -> Result<u64> {
-        if !self.plan.ready {
-            return Err(BackupError::Invalid);
-        }
-        Ok(self.plan.objects)
+
+    pub fn object_count(&self) -> u64 {
+        self.plan.objects
     }
+
     fn record(&self, index: u64) -> Result<ObjectRecord> {
         if index >= self.plan.objects {
             return Err(BackupError::Invalid);
@@ -203,6 +192,7 @@ impl LogCapture {
         record.validate(&self.frozen, index)?;
         Ok(record)
     }
+
     pub fn object(&self, index: u64) -> Result<ByteBackupObject> {
         let record = self.record(index)?;
         Ok(ByteBackupObject {
@@ -210,6 +200,7 @@ impl LogCapture {
             receipt: record.receipt,
         })
     }
+
     pub fn reader(&self, index: u64) -> Result<Box<dyn Read + Send>> {
         let record = self.record(index)?;
         if let Some(name) = record.payload {
@@ -227,62 +218,58 @@ impl LogCapture {
             active: None,
         }))
     }
+
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> Result<()> {
         let mut record = self.record(index)?;
-        if expected(&record.input)? != *receipt {
+        if expected_receipt(&record.input)? != *receipt {
             return Err(BackupError::Identity);
         }
         record.receipt = Some(receipt.clone());
         self.store.write(&object_name(index), &record)
     }
+
     pub fn root_receipt_id(&self) -> Result<Digest> {
-        Ok(expected(
-            &self
-                .record(
-                    self.plan
-                        .objects
-                        .checked_sub(1)
-                        .ok_or(BackupError::Invalid)?,
-                )?
-                .input,
-        )?
-        .receipt_id)
+        let last = self
+            .plan
+            .objects
+            .checked_sub(1)
+            .ok_or(BackupError::Invalid)?;
+        Ok(expected_receipt(&self.record(last)?.input)?.receipt_id)
     }
+
     pub fn status(&self) -> Result<ByteBackupCaptureStatus> {
         let mut verified = 0;
         for index in 0..self.plan.objects {
             verified += u64::from(self.record(index)?.receipt.is_some());
         }
-        let retained = self.core.retained_source_bytes()?;
         Ok(ByteBackupCaptureStatus {
-            ready: self.plan.ready,
-            source_available: retained > 0,
             native_files: self.plan.files,
             native_bytes: self.plan.native_bytes,
-            objects: self.plan.objects,
             verified_objects: verified,
-            retained_source_bytes: retained,
-            metadata_spool_bytes: self.store.bytes(),
+            retained_source_bytes: self.core.retained_source_bytes()?,
             metadata_pack_objects: self.plan.packs,
             multi_file_pack_objects: self.plan.multi_file_packs,
         })
     }
+
     pub fn budget(&self, bytes: u64) -> Result<()> {
+        let limit = cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES;
         if bytes
             .checked_add(self.core.retained_source_bytes()?)
-            .is_none_or(|n| n > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES)
+            .is_none_or(|n| n > limit)
         {
             return Err(BackupError::Limit);
         }
         Ok(())
     }
+
     pub fn seal_commit(&self, commit: &Commit) -> Result<()> {
         if commit.root_receipt_id != self.root_receipt_id()? {
             return Err(BackupError::Identity);
         }
-        self.core.seal_commit(commit)?;
-        Ok(())
+        Ok(self.core.seal_commit(commit)?)
     }
+
     pub fn terminal(&self, result: &JobResult) -> Result<()> {
         if let JobStatus::Published { backup } = &result.status {
             if self.root_receipt_id()? != backup.root_receipt_id
@@ -291,14 +278,13 @@ impl LogCapture {
                 return Err(BackupError::Identity);
             }
         }
-        self.core.terminal(result)?;
-        Ok(())
+        Ok(self.core.terminal(result)?)
     }
 }
 
 struct Reader {
     core: Arc<MutationLogCapture>,
-    remaining: VecDeque<Segment>,
+    remaining: VecDeque<PlanSegment>,
     active: Option<MutationLogReader>,
 }
 impl Read for Reader {
@@ -314,12 +300,12 @@ impl Read for Reader {
                 }
                 self.active = None;
             }
-            let Some(segment) = self.remaining.pop_front() else {
+            let Some(seg) = self.remaining.pop_front() else {
                 return Ok(0);
             };
             self.active = Some(
                 self.core
-                    .reader(segment.file, segment.offset, segment.bytes)
+                    .reader(seg.file, seg.offset, seg.bytes)
                     .map_err(|_| io::Error::other("frozen mutation source unavailable"))?,
             );
         }

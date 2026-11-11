@@ -113,13 +113,13 @@ impl Capture {
     pub fn begin(&self) -> Result<Begin> {
         match self {
             Self::Snapshot(c) => Ok(c.begin()?),
-            Self::Log(c) => c.begin(),
+            Self::Log(c) => Ok(c.begin().clone()),
         }
     }
     pub fn object_count(&self) -> Result<u64> {
         match self {
             Self::Snapshot(c) => Ok(c.object_count()?),
-            Self::Log(c) => c.object_count(),
+            Self::Log(c) => Ok(c.object_count()),
         }
     }
     pub fn object(&self, index: u64) -> Result<ByteBackupObject> {
@@ -151,9 +151,6 @@ impl Capture {
             Self::Snapshot(c) => Ok(c.status()?),
             Self::Log(c) => c.status(),
         }
-    }
-    pub fn recommended_parallelism(&self) -> Result<usize> {
-        Ok(fold_db::storage_policy::BACKUP_RESOURCES.concurrent_streams)
     }
     pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> Result<()> {
         match self {

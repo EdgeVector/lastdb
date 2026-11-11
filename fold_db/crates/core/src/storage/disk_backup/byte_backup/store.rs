@@ -93,14 +93,7 @@ impl Store {
     }
 
     pub fn exists(&self, name: &str) -> StorageResult<bool> {
-        match fs::symlink_metadata(self.root.join(name)) {
-            Ok(meta) => {
-                private(&meta)?;
-                Ok(true)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(error) => Err(error.into()),
-        }
+        Ok(file_size(&self.root.join(name))?.is_some())
     }
 
     pub fn raw(&self, name: &str, max: u64) -> StorageResult<Vec<u8>> {
@@ -153,14 +146,7 @@ impl Store {
         let pending = self.root.join(format!("{name}.pending"));
         self.remove_path(&pending)?;
         self.admit(bytes.len() as u64)?;
-        let previous = match fs::symlink_metadata(&path) {
-            Ok(meta) => {
-                private(&meta)?;
-                meta.len()
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-            Err(error) => return Err(error.into()),
-        };
+        let previous = file_size(&path)?.unwrap_or(0);
         let _space =
             laststore::space::reserve_space(&self.space_root, &self.policy, bytes.len() as u64)
                 .map_err(crate::storage::disk_pack::map)?;
@@ -188,17 +174,23 @@ impl Store {
     }
 
     fn remove_path(&self, path: &Path) -> StorageResult<()> {
-        match fs::symlink_metadata(path) {
-            Ok(meta) => {
-                private(&meta)?;
-                fs::remove_file(path)?;
-                self.bytes.fetch_sub(meta.len(), Ordering::AcqRel);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+        if let Some(len) = file_size(path)? {
+            fs::remove_file(path)?;
+            self.bytes.fetch_sub(len, Ordering::AcqRel);
         }
         File::open(&self.root)?.sync_all()?;
         Ok(())
+    }
+}
+
+fn file_size(path: &Path) -> StorageResult<Option<u64>> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            private(&meta)?;
+            Ok(Some(meta.len()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 

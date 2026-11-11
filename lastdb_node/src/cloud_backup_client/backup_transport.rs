@@ -5,12 +5,14 @@ use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::io::Read;
+use sha2::{Digest as _, Sha256};
+use std::io::{self, Read};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{mpsc, Notify, OwnedSemaphorePermit};
 
 mod download;
-mod feed;
 
 pub use download::ObjectStream;
 pub(super) type Result<T> = std::result::Result<T, BackupTransportError>;
@@ -27,7 +29,6 @@ pub enum BackupTransportError {
     Http(u16),
     InvalidResponse(&'static str),
     Integrity(&'static str),
-    UnsupportedFileScope,
     Source,
     Task,
 }
@@ -47,9 +48,6 @@ impl std::fmt::Display for BackupTransportError {
             Self::Http(status) => write!(f, "native backup HTTP status {status}"),
             Self::InvalidResponse(field) => write!(f, "native backup invalid response: {field}"),
             Self::Integrity(field) => write!(f, "native backup byte integrity: {field}"),
-            Self::UnsupportedFileScope => {
-                f.write_str("native backup file owner scope needs a read-only source grant")
-            }
             Self::Source => f.write_str("native backup source read failed"),
             Self::Task => f.write_str("native backup source task failed"),
         }
@@ -97,8 +95,7 @@ pub(super) struct BackupTransport {
 impl BackupTransport {
     /// Use explicit account credentials, endpoint, and the fixed request deadline.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
-        let base = download::https(&auth.base_url)?;
-        Self::new(base, Some(auth))
+        Self::new(download::https(&auth.base_url)?, Some(auth))
     }
 
     pub(crate) fn for_guest(base_url: &str) -> Result<Self> {
@@ -131,14 +128,6 @@ impl BackupTransport {
         })
     }
 
-    pub(super) fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        if let Some(auth) = &self.auth {
-            auth.apply_auth(request)
-        } else {
-            request
-        }
-    }
-
     pub fn endpoint(&self, operation: &str) -> String {
         self.api_endpoint(operation).to_string()
     }
@@ -149,18 +138,13 @@ impl BackupTransport {
         request: &Q,
         maximum: u64,
     ) -> Result<R> {
-        self.post_bounded(self.api_endpoint(operation), request, maximum)
-            .await
-    }
-
-    pub(crate) async fn post_bounded<Q: Serialize, R: DeserializeOwned>(
-        &self,
-        url: Url,
-        request: &Q,
-        maximum: u64,
-    ) -> Result<R> {
-        self.post_bounded_with_headers(url, request, maximum, HeaderMap::new())
-            .await
+        self.post_bounded_with_headers(
+            self.api_endpoint(operation),
+            request,
+            maximum,
+            HeaderMap::new(),
+        )
+        .await
     }
 
     pub(crate) async fn post_bounded_with_headers<Q: Serialize, R: DeserializeOwned>(
@@ -192,7 +176,11 @@ impl BackupTransport {
             .headers(headers)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(bytes);
-        let request = self.apply_auth(request);
+        let request = if let Some(auth) = &self.auth {
+            auth.apply_auth(request)
+        } else {
+            request
+        };
         let response = observability::propagation::inject_w3c(request)
             .send()
             .await
@@ -222,35 +210,17 @@ impl BackupTransport {
         object: StoredObject<'_>,
         grant: TemporaryGrant<'_>,
         source: Box<dyn Read + Send>,
-    ) -> Result<UploadObservation> {
-        self.upload_mode(object, grant, source, false).await
-    }
-
-    pub(crate) async fn upload_part(
-        &self,
-        object: StoredObject<'_>,
-        grant: TemporaryGrant<'_>,
-        source: Box<dyn Read + Send>,
-    ) -> Result<UploadObservation> {
-        self.upload_mode(object, grant, source, true).await
-    }
-
-    async fn upload_mode(
-        &self,
-        object: StoredObject<'_>,
-        grant: TemporaryGrant<'_>,
-        source: Box<dyn Read + Send>,
         multipart_part: bool,
     ) -> Result<UploadObservation> {
         let (url, if_none_match) = download::upload_url(grant.url, multipart_part)?;
-        let timeout = self.transfer_timeout(object.bytes, grant.expires_ms)?;
-        let deadline = tokio::time::Instant::now() + timeout;
+        let deadline =
+            tokio::time::Instant::now() + self.transfer_timeout(object.bytes, grant.expires_ms)?;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
             .await
             .map_err(|_| BackupTransportError::Timeout)?
             .map_err(|_| BackupTransportError::Task)?;
         let (body, mut feeder, cancel) =
-            feed::start(source, object.bytes, object.sha256.clone(), permit);
+            start_feeder(source, object.bytes, object.sha256.clone(), permit);
         let mut request = self
             .http
             .put(url)
@@ -258,8 +228,7 @@ impl BackupTransport {
         if if_none_match {
             request = request.header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH);
         }
-        let response = tokio::time::timeout_at(deadline, request.body(body).send()).await;
-        let response = match response {
+        let response = match tokio::time::timeout_at(deadline, request.body(body).send()).await {
             Ok(Ok(response)) => response,
             result => {
                 cancel.stop();
@@ -282,15 +251,114 @@ impl BackupTransport {
                 Err(BackupTransportError::Http(status.as_u16()))
             };
         }
-        if let Ok(result) = tokio::time::timeout_at(deadline, &mut feeder).await {
-            result.map_err(|_| BackupTransportError::Task)??;
-        } else {
+        let Ok(result) = tokio::time::timeout_at(deadline, &mut feeder).await else {
             cancel.stop();
             let _ = feeder.await;
             return Err(BackupTransportError::Timeout);
-        }
+        };
+        result.map_err(|_| BackupTransportError::Task)??;
         Ok(UploadObservation::HttpSuccess)
     }
+}
+
+struct Stop {
+    stopped: AtomicBool,
+    changed: Notify,
+}
+struct Cancel(Arc<Stop>);
+impl Cancel {
+    fn stop(&self) {
+        self.0.stopped.store(true, Ordering::Release);
+        self.0.changed.notify_one();
+    }
+}
+impl Drop for Cancel {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn start_feeder(
+    source: Box<dyn Read + Send>,
+    bytes: u64,
+    expected: Digest,
+    permit: OwnedSemaphorePermit,
+) -> (reqwest::Body, tokio::task::JoinHandle<Result<()>>, Cancel) {
+    let (sender, receiver) = mpsc::channel::<io::Result<Vec<u8>>>(1);
+    let cancel = Arc::new(Stop {
+        stopped: AtomicBool::new(false),
+        changed: Notify::new(),
+    });
+    let stopped = Arc::clone(&cancel);
+    let span = tracing::Span::current();
+    let task = tokio::task::spawn_blocking(move || {
+        span.in_scope(|| {
+            let _permit = permit;
+            let result = produce(source, bytes, &expected, &sender, &stopped);
+            if result.is_err() && !stopped.stopped.load(Ordering::Acquire) {
+                let _ = send(
+                    &sender,
+                    Err(io::Error::other("native backup source failed")),
+                    &stopped,
+                );
+            }
+            result
+        })
+    });
+    let stream = futures::stream::unfold(receiver, |mut receiver| async move {
+        receiver.recv().await.map(|item| (item, receiver))
+    });
+    (reqwest::Body::wrap_stream(stream), task, Cancel(cancel))
+}
+
+fn produce(
+    mut source: Box<dyn Read + Send>,
+    bytes: u64,
+    expected: &Digest,
+    sender: &mpsc::Sender<io::Result<Vec<u8>>>,
+    cancel: &Stop,
+) -> Result<()> {
+    let mut left = bytes;
+    let mut hash = Sha256::new();
+    while left > 0 {
+        if cancel.stopped.load(Ordering::Acquire) {
+            return Err(BackupTransportError::Transport);
+        }
+        let size = left.min(fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes) as usize;
+        let mut chunk = vec![0u8; size];
+        source
+            .read_exact(&mut chunk)
+            .map_err(|_| BackupTransportError::Source)?;
+        hash.update(&chunk);
+        left -= size as u64;
+        send(sender, Ok(chunk), cancel)?;
+    }
+    let mut extra = [0u8; 1];
+    if source
+        .read(&mut extra)
+        .map_err(|_| BackupTransportError::Source)?
+        != 0
+        || fold_db::hex::hex_lower(hash.finalize()) != expected.as_str()
+    {
+        return Err(BackupTransportError::Integrity("upload source"));
+    }
+    Ok(())
+}
+
+fn send(
+    sender: &mpsc::Sender<io::Result<Vec<u8>>>,
+    item: io::Result<Vec<u8>>,
+    stop: &Stop,
+) -> Result<()> {
+    futures::executor::block_on(async {
+        if stop.stopped.load(Ordering::Acquire) {
+            return Err(BackupTransportError::Transport);
+        }
+        tokio::select! {
+            _ = stop.changed.notified() => Err(BackupTransportError::Transport),
+            result = sender.send(item) => result.map_err(|_| BackupTransportError::Transport),
+        }
+    })
 }
 
 pub(super) async fn bounded(response: reqwest::Response, maximum: u64) -> Result<Vec<u8>> {

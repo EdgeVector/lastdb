@@ -1,11 +1,6 @@
-//! Primary-home guards and stopped-home preflight for storage recovery.
+//! Primary-home guard for storage recovery.
 
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-
-use serde::Serialize;
-
-use crate::shutdown_receipt::read_shutdown_flush_receipt;
 
 /// Refuse `path` when it is, or lies under, the primary home `~/.lastdb`.
 pub fn refuse_primary(path: &Path) -> Result<(), String> {
@@ -38,31 +33,4 @@ fn canonicalize_lenient(path: &Path) -> PathBuf {
             _ => return path.to_path_buf(),
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct Preflight {
-    pub socket_closed: bool,
-    pub shutdown_flush_receipt: bool,
-}
-
-/// Refuse unless the home is stopped and flushed.
-pub fn preflight_stopped_home(home: &Path, store_root: &Path) -> Result<Preflight, String> {
-    let socket = crate::lastdb_uds::uds::socket_path(store_root);
-    if UnixStream::connect(&socket).is_ok() {
-        return Err(format!(
-            "refusing: the database socket is open at {}",
-            socket.display()
-        ));
-    }
-    if let Err(error) = read_shutdown_flush_receipt(home) {
-        return Err(format!(
-            "refusing: no valid shutdown flush receipt ({error}). Start the daemon and stop it \
-             gracefully, then retry."
-        ));
-    }
-    Ok(Preflight {
-        socket_closed: true,
-        shutdown_flush_receipt: true,
-    })
 }

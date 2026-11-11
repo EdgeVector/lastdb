@@ -12,22 +12,9 @@ use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
 use lastdb_node::cloud_backup_client::byte_backup::ByteBackupClient;
 use std::collections::BTreeMap;
 
-struct Selection {
-    stream: Option<String>,
-    generation: Option<u64>,
-    commit: Option<String>,
-    commit_sha256: Option<String>,
-    destination: Option<PathBuf>,
-    resume: Option<PathBuf>,
-}
-
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let phrase = super::read_recovery_phrase()?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "cannot construct V2 recovery runtime")?;
-    runtime.block_on(async {
+    super::block_on_cloud("V2 recovery", async {
         let account = lastdb_node::backup_access::account_from_phrase(&phrase)?;
         let client = lastdb_node::byte_cloud_backup::client_from_home(home)?;
         let context = client
@@ -71,27 +58,10 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
                 ..
             }) => {
                 let scope = generation_scope(context.scope, generation);
-                discover(&client, scope, cursor, json).await
+                discover(&client, &scope, cursor, json).await
             }
-            ByteBackupCommand::Restore(BackupRestoreArgs {
-                stream,
-                generation,
-                commit,
-                commit_sha256,
-                into,
-                resume,
-                json,
-                ..
-            }) => {
-                let selection = Selection {
-                    stream,
-                    generation,
-                    commit,
-                    commit_sha256,
-                    destination: into,
-                    resume,
-                };
-                restore(&client, context.scope, &phrase, selection, json).await
+            ByteBackupCommand::Restore(args) => {
+                restore(&client, &context.scope, &phrase, args).await
             }
             _ => Err("invalid offline V2 command".into()),
         }
@@ -107,7 +77,7 @@ fn generation_scope(mut scope: CloudScope, generation: Option<u64>) -> CloudScop
 
 async fn discover(
     client: &ByteBackupClient,
-    scope: CloudScope,
+    scope: &CloudScope,
     cursor: Option<String>,
     json: bool,
 ) -> Result<(), String> {
@@ -147,38 +117,34 @@ async fn discover(
 
 async fn restore(
     client: &ByteBackupClient,
-    scope: CloudScope,
+    scope: &CloudScope,
     phrase: &str,
-    selection: Selection,
-    json: bool,
+    args: BackupRestoreArgs,
 ) -> Result<(), String> {
-    let mut session = if let Some(path) = selection.resume {
-        if selection.stream.is_some()
-            || selection.generation.is_some()
-            || selection.commit.is_some()
-            || selection.commit_sha256.is_some()
-            || selection.destination.is_some()
+    let mut session = if let Some(path) = args.resume {
+        if args.stream.is_some()
+            || args.generation.is_some()
+            || args.commit.is_some()
+            || args.commit_sha256.is_some()
+            || args.into.is_some()
         {
             return Err("resume cannot change the saved V2 selection".into());
         }
         RestoreSession::resume(&path).map_err(|e| e.to_string())?
     } else {
         let stream = Stream {
-            scope: generation_scope(scope.clone(), selection.generation),
-            stream_id: id(selection.stream.ok_or("V2 restore requires --stream")?)?,
+            scope: generation_scope(scope.clone(), args.generation),
+            stream_id: id(args.stream.ok_or("V2 restore requires --stream")?)?,
         };
-        let accepted = accepted(client, stream, selection.commit.map(id).transpose()?).await?;
-        if let Some(expected) = selection.commit_sha256 {
+        let accepted = accepted(client, stream, args.commit.map(id).transpose()?).await?;
+        if let Some(expected) = args.commit_sha256 {
             let expected = Digest::try_from(expected).map_err(|_| "invalid V2 commit SHA256")?;
             if accepted.commit_sha256 != expected {
                 return Err("V2 accepted commit digest differs".into());
             }
         }
-        RestoreSession::begin(
-            &selection.destination.ok_or("V2 restore requires --into")?,
-            accepted,
-        )
-        .map_err(|e| e.to_string())?
+        RestoreSession::begin(&args.into.ok_or("V2 restore requires --into")?, accepted)
+            .map_err(|e| e.to_string())?
     };
     if session.accepted().job().stream.scope.account_id != scope.account_id {
         return Err("V2 restore account differs".into());
@@ -194,7 +160,7 @@ async fn restore(
     })?;
     print_backup(
         &serde_json::to_value(report).map_err(|_| "cannot encode V2 restore result")?,
-        json,
+        args.json,
     )
 }
 
@@ -208,14 +174,14 @@ async fn accepted(
             version: Version::V2,
             job: Job { stream, commit_id },
         };
-        return match client
+        let CommitResponse::Accepted { backup } = client
             .commit_status(&request)
             .await
             .map_err(|e| e.to_string())?
-        {
-            CommitResponse::Accepted { backup } => Ok(*backup),
-            _ => Err("selected V2 commit is not accepted".into()),
+        else {
+            return Err("selected V2 commit is not accepted".into());
         };
+        return Ok(*backup);
     }
     match client
         .head(&HeadReadRequest {
@@ -296,7 +262,7 @@ async fn inspect_dependencies(
         if records.len().saturating_add(fetch.len()) > MAX_POINTS {
             return Err("dependency point limit".into());
         }
-        let mut fetched = futures::stream::iter(fetch)
+        pending = futures::stream::iter(fetch)
             .map(|expected: Head| {
                 let stream = stream.clone();
                 async move {
@@ -307,20 +273,9 @@ async fn inspect_dependencies(
                     Ok(backup)
                 }
             })
-            .buffered(4);
-        pending = Vec::new();
-        let mut pending_bytes = bytes;
-        while let Some(backup) = fetched.try_next().await? {
-            pending_bytes = pending_bytes
-                .checked_add(
-                    cloud_backup_protocol::v2::hash::canonical_bytes(&backup)
-                        .map_err(|e| e.to_string())?
-                        .len(),
-                )
-                .filter(|count| *count <= MAX_DIRECTORY_BYTES)
-                .ok_or("dependency metadata byte limit")?;
-            pending.push(backup);
-        }
+            .buffered(4)
+            .try_collect()
+            .await?;
     }
     let directory: Vec<_> = records.into_values().collect();
     dependency_report(&root, &directory, bytes)
