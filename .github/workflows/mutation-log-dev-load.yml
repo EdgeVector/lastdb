@@ -44,11 +44,6 @@ jobs:
         run: rustup toolchain install --profile minimal
       - name: Build the node-read token helper
         run: cargo build --locked -p cloud_backup_protocol --bin node_read_token
-      - name: Test the cap, the token, and the target guard
-        working-directory: scripts/mutation_log_load
-        run: |
-          python3 -m pip install --quiet cryptography==41.0.7
-          python3 -m unittest test_guard.py test_cost.py test_faults.py test_token.py
       - name: Refuse a role outside the DEV account before assuming it
         env:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}

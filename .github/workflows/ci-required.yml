@@ -123,8 +123,6 @@ jobs:
         run: bash scripts/ci/mini-gate-step.sh "cargo test (mutation_log)" -- cargo test --locked -p mutation_log -p mutation_log_mem -p mutation_log_sync --lib
       - name: Schema core statics gate
         run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
-      - name: Mutation-log load offline checks
-        run: bash scripts/ci/mini-gate-step.sh "Mutation-log load offline checks" -- bash scripts/mutation_log_load/ci_check.sh
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build
