@@ -2,8 +2,8 @@
 
 Status: accepted. Tom Tang, 10 November 2026.
 `mutation_log` is the pure core. `mutation_log_mem` is the `MutationLog`
-port and the in-memory adapter. The adapter stays off unless a caller
-enables `MutationLogConfig`. The live Share path does not construct it.
+port and the in-memory adapter. `mutation_log_sync::drive` is the only
+shared-sync step. There is no flag. The daemon does not call the log yet.
 
 ## Decision
 
@@ -169,11 +169,40 @@ as well as the reader, because a slice of entries does not carry them.
 
 ## Namespaces
 
-There is no official-namespace list in the tree yet. The core asks a
-`NamespacePolicy` and does not embed the list. The held official-namespace
-module will supply the real list. Until it does, a caller passes the
-classification. A production policy returns official only for a namespace on
-that list, and app-private for every other namespace.
+Shareable databases accept one interim list: `social` and `lastdb-files`.
+This list is interim. The real reservation of official names moves to named
+databases later. The old schema-prefix reservation plan is superseded.
+
+`social` is lastdb-std 1.0 and shareable (`spec/index.json`,
+`spec/README.md`, `spec/social/`). `social-graph` is the lastdb-std 1.0
+graph namespace (`spec/index.json`, `spec/social-graph/`). `spec/README.md`
+keeps it personal-only, so a shareable database rejects it.
+
+`lastdb-files` is the namespace the share files command publishes, for
+`FileCatalog` and `FileChunk`
+(`lastdb_node/src/bin/lastdb/share_cmds/files/mod.rs` and `publisher.rs`).
+`scripts/operations/record_share_files.py` writes those same schemas on a
+share home.
+
+Share snapshots carry the caller's schema (`SnapshotSchema` in
+`lastdb_node/src/shared_restore/recovery/manifest.rs`). Contributor rules
+check the caller's schema string
+(`lastdb_node/src/share_contribution/apply.rs`) and do not name a catalog.
+The shared-writer schema CLI defines the declaration it is given
+(`lastdb_node/src/bin/lastdb/cloud_cmds/shared_writer/schema.rs`).
+Its qualification plan uploads snapshot objects and does not name a schema
+(`lastdb_node/src/bin/lastdb/cloud_cmds/shared_writer/qualification.rs`).
+Cloud share proofs publish `CloudSharedProof`,
+`CloudSharedProofAlias`, and `CloudSharedLater` under a generated
+`cloud-proof-<database>` namespace (`scripts/cloud_backup/shared_recovery.py`,
+`scripts/cloud_backup/shared_automatic.py`). `CloudProofLocalOnly` is
+device-local (`scripts/cloud_backup/shared_multiwriter.py`). A generated
+namespace is not a stable list entry. `photos/Comment` in the contributor
+proof and the SDK readme is an example, not a standard schema.
+
+Anything not on the list is app-private. A shareable database rejects it
+(`AppPrivateNamespace`). A personal database still accepts it.
+`classify_shareable` is that list.
 
 Only official namespaces travel in a share. Schema Service publish/attach
 (`schema_service/crates/core/src/shared_surface.rs`) is a catalog opt-in for
@@ -228,51 +257,34 @@ Pure core, no I/O, crate `mutation_log`:
 - `mutation_log/src/auth.rs` — `can_read`, grant, revoke
 - `mutation_log/src/read.rs` — `filter_readable`, list, merge order
 - `mutation_log/src/retain.rs` — ack, snapshot, trim floor
-- `mutation_log/src/namespace.rs` — `NamespacePolicy`
+- `mutation_log/src/namespace.rs` — interim shareable list and `NamespacePolicy`
 - `mutation_log/src/port.rs` — `MutationLog` port. Adapters implement it. The
   sync step depends on this trait, not on an adapter.
 - `mutation_log/src/tests/` — the invariant, including app-private namespaces
   and the refusal to grant a personal database to a receiver
 
-In-memory port, crate `mutation_log_mem`. The same port serves a personal
-database and a shareable database. There is no format parameter and no
-contributor cap. `MutationLogConfig` defaults off. `open` returns nothing
-unless the caller passes an enabled value. The product does not read
-`LASTDB_MUTATION_LOG` and does not construct the adapter, so the live Share
-path is unchanged. The shell classifies a string with `env_flag::truthy`
-and does not read the process environment itself. `mutation_log_mem` is the
-test adapter.
+## Cutover
 
-- `mutation_log_mem/src/lib.rs` — config, default off
-- `mutation_log_mem/src/port.rs` — `MutationLog`: append, head, list, ack,
-  grant, revoke, snapshot
-- `mutation_log_mem/src/memory.rs` — in-memory adapter over `step`
-- `mutation_log_mem/src/tests.rs` — the same sharing rules, through the port
+There is no flag. `drive` is the only shared-sync step.
 
-Shared-sync step, crate `mutation_log_sync`. Personal writers and share
-participants call the same `drive`. There is no format parameter and no
-contributor cap. `select_path` returns the existing `lastdb_node` shared-sync
-worker when the caller passes `enabled == false`, and it does not build a log.
-The shell reads `MutationLogConfig` and passes that flag. The worker does not
-call this crate, and the product still does not read `LASTDB_MUTATION_LOG`.
-The crate depends on `MutationLog` only.
+The server cutover, in exemem-infra, drops `CLOUD_MUTATION_LOG_ENABLED`,
+creates the PROD table, and imports a mandatory fresh full snapshot per
+database with a receipt.
 
-- `mutation_log_sync/src/lib.rs` — `select_path`
-- `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
-- `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`.
-  Append waits until `SyncState::resume` has loaded the writer tip. A pull
-  returns the page or `Reset { snapshot_ref, through, at_ms }` plus the
-  suffix, and does not ack. The caller acks after it applies and persists.
-- `mutation_log_sync/src/tests/` — personal round trip, share round trip, flag off
+The client cutover then makes the log the only path and deletes the legacy
+V2 mutation-log chain and the per-writer share sync. That PR replaces the
+legacy `lastdb_node` shared-sync worker. There is no flag. The daemon does
+not call this log yet, so its behavior is unchanged.
 
-## Later changes
+Old server rows stay until a second device acks and keyed reads match.
 
-These are not the current code.
+`mutation_log_mem` is the in-memory adapter. Construct it with
+`InMemoryMutationLog::new`. `mutation_log_sync` applies one effect through
+`drive`. Append waits until `SyncState::resume` has loaded the writer tip.
+A pull returns the page or `Reset { snapshot_ref, through, at_ms }` plus the
+suffix, and does not ack. The caller acks after it applies and persists.
+Neither crate reads the process environment, opens a socket, or calls Exemem.
 
-- The `lastdb_node` shared-sync worker adopts `select_path` when a shell
-  passes an enabled `MutationLogConfig`. Today the worker stays the existing path.
-- Exemem persists one encrypted log per `database_id` and calls this step.
-- Exemem's read path enforces `can_read` for stored bytes.
-- The official-namespace module supplies `NamespacePolicy`.
-- One node registers an owned shareable database beside `personal`. The SDK
-  already selects it with `databaseId`.
+Exemem's read path enforces `can_read` for stored bytes. One node registers
+an owned shareable database beside `personal`. The SDK already selects it
+with `databaseId`.

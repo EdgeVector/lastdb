@@ -1,8 +1,7 @@
 //! Automatic two-way synchronization for a restored, enrolled shared home.
 //!
-//! This worker is the path `mutation_log_sync` keeps while its config is off.
-//! The worker does not construct a mutation log and does not read
-//! `LASTDB_MUTATION_LOG`.
+//! The legacy worker is replaced in the client cutover PR. There is no flag.
+//! The worker does not construct a mutation log.
 
 mod config;
 mod snapshot;

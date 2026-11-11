@@ -6,7 +6,6 @@ use mutation_log_mem::{InMemoryMutationLog, MutationLog};
 
 use crate::{drive, Outcome, SyncEvent, SyncRole, SyncState};
 
-mod path;
 mod personal;
 mod recover;
 mod retry;
@@ -50,9 +49,7 @@ fn writer(key: &PrincipalId, device_name: &str) -> Writer {
 }
 
 fn open_log(state: LogState) -> MemLog {
-    mutation_log_mem::MutationLogConfig::from_value(Some("on"))
-        .open(state, hearth as Policy)
-        .expect("enabled config installs the log")
+    InMemoryMutationLog::new(state, hearth as Policy)
 }
 
 fn personal_log() -> MemLog {

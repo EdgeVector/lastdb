@@ -5,7 +5,7 @@ use mutation_log::{
 };
 
 use crate::memory::require_outcome;
-use crate::{InMemoryMutationLog, MutationLog, MutationLogConfig};
+use crate::{InMemoryMutationLog, MutationLog};
 
 type Policy = fn(&Namespace) -> NamespaceKind;
 type MemLog = InMemoryMutationLog<Policy>;
@@ -38,9 +38,7 @@ fn writer(key: &PrincipalId, device_name: &str) -> Writer {
 }
 
 fn enabled(state: LogState) -> MemLog {
-    MutationLogConfig::from_value(Some("on"))
-        .open(state, hearth as Policy)
-        .expect("enabled config installs the adapter")
+    InMemoryMutationLog::new(state, hearth as Policy)
 }
 
 fn share_log() -> (MemLog, PrincipalId, Writer) {
@@ -95,23 +93,6 @@ fn mismatched_step_outcome_is_not_an_invalid_entry() {
         _ => None,
     });
     assert_eq!(mismatched, Err(LogError::UnexpectedOutcome));
-}
-
-#[test]
-fn config_defaults_off() {
-    let state = LogState::open(database("personal"), DatabaseKind::Personal);
-    assert!(!MutationLogConfig::default().is_enabled());
-    assert!(MutationLogConfig::default()
-        .open(state, hearth as Policy)
-        .is_none());
-    for raw in [None, Some(""), Some("0"), Some("false"), Some("no")] {
-        assert!(!MutationLogConfig::from_value(raw).is_enabled());
-    }
-    let again = LogState::open(database("personal"), DatabaseKind::Personal);
-    assert!(MutationLogConfig::from_value(Some("1"))
-        .open(again, hearth as Policy)
-        .is_some());
-    assert_eq!(MutationLogConfig::FLAG, "LASTDB_MUTATION_LOG");
 }
 
 #[test]

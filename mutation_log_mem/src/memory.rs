@@ -12,7 +12,9 @@ pub struct InMemoryMutationLog<P> {
 }
 
 impl<P> InMemoryMutationLog<P> {
-    pub(crate) fn new(state: LogState, policy: P) -> Self {
+    /// Hold `state` and classify namespaces with `policy`.
+    #[must_use]
+    pub fn new(state: LogState, policy: P) -> Self {
         Self { state, policy }
     }
 }

@@ -3,7 +3,7 @@ name = "mutation_log_sync"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Shared-sync step over one mutation log per database. Off unless the caller enables it."
+description = "Shared-sync step over one mutation log per database. drive is the only step."
 
 [dependencies]
 mutation_log = { path = "../mutation_log" }

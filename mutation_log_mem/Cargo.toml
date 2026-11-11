@@ -3,7 +3,7 @@ name = "mutation_log_mem"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "In-memory MutationLog port. Off unless the caller enables it."
+description = "In-memory MutationLog adapter. The daemon does not call it yet."
 
 [dependencies]
 mutation_log = { path = "../mutation_log" }
