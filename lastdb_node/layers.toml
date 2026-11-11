@@ -53,6 +53,7 @@ modules = [
   "app_registry_index",
   "byte_cloud_backup",
   "byte_cloud_restore",
+  "log_sync",
   "offline_home",
 ]
 

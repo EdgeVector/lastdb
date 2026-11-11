@@ -129,6 +129,22 @@ impl SyncState {
         })
     }
 
+    /// Delivery cursor the next pull starts after. The shell persists this.
+    #[must_use]
+    pub fn cursor(&self) -> u64 {
+        self.cursor
+    }
+
+    /// Replace the delivery cursor the shell loaded from its durable session.
+    ///
+    /// Resume still loads the writer tip. This does not mark the state resumed
+    /// and does not change the writer sequence.
+    #[must_use]
+    pub fn with_cursor(mut self, cursor: u64) -> Self {
+        self.cursor = cursor;
+        self
+    }
+
     /// Set `next_seq` from the writer tip already stored in `log`.
     ///
     /// [`crate::drive`] refuses an append until this has run. A process that

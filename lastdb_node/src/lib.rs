@@ -18,6 +18,7 @@ pub mod identity;
 pub mod jobs;
 pub mod lastdb_uds;
 pub mod log_rotation;
+pub mod log_sync;
 pub mod offline_home;
 pub mod profile;
 pub mod registered_share;

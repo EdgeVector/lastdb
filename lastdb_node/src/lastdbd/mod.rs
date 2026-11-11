@@ -181,6 +181,20 @@ pub(crate) fn spawn_background(
     } else {
         lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown))
     };
+    let sync_host = Arc::clone(host);
+    let sync_shutdown = Arc::clone(shutdown);
+    let backup = tokio::spawn(async move {
+        let sync = lastdb_node::log_sync::spawn(sync_host, sync_shutdown);
+        let (backup_result, sync_result) = tokio::join!(backup, sync);
+        if sync_result.is_err() {
+            tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
+        }
+        if let Err(error) = backup_result {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic());
+            }
+        }
+    });
     Ok((
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
         backup,

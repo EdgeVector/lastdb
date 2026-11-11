@@ -6,7 +6,8 @@
 //! clock, opens no file or socket, and stores nothing. The shell passes time,
 //! ids, and a [`NamespacePolicy`]. [`MutationLog`] is the port. The in-memory
 //! adapter lives in `mutation_log_mem`. There is no flag. This crate still
-//! stores nothing. The daemon does not call the log yet.
+//! stores nothing. After a verified per-database cutover, the daemon calls
+//! this port through `mutation_log_sync`.
 //!
 //! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
 //! log is not the local record model (`lastdb_model`) and not the current

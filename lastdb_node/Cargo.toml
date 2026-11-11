@@ -31,6 +31,8 @@ sentry-telemetry = ["observability/sentry"]
 
 [dependencies]
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
+mutation_log = { path = "../mutation_log" }
+mutation_log_sync = { path = "../mutation_log_sync" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
 laststore = { workspace = true }
