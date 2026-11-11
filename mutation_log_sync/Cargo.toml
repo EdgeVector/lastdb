@@ -1,0 +1,18 @@
+[package]
+name = "mutation_log_sync"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Shared-sync step over one mutation log per database. Off unless the caller enables it."
+
+[dependencies]
+mutation_log = { path = "../mutation_log" }
+mutation_log_mem = { path = "../mutation_log_mem" }
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+bench = false

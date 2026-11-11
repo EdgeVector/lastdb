@@ -113,10 +113,14 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "2"
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log_mem)" -- cargo clippy --locked -p mutation_log_mem --lib --tests -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
-      - name: cargo test (mutation_log and mutation_log_mem)
+      - name: cargo clippy (mutation_log_sync shared-sync step)
         env:
           CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "cargo test (mutation_log)" -- cargo test --locked -p mutation_log -p mutation_log_mem --lib
+        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log_sync)" -- cargo clippy --locked -p mutation_log_sync --lib --tests -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+      - name: cargo test (mutation_log, mutation_log_mem, mutation_log_sync)
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: bash scripts/ci/mini-gate-step.sh "cargo test (mutation_log)" -- cargo test --locked -p mutation_log -p mutation_log_mem -p mutation_log_sync --lib
       - name: Schema core statics gate
         run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
 

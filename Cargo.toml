@@ -34,6 +34,8 @@ members = [
     "mutation_log",
     # In-memory MutationLog adapter. Off unless the caller enables it.
     "mutation_log_mem",
+    # Shared-sync step over that port. Off unless the caller enables it.
+    "mutation_log_sync",
     "lastdb_storage_policy",
 
     # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal

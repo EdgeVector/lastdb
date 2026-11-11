@@ -2176,6 +2176,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutation_log_sync"
+version = "0.1.0"
+dependencies = [
+ "mutation_log",
+ "mutation_log_mem",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
