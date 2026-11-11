@@ -28,6 +28,7 @@ pub mod share_contribution;
 pub mod share_file;
 pub mod share_invitation;
 pub mod share_publication;
+pub mod share_spec;
 pub mod shutdown_receipt;
 pub mod version;
 

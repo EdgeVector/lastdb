@@ -145,7 +145,7 @@ Use absolute paths for `OWNER`, `PUBLICATION`, and `RECIPIENT`.
 `OWNER` is an existing home with saved Exemem credentials for the selected
 environment. Create the publication at a new path with an existing parent
 outside that home using `lastdb --data-dir OWNER share create --into
-PUBLICATION --env dev`. Run
+PUBLICATION --env dev --spec lastdb-files --spec-version 1`. Run
 `lastdbd --data-dir PUBLICATION --share-owner-home OWNER` to publish
 automatically. Stopping that daemon pauses publication.
 
@@ -187,7 +187,7 @@ Existing app-managed caches still support their explicit `--cache` and
 
 The app decides which records go into the publication and which recipients can
 contribute to each schema. Create the publication with
-`share create --write-mode publisher-validated` and run the same automatic
+`share create --spec lastdb-files --write-mode publisher-validated` and run the same automatic
 publisher as above. The default mode, `publisher-only`, gives the publisher
 exclusive write access.
 

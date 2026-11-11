@@ -20,6 +20,7 @@ name = "leaf"
 doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, shutdown receipts, and versions."
 modules = [
   "backup_runtime",
+  "share_spec",
   "byte_cloud_log",
   "cloud_backup_client",
   "identity",
