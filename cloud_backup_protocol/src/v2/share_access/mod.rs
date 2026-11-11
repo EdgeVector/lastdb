@@ -1,17 +1,34 @@
 //! Share access v2 wire types.
 //!
 //! A member list names the Ed25519 node keys that may read or submit one
-//! shared database. The publisher signs each new revision. Removing a key
-//! revokes it on the next request. v1 does not rotate keys. These types do
-//! no I/O, do not verify signatures, and do not cap the member count.
+//! shared database. The publisher signs each new revision. A revoked key stays
+//! on that revision until a later revision sets `regrant`. v1 does not rotate
+//! keys. These types do no I/O, do not verify signatures, and do not cap the
+//! member count.
+//!
+//! A signed request uses the `LastDBNode` authorization scheme. The token is
+//! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
+//! signature over `NodeReadProof::digest` of the exact HTTP body. The signing
+//! key is the node key in that token. It is not the publisher account key.
+//! Data routes call `authorize_request`. The member-list read calls
+//! `member_list_read_view` so an authorized node can learn the revision
+//! without receiving the member list.
 
+mod cursor;
+mod grant;
 mod members;
 mod proof;
 
-pub use members::{
-    MemberListReadRequest, MemberListReadResponse, MemberListUpdate, ShareMember, ShareMemberRole,
+pub use cursor::{DeliveryCursor, DeviceCursor, SnapshotReference, SnapshotReset};
+pub use grant::{
+    authorize, authorize_request, bind_request_scope, member_list_read_view, member_list_revision,
+    MemberListReadView, ShareAccess,
 };
-pub use proof::{NodeReadProof, ShareHttpMethod};
+pub use members::{
+    MemberListReadRequest, MemberListReadResponse, MemberListRevision, MemberListUpdate,
+    ShareMember, ShareMemberRole, ShareMemberState,
+};
+pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
 
 use crate::{AccountId, Digest, ProtocolError};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -21,6 +38,10 @@ use sha2::{Digest as _, Sha256};
 pub const SHARE_MEMBER_LIST_UPDATE_DOMAIN: &str = "lastdb:share:member-list-update:v1";
 /// Domain for `NodeReadProof::digest`.
 pub const SHARE_NODE_READ_AUTHORITY_DOMAIN: &str = "lastdb:share:node-read-authority:v1";
+/// Authorization scheme for [`NodeReadToken`]. Bearer share passes are not this scheme.
+pub const SHARE_NODE_AUTHORIZATION_SCHEME: &str = "LastDBNode";
+/// Symmetric clock skew for a signed share request, in milliseconds.
+pub const SHARE_REQUEST_SKEW_MS: u64 = 60_000;
 
 /// Complete HTTP path for a publisher member-list update.
 ///
