@@ -76,12 +76,13 @@ fn resumed_writer_continues_after_the_stored_tip() {
         },
     )
     .expect("grant");
-    let state = SyncState::open(
+    let opened = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
         device(phone.clone(), phone_stream.clone()),
     )
     .expect("state");
+    let state = SyncState::resume(&opened, &log).expect("resume");
     drive(
         &state,
         &mut log,

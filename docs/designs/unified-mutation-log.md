@@ -38,18 +38,26 @@ Neither bound exists in the new log.
 ## Log shape
 
 Each database has one log and a small head. The head's sequence is delivery
-order only. Devices and contributors each have a writer stream. A stream's
-`writer_seq` is gap-free and is the only dedupe key:
+order only. Devices and contributors each have a writer stream. Each device
+uses its own stream. Two processes writing one stream can still race; the
+core does not treat that as success. A stream's `writer_seq` is gap-free:
 
-- `writer_seq <= last` is a duplicate
+- `writer_seq <= last` with the same content is a duplicate
+- `writer_seq <= last` with different content is `Conflict`, and the call is not `Ok`
 - `last + 1` is accepted
 - a higher value is a gap, and the batch is not stored
 
 A duplicate reports the next acceptable writer sequence, one past the stored
 tip. A caller whose response was lost can retry, then append the next mutation
-at that sequence. Copying a submission onto the publisher stream is also
-idempotent on `(submission_stream, writer_seq)`. Repeating that copy stores
-nothing and does not move the publisher tip.
+at that sequence. A participant appends only after resume loads that tip.
+Copying a submission onto the publisher stream is idempotent on
+`(submission_stream, writer_seq)` when the payload matches the stored
+submission. Repeating that exact copy stores nothing and does not move the
+publisher tip. A different payload is rejected. A batch that mixes an already
+copied submission with a new entry is rejected. The `incorporated` set is
+stored with the log. Trim drops a key when the submission it names is dropped,
+and a later re-append of that submission is refused. A persistent adapter
+stores the set alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp
 `(authored_at_ms, source_stream, sequence)`. An append is one transaction of
@@ -74,12 +82,15 @@ Testable rule:
    The receiver's cursor is that stream's writer sequence, not the global
    delivery sequence. The saved cursor names its sequence space. If grants
    move the principal into a different space, the old number is not reused;
-   the cursor restarts at zero in the new space. A receiver who has read every
-   publisher entry is caught up: the ack does not pin the trim floor on a
-   hidden delivery sequence, and `list` does not expire that cursor.
-   `CursorExpired.snapshot_through` is in the same writer sequence, so it does
-   not reveal another stream's position. An ack at or below the cursor already
-   stored for that principal is a no-op.
+   the cursor restarts at zero in the new space, and the client applies the
+   entries it reads again idempotently. The stored ack is tagged with that
+   same space. A grant or revoke that changes the space resets the ack to
+   the start, so retention stays held back until the principal reads in the
+   new space. A receiver who has read every publisher entry is caught up: the
+   ack does not pin the trim floor on a hidden delivery sequence, and `list`
+   does not expire that cursor. `CursorExpired.snapshot_through` is in the
+   same writer sequence, so it does not reveal another stream's position. An
+   ack at or below the cursor already stored in the same space is a no-op.
 2. A contributor's submission is not readable by other receivers. It is a
    submission stream. Only the publisher, and the submitting contributor for
    that contributor's own entries, can read it.
@@ -200,7 +211,8 @@ adapter used by its tests.
 
 - `mutation_log_sync/src/lib.rs` — `select_path`
 - `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
-- `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`
+- `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`.
+  Append waits until `SyncState::resume` has loaded the stream tip.
 - `mutation_log_sync/src/tests/` — personal round trip, share round trip, flag off
 
 ## Later changes

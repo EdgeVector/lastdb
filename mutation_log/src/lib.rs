@@ -37,7 +37,7 @@ mod step;
 
 pub use append::AppendOutcome;
 pub use auth::can_read;
-pub use cursor::{cursor_space, CursorSpace};
+pub use cursor::{cursor_space, AckCursor, CursorSpace};
 pub use error::LogError;
 pub use id::{DatabaseId, Namespace, PrincipalId, StreamId};
 pub use model::{

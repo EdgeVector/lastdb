@@ -104,7 +104,7 @@ fn share_round_trip_hides_a_submission_until_the_publisher_reappends() {
 #[test]
 fn shareable_append_rejects_an_app_private_namespace() {
     let (mut log, publisher, published) = share_log();
-    let state = SyncState::open(
+    let opened = SyncState::open(
         database("family"),
         share_kind(&publisher, &published),
         SyncRole::Publisher {
@@ -112,6 +112,7 @@ fn shareable_append_rejects_an_app_private_namespace() {
         },
     )
     .expect("publisher");
+    let state = SyncState::resume(&opened, &log).expect("resume");
     let refused = drive(
         &state,
         &mut log,

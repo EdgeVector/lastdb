@@ -26,8 +26,10 @@ impl LogState {
     ///
     /// Dedupe uses the writer sequence. A sequence at or below the stream's
     /// last accepted value is a duplicate. The next value is accepted. A
-    /// higher value is a gap. An incorporation of a submission that was already
-    /// copied is also a duplicate, and it does not advance the stream.
+    /// higher value is a gap. A repeated sequence with the same content is a
+    /// duplicate. Different content is [`LogError::Conflict`]. An incorporation
+    /// matches the stored submission, including its payload. A batch that mixes
+    /// an already copied submission with a new entry is rejected.
     pub fn append(
         &self,
         batch: &AppendBatch,
@@ -45,8 +47,9 @@ impl LogState {
             .map(|progress| progress.last_writer_seq)
             .ok_or(LogError::Unauthorized)?;
         let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
+        confirm_repeats(self, batch, last)?;
         let start = classify_seqs(last, &seqs)?;
-        if start == seqs.len() || repeats_incorporation(self, batch, start) {
+        if start == seqs.len() || fresh_is_repeat(self, batch, start)? {
             return Ok((self.clone(), duplicate_outcome(last)?));
         }
         let added = (seqs.len() - start) as u64;
@@ -137,17 +140,56 @@ fn duplicate_outcome(last: u64) -> Result<AppendOutcome, LogError> {
     })
 }
 
-fn repeats_incorporation(state: &LogState, batch: &AppendBatch, start: usize) -> bool {
-    let mut fresh = batch.entries.iter().skip(start).peekable();
-    if fresh.peek().is_none() {
-        return false;
+fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(), LogError> {
+    for entry in &batch.entries {
+        if entry.writer_seq > last {
+            continue;
+        }
+        let matched = state.entries.iter().find(|stored| {
+            stored.entry.stream == entry.stream && stored.entry.writer_seq == entry.writer_seq
+        });
+        match matched {
+            Some(stored) if same_content(&stored.entry, entry) => {}
+            _ => return Err(LogError::Conflict),
+        }
     }
-    fresh.all(|entry| match &entry.incorporated_from {
+    Ok(())
+}
+
+fn same_content(stored: &crate::Entry, entry: &crate::Entry) -> bool {
+    stored.payload == entry.payload
+        && stored.namespace == entry.namespace
+        && stored.author == entry.author
+        && stored.incorporated_from == entry.incorporated_from
+}
+
+fn fresh_is_repeat(state: &LogState, batch: &AppendBatch, start: usize) -> Result<bool, LogError> {
+    let fresh = &batch.entries[start..];
+    if fresh.is_empty() {
+        return Ok(false);
+    }
+    let mut copied = false;
+    let mut unseen = false;
+    for entry in fresh {
+        if already_copied(state, entry) {
+            copied = true;
+        } else {
+            unseen = true;
+        }
+    }
+    if copied && unseen {
+        return Err(LogError::MixedIncorporation);
+    }
+    Ok(copied)
+}
+
+fn already_copied(state: &LogState, entry: &crate::Entry) -> bool {
+    match &entry.incorporated_from {
         Some(from) => state
             .incorporated
             .contains(&(from.submission_stream.clone(), from.writer_seq)),
         None => false,
-    })
+    }
 }
 
 fn require_submission(state: &LogState, entry: &crate::Entry) -> Result<(), LogError> {
@@ -156,12 +198,6 @@ fn require_submission(state: &LogState, entry: &crate::Entry) -> Result<(), LogE
     };
     if !on_publisher_stream(state, &entry.stream) {
         return Err(LogError::InvalidEntry);
-    }
-    if state
-        .incorporated
-        .contains(&(from.submission_stream.clone(), from.writer_seq))
-    {
-        return Ok(());
     }
     let matched = state.entries.iter().any(|stored| {
         stored.entry.incorporated_from.is_none()

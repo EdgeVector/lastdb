@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Capability, DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, StreamId,
-    StreamRole,
+    AckCursor, Capability, DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot,
+    StreamId, StreamRole,
 };
 
 /// Progress of one writer stream.
@@ -29,8 +29,8 @@ pub struct LogState {
     pub streams: BTreeMap<StreamId, StreamProgress>,
     /// Who may read or append. This list is not a storage path.
     pub grants: Vec<Grant>,
-    /// Highest delivery sequence each consumer has acknowledged.
-    pub acks: BTreeMap<PrincipalId, u64>,
+    /// Highest cursor each consumer has acknowledged, tagged with its space.
+    pub acks: BTreeMap<PrincipalId, AckCursor>,
     /// Retained entries in delivery order.
     pub entries: Vec<crate::StoredEntry>,
     /// Open appends, keyed by stream. The value is the principal who opened it.
@@ -41,8 +41,9 @@ pub struct LogState {
     pub trimmed_through: u64,
     /// Submissions already copied onto the publisher stream.
     ///
-    /// The key is `(submission_stream, writer_seq)`. Trim does not remove it,
-    /// so a repeated incorporation cannot create a second delivery.
+    /// The key is `(submission_stream, writer_seq)`. A persistent adapter stores
+    /// this set with the log. Trim drops a key when the submission it names is
+    /// dropped, so a later re-append of that submission is refused.
     pub incorporated: BTreeSet<(StreamId, u64)>,
 }
 

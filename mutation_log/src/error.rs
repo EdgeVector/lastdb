@@ -21,6 +21,10 @@ pub enum LogError {
     InvalidEntry,
     /// `incorporated_from` did not match a stored submission.
     UnknownSubmission,
+    /// A batch mixes an already copied submission with a new entry.
+    MixedIncorporation,
+    /// A writer sequence repeated with different content.
+    Conflict,
     /// A port operation received an outcome from a different command.
     UnexpectedOutcome,
     /// A writer sequence was zero, repeated, or unordered inside the batch.
@@ -51,10 +55,8 @@ pub enum LogError {
         /// Delivery sequence the latest snapshot covers, or zero when none exists.
         snapshot_through: u64,
     },
-    /// An ack named a delivery sequence the log has not reached.
+    /// An ack named a cursor the log has not reached in this principal's space.
     AckAhead,
-    /// An ack moved backward.
-    AckRegress,
 }
 
 impl fmt::Display for LogError {
@@ -75,6 +77,15 @@ impl fmt::Display for LogError {
                     formatter,
                     "incorporation does not match a pending submission"
                 )
+            }
+            Self::MixedIncorporation => {
+                write!(
+                    formatter,
+                    "batch mixes an already copied submission with a new entry"
+                )
+            }
+            Self::Conflict => {
+                write!(formatter, "writer sequence repeats different content")
             }
             Self::UnexpectedOutcome => {
                 write!(
@@ -122,7 +133,6 @@ impl fmt::Display for LogError {
                     "ack is ahead of the entries this principal can see"
                 )
             }
-            Self::AckRegress => write!(formatter, "ack moved backward"),
         }
     }
 }
