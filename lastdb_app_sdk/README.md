@@ -1,38 +1,9 @@
 # @lastdb/app-sdk
 
-The runtime SDK for LastDB apps. A thin, dependency-free TypeScript client over
-a node's production `/api/*` surface: **connect → request consent → await the
-grant → query / mutate with the granted capability.**
-
-This is the runtime data path. It is *not* the app-authoring client — that is
-the **`folddb`** CLI (`folddb login` → `folddb init` → `folddb push`), which
-publishes your app + its schemas to the shared registry. `folddb dev` only
-runs a local dev/test node. This SDK reads and writes a user's data on their
-node, scoped to what they consented to.
-
-> **CAUTION — current state of `lastdbd`.** The node serves no consent route
-> (`/api/apps/request-consent`) and reads no capability token. Every same-user
-> caller on the owner socket runs as the owner. A local app uses
-> [`ownerClient`](#owner-socket--your-own-apps-ownerclient) with `socketPath`.
-> The consent flow in the example below (`connect`, `requestConsent`,
-> `awaitConsent`) is the planned design for an app socket. Follow the
-> [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace).
-
-> **The firm app contract.** The small, stable surface a zero-UI app depends on
-> — the app-facing primitives, the machine-actionable error taxonomy, and the
-> compatibility fixtures that make a LastDB route change break in ONE place —
-> is documented in **[CONTRACT.md](CONTRACT.md)**. This README is the full API
-> reference; CONTRACT.md is the boundary guarantee.
-
-> **Primary node: Mini `lastdbd` over the Unix socket.** The supported local
-> data plane is the Mini binary (`lastdbd` / brew `lastdb`) on
-> `~/.lastdb/data/folddb.sock`. `connect` uses an explicit `socketPath`, or
-> discovers `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
-> `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The discovered file must exist.
->
-> **Local CLI/dev.** Prefer an installed Mini (`lastdb` / `folddb` on your
-> PATH). For ephemeral app-trust loops, use the current `folddb` / Mini tooling
-> from `main`.
+The runtime SDK for LastDB apps. A dependency-free TypeScript client over a
+node's Unix-socket `/api/*` surface: connect, verify API compatibility, and run
+keyed queries, conditional record mutations, membership lists, and change-feed
+reads.
 
 ## Install
 
@@ -44,42 +15,45 @@ npm install @lastdb/app-sdk
 
 ```ts
 import { connect } from '@lastdb/app-sdk';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 
-// Mini owner/app socket (lastdbd). Omit socketPath to use the discovery order.
-const fold = await connect({
-  socketPath: process.env.LASTDB_SOCKET_PATH
-    ?? process.env.FOLDDB_SOCKET_PATH
-    ?? join(homedir(), '.lastdb', 'data', 'folddb.sock'),
-  appId: 'fbrain',
-});
+// Uses explicit socketPath when passed, else discovers LASTDB_SOCKET_PATH ->
+// FOLDDB_SOCKET_PATH -> <LASTDB_HOME or ~/.lastdb>/data/folddb.sock.
+const db = await connect({ appId: 'my-app' });
 
-if (!fold.hasCapability) {                                    // first run: no stored capability
-  const { requestId } = await fold.requestConsent('wildcard'); // ask for fbrain/*
-  console.log('Run: folddb consent grant fbrain');             // owner grants in their terminal
-  await fold.awaitConsent(requestId, { timeoutMs: 120_000 });  // polls; stores the capability
-}
-
-await fold.mutate('fbrain/Concept', {                          // capability auto-attached
+await db.mutate('my-app/Concept', {
   mutationType: 'create',
   alternates: {},
   expected: { type: 'absent' },
   record: { id: 'c1', title: 'hello' },
   key: { hash: 'c1', range: null },
 });
-const { rows } = await fold.query('fbrain/Concept', { filter: { HashKey: 'c1' } });
+
+const { rows } = await db.query('my-app/Concept', {
+  filter: { HashKey: 'c1' },
+});
 for (const row of rows) {
-  console.log(row.key, row.fields, row.metadata); // full envelope per record
+  console.log(row.key, row.fields, row.metadata);
 }
 ```
 
-## Work with a registered Share
+For synchronous setup when the caller has already resolved `socketPath`, use
+`ownerClient`:
 
-Pass the database ID or alias shown by `lastdb db list` to `connect` on the
-recipient's owner socket. `list`, `query`, `queryBatch`, `listSchemas`, and
-`mutate` use that database. `queryAll` uses the same database through `query`.
-Search, changes, and schema declaration are unavailable on the selected route.
+```ts
+import { ownerClient, LASTDB_SDK_API_VERSION } from '@lastdb/app-sdk';
+
+const db = ownerClient({
+  appId: 'my-app',
+  socketPath: '/Users/me/.lastdb/data/folddb.sock',
+});
+await db.requireApiVersion(LASTDB_SDK_API_VERSION);
+```
+
+## Registered Shares
+
+Pass the database ID or alias from `lastdb db list` to `connect` on the
+recipient's socket. `list`, `query`, `queryAll`, `queryBatch`, `listSchemas`,
+and `mutate` target `/api/databases/<id>/...`:
 
 ```ts
 import { randomUUID } from 'node:crypto';
@@ -88,8 +62,6 @@ import { connect } from '@lastdb/app-sdk';
 const share = await connect({ appId: 'photos', databaseId: 'family-photos' });
 const comments = await share.query('photos/Comment', { filter: { HashKey: 'photo-7' } });
 
-// Attach the contributor grant on this node before submitting a write.
-// Remember the definition ID the app and publisher use for this schema.
 share.rememberDefinition('photos/Comment', commentDefinitionId);
 const mutationId = randomUUID();
 const receipt = await share.mutate('photos/Comment', {
@@ -104,778 +76,62 @@ if ('status' in receipt && receipt.status === 'submitted') {
 }
 ```
 
-A submission receipt confirms that Exemem accepted the private submission.
-LastDB on the publisher's node checks the grant and writes approved records.
-The receiver reads an approved record after the publisher publishes it and
-the receiver catches up. For a received Share, retry an uncertain submission
-with the same body and mutation ID. The SDK generates an ID if omitted and
-exposes it on `ShareSubmissionUncertainError` when the outcome is uncertain.
-Calls without `databaseId` retain the ordinary committed mutation receipt.
-
-## Version handshake: is this node new enough for my app?
-
-Every strict request type on the node is `deny_unknown_fields`. Before this
-handshake, an app one grammar ahead of the node got the same 11-byte
-`Bad Request` as a typo (brain 0.8.0 → a 0.23.3-1435 primary, 2026-09-03).
-
-Declare the node request-grammar version your app needs and let `connect`
-refuse an older node on one line that names the fix:
-
-```ts
-import { connect, LASTDB_SDK_API_VERSION, NodeTooOldError } from '@lastdb/app-sdk';
-
-try {
-  const fold = await connect({
-    socketPath,
-    appId: 'brain',
-    appLabel: `brain ${pkg.version}`,          // who is asking, for the message
-    requireApiVersion: LASTDB_SDK_API_VERSION, // or the number from your app manifest
-  });
-} catch (e) {
-  if (e instanceof NodeTooOldError) {
-    console.error(e.message);
-    // brain 0.9.0 needs LastDB api_version >= 2; this node reports api_version 1.
-    // Run: brew upgrade lastdb && brew services restart lastdb
-    process.exit(3);
-  }
-  throw e;
-}
-```
-
-- `GET /api/version` answers on both sockets with no node state:
-  `{ok, api_version, build, capabilities, instance_id, ...}`. `fold.version()`
-  reads it; a body without `api_version` throws `UnexpectedResponseError`.
-- SDK 0.7 requires API 29. `connect()` checks this minimum automatically;
-  an app may request a higher version. Owner clients can call
-  `requireApiVersion(LASTDB_SDK_API_VERSION)` before data operations.
-- A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
-  too (`.kind === 'unknown_key'`). It subclasses `RequestRejectedError`, so an
-  existing `catch` keeps working. The node never echoes the unknown key.
-
-## Choosing a socket: your own apps vs published apps
-
-Before the socket question below there is a prior one: **which access posture
-your app runs under.** A LastDB node exposes
-two connection surfaces, and which one your app talks decides whether it runs as
-the node owner or as an attributed third-party app. Pick by *who runs the app*,
-not by how it connects.
-
-> **CAUTION — current state of `lastdbd`.** `lastdbd` serves only the owner
-> socket. It has no app socket, no consent route, and no code-signature check.
-> Every same-user caller runs as the owner. The node does not check the
-> namespace of a write. The **App socket** column below is the planned design.
-> Until it ships, follow the [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace)
-> in your app code.
-
-| | **Owner socket** | **App socket** |
-|---|---|---|
-| For | apps **you develop and trust** (your own tooling) | apps **you publish** for other people to run |
-| Runs as | **NodeOwner** — full device trust | an **attributed app** on the consumer's node |
-| Reads | anything | anything (after one-time consent) |
-| Writes | anything | **only its own `owner_app_id` namespace** |
-| Consent | none (peer-cred / device trust) | one-time grant, then a stored capability |
-| SDK entry | **`ownerClient(...)`** | **`connect(...)`** |
-
-This is the developer-facing view of the design decisions
-[`decision-2026-07-10-apps-read-all-write-own-namespace`][d1] (the 2026-07-11
-socket-selection addendum) and [`decision-local-security-loose-stance`][d2] —
-read those for the full rationale.
-
-**"App isolation" is not a security wall.** A same-user process can reach the
-owner socket regardless, so the app socket's write-own rule is an
-**attribution + accident-prevention** boundary — it keeps two honest apps on the
-same node from clobbering each other's data (one writer app per schema, so
-cross-app reads stay trustworthy), not an adversary defense. That is exactly why
-self-authored code just uses the owner socket: you already trust it.
-
-### Interop rule: read by full name, write your own namespace
-
-A schema has the runtime name `{app_id}/{local}`. The `app_id` is the
-namespace of the app that owns the schema. Every app follows these rules on
-both sockets:
-
-1. Read another app's schema by its full name, for example
-   `other-app/Contact`. A bare name such as `Contact` can resolve to a schema of
-   a different app, or fail with `409` when two apps use the same name.
-2. Write only the schemas in your own namespace. Do not write a schema of
-   another app. The node does not refuse that write today, so your app code
-   must keep this rule.
-3. To keep data that came from another app, write it into a schema in your own
-   namespace. Each schema owns its record values. A write to one schema does
-   not change a different schema, even when the two schemas use the same field
-   definitions.
-4. The schema service reserves the namespaces `std`, `system`, and
-   `templates`. A developer cannot register them.
-
-### Owner socket — your own apps (`ownerClient`)
-
-An app you write yourself connects to your node's **owner socket** and runs as
-**NodeOwner**: full read/write, no namespace restriction, no consent flow. This
-is how LastDB's own tools (fbrain, fkanban, fsituations, lastsecrets) run —
-same user, owner socket. `ownerClient` is synchronous and keychain-free (it
-never mints, stores, or replays a capability); it authenticates by the OS user
-(the socket's kernel peer credentials). The `socketPath` file must exist.
-
-```ts
-import { ownerClient } from '@lastdb/app-sdk';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-// Owner socket: NodeOwner, no consent, no namespace jail.
-// LASTDB_SOCKET_PATH names the node's owner socket (the same variable the
-// `lastdb` CLI reads; default ~/.lastdb/data/folddb.sock). Peer credentials
-// authenticate you.
-const db = ownerClient({
-  appId: 'fbrain',
-  socketPath: process.env.LASTDB_SOCKET_PATH
-    ?? join(homedir(), '.lastdb', 'data', 'folddb.sock'),
-});
-
-// Full read/write across any schema — device trust, no write-own restriction.
-const records = await db.queryAll('fbrain/Concept');
-await db.mutate('fbrain/Concept', {
-  mutationType: 'create',
-  alternates: {},
-  expected: { type: 'absent' },
-  record: { id: 'c1', title: 'hello' },
-  key: { hash: 'c1', range: null },
-});
-```
-
-### App socket — apps you publish (`connect`)
-
-An app you **publish for other people** runs through *their* node. When a
-consumer runs it, their node launches it into its app-attribution ("app
-isolation") system — the **app socket** — where it gets a one-time consent
-grant and then **reads any schema but writes only its own `owner_app_id`
-namespace**. This is the boundary that makes running someone else's published
-app safe-by-default on your data. Use `connect` (async; drives the
-request-consent → await-grant flow and stores the resulting capability):
-
-```ts
-import { connect } from '@lastdb/app-sdk';
-
-// App socket: attributed app on the consumer's node. Omit socketPath to
-// discover LASTDB_SOCKET_PATH, then FOLDDB_SOCKET_PATH, then
-// <LASTDB_HOME or ~/.lastdb>/data/folddb.sock. The file must exist.
-const db = await connect({ appId: 'my-app' });
-
-if (!db.hasCapability) {                                  // first run: no capability yet
-  const { requestId } = await db.requestConsent('wildcard');
-  console.log('Run: folddb consent grant my-app');       // the consumer grants in their terminal
-  await db.awaitConsent(requestId, { timeoutMs: 120_000 });
-}
-
-// Reads: any schema the consumer consented to — including other apps' data.
-await db.query('some-other-app/PublicNote', { filter: { HashKey: 'n1' } });
-// Writes: only your own namespace (the interop rule above). The node does not
-// check this today.
-await db.mutate('my-app/Note', {
-  mutationType: 'create',
-  alternates: {},
-  expected: { type: 'absent' },
-  record: { id: 'n1', text: 'hi' },
-  key: { hash: 'n1', range: null },
-});
-```
-
-Neither the node nor this SDK enforces write-own today. `lastdbd` has no app
-identity on the data path, so it accepts a write to any namespace. A planned
-app socket can refuse a cross-namespace write with a `403`
-`PermissionDeniedError` / `CapabilityDeniedError` (see
-[Typed errors](#typed-errors)). Until then, the rule is the app author's job.
-
-### Schema resolution and field names
-
-An app reads and writes its own schemas by their runtime names
-(`{app_id}/{local}`), for example `my-app/Note`. A runtime name is the stable
-contract on the wire. A schema's identity hash changes when the app adds a
-field, so do not use the identity hash as a name.
-
-The SDK accepts an optional `schemaResolver` that returns
-`ResolveResult { identity, schema, adapter, outcome }`. `schema` is the runtime
-schema to use. `adapter.appToCatalog` renames the app's field names to the
-field names of that one schema before `query`/`mutate`, and reads map back
-through `adapter.catalogToApp` or the reverse one-to-one map. The rename is
-client-side only. It does not connect two schemas, and the node keeps no field
-mapping: each schema owns its values.
-
-```ts
-const db = await connect({
-  appId: 'my-app',
-  schemaResolver: async (schemaName) => {
-    if (schemaName !== 'LocalNote') return undefined;
-    return {
-      identity: 'my-app-note-identity-hash',
-      schema: 'my-app/Note',
-      outcome: 'adapted',
-      adapter: {
-        appToCatalog: { title: 'name', body: 'body_text' },
-      },
-    };
-  },
-});
-
-await db.mutate('LocalNote', {
-  mutationType: 'create',
-  alternates: {},
-  expected: { type: 'absent' },
-  record: { title: 'hello', body: 'renamed at the edge' },
-  key: { hash: 'n1', range: null },
-});
-```
-
-A resolver that returns `undefined`/`null` passes the name through unchanged.
-Do not resolve a name to a schema of another app for a write. To keep data
-from another app, read its schema by full name and write the records into your
-own schema.
-
-[d1]: fbrain `decision-2026-07-10-apps-read-all-write-own-namespace`
-[d2]: fbrain `decision-local-security-loose-stance`
-
-## Transports
-
-`connect` speaks HTTP over the node's Unix-domain socket (`folddb.sock`).
-Pass `socketPath` to use that path verbatim. Omit it and `connect` discovers
-the socket. The `lastdb` CLI reads the same `LASTDB_SOCKET_PATH` override.
-
-1. **`LASTDB_SOCKET_PATH`** — canonical explicit socket-path override.
-2. **`FOLDDB_SOCKET_PATH`** — second explicit override, read when
-   `LASTDB_SOCKET_PATH` is unset.
-3. **`<home>/data/folddb.sock`** — the default the node binds. The home is
-   `LASTDB_HOME` when it is set, else `~/.lastdb`.
-
-The discovered file must exist. A missing socket throws `TransportError` with
-kind `connect` and names the path. An explicit `socketPath` is used as given.
-`ownerClient` always requires an explicit `socketPath` whose file exists.
-`fold.target` is `unix:<socket>`.
-
-```ts
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-await connect({
-  socketPath: join(homedir(), '.lastdb', 'data', 'folddb.sock'),
-  appId: 'my-app',
-});
-
-// Discovery. The file at the resolved path must exist.
-await connect({ appId: 'my-app' });
-```
-
-`defaultHeaders` attach to every request. A per-call header of the same name
-wins. The SDK sets `X-LastDB-Client` from `clientId` or `appId` when the caller
-does not. The transport mints `x-lastdb-request-id` per request when neither
-seam already carries one. The socket authenticates the caller with kernel peer
-credentials.
-
-## Request timeout
-
-Every transport request has a 30s timeout by default, so a hung or wedged node
-cannot leave SDK calls pending forever. Override it per client when needed:
-
-```ts
-await connect({ appId: 'my-app', timeoutMs: 5000 });
-```
-
-## Capability storage
-
-Granted capabilities are stored, per the App Identity design, in the **OS
-keychain** with a **file fallback** on headless machines and non-macOS
-platforms:
-
-- macOS: the system Keychain via the `security` CLI (no native addon).
-  The Keychain **service label** is configurable via
-  `connect({ keychainService })` (default `com.folddb.app-sdk.capability`).
-- elsewhere / headless / keychain unavailable: a `0o600` file under
-  `$FOLDDB_APP_SDK_HOME` (default `~/.folddb-app-sdk/capabilities/`).
-
-**Testability seam.** The keychain's `security` CLI is invoked through an
-injectable `SecurityRunner` — `new KeychainWithFileFallbackStore(baseDir,
-service, runner)` (or `new MacKeychainStore(service, runner)`) lets an app's
-test suite simulate a hung keychain prompt (`status: null` + `error`), a
-locked keychain (non-zero status), or a missing item (`find` exit 44) without
-spawning the real CLI. When a runner is injected the darwin platform gate is
-skipped, so the keychain path and its file fallback are exercisable on any OS
-(CI/Linux). Omit the runner for the real CLI, bounded by the 5s hang timeout.
-
-**Per-node keying.** A capability is minted by one node for one app, so the
-store keys entries by **(appId, nodeUrl/socketPath)** — `connect` derives the
-key with `capabilityStoreKey(appId, transport.target)`. An app that connects
-to more than one node (or whose node URL changes) therefore never replays
-node A's capability against node B: the entry for B is a different key, and as
-defense-in-depth the stored value records the `boundNode` it was minted for —
-a loaded capability whose bound node ≠ the current connection is treated as
-**absent** (`load` returns `null`), never blindly sent.
-
-`connect` auto-loads any stored capability for `(appId, node)`. You can also
-drive storage explicitly with `storeCapability` / `loadCapability`, or inject
-a custom `capabilityStore`.
-
-> **API note (CapabilityStore).** The `CapabilityStore` interface keys by an
-> opaque `key: string` the client builds from `(appId, node)`, and records the
-> bound node:
-> `store(key, capability, boundNode)` /
-> `load(key, { expectedNode? })` / `remove(key)`. A custom store honors
-> `expectedNode` in `load` for the wrong-node guard. Build the key with the
-> exported `capabilityStoreKey(appId, nodeTarget)` helper. The built-in stores
-> read only the `{ v: 1, capability, boundNode }` envelope they write; any
-> other stored value loads as absent (`null`).
-
-## Keys-only membership
-
-Use `list()` when an app needs the live members of a schema without loading
-their field values. It calls `GET /api/list`; it does not delegate to an unfiltered
-`queryAll()` scan. The cursor is opaque and exclusive, so pass it back exactly
-as returned until `has_more` is false:
-
-```ts
-const first = await db.list('SomeSchema', { limit: 100 });
-const second = first.has_more
-  ? await db.list('SomeSchema', { limit: 100, cursor: first.next_cursor! })
-  : null;
-
-const records = await db.query('SomeSchema', {
-  filter: { HashRangeKeys: first.keys.map(key => [key.hash, key.range ?? '']) },
-});
-```
-
-`list()` returns only `{ schema, keys, next_cursor, has_more, truncated }`.
-One page is never a census: `truncated` mirrors `has_more`, and callers that
-need every available key must drain every cursor page. The walk is not a
-snapshot; concurrent writes or deletes can change membership between pages.
-
-## Query result envelope
-
-`query()` returns the node's **full envelope for each record**, not a bare
-field map. Each `QueryRow` (the SDK type name) carries:
-
-| Field | Meaning |
-|---|---|
-| `key` | the record key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
-| `keyValue` | the **structured** `{hash, range}` key of the record — pass it back verbatim as `MutationOp.key` to update/delete this exact record; `null` only when the key has neither a hash nor a range |
-| `fields` | every field the record stores; copy them when constructing a replacement |
-| `revision` | the whole-record condition token returned by the read |
-| `alternates` | all named alternate addresses, independent of payload fields |
-| `metadata` | the one metadata block of the record (`source_file_name`, the `metadata` map, and the `file` and `inline_file` markers), or `null` when the record has none. A field has no metadata of its own |
-
-This is the API 29 shape of `lastdbd`'s `/api/query`. The request names a
-schema and an optional key filter. It does not name fields. Each item of
-`results` is one record: `{key, revision, alternates, fields, metadata}`.
-`metadata` is `{source_file_name, metadata?, file?, inline_file?}` or `null`.
-The SDK surfaces the key, field, and metadata parts and invents none. A body
-without a `results` array, or a record without an object `key` and `fields`,
-throws `UnexpectedResponseError`.
-
-### Inline files
-
-A record can own one small inline file (64 KiB at most), such as a
-thumbnail. Its bytes live in their own row next to the record, so they travel
-with the records through backup and restore, and a query that reads many
-records (for example, all the vector embeddings) never loads the thumbnails.
-The record's large file stays in `metadata.file`.
-
-- A query returns the whole record, with the inline file's marker in
-  `metadata.inline_file` (`size_bytes`, `sha256`, and `name` / `media_type`
-  when set). It never returns the bytes.
-- The owner reads the bytes with the node's `fetch-blob` route and
-  `placement: "inline"` (or `lastdb get --hydrate-inline <path>`).
-- `mutate` never sends the inline file. A replacement keeps the record's
-  inline file and does not rewrite its row. The owner writes and removes
-  inline files through the node's file routes (`put-blob` / `delete-blob`
-  with `placement: "inline"`, or the `lastdb mutate` request file). A record
-  delete removes its inline file.
-
-## Pagination
-
-Mini / production `lastdbd` **always pages `/api/query`**: with no `limit` it
-still caps the response at its default page size (100, `DEFAULT_QUERY_LIMIT`),
-so a plain `query()` against a schema with more than 100 records is silently truncated. The SDK
-exposes the node's pagination params and metadata:
-
-- `query(schema, { limit, offset })` — forwarded verbatim as the request's
-  top-level pagination fields, **only when set**. Both production Mini and
-  local `folddb`/dev tooling honor them with the same default/clamp and page
-  metadata.
-- `QueryResult.page` — the node's pagination metadata (`totalCount`,
-  `returnedCount`, `limit`, `offset`, `hasMore`), or `null` when the node
-  reported none. `page?.hasMore` is the truncation signal.
-- `queryAll(schema, filter?, { pageSize?, maxRows? })` — auto-paginates until
-  the node reports no more records and returns everything as one result.
-  `maxRows` (default 100k) is the safety ceiling; when hit, the returned
-  `page.hasMore` stays `true` so the truncation is visible.
-
-```ts
-const all = await fold.queryAll('fbrain/Concept');
-console.log(all.rowCount, all.page?.hasMore); // every record; false unless maxRows hit
-```
-
-## Batch reads (`queryBatch`)
-
-`queryBatch(items)` sends several **independent** reads, possibly from
-different schemas, in one request (`POST /api/queries/batch`). Each item is
-the arguments of `query`:
-
-```ts
-const [note, task] = await fold.queryBatch([
-  { schemaName: 'app/Notes', filter: { filter: { HashKey: 'n1' } } },
-  { schemaName: 'app/Tasks', filter: { filter: { HashKey: 't1' } } },
-]);
-if (note.ok) console.log(note.result.rows);
-else console.error(note.error); // the typed error `query` would have thrown
-```
-
-- Outcomes come back **in request order**. A failing item is `{ ok: false, error }`
-  with the same typed error `query` throws; the other items still return records.
-  The call itself throws only when the whole request is refused (auth,
-  capability, malformed) or the transport fails.
-- More than 64 items go out as several requests, joined in order.
-- Items are **not** joined and do not share work: the node runs them as
-  separate queries, four at a time. To read many keys of **one** schema, use one
-  `query` with a `HashRangeKeys` filter. The batch removes request round trips and
-  overlaps the items; it does not merge their disk reads.
-- The full-scan opt-in is never sent, so an unkeyed item fails with the node's
-  refusal, as `query` does without `allowFullScan`.
-- A non-200 answer to the whole request throws the typed error for its status.
-
-## Search (scoped)
-
-`search()` runs the node's **scoped native-index search** (`POST /api/app/search`,
-operation 5 of the [app-API contract](https://github.com/EdgeVector/exemem-workspace/blob/main/docs/designs/folddb_app_api.md)) —
-associative recall over the user's data, ranked by relevance.
-
-```ts
-const { hits } = await fold.search('quantum computing', { k: 10 });
-for (const hit of hits) {
-  console.log(hit.score, hit.schemaName, hit.key, hit.fields);
-  //          ^relevance ^which schema   ^record key ^full envelope
-}
-```
-
-Each hit is a full `QueryRow` envelope (`key` + `fields` + `metadata`,
-exactly as `query()` returns) plus three search-only fields:
-
-| Field | Meaning |
-|---|---|
-| `score` | the node's relevance score (cosine), or `null` when none |
-| `schemaName` | the schema the hit came from (always within the app's scope) |
-| `schemaDisplayName` | the schema's human-readable name, or `null` |
-
-### Scope is node-authoritative — the app cannot widen it
-
-This is the security property that makes scoped search safe to hand an app, and
-it is enforced **by the node, not the SDK**:
-
-- The app **never names its scope**. The node derives the access-scope set
-  `S(A)` — the schemas the app *owns* plus those it has been *granted* — from
-  the capability's verified `app_id` against its own grant ledger, and ranks
-  **only** over `S(A)`. Hits come back **only from schemas the app has been
-  granted**; everything else is invisible.
-- **There is no `schemas` / allowlist parameter, by design.** The SDK exposes a
-  single optional `target` — and the node *intersects* it with `S(A)`, never
-  unions. `target` can only **narrow** the search; a `target` the app isn't
-  granted simply yields **zero hits** (and a normal `200`, never an
-  existence-confirming error).
-- Scope is enforced by **traversal, not output filtering**: forbidden schemas
-  never enter the ranking, so an app cannot infer "there's similar content I
-  can't see" from a missing/low result. There is no recall/existence oracle.
-
-```ts
-// `target` can only SHRINK the result set to within the app's scope.
-// A target outside S(A) is intersected away → { hits: [] }, normal 200.
-const scoped = await fold.search('quantum computing', { target: 'fbrain/Concept' });
-```
-
-A header-less (capability-less) call is refused by the node with
-`403 capability_required` rather than handing back the owner's whole-index
-search — the SDK surfaces that as `PermissionDeniedError`.
-
-## Durable change feed
-
-`changes()` reads thin, ordered mutation metadata from `POST /api/app/changes`.
-The feed is persisted in a bounded, node-local LastDB namespace; it is not a
-sidecar file and is not cloud-synced product data. Consumers must point-read
-the authoritative record after each event.
-
-```ts
-let cursor: string | undefined;
-const page = await fold.changes({ since: cursor, limit: 100 });
-if (page.gap) {
-  // Cursor fell behind retention: rescan the app's declared product keys.
-}
-for (const change of page.changes) {
-  console.log(change.schemaName, change.key, change.operation);
-}
-cursor = page.nextCursor; // persist this in an app-owned LastDB record
-```
-
-The node derives visible schemas from the verified caller. `target` is a
-single optional narrowing filter and cannot widen scope. Cursors are opaque;
-`gap` is explicit so a long-offline worker cannot silently treat an incomplete
-event history as complete.
-
-## Complete conditional records
-
-SDK 0.7 and node API 28 replace complete records. Omitted payload fields disappear.
-Keys are independent of fields. Supply exactly every declared alternate name;
-`null` is valid only for an alternate declared with `allow_absent`. The server
-assigns mutation identities; requests do not supply one. Replaying a successful
-request can return a revision conflict without changing the accepted record.
-The server does not retain or replay earlier acknowledgements.
-
-Creation requires `{type: 'absent'}`. Replacement, deletion and purge require the
-record revision. Read the complete record with no field projection, then supply
-all values and metadata you want to retain:
-
-```ts
-const { rows } = await fold.query('myapp/Ref', { filter: { HashKey: 'main' } });
-const current = rows[0];
-const result = await fold.mutate('myapp/Ref', {
-  mutationType: 'replace',
-  key: current.keyValue!,
-  alternates: current.alternates,
-  record: { ...current.fields, oid: 'newoid' },
-  metadata: current.metadata,
-  expected: { type: 'revision', revision: current.revision },
-});
-// result.recordRevision is available without another read.
-```
-
-The SDK performs no implicit read or field merge. Absence of metadata also clears
-its file marker; copy metadata from a full read to retain an existing file. New
-file bytes go through the owner file route with a complete mutation. A stale
-condition raises `CasConflictError` with `.schema`, `.key`, `.expected` and
-`.actual`; re-read and recompute the complete record before a new attempt.
-
-`lastdb mutate --request-file request.json` submits the same native JSON grammar.
-To read the record and its file together, use `lastdb get` by schema and
-key with `--hydrate`.
-
-## Typed errors
-
-Every node failure maps to a specific error class — there is no catch-all.
-
-| Throw | When |
-|---|---|
-| `UnknownAppError` | `request-consent` 404 — app not in the registry |
-| `AppInSandboxError` | `request-consent` 403 — sandbox-tier, non-owner caller |
-| `InvalidScopeError` | `request-consent` 400 — malformed scope |
-| `ConsentDeniedError` | `consent-status` 403 `denied` — owner declined |
-| `CapabilityRevokedError` | `consent-status` 403 `revoked` — discard token, don't re-prompt |
-| `ConsentExpiredError` | `consent-status` 408 — 5-min window elapsed |
-| `ConsentRequestNotFoundError` | `consent-status` 404 — unknown `request_id` |
-| `ConsentTimeoutError` | client-side `awaitConsent` deadline hit while still pending |
-| `PermissionDeniedError` | query/mutation/search 403 — `.category` ∈ `namespace_denied` / `unverified_identity` / `write_denied` / `capability_denied` / `unknown` |
-| `CapabilityDeniedError` | a 403 whose body carries a discriminated `reason` (the app_identity v3.1 capability-verifier contract, plus search's `capability_required`) — subclasses `PermissionDeniedError`; carries `.reason` verbatim + `.detail` |
-| `CapabilityVerificationError` | a granted/inline capability failed client-side verification under `verifyCapability` — `.problem` ∈ `malformed` / `audience_mismatch` / `integrity_mismatch` |
-| `RequestRejectedError` | query/mutation/search 400 — carries the node's `kind`, its message (`error` or `message`), and the raw parsed `.body` verbatim |
-| `NodeTooOldError` | the node is older than this client: `connect({ requireApiVersion })` read a lower `api_version` (or a 404 = `0`), or a data route answered `400 {kind:"unknown_key"}` — subclasses `RequestRejectedError`; `.message` is the one-line remedy, `.detail` the facts |
-| `CasConflictError` | mutation 409 `{error:"cas_conflict"}` — a `MutationOp.expected` precondition did not hold; carries `.schema` / `.key` / `.expected` / `.actual` (+ verbatim `.body`) so an app can re-read and retry |
-| `TransportError` / `UnexpectedResponseError` | network failure / unmodeled status |
-
-## Public API
-
-```ts
-connect(options: ConnectOptions): Promise<LastDbClient>
-capabilityStoreKey(appId: string, nodeTarget: string): string
-
-class LastDbClient {
-  readonly appId: string
-  get target(): string
-  get hasCapability(): boolean
-
-  requestConsent(scope?: ConsentScope): Promise<RequestConsentResult>
-  awaitConsent(requestId: string, options?: AwaitConsentOptions): Promise<string>
-  pollConsentOnce(requestId: string): Promise<string | null>
-
-  storeCapability(capability: string): Promise<void>   // keyed by (appId, node)
-  loadCapability(): Promise<string | null>             // wrong-node / failed-verification ⇒ null
-
-  list(schemaName: string, opts?: ListOptions): Promise<ListResult>
-  query(schemaName: string, filter?: QueryFilter): Promise<QueryResult>
-  queryAll(schemaName: string, filter?: Omit<QueryFilter, 'limit' | 'offset'>,
-           opts?: QueryAllOptions): Promise<QueryResult>  // auto-paginates past the node's page cap
-  queryBatch(items: QueryBatchItem[]): Promise<QueryBatchOutcome[]>  // independent reads, one request
-  mutate(schemaName: string, op: MutationOp): Promise<MutationResult>
-  search(query: string, opts?: SearchOptions): Promise<SearchResult>  // scope is node-authoritative
-
-  autoIdentity(): Promise<AutoIdentityResult>                 // owner/host helper, not capability-scoped
-  listSchemas(): Promise<LoadedSchema[]>                      // owner/host helper over GET /api/schemas
-  resolveSchema(descriptor: SchemaDescriptor): Promise<LoadedSchema | null>
-}
-
-interface QueryFilter {
-  filter?: JsonValue                   // fold_db range filter, verbatim
-  limit?: number                       // page size (both nodes default 100, clamp 1000)
-  offset?: number                      // page offset (both nodes; default 0)
-}
-interface QueryAllOptions { pageSize?: number /* default 100 */; maxRows?: number /* default 100k */ }
-interface QueryResult {
-  schema: string; rowCount: number; rows: QueryRow[]
-  page: QueryPage | null               // the node's pagination metadata, or null when none reported
-}
-interface QueryPage { totalCount: number; returnedCount: number; limit: number; offset: number; hasMore: boolean }
-interface KeyValue { hash: string | null; range: string | null }
-interface QueryRow {
-  key: string                          // rendered key string (Display form; ambiguous with ':' ranges)
-  keyValue: KeyValue | null            // structured record address — pass back as MutationOp.key
-  fields: Record<string, JsonValue>    // the flattened field map
-  metadata: RecordMetadata | null      // the one metadata block of the record
-}
-interface RecordMetadata { source_file_name: string | null; metadata?: Record<string, string> }
-
-interface SearchOptions {
-  k?: number                           // top-N hits (node defaults + clamps)
-  target?: string                      // ONE schema the node INTERSECTS with S(A); never an allowlist
-}
-interface SearchResult { hits: SearchHit[] }
-interface SearchHit extends QueryRow { // the full record envelope, plus:
-  score: number | null                 // relevance (cosine), or null
-  schemaName: string                   // which (in-scope) schema the hit came from
-  schemaDisplayName: string | null
-}
-
-// Discriminated union: create uses absent; replace/delete/purge use revision.
-// Deletion carries no payload or metadata.
-type MutationOp = {
-  mutationId: string
-  mutationType: 'create' | 'replace' | 'delete' | 'purge'
-  record?: Record<string, JsonValue>    // required on create/replace
-  metadata?: RecordMetadata | null     // complete selected metadata/file state
-  key: KeyValue
-  alternates: Record<string, KeyValue | null>
-  expected: CasExpectation
-}
-type CasExpectation = { type: 'absent' } | { type: 'revision'; revision: string }
-interface MutationResult {
-  mutationId: string
-  recordRevision: string
-  backgroundTasksDrained?: boolean
-  convergencePending?: boolean
-}
-
-// CAS precondition failure — mutation 409 {error:"cas_conflict"}
-class CasConflictError extends LastDbError {
-  readonly schema: string | null      // the schema the write targeted
-  readonly field: string | null       // the field the precondition checked
-  readonly key: string | null         // the record key (rendered)
-  readonly expected: string | null    // the value the write expected
-  readonly actual: string | null      // the value the node observed (null when the field was absent)
-  readonly body: unknown              // the verbatim parsed 409 body
-}
-
-type AutoIdentityResult =
-  | { provisioned: true; userHash: string; publicKey: string | null; userId: string | null }
-  | { provisioned: false; reason: string; next: string | null }
-interface LoadedSchema {
-  name: string                         // canonical runtime name
-  identityHash: string | null          // explicit identity_hash, or name on current nodes
-  descriptiveName: string | null
-  ownerAppId: string | null
-  fields: string[]
-}
-interface SchemaDescriptor {
-  ownerAppId: string
-  descriptiveName: string
-  fields?: readonly string[]           // exact field set, order-insensitive
-}
-
-// Gap #4 — capability 403 contract + client-side verification
-class CapabilityDeniedError extends PermissionDeniedError {
-  readonly reason: string                       // the node's discriminator, verbatim
-  readonly detail: CapabilityDenialDetail       // { capabilityId? schema? timestampSkewSecs? }
-  get denialReason(): CapabilityDenialReason | null  // narrowed to the 8-reason contract
-}
-capabilityDenialReaction(reason, detail?): CapabilityDenialReaction
-  // { discardToken, reacquire, retryOnce, surface? } per the design's contract table
-
-canonicalize(value: JsonValue): string          // RFC 8785 JCS (matches the Rust node)
-canonicalizeBytes(value: JsonValue): Uint8Array
-decodeCapabilityBlob(blob: string): CapabilityToken | null
-tokenIntegrityValid(token: CapabilityToken): boolean  // payload_hash == sha256(JCS(payload))
-verifyCapabilityBlob(blob: string, expectedAppId: string): CapabilityBlobVerification
-```
-
-## Node surface
-
-The node serves the app routes only on its Unix sockets. Connect with
-`socketPath` (typically `~/.lastdb/data/folddb.sock`). `search()` calls
-`POST /api/app/search`; the node resolves the search scope from the caller's
-verified posture, so the app never names its own scope.
-
-## Owner / Host Helpers
-
-`autoIdentity()`, `listSchemas()`, and `resolveSchema()` are deliberately
-owner/host-context helpers. They cover the two node endpoints LastDB owner apps
-kept hand-rolling while using the SDK for the app data plane:
-
-- `GET /api/system/auto-identity` returns the local owner identity. The node's
-  canonical 503 becomes `{ provisioned: false, reason, next }`.
-- `GET /api/schemas` lists loaded schemas; `resolveSchema({ ownerAppId,
-  descriptiveName, fields })` resolves the app's own descriptor to the
-  loaded canonical `identityHash`/`name` without each app re-parsing raw JSON.
-
-These helpers do not attach `X-App-Capability` and do not represent an app's
-capability-scoped access set `S(A)`. They are for owner-side setup, diagnostics,
-and host-context tools such as fbrain and fsituations.
-
-## Capability 403 contract + client-side verification (gap #4)
-
-A production node's capability verifier refuses a write with one of **eight
-discriminated reasons** (`fold_db/crates/core/src/access/capability_denial.rs`),
-rendered as `403 {status: 403, reason: "<reason>", ...detail}`:
-`capability_revoked` · `capability_expired` · `capability_unknown` ·
-`capability_out_of_scope` (+`schema`) · `capability_replay`
-(+`timestamp_skew_secs`) · `capability_bad_sig` · `capability_for_wrong_node` ·
-`consent_required`. The SDK surfaces any reason-tagged data-path 403 as
-`CapabilityDeniedError` with the node's `reason` **verbatim** plus the detail
-fields, and ships the design's contract reaction table as pure data:
-
-```ts
-import { CapabilityDeniedError, capabilityDenialReaction } from '@lastdb/app-sdk';
-
-try {
-  await client.mutate('appa/Notes', op);
-} catch (e) {
-  if (e instanceof CapabilityDeniedError && e.denialReason !== null) {
-    const r = capabilityDenialReaction(e.denialReason, e.detail);
-    // r.discardToken / r.reacquire / r.retryOnce / r.surface — apply per your app's lifecycle
-  }
-}
-```
-
-The SDK can also verify a capability blob **client-side** before storing or
-replaying it. A token's `envelope.payload_hash` is
-`sha256(JCS(token-minus-envelope))` — RFC 8785 canonicalization, byte-identical
-to the node's Rust `app_identity_crypto` canonicalizer (pinned by the shared
-golden vectors). Opt in via `connect({ ..., verifyCapability: true })`:
-
-- a **granted** token (`awaitConsent`) is gated on audience binding
-  (`token.app_id === appId`) + JCS integrity — a mismatch throws
-  `CapabilityVerificationError` and nothing is stored;
-- a **cached** token (`connect` auto-load / `loadCapability`) that fails is
-  discarded and treated as absent — never replayed into a guaranteed
-  `capability_bad_sig` 403.
-
-The default is off (verbatim token-carrier behavior — e.g. a dev node's
-`app trust` override has no real token). The helpers are exported standalone:
-`canonicalize` / `canonicalizeBytes` (RFC 8785 JCS), `decodeCapabilityBlob`,
-`tokenIntegrityValid`, `verifyCapabilityBlob`, `sha256Hex`. The client never
-re-signs anything — the node's Ed25519 signature check remains the enforcement
-point; this just keeps the client's cache clean and fails fast.
-
-## Known limitations
-
-- **No JCS request digest.** The node binds a capability to the request via
-  headers (`X-App-Capability` + `X-Capability-Ts`), not a per-request
-  canonicalized digest; if a future node dialect adds one, the JCS module here
-  is the building block.
+When a Share submission outcome is uncertain, `mutate` throws
+`ShareSubmissionUncertainError` with `.mutationId` so the caller can retry with
+the same body and UUID.
+
+## Interop Rule
+
+Schemas use runtime names `{app_id}/{local}`. Read another app's schema by its
+full name and write only schemas in your own namespace. Each schema owns its
+record values independently.
+
+## Access Model & Queries
+
+LastDB is a keyed store: every `query`, `queryAll`, and `queryBatch` item names
+a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
+`HashRangeBetween`, `HashRangeKeys`, etc.). Unfiltered scans and server-side
+`where` field filters are not supported.
+
+- `list(schemaName, { keyName?, hash?, limit?, cursor? })` — keys-only cursor
+  pages over `GET /api/list`.
+- `query(schemaName, { keyName?, filter?, limit?, offset?, cursor? })` — one
+  keyed page over `POST /api/query`.
+- `queryAll(schemaName, filter?, { pageSize?, maxRows? })` — drains a keyed
+  query across pages up to `maxRows` (default 100,000).
+- `queryBatch(items)` — up to 64 independent keyed queries per request over
+  `POST /api/queries/batch`.
+- `mutate(schemaName, op, options?)` — complete conditional record `create` /
+  `replace` / `delete` / `purge` over `POST /api/mutation`.
+- `declareSchema(request)` / `rememberDefinition(schemaName, definitionId)` —
+  declare a schema on `POST /api/schemas/declare` and attach `definition_id` on
+  subsequent mutations.
+- `changes({ since?, limit?, target? })` — read durable changed-row cursors from
+  `POST /api/app/changes`.
+- `autoIdentity()`, `listSchemas()`, `resolveSchema(descriptor)` — owner/host
+  helpers over `GET /api/system/auto-identity` and `GET /api/schemas`.
+
+## Typed Errors
+
+- `NodeTooOldError` — `GET /api/version` reported a lower `api_version` than
+  required, or a route answered `400 {kind: "unknown_key"}` (subclasses
+  `RequestRejectedError`).
+- `CasConflictError` — `409 {error: "cas_conflict"}` with `.schema`, `.key`,
+  `.expected`, `.actual`, and `.body`.
+- `RequestRejectedError` — `400` request/schema rejection with `.kind` and `.body`.
+- `PermissionDeniedError` — `403` posture/namespace denial with `.category`.
+- `AuthenticationRequiredError` — `401` credential failure.
+- `QueryPaginationError` — `queryAll` detected stalled pagination or a count
+  mismatch.
+- `ShareSubmissionUncertainError` — uncertain Share submission upload outcome.
+- `TransportError` / `UnexpectedResponseError` — socket/timeout failure or
+  unmodeled HTTP status.
 
 ## Development
 
 ```bash
-npm install
-npm run build        # tsc → dist/
+npm ci
 npm run typecheck
 npm run lint
+npm run build
 ```

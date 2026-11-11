@@ -1,14 +1,12 @@
 /**
  * `ownerClient` — the synchronous entry point for an owner-context app.
  *
- * It does not load a capability and it does not touch the keychain. Pass a
- * `socketPath` whose file exists. {@link connect} remains the async path for
- * consent apps.
+ * Pass an explicit `socketPath` whose file exists. {@link connect} is the async
+ * path that also supports socket discovery and the API version handshake.
  */
 
 import { existsSync } from 'node:fs';
 
-import { capabilityStoreKey, type CapabilityStore } from './capabilityStore.js';
 import { LastDbClient } from './client.js';
 import { TransportError } from './errors.js';
 import { udsTransport, type Transport } from './transport.js';
@@ -35,25 +33,6 @@ export interface OwnerClientOptions {
   timeoutMs?: number;
 }
 
-/**
- * The capability store an owner-context client is given: a no-op. Owner-context
- * apps never mint, store, or replay a capability, so `store`/`load`/`remove`
- * are all no-ops and the
- * SDK never touches a real keychain or the filesystem.
- */
-const NOOP_CAPABILITY_STORE: CapabilityStore = {
-  async store() {},
-  async load() {
-    return null;
-  },
-  async remove() {},
-};
-
-/**
- * Resolve the transport for an owner-context client.
- *
- * The `socketPath` file must exist. Otherwise this throws {@link TransportError}.
- */
 function resolveOwnerTransport(options: OwnerClientOptions): Transport {
   const { socketPath, defaultHeaders, timeoutMs } = options;
   if (socketPath.length > 0 && existsSync(socketPath)) {
@@ -66,30 +45,11 @@ function resolveOwnerTransport(options: OwnerClientOptions): Transport {
 }
 
 /**
- * Build a capability-less {@link LastDbClient} for an owner-context app.
+ * Build a {@link LastDbClient} synchronously for an owner-context app.
  *
- * Synchronous and keychain-free. The socket file must exist. There is no
- * async consent load.
- *
- * Use {@link connect} instead for consent apps.
- *
- * @example
- * ```ts
- * const client = ownerClient({
- *   appId: 'my-app',
- *   socketPath: '/Users/me/.lastdb/data/folddb.sock',
- * });
- * const rows = await client.queryAll('MySchema');
- * ```
+ * The socket file must exist.
  */
 export function ownerClient(options: OwnerClientOptions): LastDbClient {
   const transport = resolveOwnerTransport(options);
-  return new LastDbClient(
-    options.appId,
-    transport,
-    NOOP_CAPABILITY_STORE,
-    null,
-    capabilityStoreKey(options.appId, transport.target),
-    transport.target,
-  );
+  return new LastDbClient(options.appId, transport);
 }

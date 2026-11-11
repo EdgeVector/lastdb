@@ -4,22 +4,20 @@ import {
   UnexpectedResponseError,
 } from './errors.js';
 import {
-  AutoIdentityResult,
-  ChangesResult,
-  JsonValue,
-  KeyValue,
-  QueryCursor,
-  LoadedSchema,
-  NodeVersion,
-  QueryPage,
-  QueryResult,
-  QueryRow,
-  FileMarker,
-  RecordMetadata,
-  SchemaDescriptor,
-  RowFields,
-  SearchHit,
-  SearchResult,
+  type AutoIdentityResult,
+  type ChangesResult,
+  type JsonValue,
+  type KeyValue,
+  type QueryCursor,
+  type LoadedSchema,
+  type NodeVersion,
+  type QueryPage,
+  type QueryResult,
+  type QueryRow,
+  type FileMarker,
+  type RecordMetadata,
+  type SchemaDescriptor,
+  type RowFields,
 } from './types.js';
 
 export { parseListResponse } from './listResponse.js';
@@ -27,13 +25,6 @@ export { parseListResponse } from './listResponse.js';
 /**
  * Parse a `200` `/api/query` body into a {@link QueryResult}, surfacing the
  * full per-row envelope.
- *
- * The node returns its rows under `results`, one object per key shaped
- * `{ key, fields, metadata }` (`lastdb_host`
- * `handlers::query::response::format_rows`). Each row is normalized to a
- * {@link QueryRow}; a body without a `results` array, or a row without the
- * envelope, is an unexpected response. The node sends no schema name, so
- * `schema` is empty here and the client sets the app schema name.
  */
 export function parseQueryResponse(body: unknown): QueryResult {
   const results = isObject(body) ? body['results'] : undefined;
@@ -46,12 +37,8 @@ export function parseQueryResponse(body: unknown): QueryResult {
 
 /**
  * Read the pagination metadata (`total_count` / `returned_count` / `limit` /
- * `offset` / `has_more`, per `lastdb_host` `handlers::query::paging::page_payload`)
- * off a 200 `/api/query` body. Returns `null` when the body carries none — the
- * SDK never invents pagination the node didn't do. A paginated response may
- * set `total_count: null` when the node intentionally skipped an exact count;
- * keep the page metadata so
- * `queryAll` can fail closed instead of treating the drain as clean.
+ * `offset` / `has_more`) off a 200 `/api/query` body. Returns `null` when the
+ * body carries none.
  */
 export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
   if (!isObject(body)) {
@@ -94,11 +81,7 @@ export function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * Read the `mutation_id` off a `200` `POST /api/mutation` body. The single
- * route answers `{ mutation_id, success: true, ... }`; a body without a
- * non-empty `mutation_id` and `success: true` is an unexpected response.
- * (`POST /api/mutations/batch` answers `mutation_ids`; this SDK does not call
- * that route.)
+ * Read the `mutation_id` off a `200` `POST /api/mutation` body.
  */
 export function parseMutationId(
   body: Record<string, JsonValue>,
@@ -123,11 +106,7 @@ export function parseMutationId(
 }
 
 /**
- * Normalize one raw query row (`{key, fields, metadata}`) into a
- * {@link QueryRow}. The structured `{hash, range}` key is preserved
- * verbatim as `keyValue` (the unambiguous row address) AND rendered to the
- * `key` string the same way fold_db's `KeyValue::Display` does. A row without
- * an object `key` and an object `fields` is an unexpected response.
+ * Normalize one raw query row (`{key, fields, metadata}`) into a {@link QueryRow}.
  */
 export function parseQueryRow(raw: unknown): QueryRow {
   const fields = isObject(raw) ? raw['fields'] : undefined;
@@ -153,6 +132,7 @@ function parseRevision(value: unknown, raw: unknown): string {
   }
   return value;
 }
+
 function parseAlternates(value: unknown, raw: unknown): Record<string, KeyValue | null> {
   if (!isObject(value)) throw new UnexpectedResponseError('query returned no alternate addresses', 200, raw);
   return Object.fromEntries(Object.entries(value).map(([name, key]) => {
@@ -164,8 +144,7 @@ function parseAlternates(value: unknown, raw: unknown): Record<string, KeyValue 
 }
 
 /**
- * Read the one metadata block of a row (decision D7), or `null` when the row
- * carries none.
+ * Read the one metadata block of a row, or `null` when the row carries none.
  */
 export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
   if (!isObject(raw)) {
@@ -201,10 +180,7 @@ function parseFileMarker(file: Record<string, unknown>, what: string, raw: unkno
 }
 
 /**
- * Render a row's structured `{hash, range}` key like fold_db's
- * `KeyValue::Display` (`"hash:range"` / `"hash"` / `"range"`). A key with
- * neither coordinate (a single-record schema) renders as `""` with
- * `keyValue: null`.
+ * Render a row's structured `{hash, range}` key (`"hash:range"` / `"hash"` / `"range"`).
  */
 export function parseRowKey(rawKey: Record<string, JsonValue>): { key: string; keyValue: KeyValue | null } {
   const keyValue = parseKeyValue(rawKey);
@@ -222,8 +198,8 @@ export function parseKeyValue(rawKey: unknown): KeyValue | null {
   if (!isObject(rawKey)) {
     return null;
   }
-  const hash = typeof rawKey['hash'] === 'string' ? (rawKey['hash'] as string) : null;
-  const range = typeof rawKey['range'] === 'string' ? (rawKey['range'] as string) : null;
+  const hash = typeof rawKey['hash'] === 'string' ? rawKey['hash'] : null;
+  const range = typeof rawKey['range'] === 'string' ? rawKey['range'] : null;
   return hash !== null || range !== null ? { hash, range } : null;
 }
 
@@ -237,7 +213,6 @@ function parseQueryCursor(raw: unknown): QueryCursor | null {
       && (typeof record !== 'string' || record.length === 0)) {
     throw new UnexpectedResponseError('query returned an invalid record cursor', 200, raw);
   }
-  // A record walk cursor names a record key position, not a row key.
   const key = typeof record === 'string' ? { hash: null, range: null } : parseKeyValue(raw);
   if (!key) {
     throw new UnexpectedResponseError('query returned an invalid cursor', 200, raw);
@@ -309,29 +284,7 @@ export function parseChangesResponse(body: unknown): ChangesResult {
 }
 
 /**
- * Parse a `200` `/api/app/search` body into a {@link SearchResult}.
- *
- * The node wraps the hits in its standard envelope: `{ ok, results: [...],
- * user_hash }` (the `ApiResponse<IndexSearchResponse>` shape). Each element of
- * `results` is a full `/api/query` row envelope (`key`, `fields`, `metadata`)
- * with three search-only fields the node adds per hit:
- * `schema_name`, `schema_display_name`, and `score`. Hits arrive in the node's
- * relevance order and are surfaced verbatim — the SDK preserves it.
- *
- * The row part is parsed by the SAME {@link parseQueryRow} used for `query()`,
- * so the envelope handling (structured key, record metadata) is identical.
- */
-export function parseSearchResponse(body: unknown): SearchResult {
-  const b = (body ?? {}) as { results?: unknown };
-  const rawHits: unknown[] = Array.isArray(b.results) ? b.results : [];
-  const hits = rawHits.map(parseSearchHit);
-  return { hits };
-}
-
-/**
- * Parse a `GET /api/version` 200 body (`lastdb_uds`
- * `uds_router::responses::version_response`). A body without a non-negative
- * integer `api_version` is an unexpected response.
+ * Parse a `GET /api/version` 200 body.
  */
 export function parseNodeVersion(body: unknown): NodeVersion {
   const b = (body ?? {}) as {
@@ -453,31 +406,3 @@ export function stringArray(value: unknown): string[] {
 export function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
-
-/**
- * Normalize one raw search hit. The row envelope (`key`/`fields`/`metadata`)
- * is parsed by {@link parseQueryRow}; the search-only
- * attribution fields (`score`, `schema_name`, `schema_display_name`) are read
- * off the same object. `score` is `null` when the node reported none.
- */
-export function parseSearchHit(raw: unknown): SearchHit {
-  const row = parseQueryRow(raw);
-  const obj = isObject(raw) ? raw : {};
-  const score = obj['score'];
-  const schemaName = obj['schema_name'];
-  const schemaDisplayName = obj['schema_display_name'];
-  return {
-    ...row,
-    score: typeof score === 'number' ? score : null,
-    schemaName: typeof schemaName === 'string' ? schemaName : '',
-    schemaDisplayName:
-      typeof schemaDisplayName === 'string' ? schemaDisplayName : null,
-  };
-}
-
-/**
- * Read the optional detail fields off a discriminated capability-403 body
- * (`capability_id` / `schema` / `timestamp_skew_secs`, per the
- * `CapabilityDenial` variant payloads). Unknown fields are ignored; absent
- * ones stay absent.
- */

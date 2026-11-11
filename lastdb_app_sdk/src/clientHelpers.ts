@@ -1,16 +1,12 @@
-/** Small shared helpers for the runtime client: error details, delay, batch pairing. */
+/** Small shared helpers for the runtime client: error details and batch pairing. */
 
 import {
   UnexpectedResponseError,
-  type CapabilityDenialDetail,
   type CasConflictDetail,
 } from './errors.js';
 import {
-  QueryBatchItem,
+  type QueryBatchItem,
 } from './types.js';
-import {
-  ResolvedSchema,
-} from './schemaMapping.js';
 import {
   isObject,
 } from './responseParsers.js';
@@ -28,23 +24,6 @@ export function authenticationRequiredReason(body: {
     return 'session_expired';
   }
   return 'auth_failed';
-}
-
-export function capabilityDetailOf(body: unknown): CapabilityDenialDetail {
-  const detail: CapabilityDenialDetail = {};
-  if (!isObject(body)) {
-    return detail;
-  }
-  if (typeof body['capability_id'] === 'string') {
-    detail.capabilityId = body['capability_id'];
-  }
-  if (typeof body['schema'] === 'string') {
-    detail.schema = body['schema'];
-  }
-  if (typeof body['timestamp_skew_secs'] === 'number') {
-    detail.timestampSkewSecs = body['timestamp_skew_secs'];
-  }
-  return detail;
 }
 
 /**
@@ -77,11 +56,6 @@ export function casConflictDetailOf(body: unknown): CasConflictDetail {
   return detail;
 }
 
-/** Promise-based sleep (used between consent polls). */
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -90,7 +64,6 @@ export function toError(error: unknown): Error {
 export interface BatchEntry {
   index: number;
   item: QueryBatchItem;
-  resolved: ResolvedSchema;
 }
 
 /**

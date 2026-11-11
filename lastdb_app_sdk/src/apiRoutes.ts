@@ -1,14 +1,10 @@
 /** Canonical LastDB runtime API route strings used by the SDK. */
 export const LASTDB_API_ROUTES = {
-  requestConsent: '/api/apps/request-consent',
-  consentStatus: (requestId: string) =>
-    `/api/apps/consent-status/${encodeURIComponent(requestId)}`,
   list: '/api/list',
   query: '/api/query',
   /** Several independent `/api/query` bodies in one request. */
   queryBatch: '/api/queries/batch',
   mutation: '/api/mutation',
-  appSearch: '/api/app/search',
   appChanges: '/api/app/changes',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',
