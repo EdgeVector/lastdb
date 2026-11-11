@@ -70,7 +70,7 @@ pub(in crate::exec) async fn execute_query(
     response_format: QueryResponseFormat,
 ) -> Result<Value, HostError> {
     let scope = host
-        .db
+        .records()
         .db_ops()
         .read_scope()
         .await
@@ -116,7 +116,7 @@ async fn execute_query_scoped(
         .is_some_and(HashRangeFilter::is_key_restricted)
     {
         let schema = host
-            .db
+            .records()
             .schema_manager()
             .get_schema_metadata(&query.schema_name)
             .map_err(|e| HostError::internal(e.to_string()))?;
@@ -177,7 +177,7 @@ async fn alternate_execute(
             return Err(HostError::new(400, "alternate counts do not use a cursor"));
         }
         let count = host
-            .db
+            .records()
             .query_executor()
             .count_alternate_rows(&query)
             .await
@@ -186,7 +186,7 @@ async fn alternate_execute(
     }
     let limit = clamp_request_limit(limit);
     let page = host
-        .db
+        .records()
         .query_executor()
         .query_alternate_page(query, limit, cursor)
         .await
@@ -199,7 +199,7 @@ async fn capture_key_comparison(
     name: &str,
 ) -> Result<Option<Arc<KeyComparisonContext>>, HostError> {
     let Some(schema) = host
-        .db
+        .records()
         .schema_manager()
         .resolve_schema(name)
         .await
@@ -207,7 +207,7 @@ async fn capture_key_comparison(
     else {
         return Ok(None);
     };
-    host.db
+    host.records()
         .db_ops()
         .records()
         .key_comparison_context(&schema)
@@ -222,7 +222,7 @@ fn is_app_owned_schema_ref(name: &str) -> bool {
 }
 
 async fn count_rows(host: &Host, query: &Query) -> Result<Option<usize>, HostError> {
-    host.db
+    host.records()
         .query_executor()
         .count_query_rows(query)
         .await
@@ -320,7 +320,7 @@ async fn execute_query_rows_windowed(
     let comparison = capture_key_comparison(host, &query.schema_name).await?;
     let sort_order = query.sort_order.clone();
     let future = async move {
-        let executor = host.db.query_executor();
+        let executor = host.records().query_executor();
         let resumable = window.is_some() && !matches!(query.sort_order, Some(SortOrder::Desc));
         let (result, end) = match window {
             Some(w) if resumable => {

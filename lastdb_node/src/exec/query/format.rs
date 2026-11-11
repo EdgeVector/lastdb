@@ -57,7 +57,7 @@ pub(in crate::exec) async fn execute_query_batch_route(
             );
             (index, resp)
         });
-    let scope = match host.db.db_ops().read_scope().await {
+    let scope = match host.records().db_ops().read_scope().await {
         Ok(scope) => scope,
         Err(error) => return error_response(503, &error.to_string(), ctx),
     };

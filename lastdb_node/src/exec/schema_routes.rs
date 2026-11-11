@@ -39,7 +39,7 @@ pub(in crate::exec) fn execute_list_schemas_route(
         return error_response(400, "schema listing does not count records", ctx);
     }
     let include_full = query_flag(&req.target, "include_full");
-    let mgr = host.db.schema_manager();
+    let mgr = host.records().schema_manager();
     let annotated = if include_full {
         mgr.get_schemas_with_states().ok().and_then(|s| {
             let active: Vec<_> = s
@@ -79,7 +79,7 @@ pub(in crate::exec) fn execute_get_schema_route(
         Ok(None) => return error_response(404, &format!("Schema not found: {name}"), ctx),
         Err(e) => return render(Err(e), ctx),
     };
-    let mgr = host.db.schema_manager();
+    let mgr = host.records().schema_manager();
     let sws = match mgr.get_schema_metadata(&canonical) {
         Ok(Some(schema)) => {
             let state = mgr
@@ -138,7 +138,7 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
     let name = request.schema.name.clone();
     let res = match request.schema.validate() {
         Ok(()) => {
-            host.db
+            host.records()
                 .schema_manager()
                 .load_schema_internal(request.schema)
                 .await
@@ -175,7 +175,7 @@ pub(in crate::exec) async fn execute_drop_schema_route(
     if schema.is_empty() == owner_app.is_empty() {
         return error_response(400, "pass exactly one of schema or owner_app", ctx);
     }
-    let mgr = host.db.schema_manager();
+    let mgr = host.records().schema_manager();
     if !owner_app.is_empty() {
         let names = match mgr.schema_names_owned_by(owner_app) {
             Ok(names) => names,
@@ -235,7 +235,8 @@ pub(in crate::exec) async fn execute_drop_schema_route(
 
 fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
     (error.status == 400).then_some(())?;
-    let schemas = host.db.schema_manager().get_schemas_with_states().ok()?;
+    let schemas = host.records().schema_manager();
+    let schemas = schemas.get_schemas_with_states().ok()?;
     let mut blocked = schemas.into_iter().filter(|e| {
         e.state == SchemaState::Blocked
             && (e.schema.descriptive_name.as_deref() == Some(requested)
@@ -249,7 +250,7 @@ pub(in crate::exec) fn resolve_schema_name(
     host: &Host,
     name: &str,
 ) -> Result<Option<String>, HostError> {
-    let mgr = host.db.schema_manager();
+    let mgr = host.records().schema_manager();
     let has_meta = |n: &str| {
         mgr.get_schema_metadata(n)
             .map(|s| s.is_some())

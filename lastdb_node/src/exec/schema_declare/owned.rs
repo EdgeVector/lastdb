@@ -54,7 +54,7 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<In
     let proposed = &declare.catalog_schema;
     proposed.validate_owned_schema()?;
     let schemas = host
-        .db
+        .records()
         .schema_manager()
         .get_schemas()
         .map_err(|e| e.to_string())?;
@@ -169,7 +169,7 @@ pub(super) async fn load(
     let runtime = installed.map_or(declare.local_schema_id.as_str(), |s| s.name.as_str());
     precheck_declare_retention(host, declare, runtime).await?;
     let schema = owned_schema(declare, installed)?;
-    host.db
+    host.records()
         .schema_manager()
         .load_schema_internal(schema)
         .await

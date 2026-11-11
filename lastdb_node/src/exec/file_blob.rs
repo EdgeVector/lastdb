@@ -65,12 +65,12 @@ pub(super) async fn execute_db_fetch_blob_route(
         let revision = target.expected_revision.as_deref();
         let result = match target.placement {
             Placement::Inline => {
-                host.db
+                host.records()
                     .read_record_inline_file(&schema, &target.key, revision)
                     .await
             }
             Placement::Blob => {
-                host.db
+                host.records()
                     .read_record_file(&schema, &target.key, revision)
                     .await
             }

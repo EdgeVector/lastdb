@@ -92,6 +92,9 @@ fn serve_node(
     if let Err(error) = lastdbd::drain_background(&runtime, &host, tasks) {
         shutdown_errors.push(error);
     }
+    if let Err(error) = runtime.block_on(host.shutdown_owned_databases()) {
+        shutdown_errors.push(format!("owned database shutdown flush failed: {error}"));
+    }
     if let Err(error) = runtime.block_on(host.db.shutdown()) {
         shutdown_errors.push(format!("FoldDB shutdown flush failed: {error}"));
     }

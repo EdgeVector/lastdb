@@ -67,6 +67,7 @@ jobs:
             echo "Fresh generated home only. No primary access, local build, or benchmark."
             echo "Share scope: real encrypted invitation roundtrip, recipient/publisher/tamper/expiry refusals, local acceptance and persistence, aliases, repeated acceptance and key conflicts."
             echo "Daemon scope: local setup, write modes, contributor create/replace/delete rule admission, purge refusal, owner direct replace and delete, database addressing, and Files import, list and save."
+            echo "Named databases: create owned siblings beside personal, keep their ids across the daemon restart, and isolate one key across personal and those siblings."
             echo "Format refusal: a copied home with altered node-marker bytes, and one whose marker claims an older format, must fail open with the unsupported-format error."
             echo "Cloud app publication/invitation/recovery is not exercised here; native multiwriter sync is a separate accepted-main DEV check."
             echo "Artifact: $ARTIFACT_URL"

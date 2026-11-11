@@ -70,7 +70,7 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
         Err(e) => return render(Err(e), ctx),
     };
     if request.key_name.is_some() {
-        let result = match host.db.db_ops().read_scope().await {
+        let result = match host.records().db_ops().read_scope().await {
             Ok(scope) => {
                 scope
                     .run_result(Box::pin(alternate_keyed_page(host, &request, &canonical)))
@@ -84,7 +84,7 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
         );
     }
     match host
-        .db
+        .records()
         .list_schema_record_keys(
             &request.requested,
             &canonical,
@@ -113,7 +113,7 @@ async fn alternate_keyed_page(
         .as_deref()
         .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
     let schema = host
-        .db
+        .records()
         .schema_manager()
         .get_schema_metadata(canonical)
         .map_err(HostError::from)?
