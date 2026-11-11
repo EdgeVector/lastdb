@@ -1,6 +1,7 @@
 //! Durable registry of owned database identity, separate from each store.
 
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -42,23 +43,70 @@ pub(super) fn read(home: &Path) -> Result<Option<RegistryFile>, String> {
         .map_err(|error| format!("invalid database registry: {error}"))
 }
 
-pub(super) fn write(home: &Path, registry: &RegistryFile) -> Result<(), String> {
+pub(super) struct WriteError {
+    /// The temp file was renamed onto `registry.json`. The previous file is gone.
+    pub renamed: bool,
+    message: String,
+}
+
+impl std::fmt::Display for WriteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+pub(super) fn write(home: &Path, registry: &RegistryFile) -> Result<(), WriteError> {
     let dir = home.join(REGISTRY_DIR);
     std::fs::create_dir_all(&dir)
-        .map_err(|error| format!("create database registry dir: {error}"))?;
+        .map_err(|error| WriteError::unchanged(format!("create database registry dir: {error}")))?;
     let path = dir.join(REGISTRY_FILE);
     let temporary = dir.join(format!("registry.json.tmp.{}", std::process::id()));
     let bytes = serde_json::to_vec_pretty(registry)
-        .map_err(|error| format!("encode database registry: {error}"))?;
-    if let Err(error) = std::fs::write(&temporary, bytes) {
+        .map_err(|error| WriteError::unchanged(format!("encode database registry: {error}")))?;
+    if let Err(error) = write_temp(&temporary, &bytes) {
         let _ = std::fs::remove_file(&temporary);
-        return Err(format!("write database registry: {error}"));
+        return Err(WriteError::unchanged(error));
     }
     if let Err(error) = std::fs::rename(&temporary, &path) {
         let _ = std::fs::remove_file(&temporary);
-        return Err(format!("rename database registry: {error}"));
+        return Err(WriteError::unchanged(format!(
+            "rename database registry: {error}"
+        )));
     }
+    std::fs::File::open(&dir)
+        .and_then(|file| file.sync_all())
+        .map_err(|error| WriteError::renamed(format!("sync database registry dir: {error}")))?;
     Ok(())
+}
+
+fn write_temp(temporary: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(temporary)
+        .map_err(|error| format!("write database registry: {error}"))?;
+    file.write_all(bytes)
+        .map_err(|error| format!("write database registry: {error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("sync database registry: {error}"))?;
+    Ok(())
+}
+
+impl WriteError {
+    fn unchanged(message: String) -> Self {
+        Self {
+            renamed: false,
+            message,
+        }
+    }
+
+    fn renamed(message: String) -> Self {
+        Self {
+            renamed: true,
+            message,
+        }
+    }
 }
 
 pub(super) fn used_ids(owner: &Entry, owned: &[Entry]) -> HashSet<String> {

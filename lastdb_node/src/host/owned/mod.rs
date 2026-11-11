@@ -100,12 +100,26 @@ pub(crate) struct Tables {
     state: RwLock<State>,
 }
 
+struct CommitError {
+    renamed: bool,
+    kind: OwnedError,
+}
+
+impl CommitError {
+    fn plain(kind: OwnedError) -> Self {
+        Self {
+            renamed: false,
+            kind,
+        }
+    }
+}
+
 impl Tables {
     pub(crate) async fn open(home: &Path, signer: Arc<Ed25519KeyPair>) -> Result<Self, String> {
         let file = registry::load(home)?;
         let stores = store::open_all(home, &file.owned, &signer).await?;
         if registry::read(home)?.is_none() {
-            registry::write(home, &file)?;
+            registry::write(home, &file).map_err(|error| error.to_string())?;
         }
         Ok(Self {
             state: RwLock::new(State {
@@ -169,9 +183,11 @@ impl Tables {
             spec,
         };
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
-            let _ = store.shutdown().await;
-            let _ = store::remove(home, &id).await;
-            return Err(error);
+            if !error.renamed {
+                let _ = store.shutdown().await;
+                let _ = store::remove(home, &id).await;
+            }
+            return Err(error.kind);
         }
         Ok(entry)
     }
@@ -197,7 +213,9 @@ impl Tables {
         state.owned[index].spec = spec;
         let file = snapshot(&state);
         if let Err(error) = registry::write(home, &file) {
-            state.owned[index].spec = previous;
+            if !error.renamed {
+                state.owned[index].spec = previous;
+            }
             tracing::warn!(error = %error, "owned database spec binding was not saved");
             return Err(OwnedError::Unavailable);
         }
@@ -240,21 +258,34 @@ impl Tables {
         home: &Path,
         entry: Entry,
         store: Arc<FoldDB>,
-    ) -> Result<(), OwnedError> {
-        let mut state = self.write()?;
-        let name = entry.name.as_deref().ok_or(OwnedError::Unavailable)?;
-        ensure_free(&state, name)?;
+    ) -> Result<(), CommitError> {
+        let mut state = self
+            .write()
+            .map_err(|_| CommitError::plain(OwnedError::Unavailable))?;
+        let name = entry
+            .name
+            .as_deref()
+            .ok_or(OwnedError::Unavailable)
+            .map_err(CommitError::plain)?;
+        ensure_free(&state, name).map_err(CommitError::plain)?;
         if state.stores.contains_key(&entry.id)
             || registry::used_ids(&state.registry_owner, &state.owned).contains(&entry.id)
         {
-            return Err(OwnedError::AlreadyRegistered);
+            return Err(CommitError::plain(OwnedError::AlreadyRegistered));
         }
         let id = entry.id.clone();
         state.owned.push(entry);
         if let Err(error) = registry::write(home, &snapshot(&state)) {
-            state.owned.pop();
+            if error.renamed {
+                state.stores.insert(id, store);
+            } else {
+                state.owned.pop();
+            }
             tracing::warn!(error = %error, "owned database registry write failed");
-            return Err(OwnedError::Unavailable);
+            return Err(CommitError {
+                renamed: error.renamed,
+                kind: OwnedError::Unavailable,
+            });
         }
         state.stores.insert(id, store);
         Ok(())
