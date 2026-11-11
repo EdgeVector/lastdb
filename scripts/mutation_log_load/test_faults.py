@@ -36,6 +36,7 @@ class Classifier(unittest.TestCase):
             {"code": "retry_later", "field": "mutation_log.transaction.throttled"},
             {"code": "retry_later", "field": "mutation_log.submission.throttled"},
             {"code": "retry_later", "field": "mutation_log.query.throttled"},
+            {"code": "retry_later", "field": "mutation_log.snapshot.throttled"},
         )
         for body in throttled:
             self.assertTrue(is_throttle(503, body))
@@ -44,6 +45,7 @@ class Classifier(unittest.TestCase):
             CONFLICT,
             {"code": "outcome_unknown", "field": "mutation_log.transaction"},
             {"code": "retry_later", "field": "mutation_log.query"},
+            {"code": "retry_later", "field": "mutation_log.snapshot"},
             {"code": "retry_later", "field": "mutation_log.transaction"},
         )
         for body in rejected:

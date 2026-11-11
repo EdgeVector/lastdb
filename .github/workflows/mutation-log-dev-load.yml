@@ -1,8 +1,8 @@
 name: Mutation log DEV load
 
 # Manual only. Never on push or pull request. Run it after exemem-infra
-# #769 is deployed to DEV. The OIDC role is the already-approved DEV role
-# for this repo, ref main, and the cloud-backup-dev environment. This
+# #769 is deployed to DEV. The OIDC role is the new DEV role from
+# exemem-infra #772, ref main, and the cloud-backup-dev environment. This
 # workflow does not create or change an IAM role.
 
 on:

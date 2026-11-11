@@ -8,8 +8,10 @@ writers a retry that succeeds and stays at or under 1% of write attempts
 is exit 0. Above 1% at 100 writers is exit 3. A write that is still
 failing after every retry is exit 3 only when that write left no partial
 row, the log invariants hold, and nothing acknowledged was lost.
-Otherwise it is exit 1. Any other trim failure, including ``through``
-below 128 or a head cursor below 128, is exit 1.
+Otherwise it is exit 1. The same intact-log rule applies to a throttle
+that is still failing after every retry. Any other trim failure,
+including ``through`` below 128, a head cursor below 128, or fewer than
+128 appends from the trim tier itself, is exit 1.
 
 A throttle 503 is the same code with field
 ``mutation_log.transaction.throttled``,
@@ -31,6 +33,7 @@ THROTTLE_FIELDS = frozenset((
     "mutation_log.transaction.throttled",
     "mutation_log.submission.throttled",
     "mutation_log.query.throttled",
+    "mutation_log.snapshot.throttled",
 ))
 CONTENTION_RATE = 0.01
 MAX_CONTENTION_TRIES = 8
@@ -50,7 +53,11 @@ def is_contention(status, payload):
     )
 
 
-class UnresolvedContention(Exception):
+class RetriesExhausted(Exception):
+    """A conflict or throttle used every client retry and still failed."""
+
+
+class UnresolvedContention(RetriesExhausted):
     """A conflicted write used every client retry and still failed."""
 
 

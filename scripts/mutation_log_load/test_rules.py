@@ -6,13 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cost import Ledger
-from drive import Session, drive
+from cost import CapExceeded, Ledger
+from drive import LoadError, Session, drive, run_writers
 from faults import EXIT_CORRECTNESS, EXIT_OK, EXIT_SCALING, exit_code
-from guard import database_id_for_run
+from finish import trim_appends
+from guard import GuardError, database_id_for_run
 from logcheck import ack_holds
 from plan import Scenario, scenario
-from test_cost import CONFLICT, CapAndRun, MemoryLog
+from run import batch_retry, keep_going
+from test_cost import CONFLICT, THROTTLED, CapAndRun, MemoryLog
 
 
 QUERY_THROTTLE = {"code": "retry_later", "field": "mutation_log.query.throttled"}
@@ -145,7 +147,7 @@ class AmendedExits(unittest.TestCase):
         self.assertEqual(session.contention_unresolved, 0)
         self.assertIn("contention retried", report["message"])
 
-    def test_trim_unresolved_conflict_with_an_intact_log_is_scaling(self):
+    def test_unresolved_trim_appends_do_not_exit_3(self):
         def hook(path, _parsed, _log):
             if path.endswith("/append"):
                 return 503, CONFLICT, 1
@@ -154,8 +156,10 @@ class AmendedExits(unittest.TestCase):
         session = self._session(MemoryLog(hook))
         session.sleeper = lambda _delay: None
         report = drive(scenario("trim"), session)
-        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
         self.assertGreater(report["summary"]["contention_unresolved"], 0)
+        self.assertFalse(any(path.endswith("/snapshot") or path.endswith("/trim") for path, _body in session.transport.seen))
 
     def test_trim_through_below_128_stays_a_correctness_failure(self):
         def hook(path, _parsed, _log):
@@ -182,16 +186,114 @@ class AmendedExits(unittest.TestCase):
         self.assertEqual(report["stopped"], "error")
         self.assertEqual(exit_code(report["stopped"]), EXIT_CORRECTNESS)
 
+    def test_an_exhausted_trim_ack_is_classified(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/ack"):
+                return 503, CONFLICT, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        report = drive(scenario("trim"), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_SCALING)
+        self.assertGreater(session.contention_unresolved, 0)
+        self.assertFalse(any(path.endswith("/snapshot") for path, _body in session.transport.seen))
+
+    def test_a_sibling_failure_outranks_the_budget_stop(self):
+        def worker(index):
+            if index == 0:
+                raise LoadError("duplicate")
+            raise CapExceeded({})
+
+        with self.assertRaises(LoadError):
+            run_writers(2, worker)
+
+    def test_counted_throttles_outrank_the_budget_stop(self):
+        state = {"left": 1}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/append") and state["left"]:
+                state["left"] -= 1
+                return 503, THROTTLED, 2
+            return None
+
+        class CapLater(Ledger):
+            def charge(self, kind, nbytes=None, grow=None):
+                if self.lambda_requests >= 2:
+                    raise CapExceeded(self.estimate())
+                return super().charge(kind, nbytes, grow=grow)
+
+        session = self._session(MemoryLog(hook), ledger=CapLater())
+        session.sleeper = lambda _delay: None
+        report = drive(Scenario("full", 1, None, False), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(exit_code(report["stopped"]), EXIT_SCALING)
+        self.assertGreater(session.throttle_503, 0)
+
+    def test_a_scaling_tier_does_not_stop_the_next_tier(self):
+        state = {"left": 1}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/append") and state["left"]:
+                state["left"] -= 1
+                return 503, CONFLICT, 2
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        reports = []
+        for spec in (scenario("5"), scenario("trim")):
+            report = drive(spec, session)
+            reports.append(report)
+            if not keep_going(report["stopped"]):
+                break
+        self.assertEqual([item["stopped"] for item in reports], ["scaling", "complete"])
+        self.assertTrue(keep_going("scaling"))
+        self.assertFalse(keep_going("error"))
+        self.assertFalse(keep_going("cap"))
+
+    def test_trim_does_not_borrow_an_earlier_cursor(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/append"):
+                return 503, CONFLICT, 1
+            return None
+
+        log = MemoryLog(hook)
+        for seq in range(1, 129):
+            log.entries.append({
+                "delivery_seq": seq, "writer_device": "full5-d0", "writer_seq": seq,
+                "accepted_at_ms": 1, "writer_key": "k", "authored_at_ms": 1,
+                "namespace": "load", "payload": "bG9hZA",
+            })
+        session = self._session(log)
+        session.accepted["full5-d0"] = set(range(1, 129))
+        session.sleeper = lambda _delay: None
+        report = drive(scenario("trim"), session)
+        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(trim_appends(session), 0)
+        self.assertGreaterEqual(session.audit_cursor, 128)
+
+    def test_cleanup_retries_unprocessed_writes_with_backoff(self):
+        delays = []
+        misses = 0
+        for _ in range(8):
+            misses = batch_retry(misses, delays.append, lambda span: span - 1)
+        self.assertEqual(misses, 8)
+        self.assertGreater(delays[0], 0)
+        with self.assertRaises(GuardError):
+            batch_retry(misses, delays.append, lambda span: 0)
+
     def test_ack_holds_rejects_a_partial_row_and_a_lost_delivery(self):
         entry = {"delivery_seq": 1, "writer_device": "d", "writer_seq": 1}
         self.assertTrue(ack_holds([entry], [], 1))
         self.assertFalse(ack_holds([entry], [("d", 1)], 0))
         self.assertFalse(ack_holds([entry], [], 2))
 
-    def _session(self, transport, clock=None):
+    def _session(self, transport, clock=None, ledger=None):
         return Session(
-            database_id_for_run("17"), "ab" * 16, "cd" * 32, transport, Ledger(),
-            clock or (lambda: 0))
+            database_id_for_run("17"), "ab" * 16, "cd" * 32, transport,
+            ledger or Ledger(), clock or (lambda: 0))
 
 
 if __name__ == "__main__":

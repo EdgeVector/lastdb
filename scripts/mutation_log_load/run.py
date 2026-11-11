@@ -9,6 +9,7 @@ to a later step so a cleanup failure cannot replace the load's status.
 import argparse
 import json
 import os
+import random
 from pathlib import Path
 import subprocess
 import sys
@@ -21,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger, format_estimate
 from drive import LoadError, Session, drive
-from faults import worst_exit
+from faults import MAX_CONTENTION_TRIES, backoff_seconds, worst_exit
 from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_region_environment, allow_role, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
@@ -86,7 +87,22 @@ def cleanup(table, database_id, ledger):
         purge(table, partition, ledger)
 
 
-def purge(table, partition, ledger):
+def keep_going(stopped):
+    """A scaling result does not cancel the tiers that follow it."""
+    return stopped not in ("error", "cap")
+
+
+def batch_retry(misses, pause, draw):
+    """Backoff while BatchWriteItem returns the same unprocessed chunk."""
+    misses += 1
+    if misses > MAX_CONTENTION_TRIES:
+        raise GuardError("batch")
+    pause(backoff_seconds(misses, draw))
+    return misses
+
+
+def purge(table, partition, ledger, pause=None):
+    pause = pause or time.sleep
     pending, start = [], None
     while True:
         request = query_request(table, partition)
@@ -101,17 +117,18 @@ def purge(table, partition, ledger):
         if not continue_page(nxt, start):
             break
         start = nxt
-    stalls = 0
+    misses = 0
     while pending:
         chunk = pending[:25]
         response = aws("dynamodb", "batch-write-item",
                        delete_batch(table, partition, chunk))
         ledger.record("write", 64 * len(chunk))
         left = unprocessed_ids(response, table, partition)
+        if left == chunk:
+            misses = batch_retry(misses, pause, random.randrange)
+        else:
+            misses = 0
         pending = left + pending[len(chunk):]
-        stalls = stalls + 1 if left == chunk else 0
-        if stalls > 8:
-            raise GuardError("batch")
 
 
 def target():
@@ -169,7 +186,7 @@ def main(argv):
             print(format_summary(report["summary"]))
             if report.get("message"):
                 print(report["message"], file=sys.stderr)
-            if report["stopped"] != "complete":
+            if not keep_going(report["stopped"]):
                 break
     finally:
         Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")

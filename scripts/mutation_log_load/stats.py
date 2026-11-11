@@ -38,13 +38,14 @@ def tier_summary(samples, errors, elapsed_ms, counters, estimate, tier_reads):
         "contention_rate": (counters["contention_503"] / attempts) if attempts else 0,
         "throttle_rate": (counters["throttle_503"] / attempts) if attempts else 0,
         "contention_unresolved": counters.get("contention_unresolved", 0),
+        "throttle_unresolved": counters.get("throttle_unresolved", 0),
         "partition_bytes": estimate["partition_bytes"],
         "reads": estimate["reads"] - tier_reads,
     })
     return summary
 
 
-def finding_message(throttles, kind, contention, attempts, unresolved=0):
+def finding_message(throttles, kind, contention, attempts, unresolved=0, throttle_unresolved=0):
     parts = []
     if throttles:
         parts.append("throttle")
@@ -54,6 +55,8 @@ def finding_message(throttles, kind, contention, attempts, unresolved=0):
         parts.append("contention retried")
     if unresolved:
         parts.append("contention unresolved {0}".format(unresolved))
+    if throttle_unresolved:
+        parts.append("throttle unresolved {0}".format(throttle_unresolved))
     return ", ".join(parts)
 
 
@@ -68,11 +71,12 @@ def format_summary(summary):
             "  503 contention={contention_503} rate={contention_rate:.4f} "
             "throttle={throttle_503} throttle_rate={throttle_rate:.4f} "
             "other={other_503} unresolved={contention_unresolved} "
+            "throttle_unresolved={throttle_unresolved} "
             "writes={write_attempts}".format(**summary)
         )
     if "partition_bytes" in summary:
         lines.append(
-            "  partition_bytes={partition_bytes} reads={reads}".format(**summary)
+            "  modeled partition_bytes={partition_bytes} modeled reads={reads}".format(**summary)
         )
     return "\n".join(lines)
 

@@ -3,9 +3,71 @@
 from logcheck import ack_holds, collect_pages, verify_log
 from plan import TRIM_WRITERS
 from routes import (
-    RouteError, prove_trimmed_list, require_ack, require_head,
-    require_snapshot, require_trim,
+    PAYLOAD, RouteError, prove_trimmed_list, request_body, require_ack,
+    require_head, require_snapshot, require_trim,
 )
+
+
+def _device(prefix, index):
+    return "{0}-d{1}".format(prefix, index)
+
+
+def request_for(session, operation, fields, limit):
+    """JSON body for one mutation-log call. An ack does not grow the ledger."""
+    database = session.database_id
+    if "index" in fields or "device_id" in fields:
+        device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
+        session.ledger.note_device(device)
+    if operation in ("head", "snapshot", "trim", "create-database"):
+        body = {"database_id": database}
+        if operation == "create-database":
+            body["kind"] = "personal"
+        return request_body(operation, body)
+    device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
+    if operation == "append":
+        return request_body(operation, {
+            "database_id": database,
+            "device_id": device,
+            "entries": [{
+                "authored_at_ms": session.clock(),
+                "namespace": "load",
+                "payload": PAYLOAD,
+                "writer_seq": fields["seq"],
+            }],
+        })
+    if operation == "list":
+        return request_body(operation, {
+            "after": fields.get("after", 0),
+            "database_id": database,
+            "device_id": device,
+            "limit": limit,
+        })
+    if operation == "ack":
+        return request_body(operation, {
+            "database_id": database,
+            "device_id": device,
+            "through": fields["seq"],
+        })
+    raise RouteError("route")
+
+
+def ack_cursor(session, index):
+    """Ack the head's delivery cursor. ``through`` is never a writer sequence."""
+    if session.call("list", required=True, index=index, after=0) is None:
+        raise RouteError("ack")
+    head = session.call("head", required=True, index=index)
+    if head is None:
+        raise RouteError("ack")
+    cursor = require_head(head)
+    if cursor is None or cursor < 1:
+        raise RouteError("ack")
+    acked = session.call("ack", required=True, index=index, seq=cursor)
+    through = None if acked is None else require_ack(acked)
+    if through is None or through < cursor:
+        raise RouteError("ack")
+    with session._lock:
+        if through > session.acked_through:
+            session.acked_through = through
 
 
 def read_log(session):
@@ -37,8 +99,16 @@ def check_log(session):
     session.ack_holds = ack_holds(entries, unresolved, acked)
 
 
+def trim_appends(session):
+    """Appends this trim tier stored. Earlier tiers on the same database do not count."""
+    prefix = session.device_prefix + "-"
+    return sum(1 for device, seqs in session.accepted.items() if device.startswith(prefix) and seqs)
+
+
 def trim_log(session):
     """Ack every device through the head cursor, then snapshot and trim."""
+    if trim_appends(session) < TRIM_WRITERS:
+        raise RouteError("trim")
     head = session.call("head", required=True)
     cursor = require_head(head)
     if cursor is None or cursor < TRIM_WRITERS:

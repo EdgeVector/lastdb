@@ -9,8 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import (
-    CAP_USD, PAGE_BYTES, READ_USD, SERVER_ATTEMPTS, WRITE_USD, CapExceeded,
-    Ledger, stored_growth,
+    CAP_USD, FULL_PARTITION_LOAD, PAGE_BYTES, READ_USD, WRITE_USD, CapExceeded,
+    Ledger, load_reads, stored_growth, MUTATING_WRITE_UNITS,
 )
 from drive import DISABLED, LIST_LIMIT, Flight, Session, _pages, drive, run_writers
 from faults import EXIT_CAP, exit_code, scaling_finding
@@ -92,20 +92,24 @@ class CapAndRun(unittest.TestCase):
     def test_cap_is_six_dollars_and_reads_the_whole_partition(self):
         self.assertEqual(CAP_USD, 6)
         self.assertEqual(WRITE_USD, 2 * 1.25 / 1_000_000)
+        self.assertTrue(FULL_PARTITION_LOAD)
         ledger = Ledger()
         ledger.charge("read")
         ledger.charge("write", 2048)
         estimate = ledger.estimate()
-        self.assertEqual(estimate["reads"], SERVER_ATTEMPTS * 2)
-        self.assertEqual(estimate["write_units"], SERVER_ATTEMPTS * 4)
+        self.assertEqual(estimate["reads"], load_reads(0, 0) * 2)
+        self.assertEqual(estimate["write_units"], MUTATING_WRITE_UNITS)
         self.assertEqual(estimate["partition_bytes"], stored_growth(2048))
         self.assertEqual(estimate["lambda_requests"], 2)
-        self.assertAlmostEqual(estimate["read_usd"], SERVER_ATTEMPTS * 2 * READ_USD)
-        self.assertAlmostEqual(estimate["write_usd"], SERVER_ATTEMPTS * 4 * WRITE_USD)
+        held = ledger.partition_bytes
+        ledger.charge("write", 80, grow=False)
+        self.assertEqual(ledger.partition_bytes, held)
         ledger.charge("write", PAGE_BYTES)
         before = ledger.reads
+        expected = load_reads(ledger.partition_bytes, ledger.sub_bytes)
         ledger.charge("read")
-        self.assertEqual(ledger.reads - before, SERVER_ATTEMPTS * 2)
+        self.assertEqual(ledger.reads - before, expected)
+        self.assertEqual(load_reads(0, 0), 2)
         with self.assertRaises(CapExceeded):
             Ledger(cap_usd=READ_USD).charge("read")
         capped = Ledger(cap_usd=0)
@@ -122,10 +126,10 @@ class CapAndRun(unittest.TestCase):
 
     def test_a_budget_stop_inside_a_writer_exits_2(self):
         class StopAfterCreate(Ledger):
-            def charge(self, kind, nbytes=None):
+            def charge(self, kind, nbytes=None, grow=None):
                 if self.lambda_requests >= 1:
                     raise CapExceeded(self.estimate())
-                return super().charge(kind, nbytes)
+                return super().charge(kind, nbytes, grow=grow)
         report = drive(scenario("5"), self._session(MemoryLog(), StopAfterCreate()))
         self.assertEqual((report["stopped"], exit_code(report["stopped"])), ("cap", EXIT_CAP))
 
@@ -238,8 +242,9 @@ class CapAndRun(unittest.TestCase):
         session = self._session(MemoryLog(hook))
         session.sleeper = lambda _delay: None
         report = drive(Scenario("full", 1, None, False), session)
-        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(report["stopped"], "scaling")
         self.assertEqual(session.throttle_503, 8)
+        self.assertEqual(session.throttle_unresolved, 1)
 
     def test_outcome_unknown_and_other_503s_stop_the_run(self):
         query = {"code": "retry_later", "field": "mutation_log.query"}
