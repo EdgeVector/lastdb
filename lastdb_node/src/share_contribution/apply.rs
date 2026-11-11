@@ -24,8 +24,10 @@ pub struct WriteRule {
 
 impl WriteRule {
     pub(super) fn valid(&self) -> bool {
-        self.action == MutationType::Create
-            && self.schema.len() <= 256
+        matches!(
+            self.action,
+            MutationType::Create | MutationType::Replace | MutationType::Delete
+        ) && self.schema.len() <= 256
             && self.schema.trim() == self.schema
             && !self.schema.chars().any(char::is_control)
             && self
@@ -47,6 +49,11 @@ pub struct WriteRequest {
     /// Explicit alternate addresses. Omitted optional addresses stay absent.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub alternates: BTreeMap<String, Option<KeyValue>>,
+    /// Expected revision for replace and delete. Omitted on a create so an
+    /// older publisher still decodes it. Ship the publisher before writers
+    /// send this field: the payload denies unknown fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 pub(super) async fn apply(
@@ -55,15 +62,52 @@ pub(super) async fn apply(
     rules: &[WriteRule],
     request: WriteRequest,
 ) -> Result<bool, String> {
-    if request.action != MutationType::Create
-        || !rules.iter().any(|rule| {
+    let Some(expected) = accepted(rules, &request) else {
+        return Ok(false);
+    };
+    let Some(target) = prepare_target(host, &request).await? else {
+        return Ok(false);
+    };
+    commit(host, writer, request, target, expected).await
+}
+
+fn accepted(rules: &[WriteRule], request: &WriteRequest) -> Option<CasExpectation> {
+    let expected = expectation(request)?;
+    rules
+        .iter()
+        .any(|rule| {
             rule.schema == request.schema
                 && rule.definition_id == request.definition_id
                 && rule.action == request.action
         })
-    {
-        return Ok(false);
+        .then_some(expected)
+}
+
+/// Create stays absent and carries no revision. Replace and delete name the
+/// live revision. Delete carries no record body. Purge is never an expectation.
+fn expectation(request: &WriteRequest) -> Option<CasExpectation> {
+    match (&request.action, request.revision.as_deref()) {
+        (MutationType::Create, None) => Some(CasExpectation::Absent),
+        (MutationType::Replace, Some(revision)) if !revision.is_empty() => {
+            Some(CasExpectation::Revision {
+                revision: revision.to_owned(),
+            })
+        }
+        (MutationType::Delete, Some(revision))
+            if !revision.is_empty() && request.record.is_empty() =>
+        {
+            Some(CasExpectation::Revision {
+                revision: revision.to_owned(),
+            })
+        }
+        _ => None,
     }
+}
+
+async fn prepare_target(
+    host: &Host,
+    request: &WriteRequest,
+) -> Result<Option<RecordTarget>, String> {
     let schema = host
         .db
         .schema_manager()
@@ -71,10 +115,10 @@ pub(super) async fn apply(
         .await
         .map_err(|_| "cannot resolve share contribution schema")?;
     let Some(schema) = schema else {
-        return Ok(false);
+        return Ok(None);
     };
     let Ok(keys) = schema.require_record_keys() else {
-        return Ok(false);
+        return Ok(None);
     };
     let mut alternates = request.alternates.clone();
     for (name, definition) in &keys.alternates {
@@ -93,8 +137,18 @@ pub(super) async fn apply(
             !fields.contains(field) || schema.get_field_type(field).validate(value).is_err()
         })
     {
-        return Ok(false);
+        return Ok(None);
     }
+    Ok(Some(target))
+}
+
+async fn commit(
+    host: &Host,
+    writer: &Digest,
+    request: WriteRequest,
+    target: RecordTarget,
+    expected: CasExpectation,
+) -> Result<bool, String> {
     let encoded = serde_json::to_vec(&request).map_err(|_| "cannot encode contribution intent")?;
     let permit = host
         .acquire_op_permit(Lane::for_write_bytes(encoded.len()))
@@ -107,18 +161,21 @@ pub(super) async fn apply(
             .expect("the receipt ID has 32 bytes"),
     )
     .into_uuid();
+    let replacing = request.action != MutationType::Delete;
     let mut mutation = Mutation::with_uuid(
         id.to_string(),
         target,
         request.record.into_iter().collect(),
         host.public_key(),
-        MutationType::Create,
-        CasExpectation::Absent,
+        request.action,
+        expected,
     );
-    mutation.metadata = Some(HashMap::from([(
-        "share_author".into(),
-        writer.as_str().to_owned(),
-    )]));
+    if replacing {
+        mutation.metadata = Some(HashMap::from([(
+            "share_author".into(),
+            writer.as_str().to_owned(),
+        )]));
+    }
     mutation.contribution = Some(admission);
     mutation.synchronous = Some(true);
     let outcome = host
@@ -166,5 +223,6 @@ fn admission(
         definition_id: request.definition_id.as_str().to_owned(),
         receipt_id,
         intent_digest,
+        writer: writer.as_str().to_owned(),
     })
 }

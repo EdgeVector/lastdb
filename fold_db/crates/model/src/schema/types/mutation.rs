@@ -23,6 +23,8 @@ pub struct ContributionAdmission {
     pub definition_id: String,
     pub receipt_id: [u8; 32],
     pub intent_digest: [u8; 32],
+    /// Grant signature digest. Replace and delete may change only this writer's row.
+    pub writer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
