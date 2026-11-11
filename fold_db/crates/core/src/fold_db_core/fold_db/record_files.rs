@@ -1,9 +1,9 @@
-//! Record file sealing, local references, inline reads, and on-demand cloud downloads.
+//! Record file local references, inline reads, and on-demand cloud downloads.
 
 use super::FoldDB;
 use crate::error::FoldDbError;
 use crate::fold_db_core::{BlobFetch, SIGN_IN_TO_FETCH_FILE};
-use crate::schema::types::{FileWrite, KeyValue, SchemaError};
+use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::format::records::RecordFormat;
 use lastdb_model::portable_mutation::Position;
@@ -28,29 +28,6 @@ fn not_downloaded(reason: impl std::fmt::Display) -> FoldDbError {
 }
 
 impl FoldDB {
-    pub fn seal_record_file(
-        &self,
-        plaintext: &[u8],
-        name: Option<String>,
-        media_type: Option<String>,
-    ) -> Result<FileWrite, FoldDbError> {
-        self.db_ops()
-            .records()
-            .seal_record_file(plaintext, name, media_type)
-    }
-
-    pub async fn reference_local_file(
-        &self,
-        path: &Path,
-        name: Option<String>,
-        media_type: Option<String>,
-    ) -> Result<FileWrite, FoldDbError> {
-        self.db_ops()
-            .records()
-            .reference_local_file(path, name, media_type)
-            .await
-    }
-
     pub async fn remember_local_file(
         &self,
         schema_name: &str,
@@ -111,24 +88,6 @@ impl FoldDB {
         &self,
         schema_name: &str,
         key: &KeyValue,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.read_record_file_checked(schema_name, key, None).await
-    }
-
-    pub async fn read_record_file_at_revision(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        revision: &str,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.read_record_file_checked(schema_name, key, Some(revision))
-            .await
-    }
-
-    async fn read_record_file_checked(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
         revision: Option<&str>,
     ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
         let local = self
@@ -167,14 +126,6 @@ impl FoldDB {
                 marker,
                 version,
             } => {
-                if self.db_ops().records().dedicated_shared_home() {
-                    return match revision {
-                        Some(_) => Err(FoldDbError::Database(
-                            "record file bytes are missing".into(),
-                        )),
-                        None => Ok(None),
-                    };
-                }
                 let bytes = self
                     .download_record_file(&record_key, &version, &marker)
                     .await?;

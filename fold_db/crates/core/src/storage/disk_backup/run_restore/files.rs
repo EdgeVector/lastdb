@@ -89,12 +89,12 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
+    crate::storage::retired::refuse_shared_home(root, &bytes)?;
     Ok(crate::storage::disk_pack::run_node::profile(&bytes))
 }
 
-pub(super) fn require_root_members(root: &Path, private: bool) -> StorageResult<()> {
+pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
     let allowed = [NODE_MARKER, run_node::RUN_DIR, run_node::CAS_DIR];
-    let allowed_count = allowed.len() + usize::from(private);
     let mut names = BTreeSet::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -102,16 +102,11 @@ pub(super) fn require_root_members(root: &Path, private: bool) -> StorageResult<
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore name"))?;
-        let admitted =
-            allowed.contains(&name.as_str()) || (private && name == run_node::PRIVATE_DIR);
-        if !admitted || !names.insert(name) {
+        if !allowed.contains(&name.as_str()) || !names.insert(name) {
             return Err(invalid("run restore wrapper closure"));
         }
     }
-    if private && !names.contains(run_node::PRIVATE_DIR) {
-        return Err(invalid("restored private run home is missing"));
-    }
-    if names.len() != allowed_count {
+    if names.len() != allowed.len() {
         return Err(invalid("run restore wrapper closure"));
     }
     Ok(())

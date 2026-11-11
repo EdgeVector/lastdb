@@ -11,14 +11,7 @@ mod session;
 
 pub mod local {
     pub(crate) use crate::byte_cloud_restore::native::{
-        atomic_json, atomic_json_bounded, directory, owner_file, prepare_native_ephemera,
-        read_json, writable_file,
-    };
-}
-
-pub(crate) mod publish {
-    pub(crate) use crate::byte_cloud_restore::recipient::{
-        activate_owned_home, sync_owned_tree, sync_publish_parents,
+        atomic_json, directory, owner_file, prepare_native_ephemera, read_json,
     };
 }
 
@@ -112,14 +105,6 @@ pub enum RestoreError {
     Io(std::io::Error),
     Protocol(cloud_backup_protocol::ProtocolError),
     Source(&'static str),
-    SharedStage {
-        stage: &'static str,
-        cause: Box<Self>,
-    },
-    SharedWorkspace {
-        path: PathBuf,
-        cause: Box<Self>,
-    },
     NativeProof {
         stage: fold_db::storage::error::NativeProofStage,
         cause: fold_db::storage::error::NativeProofCause,
@@ -138,13 +123,6 @@ impl From<cloud_backup_protocol::ProtocolError> for RestoreError {
     }
 }
 impl RestoreError {
-    pub(crate) fn shared_stage(self, stage: &'static str) -> Self {
-        Self::SharedStage {
-            stage,
-            cause: Box::new(self),
-        }
-    }
-
     pub(crate) fn native_proof(error: fold_db::storage::StorageError) -> Self {
         let (stage, cause) =
             error.native_proof_context(fold_db::storage::error::NativeProofStage::Restore);
@@ -160,14 +138,6 @@ impl std::fmt::Display for RestoreError {
             Self::Io(_) => f.write_str("restore disk operation failed"),
             Self::Protocol(_) => f.write_str("restore protocol validation failed"),
             Self::Source(field) => write!(f, "restore source unavailable: {field}"),
-            Self::SharedStage { stage, cause } => write!(f, "shared restore {stage}: {cause}"),
-            Self::SharedWorkspace { path, cause } => {
-                write!(
-                    f,
-                    "shared restore retained workspace {}: {cause}",
-                    path.display()
-                )
-            }
             Self::NativeProof { stage, cause } => {
                 write!(f, "native restore proof {stage}: {cause}")
             }

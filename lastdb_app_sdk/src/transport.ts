@@ -242,16 +242,18 @@ class NodeHttpTransport implements Transport {
             try {
               body = JSON.parse(text);
             } catch {
-              // The node always answers JSON on these routes; a non-JSON body
-              // is a transport-level surprise, not a typed protocol error.
-              reject(
-                new TransportError(
-                  `non-JSON response (${status}) from ${this.target}${path}: ${text.slice(0, 200)}`,
-                  'protocol',
-                  { status },
-                ),
-              );
-              return;
+              // Success bodies are JSON. A refusal may be the plain status text.
+              if (status >= 200 && status < 300) {
+                reject(
+                  new TransportError(
+                    `non-JSON response (${status}) from ${this.target}${path}: ${text.slice(0, 200)}`,
+                    'protocol',
+                    { status },
+                  ),
+                );
+                return;
+              }
+              body = text;
             }
           }
           resolve({ status, body });

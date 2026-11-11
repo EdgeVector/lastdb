@@ -72,10 +72,6 @@ fn file_key(
 }
 
 impl RecordFormat {
-    pub(crate) fn dedicated_shared_home(&self) -> bool {
-        self.runtime.is_dedicated_shared_home()
-    }
-
     pub(crate) fn record_blob_path(
         &self,
         record_key: &str,
@@ -140,51 +136,8 @@ impl RecordFormat {
         Ok(plaintext)
     }
 
-    pub(crate) async fn portable_file(
-        &self,
-        key: &super::RecordAddress,
-        version: &Position,
-        marker: &FileMarker,
-    ) -> Result<Vec<u8>, SchemaError> {
-        let path = record_file_path(key.as_str(), version)?;
-        if let Some(row) = self.file_store().await?.get(path.as_bytes()).await? {
-            require_row(&self.content_key, marker, &row)?;
-            return Ok(row);
-        }
-        let Some(plaintext) =
-            crate::storage::local_file_ref::read_referenced(&self.runtime, &path, marker)
-                .await
-                .map_err(|error| match error {
-                    FoldDbError::Schema(error) => error,
-                    other => SchemaError::InvalidData(other.to_string()),
-                })?
-        else {
-            return Err(SchemaError::InvalidData(
-                "retained portable file is missing".into(),
-            ));
-        };
-        let (row, sha256) = seal_file_row(&self.content_key, &plaintext)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-        if sha256 != marker.sha256 {
-            return Err(SchemaError::InvalidData(
-                "local file reference differs from its marker".into(),
-            ));
-        }
-        require_row(&self.content_key, marker, &row)?;
-        Ok(row)
-    }
-
-    pub(crate) fn admit_portable_file(
-        &self,
-        marker: FileMarker,
-        sealed: Vec<u8>,
-    ) -> Result<FileWrite, SchemaError> {
-        require_row(&self.content_key, &marker, &sealed)?;
-        self.open_file_row(&sealed, &marker)
-            .map_err(|_| SchemaError::InvalidData("portable file authentication".into()))?;
-        Ok(self.file_issuer.issue(marker, sealed))
-    }
-
+    /// Seal a new file under the account key and bind the immutable output
+    /// to this format instance. The issuer never leaves this writer.
     pub(crate) fn seal_record_file(
         &self,
         plaintext: &[u8],

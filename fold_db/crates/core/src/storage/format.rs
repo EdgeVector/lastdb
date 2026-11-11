@@ -11,11 +11,13 @@ pub(crate) mod schemas;
 pub const HOME_FORMAT: u32 = 15;
 /// Exact clear node marker bytes. Preserve spelling and order on extraction.
 pub const RECORD_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\n";
+/// Historical dedicated shared-home marker. Admission refuses these bytes.
+pub const RETIRED_SHARED_NODE_BYTES: &[u8] =
+    b"format=15\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
+/// Historical dedicated shared-home directory. Admission refuses this name.
+pub const RETIRED_SHARED_DIR: &str = "disk-private";
 /// Backup profile of this home format.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 14;
-pub(in crate::storage) const SHARED_RECORD_PROFILE: u16 = 15;
-pub const SHARED_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\nscope=shared\n";
-pub(in crate::storage) const PRIVATE_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/private";
 
 /// Clear node marker file inside the data directory.
 pub const NODE_MARKER: &str = "laststore-pack-node-v1";
@@ -23,8 +25,6 @@ pub const NODE_MARKER: &str = "laststore-pack-node-v1";
 pub const RUN_DIR: &str = "disk-run";
 /// Record-file run home inside the data directory.
 pub const CAS_DIR: &str = "disk-cas";
-/// Device-private run home beside the shared record and file homes.
-pub(in crate::storage) const PRIVATE_DIR: &str = "disk-private";
 pub(in crate::storage) const CREATION_INTENT: &str = "laststore-run-initializing";
 pub(in crate::storage) const STAGED_NODE_MARKER: &str = ".laststore-pack-node-v1.tmp";
 pub(in crate::storage) const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
@@ -48,7 +48,6 @@ pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
     "rk",
     "ak",
     records::applied_deletes::APPLIED_DELETE_FAMILY,
-    records::applied_deletes::DELETE_AGE_FAMILY,
     records::inline_files::INLINE_FILE_FAMILY,
     DELETE_AUDIT_FAMILY,
 ];

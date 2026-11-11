@@ -1,8 +1,5 @@
 //! Mutation Manager — public write entry points, native transaction commits, and Search outbox.
 
-pub mod portable_checkpoint;
-mod portable_journal;
-pub mod portable_replay;
 mod validation;
 mod write_effects;
 mod write_records;
@@ -24,12 +21,10 @@ use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::metadata::JournalSchema;
 
 pub(super) struct AuthoredMutation {
     pub(super) mutation: Mutation,
     pub(super) stamp: Stamp,
-    pub(super) shared_schema: Option<JournalSchema>,
 }
 
 /// Whether the acknowledgment claims disk.
@@ -220,17 +215,13 @@ impl MutationManager {
                 let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
                 let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
                 for (mutation, stamp) in mutations.iter().zip(&stamps) {
-                    record_revisions.insert(mutation.uuid.clone(), stamp.stamp.revision());
+                    record_revisions.insert(mutation.uuid.clone(), stamp.revision());
                 }
                 let mutation_ids = mutations.iter().map(|m| m.uuid.clone()).collect();
                 let authored = mutations
                     .into_iter()
                     .zip(stamps)
-                    .map(|(mutation, authored)| AuthoredMutation {
-                        mutation,
-                        stamp: authored.stamp,
-                        shared_schema: authored.shared_schema,
-                    })
+                    .map(|(mutation, stamp)| AuthoredMutation { mutation, stamp })
                     .collect();
                 let group_count = self
                     .stage_record_groups(authored, &mut stages, &runtime)

@@ -10,18 +10,6 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 pub type ObjectStream = Pin<Box<dyn AsyncRead + Send>>;
 
-pub(super) fn is_multipart(value: &str) -> Result<bool> {
-    let url = https(value)?;
-    let parts: Vec<_> = url.query_pairs().collect();
-    let uploads = parts.iter().filter(|(key, _)| key == "uploadId").count();
-    let numbers = parts.iter().filter(|(key, _)| key == "partNumber").count();
-    match (uploads, numbers) {
-        (0, 0) => Ok(false),
-        (1, 1) => Ok(true),
-        _ => Err(BackupTransportError::InvalidResponse("upload operation")),
-    }
-}
-
 pub(super) fn https(value: &str) -> Result<Url> {
     let url = Url::parse(value).map_err(|_| BackupTransportError::Configuration("HTTPS URL"))?;
     if url.scheme() != "https"

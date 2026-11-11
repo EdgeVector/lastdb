@@ -8,12 +8,20 @@ use lastdb_model::record_value::StoredRecord;
 use super::{AuthoredMutation, MutationManager, ResidentCommitStages};
 use crate::db_operations::record_store::RecordChange;
 use crate::db_operations::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
-use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
+
+fn describe_key(kv: &KeyValue) -> String {
+    match (&kv.hash, &kv.range) {
+        (Some(h), Some(r)) => format!("hash='{h}' range='{r}'"),
+        (Some(h), None) => format!("hash='{h}'"),
+        (None, Some(r)) => format!("range='{r}'"),
+        (None, None) => "<single>".to_string(),
+    }
+}
 
 type KeyGroups = Vec<(String, Vec<AuthoredMutation>)>;
 
@@ -188,35 +196,6 @@ impl MutationManager {
             .await?;
         self.stage_record_retention(schema, changed.iter().map(|record| record.key), &outcomes)
             .await
-    }
-
-    pub(super) async fn stage_replayed_record_group(
-        &self,
-        schema: &Schema,
-        changes: Vec<RecordChange>,
-    ) -> Result<(), SchemaError> {
-        let outcomes = record_outcomes(&changes);
-        let keys: Vec<_> = changes
-            .iter()
-            .map(|change| change.key.api_key().clone())
-            .collect();
-        self.db_ops.records().stage_records(schema, changes).await?;
-        let schemas = self.db_ops.schemas();
-        schemas.note_live_writes(
-            schema,
-            keys.iter()
-                .zip(&outcomes)
-                .filter(|(_, outcome)| outcome.live)
-                .map(|(key, _)| key),
-        )?;
-        self.stage_record_retention(schema, keys.iter(), &outcomes)
-            .await?;
-        if schema.schema_type == DeclarativeSchemaType::HashRange {
-            schemas
-                .record_schema_retention_hash_partitions(&schema.name, &keys)
-                .await?;
-        }
-        Ok(())
     }
 
     async fn stage_record_retention<'a>(

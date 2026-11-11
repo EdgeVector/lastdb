@@ -1,30 +1,24 @@
 use super::*;
+use fold_db::storage::disk_pack::{NativeCleanupPhase, NativeCleanupStatus};
 
 pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {
     match action {
-        AdminCommand::ServiceHome(action) => service_home_command(action),
-        AdminCommand::Schema(AdminSchemaCommand::Drop(args)) => schema_drop_command(
-            data_dir,
-            args.schema,
-            args.owner_app,
-            args.must_exist,
-            args.json,
-        ),
-        AdminCommand::Retention(action) => schema_retention_command(data_dir, action),
-        AdminCommand::Storage(action) => db_storage_command(data_dir, action),
+        AdminCommand::Storage(AdminStorageCommand::Cleanup {
+            status,
+            wait,
+            timeout,
+            json,
+        }) => {
+            let (_, socket) = resolve_client_home_and_socket(data_dir)?;
+            if probe_health(&socket).is_err() {
+                return Err(format!(
+                    "lastdbd not reachable at {} — start the daemon first",
+                    socket.display()
+                ));
+            }
+            db_cleanup(&socket, status, wait, timeout, json)
+        }
         AdminCommand::Backup(action) => cloud_command(data_dir, backup_action(action)?),
-        AdminCommand::Shared(action) => match action {
-            AdminSharedCommand::Snapshot(args) => snapshot_cmd::run(data_dir.as_deref(), args),
-            AdminSharedCommand::Restore(args) => {
-                cloud_command(data_dir, CloudCommand::RestoreShared(args))
-            }
-            AdminSharedCommand::ResumeRestore(args) => {
-                cloud_command(data_dir, CloudCommand::ResumeSharedRestore(args))
-            }
-            AdminSharedCommand::Writer(args) => {
-                cloud_command(data_dir, CloudCommand::SharedWriter(args))
-            }
-        },
     }
 }
 
@@ -57,227 +51,96 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
     Ok(CloudCommand::BackupV2 { action })
 }
 
-pub(crate) fn db_post_json(
+fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {
+    let report = value
+        .get("cleanup")
+        .cloned()
+        .ok_or("response missing cleanup")?;
+    let status: NativeCleanupStatus =
+        serde_json::from_value(report).map_err(|e| format!("invalid cleanup response: {e}"))?;
+    if status.complete != (status.phase == NativeCleanupPhase::Complete) {
+        return Err("cleanup response has inconsistent completion fields".into());
+    }
+    Ok(status)
+}
+
+fn read_cleanup_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
+    let response = get_path(socket, "/api/db/cleanup", timeout)?;
+    decode_cleanup(&parse_json_response(&response, "cleanup status")?)
+}
+
+fn db_cleanup(
     socket: &Path,
-    path: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    parse_json_response(&post_json_admin(socket, path, body)?, path)
-}
-
-fn schema_retention_command(
-    data_dir: Option<PathBuf>,
-    action: SchemaRetentionCommand,
+    status_only: bool,
+    wait: bool,
+    timeout: u64,
+    json: bool,
 ) -> Result<(), String> {
-    let socket = lastdb_node::host::resolve_home(data_dir)?
-        .join("data")
-        .join("folddb.sock");
-    let (verb, schema, ttl_seconds, hash_partitions, confirm, json_only) = match action {
-        SchemaRetentionCommand::Backfill {
-            schema,
-            page_size,
-            confirm_expire_existing,
-            json,
-        } => {
-            return run_retention_backfill(
-                &socket,
-                &schema,
-                page_size,
-                confirm_expire_existing,
-                json,
-            );
-        }
-        SchemaRetentionCommand::Get { schema, json } => {
-            ("get", schema, None, Vec::new(), false, json)
-        }
-        SchemaRetentionCommand::Set {
-            schema,
-            ttl,
-            hash_partitions,
-            json,
-        } => (
-            "set",
-            schema,
-            Some(parse_retention_duration(&ttl)?),
-            hash_partitions,
-            false,
-            json,
-        ),
-        SchemaRetentionCommand::Clear {
-            schema,
-            confirm_expire_existing,
-            json,
-        } => (
-            "clear",
-            schema,
-            None,
-            Vec::new(),
-            confirm_expire_existing,
-            json,
-        ),
-    };
-    let response = db_post_json(
-        &socket,
-        "/api/db/schema-retention",
-        &serde_json::json!({
-            "action": verb,
-            "schema": schema,
-            "ttl_seconds": ttl_seconds,
-            "hash_partitions": hash_partitions,
-            "confirm_expire_existing": confirm,
-        }),
-    )?;
-    print_retention_policy(&response, json_only)
-}
-
-fn print_retention_policy(response: &serde_json::Value, json_only: bool) -> Result<(), String> {
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(response)
-                .map_err(|e| format!("serialize schema retention response: {e}"))?
-        );
-        return Ok(());
-    }
-    let shown = response
-        .get("schema")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("<unknown>");
-    let Some(policy) = response
-        .get("retention_policy")
-        .and_then(serde_json::Value::as_object)
-    else {
-        println!("Schema retention for {shown}: unset");
-        return Ok(());
-    };
-    let ttl_seconds = policy
-        .get("ttl_seconds")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or("response retention_policy missing ttl_seconds")?;
-    let hash_partitions = policy
-        .get("hash_partitions")
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
-    let source = policy
-        .get("source")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("operator");
-    println!(
-        "Schema retention for {shown}: {ttl_seconds}s source={source} (hash partitions: {hash_partitions})"
-    );
-    if let Some(manifest_ttl) = policy
-        .get("overridden_manifest_ttl_seconds")
-        .and_then(serde_json::Value::as_u64)
-    {
-        println!(
-            "  the operator policy overrides a manifest policy of {manifest_ttl}s; `clear` puts it back"
-        );
-    }
-    if response
-        .get("existing_records_may_expire")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        println!(
-            "  WARNING: existing_records_may_expire: the shorter manifest TTL is in force; records older than {ttl_seconds}s are deleted for good"
-        );
-    }
-    if let Some(anchor) = response
-        .get("anchor")
-        .and_then(serde_json::Value::as_str)
-        .filter(|a| *a != shown)
-    {
-        println!("  policy state is held under {anchor}, shared by both installed names");
-    }
-    Ok(())
-}
-
-fn parse_retention_duration(input: &str) -> Result<u64, String> {
-    let split = input
-        .find(|ch: char| !ch.is_ascii_digit())
-        .unwrap_or(input.len());
-    let (number, suffix) = input.split_at(split);
-    if number.is_empty() || suffix.is_empty() || suffix.len() > 1 {
-        return Err(format!(
-            "invalid retention duration {input:?}; use a positive integer followed by s, m, h, or d"
-        ));
-    }
-    let magnitude = number.parse::<u64>().map_err(|_| {
-        format!("invalid retention duration {input:?}; duration must fit in u64 seconds")
-    })?;
-    let mult = match suffix {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86_400,
-        _ => {
-            return Err(format!(
-                "invalid retention duration {input:?}; use s, m, h, or d"
-            ))
-        }
-    };
-    magnitude
-        .checked_mul(mult)
-        .filter(|s| *s > 0)
-        .ok_or_else(|| {
-            format!("invalid retention duration {input:?}; duration must be greater than zero")
-        })
-}
-
-fn run_retention_backfill(
-    socket: &Path,
-    schema: &str,
-    page_size: u16,
-    confirmed: bool,
-    json_only: bool,
-) -> Result<(), String> {
-    if !confirmed {
-        return Err("backfill can expire existing records; pass --confirm-expire-existing".into());
-    }
-    let mut cursor: Option<String> = None;
-    let (mut tracked, mut pages) = (0u64, 0u64);
-    loop {
-        let response = db_post_json(
-            socket,
-            "/api/db/schema-retention",
-            &serde_json::json!({
-                "action": "backfill", "schema": schema, "limit": page_size,
-                "cursor": cursor, "confirm_expire_existing": true,
-            }),
-        )?;
-        tracked += response
-            .get("tracked")
-            .and_then(serde_json::Value::as_u64)
-            .ok_or("backfill response has no tracked count")?;
-        pages += 1;
-        if response
-            .get("complete")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true)
-        {
-            break;
-        }
-        let next = response
-            .get("next_cursor")
-            .and_then(serde_json::Value::as_str)
-            .ok_or("incomplete backfill response has no cursor")?;
-        if cursor.as_deref() == Some(next) {
-            return Err("retention backfill cursor did not advance".into());
-        }
-        cursor = Some(next.to_string());
-    }
-    if json_only {
-        println!(
-            "{}",
-            serde_json::json!({
-                "schema": schema, "scope": "personal",
-                "tracked": tracked, "pages": pages, "complete": true
-            })
-        );
+    let mut status = if status_only {
+        read_cleanup_status(socket, Duration::from_secs(30))?
     } else {
+        let raw = post_json_admin(socket, "/api/db/cleanup", &serde_json::json!({}))?;
+        decode_cleanup(&parse_json_response(&raw, "/api/db/cleanup")?)?
+    };
+    let id = status.request_id.clone();
+    let started = Instant::now();
+    let limit = Duration::from_secs(timeout);
+    while wait && !status.complete {
+        if status.phase == NativeCleanupPhase::RecoveryRequired || status.request_id.is_none() {
+            print_cleanup_status(&status, json)?;
+            return Err(status
+                .last_error
+                .unwrap_or_else(|| "no cleanup request is active".into()));
+        }
+        let Some(left) = limit.checked_sub(started.elapsed()) else {
+            print_cleanup_status(&status, json)?;
+            return Err(
+                "cleanup remains incomplete; its durable request continues after this client timeout".into(),
+            );
+        };
+        std::thread::sleep(Duration::from_millis(250).min(left));
+        let Some(left) = limit.checked_sub(started.elapsed()) else {
+            continue;
+        };
+        status = read_cleanup_status(socket, Duration::from_secs(30).min(left))?;
+        if status.request_id != id {
+            return Err("the latest cleanup request changed while this client waited".into());
+        }
+    }
+    print_cleanup_status(&status, json)
+}
+
+fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) -> Result<(), String> {
+    if json {
         println!(
-            "Retention backfill for {schema}: {tracked} tracked records in {pages} durable pages"
+            "{}",
+            serde_json::to_string_pretty(status).map_err(|e| e.to_string())?
+        );
+        return Ok(());
+    }
+    println!("Cleanup: {:?}", status.phase);
+    if let Some(id) = &status.request_id {
+        println!("  request: {id}");
+    }
+    println!(
+        "  main: {} tiered, {} merge inputs, {} held bytes",
+        status.main.tiered_runs, status.main.merging_runs, status.main.held_retired_bytes
+    );
+    println!(
+        "  file blobs: {} tiered, {} merge inputs, {} held bytes",
+        status.cas.tiered_runs, status.cas.merging_runs, status.cas.held_retired_bytes
+    );
+    if let Some(b) = status.completed_through {
+        println!(
+            "  completed through: main {}, file blobs {}",
+            b.main_frontier, b.cas_frontier
         );
     }
+    if let Some(error) = &status.last_error {
+        println!("  error: {error}");
+    }
+    println!(
+        "  Scope: data already deleted from the active stores. Backup copies remain separate."
+    );
     Ok(())
 }

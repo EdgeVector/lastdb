@@ -1,7 +1,8 @@
 //! Live DB admin storage reports, per-schema logical breakdown, and key listing types.
 
 use crate::db_operations::record_store::RangeWalk;
-use crate::db_operations::RecordStore;
+use crate::db_operations::{DbOperations, RecordStore};
+use crate::error::FoldDbError;
 use crate::schema::types::field::FilterUtils;
 use crate::schema::types::SchemaError;
 use chrono::{DateTime, Utc};
@@ -40,62 +41,7 @@ pub struct SchemaStorage {
     pub record_bytes: u64,
 }
 
-/// Per-schema logical storage breakdown plus total logical bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct StorageBreakdown {
-    pub per_schema: Vec<SchemaStorage>,
-    pub total_logical_bytes: u64,
-}
-
-impl StorageBreakdown {
-    /// Join human catalog names onto accounting rows.
-    pub fn apply_display_names(&mut self, names: &HashMap<String, String>) {
-        for row in &mut self.per_schema {
-            if row.display_name.is_some() {
-                continue;
-            }
-            let Some(label) = names.get(&row.schema_name) else {
-                continue;
-            };
-            let label = label.trim();
-            if !label.is_empty() && label != row.schema_name {
-                row.display_name = Some(label.to_string());
-            }
-        }
-    }
-
-    fn add_records(&mut self, totals: HashMap<String, (u64, u64)>) {
-        for (schema_name, (count, bytes)) in totals {
-            let row = if let Some(at) = self
-                .per_schema
-                .iter()
-                .position(|r| r.schema_name == schema_name)
-            {
-                &mut self.per_schema[at]
-            } else {
-                self.per_schema.push(SchemaStorage {
-                    schema_name,
-                    display_name: None,
-                    bytes: 0,
-                    record_count: 0,
-                    record_bytes: 0,
-                });
-                self.per_schema.last_mut().expect("row was just pushed")
-            };
-            row.record_count += count;
-            row.record_bytes += bytes;
-            row.bytes += bytes;
-            self.total_logical_bytes += bytes;
-        }
-        self.per_schema.sort_by(|a, b| {
-            b.bytes
-                .cmp(&a.bytes)
-                .then_with(|| a.schema_name.cmp(&b.schema_name))
-        });
-    }
-}
-
-/// Per-schema record storage — the dedicated `lastdb db schemas` report.
+/// Per-schema record storage — the dedicated `GET /api/db/schemas` report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaStorageReport {
     pub measured_at: DateTime<Utc>,
@@ -109,20 +55,57 @@ pub struct SchemaStorageReport {
     pub schema_count: u64,
 }
 
-impl SchemaStorageReport {
-    pub fn from_breakdown(breakdown: StorageBreakdown) -> Self {
-        let total_records = breakdown.per_schema.iter().map(|s| s.record_count).sum();
-        let total_record_bytes = breakdown.per_schema.iter().map(|s| s.record_bytes).sum();
-        let schema_count = breakdown.per_schema.len() as u64;
-        Self {
+impl DbOperations {
+    /// Measure live per-schema logical storage joined with human catalog names.
+    pub async fn schema_storage_report(&self) -> Result<SchemaStorageReport, FoldDbError> {
+        let schemas = self
+            .schemas()
+            .get_all_schemas()
+            .await
+            .map_err(|e| FoldDbError::Database(format!("list schemas: {e}")))?;
+        let names: Vec<String> = schemas.values().map(|s| s.name.clone()).collect();
+        let (mut per_schema, total_logical_bytes) = self
+            .records()
+            .record_storage_breakdown(&names)
+            .await
+            .map_err(|e| FoldDbError::Database(format!("schema record storage: {e}")))?;
+        let mut display = HashMap::new();
+        for (key, schema) in &schemas {
+            let label = schema
+                .descriptive_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(schema.name.trim());
+            if label.is_empty() {
+                continue;
+            }
+            display.insert(key.clone(), label.to_string());
+            display.insert(schema.name.clone(), label.to_string());
+            if let Some(hash) = schema.identity_hash.as_ref() {
+                display.insert(hash.clone(), label.to_string());
+            }
+        }
+        for row in &mut per_schema {
+            if let Some(label) = display
+                .get(&row.schema_name)
+                .filter(|l| l.as_str() != row.schema_name)
+            {
+                row.display_name = Some(label.clone());
+            }
+        }
+        let total_records = per_schema.iter().map(|s| s.record_count).sum();
+        let total_record_bytes = per_schema.iter().map(|s| s.record_bytes).sum();
+        let schema_count = per_schema.len() as u64;
+        Ok(SchemaStorageReport {
             measured_at: Utc::now(),
             heavy: true,
-            total_logical_bytes: breakdown.total_logical_bytes,
-            per_schema: breakdown.per_schema,
+            per_schema,
+            total_logical_bytes,
             total_records,
             total_record_bytes,
             schema_count,
-        }
+        })
     }
 }
 
@@ -150,23 +133,11 @@ pub struct SchemaRecordKeysReport {
     pub truncated: bool,
 }
 
-/// Exact schema identity and page controls for a schema-facing key list.
-#[derive(Debug, Clone, Copy)]
-pub struct SchemaRecordKeysRequest<'a> {
-    pub requested: &'a str,
-    pub schema_id: &'a str,
-    pub limit: usize,
-    pub cursor: Option<&'a str>,
-    pub hash_filter: Option<&'a str>,
-}
-
 impl RecordStore {
-    /// Per-schema logical storage breakdown across `schema_names`, sorted by bytes desc.
-    pub async fn record_storage_breakdown(
+    async fn record_storage_breakdown(
         &self,
         schema_names: &[String],
-    ) -> Result<StorageBreakdown, SchemaError> {
-        let mut breakdown = StorageBreakdown::default();
+    ) -> Result<(Vec<SchemaStorage>, u64), SchemaError> {
         let spaces: HashMap<String, &str> = schema_names
             .iter()
             .map(|name| (record_space_uuid(name), name.as_str()))
@@ -190,8 +161,26 @@ impl RecordStore {
                 walk.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
             }
         }
-        breakdown.add_records(totals);
-        Ok(breakdown)
+        let mut total_bytes = 0u64;
+        let mut per_schema: Vec<SchemaStorage> = totals
+            .into_iter()
+            .map(|(schema_name, (record_count, record_bytes))| {
+                total_bytes += record_bytes;
+                SchemaStorage {
+                    schema_name,
+                    display_name: None,
+                    bytes: record_bytes,
+                    record_count,
+                    record_bytes,
+                }
+            })
+            .collect();
+        per_schema.sort_by(|a, b| {
+            b.bytes
+                .cmp(&a.bytes)
+                .then_with(|| a.schema_name.cmp(&b.schema_name))
+        });
+        Ok((per_schema, total_bytes))
     }
 }
 

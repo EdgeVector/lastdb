@@ -28,9 +28,6 @@ pub const BACKUP_RESOURCES: BackupResources = BackupResources {
     durable_spool_bytes: 1024 * 1024 * 1024,
 };
 
-/// Existing total-backup policy; this is not a per-file memory allowance.
-pub const BACKUP_TOTAL_STORED_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
-
 /// Opaque cloud object planning, separate from native physical format identity.
 pub mod backup_transport {
     /// Maximum bytes in one opaque cloud object chunk.

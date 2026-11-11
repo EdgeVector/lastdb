@@ -16,10 +16,6 @@ mod offline;
 mod recovery_home;
 #[path = "cloud_cmds/byte_backup/setup/files.rs"]
 mod setup_files;
-#[path = "cloud_cmds/shared_restore.rs"]
-mod shared_restore;
-#[path = "cloud_cmds/shared_writer.rs"]
-mod shared_writer;
 
 use recovery_home::files as recovery_files;
 pub(super) use recovery_home::files::FreshHome;
@@ -28,15 +24,6 @@ const PHRASE_FILE: &str = "recovery-phrase.txt";
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
-        CloudCommand::SharedWriter(selection) => {
-            return shared_writer::run(data_dir.as_deref(), selection);
-        }
-        CloudCommand::RestoreShared(selection) => {
-            return shared_restore::run(data_dir.as_deref(), selection);
-        }
-        CloudCommand::ResumeSharedRestore(ResumeSharedRestoreArgs { workspace, json }) => {
-            return shared_restore::resume(data_dir.as_deref(), &workspace, json);
-        }
         CloudCommand::BackupV2 {
             action: ref action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
         } => {

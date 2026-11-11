@@ -53,8 +53,6 @@ pub enum DataRoute {
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect`
     SyncByteBackupV2Connect,
-    /// `POST /api/sync/shared-snapshot`
-    SyncSharedSnapshot,
     /// `GET /api/db/schemas`
     DbSchemas,
     /// `POST /api/db/flush`
@@ -93,7 +91,6 @@ static EXACT_ROUTES: &[(&str, &str, DataRoute)] = &[
     ("/api/db/delete-blob", "POST", DataRoute::DbDeleteBlob),
     ("/api/sync/byte-backup-v2", "POST", DataRoute::SyncByteBackupV2),
     ("/api/sync/byte-backup-v2/connect", "POST", DataRoute::SyncByteBackupV2Connect),
-    ("/api/sync/shared-snapshot", "POST", DataRoute::SyncSharedSnapshot),
     ("/api/query", "POST", DataRoute::Query),
     ("/api/mutation", "POST", DataRoute::Mutation),
     ("/api/mutations/batch", "POST", DataRoute::MutationBatch),

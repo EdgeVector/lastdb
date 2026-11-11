@@ -27,19 +27,7 @@ impl PackRuntime {
                 .transpose()?
                 .unwrap_or(0);
         let intent_bytes = cas_delete::space(intent_keys)?;
-        let reserved_bytes = if let Some(shared) = &v2.shared {
-            let current = shared.scope.read().expect("shared disk scope");
-            shared_layout::Scope::with_writes(
-                &current,
-                previous
-                    .into_iter()
-                    .flat_map(write::PreparedCommit::operations)
-                    .chain(&operations),
-            )?;
-            batch_bytes.saturating_mul(3)
-        } else {
-            batch_bytes.saturating_add(intent_bytes)
-        };
+        let reserved_bytes = batch_bytes.saturating_add(intent_bytes);
         let space = match previous {
             Some(previous) => previous
                 .space()
@@ -66,20 +54,16 @@ impl PackRuntime {
     ) -> StorageResult<()> {
         let result = (|| {
             cas_delete::require_clear(v2)?;
-            if let Some(shared) = &v2.shared {
-                shared_layout::journal::write(v2, shared, operations)
-            } else {
-                let mut journal = operations
-                    .iter()
-                    .any(|op| op.collection != CAS_COLLECTION)
-                    .then(|| self.mutation_log.begin(v2))
-                    .flatten();
-                commit_split(v2, operations, journal.as_mut())?;
-                if let Some(journal) = journal {
-                    journal.finish(v2);
-                }
-                Ok(())
+            let mut journal = operations
+                .iter()
+                .any(|op| op.collection != CAS_COLLECTION)
+                .then(|| self.mutation_log.begin(v2))
+                .flatten();
+            commit_split(v2, operations, journal.as_mut())?;
+            if let Some(journal) = journal {
+                journal.finish(v2);
             }
+            Ok(())
         })();
         if let Err(error) = result {
             self.failed.store(true, Ordering::Release);
@@ -103,13 +87,7 @@ impl PackRuntime {
 
     pub(in crate::storage::disk_pack) fn resume_merges(&self) {
         let v2 = &self.physical;
-        if v2.home.needs_merge()
-            || v2.cas.needs_merge()
-            || v2
-                .shared
-                .as_ref()
-                .is_some_and(|shared| shared.private.needs_merge())
-        {
+        if v2.home.needs_merge() || v2.cas.needs_merge() {
             start_merges(
                 v2,
                 Arc::clone(&self.view),
@@ -209,11 +187,7 @@ fn start_merges(
     if waiting || v2.merging.swap(true, Ordering::AcqRel) {
         return;
     }
-    let mut homes = vec![Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
-    let scope = v2.shared.as_ref().map(|shared| {
-        homes.push(Arc::downgrade(&shared.private));
-        Arc::clone(&shared.scope)
-    });
+    let homes = vec![Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
     let merging = Arc::clone(&v2.merging);
     let stop = Arc::clone(&v2.stop);
     let retry_after = Arc::clone(&v2.retry_after);
@@ -221,11 +195,7 @@ fn start_merges(
     match std::thread::Builder::new()
         .name("lastdb-run-merge".into())
         .spawn(move || {
-            let adopted = Adopted {
-                view,
-                last_root,
-                scope,
-            };
+            let adopted = Adopted { view, last_root };
             merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after, &policy);
         }) {
         Ok(handle) => {
@@ -248,7 +218,6 @@ fn start_merges(
 struct Adopted {
     view: Arc<RwLock<view::NativeReadView>>,
     last_root: Arc<view::LastRoot>,
-    scope: Option<Arc<RwLock<Arc<shared_layout::Scope>>>>,
 }
 
 impl Adopted {
@@ -256,18 +225,9 @@ impl Adopted {
         let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) else {
             return;
         };
-        let private = homes.get(2).and_then(std::sync::Weak::upgrade);
-        if self.scope.is_some() && private.is_none() {
-            return;
-        }
         let latest = V2Root {
             main: main.current_root(),
             cas: cas.current_root(),
-            private: private.map(|home| home.current_root()),
-            scope: self
-                .scope
-                .as_ref()
-                .map(|scope| Arc::clone(&scope.read().expect("shared disk scope"))),
         };
         let replaced = self
             .view

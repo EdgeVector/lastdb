@@ -49,11 +49,31 @@ const db = ownerClient({
 await db.requireApiVersion(LASTDB_SDK_API_VERSION);
 ```
 
+## Named databases
+
+`listDatabases` reads `GET /api/databases`. The personal database and received
+shares stay in that list. `createDatabase` calls `POST /api/databases` and
+creates an owned shareable database. `select` returns a new client for one id
+or name. The original client stays on its current database, and a client with
+no `databaseId` remains the personal default.
+
+```ts
+const root = await connect({ appId: 'photos' });
+const created = await root.createDatabase({
+  name: 'social-family',
+  spec: { name: 'social', version: 1 },
+});
+const family = root.select(created.id);
+const same = await connect({ appId: 'photos', databaseId: created.name ?? created.id });
+```
+
+`ownerClient({ appId, socketPath, databaseId })` selects the same way.
+
 ## Registered Shares
 
-Pass the database ID or alias from `lastdb db list` to `connect` on the
-recipient's socket. `list`, `query`, `queryAll`, `queryBatch`, `listSchemas`,
-and `mutate` target `/api/databases/<id>/...`:
+Pass the database ID or alias from `lastdb db list` to `connect` or `select`
+on the recipient's socket. `list`, `query`, `queryAll`, `queryBatch`,
+`listSchemas`, and `mutate` target `/api/databases/<id>/...`:
 
 ```ts
 import { randomUUID } from 'node:crypto';

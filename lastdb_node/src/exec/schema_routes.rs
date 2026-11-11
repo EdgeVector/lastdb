@@ -20,7 +20,7 @@ fn annotate_schemas<T: Serialize>(schemas: &[T]) -> Option<Vec<Value>> {
     schemas
         .iter()
         .map(|schema| {
-            let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
+            let Value::Object(mut row) = serde_json::to_value(schema).ok()? else {
                 return None;
             };
             row.insert("record_count".into(), Value::Null);
@@ -39,18 +39,15 @@ pub(in crate::exec) fn execute_list_schemas_route(
         return error_response(400, "schema listing does not count records", ctx);
     }
     let include_full = query_flag(&req.target, "include_full");
-    let mgr = host.db.schema_manager();
-    if !mgr.catalog_ready() {
-        return error_response(
-            503,
-            "schema catalog not ready: still hydrating from store",
-            ctx,
-        );
-    }
+    let mgr = host.records().schema_manager();
     let annotated = if include_full {
-        mgr.get_active_schemas_with_states()
-            .ok()
-            .and_then(|s| annotate_schemas(&s))
+        mgr.get_schemas_with_states().ok().and_then(|s| {
+            let active: Vec<_> = s
+                .into_iter()
+                .filter(|e| e.state != SchemaState::Blocked)
+                .collect();
+            annotate_schemas(&active)
+        })
     } else {
         mgr.get_active_schema_list_entries_with_states()
             .ok()
@@ -82,7 +79,7 @@ pub(in crate::exec) fn execute_get_schema_route(
         Ok(None) => return error_response(404, &format!("Schema not found: {name}"), ctx),
         Err(e) => return render(Err(e), ctx),
     };
-    let mgr = host.db.schema_manager();
+    let mgr = host.records().schema_manager();
     let sws = match mgr.get_schema_metadata(&canonical) {
         Ok(Some(schema)) => {
             let state = mgr
@@ -141,7 +138,7 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
     let name = request.schema.name.clone();
     let res = match request.schema.validate() {
         Ok(()) => {
-            host.db
+            host.records()
                 .schema_manager()
                 .load_schema_internal(request.schema)
                 .await
@@ -171,19 +168,28 @@ pub(in crate::exec) async fn execute_drop_schema_route(
         #[serde(default)]
         must_exist: bool,
     }
-    let body = match serde_json::from_slice::<Body>(&req.body) {
-        Ok(b) => b,
-        Err(e) => return error_response(400, &format!("invalid /api/schemas/drop body: {e}"), ctx),
+    let Ok(body) = serde_json::from_slice::<Body>(&req.body) else {
+        return error_response(400, "invalid /api/schemas/drop body", ctx);
     };
     let (schema, owner_app) = (body.schema.trim(), body.owner_app.trim());
     if schema.is_empty() == owner_app.is_empty() {
         return error_response(400, "pass exactly one of schema or owner_app", ctx);
     }
+    let mgr = host.records().schema_manager();
     if !owner_app.is_empty() {
-        let dropped = match host.db.drop_schemas_owned_by_with_bindings(owner_app).await {
-            Ok(d) => d,
+        let names = match mgr.schema_names_owned_by(owner_app) {
+            Ok(names) => names,
             Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
         };
+        let mut dropped = Vec::new();
+        for name in names {
+            match mgr.drop_schema(&name).await {
+                Ok(true) => dropped.push(name),
+                Ok(false) => {}
+                Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
+            }
+        }
+        dropped.sort();
         if body.must_exist && dropped.is_empty() {
             return error_response(
                 404,
@@ -203,40 +209,34 @@ pub(in crate::exec) async fn execute_drop_schema_route(
                 404,
                 &format!("no schema is installed under '{schema}'"),
                 ctx,
-            );
+            )
         }
         Ok(None) => {
-            return json_ok(&envelope(
-                &json!({ "dropped": [], "existed": false, "schema": schema }),
-                ctx.user_id.as_str(),
-            ));
+            let p = json!({ "dropped": [], "existed": false, "schema": schema });
+            return json_ok(&envelope(&p, ctx.user_id.as_str()));
         }
         Err(e) => match blocked_drop_target(host, schema, &e) {
             Some(c) => c,
             None => return render(Err(e), ctx),
         },
     };
-    let existed = match host.db.drop_schema_and_bindings(&canonical).await {
+    let existed = match mgr.drop_schema(&canonical).await {
         Ok(existed) => existed,
         Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
     };
     if body.must_exist && !existed {
-        return error_response(
-            404,
-            &format!("no schema is installed under '{canonical}'"),
-            ctx,
-        );
+        let msg = format!("no schema is installed under '{canonical}'");
+        return error_response(404, &msg, ctx);
     }
     let dropped: Vec<String> = existed.then(|| canonical.clone()).into_iter().collect();
-    json_ok(&envelope(
-        &json!({ "dropped": dropped, "existed": existed, "schema": canonical }),
-        ctx.user_id.as_str(),
-    ))
+    let p = json!({ "dropped": dropped, "existed": existed, "schema": canonical });
+    json_ok(&envelope(&p, ctx.user_id.as_str()))
 }
 
 fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
     (error.status == 400).then_some(())?;
-    let schemas = host.db.schema_manager().get_schemas_with_states().ok()?;
+    let schemas = host.records().schema_manager();
+    let schemas = schemas.get_schemas_with_states().ok()?;
     let mut blocked = schemas.into_iter().filter(|e| {
         e.state == SchemaState::Blocked
             && (e.schema.descriptive_name.as_deref() == Some(requested)
@@ -250,12 +250,13 @@ pub(in crate::exec) fn resolve_schema_name(
     host: &Host,
     name: &str,
 ) -> Result<Option<String>, HostError> {
-    let mgr = host.db.schema_manager();
-    if mgr
-        .get_schema_metadata(name)
-        .map_err(|e| HostError::internal(e.to_string()))?
-        .is_some()
-    {
+    let mgr = host.records().schema_manager();
+    let has_meta = |n: &str| {
+        mgr.get_schema_metadata(n)
+            .map(|s| s.is_some())
+            .map_err(|e| HostError::internal(e.to_string()))
+    };
+    if has_meta(name)? {
         return Ok(Some(name.to_string()));
     }
     let schemas = mgr
@@ -268,12 +269,7 @@ pub(in crate::exec) fn resolve_schema_name(
     if trimmed.is_empty() {
         return Ok(None);
     }
-    if trimmed != name
-        && mgr
-            .get_schema_metadata(trimmed)
-            .map_err(|e| HostError::internal(e.to_string()))?
-            .is_some()
-    {
+    if trimmed != name && has_meta(trimmed)? {
         return Ok(Some(trimmed.to_string()));
     }
     resolve_folded_alias(trimmed, &schemas)
@@ -286,64 +282,56 @@ pub(in crate::exec) fn resolve_captured_schema_alias(
     if let Some(c) = resolve_exact_alias(name, entries)? {
         return Ok(Some(c));
     }
-    match name.trim() {
-        "" => Ok(None),
-        trimmed => resolve_folded_alias(trimmed, entries),
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
     }
+    resolve_folded_alias(trimmed, entries)
 }
 
 fn resolve_exact_alias(
-    requested: &str,
+    req: &str,
     schemas: &[SchemaWithState],
 ) -> Result<Option<String>, HostError> {
-    if let Some(c) = resolve_matches(
-        requested,
-        schemas
-            .iter()
-            .filter(|e| e.schema.identity_hash.as_deref() == Some(requested)),
-    )? {
+    let by_hash = schemas
+        .iter()
+        .filter(|e| e.schema.identity_hash.as_deref() == Some(req));
+    if let Some(c) = resolve_matches(req, by_hash)? {
         return Ok(Some(c));
     }
-    if let Some((owner, local)) = requested
+    if let Some((owner, local)) = req
         .split_once('/')
         .filter(|(o, l)| !o.is_empty() && !l.is_empty())
     {
-        let m = schemas
-            .iter()
-            .filter(|e| e.schema.owner_app_id.as_deref() == Some(owner))
-            .filter(|e| {
-                e.schema.name == local || e.schema.descriptive_name.as_deref() == Some(local)
-            });
-        if let Some(c) = resolve_matches(requested, m)? {
+        let m = schemas.iter().filter(|e| {
+            e.schema.owner_app_id.as_deref() == Some(owner)
+                && (e.schema.name == local || e.schema.descriptive_name.as_deref() == Some(local))
+        });
+        if let Some(c) = resolve_matches(req, m)? {
             return Ok(Some(c));
         }
     }
     resolve_matches(
-        requested,
+        req,
         schemas
             .iter()
-            .filter(|e| e.schema.descriptive_name.as_deref() == Some(requested)),
+            .filter(|e| e.schema.descriptive_name.as_deref() == Some(req)),
     )
 }
 
-fn resolve_folded_alias(
-    trimmed: &str,
-    schemas: &[SchemaWithState],
-) -> Result<Option<String>, HostError> {
-    let folded = trimmed.to_lowercase();
-    resolve_matches(
-        trimmed,
-        schemas.iter().filter(|e| {
-            e.schema
-                .descriptive_name
-                .as_deref()
-                .is_some_and(|v| v.to_lowercase() == folded)
-        }),
-    )
+fn resolve_folded_alias(t: &str, schemas: &[SchemaWithState]) -> Result<Option<String>, HostError> {
+    let f = t.to_lowercase();
+    let m = schemas.iter().filter(|e| {
+        e.schema
+            .descriptive_name
+            .as_deref()
+            .is_some_and(|v| v.to_lowercase() == f)
+    });
+    resolve_matches(t, m)
 }
 
 fn resolve_matches<'a>(
-    requested: &str,
+    req: &str,
     matches: impl Iterator<Item = &'a SchemaWithState>,
 ) -> Result<Option<String>, HostError> {
     let (mut blocked, mut seen, mut candidates) = (false, HashSet::new(), Vec::<&Schema>::new());
@@ -357,40 +345,29 @@ fn resolve_matches<'a>(
     let names: HashSet<&str> = candidates.iter().map(|s| s.name.as_str()).collect();
     let superseded: HashSet<&str> = candidates
         .iter()
-        .filter_map(|s| {
-            s.name
-                .split_once(':')
-                .and_then(|(_, base)| names.contains(base).then_some(base))
-        })
+        .filter_map(|s| s.name.split_once(':').map(|(_, base)| base))
+        .filter(|base| names.contains(base))
         .collect();
     candidates.retain(|s| !superseded.contains(s.name.as_str()));
 
     match candidates.len() {
         0 if blocked => Err(HostError::new(
             400,
-            format!("Schema '{requested}' is blocked and cannot be queried or mutated"),
+            format!("Schema '{req}' is blocked and cannot be queried or mutated"),
         )),
         0 => Ok(None),
         1 => Ok(Some(candidates[0].name.clone())),
         _ => {
             candidates.sort_by(|a, b| a.name.cmp(&b.name));
-            let details = candidates
-                .iter()
-                .map(|s| {
-                    format!(
-                        "canonical={} descriptive_name={} owner_app_id={}",
-                        s.name,
-                        s.descriptive_name.as_deref().unwrap_or("<none>"),
-                        s.owner_app_id.as_deref().unwrap_or("<none>"),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
+            let fmt = |s: &&Schema| {
+                let d = s.descriptive_name.as_deref().unwrap_or("<none>");
+                let o = s.owner_app_id.as_deref().unwrap_or("<none>");
+                format!("canonical={} descriptive_name={d} owner_app_id={o}", s.name)
+            };
+            let details = candidates.iter().map(fmt).collect::<Vec<_>>().join("; ");
             Err(HostError::new(
                 409,
-                format!(
-                    "descriptive_name '{requested}' is ambiguous; pin the schema by canonical hash. Candidates: {details}. Example: lastdb query <canonical-hash> --fields <fields>"
-                ),
+                format!("descriptive_name '{req}' is ambiguous; pin the schema by canonical hash. Candidates: {details}. Example: lastdb query <canonical-hash> --fields <fields>"),
             ))
         }
     }

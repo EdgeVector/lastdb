@@ -2,9 +2,9 @@
 
 use super::{
     capture::PublicationGate,
+    hold::{enter_clean_cut, held_root, hold_complete, publish_hold},
     invalid, protocol,
     run_source::RunSource,
-    shared_run::{enter_clean_cut, held_root, hold_complete, publish_hold},
     store::{private_directory, Store},
     ByteBackupCapture, Inner, PackRuntime, State, StorageResult, RUN_INTENT_FILE, STATE_FORMAT,
 };
@@ -37,7 +37,6 @@ pub(in crate::storage::disk_backup::byte_backup) async fn prepare(
     renew_unmaterialized: bool,
     publication_gate: Option<PublicationGate<'_>>,
 ) -> StorageResult<ByteBackupCapture> {
-    runtime.require_ordinary_backup_home()?;
     begin.validate().map_err(protocol)?;
     recovery
         .validate_for(&begin.job.stream.scope)
@@ -180,15 +179,6 @@ fn renew_intent(
     store.write(RUN_INTENT_FILE, intent)
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn require_shared_hold(
-    root: &Path,
-) -> StorageResult<()> {
-    if !hold_complete(root)? {
-        return Err(invalid("shared checkpoint hold is incomplete"));
-    }
-    Ok(())
-}
-
 pub(in crate::storage::disk_backup::byte_backup) fn capture_pair(
     runtime: &PackRuntime,
     root: &Path,
@@ -297,7 +287,6 @@ pub(in crate::storage::disk_backup::byte_backup) async fn resume(
     runtime: &Arc<PackRuntime>,
     key: &[u8; 32],
 ) -> StorageResult<ByteBackupCapture> {
-    runtime.require_ordinary_backup_home()?;
     let admission = super::super::NativeCloudWorkGuard::acquire()?;
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);

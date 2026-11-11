@@ -276,7 +276,6 @@ pub mod model {
         pub enabled: bool,
         pub automatic_backup_enabled: bool,
         pub automatic_backup: Option<AutomaticBackupStatus>,
-        pub shared_sync: Option<crate::shared_sync::Status>,
         pub mutation_log: fold_db::storage::disk_pack::mutation_log::MutationLogStatus,
         pub manual_connection: Option<ManualConnectionStatus>,
         pub running: bool,

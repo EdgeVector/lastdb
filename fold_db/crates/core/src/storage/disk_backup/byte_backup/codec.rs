@@ -214,18 +214,15 @@ pub struct RunBackupProfile {
 
 impl RunBackupProfile {
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
-        use crate::storage::format::{
-            RECORD_NODE_BYTES, RECORD_PROFILE, SHARED_NODE_BYTES, SHARED_RECORD_PROFILE,
-        };
+        use crate::storage::format::{RECORD_NODE_BYTES, RECORD_PROFILE};
         match self.version {
             RECORD_PROFILE => Ok(RECORD_NODE_BYTES),
-            SHARED_RECORD_PROFILE => Ok(SHARED_NODE_BYTES),
             _ => Err(invalid("run backup logical profile version")),
         }
     }
 
-    pub(crate) fn carries_cas(version: u16) -> bool {
-        version == crate::storage::format::SHARED_RECORD_PROFILE
+    pub(crate) fn carries_cas(_version: u16) -> bool {
+        false
     }
 
     pub fn validate(&self) -> StorageResult<()> {

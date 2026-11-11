@@ -17,8 +17,7 @@ pub mod storage;
 pub use error::{FoldDbError, FoldDbResult};
 pub use fold_db_core::FoldDB;
 pub use lastdb_model::{
-    canonical, hex, portable_mutation, portable_replay, record_replacement, record_value,
-    storage_policy,
+    canonical, hex, portable_mutation, record_replacement, record_value, storage_policy,
 };
 pub use schema::types::operations::MutationType;
 pub use schema::SchemaState;

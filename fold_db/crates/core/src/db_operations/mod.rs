@@ -8,18 +8,14 @@ pub mod record_store;
 pub mod schema_store;
 pub mod search_index;
 
-pub use crate::storage::format::metadata::{OutgoingPortablePage, PortablePeerProgress};
-pub use admin_db::{
-    SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorage,
-    SchemaStorageReport,
-};
+pub use admin_db::{SchemaRecordKey, SchemaRecordKeysReport, SchemaStorage, SchemaStorageReport};
 pub use record_store::{
     RecordDeleteLedgerEntry, RecordStore, WriterWatch, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE,
 };
 pub use schema_store::SchemaStore;
 pub use search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 
-use crate::schema::schema_types::{SchemaRetentionPolicy, SchemaState};
+use crate::schema::schema_types::SchemaState;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
 use crate::storage::disk_pack::{PackReadScope, PackRuntime};
 use crate::storage::error::StorageResult;
@@ -108,21 +104,6 @@ impl DbOperations {
         self.schemas().store_schema(schema_name, schema).await
     }
 
-    pub async fn get_schema_retention_policy(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
-        self.schemas()
-            .get_schema_retention_policy(schema_name)
-            .await
-    }
-
-    pub async fn list_schema_retention_policies(
-        &self,
-    ) -> Result<Vec<(String, SchemaRetentionPolicy)>, SchemaError> {
-        self.schemas().list_schema_retention_policies().await
-    }
-
     pub fn drop_schema<'a>(
         &'a self,
         schema_name: &'a str,
@@ -148,11 +129,6 @@ impl DbOperations {
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {
         crate::storage::disk_pack::transaction::scope(self.native_runtime(), async {
-            if self.metadata().shared_schema_bound(schema_name).await? {
-                return Err(SchemaError::InvalidData(
-                    "a shared schema requires coordinated retirement".into(),
-                ));
-            }
             let Some(schema) = self.schemas().get_schema(schema_name).await? else {
                 return Ok(None);
             };

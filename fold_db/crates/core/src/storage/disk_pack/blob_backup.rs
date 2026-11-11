@@ -123,11 +123,6 @@ impl PackRuntime {
     pub(in crate::storage::disk_pack) fn blob_store(
         self: &Arc<Self>,
     ) -> StorageResult<PackKvStore> {
-        if self.physical.shared.is_some() {
-            return Err(StorageError::InvalidOperation(
-                "a shared database backs up its CAS home, not blobs by path".into(),
-            ));
-        }
         Ok(PackKvStore {
             runtime: Arc::clone(self),
             namespace: CAS_COLLECTION.into(),

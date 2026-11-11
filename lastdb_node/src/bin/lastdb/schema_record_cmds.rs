@@ -136,47 +136,6 @@ fn print_list_record_keys_human(report: &serde_json::Value) {
     }
 }
 
-pub(crate) fn schema_drop_command(
-    data_dir: Option<PathBuf>,
-    schema: Option<String>,
-    owner_app: Option<String>,
-    must_exist: bool,
-    json_only: bool,
-) -> Result<(), String> {
-    let socket = lastdb_node::host::resolve_home(data_dir)?
-        .join("data")
-        .join("folddb.sock");
-    let mut body = serde_json::json!({ "must_exist": must_exist });
-    if let Some(schema) = schema {
-        body["schema"] = serde_json::Value::String(schema);
-    }
-    if let Some(owner_app) = owner_app {
-        body["owner_app"] = serde_json::Value::String(owner_app);
-    }
-    let response = db_post_json(&socket, "/api/schemas/drop", &body)?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response)
-                .map_err(|e| format!("serialize schema drop response: {e}"))?
-        );
-        return Ok(());
-    }
-    let dropped = response
-        .get("dropped")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if dropped.is_empty() {
-        println!("no installed schema dropped");
-    } else {
-        for name in dropped.iter().filter_map(serde_json::Value::as_str) {
-            println!("dropped {name}");
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn fetch_schema(
     target: &DatabaseTarget,
     name: &str,
@@ -194,60 +153,4 @@ pub(crate) fn fetch_schema(
         .get("schema")
         .cloned()
         .ok_or_else(|| "response missing schema field".into())
-}
-
-pub(crate) fn schema_show_command(
-    target: &DatabaseTarget,
-    name: &str,
-    json_only: bool,
-) -> Result<(), String> {
-    let schema = fetch_schema(target, name)?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&schema).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
-    let str_of = |k: &str| schema.get(k).and_then(serde_json::Value::as_str);
-    println!("schema {}", str_of("name").unwrap_or("?"));
-    for (key, label) in [
-        ("descriptive_name", "descriptive_name"),
-        ("identity_hash", "identity_hash"),
-        ("owner_app_id", "owner_app"),
-    ] {
-        if let Some(val) = str_of(key) {
-            println!("{label} {val}");
-        }
-    }
-    let schema_type = str_of("schema_type").unwrap_or("?");
-    println!("type {schema_type}");
-    println!("state {}", str_of("state").unwrap_or("?"));
-    if let Some(keys) = schema.get("record_keys") {
-        println!("record_keys {keys}");
-    }
-    let fields = schema
-        .get("fields")
-        .and_then(serde_json::Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(serde_json::Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .unwrap_or_default();
-    if fields.is_empty() {
-        println!("fields (none)");
-    } else {
-        println!("fields {fields}");
-    }
-    println!("queries:");
-    let ranged = schema
-        .pointer("/record_keys/primary/kind")
-        .and_then(serde_json::Value::as_str)
-        == Some("hash_range");
-    for q in legal_query_shapes(schema_type, Some("HASH"), ranged.then_some("RANGE")) {
-        println!("  {q}");
-    }
-    Ok(())
 }

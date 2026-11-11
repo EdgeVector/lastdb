@@ -92,13 +92,22 @@ fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), St
             into,
             env,
             write_mode,
+            spec,
+            spec_version,
         } => {
             let write_mode = match write_mode.as_str() {
                 "publisher-only" => share_publication::WriteMode::PublisherOnly,
                 "publisher-validated" => share_publication::WriteMode::PublisherValidated,
                 _ => return Err("invalid share write mode".into()),
             };
-            create(&identity_home, &into, &env, write_mode)
+            create(
+                &identity_home,
+                &into,
+                &env,
+                write_mode,
+                spec.as_deref(),
+                spec_version,
+            )
         }
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::Invite {
@@ -141,6 +150,8 @@ fn create(
     into: &Path,
     env: &str,
     write_mode: share_publication::WriteMode,
+    spec_name: Option<&str>,
+    spec_version: Option<u32>,
 ) -> Result<(), String> {
     lastdb_node::offline_home::refuse_primary(into)?;
     if into.starts_with(owner) {
@@ -152,7 +163,8 @@ fn create(
         "prod" => ShareEnvironment::Prod,
         _ => return Err("invalid share environment".into()),
     };
-    let prepared = share_publication::prepare(owner, environment, write_mode)?;
+    let prepared =
+        share_publication::prepare(owner, environment, write_mode, spec_name, spec_version)?;
     let marker =
         serde_json::to_vec(&prepared.marker).map_err(|_| "cannot encode publication marker")?;
     let mut target = target.create()?;
@@ -162,13 +174,15 @@ fn create(
     )?;
     target.write(share_publication::MARKER_FILE, &marker)?;
     target.commit()?;
-    println!(
-        "{}",
-        serde_json::json!({
-            "home": into, "publication_id": prepared.marker.id, "publisher_public_key": prepared.marker.publisher,
-            "environment": prepared.marker.environment, "write_mode": prepared.marker.write_mode,
-        })
-    );
+    let mut printed = serde_json::json!({
+        "home": into, "publication_id": prepared.marker.id, "publisher_public_key": prepared.marker.publisher,
+        "environment": prepared.marker.environment, "write_mode": prepared.marker.write_mode,
+    });
+    if let Some(spec) = &prepared.marker.spec {
+        printed["spec"] =
+            serde_json::to_value(spec).map_err(|_| "cannot encode publication spec")?;
+    }
+    println!("{printed}");
     Ok(())
 }
 

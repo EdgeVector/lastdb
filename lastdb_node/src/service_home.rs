@@ -44,63 +44,6 @@ pub fn configured_home() -> Result<Option<PathBuf>, String> {
     }
 }
 
-pub fn set_configured_home(raw_home: &Path) -> Result<String, String> {
-    let home = validate_service_home(raw_home)?;
-    let path = config_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Failed to create lastdb admin service-home config directory {}: {e}",
-                parent.display()
-            )
-        })?;
-    }
-    fs::write(&path, format!("{}\n", home.display())).map_err(|e| {
-        format!(
-            "Failed to write lastdb admin service-home config {}: {e}",
-            path.display()
-        )
-    })?;
-    Ok(format!(
-        "lastdbd service home set to {}\nConfig: {}\nRestart the Homebrew service with `brew services restart lastdb`.",
-        home.display(),
-        path.display()
-    ))
-}
-
-pub fn show_configured_home() -> Result<String, String> {
-    let path = config_path()?;
-    match configured_home()? {
-        Some(home) => Ok(format!(
-            "lastdbd service home: {}\nConfig: {}",
-            home.display(),
-            path.display()
-        )),
-        None => Ok(format!(
-            "No lastdbd service home configured.\nConfig: {}\nService start will use LASTDB_HOME or ~/.lastdb.",
-            path.display()
-        )),
-    }
-}
-
-pub fn clear_configured_home() -> Result<String, String> {
-    let path = config_path()?;
-    match fs::remove_file(&path) {
-        Ok(()) => Ok(format!(
-            "Removed lastdb admin service-home config {}\nService start will use LASTDB_HOME or ~/.lastdb.",
-            path.display()
-        )),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!(
-            "No lastdb admin service-home config existed at {}",
-            path.display()
-        )),
-        Err(e) => Err(format!(
-            "Failed to remove lastdb admin service-home config {}: {e}",
-            path.display()
-        )),
-    }
-}
-
 fn validate_service_home(raw: impl AsRef<Path>) -> Result<PathBuf, String> {
     let home = crate::profile::paths::expand_tilde_path(raw)?;
     if !home.is_absolute() {

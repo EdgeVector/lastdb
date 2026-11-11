@@ -34,16 +34,6 @@ pub(crate) struct RecordListArgs {
     pub json: bool,
 }
 
-#[derive(Subcommand, Debug)]
-pub(crate) enum ServiceHomeCommand {
-    /// Persist the home directory service starts should use.
-    Set { home: PathBuf },
-    /// Show the persisted service home, if one is configured.
-    Show,
-    /// Clear the persisted service home.
-    Clear,
-}
-
 pub(super) fn durable_mutation_client_timeout() -> Duration {
     lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
 }
@@ -77,7 +67,7 @@ pub(super) enum Command {
     /// Publish a separate database, invite readers, and manage contributor grants.
     #[command(subcommand)]
     Share(ShareCommand),
-    /// Discover databases on this node.
+    /// Create, list, and select databases on this node.
     Db {
         #[command(subcommand)]
         action: DatabaseCommand,
@@ -119,11 +109,6 @@ pub(super) enum Command {
         #[arg(long, value_name = "FILE")]
         hydrate_inline: Option<PathBuf>,
     },
-    /// Inspect one installed schema's key layout and legal query shapes.
-    Schema {
-        #[command(subcommand)]
-        action: SchemaInspectCommand,
-    },
     /// Discover, install, and publish apps through the signed registry.
     App {
         #[command(subcommand)]
@@ -136,8 +121,26 @@ pub(super) enum Command {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum DatabaseCommand {
-    /// List the local database and registered shares.
+    /// Create an owned database. Personal stays the unscoped default.
+    Create {
+        name: String,
+        /// Spec catalog name. Required together with --spec-version.
+        #[arg(long, requires = "spec_version")]
+        spec_name: Option<String>,
+        /// Spec catalog version, an integer >= 1.
+        #[arg(long, requires = "spec_name")]
+        spec_version: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List the personal database, owned databases, and received shares.
     List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the database a name or id selects. This does not change the default.
+    Select {
+        selector: String,
         #[arg(long)]
         json: bool,
     },

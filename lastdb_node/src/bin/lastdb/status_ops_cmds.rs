@@ -79,40 +79,6 @@ pub(super) fn list_databases(data_dir: Option<PathBuf>, json: bool) -> Result<()
     Ok(())
 }
 
-pub(crate) fn truncate_label(label: &str, max: usize) -> String {
-    if label.chars().count() <= max {
-        return label.to_string();
-    }
-    let mut out: String = label.chars().take(max.saturating_sub(1)).collect();
-    out.push('…');
-    out
-}
-
-pub(crate) fn inventory_client_timeout(timeout_secs: Option<u64>) -> Duration {
-    timeout_secs
-        .filter(|s| *s > 0)
-        .map_or_else(admin_scan_client_timeout, Duration::from_secs)
-}
-
-pub(crate) fn write_product_file_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create out dir {}: {e}", parent.display()))?;
-    }
-    let mut name = path.as_os_str().to_owned();
-    name.push(format!(".tmp.{}", std::process::id()));
-    let tmp = PathBuf::from(name);
-    if let Err(e) = std::fs::write(&tmp, bytes) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!("write inventory temp {}: {e}", tmp.display()));
-    }
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(format!("rename inventory out to {}: {e}", path.display()));
-    }
-    Ok(())
-}
-
 pub(super) const STATUS_UNREACHABLE_EXIT: i32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,13 +208,8 @@ fn status_json(
 }
 
 fn layout_status_line(store_root: &Path) -> Option<String> {
-    use fold_db::storage::disk_pack::{
-        HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES,
-    };
+    use fold_db::storage::disk_pack::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
     match std::fs::read(store_root.join(NODE_MARKER)).ok()?.as_slice() {
-        SHARED_NODE_BYTES => Some(format!(
-            "Layout: format {HOME_FORMAT} shared home (disk-run for shared records, disk-cas for shared file blobs, disk-private for device-only state)"
-        )),
         RECORD_NODE_BYTES => Some(format!(
             "Layout: format {HOME_FORMAT} record home (disk-run for records, disk-cas for file blobs, typed range keys)"
         )),

@@ -1,34 +1,9 @@
 //! Explicit byte-backup and credentials-only recovery-home commands.
 use super::*;
 
-#[derive(clap::Args, Debug)]
-pub(crate) struct SnapshotArgs {
-    /// Registered shared writer device ID for the running DEV home.
-    ///
-    /// Create the home with LASTDB_NATIVE_SHARED_SCHEMAS set to a JSON array
-    /// of its shared schema aliases on first start.
-    #[arg(long)]
-    pub device_id: String,
-    /// Absolute owner-only path to the enrolled device's signing key.
-    #[arg(long)]
-    pub device_key_file: PathBuf,
-    /// Absolute private workspace. Reuse it to resume the same snapshot.
-    #[arg(long)]
-    pub workspace: PathBuf,
-    /// Print the snapshot, provider file counts, and uploaded writer position as JSON.
-    #[arg(long)]
-    pub json: bool,
-}
-
 pub(crate) enum CloudCommand {
-    /// Operate the shared journal of an explicit stopped DEV home.
-    SharedWriter(SharedWriterCommand),
     /// Explicit V2 byte backup and source-free restore.
     BackupV2 { action: ByteBackupCommand },
-    /// Restore a held shared snapshot and its captured tails into a fresh home.
-    RestoreShared(SharedRestoreCommand),
-    /// Complete a sealed shared restore after an interrupted directory publication.
-    ResumeSharedRestore(ResumeSharedRestoreArgs),
     /// Register a credentials-only device from stdin; never open a source home.
     RecoverCredentialsHome(RecoverCredentialsArgs),
     /// Recover credentials for an existing DEV account from a protected seed on stdin.
@@ -48,104 +23,6 @@ pub(crate) enum CloudCommand {
     /// Prepare a source-free recovery home from this home's existing credentials.
     /// Reads credentials only; no daemon, store, registration, or cloud calls.
     PrepareRecoveryHome(PrepareRecoveryArgs),
-}
-
-#[derive(clap::Args, Debug)]
-pub(crate) struct SharedWriterCommand {
-    /// Registered device ID of the explicit DEV credential home.
-    #[arg(long)]
-    pub device_id: String,
-    /// Absolute owner-only file holding this registered device's 32-byte key.
-    #[arg(long)]
-    pub device_key_file: PathBuf,
-    /// Read the recovery phrase only from bounded stdin.
-    #[arg(long, required = true)]
-    pub recovery_phrase_stdin: bool,
-    #[command(subcommand)]
-    pub action: SharedWriterAction,
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum SharedWriterAction {
-    /// Run one bounded staging operation on the generated DEV qualification scope.
-    #[command(hide = true)]
-    QualifyStaging {
-        #[arg(long)]
-        plan: PathBuf,
-    },
-    /// Print the definition of one typed declaration under its portable ID.
-    /// No service registers it. The writer log carries it to other writers.
-    DefineSchema {
-        #[arg(long)]
-        namespace: String,
-        #[arg(long)]
-        declaration: PathBuf,
-    },
-    /// Install verified definitions from a private JSON file at their local aliases.
-    Install {
-        #[arg(long)]
-        schema_bindings: PathBuf,
-    },
-    /// Bind a restored writer to the verified definitions in a private JSON file.
-    Bind {
-        /// Start an empty home as the designated publisher before the first snapshot.
-        #[arg(long)]
-        initialize_publisher: bool,
-        #[arg(long)]
-        database_id: String,
-        #[arg(long)]
-        source_stream: String,
-        #[arg(long)]
-        schema_bindings: PathBuf,
-    },
-    /// Admit later schemas to a bound writer. Each alias is its canonical name.
-    Admit {
-        #[arg(long)]
-        schema_bindings: PathBuf,
-    },
-    /// Upload a bounded number of journal batches, stopping when caught up.
-    Push {
-        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
-        batches: u16,
-    },
-    /// Upload pending mutations and replace a stopped writer's stale shared data.
-    Rejoin {
-        /// Maximum pending batches to drain before staging the replacement.
-        #[arg(long, default_value_t = 32, value_parser = clap::value_parser!(u16).range(1..=32))]
-        batches: u16,
-    },
-    /// Fetch and apply a bounded number of verified peer ranges.
-    Pull {
-        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=32))]
-        ranges: u16,
-    },
-}
-
-#[derive(clap::Args, Debug)]
-pub(crate) struct SharedRestoreCommand {
-    /// Shared database to recover.
-    #[arg(long)]
-    pub database_id: String,
-    /// Refuse unless the recovery hold selects this exact snapshot.
-    #[arg(long)]
-    pub snapshot_id: Option<String>,
-    /// Registered device ID for the explicit credential home.
-    #[arg(long)]
-    pub device_id: String,
-    /// Absolute owner-only file containing this device's 32-byte signing seed.
-    #[arg(long)]
-    pub device_key_file: PathBuf,
-    /// Require the saved credentials to match this compiled cloud environment.
-    #[arg(long, value_parser = ["dev", "prod"])]
-    pub env: String,
-    /// Fresh, absolute destination home. The parent must already exist.
-    #[arg(long)]
-    pub into: PathBuf,
-    /// Read the recovery phrase only from bounded stdin.
-    #[arg(long, required = true)]
-    pub recovery_phrase_stdin: bool,
-    #[arg(long)]
-    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -177,14 +54,6 @@ pub(crate) struct PrepareRecoveryArgs {
     #[arg(long, required = true)]
     pub(crate) api_key_stdin: bool,
     /// Emit a value-free receipt.
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct ResumeSharedRestoreArgs {
-    #[arg(long)]
-    pub(crate) workspace: PathBuf,
     #[arg(long)]
     pub(crate) json: bool,
 }

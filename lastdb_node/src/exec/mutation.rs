@@ -101,7 +101,7 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
     parsed.mutation.pub_key = host.public_key();
 
-    let receipt = start_core_commit(host.db.mutation_manager(), vec![parsed.mutation])
+    let receipt = start_core_commit(host.records().mutation_manager(), vec![parsed.mutation])
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
     let mutation_id = receipt
@@ -148,7 +148,7 @@ async fn execute_mutations_batch(
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();
-    let receipt = start_core_commit(host.db.mutation_manager(), mutations)
+    let receipt = start_core_commit(host.records().mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
     Ok(commit_json(
@@ -185,7 +185,12 @@ async fn validate_mutation_fields(
     if record_fields.is_empty() {
         return Ok(());
     }
-    let Ok(Some(schema)) = host.db.schema_manager().resolve_schema(canonical).await else {
+    let Ok(Some(schema)) = host
+        .records()
+        .schema_manager()
+        .resolve_schema(canonical)
+        .await
+    else {
         return Ok(());
     };
     let mut unknown: Vec<String> = record_fields
