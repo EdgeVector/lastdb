@@ -56,7 +56,7 @@ impl FileTarget {
 
     /// The canonical schema name.
     pub(super) fn canonical(&self, host: &Host) -> Result<String, HostError> {
-        handlers::resolve_schema_name(host, &self.schema)?
+        schema_resolve::resolve_schema_name(host, &self.schema)?
             .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", self.schema)))
     }
 }
@@ -164,24 +164,24 @@ pub(super) async fn execute_db_delete_blob_route(
         let body: Body = serde_json::from_slice(&req.body).map_err(|error| {
             HostError::new(400, format!("invalid delete-blob request: {error}"))
         })?;
-        let mut components = handlers::MutationComponents::from_operation(body.mutation, None);
-        if components.mutation_type != MutationType::Replace {
+        let mut parsed = ParsedMutation::from_operation(body.mutation, None);
+        if parsed.mutation.mutation_type != MutationType::Replace {
             return Err(HostError::new(
                 400,
                 "delete-blob requires a complete replacement",
             ));
         }
         match body.placement {
-            Placement::Inline => components.inline_write = Some(InlineWrite::Clear),
-            Placement::Blob if components.file.is_some() => {
+            Placement::Inline => parsed.mutation.inline_write = Some(InlineWrite::Clear),
+            Placement::Blob if parsed.mutation.file.is_some() => {
                 return Err(HostError::new(
                     400,
                     "delete-blob requires a complete replacement without a file marker",
                 ));
             }
-            Placement::Blob => components.file_write = Some(FileWrite::Clear),
+            Placement::Blob => parsed.mutation.file_write = Some(FileWrite::Clear),
         }
-        commit_mutation_components(host, components).await
+        mutation::commit_parsed_mutation(host, parsed).await
     };
     render(delete.await, ctx)
 }

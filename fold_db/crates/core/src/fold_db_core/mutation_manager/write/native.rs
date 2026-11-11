@@ -66,7 +66,6 @@ impl MutationManager {
                 }
             }
             let mut record_revisions = std::collections::BTreeMap::new();
-            let notifications = crate::db_operations::ChangeFeedStore::native_events(&mutations);
             let operations = Self::count_applied_operations(&mutations);
             let schemas: Vec<&str> = mutations
                 .iter()
@@ -97,10 +96,6 @@ impl MutationManager {
                 .runtime
                 .record_read_stage("stored-stages-done", group_count);
             self.stage_native_author_clock().await?;
-            self.db_ops
-                .change_feed()
-                .stage_native_events(notifications)
-                .await?;
             Ok::<_, SchemaError>(NativeCommit {
                 mutation_ids,
                 record_revisions,

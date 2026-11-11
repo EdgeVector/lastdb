@@ -1,24 +1,8 @@
-//! Per-database and per-schema storage inventory reports.
+//! Per-schema storage inventory reports.
 
 use super::*;
 
 impl FoldDB {
-    /// Live inventory of the `main` tree key classes and the live records of
-    /// each schema. It writes nothing.
-    pub async fn db_inventory(&self) -> Result<DbInventory, FoldDbError> {
-        let schemas = self
-            .db_ops()
-            .get_all_schemas()
-            .await
-            .map_err(|e| FoldDbError::Database(format!("list schemas: {e}")))?;
-        let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
-        self.db_ops()
-            .records()
-            .db_inventory(&names)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))
-    }
-
     /// Per-schema logical storage: the live records of each schema
     /// (`record_count`, `record_bytes`). Their bytes count in `bytes` and the
     /// logical total.

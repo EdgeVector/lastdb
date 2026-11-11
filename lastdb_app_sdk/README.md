@@ -106,8 +106,6 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
 - `declareSchema(request)` / `rememberDefinition(schemaName, definitionId)` —
   declare a schema on `POST /api/schemas/declare` and attach `definition_id` on
   subsequent mutations.
-- `changes({ since?, limit?, target? })` — read durable changed-row cursors from
-  `POST /api/app/changes`.
 - `autoIdentity()`, `listSchemas()`, `resolveSchema(descriptor)` — owner/host
   helpers over `GET /api/system/auto-identity` and `GET /api/schemas`.
 

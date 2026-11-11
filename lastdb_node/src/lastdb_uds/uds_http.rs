@@ -1,10 +1,5 @@
 //! HTTP/1.1 request framing for the Unix-domain socket.
 //!
-//! [`super::uds::UdsSocket::serve`] accepts a same-user stream. This module
-//! parses the [`UdsRequest`], builds its [`AccessContext`], and calls the
-//! daemon's route handler. The accept path reads kernel peer credentials before
-//! this parser sees request bytes.
-//!
 //! **I4 (side-channel closure).** This module does not log a request line,
 //! header value, or body byte. A parse failure uses a content-free
 //! [`UdsHttpError`] variant, so the error cannot disclose request content.
@@ -14,38 +9,25 @@ use std::io::{self, BufRead, Read, Write};
 use fold_db::access::AccessContext;
 
 /// Largest single request/header line accepted, in bytes (excluding CRLF).
-///
-/// Bounds the per-line allocation so a same-user process that never sends a line
-/// terminator cannot drive unbounded memory growth. 8 KiB comfortably fits a
-/// request line and any individual header the node emits.
 pub const MAX_LINE_LEN: usize = 8 * 1024;
 
 /// Largest total header-section size accepted, in bytes.
-///
-/// Caps the sum of all header lines so a flood of small headers is bounded even
-/// though each line is individually under [`MAX_LINE_LEN`].
 pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
 
 /// Largest number of header lines accepted.
 pub const MAX_HEADER_COUNT: usize = 256;
 
 /// Largest general request body accepted, in bytes.
-/// Owner raw local-file PUTs use native input memory admission instead.
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 
 /// A request read off the control socket.
-///
-/// Headers are kept as an ordered list of `(name, value)` pairs preserving wire
-/// order; use [`UdsRequest::header`] for a case-insensitive lookup. The body is
-/// the exact `Content-Length` bytes (empty when the header is absent).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdsRequest {
     /// Request method token (e.g. `GET`, `POST`), verbatim from the wire.
     pub method: String,
     /// Request target (path and optional query), verbatim from the wire.
     pub target: String,
-    /// Header lines in wire order, each `(name, value)` with surrounding
-    /// whitespace trimmed.
+    /// Header lines in wire order, each `(name, value)` trimmed.
     pub headers: Vec<(String, String)>,
     /// Request body — exactly `Content-Length` bytes, or empty when absent.
     pub body: Vec<u8>,
@@ -61,10 +43,7 @@ impl UdsRequest {
     }
 }
 
-/// Why reading a control-socket request failed.
-///
-/// Every variant is content-free — none carries a caller-supplied byte — so a
-/// failed read can be logged without leaking request content (the I4 concern).
+/// Why reading a control-socket request failed (content-free for **I4**).
 #[derive(Debug)]
 pub enum UdsHttpError {
     /// Underlying transport error reading the stream.
@@ -83,15 +62,11 @@ pub enum UdsHttpError {
     MalformedHeader,
     /// The header section exceeded the total-size or count cap.
     HeadersTooLarge,
-    /// `Content-Length` was absent-but-required, unparseable, or contradictory
-    /// across duplicate headers.
+    /// `Content-Length` was absent-but-required, unparseable, or contradictory.
     InvalidContentLength,
     /// The declared body length exceeded the request's body allowance.
     BodyTooLarge,
-    /// The request carried a `Transfer-Encoding` header. The control socket
-    /// frames bodies by `Content-Length` only; a `Transfer-Encoding` (e.g.
-    /// `chunked`) request would otherwise be silently mis-framed, the classic
-    /// CL/TE desync shape. We refuse it explicitly. (sec review 2026-06-15.)
+    /// The request carried a `Transfer-Encoding` header.
     UnsupportedTransferEncoding,
 }
 
@@ -135,33 +110,23 @@ impl From<io::Error> for UdsHttpError {
     }
 }
 
-/// Read one CRLF-terminated line, returning its content without the terminator.
-///
-/// `Ok(None)` signals a clean EOF before any byte (the peer hung up); `Ok(Some)`
-/// a complete line. A line longer than `max` (excluding CRLF) is
-/// [`UdsHttpError::LineTooLong`]; a stream that ends mid-line is
-/// [`UdsHttpError::UnexpectedEof`]. Both `\r\n` and a bare `\n` terminate a line
-/// (lenient on the CR, as servers commonly are).
 fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, UdsHttpError> {
     let mut buf = Vec::new();
-    // Cap the read at max + 2 (line + CRLF) so a terminator-free line cannot
-    // grow the buffer without bound.
     let mut limited = reader.take((max as u64) + 2);
     let n = limited.read_until(b'\n', &mut buf)?;
     if n == 0 {
         return Ok(None);
     }
     if buf.last() != Some(&b'\n') {
-        // No terminator: either the cap was hit (too long) or the stream ended.
         return if buf.len() >= max + 2 {
             Err(UdsHttpError::LineTooLong)
         } else {
             Err(UdsHttpError::UnexpectedEof)
         };
     }
-    buf.pop(); // drop '\n'
+    buf.pop();
     if buf.last() == Some(&b'\r') {
-        buf.pop(); // drop '\r'
+        buf.pop();
     }
     if buf.len() > max {
         return Err(UdsHttpError::LineTooLong);
@@ -169,7 +134,6 @@ fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, 
     Ok(Some(buf))
 }
 
-/// Parse the request line into `(method, target)`, validating the HTTP version.
 fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     let s = std::str::from_utf8(line).map_err(|_| UdsHttpError::MalformedRequestLine)?;
     let mut parts = s.split(' ');
@@ -183,21 +147,17 @@ fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
         .ok_or(UdsHttpError::MalformedRequestLine)?;
     let version = parts.next().ok_or(UdsHttpError::MalformedRequestLine)?;
     if parts.next().is_some() {
-        // A target containing a raw space would split into a 4th token; reject.
         return Err(UdsHttpError::MalformedRequestLine);
     }
     if version != "HTTP/1.0" && version != "HTTP/1.1" {
         return Err(UdsHttpError::UnsupportedHttpVersion);
     }
-    // A method token is visible ASCII with no spaces (split already removed
-    // spaces, so this rejects control bytes such as an embedded CR).
     if !method.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(UdsHttpError::MalformedRequestLine);
     }
     Ok((method.to_string(), target.to_string()))
 }
 
-/// Parse one header line into a trimmed `(name, value)` pair.
 fn parse_header(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     let s = std::str::from_utf8(line).map_err(|_| UdsHttpError::MalformedHeader)?;
     let idx = s.find(':').ok_or(UdsHttpError::MalformedHeader)?;
@@ -209,14 +169,6 @@ fn parse_header(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     Ok((name.to_string(), value.to_string()))
 }
 
-/// Read and parse one HTTP/1.1 request from a control-socket stream.
-///
-/// The reader is any [`BufRead`] — in production a `BufReader<UnixStream>`; in
-/// tests an in-memory byte slice. Reads the request line, the header section up
-/// to the blank line, and exactly `Content-Length` body bytes. All size caps
-/// ([`MAX_LINE_LEN`], [`MAX_HEADERS_TOTAL`], [`MAX_HEADER_COUNT`],
-/// [`MAX_BODY_LEN`]) are enforced; every failure is a content-free
-/// [`UdsHttpError`]. `allow_owner_blob` is true only for the authenticated owner.
 fn read_request_with_owner_blob<R: BufRead>(
     mut reader: R,
     allow_owner_blob: bool,
@@ -231,7 +183,7 @@ fn read_request_with_owner_blob<R: BufRead>(
     loop {
         let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::UnexpectedEof)?;
         if line.is_empty() {
-            break; // blank line terminates the header section
+            break;
         }
         header_bytes = header_bytes.saturating_add(line.len());
         if header_bytes > MAX_HEADERS_TOTAL || headers.len() >= MAX_HEADER_COUNT {
@@ -240,10 +192,6 @@ fn read_request_with_owner_blob<R: BufRead>(
         headers.push(parse_header(&line)?);
     }
 
-    // Reject Transfer-Encoding: we frame the body by Content-Length only, so a
-    // chunked request would be silently mis-framed (CL/TE desync). The control
-    // socket's in-house clients always send Content-Length; refuse TE outright
-    // rather than rely on the one-request-per-connection model to mask it.
     if headers
         .iter()
         .any(|(name, _)| name.eq_ignore_ascii_case("transfer-encoding"))
@@ -251,8 +199,7 @@ fn read_request_with_owner_blob<R: BufRead>(
         return Err(UdsHttpError::UnsupportedTransferEncoding);
     }
 
-    let body = body::read(&mut reader, &headers, &method, &target, allow_owner_blob)?;
-
+    let body = read_body(&mut reader, &headers, &method, &target, allow_owner_blob)?;
     Ok(UdsRequest {
         method,
         target,
@@ -261,12 +208,76 @@ fn read_request_with_owner_blob<R: BufRead>(
     })
 }
 
+fn read_body(
+    reader: &mut impl Read,
+    headers: &[(String, String)],
+    method: &str,
+    target: &str,
+    allow_owner_blob: bool,
+) -> Result<Vec<u8>, UdsHttpError> {
+    let raw_blob = allow_owner_blob
+        && method == "POST"
+        && (target == "/api/db/put-blob"
+            || crate::lastdb_uds::database_path::split(target)
+                .is_some_and(|(_, path)| path == "db/put-blob"))
+        && headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .and_then(|(_, value)| value.split(';').next())
+            .is_some_and(|value| {
+                value
+                    .trim()
+                    .eq_ignore_ascii_case("application/octet-stream")
+            });
+    let maximum = if raw_blob {
+        fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+    } else {
+        MAX_BODY_LEN as u64
+    };
+    let content_length = resolve_content_length(headers, maximum)?;
+    let mut body = Vec::new();
+    body.try_reserve_exact(content_length)
+        .map_err(|_| UdsHttpError::Io(io::Error::other("request body allocation refused")))?;
+    body.resize(content_length, 0);
+    reader
+        .read_exact(&mut body)
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::UnexpectedEof => UdsHttpError::UnexpectedEof,
+            _ => UdsHttpError::Io(error),
+        })?;
+    Ok(body)
+}
+
+fn resolve_content_length(
+    headers: &[(String, String)],
+    maximum: u64,
+) -> Result<usize, UdsHttpError> {
+    let mut length = 0usize;
+    let mut seen = false;
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("content-length") {
+            let parsed = value
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| UdsHttpError::InvalidContentLength)?;
+            if seen && parsed != length {
+                return Err(UdsHttpError::InvalidContentLength);
+            }
+            length = parsed;
+            seen = true;
+        }
+    }
+    if length as u64 > maximum {
+        return Err(UdsHttpError::BodyTooLarge);
+    }
+    Ok(length)
+}
+
 /// Build the owner [`AccessContext`] for a request accepted on the control socket.
 pub fn uds_access_context(owner_user_id: &str) -> AccessContext {
     AccessContext::owner(owner_user_id)
 }
 
-mod body;
 mod serve;
 
 pub use serve::{

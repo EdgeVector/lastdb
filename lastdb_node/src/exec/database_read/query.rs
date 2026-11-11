@@ -1,12 +1,14 @@
 //! Key selection and ordinary query pagination for a verified Share.
 
 use super::*;
+use crate::exec::query::{
+    batch_results, clamp_request_limit, parse_query_batch, verified_query_page, QueryResponseFormat,
+};
 use fold_db::fold_db_core::query::Record;
 use fold_db::record_value::StoredRecord;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, QueryCursor};
-use handlers::QueryResponseFormat;
 use schema_types::record_keys::RecordKeyKind;
 
 impl DatabaseRead<'_> {
@@ -22,7 +24,7 @@ impl DatabaseRead<'_> {
     }
 
     pub(super) fn batch(&self, req: &UdsRequest, ctx: &AccessContext) -> UdsResponse {
-        let queries = match super::super::query_batch::parse_query_batch(req, ctx) {
+        let queries = match parse_query_batch(req, ctx) {
             Ok(queries) => queries,
             Err(response) => return response,
         };
@@ -47,7 +49,7 @@ impl DatabaseRead<'_> {
         if bytes > 64 * 1024 * 1024 {
             return error_response(413, "Share query batch exceeds its response allowance", ctx);
         }
-        let results = super::super::query_batch::batch_results(finished);
+        let results = batch_results(finished);
         render(Ok(json!({"count": results.len(), "results": results})), ctx)
     }
 
@@ -77,7 +79,7 @@ impl DatabaseRead<'_> {
             .as_ref()
             .ok_or_else(|| HostError::new(400, "Share queries require a key selector"))?;
         let binding = comparison.cursor_binding(&(self.id, filter))?;
-        let limit = crate::lastdb_host::pagination::clamp_request_limit(limit);
+        let limit = clamp_request_limit(limit);
         let offset = offset.unwrap_or_default();
         let count_only = response_format == QueryResponseFormat::Count;
         if cursor.is_some() && (offset != 0 || count_only || query.expected_total_count.is_some())
@@ -132,7 +134,7 @@ impl DatabaseRead<'_> {
                 ))
             })
             .collect::<Result<Vec<_>, HostError>>()?;
-        Ok(handlers::verified_query_page(
+        Ok(verified_query_page(
             rows,
             response_format == QueryResponseFormat::Values,
             page.total,

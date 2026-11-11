@@ -136,7 +136,7 @@ pub(super) fn mutate_command(
     if let Some(object) = body.as_object_mut().filter(|_| durable) {
         object.insert("durability".into(), serde_json::json!("durable"));
     }
-    lastdb_node::lastdb_host::wire::parse_mutation_body(
+    lastdb_node::exec::parse_mutation_body(
         serde_json::to_vec(&body)
             .map_err(|e| e.to_string())?
             .as_slice(),

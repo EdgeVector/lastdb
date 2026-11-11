@@ -3,7 +3,7 @@
 //! Namespace names, runtime and key context come from one home here. Providers
 //! receive typed writers/read views; child raw constructors are format-private.
 
-use super::{change_feed::ChangeFeed, metadata::Metadata};
+use super::metadata::Metadata;
 use super::{records::RecordFormat, schemas::SchemaFormat};
 use crate::storage::disk_pack::{transaction, PackNamespacedStore, PackRuntime};
 use crate::storage::error::StorageResult;
@@ -14,7 +14,6 @@ pub(crate) struct BoundFormat {
     pub(crate) schemas: SchemaFormat,
     pub(crate) records: RecordFormat,
     pub(crate) metadata: Metadata,
-    pub(crate) feed: ChangeFeed,
 }
 
 pub(crate) async fn open(
@@ -27,7 +26,6 @@ pub(crate) async fn open(
     let metadata = store.open_namespace(super::METADATA_NAMESPACE).await?;
     let states = store.open_namespace(super::SCHEMA_STATES_NAMESPACE).await?;
     let schemas = store.open_namespace(super::SCHEMAS_NAMESPACE).await?;
-    let feed = store.open_namespace(super::CHANGE_FEED_NAMESPACE).await?;
     let schemas = SchemaFormat::new(schemas, states, Arc::clone(&runtime));
     let metadata = Metadata::new(metadata, Arc::clone(&runtime));
     let records = RecordFormat::new(
@@ -48,7 +46,6 @@ pub(crate) async fn open(
         schemas,
         records,
         metadata,
-        feed: ChangeFeed::new(feed, Arc::clone(&runtime)),
         runtime,
     })
 }

@@ -2,7 +2,7 @@
 
 use super::keys::*;
 use super::{require_name, row, Row};
-use crate::schema::{SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
+use crate::schema::{SchemaRetentionPolicy, SchemaState};
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 
@@ -14,10 +14,6 @@ pub(crate) enum StateChange<'a> {
     Policy {
         schema: &'a str,
         policy: &'a SchemaRetentionPolicy,
-    },
-    Claim {
-        schema: &'a str,
-        claim: SchemaNameClaim,
     },
     Age {
         schema: &'a str,
@@ -43,7 +39,6 @@ pub(super) fn encode(change: StateChange<'_>) -> StorageResult<Row> {
     let schema = match &change {
         StateChange::State { schema, .. }
         | StateChange::Policy { schema, .. }
-        | StateChange::Claim { schema, .. }
         | StateChange::Age { schema, .. }
         | StateChange::Partition { schema, .. } => *schema,
     };
@@ -58,7 +53,6 @@ pub(super) fn encode(change: StateChange<'_>) -> StorageResult<Row> {
             }
             row(retention_policy_key(schema), policy)
         }
-        StateChange::Claim { claim, .. } => row(name_claim_key(schema), &claim),
         StateChange::Age { entry, latest, .. } => {
             let key = if latest {
                 retention_age_latest_key(schema, &entry.key)

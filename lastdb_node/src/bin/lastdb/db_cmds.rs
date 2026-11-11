@@ -4,9 +4,6 @@ use super::*;
 mod db_cleanup_cmds;
 pub(crate) use db_cleanup_cmds::*;
 
-#[path = "db_inventory_print_cmds.rs"]
-mod db_inventory_print_cmds;
-pub(crate) use db_inventory_print_cmds::*;
 #[path = "db_ledger_cmds.rs"]
 mod db_ledger_cmds;
 pub(crate) use db_ledger_cmds::*;
@@ -14,7 +11,10 @@ pub(crate) use db_ledger_cmds::*;
 mod record_file_input;
 pub(crate) use record_file_input::*;
 
-pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
+pub(crate) fn db_storage_command(
+    data_dir: Option<PathBuf>,
+    action: AdminStorageCommand,
+) -> Result<(), String> {
     let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
     if probe_health(&socket).is_err() {
         return Err(format!(
@@ -23,14 +23,24 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         ));
     }
     match action {
-        DbCommand::Inspect(action) => db_inspect_command(&socket, action),
-        DbCommand::Reclaim(action) => db_reclaim_command(&socket, &action),
+        AdminStorageCommand::Inventory {
+            by_schema: _,
+            limit,
+            json,
+            out,
+            timeout,
+        } => db_schemas(&socket, json, out.as_deref(), timeout, limit.unwrap_or(50)),
+        AdminStorageCommand::Reclaim(DbReclaimCommand::Cleanup {
+            status,
+            wait,
+            timeout,
+            json,
+        }) => db_cleanup(&socket, status, wait, timeout, json),
+        AdminStorageCommand::Reclaim(DbReclaimCommand::DeleteLedger { limit, json }) => {
+            db_delete_ledger(&socket, limit, json)
+        }
     }
 }
-
-#[path = "db_dispatch_core.rs"]
-mod db_dispatch_core;
-use db_dispatch_core::*;
 
 #[path = "db_client_util.rs"]
 mod db_client_util;

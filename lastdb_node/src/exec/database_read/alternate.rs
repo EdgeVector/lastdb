@@ -1,12 +1,14 @@
 //! Named alternate reads retain the record's primary mutation address.
 
 use super::*;
-use crate::exec::app_routes::{alternate_list, list_rules::ListRecordKeysRequest};
+use crate::exec::list_keys_route::{
+    alternate_list_report, decode_alternate_cursor, ListRecordKeysRequest,
+};
+use crate::exec::query::{clamp_request_limit, format_alternate_page, QueryResponseFormat};
 use fold_db::alternate_keys::AlternateEntry;
 use fold_db::fold_db_core::query::{query_executor::AlternatePage, Record};
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::{Query, QueryCursor};
-use handlers::QueryResponseFormat;
 
 impl DatabaseRead<'_> {
     pub(super) fn alternate_list(
@@ -22,18 +24,18 @@ impl DatabaseRead<'_> {
             schema.name.clone(),
             Some(HashRangeFilter::HashKey(hash.clone())),
         );
-        query.key_name = request.key_name.clone();
+        query.key_name.clone_from(&request.key_name);
         let page = self.alternate_query(
             schema,
             QueryRequest {
                 query,
                 limit: Some(request.limit),
                 offset: None,
-                cursor: alternate_list::decode_cursor(request.cursor.as_deref())?,
+                cursor: decode_alternate_cursor(request.cursor.as_deref())?,
                 response_format: QueryResponseFormat::Values,
             },
         )?;
-        Ok(json!({"list": alternate_list::report(request, schema, &page)?}))
+        Ok(json!({"list": alternate_list_report(request, schema, &page)?}))
     }
 
     pub(super) fn alternate_query(
@@ -71,7 +73,7 @@ impl DatabaseRead<'_> {
         let after = cursor
             .map(|cursor| alternate_after(cursor, &comparison))
             .transpose()?;
-        let limit = crate::lastdb_host::pagination::clamp_request_limit(limit);
+        let limit = clamp_request_limit(limit);
         let read_limit = if count_only { 1000 } else { limit };
         let page = self
             .reader
@@ -91,7 +93,7 @@ impl DatabaseRead<'_> {
             values.insert(entry.primary.clone(), Record::from_stored(&record));
             entries.push(entry);
         }
-        handlers::format_alternate_page(
+        format_alternate_page(
             AlternatePage {
                 values,
                 entries,
