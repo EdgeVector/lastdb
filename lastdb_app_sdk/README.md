@@ -204,10 +204,8 @@ both sockets:
    namespace. Each schema owns its record values. A write to one schema does
    not change a different schema, even when the two schemas use the same field
    definitions.
-4. The schema service reserves the namespaces `std`, `system`,
-   `templates`, `graph`, `social`, `medical`, `finance`, and `work`.
-   A developer cannot register them. `graph`, `social`, `medical`,
-   `finance`, and `work` are the canonical shared schema namespaces.
+4. The schema service reserves the namespaces `std`, `system`, and
+   `templates`. A developer cannot register them.
 
 ### Owner socket — your own apps (`ownerClient`)
 
