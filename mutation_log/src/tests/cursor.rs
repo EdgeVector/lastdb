@@ -133,7 +133,11 @@ fn head_is_present_when_every_entry_is_hidden() {
         .head_for(&receiver, &hearth)
         .expect("head")
         .expect("hidden entry");
-    assert_eq!(head.cursor, 1);
+    assert_eq!(
+        head.cursor,
+        state.head.as_ref().expect("log head").delivery_seq
+    );
+    assert!(head.stamp.is_none());
     let page = state.list(&receiver, 0, 10, 1, &hearth).expect("page");
     assert!(page.entries.is_empty());
     assert_eq!(page.next, 1);

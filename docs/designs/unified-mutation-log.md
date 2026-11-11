@@ -86,14 +86,17 @@ appended, or that has pulled once, counts as acked at 0 until it acks. The
 first pull records that zero and does not move it. `list` returns the
 readable entries and sets `next` to the last delivery sequence scanned,
 including entries that reader cannot see, so hidden entries are covered.
-`head` reports that same scan cursor, including when every entry is hidden,
-so acking the head does not pin trim behind a hidden entry. The trim floor
+`head` reports the log head's delivery sequence, including when every stored
+entry is hidden. Its stamp is the last entry this reader can see, and it is
+absent when none are visible, so a hidden entry's writer is not reported.
+Acking that cursor does not sit below the trim floor. The trim floor
 is the minimum of those device positions, and also a 30-day maximum
 retention. The floor does not move past the latest snapshot. Revoke drops
 every device ack of that key.
 
 Cutting a snapshot stores the shell's `snapshot_ref`, an opaque pointer to
-the snapshot bytes. The core does not store those bytes. Trim that would
+the snapshot bytes. The pointer is non-empty and has no control characters.
+The core does not cap its length and does not store those bytes. Trim that would
 drop entries is refused unless that snapshot covers the floor. A device
 whose position is below the floor gets `CursorExpired`. The sync step then
 returns `Reset { snapshot_ref, through, at_ms }` plus the entries still

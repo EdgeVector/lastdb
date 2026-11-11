@@ -165,6 +165,14 @@ fn trim_without_a_snapshot_is_refused() {
 }
 
 #[test]
+fn snapshot_ref_accepts_opaque_text() {
+    let mixed = format!("Sha{}", "A".repeat(300));
+    assert_eq!(SnapshotRef::new(&mixed).expect("caps").as_str(), mixed);
+    assert!(SnapshotRef::new("").is_err());
+    assert!(SnapshotRef::new("snap\nref").is_err());
+}
+
+#[test]
 fn register_reader_records_zero_and_holds_the_floor() {
     let owner = principal("owner");
     let phone = writer_of(&owner, "phone");
