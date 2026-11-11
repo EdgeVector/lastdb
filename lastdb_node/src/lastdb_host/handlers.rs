@@ -20,8 +20,6 @@
 //! POST routes take the already-parsed body value. The caller's only job is to
 //! bind the user-context task-local, parse the wire, and apply the envelope.
 
-use std::collections::HashMap;
-
 use crate::lastdb_uds::uds_http::UdsResponse;
 use fold_db::access::AccessContext;
 use fold_db::error::FoldDbError;
