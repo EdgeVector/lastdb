@@ -111,7 +111,11 @@ pub(crate) fn problems(
     reasons
 }
 
-fn scope(file: &'static str, snapshot: &SnapshotReceipt, required_kind: &'static str) -> Scope<'_> {
+fn scope<'a>(
+    file: &'static str,
+    snapshot: &'a SnapshotReceipt,
+    required_kind: &'static str,
+) -> Scope<'a> {
     Scope {
         file,
         kind: &snapshot.kind,
