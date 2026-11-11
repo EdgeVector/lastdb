@@ -21,7 +21,7 @@ fn trim_floor_is_the_minimum_ack() {
     )
     .expect("snapshot")
     .state;
-    state = ack(&state, &owner, 1);
+    state = ack(&state, &phone, 1);
     assert_eq!(state.effective_floor(12), 1);
     state = step(
         &state,
@@ -35,7 +35,7 @@ fn trim_floor_is_the_minimum_ack() {
     .state;
     assert_eq!(state.entries.len(), 1);
     assert_eq!(state.entries[0].delivery_seq, 2);
-    state = ack(&state, &owner, 2);
+    state = ack(&state, &phone, 2);
     state = step(
         &state,
         Command::Trim {
@@ -52,13 +52,11 @@ fn trim_floor_is_the_minimum_ack() {
 
 #[test]
 fn two_devices_hold_the_floor_at_the_lesser_ack() {
-    let phone_owner = principal("phone");
-    let laptop_owner = principal("laptop");
-    let phone = writer_of(&phone_owner, "phone");
-    let laptop = writer_of(&laptop_owner, "laptop");
+    let owner = principal("owner");
+    let phone = writer_of(&owner, "phone");
+    let laptop = writer_of(&owner, "laptop");
     let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
-    state = grant_owner(&state, &phone_owner, &phone_owner);
-    state = grant_owner(&state, &phone_owner, &laptop_owner);
+    state = grant_owner(&state, &owner, &owner);
     let first = entry(&state.database_id, &phone, "notes", 1, 1);
     let second = entry(&state.database_id, &laptop, "notes", 1, 2);
     state = apply(&state, &phone, vec![first], 10);
@@ -66,20 +64,20 @@ fn two_devices_hold_the_floor_at_the_lesser_ack() {
     state = step(
         &state,
         Command::Snapshot {
-            caller: phone_owner.clone(),
+            caller: owner.clone(),
             at_ms: 12,
         },
         &hearth,
     )
     .expect("snapshot")
     .state;
-    state = ack(&state, &phone_owner, 2);
-    state = ack(&state, &laptop_owner, 1);
+    state = ack(&state, &phone, 2);
+    state = ack(&state, &laptop, 1);
     assert_eq!(state.effective_floor(12), 1);
     state = step(
         &state,
         Command::Trim {
-            caller: phone_owner,
+            caller: owner,
             now_ms: 12,
         },
         &hearth,

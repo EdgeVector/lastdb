@@ -8,6 +8,7 @@ use crate::{drive, Outcome, SyncEvent, SyncRole, SyncState};
 
 mod path;
 mod personal;
+mod recover;
 mod retry;
 mod role;
 mod share;
@@ -112,7 +113,12 @@ fn append(log: &mut MemLog, state: &SyncState, event: SyncEvent) -> SyncState {
 fn pull(log: &mut MemLog, state: &SyncState, now_ms: u64) -> (SyncState, Vec<StoredEntry>) {
     let (next, outcome) = drive(state, log, SyncEvent::Pull { now_ms }, &hearth).expect("pull");
     match outcome {
-        Outcome::Pulled { entries, cursor } => {
+        Outcome::Pulled {
+            entries,
+            cursor,
+            reset,
+        } => {
+            assert!(reset.is_none());
             assert_eq!(next.cursor, cursor);
             (next, entries)
         }

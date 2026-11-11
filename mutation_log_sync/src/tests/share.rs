@@ -26,13 +26,17 @@ fn share_round_trip_hides_a_submission_until_the_publisher_reappends() {
         kind.clone(),
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");
     let other_state = SyncState::open(
         database("family"),
         kind.clone(),
-        SyncRole::Receiver { principal: other },
+        SyncRole::Receiver {
+            principal: other,
+            device: device("reader"),
+        },
     )
     .expect("other");
     let contributor_state = SyncState::open(
@@ -119,6 +123,7 @@ fn reappend_from_another_publisher_device_is_duplicate() {
         kind,
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");

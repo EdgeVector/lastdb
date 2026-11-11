@@ -1,6 +1,6 @@
 use crate::{
-    AppendBatch, AppendOutcome, Capability, ListPage, LogError, PrincipalId, ScopedHead, Snapshot,
-    Writer,
+    AppendBatch, AppendOutcome, Capability, ListPage, LogError, PrincipalId, Recovery, ScopedHead,
+    Snapshot, Writer,
 };
 
 /// Persistence port for one database log.
@@ -26,8 +26,15 @@ pub trait MutationLog {
         now_ms: u64,
     ) -> Result<ListPage, LogError>;
 
-    /// Record the reader's delivery cursor. The value is the stored cursor.
-    fn ack(&mut self, consumer: &PrincipalId, through: u64) -> Result<u64, LogError>;
+    /// Record one device's delivery cursor. The value is the stored cursor.
+    fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError>;
+
+    /// Still-stored entries for a device whose cursor is below the trim floor.
+    ///
+    /// The result carries the snapshot and every visible entry that device has
+    /// not acked. The caller installs the snapshot, applies the entries, then
+    /// acks [`Recovery::next`].
+    fn recover(&self, reader: &Writer, now_ms: u64) -> Result<Recovery, LogError>;
 
     /// Grant read or append on this database. `caller` is the publisher or an owner key.
     fn grant(

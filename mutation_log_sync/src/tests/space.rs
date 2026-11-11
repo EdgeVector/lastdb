@@ -157,12 +157,33 @@ fn expired_cursor_restarts_from_the_snapshot() {
         share_kind(&publisher),
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");
-    let (reader, seen) = pull(&mut log, &reader, MAX_RETENTION_MS);
-    assert_eq!(payloads(&seen), vec![b"fresh".to_vec()]);
-    assert!(reader.cursor >= 1);
+    let (reader, outcome) = drive(
+        &reader,
+        &mut log,
+        SyncEvent::Pull {
+            now_ms: MAX_RETENTION_MS,
+        },
+        &hearth,
+    )
+    .expect("pull");
+    match outcome {
+        Outcome::Pulled {
+            entries,
+            cursor,
+            reset,
+        } => {
+            assert_eq!(payloads(&entries), vec![b"fresh".to_vec()]);
+            let snapshot = reset.expect("snapshot covers the trimmed entry");
+            assert_eq!(snapshot.through_delivery_seq, 1);
+            assert_eq!(reader.cursor, cursor);
+            assert!(cursor > snapshot.through_delivery_seq);
+        }
+        Outcome::Appended { .. } | Outcome::Duplicate { .. } => panic!("pull stored an entry"),
+    }
 }
 
 fn append_batch(

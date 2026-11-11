@@ -3,6 +3,7 @@ pub use super::*;
 mod ack;
 mod append;
 mod cursor;
+mod device;
 mod namespace;
 mod removal;
 mod retain;
@@ -157,11 +158,11 @@ pub fn grant_submit(
     .state
 }
 
-pub fn ack(state: &LogState, consumer: &PrincipalId, through: u64) -> LogState {
+pub fn ack(state: &LogState, reader: &Writer, through: u64) -> LogState {
     step(
         state,
         Command::Ack {
-            consumer: consumer.clone(),
+            reader: reader.clone(),
             through,
         },
         &hearth,

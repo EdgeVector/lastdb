@@ -80,16 +80,20 @@ There is no ULID idempotency row. Merge order is the stamp
 at most 90 entries, and each writer has at most one append in flight.
 
 The operations are append, head, list, ack, grant, revoke, and snapshot.
-Every cursor and every ack is a delivery sequence. `list` returns the
-readable entries and sets `next` to the last delivery sequence scanned,
+Every cursor and every ack is a delivery sequence. An ack is stored per
+reading device, writer (node key, device), in the one log. `list` returns
+the readable entries and sets `next` to the last delivery sequence scanned,
 including entries that reader cannot see, so hidden entries are covered.
-The trim floor is the minimum of those delivery acks, and also a 30-day
-maximum retention. The floor does not move past the latest snapshot. A
-caught-up receiver can ack through hidden submissions, so that ack does not
-pin trim behind them. A consumer whose cursor is below the floor gets
-`CursorExpired`. The sync step restarts that read from
-`snapshot_through`. Until a snapshot exists, aged entries stay readable and
-the step reports that a snapshot is due.
+`head` reports that same scan cursor, so acking the head does not pin trim
+behind a hidden entry. The trim floor is the minimum of the device acks,
+and also a 30-day maximum retention. The floor does not move past the latest
+snapshot. Revoke drops every device ack of that key. A device whose cursor
+is below the floor gets `CursorExpired`. The sync step then returns a reset
+carrying the snapshot and the entries still stored for that device. The
+caller replaces its state with the snapshot and applies those entries. The
+device ack moves only as the cursor of that result, so a repeat does not
+return those entries again. Until a snapshot exists, aged entries stay
+readable and the step reports that a snapshot is due.
 
 ## Sharing invariant
 

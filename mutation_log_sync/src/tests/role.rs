@@ -8,7 +8,10 @@ fn personal_rejects_a_receiver_and_shareable_rejects_an_owner() {
     let personal = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        SyncRole::Receiver { principal: owner },
+        SyncRole::Receiver {
+            principal: owner,
+            device: device("reader"),
+        },
     );
     assert_eq!(
         personal,
@@ -38,6 +41,7 @@ fn a_receiver_cannot_append() {
         share_kind(&publisher),
         SyncRole::Receiver {
             principal: receiver,
+            device: device("reader"),
         },
     )
     .expect("receiver");

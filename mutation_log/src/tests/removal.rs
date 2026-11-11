@@ -16,7 +16,7 @@ fn revoke_stops_reads_and_clears_the_open_append() {
     .expect("begin")
     .state;
     let sample = entry(&state.database_id, &submission, "photos", 1, 1);
-    assert!(can_read(&contributor, &state, &sample));
+    assert!(can_read(&contributor, &state, &sample, &hearth));
     state = step(
         &state,
         Command::Revoke {
@@ -28,7 +28,7 @@ fn revoke_stops_reads_and_clears_the_open_append() {
     )
     .expect("revoke")
     .state;
-    assert!(!can_read(&contributor, &state, &sample));
+    assert!(!can_read(&contributor, &state, &sample, &hearth));
     assert!(!state.inflight.contains(&submission));
     let finished = step(
         &state,
@@ -96,7 +96,7 @@ fn revoke_cuts_off_every_device_of_the_key() {
         1,
         1,
     );
-    assert!(!can_read(&owner, &state, &sample));
+    assert!(!can_read(&owner, &state, &sample, &hearth));
 }
 
 #[test]

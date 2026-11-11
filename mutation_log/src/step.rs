@@ -33,11 +33,11 @@ pub enum Command {
         /// Shell clock reading, used for the retention floor.
         now_ms: u64,
     },
-    /// Record a consumer's delivery cursor.
+    /// Record one device's delivery cursor.
     Ack {
-        /// Consumer who has the entries.
-        consumer: PrincipalId,
-        /// Highest delivery sequence the consumer has scanned.
+        /// Reading device (node key, device).
+        reader: Writer,
+        /// Highest delivery sequence that device has scanned.
         through: u64,
     },
     /// Allow a principal to read or append.
@@ -144,7 +144,7 @@ pub fn step(
             state.clone(),
             Outcome::Page(state.list(&reader, after, limit, now_ms, policy)?),
         ),
-        Command::Ack { consumer, through } => ack(state, &consumer, through)?,
+        Command::Ack { reader, through } => ack(state, &reader, through)?,
         Command::Grant {
             caller,
             principal,
@@ -170,13 +170,9 @@ pub fn step(
     Ok(StepResult { state, outcome })
 }
 
-fn ack(
-    state: &LogState,
-    consumer: &PrincipalId,
-    through: u64,
-) -> Result<(LogState, Outcome), LogError> {
-    let state = state.ack(consumer, through)?;
-    let stored = state.acks.get(consumer).copied().unwrap_or(through);
+fn ack(state: &LogState, reader: &Writer, through: u64) -> Result<(LogState, Outcome), LogError> {
+    let state = state.ack(reader, through)?;
+    let stored = state.acks.get(reader).copied().unwrap_or(through);
     Ok((state, Outcome::Acked { through: stored }))
 }
 

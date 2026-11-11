@@ -46,7 +46,7 @@ pub use model::{
 };
 pub use namespace::{NamespaceKind, NamespacePolicy};
 pub use port::MutationLog;
-pub use read::{entry_visible, filter_readable, merge_order, ListPage, ScopedHead};
+pub use read::{entry_visible, filter_readable, merge_order, ListPage, Recovery, ScopedHead};
 pub use state::LogState;
 pub use step::{step, Command, Outcome, StepResult};
 

@@ -6,26 +6,31 @@ use crate::{
 };
 
 impl LogState {
-    /// Acknowledge delivery sequence `through`.
+    /// Acknowledge delivery sequence `through` for one reading device.
     ///
-    /// `through` past the log head is [`LogError::AckAhead`]. An ack at or
-    /// below the stored delivery sequence is a no-op. Hidden entries are part
-    /// of the head, so a reader who scanned them can ack past entries they
-    /// cannot see.
-    pub fn ack(&self, consumer: &PrincipalId, through: u64) -> Result<Self, LogError> {
-        if !self.reader_allowed(consumer) {
+    /// The key is the writer (node key, device). Two devices of one key keep
+    /// two positions in this log. `through` past the log head is
+    /// [`LogError::AckAhead`]. An ack at or below that device's stored
+    /// position is a no-op. The first ack of a device is stored even when
+    /// `through` is zero. Hidden entries are part of the head, so a reader
+    /// who scanned them can ack past entries they cannot see.
+    pub fn ack(&self, reader: &Writer, through: u64) -> Result<Self, LogError> {
+        if !self.reader_allowed(&reader.key) {
             return Err(LogError::Unauthorized);
         }
         let head = self.head.as_ref().map_or(0, |head| head.delivery_seq);
         if through > head {
             return Err(LogError::AckAhead);
         }
-        let previous = self.acks.get(consumer).copied().unwrap_or(0);
-        if through <= previous {
+        if self
+            .acks
+            .get(reader)
+            .is_some_and(|stored| through <= *stored)
+        {
             return Ok(self.clone());
         }
         let mut next = self.clone();
-        next.acks.insert(consumer.clone(), through);
+        next.acks.insert(reader.clone(), through);
         Ok(next)
     }
 
@@ -49,9 +54,9 @@ impl LogState {
 
     /// Drop the prefix at or below the trim floor.
     ///
-    /// The floor is the minimum delivery ack, and also the expired prefix,
+    /// The floor is the minimum device ack, and also the expired prefix,
     /// and it never passes the latest snapshot. Without a snapshot nothing
-    /// is dropped, so a new consumer can still re-bootstrap. `caller` is the
+    /// is dropped, so a new device can still re-bootstrap. `caller` is the
     /// publisher key or an owner key.
     pub fn trim(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
@@ -112,9 +117,21 @@ impl LogState {
         }
         consumers
             .iter()
-            .map(|principal| self.acks.get(principal).copied().unwrap_or(0))
+            .map(|principal| self.principal_ack(principal))
             .min()
             .unwrap_or(0)
+    }
+
+    /// Lowest device ack for `principal`. A key with no device ack counts as zero.
+    fn principal_ack(&self, principal: &PrincipalId) -> u64 {
+        let mut floor = None;
+        for (writer, ack) in &self.acks {
+            if &writer.key != principal {
+                continue;
+            }
+            floor = Some(floor.map_or(*ack, |kept: u64| kept.min(*ack)));
+        }
+        floor.unwrap_or(0)
     }
 
     fn consumers(&self) -> BTreeSet<PrincipalId> {

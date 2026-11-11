@@ -1,7 +1,7 @@
 use crate::error::SyncError;
 use mutation_log::{
-    DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, StoredEntry,
-    Writer,
+    DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, Snapshot,
+    StoredEntry, Writer,
 };
 
 /// What one participant does next.
@@ -53,6 +53,11 @@ pub enum Outcome {
         entries: Vec<StoredEntry>,
         /// Delivery sequence for the next pull.
         cursor: u64,
+        /// Snapshot the caller installs before applying `entries`.
+        ///
+        /// Set when the cursor was below the trim floor and this device has
+        /// not yet been given the snapshot. Absent on a repeat of that pull.
+        reset: Option<Snapshot>,
     },
 }
 
@@ -74,9 +79,13 @@ pub enum SyncRole {
         device: DeviceId,
     },
     /// Reader of entries whose writer key is the publisher key.
+    ///
+    /// The device is this reader's ack key. A receiver still cannot append.
     Receiver {
         /// Receiver node key.
         principal: PrincipalId,
+        /// Device of that key.
+        device: DeviceId,
     },
     /// One device of a contributor key.
     Contributor {
@@ -140,7 +149,7 @@ impl SyncState {
         match &self.role {
             SyncRole::Owner { principal, .. }
             | SyncRole::Publisher { principal, .. }
-            | SyncRole::Receiver { principal }
+            | SyncRole::Receiver { principal, .. }
             | SyncRole::Contributor { principal, .. } => principal,
         }
     }
