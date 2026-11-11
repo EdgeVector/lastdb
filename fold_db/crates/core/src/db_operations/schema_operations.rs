@@ -5,9 +5,8 @@ use super::schema_store::SchemaStore;
 use crate::schema::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
-use crate::schema::types::{
-    RetentionSource, Schema, SchemaError, SchemaRetentionPolicy, SchemaState,
-};
+use crate::schema::schema_types::{RetentionSource, SchemaRetentionPolicy, SchemaState};
+use crate::schema::types::{Schema, SchemaError};
 use crate::storage::format::schemas::{keys::retention_policy_key, StateChange};
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;

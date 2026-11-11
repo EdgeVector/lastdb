@@ -2,8 +2,9 @@
 
 use super::{SchemaStore, StateChange};
 use crate::db_operations::record_store::RangeWalk;
+use crate::schema::schema_types::SchemaRetentionPolicy;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Schema, SchemaError, SchemaRetentionPolicy};
+use crate::schema::types::{KeyValue, Schema, SchemaError};
 use crate::storage::format::schemas::keys::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use lastdb_model::kind_partition::exact_prefix_bounds;

@@ -123,18 +123,21 @@ where
         ..Default::default()
     };
     let client = sentry::init((dsn, options));
-    let filter = filter_fn(|meta: &Metadata<'_>| {
-        if meta.is_event() {
-            *meta.level() == Level::ERROR
-        } else {
-            true
-        }
-    });
+    let filter: FilterFn = filter_fn(is_error_or_span as fn(&Metadata<'_>) -> bool);
     let layer = sentry_tracing::layer()
         .event_mapper(event_mapper::<S>)
         .with_filter(filter);
 
     Some((layer, SentryGuard { _client: client }))
+}
+
+#[cfg(feature = "sentry")]
+fn is_error_or_span(meta: &Metadata<'_>) -> bool {
+    if meta.is_event() {
+        *meta.level() == Level::ERROR
+    } else {
+        true
+    }
 }
 
 /// Return `None` when built without the `sentry` feature.

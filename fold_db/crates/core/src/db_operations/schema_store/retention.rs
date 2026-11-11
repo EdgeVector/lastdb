@@ -1,7 +1,8 @@
 //! Operator and manifest retention-policy management on [`SchemaStore`].
 
 use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
-use crate::schema::types::{KeyValue, RetentionSource, SchemaError, SchemaRetentionPolicy};
+use crate::schema::schema_types::{RetentionSource, SchemaRetentionPolicy};
+use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::format::schemas::keys::*;
 use std::collections::HashMap;
 

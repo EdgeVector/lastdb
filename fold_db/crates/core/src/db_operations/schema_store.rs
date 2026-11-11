@@ -1,7 +1,8 @@
 //! Schema domain store: catalog reads, writes, state transitions, and drop cleanup.
 
 use crate::db_operations::record_store::RangeWalk;
-use crate::schema::types::{Schema, SchemaError, SchemaState};
+use crate::schema::schema_types::SchemaState;
+use crate::schema::types::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::read::ReadStore;
 use crate::storage::format::schemas::keys::*;

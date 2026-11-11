@@ -27,7 +27,7 @@ pub async fn create_fold_db_with_options(
     local::create_local_fold_db(&config.path, e2e_keys, signer, options).await
 }
 
-pub(self) fn map_boot_decrypt_error(msg: String) -> FoldDbError {
+fn map_boot_decrypt_error(msg: String) -> FoldDbError {
     let lower = msg.to_ascii_lowercase();
     let decrypt_fail = lower.contains("aead")
         || lower.contains("aes-gcm")
