@@ -47,24 +47,19 @@ pub struct RestoreSession {
 
 impl RestoreSession {
     pub fn begin(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
-        Self::begin_with_mode(destination, accepted, RestoreMode::Owner)
-    }
-
-    pub(super) fn begin_with_mode(
-        destination: &Path,
-        accepted: AcceptedBackup,
-        mode: RestoreMode,
-    ) -> Result<Self> {
-        crate::offline_home::refuse_primary(destination)
-            .map_err(|_| RestoreError::Invalid("destination"))?;
-        Self::begin_in(destination, accepted, mode)
+        Self::begin_in(destination, accepted, RestoreMode::Owner, true)
     }
 
     pub(super) fn begin_in(
         destination: &Path,
         accepted: AcceptedBackup,
         mode: RestoreMode,
+        check_primary: bool,
     ) -> Result<Self> {
+        if check_primary {
+            crate::offline_home::refuse_primary(destination)
+                .map_err(|_| RestoreError::Invalid("destination"))?;
+        }
         accepted.validate()?;
         let parent = destination
             .parent()
@@ -195,7 +190,7 @@ impl RestoreSession {
         let CommitResponse::Accepted { backup } = client
             .commit_status(&request)
             .await
-            .map_err(|error| reader_error(client, error))?
+            .map_err(|error| reader_error(client, &error))?
         else {
             return Err(RestoreError::Invalid("authoritative accepted selection"));
         };
@@ -230,13 +225,7 @@ pub(super) fn acquire_native_work() -> Result<fold_db::storage::disk_pack::Nativ
 
 fn scaffold(root: &Path) -> Result<()> {
     for name in ["cache", "entries", "chain", "home", "home/data"] {
-        let path = root.join(name);
-        match fs::DirBuilder::new().mode(0o700).create(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        local::directory(&path)?;
+        local::ensure_directory(&root.join(name))?;
     }
     Ok(())
 }

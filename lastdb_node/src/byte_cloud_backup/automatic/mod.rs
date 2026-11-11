@@ -1,7 +1,7 @@
 //! One owner, one saved pending request, separate log and snapshot schedules.
 mod policy;
 use super::{
-    model::{LocalAction, Saved},
+    model::Saved,
     recovery::RecoveryPoint,
     source::Source,
     store::{self, Store},
@@ -84,7 +84,7 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
             policy.cleanup = None;
             policy.save(host)?;
         } else if Store::active(&host.home)?.as_ref() != Some(&id) {
-            policy::retire(host, &id)?;
+            retire_at(&Store::base(&host.home), &id)?;
             policy.cleanup = None;
             policy.save(host)?;
         }
@@ -225,7 +225,7 @@ fn retire_replacement(
         return Ok(false);
     }
     let _permit = Store::lock(&host.home)?;
-    super::control::ensure_previous(&host.home, &pending.id)?;
+    super::control::ensure_previous_at(&Store::base(&host.home), &pending.id)?;
     if runtime.mutation_log_capture_materialized(&pending.id)? {
         return if already_replacing {
             Err(BackupError::Identity)
@@ -244,14 +244,7 @@ fn retire_replacement(
     policy.validate_job(&saved)?;
     source.validate(&saved)?;
     let store = Store::open(&host.home, &pending.id)?;
-    saved.local_action = Some(LocalAction::ReplaceWithSnapshot);
-    store.save(&saved)?;
-    store.select(&pending.id)?;
-    source.cancel_replacement(&saved)?;
-    saved.phase = Phase::Closed;
-    saved.retained_source_bytes = Some(0);
-    saved.blocked_reason = None;
-    store.save(&saved)?;
+    source.replace_with_snapshot(&store, &mut saved)?;
     Ok(true)
 }
 

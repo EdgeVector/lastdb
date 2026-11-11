@@ -4,17 +4,10 @@ use super::{
     codec, invalid, object_name, protocol, ClientPage, ClientPageReference, ClientRoot, Inner,
     ObjectRecord, Segment, State, StorageError, StorageResult, MAX_OBJECTS,
 };
-use crate::storage::cloud_backup_plan::{
-    Chunk, PlanError, PlanFile, PlanState, PlannedObject, Range, Step,
-};
-use cloud_backup_protocol::v2::{
-    transfer::{ObjectReceipt, TransferInput},
-    Destination, Object, Version,
-};
+use crate::storage::cloud_backup_plan::{expected_receipt, plan_files, PlanError, PlanFile};
+use cloud_backup_protocol::v2::{transfer::TransferInput, Destination, Object, Version};
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id, RelativePath};
 use laststore::disk_run::home::SnapshotFile;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 
 pub(in crate::storage::disk_backup::byte_backup) fn build(
     inner: &Inner,
@@ -43,171 +36,56 @@ pub(in crate::storage::disk_backup::byte_backup) fn build(
         })
         .collect::<StorageResult<Vec<_>>>()?;
     let scope = state.begin.job.stream.scope.clone();
-    let totals = drive(inner, state, &files, inventory, &scope)?;
+    let totals = plan_files(
+        &files,
+        &scope,
+        |file| inner.file_reader(&inventory[file.id].path),
+        |index, planned| {
+            state.metadata_pack_objects += u64::from(planned.pack);
+            state.multi_file_pack_objects += u64::from(planned.pack && planned.segments.len() > 1);
+            let segments = planned
+                .segments
+                .into_iter()
+                .map(|part| Segment {
+                    path: files[part.file].path.clone(),
+                    offset: part.offset,
+                    bytes: part.bytes,
+                })
+                .collect();
+            save(
+                inner,
+                state,
+                index,
+                ObjectRecord {
+                    input: dummy_input(state, planned.object)?,
+                    segments,
+                    native_files: planned.native_files,
+                    metadata_pack: planned.pack,
+                    ciphertext: None,
+                    receipt: None,
+                },
+            )
+            .map(|_| ())
+        },
+    )?;
     finish_metadata(inner, state, key, totals.objects)?;
     state.ready = true;
     state.validate()?;
     inner.store.write("job.json", state)
 }
 
-fn drive(
-    inner: &Inner,
-    state: &mut State,
-    files: &[PlanFile],
-    inventory: &[SnapshotFile],
-    scope: &cloud_backup_protocol::CloudScope,
-) -> StorageResult<crate::storage::cloud_backup_plan::PlanTotals> {
-    let mut plan = PlanState::start(files, scope);
-    let mut source = None;
-    let mut buffer = [0u8; crate::storage::cloud_backup_plan::READ_BYTES as usize];
-    let mut pending = None;
-    loop {
-        let step = match pending.take() {
-            Some((file, offset, len)) => plan.step(Some(Chunk {
-                file,
-                offset,
-                bytes: &buffer[..len],
-            }))?,
-            None => plan.step(None)?,
-        };
-        match step {
-            Step::Done(totals) => return Ok(totals),
-            Step::Need(range) => {
-                let len = read_range(&mut source, inner, inventory, &range, &mut buffer)?;
-                pending = Some((range.file, range.offset, len));
-            }
-            Step::Save { index, object } => {
-                let request_id =
-                    Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?;
-                state.metadata_pack_objects += u64::from(object.pack);
-                state.multi_file_pack_objects +=
-                    u64::from(object.pack && object.segments.len() > 1);
-                let record = record(inner, state, index, files, object, request_id)?;
-                save(inner, state, index, record)?;
-            }
-        }
-    }
-}
-
-struct OpenFile {
-    id: usize,
-    reader: File,
-    pos: u64,
-}
-
-fn read_range(
-    open: &mut Option<OpenFile>,
-    inner: &Inner,
-    inventory: &[SnapshotFile],
-    range: &Range,
-    buffer: &mut [u8],
-) -> StorageResult<usize> {
-    if range.bytes > buffer.len() as u64 {
-        return Err(invalid("byte plan range"));
-    }
-    let want = range.bytes as usize;
-    if open.as_ref().is_none_or(|source| source.id != range.file) {
-        let path = &inventory
-            .get(range.file)
-            .ok_or_else(|| invalid("byte plan range"))?
-            .path;
-        *open = Some(OpenFile {
-            id: range.file,
-            reader: inner.file_reader(path)?,
-            pos: 0,
-        });
-    }
-    let Some(source) = open.as_mut() else {
-        return Err(invalid("byte plan range"));
-    };
-    if source.pos != range.offset {
-        source.reader.seek(SeekFrom::Start(range.offset))?;
-        source.pos = range.offset;
-    }
-    let read = if range.exact {
-        source.reader.read_exact(&mut buffer[..want])?;
-        want
-    } else {
-        read_upto(&mut source.reader, &mut buffer[..want])?
-    };
-    source.pos += read as u64;
-    Ok(read)
-}
-
-fn read_upto(reader: &mut impl Read, buffer: &mut [u8]) -> StorageResult<usize> {
-    let mut filled = 0;
-    while filled < buffer.len() {
-        let count = reader.read(&mut buffer[filled..])?;
-        if count == 0 {
-            break;
-        }
-        filled += count;
-    }
-    Ok(filled)
-}
-
 fn native_relative_path(file: &SnapshotFile) -> StorageResult<RelativePath> {
-    RelativePath::try_from(
-        file.path
-            .to_str()
-            .ok_or_else(|| invalid("byte native UTF8 path"))?
-            .to_owned(),
-    )
-    .map_err(protocol)
+    let text = file
+        .path
+        .to_str()
+        .ok_or_else(|| invalid("byte native UTF8 path"))?;
+    RelativePath::try_from(text.to_owned()).map_err(protocol)
 }
 
-fn record(
-    inner: &Inner,
-    state: &State,
-    index: u64,
-    files: &[PlanFile],
-    planned: PlannedObject,
-    request_id: Id,
-) -> StorageResult<ObjectRecord> {
-    let segments = planned
-        .segments
-        .iter()
-        .map(|part| Segment {
-            path: files[part.file].path.clone(),
-            offset: part.offset,
-            bytes: part.bytes,
-        })
-        .collect();
-    Ok(ObjectRecord {
-        input: input(inner, state, index, planned.object, request_id)?,
-        segments,
-        native_files: planned
-            .native_files
-            .into_iter()
-            .map(|(_, file)| file)
-            .collect(),
-        metadata_pack: planned.pack,
-        ciphertext: None,
-        receipt: None,
-    })
-}
-
-fn input(
-    inner: &Inner,
-    state: &State,
-    index: u64,
-    object: Object,
-    request_id: Id,
-) -> StorageResult<TransferInput> {
-    if index >= MAX_OBJECTS {
-        return Err(invalid("byte source object count bound"));
-    }
-    if inner.store.exists(&object_name(index))? {
-        let prior: ObjectRecord = inner.store.read(&object_name(index))?;
-        prior.validate(&state.begin)?;
-        if prior.input.object != object {
-            return Err(invalid("byte frozen object bytes differ"));
-        }
-        return Ok(prior.input);
-    }
+fn dummy_input(state: &State, object: Object) -> StorageResult<TransferInput> {
     let input = TransferInput {
         version: Version::V2,
-        request_id,
+        request_id: Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?,
         job: state.begin.job.clone(),
         object,
         blob: None,
@@ -220,32 +98,31 @@ fn save(
     inner: &Inner,
     state: &mut State,
     index: u64,
-    mut object: ObjectRecord,
-) -> StorageResult<()> {
+    mut record: ObjectRecord,
+) -> StorageResult<ObjectRecord> {
+    if index >= MAX_OBJECTS {
+        return Err(invalid("byte source object count bound"));
+    }
     let name = object_name(index);
-    object.validate(&state.begin)?;
     if inner.store.exists(&name)? {
         let prior: ObjectRecord = inner.store.read(&name)?;
         prior.validate(&state.begin)?;
-        if prior.input != object.input
-            || prior.segments != object.segments
-            || prior.native_files != object.native_files
-            || prior.metadata_pack != object.metadata_pack
-            || prior.ciphertext != object.ciphertext
+        if prior.input.object != record.input.object
+            || prior.segments != record.segments
+            || prior.native_files != record.native_files
+            || prior.metadata_pack != record.metadata_pack
+            || prior.ciphertext != record.ciphertext
         {
             return Err(invalid("byte frozen object plan differs"));
         }
-        object.receipt = prior.receipt;
+        record.input = prior.input;
+        record.receipt = prior.receipt;
     }
-    inner.store.write(&name, &object)?;
+    record.validate(&state.begin)?;
+    inner.store.write(&name, &record)?;
     state.objects = state.objects.max(index + 1);
-    inner.store.write("job.json", state)
-}
-
-pub(in crate::storage::disk_backup::byte_backup) fn expected_receipt(
-    input: &TransferInput,
-) -> StorageResult<ObjectReceipt> {
-    crate::storage::cloud_backup_plan::expected_receipt(input).map_err(protocol)
+    inner.store.write("job.json", state)?;
+    Ok(record)
 }
 
 fn finish_metadata(
@@ -303,7 +180,7 @@ fn finish_metadata(
         run: state.run.clone(),
     };
     root.validate_for(&state.begin)?;
-    freeze(inner, state, key, index, &codec::encode(&root)?)?;
+    freeze(inner, state, key, index, &codec::encode_metadata(&root)?)?;
     if state.objects != index + 1 {
         return Err(invalid("byte frozen source object total differs"));
     }
@@ -318,10 +195,12 @@ fn freeze_page(
     page: &ClientPage,
 ) -> StorageResult<ClientPageReference> {
     page.validate_for(&state.begin)?;
-    let object = freeze(inner, state, key, index, &codec::encode(page)?)?;
+    let object = freeze(inner, state, key, index, &codec::encode_metadata(page)?)?;
     Ok(ClientPageReference {
         page_index: page.page_index,
-        receipt_id: expected_receipt(&object.input)?.receipt_id,
+        receipt_id: expected_receipt(&object.input)
+            .map_err(protocol)?
+            .receipt_id,
         sha256: object.input.object.sha256,
         bytes: object.input.object.bytes,
     })
@@ -351,28 +230,24 @@ fn freeze(
         inner.store.write_raw(&name, &bytes)?;
         bytes
     };
-    let request_id = Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(protocol)?;
-    let input = input(
+    let object = Object {
+        sha256: bytes_sha256(&encrypted),
+        bytes: DecimalU64::new(encrypted.len() as u64),
+        destination: Destination::R2,
+    };
+    save(
         inner,
         state,
         index,
-        Object {
-            sha256: bytes_sha256(&encrypted),
-            bytes: DecimalU64::new(encrypted.len() as u64),
-            destination: Destination::R2,
+        ObjectRecord {
+            input: dummy_input(state, object)?,
+            segments: Vec::new(),
+            native_files: Vec::new(),
+            metadata_pack: false,
+            ciphertext: Some(name),
+            receipt: None,
         },
-        request_id,
-    )?;
-    let record = ObjectRecord {
-        input,
-        segments: Vec::new(),
-        native_files: Vec::new(),
-        metadata_pack: false,
-        ciphertext: Some(name),
-        receipt: None,
-    };
-    save(inner, state, index, record.clone())?;
-    Ok(record)
+    )
 }
 
 impl From<PlanError> for StorageError {

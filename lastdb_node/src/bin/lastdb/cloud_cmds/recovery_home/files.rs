@@ -78,6 +78,34 @@ pub(crate) fn require_owned_directory(directory: &File) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn require_mode_0700_directory(
+    directory: &File,
+    error: &'static str,
+) -> Result<(), String> {
+    let meta = directory.metadata().map_err(|_| error)?;
+    if meta.uid() != unsafe { libc::geteuid() } || meta.permissions().mode() & 0o777 != 0o700 {
+        return Err(error.to_owned());
+    }
+    Ok(())
+}
+
+pub(crate) fn require_private_file(
+    file: &File,
+    limit: Option<u64>,
+    error: &'static str,
+) -> Result<(), String> {
+    let meta = file.metadata().map_err(|_| error)?;
+    if !meta.is_file()
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.permissions().mode() & 0o777 != 0o600
+        || meta.nlink() != 1
+        || limit.is_some_and(|max| meta.len() > max)
+    {
+        return Err(error.to_owned());
+    }
+    Ok(())
+}
+
 pub(crate) fn entry_present(directory: &File, name: &str) -> Result<bool, String> {
     match fs::statat(directory, name, AtFlags::SYMLINK_NOFOLLOW) {
         Ok(_) => Ok(true),
@@ -94,20 +122,21 @@ pub(crate) fn read_private_file(
     read_private_file_bound(directory, name, limit, None)
 }
 
-fn read_private_file_bound(
+pub(crate) fn read_private_file_bound(
     directory: &File,
     name: &str,
     limit: u64,
     expected: Option<&File>,
 ) -> Result<Vec<u8>, String> {
-    let descriptor = fs::openat(
-        directory,
-        name,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
-        Mode::empty(),
-    )
-    .map_err(|_| "cannot open protected credential file")?;
-    let file = File::from(descriptor);
+    let file = File::from(
+        fs::openat(
+            directory,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map_err(|_| "cannot open protected credential file")?,
+    );
     if let Some(expected) = expected {
         let actual = fs::fstat(&file).map_err(|_| "cannot inspect credential read-back")?;
         let held = fs::fstat(expected).map_err(|_| "cannot inspect held credential file")?;
@@ -115,17 +144,11 @@ fn read_private_file_bound(
             return Err("recovery credential file changed during preparation".into());
         }
     }
-    let metadata = file
-        .metadata()
-        .map_err(|_| "cannot inspect credential file")?;
-    if !metadata.is_file()
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.permissions().mode() & 0o777 != 0o600
-        || metadata.nlink() != 1
-        || metadata.len() > limit
-    {
-        return Err("credential file must be a bounded owner-only regular file".into());
-    }
+    require_private_file(
+        &file,
+        Some(limit),
+        "credential file must be a bounded owner-only regular file",
+    )?;
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
@@ -155,6 +178,23 @@ impl FreshHome {
         Self::preflight_with_exclusion(destination, None)
     }
 
+    pub(super) fn preflight_empty_parent(destination: &Path) -> Result<Self, String> {
+        let target = Self::preflight_empty(destination)?;
+        require_mode_0700_directory(
+            &target.parent,
+            "credential parent must be an owner-only directory",
+        )?;
+        for entry in
+            fs::Dir::read_from(&target.parent).map_err(|_| "cannot read credential parent")?
+        {
+            let entry = entry.map_err(|_| "cannot inspect credential parent")?;
+            if !matches!(entry.file_name().to_bytes(), b"." | b"..") {
+                return Err("credential parent must be empty".into());
+            }
+        }
+        Ok(target)
+    }
+
     pub(super) fn preflight(destination: &Path, source: &File) -> Result<Self, String> {
         Self::preflight_with_exclusion(destination, Some(source))
     }
@@ -175,25 +215,7 @@ impl FreshHome {
         {
             return Err("DEV recovery requires a fresh private temporary parent".into());
         }
-        let target = Self::preflight_with_exclusion(destination, None)?;
-        let metadata = target
-            .parent
-            .metadata()
-            .map_err(|_| "cannot inspect DEV recovery parent")?;
-        if metadata.uid() != unsafe { libc::geteuid() }
-            || metadata.permissions().mode() & 0o777 != 0o700
-        {
-            return Err("DEV recovery parent must be owner-only with mode0700".into());
-        }
-        for entry in
-            fs::Dir::read_from(&target.parent).map_err(|_| "cannot read DEV recovery parent")?
-        {
-            let entry = entry.map_err(|_| "cannot inspect DEV recovery parent entry")?;
-            if !matches!(entry.file_name().to_bytes(), b"." | b"..") {
-                return Err("DEV recovery parent must be empty".into());
-            }
-        }
-        Ok(target)
+        Self::preflight_empty_parent(destination)
     }
 
     fn preflight_with_exclusion(destination: &Path, source: Option<&File>) -> Result<Self, String> {
@@ -214,9 +236,11 @@ impl FreshHome {
                 "destination parent must prevent other users from replacing its entries".into(),
             );
         }
-        match fs::statat(&parent, name, AtFlags::SYMLINK_NOFOLLOW) {
-            Err(rustix::io::Errno::NOENT) => {}
-            _ => return Err("recovery home must not already exist".into()),
+        if !matches!(
+            fs::statat(&parent, name, AtFlags::SYMLINK_NOFOLLOW),
+            Err(rustix::io::Errno::NOENT)
+        ) {
+            return Err("recovery home must not already exist".into());
         }
         Ok(Self {
             parent,
@@ -277,18 +301,10 @@ impl FreshHome {
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), String> {
-        self.commit_count(2)
-    }
-
-    pub(super) fn commit_registered(&mut self) -> Result<(), String> {
-        self.commit_count(3)
-    }
-
-    fn commit_count(&mut self, expected_count: usize) -> Result<(), String> {
         if !self.owns_destination() {
             return Err("recovery home changed during preparation".into());
         }
-        self.verify_final_files(expected_count)?;
+        self.verify_final_files()?;
         self.directory()
             .sync_all()
             .map_err(|_| "cannot sync recovery home")?;
@@ -299,15 +315,12 @@ impl FreshHome {
         Ok(())
     }
 
-    fn verify_final_files(&self, expected_count: usize) -> Result<(), String> {
-        require_owned_directory(self.directory())?;
-        let mode = self
-            .directory()
-            .metadata()
-            .map_err(|_| "cannot inspect recovery home")?
-            .permissions()
-            .mode();
-        if mode & 0o777 != 0o700 || self.created_files.len() != expected_count {
+    fn verify_final_files(&self) -> Result<(), String> {
+        require_mode_0700_directory(
+            self.directory(),
+            "recovery home requires the exact protected credential files",
+        )?;
+        if self.created_files.is_empty() {
             return Err("recovery home requires the exact protected credential files".into());
         }
         let entries = fs::Dir::read_from(self.directory())
@@ -328,7 +341,7 @@ impl FreshHome {
             }
             count += 1;
         }
-        if count != expected_count {
+        if count != self.created_files.len() {
             return Err("recovery home protected credential count differs".into());
         }
         for file in &self.created_files {
@@ -346,12 +359,15 @@ impl FreshHome {
     }
 
     fn owns_destination(&self) -> bool {
-        let Ok(held) = fs::fstat(self.directory()) else {
-            return false;
-        };
-        fs::statat(&self.parent, &self.name, AtFlags::SYMLINK_NOFOLLOW)
-            .is_ok_and(|entry| entry.st_dev == held.st_dev && entry.st_ino == held.st_ino)
+        same_inode(&self.parent, &self.name, self.directory())
     }
+}
+
+pub(crate) fn same_inode<P: rustix::path::Arg>(directory: &File, name: P, held: &File) -> bool {
+    fs::fstat(held).is_ok_and(|held| {
+        fs::statat(directory, name, AtFlags::SYMLINK_NOFOLLOW)
+            .is_ok_and(|entry| entry.st_dev == held.st_dev && entry.st_ino == held.st_ino)
+    })
 }
 
 impl Drop for FreshHome {
@@ -360,12 +376,7 @@ impl Drop for FreshHome {
             return;
         }
         for file in &self.created_files {
-            let Ok(held) = fs::fstat(&file.descriptor) else {
-                continue;
-            };
-            if fs::statat(self.directory(), file.name, AtFlags::SYMLINK_NOFOLLOW)
-                .is_ok_and(|entry| entry.st_dev == held.st_dev && entry.st_ino == held.st_ino)
-            {
+            if same_inode(self.directory(), file.name, &file.descriptor) {
                 let _ = fs::unlinkat(self.directory(), file.name, AtFlags::empty());
             }
         }

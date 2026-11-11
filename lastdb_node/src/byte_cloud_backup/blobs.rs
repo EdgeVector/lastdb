@@ -55,16 +55,8 @@ struct Upload {
     vanished: bool,
 }
 
-fn upload_page(index: u32) -> String {
-    format!("blob-upload-{index:04}.json")
-}
-
-fn uploaded_page(index: u32) -> String {
-    format!("blob-uploaded-{index:04}.json")
-}
-
-fn release_page(index: u32) -> String {
-    format!("blob-release-{index:04}.json")
+fn page_name(kind: &str, index: u32) -> String {
+    format!("blob-{kind}-{index:04}.json")
 }
 
 fn load(store: &Store) -> Result<Index> {
@@ -100,7 +92,12 @@ pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved)
     if !saved.begin_submitted {
         loop {
             let rows = source
-                .pending_blob_releases(index.release_cursor.as_deref(), MAX_BLOB_BATCH)
+                .runtime()
+                .pending_blob_releases(
+                    &source.source_home,
+                    index.release_cursor.as_deref(),
+                    MAX_BLOB_BATCH,
+                )
                 .await?;
             let Some(last) = rows.last() else {
                 break;
@@ -114,7 +111,7 @@ pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved)
                     path: row.path,
                 })
                 .collect();
-            store.write(&release_page(index.release_pages), &entries)?;
+            store.write(&page_name("release", index.release_pages), &entries)?;
             index.release_pages += 1;
             store.write(INDEX, &index)?;
             if !full {
@@ -137,7 +134,7 @@ pub(super) async fn upload(
     let mut index = load(store)?;
     if !index.queued {
         if matches!(saved.work, Work::Snapshot { .. }) {
-            source.queue_unuploaded_blobs().await?;
+            source.runtime().queue_unuploaded_blobs().await?;
         }
         index.queued = true;
         store.write(INDEX, &index)?;
@@ -146,17 +143,22 @@ pub(super) async fn upload(
         if index.uploads_done < index.upload_pages {
             let page = index.uploads_done;
             upload_one_page(source, store, saved, client, pause, page).await?;
-            store.write(&uploaded_page(page), &uploaded_keys(store, page)?)?;
+            store.write(&page_name("uploaded", page), &uploaded_keys(store, page)?)?;
             index.uploads_done += 1;
             store.write(INDEX, &index)?;
-            store.remove(&upload_page(page))?;
+            store.remove(&page_name("upload", page))?;
             continue;
         }
         if index.uploads_planned {
             return Ok(());
         }
         let rows = source
-            .pending_blob_uploads(index.upload_cursor.as_deref(), MAX_BLOB_BATCH)
+            .runtime()
+            .pending_blob_uploads(
+                &source.source_home,
+                index.upload_cursor.as_deref(),
+                MAX_BLOB_BATCH,
+            )
             .await?;
         let full = rows.len() == MAX_BLOB_BATCH;
         if let Some(last) = rows.last() {
@@ -171,7 +173,7 @@ pub(super) async fn upload(
                     vanished: false,
                 })
                 .collect();
-            store.write(&upload_page(index.upload_pages), &entries)?;
+            store.write(&page_name("upload", index.upload_pages), &entries)?;
             index.upload_pages += 1;
         }
         index.uploads_planned = !full;
@@ -187,7 +189,7 @@ async fn upload_one_page(
     pause: &AtomicBool,
     page: u32,
 ) -> Result<()> {
-    let name = upload_page(page);
+    let name = page_name("upload", page);
     let mut entries: Vec<Upload> = read_page(store, &name)?;
     let open: Vec<usize> = (0..entries.len())
         .filter(|&i| entries[i].receipt.is_none() && !entries[i].vanished)
@@ -200,36 +202,18 @@ async fn upload_one_page(
             continue;
         }
         let inputs: Vec<_> = batch.iter().map(|(_, input, _)| input.clone()).collect();
-        let prepared = transfer::prepare(client, &inputs, pause).await?;
-        if let Some(error) = prepared.error {
-            for ((i, _, _), item) in batch.iter().zip(prepared.items) {
-                if let Ok(Some(receipt)) = transfer::verified(item) {
-                    entries[*i].receipt = Some(receipt);
-                }
-            }
-            store.write(&name, &entries)?;
-            return Err(error);
-        }
         let context = work::Context::new(store, saved, pause);
-        let futures = batch
-            .iter()
-            .zip(prepared.items)
-            .map(|((_, input, bytes), item)| {
-                let reader: Box<dyn std::io::Read + Send> =
-                    Box::new(std::io::Cursor::new(bytes.clone()));
-                transfer::complete(client, input, item, reader, &context)
-            });
-        let results = futures::future::join_all(futures).await;
-        let mut failure = None;
-        for ((i, input, _), result) in batch.iter().zip(results) {
-            match result {
-                Ok(receipt) if receipt.object == input.object => {
-                    entries[*i].receipt = Some(receipt);
-                }
-                Ok(_) => work::record_error(&mut failure, BackupError::Identity),
-                Err(error) => work::record_error(&mut failure, error),
-            }
-        }
+        let failure = transfer::upload_batch(
+            client,
+            &inputs,
+            &context,
+            |pos| Ok(Box::new(std::io::Cursor::new(batch[pos].2.clone()))),
+            |pos, receipt| {
+                entries[batch[pos].0].receipt = Some(receipt);
+                Ok(())
+            },
+        )
+        .await?;
         store.write(&name, &entries)?;
         if let Some(error) = failure {
             return Err(error);
@@ -247,7 +231,7 @@ async fn freeze_batch(
     let mut batch = Vec::new();
     for &i in chunk {
         let entry = &mut entries[i];
-        let Some(bytes) = source.blob_bytes(&entry.key).await? else {
+        let Some(bytes) = source.runtime().record_blob_bytes(&entry.key).await? else {
             if entry.input.is_some() {
                 return Err(BackupError::Source);
             }
@@ -298,7 +282,7 @@ pub(super) async fn release(
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let mut index = load(store)?;
     while index.releases_sent < index.release_pages {
-        let entries: Vec<Release> = read_page(store, &release_page(index.releases_sent))?;
+        let entries: Vec<Release> = read_page(store, &page_name("release", index.releases_sent))?;
         let request = BlobReleaseRequest {
             version: Version::V2,
             job: begin.job.clone(),
@@ -325,23 +309,23 @@ pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> R
     }
     for page in 0..index.upload_pages {
         let uploaded: Vec<String> = if page < index.uploads_done {
-            read_page(store, &uploaded_page(page))?
+            read_page(store, &page_name("uploaded", page))?
         } else {
             uploaded_keys(store, page)?
         };
-        source.blobs_accepted(&uploaded, &[]).await?;
+        source.runtime().blobs_accepted(&uploaded, &[]).await?;
     }
     for page in 0..index.releases_sent {
-        let entries: Vec<Release> = read_page(store, &release_page(page))?;
+        let entries: Vec<Release> = read_page(store, &page_name("release", page))?;
         let released: Vec<String> = entries.into_iter().map(|entry| entry.key).collect();
-        source.blobs_accepted(&[], &released).await?;
+        source.runtime().blobs_accepted(&[], &released).await?;
     }
     index.marked = true;
     store.write(INDEX, &index)
 }
 
 fn uploaded_keys(store: &Store, page: u32) -> Result<Vec<String>> {
-    let entries: Vec<Upload> = read_page(store, &upload_page(page))?;
+    let entries: Vec<Upload> = read_page(store, &page_name("upload", page))?;
     Ok(entries
         .into_iter()
         .filter(|entry| entry.receipt.is_some())
@@ -362,13 +346,11 @@ pub(super) fn remove_plan(root: &std::path::Path) -> Result<()> {
         return Ok(());
     };
     let names = (0..=pages.upload_pages)
-        .flat_map(|p| [upload_page(p), uploaded_page(p)])
-        .chain((0..=pages.release_pages).map(release_page))
+        .flat_map(|p| [page_name("upload", p), page_name("uploaded", p)])
+        .chain((0..=pages.release_pages).map(|p| page_name("release", p)))
         .chain(std::iter::once(INDEX.to_owned()));
     for name in names {
-        let path = root.join(&name);
-        super::store::remove_owned(&path.with_extension("pending"))?;
-        super::store::remove_owned(&path)?;
+        super::store::remove_pair(&root.join(&name))?;
     }
     Ok(())
 }

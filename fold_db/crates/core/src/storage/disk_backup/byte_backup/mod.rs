@@ -3,7 +3,6 @@
 
 mod capture;
 mod codec;
-mod hold;
 mod planner;
 mod run_capture;
 mod run_source;
@@ -71,7 +70,6 @@ impl State {
             anchor.position()?;
             if anchor.main_home != run.main.home_id
                 || anchor.frontiers.main != run.main.frontier.get()
-                || run.cas.is_some()
             {
                 return Err(invalid("snapshot mutation log anchor differs"));
             }
@@ -187,14 +185,10 @@ pub struct ByteBackupObject {
 
 #[derive(Clone, Debug)]
 pub struct ByteBackupCaptureStatus {
-    pub ready: bool,
-    pub source_available: bool,
     pub native_files: u64,
     pub native_bytes: u64,
-    pub objects: u64,
     pub verified_objects: u64,
     pub retained_source_bytes: u64,
-    pub metadata_spool_bytes: u64,
     pub metadata_pack_objects: u64,
     pub multi_file_pack_objects: u64,
 }
@@ -219,9 +213,6 @@ impl ByteBackupCapture {
     pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
         Ok(self.lock()?.journal_anchor.clone())
     }
-    pub fn recommended_parallelism(&self) -> StorageResult<usize> {
-        Ok(lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams)
-    }
     pub fn begin(&self) -> StorageResult<Begin> {
         Ok(self.lock()?.begin.clone())
     }
@@ -234,21 +225,14 @@ impl ByteBackupCapture {
         let state = self.lock()?;
         self.require_export(&state)?;
         Ok(ByteBackupCaptureStatus {
-            ready: state.ready
-                && !state.released
-                && !state.local_cancelled
-                && state.terminal.is_none(),
-            source_available: self.inner.available() && !state.released,
             native_files: state.native_files,
             native_bytes: state.native_bytes,
-            objects: state.objects,
             verified_objects: state.verified,
             retained_source_bytes: if state.released {
                 0
             } else {
                 state.native_bytes
             },
-            metadata_spool_bytes: self.inner.store.bytes(),
             metadata_pack_objects: state.metadata_pack_objects,
             multi_file_pack_objects: state.multi_file_pack_objects,
         })
@@ -293,8 +277,11 @@ impl ByteBackupCapture {
         if !state.ready {
             return Err(invalid("byte source is not ready"));
         }
-        planner::expected_receipt(&self.inner.object(&state, state.objects - 1)?.input)
-            .map(|r| r.receipt_id)
+        crate::storage::cloud_backup_plan::expected_receipt(
+            &self.inner.object(&state, state.objects - 1)?.input,
+        )
+        .map(|r| r.receipt_id)
+        .map_err(protocol)
     }
     pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> StorageResult<()> {
         self.inner.store.coordinator(bytes)
@@ -319,6 +306,23 @@ impl ByteBackupCapture {
 }
 
 impl Inner {
+    pub(in crate::storage::disk_backup::byte_backup) fn new(
+        runtime: Arc<PackRuntime>,
+        store: store::Store,
+        state: State,
+        run: Option<run_source::RunSource>,
+        admission: super::NativeCloudWorkGuard,
+    ) -> Self {
+        Self {
+            runtime,
+            store,
+            state: Mutex::new(state),
+            run,
+            readers: std::sync::atomic::AtomicUsize::new(0),
+            _admission: admission,
+        }
+    }
+
     pub(in crate::storage::disk_backup::byte_backup) fn require_idle(&self) -> StorageResult<()> {
         if self.readers.load(std::sync::atomic::Ordering::Acquire) != 0 {
             return Err(invalid("byte source readers are active"));

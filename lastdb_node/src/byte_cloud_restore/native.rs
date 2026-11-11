@@ -52,17 +52,18 @@ pub(crate) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Resul
     serde_json::from_slice(&bytes).map_err(|_| RestoreError::Invalid("metadata JSON"))
 }
 
-pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    atomic_json_bounded(
-        path,
-        value,
-        cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES,
-    )
+pub(crate) fn ensure_directory(path: &Path) -> Result<()> {
+    match fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    directory(path)
 }
 
-pub(crate) fn atomic_json_bounded(path: &Path, value: &impl Serialize, maximum: u64) -> Result<()> {
+pub(crate) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = cloud_backup_protocol::canonical_bytes(value)?;
-    if bytes.len() as u64 > maximum {
+    if bytes.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
         return Err(RestoreError::Limit("saved metadata"));
     }
     let pending = path.with_extension("pending");
@@ -114,13 +115,7 @@ pub(crate) fn prepare_native_ephemera(data: &Path) -> Result<()> {
             continue;
         }
         directory(&home)?;
-        let runs = home.join(laststore::disk_run::home::RUNS);
-        match fs::DirBuilder::new().mode(0o700).create(&runs) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        directory(&runs)?;
+        ensure_directory(&home.join(laststore::disk_run::home::RUNS))?;
         let path = home.join(laststore::disk_run::home::LOCK);
         let lock = match owner_file(&path, true) {
             Ok(lock) => lock,
@@ -204,14 +199,7 @@ fn create_parents(root: &Path, path: &str) -> Result<()> {
     let components: Vec<_> = path.split('/').collect();
     for component in &components[..components.len() - 1] {
         parent.push(component);
-        match fs::DirBuilder::new().mode(0o700).create(&parent) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        if !fs::symlink_metadata(&parent)?.is_dir() {
-            return Err(RestoreError::Invalid("native parent"));
-        }
+        ensure_directory(&parent)?;
     }
     Ok(())
 }
@@ -288,15 +276,7 @@ fn install(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> R
             return Err(RestoreError::Invalid("saved native proof"));
         }
     } else {
-        session.remove_spool_file(&ledger.with_extension("pending"))?;
-        session.reserve_spool(4096)?;
-        if let Err(error) = atomic_json(&ledger, &proof) {
-            if ledger.with_extension("pending").try_exists()? {
-                session.add_spool_file(&ledger.with_extension("pending"))?;
-            }
-            return Err(error);
-        }
-        session.add_spool_file(&ledger)?;
+        session.write_spool_json(&ledger, 4096, &proof)?;
     }
     Ok(())
 }

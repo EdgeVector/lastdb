@@ -3,7 +3,7 @@
 use super::record::{
     check_record_address, read_inline, read_record, record_address, record_codec, RunSnapshotReader,
 };
-use super::{invalid, map, read_budget, StorageResult};
+use super::{fork_bounded, invalid, map, StorageResult};
 use crate::schema::types::field::{FilterUtils, HashRangeFilter};
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::{SchemaState, SchemaWithState};
@@ -205,10 +205,7 @@ impl RunSnapshotReader {
         &self,
         keys: usize,
     ) -> StorageResult<RunRead> {
-        let mut budget = read_budget();
-        budget.bytes = NATIVE_STREAM_LOOKUP_READ_BYTES;
-        budget.keys = keys as u64;
-        self.0.main.fork_bounded(budget).map_err(map)
+        fork_bounded(&self.0.main, NATIVE_STREAM_LOOKUP_READ_BYTES, keys as u64)
     }
 }
 

@@ -1,7 +1,5 @@
 //! Object downloads, spool accounting, and bounded local file proofs.
-use super::{
-    local, reader_error, source_error, ByteBackupReader, RestoreError, RestoreSession, Result,
-};
+use super::{local, reader_error, ByteBackupReader, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::v2::access::{
     ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
@@ -32,7 +30,7 @@ pub(super) async fn grants(
     let response = client
         .read_grants(&request, session.accepted())
         .await
-        .map_err(|error| reader_error(client, error))?;
+        .map_err(|error| reader_error(client, &error))?;
     response.validate_for(&request, session.accepted())?;
     response
         .items
@@ -99,7 +97,10 @@ pub(super) async fn fetch(
 }
 
 async fn stream_to(client: &ByteBackupReader, grant: &ReadGrant, file: &mut File) -> Result<()> {
-    let mut stream = client.open(grant).await.map_err(source_error)?;
+    let mut stream = client
+        .open(grant)
+        .await
+        .map_err(|_| RestoreError::Source("byte transport"))?;
     let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
     let mut left = grant.bytes.get();
     let mut digest = Sha256::new();
@@ -152,10 +153,8 @@ impl RestoreSession {
         Ok(())
     }
     pub(super) fn remove_spool_file(&self, path: &Path) -> Result<()> {
-        let bytes = match fs::symlink_metadata(path) {
-            Ok(_) => allocated(path)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
+        let Some(bytes) = allocated_if_present(path)? else {
+            return Ok(());
         };
         fs::remove_file(path)?;
         self.spool_bytes.store(
@@ -165,6 +164,25 @@ impl RestoreSession {
             Ordering::Relaxed,
         );
         Ok(())
+    }
+    pub(super) fn write_spool_json(
+        &self,
+        path: &Path,
+        reserve: u64,
+        value: &impl serde::Serialize,
+    ) -> Result<()> {
+        let previous = allocated_if_present(path)?.unwrap_or(0);
+        let pending = path.with_extension("pending");
+        self.remove_spool_file(&pending)?;
+        self.reserve_spool(reserve)?;
+        if let Err(error) = local::atomic_json(path, value) {
+            if pending.try_exists()? {
+                self.add_spool_file(&pending)?;
+            }
+            return Err(error);
+        }
+        self.spool_bytes.fetch_sub(previous, Ordering::Relaxed);
+        self.add_spool_file(path)
     }
     pub(super) fn check_spool(&self) -> Result<()> {
         let mut bytes = 0u64;
@@ -221,6 +239,14 @@ fn route_entry(folder: &str, path: &Path) -> Result<bool> {
     Ok(true)
 }
 
+fn allocated_if_present(path: &Path) -> Result<Option<u64>> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => allocated(path).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn allocated(path: &Path) -> Result<u64> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_file() {
@@ -252,18 +278,7 @@ pub(super) fn verify_file(path: &Path, sha: &Digest, length: u64) -> Result<()> 
         return Err(RestoreError::Invalid("file length"));
     }
     let mut digest = Sha256::new();
-    let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
-    let mut left = length;
-    while left > 0 {
-        let maximum = left.min(buffer.len() as u64) as usize;
-        let count = input.read(&mut buffer[..maximum])?;
-        if count == 0 {
-            return Err(RestoreError::Invalid("file length"));
-        }
-        digest.update(&buffer[..count]);
-        left -= count as u64;
-    }
-    if input.read(&mut buffer[..1])? != 0 {
+    if std::io::copy(&mut (&mut input).take(length + 1), &mut digest)? != length {
         return Err(RestoreError::Invalid("file length"));
     }
     if hex::encode(digest.finalize()) != sha.as_str() {

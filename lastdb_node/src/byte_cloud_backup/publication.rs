@@ -203,17 +203,13 @@ fn expected_stream(source: &Source) -> Result<Option<Id>> {
     if let Some(id) = &source.publication_stream {
         return Ok(Some(id.clone()));
     }
-    let value = match std::env::var("LASTDB_CLOUD_CI_STREAM_ID") {
-        Ok(value) => value,
-        Err(std::env::VarError::NotPresent) => return Ok(None),
-        Err(_) => return Err(BackupError::Identity),
-    };
-    if source.account.as_str() != CI_ACCOUNT {
-        return Err(BackupError::Identity);
+    match std::env::var("LASTDB_CLOUD_CI_STREAM_ID") {
+        Ok(value) if source.account.as_str() == CI_ACCOUNT => Id::try_from(value)
+            .map(Some)
+            .map_err(|_| BackupError::Identity),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        _ => Err(BackupError::Identity),
     }
-    Ok(Some(
-        Id::try_from(value).map_err(|_| BackupError::Identity)?,
-    ))
 }
 
 pub(super) fn validate_saved_stream(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
@@ -236,8 +232,7 @@ pub(super) fn validate_saved_stream(source: &Source, store: &Store, saved: &Save
 
 pub(super) fn select_stream(source: &Source, store: &Store, scope: CloudScope) -> Result<Stream> {
     let expected = expected_stream(source)?;
-    let previous: Option<StreamRecord> = store.read_base("stream.json")?;
-    let stream = match previous {
+    let stream = match store.read_base::<StreamRecord>("stream.json")? {
         Some(record)
             if record.source_home == source.source_home && record.stream.scope == scope =>
         {
@@ -252,9 +247,10 @@ pub(super) fn select_stream(source: &Source, store: &Store, scope: CloudScope) -
         Some(_) if expected.is_some() => return Err(BackupError::Identity),
         _ => Stream {
             scope,
-            stream_id: match expected {
-                Some(id) => id,
-                None => Id::try_from(uuid::Uuid::new_v4().to_string())?,
+            stream_id: if let Some(id) = expected {
+                id
+            } else {
+                Id::try_from(uuid::Uuid::new_v4().to_string())?
             },
         },
     };

@@ -6,9 +6,7 @@ use std::path::Path;
 
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
-use lastdb_node::cloud::{
-    register_native_device, Registered, SavedCredentials, CLOUD_CREDENTIALS_FILE,
-};
+use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use zeroize::Zeroizing;
@@ -134,8 +132,7 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
         .as_deref()
         .map(read_invite_file)
         .transpose()?;
-    validate_empty_parent(&args.into)?;
-    let mut target = FreshHome::preflight_empty(&args.into)?.create()?;
+    let mut target = FreshHome::preflight_empty_parent(&args.into)?.create()?;
     let device = uuid::Uuid::new_v4().to_string();
     let intent = serde_json::to_vec(&serde_json::json!({
         "version": 1, "account_id": account, "environment": environment.as_str(),
@@ -145,11 +142,9 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(INTENT, &intent)?;
     target.commit()?;
-    let registered = register_device(
-        environment,
-        &pair,
-        &device,
-        invite.as_deref().map(String::as_str),
+    let registered = super::block_on_cloud(
+        "account registration",
+        register_native_device(environment, &pair, &device, invite.as_deref().map(String::as_str)),
     )
     .map_err(|_| {
         "registration result is uncertain; retain this credentials home and its device intent; do not retry automatically"
@@ -162,7 +157,7 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
         .map_err(|_| "cannot encode paused credentials; retain the device intent")?;
     target
         .write(CLOUD_CREDENTIALS_FILE, &bytes)
-        .and_then(|()| target.commit_registered())
+        .and_then(|()| target.commit())
         .map_err(|_| "cannot commit paused credentials; retain the device intent")?;
     emit_receipt(
         args.json,
@@ -191,19 +186,6 @@ fn verified_seed_pair(
     Ok((seed, pair))
 }
 
-fn register_device(
-    environment: Environment,
-    pair: &Ed25519KeyPair,
-    device: &str,
-    invite: Option<&str>,
-) -> Result<Registered, String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "cannot construct account registration runtime")?;
-    runtime.block_on(register_native_device(environment, pair, device, invite))
-}
-
 fn read_seed_stdin() -> Result<Zeroizing<[u8; 32]>, &'static str> {
     let mut bytes = Zeroizing::new(Vec::new());
     std::io::stdin()
@@ -224,28 +206,6 @@ fn read_seed_stdin() -> Result<Zeroizing<[u8; 32]>, &'static str> {
         .try_into()
         .map_err(|_| "invalid_seed_size")?;
     Ok(Zeroizing::new(value))
-}
-
-fn validate_empty_parent(path: &Path) -> Result<(), String> {
-    let directory = open_directory(
-        path.parent()
-            .ok_or("credential destination needs a parent")?,
-    )?;
-    let metadata = directory
-        .metadata()
-        .map_err(|_| "cannot inspect credential parent")?;
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o777 != 0o700 {
-        return Err("credential parent must be an owner-only directory".into());
-    }
-    for entry in
-        rustix::fs::Dir::read_from(&directory).map_err(|_| "cannot read credential parent")?
-    {
-        let entry = entry.map_err(|_| "cannot inspect credential parent")?;
-        if !matches!(entry.file_name().to_bytes(), b"." | b"..") {
-            return Err("credential parent must be empty".into());
-        }
-    }
-    Ok(())
 }
 
 fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
@@ -281,7 +241,7 @@ fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| "invalid invite encoding")?
         .trim();
-    if text.is_empty() || !text.is_ascii() || text.bytes().any(|b| b.is_ascii_control()) {
+    if text.is_empty() || !text.is_ascii() || text.as_bytes().iter().any(u8::is_ascii_control) {
         return Err("invalid invite text".into());
     }
     Ok(Zeroizing::new(text.to_owned()))
@@ -353,8 +313,11 @@ fn recover_dev_seed(
         .map_err(|_| fail("cannot_write_protected_identity"))?;
     let device_id = uuid::Uuid::new_v4().to_string();
     let after = |code| (code, true, Some(device_id.clone()));
-    let registered = register_device(Environment::Dev, &keypair, &device_id, None)
-        .map_err(|_| after("dev_registration_result_uncertain"))?;
+    let registered = super::block_on_cloud(
+        "account registration",
+        register_native_device(Environment::Dev, &keypair, &device_id, None),
+    )
+    .map_err(|_| after("dev_registration_result_uncertain"))?;
     if registered.user_hash != expected_user_hash {
         return Err(after("registered_account_mismatch"));
     }
