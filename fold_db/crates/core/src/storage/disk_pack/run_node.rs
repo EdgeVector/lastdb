@@ -52,7 +52,9 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     let _cas =
         RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), admit_budget).map_err(map)?;
     verify_proofs(&mut main, key)?;
-    crate::storage::retired::refuse_journal(&mut main)?;
+    drop(main);
+    drop(_cas);
+    super::journal_cleanup::clear(root, key);
     Ok(version)
 }
 

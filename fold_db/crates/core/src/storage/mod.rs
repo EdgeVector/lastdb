@@ -152,7 +152,7 @@ pub(crate) mod current_keys {
 
     /// Validate a `main` key family and coordinate.
     pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
-        if super::retired::is_journal_key(namespace, key) {
+        if super::retired::is_retired_key(namespace, key) {
             return Err(StorageError::RetiredFormat(super::retired::JOURNAL_RETIRED));
         }
         if namespace != MAIN_NAMESPACE {
