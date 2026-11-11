@@ -133,11 +133,13 @@ pub struct AppendBatch {
     pub accepted_at_ms: u64,
 }
 
-/// A snapshot cut. The bytes of the snapshot live in the shell.
+/// A snapshot cut. The bytes live in the shell at `snapshot_ref`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
     /// Last delivery sequence the snapshot includes.
     pub through_delivery_seq: u64,
     /// When the shell cut the snapshot.
     pub at_ms: u64,
+    /// Shell pointer to the snapshot bytes.
+    pub snapshot_ref: crate::SnapshotRef,
 }

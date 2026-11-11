@@ -26,6 +26,10 @@ pub fn namespace(name: &str) -> Namespace {
     Namespace::new(name).expect("namespace")
 }
 
+pub fn snap(name: &str) -> SnapshotRef {
+    SnapshotRef::new(name).expect("snapshot ref")
+}
+
 pub fn writer_of(key: &PrincipalId, device_name: &str) -> Writer {
     Writer {
         key: key.clone(),

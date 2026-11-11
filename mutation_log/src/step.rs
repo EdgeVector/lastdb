@@ -1,6 +1,6 @@
 use crate::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, LogState, NamespacePolicy,
-    PrincipalId, ScopedHead, Snapshot, Writer,
+    PrincipalId, ScopedHead, Snapshot, SnapshotRef, Writer,
 };
 
 /// One log operation. The shell supplies every value. Nothing here reads the world.
@@ -64,6 +64,8 @@ pub enum Command {
         caller: PrincipalId,
         /// Shell clock reading.
         at_ms: u64,
+        /// Shell pointer to the snapshot bytes.
+        snapshot_ref: SnapshotRef,
     },
     /// Drop the trimmable prefix.
     Trim {
@@ -161,8 +163,12 @@ pub fn step(
             state.revoke(&caller, &principal, &capability)?,
             Outcome::Revoked,
         ),
-        Command::Snapshot { caller, at_ms } => {
-            let (state, snapshot) = state.cut_snapshot(&caller, at_ms)?;
+        Command::Snapshot {
+            caller,
+            at_ms,
+            snapshot_ref,
+        } => {
+            let (state, snapshot) = state.cut_snapshot(&caller, at_ms, snapshot_ref)?;
             (state, Outcome::Snapshot(snapshot))
         }
         Command::Trim { caller, now_ms } => trim(state, &caller, now_ms)?,

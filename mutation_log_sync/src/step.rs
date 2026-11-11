@@ -127,13 +127,7 @@ fn reject_app_private(
 
 /// Device this participant reads and acks as. A receiver has one too.
 pub(crate) fn read_writer(state: &SyncState) -> Writer {
-    let (principal, device) = match &state.role {
-        SyncRole::Owner { principal, device }
-        | SyncRole::Publisher { principal, device }
-        | SyncRole::Contributor { principal, device }
-        | SyncRole::Receiver { principal, device } => (principal, device),
-    };
-    writer_of(principal.clone(), device.clone())
+    state.read_writer()
 }
 
 /// Writer this participant appends as, when the role can append.

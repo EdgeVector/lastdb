@@ -1,6 +1,6 @@
 use crate::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, PrincipalId, Recovery, ScopedHead,
-    Snapshot, Writer,
+    Snapshot, SnapshotRef, Writer,
 };
 
 /// Persistence port for one database log.
@@ -27,14 +27,23 @@ pub trait MutationLog {
     ) -> Result<ListPage, LogError>;
 
     /// Record one device's delivery cursor. The value is the stored cursor.
+    ///
+    /// Call this after the caller has applied and persisted the page or reset.
     fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError>;
 
-    /// Still-stored entries for a device whose cursor is below the trim floor.
+    /// Record a zero ack the first time a device pulls. An existing ack stays.
+    fn register_reader(&mut self, reader: &Writer) -> Result<(), LogError>;
+
+    /// Entries after the lesser of `local_cursor` and this device's stored ack.
     ///
-    /// The result carries the snapshot and every visible entry that device has
-    /// not acked. The caller installs the snapshot, applies the entries, then
-    /// acks [`Recovery::next`].
-    fn recover(&self, reader: &Writer, now_ms: u64) -> Result<Recovery, LogError>;
+    /// When that start is below the trim floor, [`Recovery::reset`] names the
+    /// snapshot the shell downloads before applying [`Recovery::entries`].
+    fn recover(
+        &self,
+        reader: &Writer,
+        local_cursor: u64,
+        now_ms: u64,
+    ) -> Result<Recovery, LogError>;
 
     /// Grant read or append on this database. `caller` is the publisher or an owner key.
     fn grant(
@@ -52,8 +61,15 @@ pub trait MutationLog {
         capability: &Capability,
     ) -> Result<(), LogError>;
 
-    /// Cut a snapshot at the supplied time. `caller` must be allowed to maintain the log.
-    fn snapshot(&mut self, caller: &PrincipalId, at_ms: u64) -> Result<Snapshot, LogError>;
+    /// Cut a snapshot at the supplied time. `snapshot_ref` points at the bytes.
+    ///
+    /// `caller` must be allowed to maintain the log.
+    fn snapshot(
+        &mut self,
+        caller: &PrincipalId,
+        at_ms: u64,
+        snapshot_ref: SnapshotRef,
+    ) -> Result<Snapshot, LogError>;
 
     /// Last accepted writer sequence for `writer`. `reader` must be that node key.
     fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError>;

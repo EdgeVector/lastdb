@@ -180,6 +180,7 @@ fn snapshot(state: &LogState, caller: &PrincipalId, at_ms: u64) -> LogState {
         Command::Snapshot {
             caller: caller.clone(),
             at_ms,
+            snapshot_ref: snap("review"),
         },
         &hearth,
     )

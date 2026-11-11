@@ -57,6 +57,8 @@ pub enum LogError {
     },
     /// An ack named a delivery sequence the log has not reached.
     AckAhead,
+    /// Trim would drop entries, and no snapshot pointer covers that floor.
+    SnapshotRequired,
 }
 
 impl fmt::Display for LogError {
@@ -126,6 +128,9 @@ impl fmt::Display for LogError {
                 )
             }
             Self::AckAhead => write!(formatter, "ack is ahead of the log head"),
+            Self::SnapshotRequired => {
+                write!(formatter, "trim needs a snapshot that covers the floor")
+            }
         }
     }
 }

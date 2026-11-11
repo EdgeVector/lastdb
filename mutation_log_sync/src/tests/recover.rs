@@ -1,16 +1,24 @@
-use mutation_log::{step, AppendBatch, Command, Entry, LogState, MutationLog, Namespace, Snapshot};
+use std::collections::BTreeMap;
+
+use mutation_log::{
+    step, AppendBatch, Command, Entry, LogState, MutationLog, Namespace, Reset, SnapshotRef,
+    StoredEntry,
+};
 
 use super::{database, drive, hearth, open_log, owner_role, payloads, principal, writer, MemLog};
 use crate::{Outcome, SyncEvent, SyncState};
 
+type Image = BTreeMap<u64, Vec<u8>>;
+
 #[test]
-fn expired_pull_delivers_the_snapshot_and_resident_entries_once() {
+fn expired_pull_delivers_snapshot_content_and_the_suffix() {
     let owner = principal("owner");
     let phone = writer(&owner, "phone");
     let mut state = personal(&owner);
+    let mut snaps = BTreeMap::new();
     state = put(&state, &phone, b"one", 1, 10);
     state = put(&state, &phone, b"two", 2, 11);
-    state = cut(&state, &owner, 12);
+    state = cut(&state, &owner, 12, "home-1", &mut snaps);
     state = put(&state, &phone, b"three", 3, 13);
     state = ack_writer(&state, &phone, 1);
     state = trim_at(&state, &owner, 14);
@@ -21,67 +29,99 @@ fn expired_pull_delivers_the_snapshot_and_resident_entries_once() {
         vec![b"two".to_vec(), b"three".to_vec()]
     );
     let reader = owner_state(&owner, "laptop");
-    let (_advanced, first, snapshot) = pull_reset(&mut log, &reader, 14);
-    assert_eq!(payloads(&first), vec![b"two".to_vec(), b"three".to_vec()]);
-    assert_eq!(snapshot.expect("reset").through_delivery_seq, 2);
-    let still = log.list(&owner, 1, 90, 14).expect("phone ack stays");
-    assert_eq!(
-        payloads(&still.entries),
-        vec![b"two".to_vec(), b"three".to_vec()]
-    );
-    let (_again, second, reset) = pull_reset(&mut log, &reader, 14);
+    let (advanced, entries, reset) = pull_reset(&mut log, &reader, 14);
+    let installed = install(reset.as_ref(), &snaps, &entries);
+    assert_eq!(installed, image_of(&[b"one", b"two", b"three"]));
+    assert_eq!(install(reset.as_ref(), &snaps, &entries), installed);
+    log.ack(&advanced.read_writer(), advanced.cursor)
+        .expect("ack after apply");
+    let (_again, second, another) = pull_reset(&mut log, &advanced, 15);
     assert!(second.is_empty());
-    assert!(reset.is_none());
+    assert!(another.is_none());
 }
 
 #[test]
-fn laptop_recovers_everything_after_the_phone_acks() {
+fn crash_before_ack_redelivers_the_same_reset() {
     let owner = principal("owner");
     let phone = writer(&owner, "phone");
-    let laptop = writer(&owner, "laptop");
     let mut state = personal(&owner);
-    state = put(&state, &phone, b"phone", 1, 1);
-    state = put(&state, &phone, b"laptop-needs-this", 2, 2);
-    state = ack_writer(&state, &laptop, 0);
-    state = ack_writer(&state, &phone, 2);
-    state = cut(&state, &owner, 3);
-    state = trim_at(&state, &owner, 4);
-    assert_eq!(state.entries.len(), 2);
+    let mut snaps = BTreeMap::new();
+    state = put(&state, &phone, b"one", 1, 10);
+    state = put(&state, &phone, b"two", 2, 11);
+    state = cut(&state, &owner, 12, "home-1", &mut snaps);
+    state = put(&state, &phone, b"three", 3, 13);
+    state = ack_writer(&state, &phone, 1);
+    state = trim_at(&state, &owner, 14);
     let mut log = open_log(state);
     let reader = owner_state(&owner, "laptop");
-    let (advanced, seen) = super::pull(&mut log, &reader, 5);
-    assert_eq!(
-        payloads(&seen),
-        vec![b"phone".to_vec(), b"laptop-needs-this".to_vec()]
-    );
-    let (_again, empty) = super::pull(&mut log, &advanced, 6);
-    assert!(empty.is_empty());
+    let (_advanced, first_entries, first_reset) = pull_reset(&mut log, &reader, 14);
+    let once = install(first_reset.as_ref(), &snaps, &first_entries);
+    let twice = install(first_reset.as_ref(), &snaps, &first_entries);
+    assert_eq!(once, twice);
+    let (_ignored, second_entries, second_reset) = pull_reset(&mut log, &reader, 15);
+    assert_eq!(second_reset, first_reset);
+    assert_eq!(payloads(&second_entries), payloads(&first_entries));
 }
 
 #[test]
-fn unregistered_laptop_resets_to_the_snapshot() {
+fn first_pull_registers_zero_and_keeps_the_entry() {
     let owner = principal("owner");
     let phone = writer(&owner, "phone");
     let mut state = personal(&owner);
+    state = put(&state, &phone, b"kept", 1, 1);
+    state = ack_writer(&state, &phone, 1);
+    state = cut(&state, &owner, 2, "home-kept", &mut BTreeMap::new());
+    let mut log = open_log(state);
+    let laptop = owner_state(&owner, "laptop");
+    let (_next, entries, reset) = pull_reset(&mut log, &laptop, 3);
+    assert!(reset.is_none());
+    assert_eq!(payloads(&entries), vec![b"kept".to_vec()]);
+}
+
+#[test]
+fn unregistered_laptop_downloads_the_snapshot() {
+    let owner = principal("owner");
+    let phone = writer(&owner, "phone");
+    let mut state = personal(&owner);
+    let mut snaps = BTreeMap::new();
     state = put(&state, &phone, b"phone", 1, 1);
     state = put(&state, &phone, b"laptop-needs-this", 2, 2);
     state = ack_writer(&state, &phone, 2);
-    state = cut(&state, &owner, 3);
+    state = cut(&state, &owner, 3, "home-2", &mut snaps);
     state = trim_at(&state, &owner, 4);
     assert!(state.entries.is_empty());
     let mut log = open_log(state);
     let reader = owner_state(&owner, "laptop");
     let (_advanced, seen, reset) = pull_reset(&mut log, &reader, 5);
     assert!(seen.is_empty());
+    let reset = reset.expect("snapshot covers both entries");
+    assert_eq!(reset.through, 2);
     assert_eq!(
-        reset
-            .expect("snapshot covers both entries")
-            .through_delivery_seq,
-        2
+        snaps.get(reset.snapshot_ref.as_str()).expect("bytes"),
+        &image_of(&[b"phone", b"laptop-needs-this"])
     );
-    let (_again, second, another) = pull_reset(&mut log, &reader, 6);
-    assert!(second.is_empty());
-    assert!(another.is_none());
+}
+
+#[test]
+fn reinstall_behind_the_stored_ack_resets() {
+    let owner = principal("owner");
+    let phone = writer(&owner, "phone");
+    let mut state = personal(&owner);
+    let mut snaps = BTreeMap::new();
+    state = put(&state, &phone, b"one", 1, 1);
+    state = put(&state, &phone, b"two", 2, 2);
+    state = cut(&state, &owner, 3, "home-3", &mut snaps);
+    state = ack_writer(&state, &phone, 2);
+    state = trim_at(&state, &owner, 4);
+    let mut log = open_log(state);
+    let wiped = owner_state(&owner, "phone");
+    let (_next, seen, reset) = pull_reset(&mut log, &wiped, 5);
+    assert!(seen.is_empty());
+    let reset = reset.expect("local cursor is behind the ack");
+    assert_eq!(
+        snaps.get(reset.snapshot_ref.as_str()).expect("bytes"),
+        &image_of(&[b"one", b"two"])
+    );
 }
 
 fn personal(owner: &mutation_log::PrincipalId) -> LogState {
@@ -105,29 +145,20 @@ fn owner_state(owner: &mutation_log::PrincipalId, device_name: &str) -> SyncStat
         mutation_log::DatabaseKind::Personal,
         owner_role(owner.clone(), device_name),
     )
-    .expect("owner")
+    .expect("reader")
 }
 
 fn put(
     state: &LogState,
-    writer: &mutation_log::Writer,
+    phone: &mutation_log::Writer,
     payload: &[u8],
     seq: u64,
-    at_ms: u64,
+    at: u64,
 ) -> LogState {
-    let entry = Entry {
-        database_id: state.database_id.clone(),
-        writer: writer.clone(),
-        writer_seq: seq,
-        authored_at_ms: at_ms,
-        namespace: Namespace::new("notes").expect("namespace"),
-        incorporated_from: None,
-        payload: payload.to_vec(),
-    };
     let begun = step(
         state,
         Command::BeginAppend {
-            writer: writer.clone(),
+            writer: phone.clone(),
         },
         &hearth,
     )
@@ -136,9 +167,9 @@ fn put(
     let appended = step(
         &begun,
         Command::Append(AppendBatch {
-            writer: writer.clone(),
-            entries: vec![entry],
-            accepted_at_ms: at_ms,
+            writer: phone.clone(),
+            entries: vec![note(phone, payload, seq, at)],
+            accepted_at_ms: at,
         }),
         &hearth,
     )
@@ -147,12 +178,24 @@ fn put(
     step(
         &appended,
         Command::FinishAppend {
-            writer: writer.clone(),
+            writer: phone.clone(),
         },
         &hearth,
     )
     .expect("finish")
     .state
+}
+
+fn note(phone: &mutation_log::Writer, payload: &[u8], seq: u64, at: u64) -> Entry {
+    Entry {
+        database_id: database("home"),
+        writer: phone.clone(),
+        writer_seq: seq,
+        authored_at_ms: at,
+        namespace: Namespace::new("notes").expect("namespace"),
+        incorporated_from: None,
+        payload: payload.to_vec(),
+    }
 }
 
 fn ack_writer(state: &LogState, reader: &mutation_log::Writer, through: u64) -> LogState {
@@ -168,17 +211,27 @@ fn ack_writer(state: &LogState, reader: &mutation_log::Writer, through: u64) -> 
     .state
 }
 
-fn cut(state: &LogState, caller: &mutation_log::PrincipalId, at_ms: u64) -> LogState {
-    step(
+fn cut(
+    state: &LogState,
+    caller: &mutation_log::PrincipalId,
+    at_ms: u64,
+    name: &str,
+    snaps: &mut BTreeMap<String, Image>,
+) -> LogState {
+    let next = step(
         state,
         Command::Snapshot {
             caller: caller.clone(),
             at_ms,
+            snapshot_ref: SnapshotRef::new(name).expect("ref"),
         },
         &hearth,
     )
     .expect("snapshot")
-    .state
+    .state;
+    let through = next.snapshot.as_ref().expect("cut").through_delivery_seq;
+    snaps.insert(name.to_owned(), image_through(state, through));
+    next
 }
 
 fn trim_at(state: &LogState, caller: &mutation_log::PrincipalId, now_ms: u64) -> LogState {
@@ -198,7 +251,7 @@ fn pull_reset(
     log: &mut MemLog,
     state: &SyncState,
     now_ms: u64,
-) -> (SyncState, Vec<mutation_log::StoredEntry>, Option<Snapshot>) {
+) -> (SyncState, Vec<StoredEntry>, Option<Reset>) {
     let (next, outcome) = drive(state, log, SyncEvent::Pull { now_ms }, &hearth).expect("pull");
     match outcome {
         Outcome::Pulled {
@@ -211,4 +264,35 @@ fn pull_reset(
         }
         Outcome::Appended { .. } | Outcome::Duplicate { .. } => panic!("pull stored an entry"),
     }
+}
+
+fn image_through(state: &LogState, through: u64) -> Image {
+    state
+        .entries
+        .iter()
+        .filter(|stored| stored.delivery_seq <= through)
+        .map(|stored| (stored.delivery_seq, stored.entry.payload.clone()))
+        .collect()
+}
+
+fn image_of(payloads: &[&[u8]]) -> Image {
+    payloads
+        .iter()
+        .enumerate()
+        .map(|(index, payload)| (index as u64 + 1, payload.to_vec()))
+        .collect()
+}
+
+fn install(
+    reset: Option<&Reset>,
+    snaps: &BTreeMap<String, Image>,
+    entries: &[StoredEntry],
+) -> Image {
+    let mut image = reset
+        .map(|reset| snaps.get(reset.snapshot_ref.as_str()).expect("ref").clone())
+        .unwrap_or_default();
+    for stored in entries {
+        image.insert(stored.delivery_seq, stored.entry.payload.clone());
+    }
+    image
 }

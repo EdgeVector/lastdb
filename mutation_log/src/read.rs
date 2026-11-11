@@ -1,33 +1,43 @@
 use crate::{
     auth::can_read, DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, PrincipalId,
-    Snapshot, Stamp, StoredEntry, Writer, LIST_PAGE_LIMIT,
+    SnapshotRef, Stamp, StoredEntry, Writer, LIST_PAGE_LIMIT,
 };
 
 /// Head a reader is allowed to see.
 ///
 /// `cursor` is the last delivery sequence scanned, including hidden entries.
+/// `stamp` is the last visible entry, or the last entry when every one is hidden.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
     /// Last delivery sequence scanned, including entries this reader cannot see.
     pub cursor: u64,
-    /// Stamp of the last visible entry.
+    /// Stamp of the last visible entry, or the last entry when none are visible.
     pub stamp: Stamp,
 }
 
-/// Still-stored entries a device needs after its cursor expires.
+/// Snapshot the caller downloads before applying the still-stored suffix.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reset {
+    /// Shell pointer to the snapshot bytes.
+    pub snapshot_ref: SnapshotRef,
+    /// Last delivery sequence the snapshot includes.
+    pub through: u64,
+    /// When the shell cut the snapshot.
+    pub at_ms: u64,
+}
+
+/// Still-stored entries a device needs after its position falls below the floor.
 ///
-/// The caller installs `snapshot` when `reset` is set, then applies `entries`.
-/// `next` is the scan cursor to ack after both are applied.
+/// The caller downloads `reset` when it is set, applies `entries`, persists
+/// that, then acks `next`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recovery {
-    /// Snapshot the caller uses to replace its state.
-    pub snapshot: Snapshot,
-    /// Visible entries still stored and not yet acked by this device.
+    /// Snapshot to install when the caller's position is below the trim floor.
+    pub reset: Option<Reset>,
+    /// Visible entries still stored after the caller's position.
     pub entries: Vec<StoredEntry>,
-    /// Scan cursor covering `entries`, the snapshot, and hidden entries.
+    /// Scan cursor to ack after the reset and `entries` are applied.
     pub next: u64,
-    /// Whether this device has not yet been given `snapshot`.
-    pub reset: bool,
 }
 
 /// One page of entries the reader may see, in delivery order.
@@ -116,15 +126,15 @@ impl LogState {
         Ok(scoped_head(self, reader, policy))
     }
 
-    /// Entries still stored for a device whose cursor is below the trim floor.
+    /// Entries still stored after the lesser of the local cursor and the stored ack.
     ///
-    /// `entries` includes every visible record this device has not acked, both
-    /// the ones at or below the snapshot and the ones after it. `reset` is
-    /// set until the device has been given the snapshot. `next` does not move
-    /// past an entry this page did not scan.
+    /// A reinstall that reuses a device id can have a local cursor behind the
+    /// ack this log stored. Delivery starts at that lesser position. A start
+    /// below the trim floor returns a reset naming the snapshot ref.
     pub fn recover(
         &self,
         reader: &Writer,
+        local_cursor: u64,
         now_ms: u64,
         policy: &impl NamespacePolicy,
     ) -> Result<Recovery, LogError> {
@@ -132,22 +142,13 @@ impl LogState {
             return Err(LogError::Unauthorized);
         }
         let floor = self.effective_floor(now_ms);
-        let snapshot = self.snapshot.clone().unwrap_or(Snapshot {
-            through_delivery_seq: 0,
-            at_ms: 0,
-        });
-        let device_ack = self.acks.get(reader).copied().unwrap_or(0);
-        let page = recover_page(self, &reader.key, device_ack, policy);
-        let next = page
-            .next
-            .max(snapshot.through_delivery_seq)
-            .max(device_ack)
-            .max(floor);
+        let server_ack = self.acks.get(reader).copied().unwrap_or(0);
+        let start = local_cursor.min(server_ack);
+        let page = recover_page(self, &reader.key, start, policy);
         Ok(Recovery {
-            reset: device_ack < snapshot.through_delivery_seq,
-            snapshot,
+            reset: reset_for(self, start, floor)?,
+            next: recovery_cursor(&page, floor),
             entries: page.entries,
-            next,
         })
     }
 
@@ -184,15 +185,40 @@ fn scoped_head(
     reader: &PrincipalId,
     policy: &impl NamespacePolicy,
 ) -> Option<ScopedHead> {
-    let mut cursor = 0;
-    let mut stamp = None;
+    let mut cursor = None;
+    let mut visible = None;
+    let mut last = None;
     for stored in &state.entries {
-        cursor = stored.delivery_seq;
+        cursor = Some(stored.delivery_seq);
+        last = Some(stored.entry.stamp());
         if entry_visible(state, stored, reader, policy) {
-            stamp = Some(stored.entry.stamp());
+            visible = Some(stored.entry.stamp());
         }
     }
-    stamp.map(|stamp| ScopedHead { cursor, stamp })
+    Some(ScopedHead {
+        cursor: cursor?,
+        stamp: visible.or(last)?,
+    })
+}
+
+fn reset_for(state: &LogState, start: u64, floor: u64) -> Result<Option<Reset>, LogError> {
+    if start >= floor {
+        return Ok(None);
+    }
+    let cut = state.snapshot.as_ref().ok_or(LogError::SnapshotRequired)?;
+    Ok(Some(Reset {
+        snapshot_ref: cut.snapshot_ref.clone(),
+        through: cut.through_delivery_seq,
+        at_ms: cut.at_ms,
+    }))
+}
+
+fn recovery_cursor(page: &ListPage, floor: u64) -> u64 {
+    if page.entries.len() == LIST_PAGE_LIMIT {
+        page.next
+    } else {
+        page.next.max(floor)
+    }
 }
 
 fn recover_page(

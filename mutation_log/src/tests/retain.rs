@@ -16,12 +16,15 @@ fn trim_floor_is_the_minimum_ack() {
         Command::Snapshot {
             caller: owner.clone(),
             at_ms: 12,
+            snapshot_ref: snap("floor"),
         },
         &hearth,
     )
     .expect("snapshot")
     .state;
     state = ack(&state, &phone, 1);
+    assert_eq!(state.effective_floor(12), 0);
+    state = ack(&state, &laptop, 1);
     assert_eq!(state.effective_floor(12), 1);
     state = step(
         &state,
@@ -36,6 +39,7 @@ fn trim_floor_is_the_minimum_ack() {
     assert_eq!(state.entries.len(), 1);
     assert_eq!(state.entries[0].delivery_seq, 2);
     state = ack(&state, &phone, 2);
+    state = ack(&state, &laptop, 2);
     state = step(
         &state,
         Command::Trim {
@@ -66,6 +70,7 @@ fn two_devices_hold_the_floor_at_the_lesser_ack() {
         Command::Snapshot {
             caller: owner.clone(),
             at_ms: 12,
+            snapshot_ref: snap("floor"),
         },
         &hearth,
     )
@@ -107,6 +112,7 @@ fn retention_expires_a_cursor_and_points_at_the_snapshot() {
         Command::Snapshot {
             caller: publisher.clone(),
             at_ms: 1,
+            snapshot_ref: snap("retention"),
         },
         &hearth,
     )
@@ -135,4 +141,42 @@ fn retention_expires_a_cursor_and_points_at_the_snapshot() {
     .state;
     assert!(state.entries.is_empty());
     assert_eq!(state.trimmed_through, 1);
+}
+
+#[test]
+fn trim_without_a_snapshot_is_refused() {
+    let owner = principal("owner");
+    let phone = writer_of(&owner, "phone");
+    let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
+    state = grant_owner(&state, &owner, &owner);
+    let note = entry(&state.database_id, &phone, "notes", 1, 1);
+    state = apply(&state, &phone, vec![note], 1);
+    state = ack(&state, &phone, 1);
+    let error = step(
+        &state,
+        Command::Trim {
+            caller: owner,
+            now_ms: 2,
+        },
+        &hearth,
+    )
+    .expect_err("trim needs a snapshot");
+    assert_eq!(error, LogError::SnapshotRequired);
+}
+
+#[test]
+fn register_reader_records_zero_and_holds_the_floor() {
+    let owner = principal("owner");
+    let phone = writer_of(&owner, "phone");
+    let laptop = writer_of(&owner, "laptop");
+    let mut state = LogState::open(database("personal"), DatabaseKind::Personal);
+    state = grant_owner(&state, &owner, &owner);
+    let note = entry(&state.database_id, &phone, "notes", 1, 1);
+    state = apply(&state, &phone, vec![note], 1);
+    state = ack(&state, &phone, 1);
+    state = state.register_reader(&laptop).expect("first pull");
+    assert_eq!(state.acks.get(&laptop).copied(), Some(0));
+    assert_eq!(state.effective_floor(2), 0);
+    let again = state.register_reader(&laptop).expect("second pull");
+    assert_eq!(again.acks.get(&laptop).copied(), Some(0));
 }

@@ -1,6 +1,6 @@
 use mutation_log::{
     step, AppendBatch, AppendOutcome, Capability, Command, ListPage, LogError, LogState,
-    NamespacePolicy, Outcome, PrincipalId, Recovery, ScopedHead, Snapshot, Writer,
+    NamespacePolicy, Outcome, PrincipalId, Recovery, ScopedHead, Snapshot, SnapshotRef, Writer,
 };
 
 use crate::MutationLog;
@@ -94,8 +94,19 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
         )
     }
 
-    fn recover(&self, reader: &Writer, now_ms: u64) -> Result<Recovery, LogError> {
-        self.state.recover(reader, now_ms, &self.policy)
+    fn recover(
+        &self,
+        reader: &Writer,
+        local_cursor: u64,
+        now_ms: u64,
+    ) -> Result<Recovery, LogError> {
+        self.state
+            .recover(reader, local_cursor, now_ms, &self.policy)
+    }
+
+    fn register_reader(&mut self, reader: &Writer) -> Result<(), LogError> {
+        self.state = self.state.register_reader(reader)?;
+        Ok(())
     }
 
     fn grant(
@@ -140,11 +151,17 @@ impl<P: NamespacePolicy> MutationLog for InMemoryMutationLog<P> {
         self.state.writer_tip(reader, writer)
     }
 
-    fn snapshot(&mut self, caller: &PrincipalId, at_ms: u64) -> Result<Snapshot, LogError> {
+    fn snapshot(
+        &mut self,
+        caller: &PrincipalId,
+        at_ms: u64,
+        snapshot_ref: SnapshotRef,
+    ) -> Result<Snapshot, LogError> {
         require_outcome(
             self.apply(Command::Snapshot {
                 caller: caller.clone(),
                 at_ms,
+                snapshot_ref,
             })?,
             |outcome| match outcome {
                 Outcome::Snapshot(snapshot) => Some(snapshot),

@@ -49,6 +49,29 @@ label_id!(
     "Node key. The same key is used on every device of that node."
 );
 
+/// Opaque pointer to snapshot bytes held by the shell.
+///
+/// The core stores the pointer and returns it on reset. It does not store
+/// the bytes.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SnapshotRef(String);
+
+impl SnapshotRef {
+    /// Reject an empty pointer or one longer than 256 bytes.
+    pub fn new(value: &str) -> Result<Self, LogError> {
+        if (1..=256).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_graphic()) {
+            Ok(Self(value.to_owned()))
+        } else {
+            Err(LogError::InvalidId)
+        }
+    }
+
+    /// Borrow the pointer.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Schema namespace, the part before `/` in a name such as `hearth/PhotoMeta`.
 ///
 /// The schema name stays in the entry payload. This core classifies the

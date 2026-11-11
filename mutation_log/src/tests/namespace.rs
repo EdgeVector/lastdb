@@ -124,6 +124,7 @@ fn share_snapshot_omits_submissions_and_app_private_entries() {
         Command::Snapshot {
             caller: publisher,
             at_ms: 4,
+            snapshot_ref: snap("basis"),
         },
         &hearth,
     )
