@@ -62,7 +62,7 @@ mod wire;
 
 use file_blob::is_media_type;
 use reply::{content_free, envelope, error_response, json_ok, render, HostError};
-use timeouts::{execute_data_route_with_timeout, with_handler_timeout_budget};
+use timeouts::{data_route_budget, execute_data_route_with_timeout, with_handler_timeout_budget};
 use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
 pub use crate::shared_snapshot::sequence::SharedSnapshotRequest;

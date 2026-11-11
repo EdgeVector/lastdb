@@ -203,7 +203,7 @@ async fn purge_keys(
                 key: key.clone(),
                 alternates: record.alternates,
             };
-            let mut mutation = Mutation::new(
+            let mut mutation = Mutation::with_uuid(
                 uuid::Uuid::new_v4().to_string(),
                 target,
                 HashMap::new(),
