@@ -264,11 +264,10 @@ impl MutationManager {
             .await?
             .unwrap_or_default();
         durable.observe_remote(state.physical_nanos, state.logical_counter);
-        Ok(self
-            .db_ops
+        self.db_ops
             .metadata()
             .stage_author_clock(&writer, &durable)
-            .await?)
+            .await
     }
 
     fn build_index_change_batch<'a>(
