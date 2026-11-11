@@ -1,6 +1,6 @@
 use crate::{
-    state::StreamProgress, Capability, DatabaseKind, Grant, LogError, LogState, PrincipalId,
-    StreamId, StreamRole,
+    cursor::cursor_space, state::StreamProgress, AckCursor, Capability, CursorSpace, DatabaseKind,
+    Grant, LogError, LogState, PrincipalId, StreamId, StreamRole,
 };
 
 /// A receiver may read only the publisher stream of this shareable database.
@@ -67,16 +67,23 @@ impl LogState {
         {
             return Ok(self.clone());
         }
+        let previous = cursor_space(self, &principal);
+        let name = principal.clone();
         let mut next = self.clone();
         register_stream(&mut next, &principal, &capability)?;
         next.grants.push(Grant {
             principal,
             capability,
         });
+        realign_ack(&mut next, &name, &previous);
         Ok(next)
     }
 
-    /// Remove one grant. The principal's ack and open append go with it.
+    /// Remove one grant. An open append on that stream is cleared.
+    ///
+    /// The ack is removed when the principal can no longer read. When the
+    /// principal can still read but the cursor space changed, the ack resets
+    /// to the start of the new space.
     ///
     /// `can_read` is false for that capability on the returned state. Revoking
     /// a grant that is not present leaves the state unchanged. There is no
@@ -88,6 +95,7 @@ impl LogState {
         capability: &Capability,
     ) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
+        let previous = cursor_space(self, principal);
         let Some(index) = self
             .grants
             .iter()
@@ -97,7 +105,9 @@ impl LogState {
         };
         let mut next = self.clone();
         next.grants.remove(index);
-        if !next.reader_allowed(principal) {
+        if next.reader_allowed(principal) {
+            realign_ack(&mut next, principal, &previous);
+        } else {
             next.acks.remove(principal);
         }
         clear_inflight(&mut next, principal, capability);
@@ -218,6 +228,20 @@ fn caller_is(caller: &PrincipalId, expected: &PrincipalId) -> Result<(), LogErro
     } else {
         Err(LogError::Unauthorized)
     }
+}
+
+fn realign_ack(state: &mut LogState, principal: &PrincipalId, previous: &CursorSpace) {
+    let current = cursor_space(state, principal);
+    if current == *previous {
+        return;
+    }
+    state.acks.insert(
+        principal.clone(),
+        AckCursor {
+            space: current,
+            through: 0,
+        },
+    );
 }
 
 fn clear_inflight(state: &mut LogState, principal: &PrincipalId, capability: &Capability) {

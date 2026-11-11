@@ -9,10 +9,9 @@ impl LogState {
     /// Acknowledge `through` in the cursor space this consumer can see.
     ///
     /// The bound is the last entry that consumer can read, not the raw head.
-    /// The stored value is that cursor. An ack at or below the stored cursor
-    /// is a no-op, so a rolled-back pull can ack an earlier page without
-    /// getting stuck. Trim coverage is derived from the stored cursor, so a
-    /// caught-up receiver does not pin hidden entries and cannot probe them.
+    /// The stored value is that cursor and the space it counts in. An ack at
+    /// or below the stored cursor in the same space is a no-op. A grant or
+    /// revoke that changes the space resets the ack to that space's start.
     pub fn ack(
         &self,
         consumer: &PrincipalId,
@@ -26,12 +25,14 @@ impl LogState {
         if through > visible {
             return Err(LogError::AckAhead);
         }
-        let previous = self.acks.get(consumer).copied().unwrap_or(0);
+        let space = crate::cursor_space(self, consumer);
+        let previous = stored_through(self, consumer);
         if through <= previous {
             return Ok(self.clone());
         }
         let mut next = self.clone();
-        next.acks.insert(consumer.clone(), through);
+        next.acks
+            .insert(consumer.clone(), crate::AckCursor { space, through });
         Ok(next)
     }
 
@@ -71,6 +72,7 @@ impl LogState {
             return Ok(self.clone());
         }
         let mut next = self.clone();
+        prune_incorporated(&mut next, floor);
         crate::cursor::remember_trimmed(&mut next, floor, policy);
         next.entries.retain(|entry| entry.delivery_seq > floor);
         next.trimmed_through = floor;
@@ -122,7 +124,7 @@ impl LogState {
         consumers
             .iter()
             .map(|principal| {
-                let cursor = self.acks.get(principal).copied().unwrap_or(0);
+                let cursor = stored_through(self, principal);
                 crate::cursor::coverage(self, principal, cursor, policy)
             })
             .min()
@@ -149,6 +151,26 @@ impl LogState {
             floor = entry.delivery_seq;
         }
         floor
+    }
+}
+
+fn stored_through(state: &LogState, principal: &PrincipalId) -> u64 {
+    let space = crate::cursor_space(state, principal);
+    match state.acks.get(principal) {
+        Some(ack) if ack.space == space => ack.through,
+        _ => 0,
+    }
+}
+
+fn prune_incorporated(state: &mut LogState, floor: u64) {
+    let dropped: Vec<(crate::StreamId, u64)> = state
+        .entries
+        .iter()
+        .filter(|stored| stored.delivery_seq <= floor && stored.entry.incorporated_from.is_none())
+        .map(|stored| (stored.entry.stream.clone(), stored.entry.writer_seq))
+        .collect();
+    for key in dropped {
+        state.incorporated.remove(&key);
     }
 }
 

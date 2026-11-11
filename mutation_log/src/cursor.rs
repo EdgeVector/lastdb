@@ -13,6 +13,15 @@ pub enum CursorSpace {
     Stream(crate::StreamId),
 }
 
+/// An ack stored with the sequence space it counts in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AckCursor {
+    /// Space `through` was read in.
+    pub space: CursorSpace,
+    /// Highest cursor acknowledged in `space`. Zero means the start.
+    pub through: u64,
+}
+
 pub fn cursor_space(state: &LogState, reader: &PrincipalId) -> CursorSpace {
     if is_publisher(state, reader) {
         return CursorSpace::Delivery;

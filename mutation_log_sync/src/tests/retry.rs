@@ -1,6 +1,5 @@
 use super::*;
 use crate::SyncEvent;
-use mutation_log::LogError;
 
 #[test]
 fn lost_append_response_retry_then_a_new_mutation_lands() {
@@ -15,12 +14,13 @@ fn lost_append_response_retry_then_a_new_mutation_lands() {
         },
     )
     .expect("grant");
-    let state = SyncState::open(
+    let opened = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
         device(phone, phone_stream),
     )
     .expect("state");
+    let state = SyncState::resume(&opened, &log).expect("resume");
     drive(
         &state,
         &mut log,
@@ -262,10 +262,6 @@ fn rolled_back_pull_is_not_stuck_on_ack_regress() {
         &mut log,
         SyncEvent::Pull { now_ms: 3 },
         &hearth,
-    );
-    assert_ne!(
-        rolled.as_ref().err(),
-        Some(&crate::SyncError::Log(LogError::AckRegress))
     );
     assert!(rolled.is_ok());
 }
