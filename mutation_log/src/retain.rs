@@ -6,13 +6,22 @@ use crate::{
 };
 
 impl LogState {
-    /// Acknowledge delivery through `through`. The cursor does not move backward.
-    pub fn ack(&self, consumer: &PrincipalId, through: u64) -> Result<Self, LogError> {
+    /// Acknowledge `through` in the cursor space this consumer can see.
+    ///
+    /// The bound is the last entry that consumer can read, not the raw head.
+    /// The stored value is that cursor. Trim coverage is derived from it, so a
+    /// caught-up receiver does not pin hidden entries and cannot probe them.
+    pub fn ack(
+        &self,
+        consumer: &PrincipalId,
+        through: u64,
+        policy: &impl NamespacePolicy,
+    ) -> Result<Self, LogError> {
         if !self.reader_allowed(consumer) {
             return Err(LogError::Unauthorized);
         }
-        let head = self.head.as_ref().map_or(0, |head| head.delivery_seq);
-        if through > head {
+        let visible = crate::cursor::max_visible_cursor(self, consumer, policy);
+        if through > visible {
             return Err(LogError::AckAhead);
         }
         let previous = self.acks.get(consumer).copied().unwrap_or(0);
@@ -25,40 +34,53 @@ impl LogState {
     }
 
     /// Record a snapshot cut at the current delivery head.
-    #[must_use]
-    pub fn cut_snapshot(&self, at_ms: u64) -> (Self, Snapshot) {
+    ///
+    /// `caller` is the publisher, or a device grantee of a personal database.
+    pub fn cut_snapshot(
+        &self,
+        caller: &PrincipalId,
+        at_ms: u64,
+    ) -> Result<(Self, Snapshot), LogError> {
+        self.authorize_maintainer(caller)?;
         let snapshot = Snapshot {
             through_delivery_seq: self.head.as_ref().map_or(0, |head| head.delivery_seq),
             at_ms,
         };
         let mut next = self.clone();
         next.snapshot = Some(snapshot.clone());
-        (next, snapshot)
+        Ok((next, snapshot))
     }
 
     /// Drop the prefix at or below the trim floor.
     ///
-    /// The floor is the minimum ack, and also the expired prefix, and it
-    /// never passes the latest snapshot. Without a snapshot nothing is dropped,
-    /// so a new consumer can still re-bootstrap.
-    #[must_use]
-    pub fn trim(&self, now_ms: u64) -> Self {
-        let floor = self.effective_floor(now_ms);
+    /// The floor is the minimum ack coverage, and also the expired prefix,
+    /// and it never passes the latest snapshot. Without a snapshot nothing
+    /// is dropped, so a new consumer can still re-bootstrap. `caller` is the
+    /// publisher or a personal device grantee.
+    pub fn trim(
+        &self,
+        caller: &PrincipalId,
+        now_ms: u64,
+        policy: &impl NamespacePolicy,
+    ) -> Result<Self, LogError> {
+        self.authorize_maintainer(caller)?;
+        let floor = self.effective_floor(now_ms, policy);
         if floor <= self.trimmed_through {
-            return self.clone();
+            return Ok(self.clone());
         }
         let mut next = self.clone();
+        crate::cursor::remember_trimmed(&mut next, floor, policy);
         next.entries.retain(|entry| entry.delivery_seq > floor);
         next.trimmed_through = floor;
-        next
+        Ok(next)
     }
 
     /// Highest delivery sequence that may be dropped.
     #[must_use]
-    pub fn effective_floor(&self, now_ms: u64) -> u64 {
+    pub fn effective_floor(&self, now_ms: u64, policy: &impl NamespacePolicy) -> u64 {
         match &self.snapshot {
             Some(snapshot) => self
-                .desired_floor(now_ms)
+                .desired_floor(now_ms, policy)
                 .min(snapshot.through_delivery_seq),
             None => self.trimmed_through,
         }
@@ -66,8 +88,8 @@ impl LogState {
 
     /// The shell should cut a snapshot before more of the log can be dropped.
     #[must_use]
-    pub fn snapshot_due(&self, now_ms: u64) -> bool {
-        self.desired_floor(now_ms) > self.effective_floor(now_ms)
+    pub fn snapshot_due(&self, now_ms: u64, policy: &impl NamespacePolicy) -> bool {
+        self.desired_floor(now_ms, policy) > self.effective_floor(now_ms, policy)
     }
 
     /// Entries the latest snapshot covers.
@@ -86,18 +108,21 @@ impl LogState {
             .collect()
     }
 
-    fn desired_floor(&self, now_ms: u64) -> u64 {
-        self.min_ack().max(self.retention_prefix(now_ms))
+    fn desired_floor(&self, now_ms: u64, policy: &impl NamespacePolicy) -> u64 {
+        self.min_ack(policy).max(self.retention_prefix(now_ms))
     }
 
-    fn min_ack(&self) -> u64 {
+    fn min_ack(&self, policy: &impl NamespacePolicy) -> u64 {
         let consumers = self.consumers();
         if consumers.is_empty() {
             return 0;
         }
         consumers
             .iter()
-            .map(|principal| self.acks.get(principal).copied().unwrap_or(0))
+            .map(|principal| {
+                let cursor = self.acks.get(principal).copied().unwrap_or(0);
+                crate::cursor::coverage(self, principal, cursor, policy)
+            })
             .min()
             .unwrap_or(0)
     }

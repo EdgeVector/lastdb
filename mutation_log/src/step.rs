@@ -16,6 +16,8 @@ pub enum Command {
     Append(AppendBatch),
     /// Mark the stream's append closed.
     FinishAppend {
+        /// Principal who opened the append.
+        caller: PrincipalId,
         /// Stream whose append is closing.
         stream: StreamId,
     },
@@ -28,7 +30,7 @@ pub enum Command {
     List {
         /// Who is reading.
         reader: PrincipalId,
-        /// Last delivery sequence this reader already has.
+        /// Cursor this reader already has, in that reader's sequence space.
         after: u64,
         /// Maximum visible entries to return.
         limit: usize,
@@ -39,18 +41,22 @@ pub enum Command {
     Ack {
         /// Consumer who has the entries.
         consumer: PrincipalId,
-        /// Highest delivery sequence the consumer has.
+        /// Highest cursor the consumer has in the sequence space it can see.
         through: u64,
     },
     /// Allow a principal to read or append.
     Grant {
+        /// Publisher, or a device grantee making the grant.
+        caller: PrincipalId,
         /// Principal receiving the grant.
         principal: PrincipalId,
         /// Capability they receive.
         capability: Capability,
     },
-    /// Remove a grant.
+    /// Remove a grant. This is how a participant is removed.
     Revoke {
+        /// Publisher, or a device grantee removing the grant.
+        caller: PrincipalId,
         /// Principal losing the grant.
         principal: PrincipalId,
         /// Capability they lose.
@@ -58,11 +64,15 @@ pub enum Command {
     },
     /// Cut a snapshot at the current head.
     Snapshot {
+        /// Publisher, or a device grantee.
+        caller: PrincipalId,
         /// Shell clock reading.
         at_ms: u64,
     },
     /// Drop the trimmable prefix.
     Trim {
+        /// Publisher, or a device grantee.
+        caller: PrincipalId,
         /// Shell clock reading.
         now_ms: u64,
     },
@@ -124,9 +134,10 @@ pub fn step(
             let (state, append) = state.append(&batch, policy)?;
             (state, Outcome::Appended(append))
         }
-        Command::FinishAppend { stream } => {
-            (state.finish_append(&stream)?, Outcome::AppendFinished)
-        }
+        Command::FinishAppend { caller, stream } => (
+            state.finish_append(&caller, &stream)?,
+            Outcome::AppendFinished,
+        ),
         Command::Head { reader } => (
             state.clone(),
             Outcome::Head(state.head_for(&reader, policy)?),
@@ -140,25 +151,34 @@ pub fn step(
             state.clone(),
             Outcome::Page(state.list(&reader, after, limit, now_ms, policy)?),
         ),
-        Command::Ack { consumer, through } => {
-            (state.ack(&consumer, through)?, Outcome::Acked { through })
-        }
+        Command::Ack { consumer, through } => (
+            state.ack(&consumer, through, policy)?,
+            Outcome::Acked { through },
+        ),
         Command::Grant {
+            caller,
             principal,
             capability,
-        } => (state.grant(principal, capability)?, Outcome::Granted),
+        } => (
+            state.grant(&caller, principal, capability)?,
+            Outcome::Granted,
+        ),
         Command::Revoke {
+            caller,
             principal,
             capability,
-        } => (state.revoke(&principal, &capability)?, Outcome::Revoked),
-        Command::Snapshot { at_ms } => {
-            let (state, snapshot) = state.cut_snapshot(at_ms);
+        } => (
+            state.revoke(&caller, &principal, &capability)?,
+            Outcome::Revoked,
+        ),
+        Command::Snapshot { caller, at_ms } => {
+            let (state, snapshot) = state.cut_snapshot(&caller, at_ms)?;
             (state, Outcome::Snapshot(snapshot))
         }
-        Command::Trim { now_ms } => {
-            let state = state.trim(now_ms);
+        Command::Trim { caller, now_ms } => {
+            let state = state.trim(&caller, now_ms, policy)?;
             let through = state.trimmed_through;
-            let snapshot_due = state.snapshot_due(now_ms);
+            let snapshot_due = state.snapshot_due(now_ms, policy);
             (
                 state,
                 Outcome::Trimmed {

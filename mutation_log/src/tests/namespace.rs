@@ -36,6 +36,7 @@ fn read_filter_hides_a_stored_app_private_entry_from_a_receiver() {
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: receiver.clone(),
             capability: Capability::Receive,
         },
@@ -62,6 +63,7 @@ fn personal_database_stores_an_app_private_namespace() {
     state = step(
         &state,
         Command::Grant {
+            caller: owner.clone(),
             principal: owner.clone(),
             capability: Capability::Device {
                 stream: phone.clone(),
@@ -85,6 +87,7 @@ fn personal_database_cannot_be_granted_to_a_receiver() {
     let refused = step(
         &state,
         Command::Grant {
+            caller: receiver.clone(),
             principal: receiver.clone(),
             capability: Capability::Receive,
         },
@@ -94,6 +97,7 @@ fn personal_database_cannot_be_granted_to_a_receiver() {
     let submit = step(
         &state,
         Command::Grant {
+            caller: receiver.clone(),
             principal: receiver,
             capability: Capability::Submit {
                 stream: stream("inbox"),
@@ -105,10 +109,11 @@ fn personal_database_cannot_be_granted_to_a_receiver() {
     assert!(state.grants.is_empty());
     assert!(!can_read(&principal("receiver"), &state, &stream("inbox")));
 
-    let (share, _publisher, _published) = shareable();
+    let (share, publisher, _published) = shareable();
     let device = step(
         &share,
         Command::Grant {
+            caller: publisher,
             principal: principal("phone"),
             capability: Capability::Device {
                 stream: stream("phone"),
@@ -127,6 +132,7 @@ fn share_snapshot_omits_submissions_and_app_private_entries() {
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: contributor.clone(),
             capability: Capability::Submit {
                 stream: submission.clone(),
@@ -152,9 +158,16 @@ fn share_snapshot_omits_submissions_and_app_private_entries() {
         accepted_at_ms: 3,
         entry: entry(&state.database_id, &published, &publisher, "hearth", 2, 3),
     });
-    state = step(&state, Command::Snapshot { at_ms: 4 }, &hearth)
-        .expect("snapshot")
-        .state;
+    state = step(
+        &state,
+        Command::Snapshot {
+            caller: publisher,
+            at_ms: 4,
+        },
+        &hearth,
+    )
+    .expect("snapshot")
+    .state;
     let basis = state.snapshot_basis(&hearth);
     assert_eq!(basis.len(), 1);
     assert_eq!(basis[0].entry.namespace.as_str(), "photos");

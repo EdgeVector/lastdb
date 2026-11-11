@@ -29,7 +29,7 @@ impl LogState {
         validate_batch(self, batch)?;
         self.authorize_append(&batch.author, &batch.stream)?;
         reject_app_private(self, batch, policy)?;
-        if !self.inflight.contains(&batch.stream) {
+        if !self.inflight.contains_key(&batch.stream) {
             return Err(LogError::AppendNotOpen);
         }
         let last = self
@@ -65,9 +65,7 @@ fn validate_batch(state: &LogState, batch: &AppendBatch) -> Result<(), LogError>
         if entry.stream != batch.stream || entry.author != batch.author {
             return Err(LogError::StreamMismatch);
         }
-        if entry.incorporated_from.is_some() && !on_publisher_stream(state, &entry.stream) {
-            return Err(LogError::InvalidEntry);
-        }
+        require_submission(state, entry)?;
     }
     Ok(())
 }
@@ -106,17 +104,46 @@ fn classify_seqs(last: u64, seqs: &[u64]) -> Result<usize, LogError> {
     if index == seqs.len() {
         return Ok(index);
     }
-    let mut expected = last.checked_add(1).ok_or(LogError::InvalidSequence)?;
-    for seq in &seqs[index..] {
+    let mut expected = last.checked_add(1).ok_or(LogError::SequenceExhausted)?;
+    let fresh = &seqs[index..];
+    for (offset, seq) in fresh.iter().enumerate() {
+        if *seq == u64::MAX {
+            return Err(LogError::SequenceExhausted);
+        }
         if *seq != expected {
             return Err(LogError::Gap {
                 expected,
                 got: *seq,
             });
         }
-        expected = seq.checked_add(1).ok_or(LogError::InvalidSequence)?;
+        if offset + 1 == fresh.len() {
+            break;
+        }
+        expected = seq.checked_add(1).ok_or(LogError::SequenceExhausted)?;
     }
     Ok(index)
+}
+
+fn require_submission(state: &LogState, entry: &crate::Entry) -> Result<(), LogError> {
+    let Some(from) = &entry.incorporated_from else {
+        return Ok(());
+    };
+    if !on_publisher_stream(state, &entry.stream) {
+        return Err(LogError::InvalidEntry);
+    }
+    let matched = state.entries.iter().any(|stored| {
+        stored.entry.incorporated_from.is_none()
+            && stored.entry.stream == from.submission_stream
+            && stored.entry.writer_seq == from.writer_seq
+            && stored.entry.author == from.contributor
+            && stored.entry.namespace == entry.namespace
+            && stored.entry.payload == entry.payload
+    });
+    if matched {
+        Ok(())
+    } else {
+        Err(LogError::UnknownSubmission)
+    }
 }
 
 fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, AppendOutcome) {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::{
     Capability, DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, StreamId,
@@ -10,6 +10,8 @@ use crate::{
 pub struct StreamProgress {
     /// Last accepted writer sequence. Zero means the stream has no entries.
     pub last_writer_seq: u64,
+    /// Highest writer sequence already dropped on this stream.
+    pub trimmed_writer_seq: u64,
     /// What kind of stream this is.
     pub role: StreamRole,
 }
@@ -31,8 +33,8 @@ pub struct LogState {
     pub acks: BTreeMap<PrincipalId, u64>,
     /// Retained entries in delivery order.
     pub entries: Vec<crate::StoredEntry>,
-    /// Streams with an append open. At most one open append per stream.
-    pub inflight: BTreeSet<StreamId>,
+    /// Open appends, keyed by stream. The value is the principal who opened it.
+    pub inflight: BTreeMap<StreamId, PrincipalId>,
     /// Latest snapshot cut, if the shell has taken one.
     pub snapshot: Option<Snapshot>,
     /// Highest delivery sequence already dropped.
@@ -58,7 +60,7 @@ impl LogState {
             grants: Vec::new(),
             acks: BTreeMap::new(),
             entries: Vec::new(),
-            inflight: BTreeSet::new(),
+            inflight: BTreeMap::new(),
             snapshot: None,
             trimmed_through: 0,
         }
@@ -67,22 +69,25 @@ impl LogState {
     /// Open one append on `stream`. A second open on the same stream is refused.
     pub fn begin_append(&self, author: &PrincipalId, stream: &StreamId) -> Result<Self, LogError> {
         self.authorize_append(author, stream)?;
-        if self.inflight.contains(stream) {
+        if self.inflight.contains_key(stream) {
             return Err(LogError::AppendInFlight);
         }
         let mut next = self.clone();
-        next.inflight.insert(stream.clone());
+        next.inflight.insert(stream.clone(), author.clone());
         Ok(next)
     }
 
-    /// Close an open append. The entries themselves are applied by [`crate::step`].
-    pub fn finish_append(&self, stream: &StreamId) -> Result<Self, LogError> {
-        if !self.inflight.contains(stream) {
-            return Err(LogError::AppendNotOpen);
+    /// Close an open append. Only the principal who opened it may close it.
+    pub fn finish_append(&self, caller: &PrincipalId, stream: &StreamId) -> Result<Self, LogError> {
+        match self.inflight.get(stream) {
+            Some(owner) if owner == caller => {
+                let mut next = self.clone();
+                next.inflight.remove(stream);
+                Ok(next)
+            }
+            Some(_) => Err(LogError::Unauthorized),
+            None => Err(LogError::AppendNotOpen),
         }
-        let mut next = self.clone();
-        next.inflight.remove(stream);
-        Ok(next)
     }
 
     pub(crate) fn authorize_append(
@@ -148,6 +153,7 @@ fn author_is(author: &PrincipalId, expected: &PrincipalId) -> Result<(), LogErro
 fn publisher_progress() -> StreamProgress {
     StreamProgress {
         last_writer_seq: 0,
+        trimmed_writer_seq: 0,
         role: StreamRole::Publisher,
     }
 }

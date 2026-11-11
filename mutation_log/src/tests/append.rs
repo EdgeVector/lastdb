@@ -57,6 +57,7 @@ fn duplicate_accepts_next_and_gap_stores_nothing() {
     let closed = step(
         &duplicate.state,
         Command::FinishAppend {
+            caller: publisher.clone(),
             stream: published.clone(),
         },
         &hearth,
@@ -114,6 +115,7 @@ fn one_inflight_append_per_stream_and_batch_limit() {
     state = step(
         &state,
         Command::Grant {
+            caller: owner.clone(),
             principal: owner.clone(),
             capability: Capability::Device {
                 stream: phone.clone(),
@@ -126,6 +128,7 @@ fn one_inflight_append_per_stream_and_batch_limit() {
     state = step(
         &state,
         Command::Grant {
+            caller: owner.clone(),
             principal: owner.clone(),
             capability: Capability::Device {
                 stream: laptop.clone(),
@@ -211,6 +214,7 @@ fn merge_order_follows_the_stamp_and_delivery_order_does_not() {
         state = step(
             &state,
             Command::Grant {
+                caller: owner.clone(),
                 principal: owner.clone(),
                 capability: Capability::Device {
                     stream: writer.clone(),

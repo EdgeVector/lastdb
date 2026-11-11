@@ -1,8 +1,10 @@
 use mutation_log::{
     AppendBatch, AppendOutcome, Capability, DatabaseId, DatabaseKind, Entry, Incorporation,
-    LogError, LogState, Namespace, NamespaceKind, PrincipalId, StreamId, APPEND_BATCH_LIMIT,
+    LogError, LogState, Namespace, NamespaceKind, Outcome, PrincipalId, StreamId,
+    APPEND_BATCH_LIMIT,
 };
 
+use crate::memory::require_outcome;
 use crate::{InMemoryMutationLog, MutationLog, MutationLogConfig};
 
 type Policy = fn(&Namespace) -> NamespaceKind;
@@ -93,6 +95,15 @@ fn page(log: &dyn MutationLog, reader: &PrincipalId) -> Vec<Entry> {
 }
 
 #[test]
+fn mismatched_step_outcome_is_not_an_invalid_entry() {
+    let mismatched = require_outcome(Outcome::Granted, |outcome| match outcome {
+        Outcome::Appended(value) => Some(value),
+        _ => None,
+    });
+    assert_eq!(mismatched, Err(LogError::UnexpectedOutcome));
+}
+
+#[test]
 fn config_defaults_off() {
     let state = LogState::open(database("personal"), DatabaseKind::Personal);
     assert!(!MutationLogConfig::default().is_enabled());
@@ -135,8 +146,10 @@ fn receiver_reads_only_the_publisher_stream() {
     let other = principal("other");
     let submission = stream("contribution");
     let other_stream = stream("other-contribution");
-    log.grant(receiver.clone(), Capability::Receive).unwrap();
+    log.grant(&publisher, receiver.clone(), Capability::Receive)
+        .unwrap();
     log.grant(
+        &publisher,
         contributor.clone(),
         Capability::Submit {
             stream: submission.clone(),
@@ -144,6 +157,7 @@ fn receiver_reads_only_the_publisher_stream() {
     )
     .unwrap();
     log.grant(
+        &publisher,
         other.clone(),
         Capability::Submit {
             stream: other_stream,
@@ -170,8 +184,10 @@ fn submission_is_visible_to_a_receiver_only_after_reappend() {
     let receiver = principal("receiver");
     let contributor = principal("contributor");
     let submission = stream("contribution");
-    log.grant(receiver.clone(), Capability::Receive).unwrap();
+    log.grant(&publisher, receiver.clone(), Capability::Receive)
+        .unwrap();
     log.grant(
+        &publisher,
         contributor.clone(),
         Capability::Submit {
             stream: submission.clone(),
@@ -208,8 +224,9 @@ fn submission_is_visible_to_a_receiver_only_after_reappend() {
 
 #[test]
 fn shareable_database_rejects_a_device_grant() {
-    let (mut log, _, _) = share_log();
+    let (mut log, publisher, _) = share_log();
     let refused = log.grant(
+        &publisher,
         principal("phone"),
         Capability::Device {
             stream: stream("phone"),
@@ -233,11 +250,12 @@ fn personal_database_stores_app_private_and_rejects_a_receiver() {
     let mut log = enabled(LogState::open(database("personal"), DatabaseKind::Personal));
     let receiver = principal("receiver");
     assert_eq!(
-        log.grant(receiver.clone(), Capability::Receive),
+        log.grant(&owner, receiver.clone(), Capability::Receive),
         Err(LogError::PersonalNotShareable)
     );
     assert_eq!(
         log.grant(
+            &owner,
             receiver,
             Capability::Submit {
                 stream: stream("nope"),
@@ -246,6 +264,7 @@ fn personal_database_stores_app_private_and_rejects_a_receiver() {
         Err(LogError::PersonalNotShareable)
     );
     log.grant(
+        &owner,
         owner.clone(),
         Capability::Device {
             stream: phone.clone(),
@@ -262,12 +281,13 @@ fn personal_database_stores_app_private_and_rejects_a_receiver() {
 
 #[test]
 fn grants_are_not_capped_at_twelve() {
-    let (mut log, _, _) = share_log();
+    let (mut log, publisher, _) = share_log();
     for index in 0..13 {
         let name = format!("c{index}");
         let person = principal(&name);
         let writer = stream(&name);
         log.grant(
+            &publisher,
             person.clone(),
             Capability::Submit {
                 stream: writer.clone(),

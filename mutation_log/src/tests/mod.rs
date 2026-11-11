@@ -1,7 +1,9 @@
 pub use super::*;
 
 mod append;
+mod cursor;
 mod namespace;
+mod removal;
 mod retain;
 mod share;
 
@@ -81,6 +83,7 @@ pub fn apply(
     step(
         &appended,
         Command::FinishAppend {
+            caller: author.clone(),
             stream: writer.clone(),
         },
         &hearth,

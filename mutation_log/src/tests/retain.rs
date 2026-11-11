@@ -10,6 +10,7 @@ fn trim_floor_is_the_minimum_ack() {
         state = step(
             &state,
             Command::Grant {
+                caller: owner.clone(),
                 principal: owner.clone(),
                 capability: Capability::Device {
                     stream: writer.clone(),
@@ -24,20 +25,41 @@ fn trim_floor_is_the_minimum_ack() {
     let second = entry(&state.database_id, &laptop, &owner, "notes", 1, 2);
     state = apply(&state, &owner, &phone, vec![first], 10);
     state = apply(&state, &owner, &laptop, vec![second], 11);
-    state = step(&state, Command::Snapshot { at_ms: 12 }, &hearth)
-        .expect("snapshot")
-        .state;
+    state = step(
+        &state,
+        Command::Snapshot {
+            caller: owner.clone(),
+            at_ms: 12,
+        },
+        &hearth,
+    )
+    .expect("snapshot")
+    .state;
     state = ack(&state, &owner, 1);
-    assert_eq!(state.effective_floor(12), 1);
-    state = step(&state, Command::Trim { now_ms: 12 }, &hearth)
-        .expect("trim")
-        .state;
+    assert_eq!(state.effective_floor(12, &hearth), 1);
+    state = step(
+        &state,
+        Command::Trim {
+            caller: owner.clone(),
+            now_ms: 12,
+        },
+        &hearth,
+    )
+    .expect("trim")
+    .state;
     assert_eq!(state.entries.len(), 1);
     assert_eq!(state.entries[0].delivery_seq, 2);
     state = ack(&state, &owner, 2);
-    state = step(&state, Command::Trim { now_ms: 12 }, &hearth)
-        .expect("trim rest")
-        .state;
+    state = step(
+        &state,
+        Command::Trim {
+            caller: owner,
+            now_ms: 12,
+        },
+        &hearth,
+    )
+    .expect("trim rest")
+    .state;
     assert!(state.entries.is_empty());
     assert_eq!(state.trimmed_through, 2);
 }
@@ -55,15 +77,29 @@ fn two_devices_hold_the_floor_at_the_lesser_ack() {
     let second = entry(&state.database_id, &laptop, &laptop_owner, "notes", 1, 2);
     state = apply(&state, &phone_owner, &phone, vec![first], 10);
     state = apply(&state, &laptop_owner, &laptop, vec![second], 11);
-    state = step(&state, Command::Snapshot { at_ms: 12 }, &hearth)
-        .expect("snapshot")
-        .state;
+    state = step(
+        &state,
+        Command::Snapshot {
+            caller: phone_owner.clone(),
+            at_ms: 12,
+        },
+        &hearth,
+    )
+    .expect("snapshot")
+    .state;
     state = ack(&state, &phone_owner, 2);
     state = ack(&state, &laptop_owner, 1);
-    assert_eq!(state.effective_floor(12), 1);
-    state = step(&state, Command::Trim { now_ms: 12 }, &hearth)
-        .expect("trim")
-        .state;
+    assert_eq!(state.effective_floor(12, &hearth), 1);
+    state = step(
+        &state,
+        Command::Trim {
+            caller: phone_owner,
+            now_ms: 12,
+        },
+        &hearth,
+    )
+    .expect("trim")
+    .state;
     assert_eq!(state.entries.len(), 1);
     assert_eq!(state.entries[0].delivery_seq, 2);
 }
@@ -75,6 +111,7 @@ fn retention_expires_a_cursor_and_points_at_the_snapshot() {
     state = step(
         &state,
         Command::Grant {
+            caller: publisher.clone(),
             principal: receiver.clone(),
             capability: Capability::Receive,
         },
@@ -86,14 +123,21 @@ fn retention_expires_a_cursor_and_points_at_the_snapshot() {
     state = apply(&state, &publisher, &published, vec![note], 0);
     let fresh = state.list(&receiver, 0, 10, 1, &hearth).expect("fresh");
     assert_eq!(fresh.entries.len(), 1);
-    assert!(state.snapshot_due(MAX_RETENTION_MS));
+    assert!(state.snapshot_due(MAX_RETENTION_MS, &hearth));
     let held = state
         .list(&receiver, 0, 10, MAX_RETENTION_MS, &hearth)
         .expect("still readable until a snapshot exists");
     assert_eq!(held.entries.len(), 1);
-    state = step(&state, Command::Snapshot { at_ms: 1 }, &hearth)
-        .expect("snapshot")
-        .state;
+    state = step(
+        &state,
+        Command::Snapshot {
+            caller: publisher.clone(),
+            at_ms: 1,
+        },
+        &hearth,
+    )
+    .expect("snapshot")
+    .state;
     let expired = state.list(&receiver, 0, 10, MAX_RETENTION_MS, &hearth);
     assert_eq!(
         expired,
@@ -108,6 +152,7 @@ fn retention_expires_a_cursor_and_points_at_the_snapshot() {
     state = step(
         &state,
         Command::Trim {
+            caller: publisher,
             now_ms: MAX_RETENTION_MS,
         },
         &hearth,
@@ -122,6 +167,11 @@ fn grant_device(state: &LogState, owner: &PrincipalId, writer: &StreamId) -> Log
     step(
         state,
         Command::Grant {
+            caller: state
+                .grants
+                .iter()
+                .find(|grant| matches!(grant.capability, Capability::Device { .. }))
+                .map_or_else(|| owner.clone(), |grant| grant.principal.clone()),
             principal: owner.clone(),
             capability: Capability::Device {
                 stream: writer.clone(),
