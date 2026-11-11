@@ -2,7 +2,7 @@
 //!
 //! One participant proposes an effect. [`drive`] applies that effect through
 //! an injected [`MutationLog`] and returns the next participant state.
-//! Personal devices and share participants use this same step. There is no
+//! Personal writers and share participants use this same step. There is no
 //! format parameter and no contributor cap.
 //!
 //! [`select_path`] is the flag. `enabled == false` returns
@@ -24,7 +24,7 @@ mod step;
 
 pub use drive::drive;
 pub use error::SyncError;
-pub use model::{Outcome, ReadCursor, SyncEvent, SyncRole, SyncState};
+pub use model::{Outcome, SyncEvent, SyncRole, SyncState};
 pub use mutation_log::MutationLog;
 
 /// Which shared-sync implementation a caller runs.

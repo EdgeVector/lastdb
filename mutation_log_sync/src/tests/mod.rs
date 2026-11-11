@@ -1,6 +1,6 @@
 use mutation_log::{
-    Capability, DatabaseId, DatabaseKind, LogState, Namespace, NamespaceKind, PrincipalId,
-    StoredEntry, StreamId,
+    Capability, DatabaseId, DatabaseKind, DeviceId, LogState, Namespace, NamespaceKind,
+    PrincipalId, StoredEntry, Writer,
 };
 use mutation_log_mem::{InMemoryMutationLog, MutationLog};
 
@@ -29,8 +29,8 @@ fn database(name: &str) -> DatabaseId {
     DatabaseId::new(name).expect("database id")
 }
 
-fn stream(name: &str) -> StreamId {
-    StreamId::new(name).expect("stream id")
+fn device(name: &str) -> DeviceId {
+    DeviceId::new(name).expect("device id")
 }
 
 fn principal(name: &str) -> PrincipalId {
@@ -39,6 +39,13 @@ fn principal(name: &str) -> PrincipalId {
 
 fn namespace(name: &str) -> Namespace {
     Namespace::new(name).expect("namespace")
+}
+
+fn writer(key: &PrincipalId, device_name: &str) -> Writer {
+    Writer {
+        key: key.clone(),
+        device: device(device_name),
+    }
 }
 
 fn open_log(state: LogState) -> MemLog {
@@ -51,28 +58,38 @@ fn personal_log() -> MemLog {
     open_log(LogState::open(database("home"), DatabaseKind::Personal))
 }
 
-fn share_kind(publisher: &PrincipalId, published: &StreamId) -> DatabaseKind {
+fn share_kind(publisher: &PrincipalId) -> DatabaseKind {
     DatabaseKind::Shareable {
         publisher: publisher.clone(),
-        publisher_stream: published.clone(),
     }
 }
 
-fn share_log() -> (MemLog, PrincipalId, StreamId) {
+fn share_log() -> (MemLog, PrincipalId) {
     let publisher = principal("publisher");
-    let published = stream("publisher");
-    let kind = share_kind(&publisher, &published);
     (
-        open_log(LogState::open(database("family"), kind)),
+        open_log(LogState::open(database("family"), share_kind(&publisher))),
         publisher,
-        published,
     )
 }
 
-fn device(owner: PrincipalId, writer: StreamId) -> SyncRole {
-    SyncRole::Device {
+fn owner_role(owner: PrincipalId, device_name: &str) -> SyncRole {
+    SyncRole::Owner {
         principal: owner,
-        stream: writer,
+        device: device(device_name),
+    }
+}
+
+fn publisher_role(publisher: PrincipalId, device_name: &str) -> SyncRole {
+    SyncRole::Publisher {
+        principal: publisher,
+        device: device(device_name),
+    }
+}
+
+fn contributor_role(contributor: PrincipalId, device_name: &str) -> SyncRole {
+    SyncRole::Contributor {
+        principal: contributor,
+        device: device(device_name),
     }
 }
 
@@ -101,4 +118,11 @@ fn pull(log: &mut MemLog, state: &SyncState, now_ms: u64) -> (SyncState, Vec<Sto
         }
         Outcome::Appended { .. } | Outcome::Duplicate { .. } => panic!("pull stored an entry"),
     }
+}
+
+pub(super) fn payloads(entries: &[StoredEntry]) -> Vec<Vec<u8>> {
+    entries
+        .iter()
+        .map(|stored| stored.entry.payload.clone())
+        .collect()
 }

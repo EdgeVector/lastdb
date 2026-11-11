@@ -1,11 +1,12 @@
 //! Pure functional core of the unified cloud mutation log.
 //!
 //! One ordered log per `database_id`, for a personal database and for a
-//! shareable database. This crate holds the types, the read rule, and the
-//! apply step. It reads no clock, opens no file or socket, and stores nothing.
-//! The shell passes time, ids, and a [`NamespacePolicy`]. [`MutationLog`] is
-//! the port. The in-memory adapter lives in `mutation_log_mem` and stays off
-//! unless the caller enables its config. This crate still stores nothing.
+//! shareable database. Entries are tagged by writer (node key, device). This
+//! crate holds the types, the read rule, and the apply step. It reads no
+//! clock, opens no file or socket, and stores nothing. The shell passes time,
+//! ids, and a [`NamespacePolicy`]. [`MutationLog`] is the port. The in-memory
+//! adapter lives in `mutation_log_mem` and stays off unless the caller enables
+//! its config. This crate still stores nothing.
 //!
 //! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
 //! log is not the local record model (`lastdb_model`) and not the current
@@ -17,14 +18,14 @@
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! A receiver reads only the publisher stream of that database. A contributor
-//! submission stays on its own stream until the publisher re-appends it.
+//! A receiver reads entries whose writer key is the publisher key. A
+//! contributor's pending entry stays hidden from receivers until the publisher
+//! key re-appends it.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod append;
 mod auth;
-mod cursor;
 mod error;
 mod id;
 mod model;
@@ -37,12 +38,11 @@ mod step;
 
 pub use append::AppendOutcome;
 pub use auth::can_read;
-pub use cursor::{cursor_space, AckCursor, CursorSpace};
 pub use error::LogError;
-pub use id::{DatabaseId, Namespace, PrincipalId, StreamId};
+pub use id::{DatabaseId, DeviceId, Namespace, PrincipalId};
 pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
-    StoredEntry, StreamRole,
+    StoredEntry, Writer,
 };
 pub use namespace::{NamespaceKind, NamespacePolicy};
 pub use port::MutationLog;

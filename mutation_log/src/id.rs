@@ -36,17 +36,17 @@ macro_rules! label_id {
 label_id!(
     DatabaseId,
     InvalidId,
-    "Identity of one database. The log is keyed by this value."
+    "Identity of one database. One log is keyed by this value."
 );
 label_id!(
-    StreamId,
+    DeviceId,
     InvalidId,
-    "Identity of one writer stream inside a database."
+    "Identity of one device of a node key. A 64-character hex label fits."
 );
 label_id!(
     PrincipalId,
     InvalidId,
-    "Identity of a person, device, or other caller. The shell supplies it."
+    "Node key. The same key is used on every device of that node."
 );
 
 /// Schema namespace, the part before `/` in a name such as `hearth/PhotoMeta`.

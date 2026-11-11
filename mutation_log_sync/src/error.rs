@@ -10,9 +10,9 @@ pub enum SyncError {
     ReadOnly,
     /// Only the publisher re-appends a submission.
     NotPublisher,
-    /// Re-append only copies a submission stream, not the publisher stream.
+    /// Re-append only copies a submission, not an entry the publisher key already authored.
     NotSubmission,
-    /// Append ran before [`crate::SyncState::resume`] loaded the stream tip.
+    /// Append ran before [`crate::SyncState::resume`] loaded the writer tip.
     NeedsResume,
 }
 
@@ -31,7 +31,7 @@ impl fmt::Display for SyncError {
             Self::NotSubmission => {
                 write!(
                     formatter,
-                    "re-append copies a submission, not the publisher stream"
+                    "re-append copies a submission, not an entry authored by the publisher key"
                 )
             }
             Self::NeedsResume => write!(formatter, "resume the writer sequence before appending"),

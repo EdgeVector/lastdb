@@ -2,37 +2,20 @@ use super::*;
 
 #[test]
 fn two_devices_round_trip_one_personal_log() {
-    let phone = principal("phone");
-    let laptop = principal("laptop");
-    let phone_stream = stream("phone");
-    let laptop_stream = stream("laptop");
+    let owner = principal("owner");
     let mut log = personal_log();
-    log.grant(
-        &phone,
-        phone.clone(),
-        Capability::Device {
-            stream: phone_stream.clone(),
-        },
-    )
-    .expect("phone");
-    log.grant(
-        &phone,
-        laptop.clone(),
-        Capability::Device {
-            stream: laptop_stream.clone(),
-        },
-    )
-    .expect("laptop");
+    log.grant(&owner, owner.clone(), Capability::Owner)
+        .expect("owner");
     let phone_state = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(phone, phone_stream),
+        owner_role(owner.clone(), "phone"),
     )
     .expect("phone state");
     let laptop_state = SyncState::open(
         database("home"),
         DatabaseKind::Personal,
-        device(laptop, laptop_stream),
+        owner_role(owner, "laptop"),
     )
     .expect("laptop state");
 

@@ -15,9 +15,9 @@ pub enum LogError {
     InvalidPage,
     /// An entry named a different database than the log.
     WrongDatabase,
-    /// An entry's stream or author differed from the batch.
-    StreamMismatch,
-    /// An entry broke a structural rule, such as incorporation off the publisher stream.
+    /// An entry's writer differed from the batch.
+    WriterMismatch,
+    /// An entry broke a structural rule, such as a re-append from a key other than the publisher.
     InvalidEntry,
     /// `incorporated_from` did not match a stored submission.
     UnknownSubmission,
@@ -29,18 +29,18 @@ pub enum LogError {
     UnexpectedOutcome,
     /// A writer sequence was zero, repeated, or unordered inside the batch.
     InvalidSequence,
-    /// The stream has no representable successor. `u64::MAX` is never stored.
+    /// This writer has no representable successor. `u64::MAX` is never stored.
     SequenceExhausted,
-    /// The next writer sequence skipped ahead of the stream's last accepted value.
+    /// The next writer sequence skipped ahead of this writer's last accepted value.
     Gap {
-        /// The next sequence the stream can accept.
+        /// The next sequence this writer can accept.
         expected: u64,
         /// The sequence the batch offered.
         got: u64,
     },
-    /// This stream already has an append open.
+    /// This writer already has an append open.
     AppendInFlight,
-    /// Append or finish ran without an open append on this stream.
+    /// Append or finish ran without an open append for this writer.
     AppendNotOpen,
     /// The principal may not perform this step.
     Unauthorized,
@@ -48,14 +48,14 @@ pub enum LogError {
     AppPrivateNamespace,
     /// A personal database was asked to grant a receiver or a contributor.
     PersonalNotShareable,
-    /// A device grant was asked of a shareable database.
+    /// An owner grant was asked of a shareable database.
     DeviceGrantNotShareable,
     /// The cursor is below the trim floor. Load the snapshot, then list after it.
     CursorExpired {
         /// Delivery sequence the latest snapshot covers, or zero when none exists.
         snapshot_through: u64,
     },
-    /// An ack named a cursor the log has not reached in this principal's space.
+    /// An ack named a delivery sequence the log has not reached.
     AckAhead,
 }
 
@@ -68,9 +68,7 @@ impl fmt::Display for LogError {
             Self::BatchTooLarge => write!(formatter, "append batch exceeds its limit"),
             Self::InvalidPage => write!(formatter, "invalid list page"),
             Self::WrongDatabase => write!(formatter, "entry database differs from the log"),
-            Self::StreamMismatch => {
-                write!(formatter, "entry stream or author differs from the batch")
-            }
+            Self::WriterMismatch => write!(formatter, "entry writer differs from the batch"),
             Self::InvalidEntry => write!(formatter, "invalid log entry"),
             Self::UnknownSubmission => {
                 write!(
@@ -103,8 +101,8 @@ impl fmt::Display for LogError {
                     "writer sequence gap: expected {expected}, got {got}"
                 )
             }
-            Self::AppendInFlight => write!(formatter, "append already in flight for this stream"),
-            Self::AppendNotOpen => write!(formatter, "append is not open for this stream"),
+            Self::AppendInFlight => write!(formatter, "append already in flight for this writer"),
+            Self::AppendNotOpen => write!(formatter, "append is not open for this writer"),
             Self::Unauthorized => write!(formatter, "not authorized for this log step"),
             Self::AppPrivateNamespace => {
                 write!(
@@ -119,7 +117,7 @@ impl fmt::Display for LogError {
                 )
             }
             Self::DeviceGrantNotShareable => {
-                write!(formatter, "a device grant belongs on a personal database")
+                write!(formatter, "an owner grant belongs on a personal database")
             }
             Self::CursorExpired { snapshot_through } => {
                 write!(
@@ -127,12 +125,7 @@ impl fmt::Display for LogError {
                     "cursor expired; snapshot covers {snapshot_through}"
                 )
             }
-            Self::AckAhead => {
-                write!(
-                    formatter,
-                    "ack is ahead of the entries this principal can see"
-                )
-            }
+            Self::AckAhead => write!(formatter, "ack is ahead of the log head"),
         }
     }
 }

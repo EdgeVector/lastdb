@@ -1,15 +1,15 @@
 use crate::{
-    AppendBatch, AppendOutcome, Capability, CursorSpace, ListPage, LogError, PrincipalId,
-    ScopedHead, Snapshot, StreamId,
+    AppendBatch, AppendOutcome, Capability, ListPage, LogError, PrincipalId, ScopedHead, Snapshot,
+    Writer,
 };
 
 /// Persistence port for one database log.
 ///
 /// `append` accepts at most [`crate::APPEND_BATCH_LIMIT`] entries and holds one
-/// in-flight batch per stream. The other methods are the read, grant, and
-/// snapshot surface. Trim stays on the pure step until a shell needs it.
-/// Adapters implement this trait. The sync step depends on it and not on an
-/// adapter.
+/// in-flight batch per writer (node key, device). The other methods are the
+/// read, grant, and snapshot surface. Trim stays on the pure step until a
+/// shell needs it. Adapters implement this trait. The sync step depends on it
+/// and not on an adapter.
 pub trait MutationLog {
     /// Begin, apply, and finish one batch. A failed apply still finishes.
     fn append(&mut self, batch: AppendBatch) -> Result<AppendOutcome, LogError>;
@@ -26,10 +26,10 @@ pub trait MutationLog {
         now_ms: u64,
     ) -> Result<ListPage, LogError>;
 
-    /// Record the reader's cursor. The value is the stored cursor.
+    /// Record the reader's delivery cursor. The value is the stored cursor.
     fn ack(&mut self, consumer: &PrincipalId, through: u64) -> Result<u64, LogError>;
 
-    /// Grant read or append on this database. `caller` is the publisher or a device grantee.
+    /// Grant read or append on this database. `caller` is the publisher or an owner key.
     fn grant(
         &mut self,
         caller: &PrincipalId,
@@ -48,9 +48,6 @@ pub trait MutationLog {
     /// Cut a snapshot at the supplied time. `caller` must be allowed to maintain the log.
     fn snapshot(&mut self, caller: &PrincipalId, at_ms: u64) -> Result<Snapshot, LogError>;
 
-    /// Sequence space `reader` is in, given the grants stored now.
-    fn cursor_space(&self, reader: &PrincipalId) -> Result<CursorSpace, LogError>;
-
-    /// Last accepted writer sequence on `stream` for a principal who may append it.
-    fn writer_tip(&self, reader: &PrincipalId, stream: &StreamId) -> Result<u64, LogError>;
+    /// Last accepted writer sequence for `writer`. `reader` must be that node key.
+    fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError>;
 }
