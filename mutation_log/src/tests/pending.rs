@@ -130,9 +130,7 @@ fn marks_leave_after_max_retention() {
     aged = ack(&aged, &submission, 1);
     aged = cut(&aged, &publisher, 1);
     aged = trim_log(&aged, &publisher, MAX_RETENTION_MS);
-    assert!(aged
-        .expired_submissions
-        .contains_key(&(submission, 1)));
+    assert!(aged.expired_submissions.contains_key(&(submission, 1)));
     aged = trim_log(&aged, &publisher, MAX_RETENTION_MS + MAX_RETENTION_MS);
     assert!(aged.expired_submissions.is_empty());
 }
