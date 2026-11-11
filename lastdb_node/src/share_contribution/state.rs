@@ -7,7 +7,11 @@ use std::fs::File;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-// The policy can contain twelve writers with eight rules each.
+// Current live path: the policy can contain twelve writers with eight rules
+// each (`MAX_WRITERS` in `share_contribution`). The unified mutation log
+// supersedes that cap and has no contributor limit. See
+// `docs/designs/unified-mutation-log.md`. This limit stays while this path
+// is the one Share uses.
 const MAX_STATE_BYTES: u64 = 128 * 1024;
 
 type Loaded<T> = (T, Option<Zeroizing<Vec<u8>>>);

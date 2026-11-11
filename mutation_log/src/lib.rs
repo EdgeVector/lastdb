@@ -1,0 +1,56 @@
+//! Pure functional core of the unified cloud mutation log.
+//!
+//! One ordered log per `database_id`, for a personal database and for a
+//! shareable database. This crate holds the types, the read rule, and the
+//! apply step. It reads no clock, opens no file or socket, and stores nothing.
+//! The shell passes time, ids, and a [`NamespacePolicy`]. A later port
+//! (`MutationLog`) will persist the [`LogState`] this step returns.
+//!
+//! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
+//! log is not the local record model (`lastdb_model`) and not the current
+//! backup wire contract (`cloud_backup_protocol`). Those stay on their
+//! current paths until a later change adopts this step.
+//!
+//! # Sharing
+//!
+//! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
+//! A personal database accepts app-private namespaces and rejects a receiver
+//! grant. A shareable database rejects an app-private namespace on append.
+//! A receiver reads only the publisher stream of that database. A contributor
+//! submission stays on its own stream until the publisher re-appends it.
+
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
+mod append;
+mod auth;
+mod error;
+mod id;
+mod model;
+mod namespace;
+mod read;
+mod retain;
+mod state;
+mod step;
+
+pub use append::AppendOutcome;
+pub use auth::can_read;
+pub use error::LogError;
+pub use id::{DatabaseId, Namespace, PrincipalId, StreamId};
+pub use model::{
+    AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
+    StoredEntry, StreamRole,
+};
+pub use namespace::{NamespaceKind, NamespacePolicy};
+pub use read::{entry_visible, filter_readable, merge_order, ListPage, ScopedHead};
+pub use state::LogState;
+pub use step::{step, Command, Outcome, StepResult};
+
+/// Entries applied in one append transaction.
+pub const APPEND_BATCH_LIMIT: usize = 90;
+/// Entries returned from one list call.
+pub const LIST_PAGE_LIMIT: usize = 90;
+/// Maximum time an unacked entry stays in the log. 30 days, in milliseconds.
+pub const MAX_RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+#[cfg(test)]
+mod tests;
