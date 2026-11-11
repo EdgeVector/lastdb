@@ -240,7 +240,7 @@ pub fn admit_namespace(
         return Err(PolicyError::InvalidNamespace);
     }
     let scope = admit_share(binding)?;
-    if scope.namespaces.iter().any(|item| *item == namespace) {
+    if scope.namespaces.contains(&namespace) {
         Ok(NamespaceClass::Official)
     } else {
         Ok(NamespaceClass::AppPrivate)
