@@ -231,9 +231,9 @@ impl NodeReadProof {
 ///
 /// The JSON object is flat. It has no `database_id` and no `environment`.
 /// [`digest`](Self::digest) does not cover the HTTP body. Use it only when
-/// [`super::accepted_proof`] is [`super::AcceptedProof::Legacy`]. A database
-/// with a cutover receipt refuses this object. Do not use Exemem #769's
-/// private field order.
+/// [`super::accepted_proof`] is [`super::AcceptedProof::Legacy`], or on the
+/// access status route. A native database or a stored receipt refuses this
+/// object on data routes. Do not use Exemem #769's private field order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LegacyNodeReadProof {

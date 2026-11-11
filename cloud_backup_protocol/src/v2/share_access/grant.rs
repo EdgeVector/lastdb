@@ -3,10 +3,11 @@
 //! The signed document is the whole member set. A revoked key stays on that
 //! set until a later revision marks it active and sets `regrant`.
 
+use super::receipt::SignedRequestTarget;
 use super::{
-    account_key_matches, is_mutation_log_path, CutoverReceipt, MemberListReadResponse,
-    MemberListRevision, MemberListUpdate, NodeReadToken, ShareEnvironment, ShareHttpMethod,
-    ShareMember, ShareMemberRole, ShareMemberState, SHARE_MEMBER_LIST_READ_PATH,
+    account_key_matches, is_mutation_log_path, MemberListReadResponse, MemberListRevision,
+    MemberListUpdate, NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole,
+    ShareMemberState, SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
 use std::cmp::Ordering;
@@ -102,33 +103,18 @@ pub fn bind_request_scope(
     Ok(())
 }
 
-/// HTTP target of one signed request, plus the cutover commit if one is stored.
-///
-/// `path` is the raw request path. The body octets are not here. The caller
-/// hashed those octets with `NodeReadProof::digest` before this call.
-#[derive(Clone, Copy, Debug)]
-pub struct SignedRequestTarget<'a> {
-    /// Realm this service is.
-    pub environment: ShareEnvironment,
-    /// Method the service received.
-    pub method: ShareHttpMethod,
-    /// Raw path the service received, including `/api`.
-    pub path: &'a str,
-    /// Stored Exemem commit for this database. Absent before cutover.
-    pub receipt: Option<&'a CutoverReceipt>,
-}
-
 /// Authorize a mutation-log request against the current grant.
 ///
-/// The signature check and the nonce spend happen before this call. The
-/// database must already have a cutover receipt. The signed revision must be
-/// the stored revision. The member-list read does not use this function.
+/// The signature check and the nonce spend happen before this call. They are
+/// not the grant check. The database must already be native or committed.
+/// The signed revision must be the stored revision. The member-list read does
+/// not use this function.
 pub fn authorize_request(
     current: &MemberListReadResponse,
     token: &NodeReadToken,
     target: SignedRequestTarget<'_>,
 ) -> Result<ShareAccess, ProtocolError> {
-    require_receipt(token, &target)?;
+    require_signed(token, &target)?;
     if !is_mutation_log_path(target.path) {
         return Err(ProtocolError::invalid("share.node_read.route"));
     }
@@ -142,7 +128,7 @@ pub fn authorize_request(
 
 /// Choose the member-list read body.
 ///
-/// The database must already have a cutover receipt. A stale revision does not
+/// The database must already be native or committed. A stale revision does not
 /// reject this route. Only a publisher who named the stored revision receives
 /// the member document. Every other authorized node receives the revision
 /// alone. An unauthorized node receives neither.
@@ -151,7 +137,7 @@ pub fn member_list_read_view(
     token: &NodeReadToken,
     target: SignedRequestTarget<'_>,
 ) -> Result<MemberListReadView, ProtocolError> {
-    require_receipt(token, &target)?;
+    require_signed(token, &target)?;
     if target.method != ShareHttpMethod::Post || target.path != SHARE_MEMBER_LIST_READ_PATH {
         return Err(ProtocolError::invalid("share.node_read.route"));
     }
@@ -164,18 +150,14 @@ pub fn member_list_read_view(
     Ok(MemberListReadView::RevisionOnly)
 }
 
-fn require_receipt(
+fn require_signed(
     token: &NodeReadToken,
     target: &SignedRequestTarget<'_>,
 ) -> Result<(), ProtocolError> {
-    let Some(receipt) = target.receipt else {
+    let Some(state) = target.access else {
         return Err(ProtocolError::unauthorized("share.cutover.required"));
     };
-    receipt.validate()?;
-    if receipt.database_id != token.database_id || receipt.environment != target.environment {
-        return Err(ProtocolError::unauthorized("share.cutover.identity"));
-    }
-    Ok(())
+    state.bind(token, target.environment)
 }
 
 /// Revision object for [`MemberListReadView::RevisionOnly`]. It names no members.

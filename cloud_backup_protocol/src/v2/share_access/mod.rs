@@ -11,11 +11,12 @@
 //! signature over `NodeReadProof::digest` of the exact HTTP body. The signing
 //! key is the node key in that token. It is not the publisher account key.
 //! Data routes call `authorize_request` on the mutation-log paths. Those paths
-//! are the same in DEV and PROD. The member-list read calls
+//! are the same in DEV and PROD. A native create and a legacy cutover are
+//! separate routes on that same prefix. The member-list read calls
 //! `member_list_read_view` so an authorized node can learn the revision
 //! without receiving the member list. A node-key revoke covers every device
-//! that signs with that key. The body-less proof remains only for a database
-//! that has no cutover receipt.
+//! that signs with that key. The body-less proof remains only while that
+//! database is still open.
 
 mod cursor;
 mod grant;
@@ -26,7 +27,7 @@ mod receipt;
 pub use cursor::{DeliveryCursor, DeviceCursor, SnapshotReference, SnapshotReset};
 pub use grant::{
     authorize, authorize_request, bind_request_scope, member_list_read_view, member_list_revision,
-    MemberListReadView, ShareAccess, SignedRequestTarget,
+    MemberListReadView, ShareAccess,
 };
 pub use members::{
     MemberListReadRequest, MemberListReadResponse, MemberListRevision, MemberListUpdate,
@@ -35,7 +36,12 @@ pub use members::{
 pub use proof::{
     LegacyNodeReadProof, NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod,
 };
-pub use receipt::{accepted_proof, AcceptedProof, CutoverReceipt, SHARE_CUTOVER_RECEIPT_DOMAIN};
+pub use receipt::{
+    accepted_proof, authorize_access_read, authorize_legacy_cutover, authorize_legacy_status,
+    authorize_native_create, AcceptedProof, AccessBody, CommittedMark, CutoverReceipt,
+    LegacyCutover, NativeDatabase, NativeMark, OpenDatabase, OpenMark, SignedDatabase,
+    SignedRequestTarget, SHARE_CUTOVER_RECEIPT_DOMAIN,
+};
 
 use crate::{AccountId, Digest, ProtocolError};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -78,8 +84,18 @@ pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
 /// Advance the trim floor.
 pub const MUTATION_LOG_TRIM_PATH: &str = "/api/cloud/backups/v2/mutation-log/trim";
+/// Create one fresh signed database. The success body is [`NativeDatabase`].
+pub const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/create-database";
+/// Commit one legacy database. The success body is [`CutoverReceipt`].
+pub const MUTATION_LOG_CUTOVER_PATH: &str = "/api/cloud/backups/v2/mutation-log/cutover";
+/// Read whether the database is open, native, or committed.
+pub const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
 
-/// True for the mutation-log paths above. Grant and revoke are not in this set.
+/// True for the mutation-log data paths above.
+///
+/// Create, cutover, and access are not in this set. Grant and revoke are not
+/// in this set.
 #[must_use]
 pub fn is_mutation_log_path(path: &str) -> bool {
     matches!(
