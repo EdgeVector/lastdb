@@ -1,10 +1,14 @@
-//! Shutdown flush receipt file. Moved verbatim from `session_ledger.rs`.
+//! Shutdown flush receipt written after request and background writers drain.
 
-use super::*;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 /// A stop-and-copy action accepts this receipt only for the daemon it stopped.
 pub const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
+/// Receipt written when `lastdbd` completes a clean shutdown flush.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ShutdownFlushReceipt {
@@ -15,7 +19,7 @@ pub struct ShutdownFlushReceipt {
 }
 
 impl ShutdownFlushReceipt {
-    pub(super) fn validate(&self) -> std::io::Result<()> {
+    fn validate(&self) -> std::io::Result<()> {
         if self.version == 1 && self.pid != 0 && self.start_ts != 0 && self.flush_ok {
             Ok(())
         } else {
@@ -27,13 +31,15 @@ impl ShutdownFlushReceipt {
     }
 }
 
+/// Path of the shutdown flush receipt file inside `home`.
 pub fn shutdown_flush_receipt_path(home: &Path) -> PathBuf {
     home.join(SHUTDOWN_FLUSH_READY_FILE)
 }
 
+/// Read and validate the shutdown flush receipt from `home`.
 pub fn read_shutdown_flush_receipt(home: &Path) -> std::io::Result<ShutdownFlushReceipt> {
     let path = shutdown_flush_receipt_path(home);
-    let file = std::fs::File::open(&path)?;
+    let file = std::fs::File::open(path)?;
     let mut bytes = Vec::new();
     file.take(4097).read_to_end(&mut bytes)?;
     if bytes.len() > 4096 {

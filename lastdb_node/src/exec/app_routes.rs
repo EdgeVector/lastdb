@@ -6,65 +6,6 @@ pub(in crate::exec) mod alternate_list;
 pub(in crate::exec) mod list_rules;
 use list_rules::ListRecordKeysRequest;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct AppSearchRequest {
-    pub(super) query: String,
-    #[serde(default)]
-    pub(super) k: Option<usize>,
-    #[serde(default)]
-    pub(super) target: Option<String>,
-}
-
-pub(super) fn execute_app_search_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let Ok(request) = serde_json::from_slice::<AppSearchRequest>(&req.body) else {
-        return error_response(400, "invalid app search request", ctx);
-    };
-    let query = request.query.trim().to_string();
-    if query.is_empty() {
-        return error_response(
-            400,
-            "Missing required field: provide a non-empty 'query'",
-            ctx,
-        );
-    }
-    // Owner UDS (NodeOwner) is allowed — scope is whole-node / target narrow.
-    // Verified apps keep app-scoped search. Unverified non-owner still 403s
-    // inside handlers::app_search (capability_required).
-    if !ctx.is_owner && ctx.verified_app_id().is_none() {
-        return app_search_capability_required_response();
-    }
-    render(
-        handlers::app_search(
-            host,
-            AppSearchParams {
-                term: query,
-                limit: request.k,
-                target: request.target,
-            },
-            ctx,
-        ),
-        ctx,
-    )
-}
-
-pub(super) fn app_search_capability_required_response() -> UdsResponse {
-    let body = serde_json::json!({
-        "status": 403,
-        "reason": "capability_required",
-        "error": "POST /api/app/search requires a verified app identity",
-    });
-    match serde_json::to_vec(&body) {
-        Ok(bytes) => UdsResponse::new(403, "Forbidden", bytes)
-            .with_header("Content-Type", "application/json"),
-        Err(_) => content_free(403, "Forbidden"),
-    }
-}
-
 pub(super) async fn execute_app_changes_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -129,20 +70,7 @@ pub(super) fn change_visible_to_caller(
     if target.is_some_and(|wanted| wanted != canonical) {
         return false;
     }
-    if ctx.is_owner {
-        return true;
-    }
-    let Some(app_id) = ctx.verified_app_id() else {
-        return false;
-    };
-    host.db
-        .schema_manager()
-        .get_schema_metadata(&canonical)
-        .ok()
-        .flatten()
-        .and_then(|mut schema| schema.owner_app_id.take())
-        .as_deref()
-        == Some(app_id)
+    ctx.is_owner
 }
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,8 @@ pub use verb::TTL_SWEEP_VERB_ENV;
 
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const TTL_SWEEP_ENV: &str = "LASTDB_TTL_SWEEP";
+/// Interval between periodic TTL sweep passes in seconds (default: 60).
+pub const TTL_SWEEP_INTERVAL_SECS_ENV: &str = "LASTDB_TTL_SWEEP_INTERVAL_SECS";
 
 /// Width of the entry time at the front of a Range or HashRange key: unix
 /// seconds, zero-padded to 20 digits (the width of `u64::MAX`).
@@ -63,29 +65,43 @@ pub fn ttl_sweep_enabled() -> bool {
     )
 }
 
-/// Spawn the TTL sweep off the sampler tick, at most one at a time. The pass
-/// stops between batches once `shutdown` is set, so a paced pass never holds up
-/// a graceful stop.
-pub fn maybe_spawn_ttl_sweep(host: &std::sync::Arc<Host>, shutdown: &std::sync::Arc<AtomicBool>) {
-    if !ttl_sweep_enabled() {
-        return;
-    }
-    verb::warn_on_bad_verb_once();
-    if !host.self_metrics.begin_ttl_sweep() {
-        return;
-    }
-    let host = std::sync::Arc::clone(host);
-    let shutdown = std::sync::Arc::clone(shutdown);
+fn sweep_interval_from_env() -> std::time::Duration {
+    let secs = std::env::var(TTL_SWEEP_INTERVAL_SECS_ENV)
+        .or_else(|_| std::env::var("LASTDB_SELF_METRICS_SAMPLE_SECS"))
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .unwrap_or(60)
+        .max(1);
+    std::time::Duration::from_secs(secs)
+}
+
+/// Spawn the periodic TTL sweep task. Stops cleanly once `shutdown` is set.
+pub fn spawn_periodic(
+    host: std::sync::Arc<Host>,
+    shutdown: std::sync::Arc<AtomicBool>,
+) -> tokio::task::JoinHandle<()> {
+    let interval = sweep_interval_from_env();
     tokio::spawn(
         async move {
-            // The admission is taken per batch inside the pass, not for the whole
-            // pass. A snapshot cut waits for every held admission, and a waiting
-            // cut blocks every later writer.
-            sweep_ttl(&host, &shutdown).await;
-            host.self_metrics.end_ttl_sweep();
+            if ttl_sweep_enabled() {
+                verb::warn_on_bad_verb_once();
+            }
+            while !shutdown.load(Ordering::Acquire) {
+                if ttl_sweep_enabled() {
+                    sweep_ttl(&host, &shutdown).await;
+                }
+                let until = tokio::time::Instant::now() + interval;
+                while !shutdown.load(Ordering::Acquire) && tokio::time::Instant::now() < until {
+                    tokio::time::sleep(
+                        std::time::Duration::from_millis(250)
+                            .min(until.saturating_duration_since(tokio::time::Instant::now())),
+                    )
+                    .await;
+                }
+            }
         }
         .in_current_span(),
-    );
+    )
 }
 
 /// Run one bounded TTL sweep pass.
@@ -95,7 +111,7 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     }
     let started = std::time::Instant::now();
     match sweep_ttl_inner(host, shutdown).await {
-        Ok(totals) => finish_pass(host, &totals, started),
+        Ok(totals) => finish_pass(&totals, started),
         Err(error) => {
             tracing::warn!(
                 target: "lastdbd::ttl_sweep",
@@ -103,15 +119,11 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "ttl sweep failed"
             );
-            host.self_metrics.record_ttl_sweep_failure();
         }
     }
 }
 
-/// Count a pass that listed its schemas. Only a pass where no schema succeeded
-/// counts toward the wait rule, because one broken schema must not slow the
-/// others.
-fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Instant) {
+fn finish_pass(totals: &erase::PassTotals, started: std::time::Instant) {
     let elapsed_ms = started.elapsed().as_millis() as u64;
     if totals.whole_pass_failed() {
         tracing::warn!(
@@ -120,21 +132,15 @@ fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Inst
             elapsed_ms,
             "ttl sweep failed: no schema succeeded"
         );
-        host.self_metrics.record_ttl_sweep_failure();
-    } else {
-        host.self_metrics
-            .mark_ttl_sweep_pass(totals.erased, unix_secs());
-        if totals.erased > 0 || totals.dropped > 0 {
-            tracing::info!(
-                target: "lastdbd::ttl_sweep",
-                removed = totals.erased,
-                dropped_after_recheck = totals.dropped,
-                elapsed_ms,
-                "ttl sweep purged expired retained rows"
-            );
-        }
+    } else if totals.erased > 0 || totals.dropped > 0 {
+        tracing::info!(
+            target: "lastdbd::ttl_sweep",
+            removed = totals.erased,
+            dropped_after_recheck = totals.dropped,
+            elapsed_ms,
+            "ttl sweep purged expired retained rows"
+        );
     }
-    host.self_metrics.record_ttl_pass(totals.report());
     if totals.keys_left > 0 || totals.cut {
         tracing::info!(
             target: "lastdbd::ttl_sweep",
@@ -147,21 +153,13 @@ fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Inst
 }
 
 async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::PassTotals, String> {
-    let policies = match host.db.db_ops().list_schema_retention_policies().await {
-        Ok(policies) => {
-            host.self_metrics
-                .cache_retention_policies(policies.iter().cloned().collect());
-            policies
-        }
-        Err(error) => {
-            let error = error.to_string();
-            host.self_metrics
-                .cache_retention_policy_error(error.clone());
-            return Err(error);
-        }
-    };
+    let policies = host
+        .db
+        .db_ops()
+        .list_schema_retention_policies()
+        .await
+        .map_err(|error| error.to_string())?;
     if policies.is_empty() {
-        host.self_metrics.settle_ttl_sweep();
         return Ok(erase::PassTotals::default());
     }
 

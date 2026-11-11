@@ -238,7 +238,10 @@ impl PackRuntime {
         require_page_limit(limit)?;
         let overlay = context.overlay_rows(pending, collection, start, end);
         let mut overlay = overlay.into_iter().peekable();
-        let mut call = crate::read_receipts::lock(&context.call);
+        let mut call = context
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut cursor = cursor(&mut call, collection, start, end)?;
         let mut disk = VecDeque::new();
         let mut exhausted = false;

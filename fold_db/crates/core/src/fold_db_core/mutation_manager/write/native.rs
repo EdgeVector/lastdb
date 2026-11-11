@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::storage::disk_pack::{transaction, PackRuntime};
-use crate::write_preparation::measure;
 use std::sync::Arc;
 
 pub(super) struct NativeRequest {
@@ -98,26 +97,17 @@ impl MutationManager {
                 .collect();
             // Revision conditions and record changes share this exclusive gate.
             let group_count = self
-                .stage_record_groups(
-                    mutations,
-                    &mut state.timing_breakdown,
-                    &mut state.stages,
-                    &request.runtime,
-                )
+                .stage_record_groups(mutations, &mut state.stages, &request.runtime)
                 .await?;
             request
                 .runtime
                 .record_read_stage("stored-stages-done", group_count);
-            measure("author_clock_us", self.stage_native_author_clock()).await?;
-            measure(
-                "change_feed_us",
-                self.db_ops.change_feed().stage_native_events(notifications),
-            )
-            .await?;
-            measure("memory_reserve_us", async {
-                self.reserve_native_core_memory(&request.runtime)
-            })
-            .await?;
+            self.stage_native_author_clock().await?;
+            self.db_ops
+                .change_feed()
+                .stage_native_events(notifications)
+                .await?;
+            self.reserve_native_core_memory(&request.runtime)?;
             Ok::<_, SchemaError>(NativeCommit {
                 mutation_ids,
                 record_revisions,

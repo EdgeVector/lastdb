@@ -99,45 +99,19 @@ async fn execute_rows_captured<H: HostNode>(
     // the page keys of concurrent requests to this one.
     let executor = host.fold_db();
     let executor = executor.query_executor();
-    // `hydrate` spans the executor call (where record bodies load) through
-    // response construction and total-order sort.
-    //
-    // Three sub-phases separate core reads, formatting and final ordering.
-    // HydrateFilter is a nested detail inside the core's first-pass reads.
-    let hydrate_started = std::time::Instant::now();
     let (result, forms, end) = read_records(executor, query, window).await;
-    // Charge the hydration that DID happen before propagating a failure —
-    // otherwise a slow query that ends in an error reports no phases at all,
-    // which is exactly the case an operator most wants decomposed.
-    // Charged before the error check so a failed executor call still reports
-    // where its time went, for the same reason `hydrate` is charged below it.
-    request_phases::add_phase(RequestPhase::HydrateRecords, hydrate_started.elapsed());
-    let records = match result.map_err(HostError::from) {
-        Ok(records) => records,
-        Err(err) => {
-            request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
-            return Err(err);
-        }
-    };
+    let records = result.map_err(HostError::from)?;
 
-    let format_started = std::time::Instant::now();
     let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
     let mut results = format_rows(records, compact);
-    request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
-    let sort_started = std::time::Instant::now();
-    let sorted = {
-        let range_comparison = KeyComparisonContext::capture_current_range_comparison();
-        super::row_rules::sort_rows(
-            &mut results,
-            sort_order.as_ref(),
-            order_by.as_ref(),
-            range_comparison.as_ref(),
-        )
-    };
-    request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
-    sorted?;
-    request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
+    let range_comparison = KeyComparisonContext::capture_current_range_comparison();
+    super::row_rules::sort_rows(
+        &mut results,
+        sort_order.as_ref(),
+        order_by.as_ref(),
+        range_comparison.as_ref(),
+    )?;
 
     Ok((results, PageFlags::from(forms), end))
 }

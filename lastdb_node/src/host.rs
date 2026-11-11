@@ -36,19 +36,9 @@ pub struct Host {
     pub data_dir: PathBuf,
     /// Unix epoch seconds when this process started.
     pub process_start_ts: u64,
-    /// In-memory sampler liveness/error state rendered by `/api/status`.
-    pub self_metrics: Arc<crate::self_metrics::SamplerRuntimeState>,
-    /// Per-request op telemetry (client self-id, latency, schema) for
-    /// worst-offender ranking on `/api/status` and `lastdb ops`.
-    pub request_telemetry: Arc<crate::request_telemetry::Runtime>,
     /// The live core database (query executor, mutation manager, schema
     /// manager and native index).
     pub db: Arc<FoldDB>,
-    /// QoS admission gate: bounds concurrent bulk-lane operations (large blob
-    /// reads/writes, e.g. a lastgit pack clone+push loop) so they cannot starve
-    /// the reserved interactive lane (fbrain/fkanban) on this one canonical node.
-    /// Configured from the environment at boot ([`lastdb_host::QosGate::from_env`]).
-    pub qos: lastdb_host::QosGate,
     /// The node's identity keypair (also the E2E key root).
     pub keypair: Arc<Ed25519KeyPair>,
     /// Derived owner user hash (sha256(pubkey)[..16] hex — the same
@@ -57,29 +47,13 @@ pub struct Host {
     /// UDS worker pool (set after boot once accept loops start). Used by
     /// `/api/status` for ops visibility; empty until `attach_uds_workers`.
     pub uds_workers: OnceLock<lastdb_uds::UdsWorkerPool>,
-    /// Local short-TTL mutation doorbell (not cloud-synced). Apps long-poll
-    /// `/api/local-watch` instead of idle-polling keyed tables.
-    pub local_outbox: Arc<crate::local_outbox::LocalOutbox>,
     /// Bounded ordered persistence lane for durable app change-feed hints.
     /// Requests reserve capacity before product commit and submit after it.
     pub(crate) change_feed_queue: crate::change_feed_queue::ChangeFeedQueue,
-    /// Admission gate for *blocking* `/api/local-watch` waiters. A parked
-    /// long-poll holds a UDS worker for its whole timeout and takes no QoS
-    /// permit, so without this the pool can be fully occupied by sleeping
-    /// threads while [`Self::qos`] still reports the node idle. Sized to half
-    /// the worker pool by [`Host::attach_uds_workers`].
-    pub watch_gate: Arc<crate::watch_gate::WatchGate>,
     /// Explicit byte backup admission, worker completion and shutdown pause.
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// Serializes shared upload, replay and snapshot work for this running home.
     pub shared_sync: crate::backup_runtime::SharedSyncRuntime,
-    /// This process's own boot identity (pid/build/start_ts/restart_cause),
-    /// set once right after the session ledger records this session's start.
-    /// `/api/system/boot-identity` must read this, never the shared per-home
-    /// ledger file directly — a different process sharing this home can
-    /// append a newer row there
-    /// (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
-    pub own_boot_identity: OnceLock<crate::session_ledger::SessionRecord>,
     /// Mutation ids for owner-socket writes. The daemon passes this into [`Self::boot`].
     ids: Arc<dyn lastdb_host::IdGen>,
 }
@@ -94,10 +68,6 @@ mod ids;
 pub use ids::SystemIds;
 
 impl Host {
-    /// True while a node task can still write after the sampler stops.
-    pub fn background_writes_in_flight(&self) -> bool {
-        self.self_metrics.background_writes_in_flight()
-    }
     /// Boot the minimal host under `home` (the node-home directory; data
     /// lives at `<home>/data`). `ids` assigns mutation ids. The handler asks
     /// this generator and does not mint them.
@@ -148,22 +118,13 @@ impl Host {
             home: home.to_path_buf(),
             data_dir: data_path,
             process_start_ts: fold_db::clock::unix_secs(),
-            self_metrics: Arc::new(crate::self_metrics::SamplerRuntimeState::default()),
-            request_telemetry: Arc::new(crate::request_telemetry::Runtime::default()),
             db,
-            qos: lastdb_host::QosGate::from_env(),
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
-            local_outbox: crate::local_outbox::LocalOutbox::shared(
-                crate::local_outbox::DEFAULT_TTL,
-                crate::local_outbox::DEFAULT_MAX_EVENTS,
-            ),
             change_feed_queue,
-            watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
-            own_boot_identity: OnceLock::new(),
             ids,
         })
     }
@@ -174,26 +135,14 @@ impl Host {
     }
 
     /// Attach the UDS worker pool for status surfaces (idempotent; first wins).
-    ///
-    /// Also sizes [`Self::watch_gate`] from the pool: the whole point of the
-    /// watcher cap is that it is derived from — and strictly below — the number
-    /// of workers a parked long-poll can consume.
     pub fn attach_uds_workers(&self, pool: lastdb_uds::UdsWorkerPool) {
-        self.watch_gate.configure_for_workers(pool.workers());
         let _ = self.uds_workers.set(pool);
     }
 }
 
-/// The minimal daemon drives the SAME shared owner-socket handlers
-/// (`lastdb_host::handlers`) the full node does. Its [`HostNode`] surface is the
-/// core DB, identity, the injected id generator, and the QoS admission gate that
-/// keeps bulk blob traffic (lastgit pack clone+push) from starving interactive
-/// fbrain/fkanban traffic: [`acquire_op_permit`](HostNode::acquire_op_permit)
-/// admits through [`Host::qos`].
+/// The minimal daemon drives the shared owner-socket handlers (`lastdb_host::handlers`).
 #[async_trait::async_trait]
 impl lastdb_host::HostNode for Host {
-    type OpPermit = lastdb_host::QosPermit;
-
     fn fold_db(&self) -> &Arc<FoldDB> {
         &self.db
     }
@@ -204,13 +153,6 @@ impl lastdb_host::HostNode for Host {
 
     fn ids(&self) -> &dyn lastdb_host::IdGen {
         self.ids.as_ref()
-    }
-
-    async fn acquire_op_permit(
-        &self,
-        lane: lastdb_host::Lane,
-    ) -> Result<Self::OpPermit, lastdb_host::ReadBusy> {
-        self.qos.acquire(lane).await
     }
 
     async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {

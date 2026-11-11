@@ -85,7 +85,10 @@ impl PackRuntime {
     ) -> StorageResult<(NativeRows, Option<String>)> {
         context.validate_owner(None)?;
         require_page_limit(limit)?;
-        let mut call = crate::read_receipts::lock(&context.call);
+        let mut call = context
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut cursor = cursor(&mut call, collection, start, end)?;
         let mut out: NativeRows = Vec::new();
         loop {

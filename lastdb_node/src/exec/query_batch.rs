@@ -6,10 +6,7 @@ use lastdb_host::HostNode as _;
 /// Most queries one `POST /api/queries/batch` request may carry.
 const QUERY_BATCH_MAX_QUERIES: usize = 64;
 
-/// Queries of one batch that run at the same time. Each query takes its own QoS
-/// permit inside [`handlers::execute_query`]; the batch route holds none. A small
-/// fixed width keeps one request from taking the global budget (64 permits by
-/// default) and still overlaps the cold loads of its queries.
+/// Queries of one batch that run at the same time.
 const QUERY_BATCH_CONCURRENCY: usize = 4;
 
 #[derive(Deserialize)]
@@ -19,27 +16,6 @@ struct QueryBatchRequest {
 }
 
 /// `POST /api/queries/batch` — several independent queries in one request.
-///
-/// Body: `{"queries": [<POST /api/query body>, ...]}`. Each item is a complete
-/// `/api/query` body with its own `schema_name`, so one request can read from
-/// several schemas. Reply: `{"ok": true, "count": N, "results": [{"status": S,
-/// "response": <the /api/query reply>}, ...]}` in request order.
-///
-/// Every item uses the single route's query parser, host handler, and receipt
-/// renderer directly. The parsed JSON never becomes synthetic request bytes.
-/// One item can fail (its `status` is not 200)
-/// while the others succeed; the request itself fails only for a malformed body,
-/// an empty batch, or more than [`QUERY_BATCH_MAX_QUERIES`] items.
-///
-/// Items are independent: none reads another's result, and the route does not
-/// match records across schemas. The `x-lastdb-allow-full-scan` opt-in is not
-/// passed to items, so an unkeyed item is refused as it is on a product route.
-///
-/// Items run [`QUERY_BATCH_CONCURRENCY`] at a time inside this task (not
-/// spawned), so the task-local request phases still add up for the whole batch.
-/// They may finish in any order: a slow item does not hold back the start of the
-/// next one. [`batch_results`](super::query_read_receipt::batch_results) uses
-/// each item's request index to restore reply order.
 pub(super) async fn execute_query_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -47,21 +23,15 @@ pub(super) async fn execute_query_batch_route(
 ) -> UdsResponse {
     use futures::StreamExt as _;
 
-    let parse_started = std::time::Instant::now();
     let queries = match parse_query_batch(req, ctx) {
         Ok(queries) => queries,
         Err(response) => return response,
     };
-    fold_db::request_phases::add_phase(
-        fold_db::request_phases::RequestPhase::Parse,
-        parse_started.elapsed(),
-    );
 
     let items = queries
         .into_iter()
         .enumerate()
         .map(|(index, query)| async move {
-            let parse_started = std::time::Instant::now();
             let Value::Object(obj) = query else {
                 return (index, Reject::malformed_body().response());
             };
@@ -75,20 +45,14 @@ pub(super) async fn execute_query_batch_route(
                 Ok(query) => query,
                 Err(response) => return (index, response),
             };
-            fold_db::request_phases::add_phase(
-                fold_db::request_phases::RequestPhase::Parse,
-                parse_started.elapsed(),
-            );
-            let response = super::query_read_receipt::render_query(
-                req,
+            let response = render(
+                response_format
+                    .run(handlers::execute_query(
+                        host, query, limit, offset, cursor, false,
+                    ))
+                    .await,
                 ctx,
-                // Batch items always require keys, even if the outer request
-                // carries the owner-only unfiltered-read header.
-                response_format.run(handlers::execute_query(
-                    host, query, limit, offset, cursor, false,
-                )),
-            )
-            .await;
+            );
             (index, response)
         });
     let scope = match host.fold_db().db_ops().read_scope().await {
@@ -100,11 +64,26 @@ pub(super) async fn execute_query_batch_route(
         .collect();
     let finished: Vec<(usize, UdsResponse)> = scope.run_shared(future).await;
 
-    let results = super::query_read_receipt::batch_results(finished);
+    let results = batch_results(finished);
     render(
         Ok(serde_json::json!({ "count": results.len(), "results": results })),
         ctx,
     )
+}
+
+pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
+    finished.sort_by_key(|(index, _)| *index);
+    finished
+        .into_iter()
+        .map(|(_, response)| {
+            let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
+                Value::String(String::from_utf8_lossy(&response.body).into_owned())
+            });
+            let mut entry = serde_json::json!({ "status": response.status });
+            entry["response"] = body;
+            entry
+        })
+        .collect()
 }
 
 pub(super) fn parse_query_batch(

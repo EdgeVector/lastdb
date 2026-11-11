@@ -7,7 +7,6 @@ use fold_db::schema::types::cas::CasExpectation;
 use fold_db::schema::types::mutation::ContributionAdmission;
 use fold_db::schema::types::{KeyValue, Mutation, MutationType, SchemaError};
 use hkdf::Hkdf;
-use lastdb_host::{HostNode, Lane};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
@@ -150,10 +149,6 @@ async fn commit(
     expected: CasExpectation,
 ) -> Result<bool, String> {
     let encoded = serde_json::to_vec(&request).map_err(|_| "cannot encode contribution intent")?;
-    let permit = host
-        .acquire_op_permit(Lane::for_write_bytes(encoded.len()))
-        .await
-        .map_err(|_| "share mutation writer is busy")?;
     let admission = admission(host, writer, &request, &encoded)?;
     let id = uuid::Builder::from_random_bytes(
         admission.receipt_id[..16]
@@ -183,7 +178,6 @@ async fn commit(
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
         .await;
-    drop(permit);
     match outcome {
         Ok(_) => Ok(true),
         Err(

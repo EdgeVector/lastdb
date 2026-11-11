@@ -149,9 +149,6 @@ fn refuse_protected_home(home: &Path) -> Result<(), String> {
 }
 
 fn refuse_daemon(home: &Path) -> Result<(), String> {
-    if lastdb_node::crash_attribution::live_daemon_pid_alive(home) {
-        return Err("stop the restored home's daemon before account reconnect".into());
-    }
     if std::os::unix::net::UnixStream::connect(lastdb_uds::uds::socket_path(&home.join("data")))
         .is_ok()
     {

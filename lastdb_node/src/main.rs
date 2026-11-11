@@ -28,12 +28,7 @@ use lastdb_node::host::{self, Host};
 use lastdbd::cli::Cli;
 use lastdbd::node_run::{build_runtime, NodeRun};
 use lastdbd::serve::Server;
-use lastdbd::{background, session, shutdown, tracing_init};
-
-#[cfg(feature = "purging-allocator")]
-#[global_allocator]
-static GLOBAL_ALLOCATOR: lastdb_node::allocator::TrackedMiMalloc =
-    lastdb_node::allocator::TrackedMiMalloc;
+use lastdbd::{background, shutdown, tracing_init};
 
 fn log_startup_limits(worker_pool: &UdsWorkerPool) {
     // Primary concurrency control: bounded worker pool + queue (CPU-shaped).
@@ -85,10 +80,8 @@ struct ShutdownInputs<'a> {
     pid: u32,
     runtime: &'a tokio::runtime::Runtime,
     host: &'a Arc<Host>,
-    session_ledger: Option<&'a lastdb_node::session_ledger::Ledger>,
-    session_heartbeat: Option<lastdb_node::session_ledger::SessionHeartbeat>,
     worker_pool: &'a UdsWorkerPool,
-    sampler_task: tokio::task::JoinHandle<()>,
+    ttl_sweep_task: tokio::task::JoinHandle<()>,
     automatic_backup_task: tokio::task::JoinHandle<()>,
     shared_sync_task: tokio::task::JoinHandle<()>,
     received_shares_task: tokio::task::JoinHandle<()>,
@@ -106,10 +99,8 @@ fn drain_and_prove_shutdown(
         pid,
         runtime,
         host,
-        session_ledger,
-        session_heartbeat,
         worker_pool,
-        sampler_task,
+        ttl_sweep_task,
         automatic_backup_task,
         shared_sync_task,
         received_shares_task,
@@ -119,7 +110,6 @@ fn drain_and_prove_shutdown(
         shutdown_errors.push(format!("owner accept loop failed: {error}"));
     }
 
-    shutdown::record_shutdown_intent(session_ledger.is_some(), home, pid, &mut shutdown_errors);
     host.byte_backup.begin_shutdown();
 
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
@@ -128,7 +118,7 @@ fn drain_and_prove_shutdown(
     if let Err(error) = shutdown::drain_background(
         runtime,
         host,
-        sampler_task,
+        ttl_sweep_task,
         automatic_backup_task,
         shared_sync_task,
         received_shares_task,
@@ -140,27 +130,7 @@ fn drain_and_prove_shutdown(
     if let Err(error) = shutdown::flush_database(runtime, host) {
         shutdown_errors.push(error);
     }
-    if let Some(heartbeat) = session_heartbeat {
-        if let Err(error) = heartbeat.stop() {
-            shutdown_errors.push(format!("session heartbeat did not stop: {error}"));
-        }
-    }
-    let start_ts = session_ledger.map_or(0, |ledger| ledger.own_record().start_ts);
-    shutdown::complete_shutdown_proof(home, pid, start_ts, &shutdown_errors)
-}
-
-fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
-    tracing::info!(
-        target: "lastdbd::allocator",
-        allocator = tuning.name,
-        purge_delay_ms = ?tuning.purge_delay_ms,
-        purge_delay_from_env = tuning.purge_delay_from_env,
-        transparent_huge_pages_disabled = ?tuning.transparent_huge_pages_disabled,
-        "configured process allocator"
-    );
-    if let Some(errno) = tuning.transparent_huge_pages_errno {
-        tracing::warn!(target: "lastdbd::allocator", errno, "could not configure Linux huge page policy");
-    }
+    shutdown::complete_shutdown_proof(home, pid, host.process_start_ts, &shutdown_errors)
 }
 
 /// Parse `LASTDB_MAX_FIELD_VALUE_BYTES` once and pass the usize into core.
@@ -189,44 +159,21 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         home,
         data_dir,
         pid,
-        session_ledger,
-        session_heartbeat,
         socket_path,
         share,
     } = run;
-    let note_fatal =
-        |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
 
-    let mut host = runtime
-        .block_on(Host::boot(&home, Arc::new(host::SystemIds)))
-        .map_err(&note_fatal)?;
-    // Capture this process's own boot identity once, from the ledger entry
-    // this same process just wrote — not from a re-read of the shared
-    // per-home ledger file, which a different process sharing this home can
-    // append a newer row to after this point
-    // (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
-    if let Some(ledger) = &session_ledger {
-        let record = ledger.own_record();
-        // Status, boot identity and shutdown receipts must use the same start,
-        // even when database boot crosses a clock second after ledger creation.
-        host.process_start_ts = record.start_ts;
-        let _ = host.own_boot_identity.set(record);
-    }
+    let host = runtime.block_on(Host::boot(&home, Arc::new(host::SystemIds)))?;
     let host = Arc::new(host);
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 
     let socket = UdsSocket::bind_at(
         socket_path.unwrap_or_else(|| data_dir.join(lastdb_uds::uds::SOCKET_FILE_NAME)),
     )
-    .map_err(|e| {
-        note_fatal(format!(
-            "failed to bind socket in {}: {e}",
-            data_dir.display()
-        ))
-    })?;
+    .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
     println!("lastdbd serving the owner socket");
 
-    register_shutdown_signals(&shutdown_flag).map_err(&note_fatal)?;
+    register_shutdown_signals(&shutdown_flag)?;
 
     let owner_uid = unsafe { libc::getuid() };
     let worker_pool = UdsWorkerPool::from_env();
@@ -238,8 +185,8 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         worker_pool.clone(),
     );
 
-    let (sampler_task, automatic_backup_task, shared_sync_task, received_shares_task) =
-        background::spawn(&runtime, &host, &shutdown_flag, share).map_err(&note_fatal)?;
+    let (ttl_sweep_task, automatic_backup_task, shared_sync_task, received_shares_task) =
+        background::spawn(&runtime, &host, &shutdown_flag, share)?;
 
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
@@ -249,10 +196,8 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             pid,
             runtime: &runtime,
             host: &host,
-            session_ledger: session_ledger.as_ref(),
-            session_heartbeat,
             worker_pool: &worker_pool,
-            sampler_task,
+            ttl_sweep_task,
             automatic_backup_task,
             shared_sync_task,
             received_shares_task,
@@ -277,20 +222,16 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let allocator_tuning = lastdb_node::allocator::configure();
     lastdb_node::log_rotation::spawn_stdio_log_rotators();
 
     // Keep launchd-captured stderr logging, and add the DSN-gated ERROR-only
     // Sentry layer without switching Mini to the full node observability file
-    // pipeline. The guard also keeps crash/unclean-exit telemetry flushable.
+    // pipeline.
     let _sentry_guard = tracing_init::init_tracing();
 
-    // `GET /api/version` reports the same baked build string as `--version`,
-    // Sentry, and the boot ledger. The transport crate cannot see this crate's
-    // `build.rs` stamp, so the binary installs it before any socket serves.
-    uds_router::set_build_version(lastdb_node::crash_attribution::build_version());
-
-    log_allocator_tuning(&allocator_tuning);
+    // `GET /api/version` reports the same baked build string as `--version`
+    // and Sentry.
+    uds_router::set_build_version(lastdb_node::version::build_version());
 
     let cli = Cli::parse_private();
     if cli.enable_search {
@@ -308,45 +249,24 @@ fn run() -> Result<(), String> {
     let data_dir = home.join("data");
     init_core_warm_bytes()?;
 
-    // Refuse an unservable data dir before ANY boot work: the socket-path length
-    // check is pure arithmetic, but the bind happens after `Host::boot` and
-    // after the session ledger records a start. Failing there burns a full boot
-    // and leaves no clean-shutdown record, so the next start misreports a static
-    // configuration error as an unclean crash. Cheap check, earliest point.
+    // Refuse an unservable data dir before any boot work.
     if socket_path.is_none() {
         lastdb_uds::uds::preflight_data_dir(&data_dir)
             .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
     }
 
-    // Multi-thread runtime: the accept loop itself runs on the main thread;
-    // each connection's handler blocks on async core calls via this runtime.
-    // Tokio workers collect on park. A UDS worker never parks on this
-    // runtime; it collects at request end via `collect_finished_request_heap`.
     let runtime = build_runtime()?;
 
     // Schema resolve/register follows the home's saved backup environment.
     cloud::pin_schema_service_environment_from_home(&home);
 
-    // A Rust panic => a durable local crash report. Under `panic = "abort"` the
-    // hook is the last code to run, so the report lands before the process dies.
-    lastdb_node::crash_attribution::install_crash_hook(&home);
-    // Heartbeat every ~60s so the NEXT boot can compute downtime even if this
-    // session dies uncleanly.
     let pid = std::process::id();
-    let session_ledger = session::record_start(&home, pid);
-    let session_heartbeat = session_ledger.as_ref().and_then(|ledger| {
-        ledger
-            .spawn_heartbeat(std::time::Duration::from_secs(60))
-            .ok()
-    });
 
     serve_node(NodeRun {
         runtime,
         home,
         data_dir,
         pid,
-        session_ledger,
-        session_heartbeat,
         socket_path,
         share,
     })

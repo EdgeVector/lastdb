@@ -2,16 +2,6 @@
 //! [`UdsSocket::serve`] (invariant **I3a**).
 
 use super::*;
-use fold_db::access::CallerVerification;
-
-// --- Accept loop (I3a) ------------------------------------------------------
-//
-// The loop that runs on the bound listener: it accepts connections, evaluates
-// each one's peer credential (above), drops the rejected ones, and hands each
-// accepted connection, with its verification, to a dispatch
-// callback. The caller supplies the verifier and the HTTP handler callback.
-// This loop owns accept, peer evaluation, dispatch, and graceful shutdown;
-// it does not parse HTTP.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -232,32 +222,14 @@ fn drop_rejected(stream: std::os::unix::net::UnixStream, verdict: &UdsConnVerdic
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 impl UdsSocket {
     /// Run the control-socket accept loop until `shutdown` is set.
-    ///
-    /// For each connection it reads the peer credential and applies the
-    /// same-user gate ([`evaluate_connection`]). A [`UdsConnVerdict::Rejected`]
-    /// connection is dropped (its stream closed) and logged with numeric ids
-    /// only — never any namespace data (the I4 concern). A
-    /// [`UdsConnVerdict::Accepted`] one is handed to `on_accept` together with
-    /// the [`CallerVerification`] it contributes to an
-    /// [`AccessContext`](fold_db::access::AccessContext). The injected verifier
-    /// can upgrade the base `Unverified` posture after the same-user gate.
-    /// A connection whose peer-credential read errors is dropped and the
-    /// loop continues — one bad connection never tears the loop down.
-    ///
-    /// The listener is switched to non-blocking so the loop observes `shutdown`
-    /// promptly instead of parking in `accept` until the next client arrives.
-    /// Each accepted stream is restored to blocking mode before dispatch, the
-    /// mode a synchronous handler expects.
-    pub fn serve<F, V>(
+    pub fn serve<F>(
         &self,
         owner_uid: u32,
         shutdown: &AtomicBool,
-        verify_handle: V,
         mut on_accept: F,
     ) -> io::Result<()>
     where
-        F: FnMut(std::os::unix::net::UnixStream, CallerVerification),
-        V: Fn(Option<CallerHandle>) -> CallerVerification,
+        F: FnMut(std::os::unix::net::UnixStream),
     {
         use std::os::unix::io::AsRawFd;
 
@@ -316,14 +288,7 @@ impl UdsSocket {
             match evaluate_connection(&stream, owner_uid) {
                 Ok(verdict) => {
                     if verdict.is_accepted() {
-                        // I3b: upgrade the base `Unverified` posture by running the
-                        // code-signature check on the accepted caller handle — the
-                        // audit token when reported (blocker B3: its pidversion
-                        // invalidates on PID reuse), else the pid. The verifier is
-                        // OS-/feature-injected — the real macOS `SecCode` check in
-                        // production, `Unverified` on platforms/builds without it.
-                        let verification = verify_handle(verdict.candidate_handle());
-                        on_accept(stream, verification);
+                        on_accept(stream);
                     } else {
                         drop_rejected(stream, &verdict);
                     }

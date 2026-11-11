@@ -73,10 +73,7 @@ async fn execute_query_scoped<H: HostNode>(
     // as noisy generic "Bad request: Schema error" events.
 
     let requested_schema_name = query.schema_name.clone();
-    let resolve_started = std::time::Instant::now();
-    let resolved = resolve_schema_name_for_read(host, &query.schema_name).await;
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    match resolved? {
+    match resolve_schema_name_for_read(host, &query.schema_name).await? {
         Some(canonical) => query.schema_name = canonical,
         None if is_app_owned_schema_ref(&query.schema_name) => {
             return Err(HostError::new(
@@ -178,48 +175,13 @@ pub(super) fn is_app_owned_schema_ref(name: &str) -> bool {
 
 /// Cheap exact row count for the push-down. `Ok(None)` ⇒ a view (or not found):
 /// the caller falls back to materialize-then-slice.
-///
-/// Timed as [`RequestPhase::Count`] here rather than at the three call sites:
-/// every push-down shape funnels through this one function, so instrumenting
-/// it cannot drift out of sync with a new branch above.
 pub(super) async fn count_rows<H: HostNode>(
     host: &H,
     query: &Query,
 ) -> Result<Option<usize>, HostError> {
-    let started = std::time::Instant::now();
-    let _permit = if query
-        .filter
-        .as_ref()
-        .is_some_and(HashRangeFilter::is_key_restricted)
-    {
-        None
-    } else {
-        Some(acquire_read_permit(host, Lane::Bulk).await?)
-    };
-    let counted = host
-        .fold_db()
+    host.fold_db()
         .query_executor()
         .count_query_rows(query)
         .await
-        .map_err(HostError::from);
-    request_phases::add_phase(RequestPhase::Count, started.elapsed());
-    counted
-}
-
-/// Acquire a QoS read permit, charging the wait to
-/// [`RequestPhase::AdmissionWait`].
-///
-/// The query path admits on six different lanes depending on which push-down
-/// shape ran; without this helper the governor wait is invisible on reads and
-/// is charged to whatever phase happens to bracket it. That is the single
-/// suspect the old telemetry could neither confirm nor deny for a slow query
-/// with `loads=0`.
-pub(super) async fn acquire_read_permit<H: HostNode>(
-    host: &H,
-    lane: Lane,
-) -> Result<H::OpPermit, ReadBusy> {
-    let started = std::time::Instant::now();
-    let permit = host.acquire_op_permit(lane).await;
-    request_phases::add_phase(RequestPhase::AdmissionWait, started.elapsed());
-    permit
+        .map_err(HostError::from)
 }

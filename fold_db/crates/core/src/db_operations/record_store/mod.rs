@@ -17,7 +17,6 @@
 mod bounded_range;
 mod construct;
 mod delete_replay;
-pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod key_comparison;
 mod locks;

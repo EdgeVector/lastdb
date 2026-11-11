@@ -13,133 +13,27 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::io;
-use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::ObsError;
-
-// ---------------------------------------------------------------------------
-// File rotation / retention
-// ---------------------------------------------------------------------------
-
-/// How many days of rotated log segments to keep. With daily rotation this is
-/// also the rough day-count of history the offline `folddb logs --since` reader
-/// can reach. Before this bound existed `observability.jsonl` grew unbounded —
-/// it had reached ~287 MB / ~10 days during the 2026-06-19 incident, which is
-/// what forced a hand-rolled 160 MB scan to find the outage gap.
-pub const OBS_LOG_RETENTION_DAYS: usize = 7;
-
-/// Default filename stem the node log file uses (`observability`). The rolling
-/// appender writes daily segments named `<stem>.<YYYY-MM-DD>.<ext>` in the same
-/// directory, so a path of `…/observability.jsonl` rolls into
-/// `…/observability.2026-06-19.jsonl`, `…/observability.2026-06-20.jsonl`, …
-/// The offline reader globs `<stem>.*.<ext>` so `--since` keeps working across
-/// a roll.
-const DEFAULT_LOG_STEM: &str = "observability";
-const DEFAULT_LOG_EXT: &str = "jsonl";
-
-/// Split a canonical log-file path (e.g. `…/observability.jsonl`) into the
-/// `(directory, filename_prefix, filename_suffix)` the rolling appender needs.
-///
-/// - `…/observability.jsonl` → (`…`, `"observability"`, `"jsonl"`)
-/// - `…/folddb.log`          → (`…`, `"folddb"`, `"log"`)
-/// - `…/observability`       → (`…`, `"observability"`, `"jsonl"`) (no extension)
-/// - a bare filename with no parent → (`.`, …)
-///
-/// A path whose file stem is empty (`…/.jsonl`) or absent falls back to the
-/// default stem so we never hand the appender an empty prefix.
-fn split_log_path(path: &Path) -> (PathBuf, String, String) {
-    let dir = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(DEFAULT_LOG_STEM)
-        .to_string();
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(DEFAULT_LOG_EXT)
-        .to_string();
-    (dir, stem, ext)
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/// Where the FMT layer writes formatted JSON events.
-#[derive(Debug, Clone)]
-pub enum FmtTarget {
-    /// Append-write to a regular file. Created if absent.
-    File(PathBuf),
-    /// Process stdout. Suitable for Lambda / docker-style log capture.
-    Stdout,
-    /// Process stderr. Suitable for CLIs that reserve stdout for output.
-    Stderr,
-}
-
 /// Holds the [`tracing_appender`] worker thread alive so its background
-/// flush keeps draining the queue. **Must be retained for the lifetime of
-/// the binary** — dropping the guard stops the worker mid-flush and any
-/// log lines still in the channel are lost.
+/// flush keeps draining the queue.
 #[must_use = "FmtGuard must be held for the lifetime of the binary or log lines may be dropped"]
 pub struct FmtGuard {
     _worker: WorkerGuard,
 }
 
-/// Open the target sink and wrap it in [`tracing_appender::non_blocking`].
-///
-/// Used by the multi-layer init helpers in [`crate::init`], which build the
-/// fmt layer inline so the layer's `Subscriber` type parameter is inferred
-/// at the composition site.
-///
-/// The [`FmtTarget::File`] path is **daily-rotated with bounded retention**
-/// (see [`OBS_LOG_RETENTION_DAYS`]): the canonical path `…/observability.jsonl`
-/// becomes a directory of `…/observability.<YYYY-MM-DD>.jsonl` segments, and the
-/// appender prunes everything older than the retention window on startup and on
-/// each roll. This caps the firehose that grew unbounded to ~287 MB before this
-/// change. The offline `folddb logs` reader globs the segment set so `--since`
-/// still reaches across rotations.
-pub(crate) fn build_fmt_writer(target: FmtTarget) -> Result<(NonBlocking, FmtGuard), ObsError> {
-    let writer: Box<dyn io::Write + Send + 'static> = match target {
-        FmtTarget::File(path) => Box::new(build_rolling_appender(&path)?),
-        FmtTarget::Stdout => Box::new(io::stdout()),
-        FmtTarget::Stderr => Box::new(io::stderr()),
-    };
-    let (non_blocking, worker) = tracing_appender::non_blocking(writer);
-    Ok((non_blocking, FmtGuard { _worker: worker }))
-}
-
-/// Build the daily-rotating, retention-bounded file appender for a canonical
-/// log path.
-fn build_rolling_appender(path: &Path) -> Result<RollingFileAppender, ObsError> {
-    let (dir, prefix, suffix) = split_log_path(path);
-    // Ensure the log directory exists; `default_node_log_path` already creates
-    // it for the default branch, but the OBS_FILE_PATH branch
-    // hands us the caller's path verbatim, and the rolling appender errors if
-    // its directory is missing.
-    std::fs::create_dir_all(&dir)?;
-    RollingFileAppender::builder()
-        .rotation(Rotation::DAILY)
-        .filename_prefix(prefix)
-        .filename_suffix(suffix)
-        .max_log_files(OBS_LOG_RETENTION_DAYS)
-        .build(&dir)
-        .map_err(|e| ObsError::Io(io::Error::other(e.to_string())))
+/// Wrap process stdout in [`tracing_appender::non_blocking`].
+pub(crate) fn build_stdout_writer() -> (NonBlocking, FmtGuard) {
+    let (non_blocking, worker) = tracing_appender::non_blocking(io::stdout());
+    (non_blocking, FmtGuard { _worker: worker })
 }
 
 // ---------------------------------------------------------------------------
@@ -205,24 +99,12 @@ impl DenyList {
 #[derive(Clone, Debug)]
 pub(crate) struct RedactingFormat {
     deny_list: DenyList,
-    service_name: Option<String>,
 }
 
 impl RedactingFormat {
     pub(crate) fn from_env() -> Self {
         Self {
             deny_list: DenyList::from_env(),
-            service_name: None,
-        }
-    }
-
-    /// Like [`Self::from_env`] but stamps every formatted line with the OTel
-    /// resource attribute `service.name = <name>`. Used by [`crate::init_node`]
-    /// so a binary's file output is self-identifying.
-    pub(crate) fn from_env_with_service(service_name: &str) -> Self {
-        Self {
-            deny_list: DenyList::from_env(),
-            service_name: Some(service_name.to_string()),
         }
     }
 }
@@ -262,9 +144,6 @@ where
             "target".into(),
             Value::String(metadata.target().to_string()),
         );
-        if let Some(name) = self.service_name.as_deref() {
-            obj.insert("service.name".into(), Value::String(name.to_string()));
-        }
         if let Some(span) = ctx.lookup_current() {
             obj.insert("span".into(), Value::String(span.name().to_string()));
         }

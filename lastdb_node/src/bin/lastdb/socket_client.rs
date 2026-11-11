@@ -210,3 +210,18 @@ pub(super) fn is_client_deadline_error(err: &std::io::Error) -> bool {
         ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
     )
 }
+
+/// Probe `GET /health` over the owner socket with transient read retry.
+pub(crate) fn probe_health(socket: &Path) -> Result<(), String> {
+    let raw = request_readonly_with_retry(
+        socket,
+        b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        Duration::from_secs(2),
+    )?;
+    let first_line = raw.lines().next().unwrap_or("");
+    if first_line.starts_with("HTTP/1.1 200") || first_line.starts_with("HTTP/1.0 200") {
+        Ok(())
+    } else {
+        Err(format!("unexpected /health status: {first_line}"))
+    }
+}

@@ -102,9 +102,6 @@ impl PackRuntime {
             (view.revision, found)
         };
         let hits = found.iter().flatten().count();
-        for _ in 0..hits {
-            crate::read_receipts::warm_hit();
-        }
         laststore::record_logical_warm_misses((found.len() - hits) as u64);
         Ok(Some(WarmRecordRead {
             revision,

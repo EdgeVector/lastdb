@@ -1,41 +1,4 @@
 //! What one logical resident commit returns to its caller.
-//!
-//! A batch write used to answer with `Vec<String>` — the mutation ids it
-//! applied. That answers "which items", and nothing else. It cannot say which
-//! revision the caller may now read back, how many operations of each class the
-//! commit contained, or whether the acknowledgment claims disk.
-//!
-//! [`ResidentCommitReceipt`] is that answer. The Brain write plan
-//! (`design-brain-one-resident-commit-write` §9) sends one batch carrying the
-//! primary record and every exact projection, and needs the reply to name **one
-//! committed revision** for all of them plus the per-class operation counts. A
-//! caller that gets ids back has to re-read to learn anything else, and a
-//! re-read after a write is precisely the round trip the one-resident-commit
-//! design exists to remove.
-//!
-//! # Why the stage clocks live here and not in `RequestPhaseTotals`
-//!
-//! [`ResidentCommitStages`] carries the two stage times a native write
-//! measures — preparation and acknowledgment. They are NOT added to
-//! [`crate::request_phases::RequestPhaseTotals`], and that is deliberate rather
-//! than an omission.
-//!
-//! The phase set is a *partition* of the request's wall clock: `apply` is
-//! computed as the residual of the batch's named write buckets, and
-//! `PhaseTimings::within_wall_us` sums the set to derive the `unattributed=`
-//! remainder every operator surface prints. These stages overlap phases that
-//! already exist — preparation lies inside the `apply_us` residual, and the
-//! acknowledgment spans the whole request. Adding them as phase buckets would
-//! double-count those microseconds, drive the residual to zero and then
-//! underflow it, and corrupt `unattributed` on every request the node serves —
-//! not just resident commits.
-//!
-//! So the stages ride the receipt, where they describe one commit to the caller
-//! that made it, and the request-scoped instrument is a pair of *counts*
-//! ([`crate::request_phases::RequestCounter::ResidentCommits`] and
-//! [`crate::request_phases::RequestCounter::ResidentOperations`]). Counts carry
-//! no wall-clock invariant, so they can name "one logical resident commit and
-//! its operation count" without disturbing anything the phase set means.
 
 /// Whether the acknowledgment claims disk.
 ///
@@ -79,13 +42,6 @@ pub struct ResidentCommitOperations {
 
 impl ResidentCommitOperations {
     /// Every complete operation accepted by this commit.
-    ///
-    /// This is the number reported as
-    /// [`crate::request_phases::RequestCounter::ResidentOperations`] — the
-    /// denominator that makes "one logical resident commit" readable. One
-    /// commit carrying 9 operations and nine commits carrying one apiece are
-    /// the two shapes the Brain write plan is trying to tell apart, and the
-    /// commit count alone cannot.
     #[must_use]
     pub fn total(&self) -> u64 {
         self.created

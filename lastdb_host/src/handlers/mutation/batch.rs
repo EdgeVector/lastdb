@@ -2,15 +2,13 @@
 //! Pure batch rules live in `rules`; host work stays explicit in the request.
 
 use fold_db::fold_db_core::mutation_manager::ResidentCommitReceipt;
-use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::Mutation;
 use serde_json::Value;
 
 use crate::host_node::HostNode;
-use crate::qos::Lane;
 use crate::HostError;
 
-use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
+use super::fields::{resolve_required_schema_name, validate_mutation_fields};
 use super::{commit_core_json, extend_json, wait_for_requested_convergence, MutationComponents};
 
 mod rules;
@@ -29,15 +27,8 @@ pub async fn execute_mutations_batch<H: HostNode>(
 ) -> Result<Value, HostError> {
     let convergence = batch_convergence(&components)?;
     let mut mutations = Vec::with_capacity(components.len());
-    let mut payload_bytes = 0usize;
     for components in components {
-        // Sum per-item phases without changing which rejection wins first.
-        let resolve_started = std::time::Instant::now();
-        let resolved = resolve_required_schema_name(host, &components.schema);
-        request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-        let canonical = resolved?;
-
-        let validate_started = std::time::Instant::now();
+        let canonical = resolve_required_schema_name(host, &components.schema)?;
         validate_mutation_fields(
             host,
             &components.schema,
@@ -45,15 +36,11 @@ pub async fn execute_mutations_batch<H: HostNode>(
             &components.record_fields,
         )
         .await?;
-        request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-
-        payload_bytes =
-            payload_bytes.saturating_add(fields_payload_bytes(&components.record_fields));
         mutations.push(components.into_mutation(canonical, host.public_key(), host.ids()));
     }
 
     let count = mutations.len();
-    let receipt = write_batch(host, mutations, payload_bytes).await?;
+    let receipt = write_batch(host, mutations).await?;
     let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
 
     Ok(batch_response(&receipt, count, background_tasks_drained))
@@ -77,21 +64,11 @@ fn batch_response(
     )
 }
 
-/// Admit the whole batch on the lane its combined payload size implies and
-/// write it, mapping a core failure to a [`HostError`].
+/// Write the batch, mapping a core failure to a [`HostError`].
 async fn write_batch<H: HostNode>(
     host: &H,
     mutations: Vec<Mutation>,
-    payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
-    // Admit the whole batch on the lane its combined payload size implies, held
-    // across the batch write. As in the single route, the admission wait is
-    // its own phase so governor queueing stops masquerading as write time.
-    let admission_started = std::time::Instant::now();
-    let _permit = host
-        .acquire_op_permit(Lane::for_write_bytes(payload_bytes))
-        .await?;
-    request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     host.fold_db()
         .mutation_manager()
         .write_mutations_receipt(mutations)

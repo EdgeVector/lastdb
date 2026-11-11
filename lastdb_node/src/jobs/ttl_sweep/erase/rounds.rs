@@ -29,7 +29,6 @@ pub(super) async fn erase_rounds(
                 totals.schemas_failed += 1;
                 continue;
             }
-            totals.peak_buffered_keys = totals.peak_buffered_keys.max(backlog.page_left());
             if erase_page(host, backlog, shutdown, options, totals, watch).await {
                 return true;
             }
@@ -68,7 +67,6 @@ async fn erase_page(
             Ok(done) => {
                 totals.erased += done.erased;
                 totals.dropped += done.dropped;
-                totals.missing += done.missing;
                 log_batch(&backlog.schema_name, &done, started.elapsed());
             }
             Err(error) if taken > 1 && is_size_limit_error(&error) => {

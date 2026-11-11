@@ -19,7 +19,10 @@ pub(super) fn lock_current_receipt<'a>(
     if view.revision != context.revision {
         return None;
     }
-    let call = crate::read_receipts::lock(&context.call);
+    let call = context
+        .call
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let core = runtime.core.lock().expect(core_label);
     Some(CurrentReceipt {
         core,

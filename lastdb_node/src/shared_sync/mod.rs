@@ -59,38 +59,6 @@ pub fn spawn_automatic(
     tokio::spawn(worker::run(host, shutdown).in_current_span())
 }
 
-impl Status {
-    pub(crate) fn health(self) -> crate::self_metrics::DurabilityHealth {
-        crate::self_metrics::DurabilityHealth {
-            observed: true,
-            automatic_enabled: self.enabled,
-            running: self.progress.running,
-            phase: self
-                .progress
-                .running
-                .then_some(crate::backup_runtime::Phase::Uploading),
-            accepted_backup_recorded: self.last_snapshot_id.is_some()
-                || self.progress.last_upload_at.is_some(),
-            degraded: Some(self.progress.blocked_reason.is_some()),
-            reasons: self
-                .progress
-                .blocked_reason
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            checked_at: Some(fold_db::clock::unix_secs()),
-            local_frontiers: None,
-            backed_up_frontiers: None,
-            covered: None,
-            snapshot_required: self.progress.needs_restore.is_some(),
-            last_upload_at: self.progress.last_upload_at,
-            next_upload_at: Some(self.progress.next_sync_at),
-            last_snapshot_at: self.last_snapshot_at,
-            next_snapshot_at: self.publisher.then_some(self.next_snapshot_at),
-        }
-    }
-}
-
 /// Resolve any saved publication before replacing the native data directories.
 pub fn require_rejoin_ready(home: &std::path::Path) -> Result<()> {
     if config::load(home)?.is_some_and(|config| config.pending_snapshot.is_some()) {

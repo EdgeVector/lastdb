@@ -41,18 +41,14 @@ pub mod fold_db_core;
 pub mod memory_budget;
 #[cfg(unix)]
 pub mod process_cpu;
-pub mod read_receipts;
 /// On-disk record formats of the typed stores (model layer).
 pub(crate) mod records;
-pub mod request_phases;
 /// Core logical memory and record retention.
 pub mod resident;
 pub mod schema;
 pub mod security;
-pub mod sharing;
 pub mod storage;
 pub mod user_context;
-mod write_preparation;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};

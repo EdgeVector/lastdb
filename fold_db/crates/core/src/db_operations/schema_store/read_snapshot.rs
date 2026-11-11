@@ -17,7 +17,6 @@ impl SchemaStore {
         name: &str,
     ) -> Result<SchemaReadSnapshot, SchemaError> {
         if let Some(snapshot) = self.prepared_snapshot(name)? {
-            crate::write_preparation::count("schema_snapshot_prepared_reuses", 1);
             return Ok((**snapshot).clone());
         }
         // An ordinary record write does not change these catalog sources.
@@ -31,10 +30,8 @@ impl SchemaStore {
                 &super::snapshot_sources(name),
             )?
         {
-            crate::write_preparation::count("schema_snapshot_core_reuses", 1);
             return Ok((**snapshot).clone());
         }
-        crate::write_preparation::count("schema_snapshot_decode_attempts", 1);
         let (schema, state) = tokio::try_join!(
             self.schemas_store.inner().get(name.as_bytes()),
             self.snapshot_state_bytes(name),

@@ -55,7 +55,10 @@ impl PackRuntime {
                 detail: format!("native batch exceeds {maximum} keys"),
             });
         }
-        let mut call = crate::read_receipts::lock(&context.call);
+        let mut call = context
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let result = (|| {
             context.require_room(&call, coordinates.len() as u64, 0)?;
             let mut out = Vec::with_capacity(coordinates.len());

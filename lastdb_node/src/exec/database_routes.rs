@@ -4,7 +4,7 @@ use crate::registered_share::{self, RegisteredShare};
 use crate::share_invitation::MAX_SEALED_INVITATION_BYTES;
 use cloud_backup_protocol::Digest;
 use lastdb_uds::database_path::{self, DATABASES_PATH};
-use lastdb_uds::uds_router::{self, ControlRoute, SocketKind};
+use lastdb_uds::uds_router::{self, ControlRoute};
 use serde_json::json;
 
 const ACCEPT_PATH: &str = "/api/databases/accept";
@@ -32,7 +32,7 @@ pub async fn execute_database_request(
     if req.method == "POST" && req.target == "/api/contributors" {
         return attach_contributor(req, ctx, host, &selector);
     }
-    let route = match uds_router::route(req, SocketKind::Owner) {
+    let route = match uds_router::route(req) {
         ControlRoute::Data(route) if is_database_operation(route) => route,
         ControlRoute::MethodNotAllowed { allow } => {
             return uds_router::method_not_allowed_response(allow);
@@ -57,7 +57,7 @@ pub async fn execute_database_request(
             _ => super::database_read::read(route, req, ctx, &share),
         }
     };
-    super::dispatch::execute_observed_route(route, req, ctx, host, work).await
+    super::dispatch::execute_observed_route(ctx, work).await
 }
 
 /// Only bounded, Send mutation futures may leave the socket worker.
@@ -86,10 +86,7 @@ pub fn execute_deferred_database_mutation<'a>(
                     ctx,
                     data_route_budget(route),
                     super::dispatch::execute_observed_route(
-                        route,
-                        req,
                         ctx,
-                        host,
                         received_mutation(route, req, ctx, &share),
                     ),
                 )

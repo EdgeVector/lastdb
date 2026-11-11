@@ -27,13 +27,6 @@ pub(crate) struct SnapshotArgs {
 pub(crate) enum CloudCommand {
     /// Operate the shared journal of an explicit stopped DEV home.
     SharedWriter(SharedWriterCommand),
-    /// Read or manage Stripe payments for this home's existing native account.
-    /// Requires an explicit absolute --data-dir; never starts a daemon or store.
-    Payments {
-        action: CloudPaymentCommand,
-
-        json: bool,
-    },
     /// Explicit V2 byte backup and source-free restore.
     BackupV2 { action: ByteBackupCommand },
     /// Restore a held shared snapshot and its captured tails into a fresh home.
@@ -157,16 +150,6 @@ pub(crate) struct SharedRestoreCommand {
     pub recovery_phrase_stdin: bool,
     #[arg(long)]
     pub json: bool,
-}
-
-#[derive(Subcommand, Clone, Copy, Debug)]
-pub(crate) enum CloudPaymentCommand {
-    /// Read payment status through the saved native account API key.
-    Status,
-    /// Print a Stripe-hosted Checkout URL for the same native account.
-    Checkout,
-    /// Print a Stripe-hosted customer portal URL for the same native account.
-    Portal,
 }
 
 #[derive(Args, Debug)]

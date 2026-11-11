@@ -72,7 +72,7 @@ pub fn running_node(socket: &Path) -> (String, &'static str, super::ContractVers
     (
         build
             .clone()
-            .unwrap_or_else(|| crate::ops::crash_attribution::build_version().to_string()),
+            .unwrap_or_else(|| crate::version::build_version().to_string()),
         if build.is_some() { "lastdbd" } else { "cli" },
         versions,
     )

@@ -7,9 +7,6 @@ and otherwise reports the read limit with next_cursor. A partial sample names
 a cursor that reaches the rest of the live records. A Hash schema with no
 hash key field walks and samples with opaque keys.
 
-A share snapshot reads a keyed leg past the same run, page by page, and
-delivers the records after it.
-
 The TTL sweep lists the expired keys of a hash with the same range read: it
 reads past a run of deleted records to the expired records after the run. It
 keeps a floor for each hash after the run; a write below the floor removes the
@@ -21,11 +18,8 @@ its alternate keys, so its current alternate revision is its only one. A drop
 blocks the schema first: a write during the drop is refused, and no record of
 it stays. record_home.py runs this module on its CI daemon.
 """
-import base64
-import os
 import threading
 import time
-import uuid
 from record_requests import mutation as native_mutation, conditioned
 
 FIELDS = ["id", "bucket", "value"]
@@ -209,21 +203,6 @@ def opaque_keys(node, scan):
     sample, _ = scan(node, {**body, "filter": {"SampleN": 3}})
     require(len(sample["results"]) == 3,
             f"a sample of 3 returned {len(sample['results'])} rows")
-
-
-def share_snapshot(node):
-    """A share snapshot reads its keyed legs past the run of deleted records."""
-    body = {"recipient_pubkey": "record-home",
-            "messaging_public_key": base64.b64encode(os.urandom(32)).decode(),
-            "messaging_pseudonym": str(uuid.uuid4()),
-            "legs": [{"schema_name": "RecordRun", "fields": FIELDS, "filter": {"HashKey": "run"}},
-                     {"schema_name": "RecordRun", "fields": FIELDS,
-                      "filter": {"HashRangeRange": {"hash": "run", "start": "a", "end": "zz"}}}]}
-    reply = node.call("/api/sharing/snapshot", body)[0]
-    require(reply["record_count"] == 2,
-            f"the share snapshot over a run of {RUN} deleted records holds "
-            f"{reply['record_count']} records, not 2")
-    require(reply["encrypted_blob"], "the share snapshot has no sealed blob")
 
 
 def wait_gone(node, keys, message, seconds=SWEEP_SECONDS):
@@ -417,9 +396,6 @@ def check(node, scan):
           f"pages and the walk {walk_pages} pages of {LIMIT}, both complete and in key order; "
           "count and sample reported complete results or resumable reads; a schema with no key field walked and sampled "
           "with opaque keys", flush=True)
-    share_snapshot(node)
-    print(f"Share snapshot: two keyed legs read past {RUN} deleted records page by page and "
-          "delivered the 2 records", flush=True)
     ttl_resume(node)
     print(f"TTL resume: the sweep read past {RUN} deleted records and erased the expired records "
           "after them, twice, and wrote their audit rows", flush=True)

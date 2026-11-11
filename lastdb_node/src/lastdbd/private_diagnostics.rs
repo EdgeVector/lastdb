@@ -45,8 +45,6 @@ where
 
 fn category(target: &str) -> &'static str {
     match target {
-        "lastdbd::session_ledger" => "session",
-        "lastdbd::allocator" => "allocator",
         "lastdbd::shutdown" => "shutdown",
         "lastdb_node::cloud" => "cloud",
         "observability::crash" => "panic_report",

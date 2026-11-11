@@ -192,15 +192,9 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),
         DataRoute::AdminShed => Duration::from_secs(60),
-        // Parse one directive and swap an `Arc` — no IO, no storage, no lock
-        // held across an await. Grouped with the bounded routes below in cost;
-        // named here so a reader does not look for it among the storage verbs.
-        DataRoute::LogFilterGet | DataRoute::LogFilterSet => Duration::from_secs(5),
-        DataRoute::BootIdentity | DataRoute::BootLedger => {
-            Duration::from_secs(CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS)
-        }
+        DataRoute::BootIdentity => Duration::from_secs(CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS),
 
-        // Bounded per-request work: one key, one page, one blob, one watch.
+        // Bounded per-request work: one key, one page, one blob.
         DataRoute::Query
         | DataRoute::DbFlush
         | DataRoute::DbCleanup
@@ -212,10 +206,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema
         | DataRoute::AutoIdentity
-        | DataRoute::SearchAppQuery
-        | DataRoute::AppSearch
-        | DataRoute::NativeIndexAppVectorPut
-        | DataRoute::NativeIndexKnn
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
         | DataRoute::RetireSchemaNameClaim
@@ -224,8 +214,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbPutBlob
         | DataRoute::DbFetchBlob
         | DataRoute::DbDeleteBlob
-        | DataRoute::DeliverSnapshot
-        | DataRoute::LocalWatch
         | DataRoute::AppChanges => handler_timeout(),
     }
 }

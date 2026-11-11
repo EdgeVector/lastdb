@@ -10,7 +10,10 @@ impl super::ReadContext {
         pending: &Arc<super::super::transaction::PendingBatch>,
     ) -> StorageResult<()> {
         self.validate_owner(Some(pending))?;
-        let call = crate::read_receipts::lock(&self.call);
+        let call = self
+            .call
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.require_room(&call, 0, 0)
     }
 }

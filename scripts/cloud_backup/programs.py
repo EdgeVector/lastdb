@@ -272,7 +272,7 @@ class Programs:
             if verb in ("enable-automatic", "disable-automatic"):
                 mode = "on" if verb == "enable-automatic" else "off"
                 return ["backup", "policy", mode, *rest]
-            if verb in ("init", "start-stopped", "resume", "close", "inspect-dependencies"):
+            if verb in ("init", "resume", "close", "inspect-dependencies"):
                 return ["admin", "backup", verb, *rest]
             return ["backup", "list" if verb == "discover" else verb, *rest]
         if arguments[:2] == ["db", "cleanup"]:

@@ -52,7 +52,6 @@ impl<H: HostNode> QueryRun<'_, H> {
         {
             return Err(HostError::new(400, "count replies require keyed live reads without conditions, value ordering, or continuation"));
         }
-        let _permit = acquire_read_permit(self.host, Lane::Bulk).await?;
         let count = count_rows(self.host, &query)
             .await?
             .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
@@ -83,7 +82,6 @@ impl<H: HostNode> QueryRun<'_, H> {
                 offset: 0,
                 limit: INTERNAL_FETCH_CAP,
             });
-            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
             let (rows, flags, _) = execute_query_rows_windowed(host, complete, None).await?;
             return Ok(Some(materialized_page_payload(
                 rows,
@@ -94,7 +92,6 @@ impl<H: HostNode> QueryRun<'_, H> {
             )));
         }
         if let Some(total) = count_rows(host, query).await? {
-            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
             let (page, flags, _) = execute_query_rows_windowed(host, query.clone(), None).await?;
             return Ok(Some(counted_page_payload(
                 page,
@@ -107,7 +104,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         Ok(None)
     }
 
-    /// Count only when required, select the page, admit the read, and render it.
+    /// Count only when required, select the page, and render it.
     async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
         let host = self.host;
         let (limit, offset) = (self.limit, self.offset);
@@ -121,10 +118,6 @@ impl<H: HostNode> QueryRun<'_, H> {
             return self.bounded_fallback(query).await;
         };
 
-        let overfetch_limit = limit.saturating_add(1);
-        // Admit on the page, not the partition — unlike the unfiltered branch
-        // below, which admits on `total` because it may hydrate that many rows.
-        let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
         let (page, flags, end) = execute_query_rows_windowed(host, query, Some(window)).await?;
         Ok(match (uses_cursor, total) {
@@ -165,7 +158,6 @@ impl<H: HostNode> QueryRun<'_, H> {
                     offset: 0,
                     limit: INTERNAL_FETCH_CAP,
                 });
-                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (all_results, flags, _) =
                     execute_query_rows_windowed(host, query, None).await?;
                 // `total_count` is the counted set on every shape, so two limits
@@ -190,7 +182,6 @@ impl<H: HostNode> QueryRun<'_, H> {
                 offset,
                 limit,
             ));
-            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
             let (page, flags, _) = execute_query_rows_windowed(host, query, None).await?;
             return Ok(Some(counted_page_payload(
                 page, total, limit, offset, flags,
@@ -222,13 +213,6 @@ impl<H: HostNode> QueryRun<'_, H> {
             });
         }
 
-        // Value-filtered / view fallback: cardinality is unknown up front (no cheap
-        // count). A full-cap Page materialization (injected INTERNAL_FETCH_CAP
-        // or an equivalent caller limit) can walk up to 10k rows — admit as Bulk so it
-        // cannot monopolise the interactive reservation. Smaller bounded pages stay
-        // Interactive.
-        let lane = rules::lane_for_unknown_cardinality(&query);
-        let _permit = acquire_read_permit(host, lane).await?;
         let (all_results, flags, end) = execute_query_rows_windowed(host, query, None).await?;
         // A sample that a run of deleted records ended early is not complete,
         // and its reply says so (`rules::sample_resumes`).

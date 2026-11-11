@@ -17,20 +17,16 @@ exclude = ["main.rs", "lastdbd", "shutdown_runtime.rs", "bin"]
 
 [[layer]]
 name = "leaf"
-doc = "Parts that use only other leaf parts: storage homes, outboxes and queues, the backup runtime and its phase, seals, logs, and versions."
+doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, shutdown receipts, and versions."
 modules = [
-  "allocator",
   "backup_runtime",
   "byte_cloud_log",
   "change_feed_queue",
-  "local_outbox",
   "log_rotation",
-  "retention_audit",
-  "schema_sync_audit",
   "seal",
   "service_home",
+  "shutdown_receipt",
   "version",
-  "watch_gate",
 ]
 
 [[layer]]
@@ -42,17 +38,9 @@ modules = [
 ]
 
 [[layer]]
-name = "ops"
-doc = "Operations state and status models over the leaf parts: request telemetry, the session ledger, gauges, the self-metrics status snapshot and sampler state, crash attribution, and health alerts. No dependency on the host."
-modules = [
-  "ops",
-]
-
-[[layer]]
 name = "host"
-doc = "The booted node host, which holds the ops state, and the host-level delivery gate."
+doc = "The booted node host."
 modules = [
-  "deliver",
   "host",
 ]
 
@@ -64,7 +52,6 @@ modules = [
   "byte_cloud_backup",
   "byte_cloud_restore",
   "offline_home",
-  "offline_recount",
   "shared_peer",
   "shared_restore",
   "shared_snapshot",
@@ -74,7 +61,7 @@ modules = [
 
 [[layer]]
 name = "jobs"
-doc = "Background and on-demand work over a booted host: the self-metrics sampler and status snapshot build, the TTL sweep, and footprint relief."
+doc = "Background and on-demand work over a booted host: the TTL sweep."
 modules = [
   "jobs",
 ]

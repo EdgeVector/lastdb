@@ -75,7 +75,6 @@ impl<H: HostNode> QueryRun<'_, H> {
             }
             (None, None) => KeyWindow::offset(offset, probe),
         };
-        let _permit = acquire_read_permit(host, Lane::for_read_rows(probe)).await?;
         let (rows, flags, end) = execute_query_rows_windowed(host, query, Some(window)).await?;
         let positions: HashMap<KeyValue, String> = end.walk.into_iter().collect();
         let placed = rows

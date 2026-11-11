@@ -28,10 +28,9 @@ impl HostError {
     }
 
     /// An owner-visible structured rejection. Remote apps still receive the
-    /// content-free status phrase through [`render`]. `pub` so other socket
-    /// executors (e.g. `lastdb_node::deliver`) can build the same
-    /// `kind`/`remediation` shape as this crate's own rejections instead of
-    /// falling back to a flat message.
+    /// content-free status phrase through [`render`]. `pub` so socket
+    /// executors can build the same `kind`/`remediation` shape as this crate's
+    /// own rejections instead of falling back to a flat message.
     #[must_use]
     pub fn structured(status: u16, message: impl Into<String>, body: Value) -> Self {
         Self {
@@ -176,19 +175,5 @@ pub fn render(result: Result<Value, HostError>, ctx: &AccessContext) -> UdsRespo
                 None => owner_or_content_free(e.status, &e.message, ctx),
             }
         }
-    }
-}
-
-impl From<ReadBusy> for HostError {
-    fn from(busy: ReadBusy) -> Self {
-        // Match the full node's read-gate shed: a 503 with a human-readable
-        // retry hint (owner-visible; content-free for a non-owner).
-        Self::new(
-            503,
-            format!(
-                "node is busy: too many concurrent reads; retry after {}s",
-                busy.retry_after_secs
-            ),
-        )
     }
 }

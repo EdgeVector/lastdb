@@ -44,22 +44,11 @@ modules = [
 ]
 
 [[layer]]
-name = "wire"
-doc = "Sharing wire formats: the delivery slice and its descriptor types. Pure codecs over the model."
-modules = [
-  "sharing::delivery_wire",
-  "sharing::types",
-]
-
-[[layer]]
 name = "runtime"
-doc = "Process-local runtime state with no store: the warm set (resident), the memory budget, request phase accounting, disk read receipts, and write preparation counters."
+doc = "Process-local runtime state with no store: the warm set (resident) and the memory budget."
 modules = [
   "memory_budget",
-  "read_receipts",
-  "request_phases",
   "resident",
-  "write_preparation",
 ]
 
 [[layer]]
@@ -95,13 +84,6 @@ name = "engine"
 doc = "The database engine: FoldDB, the mutation manager, query, purge, drains, and the factory that builds a node."
 modules = [
   "fold_db_core",
-]
-
-[[layer]]
-name = "sharing"
-doc = "The sharing root and the query slices over the engine."
-modules = [
-  "sharing",
 ]
 
 [[layer]]

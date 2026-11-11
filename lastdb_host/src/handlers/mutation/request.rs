@@ -1,7 +1,6 @@
 //! Single-mutation steps using the existing host interface.
 
 use fold_db::record_value::InlineWrite;
-use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::FileWrite;
 use serde_json::Value;
 
@@ -23,8 +22,7 @@ pub async fn execute_mutation<H: HostNode>(
     host: &H,
     components: MutationComponents,
 ) -> Result<Value, HostError> {
-    let canonical = resolve_mutation_schema(host, &components.schema)?;
-    let validate_started = std::time::Instant::now();
+    let canonical = resolve_required_schema_name(host, &components.schema)?;
     validate_mutation_fields(
         host,
         &components.schema,
@@ -32,7 +30,6 @@ pub async fn execute_mutation<H: HostNode>(
         &components.record_fields,
     )
     .await?;
-    request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
     let payload_bytes = fields_payload_bytes(&components.record_fields)
         + components.file_write.as_ref().map_or(0, FileWrite::row_len)
         + match &components.inline_write {
@@ -41,7 +38,7 @@ pub async fn execute_mutation<H: HostNode>(
         };
 
     let convergence = components.convergence;
-    let receipt = commit_mutation(host, components, canonical, payload_bytes).await?;
+    let receipt = commit_mutation(host, components, canonical).await?;
     let mutation_id = receipt
         .mutation_ids
         .last()
@@ -54,12 +51,4 @@ pub async fn execute_mutation<H: HostNode>(
         &receipt,
         payload_bytes,
     ))
-}
-
-/// Resolve the schema name, with one phase timer.
-fn resolve_mutation_schema<H: HostNode>(host: &H, schema: &str) -> Result<String, HostError> {
-    let resolve_started = std::time::Instant::now();
-    let resolved = resolve_required_schema_name(host, schema);
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    resolved
 }

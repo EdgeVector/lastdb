@@ -15,7 +15,6 @@ mod recovery;
 mod retry;
 pub mod share_write_gate;
 mod source;
-mod stopped;
 mod store;
 mod transfer;
 mod wait;
@@ -31,7 +30,6 @@ pub(crate) use control::status;
 pub use credentials::client_from_home;
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
 pub(crate) use source::PublicationSource;
-pub use stopped::{backup_stopped, StoppedBackupReport, StoppedBackupRequest};
 pub type Result<T> = std::result::Result<T, BackupError>;
 
 pub const PUBLICATION_MARKER: &str = "share-publication.json";

@@ -178,7 +178,7 @@ fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), Str
             ),
             None => app_list(home, channel, index, trust_key, json),
         },
-        AppCatalogCommand::Index(cmd) => app_index_command(home, cmd),
+        AppCatalogCommand::Index(cmd) => app_index_command(cmd),
         command @ AppCatalogCommand::Install { .. } => handle_app_install(home, command),
         command @ AppCatalogCommand::Upgrade { .. } => handle_app_upgrade(home, command),
     }

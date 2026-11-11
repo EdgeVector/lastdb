@@ -20,7 +20,6 @@ use super::pace::Pace;
 use super::send::send_with_missing_retry;
 use super::verb::SweepVerb;
 use crate::host::Host;
-use crate::self_metrics::TtlPassReport;
 
 /// What one pass did.
 #[derive(Debug, Default, Clone, Copy)]
@@ -30,9 +29,6 @@ pub(super) struct PassTotals {
     pub(super) erased: usize,
     /// Keys that the re-check dropped because they were no longer expired.
     pub(super) dropped: usize,
-    /// Keys that a purge batch named and that were already gone. The sweep
-    /// dropped them and sent the rest of the batch.
-    pub(super) missing: usize,
     /// Keys that the pass listed and had not reached when it ended.
     pub(super) keys_left: usize,
     /// The pass ended early: the node was stopping or local writes were paused.
@@ -41,25 +37,12 @@ pub(super) struct PassTotals {
     pub(super) schemas: usize,
     /// Schemas that the pass skipped because their listing or a batch failed.
     pub(super) schemas_failed: usize,
-    /// Largest expired-key page held by the worker, across all schemas.
-    pub(super) peak_buffered_keys: usize,
 }
 
 impl PassTotals {
     /// Every schema failed, so the pass did no useful work.
     pub(super) fn whole_pass_failed(&self) -> bool {
         self.schemas > 0 && self.schemas_failed >= self.schemas
-    }
-
-    pub(super) fn report(&self) -> TtlPassReport {
-        TtlPassReport {
-            finished_backlog: !self.cut && self.keys_left == 0 && self.schemas_failed == 0,
-            keys_left: u64::try_from(self.keys_left).unwrap_or(u64::MAX),
-            cut: self.cut,
-            schemas_failed: u32::try_from(self.schemas_failed).unwrap_or(u32::MAX),
-            missing_dropped: u64::try_from(self.missing).unwrap_or(u64::MAX),
-            peak_buffered_keys: u64::try_from(self.peak_buffered_keys).unwrap_or(u64::MAX),
-        }
     }
 }
 

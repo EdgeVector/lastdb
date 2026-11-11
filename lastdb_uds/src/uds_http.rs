@@ -1,15 +1,9 @@
-//! HTTP/1.1 request framing for the Unix-domain socket (invariant **I3** in
-//! `exemem-workspace/docs/designs/app_security_model.md`).
+//! HTTP/1.1 request framing for the Unix-domain socket.
 //!
-//! [`super::uds::UdsSocket::serve`] accepts a same-user stream and supplies
-//! its [`CallerVerification`]. This module
+//! [`super::uds::UdsSocket::serve`] accepts a same-user stream. This module
 //! parses the [`UdsRequest`], builds its [`AccessContext`], and calls the
 //! daemon's route handler. The accept path reads kernel peer credentials before
 //! this parser sees request bytes.
-//!
-//! The default owner socket serves data routes under the device-trust posture.
-//! The optional `app-isolation` feature can upgrade verification through a
-//! macOS code-signature check in the accept path.
 //!
 //! **I4 (side-channel closure).** This module does not log a request line,
 //! header value, or body byte. A parse failure uses a content-free
@@ -17,9 +11,7 @@
 
 use std::io::{self, BufRead, Read, Write};
 
-use fold_db::access::{AccessContext, CallerVerification};
-
-use super::uds_router::SocketKind;
+use fold_db::access::AccessContext;
 
 /// Largest single request/header line accepted, in bytes (excluding CRLF).
 ///
@@ -269,62 +261,9 @@ fn read_request_with_owner_blob<R: BufRead>(
     })
 }
 
-/// Build the [`AccessContext`] for a request that arrived over the control
-/// socket, from the accept loop's verification **and the [`SocketKind`] it
-/// arrived on**.
-///
-/// A connection accepted on the control socket has passed the I3a same-user
-/// peer-credential gate ([`super::uds::UdsConnVerdict::Accepted`]), so the caller
-/// runs as the node owner's OS user. Which principal it becomes depends on the
-/// socket and on whether the OS code-signature check (I3b) verified an *app*:
-///
-/// * [`SocketKind::Owner`] + [`CallerVerification::Unverified`] — a same-user
-///   local caller on the owner control socket with no verified app identity.
-///   Under device trust that caller is the data owner, so the context is
-///   [`AccessContext::owner`].
-/// * [`CallerVerification::CodeSignatureVerified`] — a verified
-///   app acting on the owner's node. It is a **non-owner** principal
-///   ([`AccessContext::remote`], `is_owner = false`) so the I3c read gate
-///   consults the namespace ACL against its verified `app_id` instead of
-///   short-circuiting. Its `user_id` stays the node owner's `user_hash` — apps
-///   act on the owner's data, not their own — so data attribution is unchanged;
-///   the verified app identity rides on `verification`, which is what the ACL
-///   matches.
-pub fn uds_access_context(
-    owner_user_id: &str,
-    socket_kind: SocketKind,
-    verification: CallerVerification,
-) -> AccessContext {
-    // The caller is the data owner ONLY when an unverified same-user caller
-    // arrives on the OWNER control socket. A code-signature-verified app is a
-    // non-owner principal, gated by its app_id. The owner short-circuit MUST
-    // NOT apply to it. This is the fail-closed pin.
-    let is_owner_principal =
-        matches!(verification, CallerVerification::Unverified) && socket_kind == SocketKind::Owner;
-    let base = if is_owner_principal {
-        AccessContext::owner(owner_user_id)
-    } else {
-        AccessContext::remote(owner_user_id)
-    };
-    base.with_verification(verification)
-}
-
-/// Best-effort peer pid from a connected UDS stream (ops attribution).
-///
-/// Re-reads kernel credentials on the live fd. Returns `None` when the
-/// platform has no peer-cred FFI, the read fails, or the kernel did not
-/// report a pid. Never fails the request.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn peer_pid_from_stream(stream: &std::os::unix::net::UnixStream) -> Option<i32> {
-    use std::os::unix::io::AsRawFd;
-    fold_db::access::peer_cred::read_peer_credential(stream.as_raw_fd())
-        .ok()
-        .and_then(|cred| cred.pid())
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn peer_pid_from_stream(_stream: &std::os::unix::net::UnixStream) -> Option<i32> {
-    None
+/// Build the owner [`AccessContext`] for a request accepted on the control socket.
+pub fn uds_access_context(owner_user_id: &str) -> AccessContext {
+    AccessContext::owner(owner_user_id)
 }
 
 mod body;

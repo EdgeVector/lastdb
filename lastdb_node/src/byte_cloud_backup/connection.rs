@@ -10,7 +10,6 @@ use cloud_backup_protocol::{
 };
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use sha2::{Digest as _, Sha256};
-use zeroize::Zeroizing;
 
 pub(crate) mod files;
 mod model;
@@ -201,27 +200,6 @@ fn load_identity(
     }
     directory.check()?;
     Ok(Some((connection, client)))
-}
-
-pub(super) fn client_for_stopped(
-    home: &std::path::Path,
-    account: &AccountId,
-    source: &Id,
-) -> Result<ByteBackupClient> {
-    load_identity(home, account, source)?
-        .map(|(_, client)| client)
-        .ok_or(BackupError::Disabled)
-}
-
-pub(super) fn identity_seed(home: &std::path::Path) -> Result<Zeroizing<[u8; 32]>> {
-    let bytes = files::Directory::open(home)?
-        .read("identity.key")?
-        .ok_or(BackupError::Identity)?;
-    let seed: [u8; 32] = bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| BackupError::Identity)?;
-    Ok(Zeroizing::new(seed))
 }
 
 fn identity(host: &crate::host::Host) -> Result<(AccountId, Id)> {

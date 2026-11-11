@@ -98,26 +98,10 @@ pub(super) enum Command {
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does
     /// not; the first human line is then `lastdbd: not reachable — <reason>`.
     /// `--json` adds `"running": false` and the reason, and also exits 1.
-    /// A reachable-but-degraded node (QoS, backup) still exits 0.
-    ///
-    /// Human lines by default. Pass `--json` for a machine-readable summary:
-    /// home, socket, `running`, the daemon and CLI builds, and the at-rest
-    /// compression counters. Key counts are intentionally omitted — use
-    /// `lastdb admin storage inventory` for scanned key totals.
-    ///
-    /// Live `/api/status` is the **cheap health** path: process vitals,
-    /// backup, QoS, and request-ops *scalars* only. The forensic request-ops
-    /// ring (256 recent samples + rankings) is opt-in via `lastdb admin ops` or
-    /// `GET /api/status?recent=1`.
     Status {
-        /// Emit the machine-readable summary (`running`, builds, at-rest compression).
+        /// Emit the machine-readable summary (`running`, builds).
         #[arg(long)]
         json: bool,
-        /// Print the additive gauge contract (unit + window + availability for
-        /// every typed operator gauge). Does not change default status lines.
-        /// Machine JSON: `GET /api/status` → `status.contract`.
-        #[arg(long)]
-        contract: bool,
         /// Seconds to wait for the daemon's status read (default: 30, or
         /// `LASTDB_UDS_ADMIN_TIMEOUT_SECS` when that is exported).
         #[arg(long)]

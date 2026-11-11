@@ -9,14 +9,11 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager::write) async fn stage_record_groups(
         &self,
         mutations: Vec<AuthoredMutation>,
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
         stages: &mut ResidentCommitStages,
         runtime: &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
     ) -> Result<usize, SchemaError> {
-        let group_start = std::time::Instant::now();
         let grouped_mutations =
             self.independent_key_groups(self.group_mutations_by_schema(mutations))?;
-        Self::add_timing(timing_breakdown, "grouping", group_start.elapsed());
 
         let group_count = grouped_mutations.len();
         let mut prepare_elapsed = std::time::Duration::ZERO;
@@ -26,7 +23,7 @@ impl MutationManager {
                 .await?;
             prepare_elapsed += prepare_started.elapsed();
         }
-        stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
+        stages.prepare_us = u64::try_from(prepare_elapsed.as_micros()).unwrap_or(u64::MAX);
         Ok(group_count)
     }
 }

@@ -24,7 +24,6 @@ use std::collections::HashMap;
 
 use fold_db::access::AccessContext;
 use fold_db::error::FoldDbError;
-use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::operations::{Query, SortOrder};
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
@@ -32,18 +31,15 @@ use lastdb_uds::uds_http::UdsResponse;
 use serde_json::Value;
 
 use crate::envelope::{envelope, json_ok, owner_json_or_content_free, owner_or_content_free};
-use crate::host_node::{HostNode, ReadBusy};
+use crate::host_node::HostNode;
 use crate::pagination::{clamp_request_limit, INTERNAL_FETCH_CAP};
-use crate::qos::Lane;
 
 mod errors;
 mod mutation;
 mod query;
 mod schema_resolve;
-mod search;
 
 pub use self::errors::*;
 pub use self::mutation::*;
 pub use self::query::*;
 pub use self::schema_resolve::*;
-pub use self::search::*;

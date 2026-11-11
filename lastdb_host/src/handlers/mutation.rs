@@ -12,14 +12,12 @@ use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
     MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
 };
-use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
 use fold_db::schema::types::{FileWrite, KeyValue, Mutation, MutationType, SchemaError};
 use serde_json::Value;
 
 use crate::host_node::HostNode;
 use crate::ids::IdGen;
-use crate::qos::Lane;
 use crate::HostError;
 
 mod request;
@@ -208,12 +206,8 @@ pub(super) async fn wait_for_requested_convergence<H: HostNode>(
         return false;
     }
 
-    let index_wait_started = std::time::Instant::now();
-    let background_tasks_drained = host
-        .wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
-        .await;
-    request_phases::add_phase(RequestPhase::IndexWait, index_wait_started.elapsed());
-    background_tasks_drained
+    host.wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
+        .await
 }
 
 /// Build the `{ mutation_id, success, … }` payload of a committed mutation.
@@ -223,10 +217,6 @@ fn mutation_response(
     receipt: &ResidentCommitReceipt,
     payload_bytes: usize,
 ) -> Value {
-    // The fixed-size logical accounting of the value this write just
-    // attributed: the same payload-bytes measure QoS lane admission
-    // already computed, returned inline so a caller (or the attribution
-    // proof) has the write's size before it does a second read.
     extend_json(
         commit_core_json(receipt),
         serde_json::json!({
@@ -240,20 +230,13 @@ fn mutation_response(
     )
 }
 
-/// Build, admit, and commit the selected mutations.
+/// Build and commit the selected mutation.
 async fn commit_mutation<H: HostNode>(
     host: &H,
     components: MutationComponents,
     canonical: String,
-    payload_bytes: usize,
 ) -> Result<ResidentCommitReceipt, HostError> {
     let mutations = vec![components.into_mutation(canonical, host.public_key(), host.ids())];
-    let admission_started = std::time::Instant::now();
-    let permit = host
-        .acquire_op_permit(Lane::for_write_bytes(payload_bytes))
-        .await;
-    request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
-    let _permit = permit?;
     let manager = host.fold_db().mutation_manager();
     start_core_commit(manager, mutations)
         .await

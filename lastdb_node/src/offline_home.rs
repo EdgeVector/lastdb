@@ -11,7 +11,7 @@ use fold_db::crypto::E2eKeys;
 use fold_db::security::Ed25519KeyPair;
 use serde::Serialize;
 
-use crate::session_ledger::{read_last_record, read_shutdown_flush_receipt};
+use crate::shutdown_receipt::read_shutdown_flush_receipt;
 
 fn user_home() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
@@ -79,39 +79,24 @@ pub fn load_e2e_keys(data_dir: &Path) -> Result<(E2eKeys, Arc<Ed25519KeyPair>), 
 /// What the preflight of a stopped home checked.
 #[derive(Debug, Serialize)]
 pub struct Preflight {
-    pub daemon_alive: bool,
     pub socket_closed: bool,
-    pub last_session_clean: bool,
     pub shutdown_flush_receipt: bool,
 }
 
 /// Refuse unless the home is stopped and flushed.
 ///
-/// 1. No daemon is alive for the home, and the daemon socket accepts no
-///    connection.
-/// 2. The last session ended cleanly and left a valid shutdown flush receipt,
-///    so the previous daemon flushed everything before it stopped.
+/// 1. The daemon socket accepts no connection.
+/// 2. The previous daemon left a valid shutdown flush receipt.
 ///
 /// The store open that follows takes the run home owner lock (`LOCK`), which
 /// excludes a running daemon and every other offline tool.
 pub fn preflight_stopped_home(home: &Path, store_root: &Path) -> Result<Preflight, String> {
-    if crate::crash_attribution::live_daemon_pid_alive(home) {
-        return Err("refusing: a daemon is alive for this home; stop it first".to_string());
-    }
     let socket = lastdb_uds::uds::socket_path(store_root);
     if UnixStream::connect(&socket).is_ok() {
         return Err(format!(
             "refusing: the database socket is open at {}",
             socket.display()
         ));
-    }
-    let last_session_clean = read_last_record(home).is_some_and(|record| record.ended_clean());
-    if !last_session_clean {
-        return Err(
-            "refusing: the last session did not end cleanly. Start the daemon and stop it \
-             gracefully, then retry."
-                .to_string(),
-        );
     }
     if let Err(error) = read_shutdown_flush_receipt(home) {
         return Err(format!(
@@ -120,9 +105,7 @@ pub fn preflight_stopped_home(home: &Path, store_root: &Path) -> Result<Prefligh
         ));
     }
     Ok(Preflight {
-        daemon_alive: false,
         socket_closed: true,
-        last_session_clean: true,
         shutdown_flush_receipt: true,
     })
 }

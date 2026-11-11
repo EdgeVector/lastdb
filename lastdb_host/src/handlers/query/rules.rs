@@ -1,11 +1,10 @@
-//! Query selection, admission, and keyed-page rules.
+//! Query selection and keyed-page rules.
 
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::{Query, SortOrder};
 use fold_db::schema::types::{KeyValue, QueryCursor};
 
-use crate::qos::Lane;
 use crate::HostError;
 
 /// The cursor binding tag of a record walk page.
@@ -303,26 +302,4 @@ pub(super) fn page_filter_for(
         }
         _ => HashRangeFilter::Page { offset, limit },
     }
-}
-
-/// Select fallback admission from the key filter and page limit.
-/// Unkeyed administrative reads always use Bulk; other shapes retain the
-/// existing page-size policy.
-pub(super) fn lane_for_unknown_cardinality(query: &Query) -> Lane {
-    if !query
-        .filter
-        .as_ref()
-        .is_some_and(HashRangeFilter::is_key_restricted)
-    {
-        // Administrative inspection may need to reject many other-layout
-        // candidates before it can return even one record.
-        return Lane::Bulk;
-    }
-    let limit = match &query.filter {
-        Some(HashRangeFilter::Page { limit, .. } | HashRangeFilter::PageAfter { limit, .. }) => {
-            *limit
-        }
-        _ => return Lane::Interactive,
-    };
-    Lane::for_page_limit(limit)
 }

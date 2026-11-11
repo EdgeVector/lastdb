@@ -442,9 +442,8 @@ def main():
     require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
     output.mkdir(mode=0o700)
     node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
-                environment={"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "1",
-                             # The TTL sweep runs from the sampler tick.
-                             "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
+                environment={"LASTDB_TTL_SWEEP": "1",
+                             "LASTDB_TTL_SWEEP_INTERVAL_SECS": "1",
                              "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
                              "EXEMEM_API_URL": "http://127.0.0.1:9",
                              "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})

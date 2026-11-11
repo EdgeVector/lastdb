@@ -35,7 +35,7 @@ use status_ops_cmds::*;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -120,26 +120,6 @@ fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf,
     Ok((home, socket))
 }
 
-/// Header line that states how old the sampler snapshot behind `lastdb admin ops` is.
-///
-/// The daemon republishes the snapshot about once per sample interval (60 s by
-/// default), so traffic from the last minute can be missing. Without an age
-/// the reader takes old numbers as current.
-fn sampler_snapshot_age_line(last_sample_at: Option<u64>, now_secs: u64, socket: &Path) -> String {
-    let age = match last_sample_at {
-        None => "sampler has not run yet".to_string(),
-        Some(at) if at > now_secs => {
-            format!("sampled {} s in the future (clock skew)", at - now_secs)
-        }
-        Some(at) => format!("snapshot {} s old", now_secs - at),
-    };
-    format!(
-        "Snapshot: {age} (sampler republishes about every {} s) from {}",
-        lastdb_node::self_metrics::sample_interval_from_env().as_secs(),
-        socket.display()
-    )
-}
-
 fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
     let message = match action {
         ServiceHomeCommand::Set { home } => lastdb_node::service_home::set_configured_home(&home),
@@ -153,7 +133,6 @@ fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
 fn run(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Status {
         json: false,
-        contract: false,
         timeout: None,
     });
     if cli.db.is_some()
@@ -171,11 +150,7 @@ fn run(cli: Cli) -> Result<(), String> {
         return Err("--db requires get, get-keys, mutate, schema show, or Files list/save".into());
     }
     match command {
-        Command::Status {
-            json,
-            contract,
-            timeout,
-        } => match status(cli.data_dir, json, contract, timeout)? {
+        Command::Status { json, timeout } => match status(cli.data_dir, json, timeout)? {
             StatusRun::Serving => Ok(()),
             StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
         },

@@ -1,34 +1,16 @@
 //! Fixed route table for single-method, exact-path routes.
-//!
-//! One row per `(path, scope, method)`. [`super::route`] consults the table
-//! after its few hand-written arms (health, version, multi-method and
-//! prefix-matched paths). A row with [`Scope::Owner`] exists only on the owner
-//! socket: on the app socket the path is unrecognized and falls through to
-//! `NotFound`. Owner-only rows are absent on the app socket.
 
 use super::DataRoute;
 
-/// Which sockets serve a table row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Scope {
-    /// Both the owner socket and the app socket.
-    Both,
-    /// The owner socket only.
-    Owner,
-}
-
-/// One exact-path, single-method data route.
 pub(super) struct Row {
     pub(super) path: &'static str,
-    pub(super) scope: Scope,
     pub(super) method: &'static str,
     pub(super) route: DataRoute,
 }
 
-const fn row(path: &'static str, scope: Scope, method: &'static str, route: DataRoute) -> Row {
+const fn row(path: &'static str, method: &'static str, route: DataRoute) -> Row {
     Row {
         path,
-        scope,
         method,
         route,
     }
@@ -36,37 +18,30 @@ const fn row(path: &'static str, scope: Scope, method: &'static str, route: Data
 
 #[rustfmt::skip]
 pub(super) static EXACT_ROUTES: &[Row] = &[
-    row("/api/schemas", Scope::Both, "GET", DataRoute::ListSchemas),
-    row("/api/list", Scope::Both, "GET", DataRoute::ListRecordKeys),
-    row("/api/schemas/declare", Scope::Owner, "POST", DataRoute::DeclareSchema),
-    row("/api/schemas/seed-system", Scope::Owner, "POST", DataRoute::SeedSystemSchema),
-    row("/api/schemas/retire-name-claim", Scope::Owner, "POST", DataRoute::RetireSchemaNameClaim),
-    row("/api/schemas/drop", Scope::Owner, "POST", DataRoute::DropSchema),
-    row("/api/status", Scope::Owner, "GET", DataRoute::Status),
-    row("/api/admin/shed", Scope::Owner, "POST", DataRoute::AdminShed),
-    row("/api/db/inventory", Scope::Owner, "GET", DataRoute::DbInventory),
-    row("/api/db/schemas", Scope::Owner, "GET", DataRoute::DbSchemas),
-    row("/api/db/flush", Scope::Owner, "POST", DataRoute::DbFlush),
-    row("/api/db/delete-ledger", Scope::Owner, "GET", DataRoute::DbDeleteLedger),
-    row("/api/db/schema-retention", Scope::Owner, "POST", DataRoute::DbSchemaRetention),
-    row("/api/db/put-blob", Scope::Owner, "POST", DataRoute::DbPutBlob),
-    row("/api/db/fetch-blob", Scope::Owner, "POST", DataRoute::DbFetchBlob),
-    row("/api/db/delete-blob", Scope::Owner, "POST", DataRoute::DbDeleteBlob),
-    row("/api/sync/byte-backup-v2", Scope::Owner, "POST", DataRoute::SyncByteBackupV2),
-    row("/api/sync/byte-backup-v2/connect", Scope::Owner, "POST", DataRoute::SyncByteBackupV2Connect),
-    row("/api/sync/shared-snapshot", Scope::Owner, "POST", DataRoute::SyncSharedSnapshot),
-    row("/api/sharing/snapshot", Scope::Owner, "POST", DataRoute::DeliverSnapshot),
-    row("/api/query", Scope::Both, "POST", DataRoute::Query),
-    row("/api/mutation", Scope::Both, "POST", DataRoute::Mutation),
-    row("/api/mutations/batch", Scope::Both, "POST", DataRoute::MutationBatch),
-    row("/api/queries/batch", Scope::Both, "POST", DataRoute::QueryBatch),
-    row("/api/local-watch", Scope::Both, "GET", DataRoute::LocalWatch),
-    row("/api/app/changes", Scope::Both, "POST", DataRoute::AppChanges),
-    row("/api/app/search", Scope::Both, "POST", DataRoute::AppSearch),
-    row("/api/system/auto-identity", Scope::Owner, "GET", DataRoute::AutoIdentity),
-    row("/api/system/boot-identity", Scope::Owner, "GET", DataRoute::BootIdentity),
-    row("/api/system/boot-ledger", Scope::Owner, "GET", DataRoute::BootLedger),
-    row("/api/native-index/embeddings", Scope::Both, "POST", DataRoute::NativeIndexAppVectorPut),
-    row("/api/native-index/knn", Scope::Both, "POST", DataRoute::NativeIndexKnn),
-    row("/api/search/query", Scope::Both, "GET", DataRoute::SearchAppQuery),
+    row("/api/schemas", "GET", DataRoute::ListSchemas),
+    row("/api/list", "GET", DataRoute::ListRecordKeys),
+    row("/api/schemas/declare", "POST", DataRoute::DeclareSchema),
+    row("/api/schemas/seed-system", "POST", DataRoute::SeedSystemSchema),
+    row("/api/schemas/retire-name-claim", "POST", DataRoute::RetireSchemaNameClaim),
+    row("/api/schemas/drop", "POST", DataRoute::DropSchema),
+    row("/api/status", "GET", DataRoute::Status),
+    row("/api/admin/shed", "POST", DataRoute::AdminShed),
+    row("/api/db/inventory", "GET", DataRoute::DbInventory),
+    row("/api/db/schemas", "GET", DataRoute::DbSchemas),
+    row("/api/db/flush", "POST", DataRoute::DbFlush),
+    row("/api/db/delete-ledger", "GET", DataRoute::DbDeleteLedger),
+    row("/api/db/schema-retention", "POST", DataRoute::DbSchemaRetention),
+    row("/api/db/put-blob", "POST", DataRoute::DbPutBlob),
+    row("/api/db/fetch-blob", "POST", DataRoute::DbFetchBlob),
+    row("/api/db/delete-blob", "POST", DataRoute::DbDeleteBlob),
+    row("/api/sync/byte-backup-v2", "POST", DataRoute::SyncByteBackupV2),
+    row("/api/sync/byte-backup-v2/connect", "POST", DataRoute::SyncByteBackupV2Connect),
+    row("/api/sync/shared-snapshot", "POST", DataRoute::SyncSharedSnapshot),
+    row("/api/query", "POST", DataRoute::Query),
+    row("/api/mutation", "POST", DataRoute::Mutation),
+    row("/api/mutations/batch", "POST", DataRoute::MutationBatch),
+    row("/api/queries/batch", "POST", DataRoute::QueryBatch),
+    row("/api/app/changes", "POST", DataRoute::AppChanges),
+    row("/api/system/auto-identity", "GET", DataRoute::AutoIdentity),
+    row("/api/system/boot-identity", "GET", DataRoute::BootIdentity),
 ];
