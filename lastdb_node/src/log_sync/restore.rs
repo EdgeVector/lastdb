@@ -1,10 +1,12 @@
 //! Fetch one signed snapshot chain and install it.
 //!
-//! `delivery/snapshot` walks the chain and returns each part. `delivery/object`
-//! returns standard-base64 ciphertext ranges. `named_snapshot_restore::install`
-//! writes the sibling store and does not acknowledge. A personal database
-//! does not call these routes. `note_snapshot` is not called: that reader is
-//! not a committed function. This module does not edit `registry.json`.
+//! `delivery/snapshot` returns one manifest. The tip request omits
+//! `snapshot_ref`. Each ancestor is its own request. A part request sends
+//! `snapshot_ref` and `part`. `delivery/object` returns standard-base64
+//! ciphertext ranges. `named_snapshot_restore::install` writes the sibling
+//! store and does not acknowledge. A personal database does not call these
+//! routes. `note_snapshot` is not called: that reader is not a committed
+//! function. This module does not edit `registry.json`.
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -22,6 +24,8 @@ use super::cloud::CloudLog;
 use super::paths;
 
 const OBJECT_RANGE: u64 = 180 * 1024;
+/// Same bound as `named_snapshot_restore` chain order.
+const CHAIN_LIMIT: usize = 1024;
 
 pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<Recovery, LogError> {
     if !log.named() {
@@ -63,27 +67,42 @@ async fn install(log: CloudLog) -> Result<u64, LogError> {
 }
 
 async fn walk(log: &CloudLog) -> Result<Vec<SnapshotManifest>, LogError> {
-    let body = canonical_bytes(&WalkRequest {
+    let mut chain = Vec::new();
+    let mut next: Option<String> = None;
+    loop {
+        if chain.len() >= CHAIN_LIMIT {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        let manifest = one_manifest(log, next.as_deref()).await?;
+        if chain
+            .iter()
+            .any(|seen: &SnapshotManifest| seen.snapshot_ref == manifest.snapshot_ref)
+        {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        let previous = manifest.previous_ref.clone();
+        chain.push(manifest);
+        match previous {
+            Some(reference) if !reference.is_empty() => next = Some(reference),
+            _ => return Ok(chain),
+        }
+    }
+}
+
+async fn one_manifest(
+    log: &CloudLog,
+    snapshot_ref: Option<&str>,
+) -> Result<SnapshotManifest, LogError> {
+    let body = canonical_bytes(&ManifestRequest {
         database_id: log.database_id(),
-        walk: true,
+        snapshot_ref,
     })
     .map_err(|_| LogError::UnexpectedOutcome)?;
     let raw = log
         .post_named(paths::DELIVERY_SNAPSHOT, body)
         .await
         .map_err(|_| LogError::UnexpectedOutcome)?;
-    let page: WalkBody = serde_json::from_slice(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
-    if !page.complete || page.chain.is_empty() || page.database_id != log.database_id() {
-        return Err(LogError::UnexpectedOutcome);
-    }
-    page.chain
-        .iter()
-        .map(|item| {
-            let bytes = serde_json::to_vec(item).map_err(|_| LogError::UnexpectedOutcome)?;
-            named_snapshot_restore::manifest_from_json(&bytes)
-                .map_err(|_| LogError::UnexpectedOutcome)
-        })
-        .collect()
+    named_snapshot_restore::manifest_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)
 }
 
 async fn objects(
@@ -234,17 +253,10 @@ fn decode_range(raw: &[u8], database_id: &str) -> Result<RangeBytes, RestoreErro
 }
 
 #[derive(Serialize)]
-struct WalkRequest<'a> {
+struct ManifestRequest<'a> {
     database_id: &'a str,
-    walk: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WalkBody {
-    database_id: String,
-    complete: bool,
-    chain: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot_ref: Option<&'a str>,
 }
 
 #[derive(Serialize)]
