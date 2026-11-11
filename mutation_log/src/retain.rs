@@ -86,10 +86,7 @@ impl LogState {
         let floor = self.covered_floor(now_ms)?;
         let mut next = self.clone();
         let dropped = drop_covered(&mut next, floor, now_ms);
-        retain_submission_records(&mut next, now_ms);
-        let records_changed =
-            next.rejected != self.rejected || next.submission_records != self.submission_records;
-        if !dropped && !records_changed && floor == self.trimmed_through {
+        if !dropped && floor == self.trimmed_through {
             return Ok(self.clone());
         }
         next.trimmed_through = floor;
@@ -284,27 +281,6 @@ fn note_dropped(state: &mut LogState, stored: &StoredEntry, now_ms: u64) {
             },
         );
     }
-}
-
-fn retain_submission_records(state: &mut LogState, now_ms: u64) {
-    let stored: Vec<(Writer, u64)> = state
-        .entries
-        .iter()
-        .map(|row| (row.entry.writer.clone(), row.entry.writer_seq))
-        .collect();
-    state
-        .submission_records
-        .retain(|key, record| keep_submission_record(stored.contains(key), record.time_ms, now_ms));
-}
-
-/// Records stay for the life of the log. A record whose entry is still
-/// stored is kept even if [`forget_dropped_record`] changes.
-fn keep_submission_record(entry_stored: bool, dropped_at_ms: u64, now_ms: u64) -> bool {
-    entry_stored || !forget_dropped_record(dropped_at_ms, now_ms)
-}
-
-fn forget_dropped_record(_dropped_at_ms: u64, _now_ms: u64) -> bool {
-    false
 }
 
 fn basis_entry(state: &LogState, stored: &StoredEntry, policy: &impl NamespacePolicy) -> bool {

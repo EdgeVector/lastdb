@@ -87,7 +87,7 @@ stays `SubmissionRejected` and a later drop is not recorded as expired.
 When trim drops the entry, the log keeps one record: the writer, the writer
 sequence, rejected or expired, and the time the entry was dropped. The
 record has no payload. Records are kept for the life of the log, so a later
-retry is never a duplicate. That keep-forever choice is one function. The
+retry is never a duplicate. Trim does not remove them. The
 `incorporated` set is stored with the log. Trim drops a key when the
 submission it names is dropped. A persistent adapter stores the sets
 alongside the log.
