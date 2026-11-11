@@ -253,17 +253,16 @@ fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
     };
     let mut databases = vec![database_owned::row(&owner)];
     databases.extend(owned.iter().map(database_owned::row));
-    databases.extend(shares.iter().map(database));
+    databases.extend(shares.iter().map(|share| database(&host.home, share)));
     json_ok(&envelope(&json!({ "databases": databases }), &ctx.user_id))
 }
 
-fn database(share: &RegisteredShare) -> Value {
+fn database(home: &std::path::Path, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
-    value["state"] = json!(if share.signed_log || share.snapshot.is_some() {
-        "ready"
-    } else {
-        "restoring"
-    });
+    let ready = (!share.signed_log && share.snapshot.is_some())
+        || (share.signed_log
+            && crate::named_snapshot_restore::prefix_durable(home, share.id.as_str()));
+    value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!(if share.signed_log {
         "reader"
     } else if share.has_unexpired_contributor_grant() {
@@ -312,7 +311,7 @@ async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRespon
             return error_response(503, "database store is unavailable", ctx);
         }
     }
-    registration_reply(result, ctx)
+    registration_reply(result, ctx, &host.home)
 }
 
 fn attach_contributor(
@@ -336,6 +335,7 @@ fn attach_contributor(
     registration_reply(
         registered_share::attach_contributor(&host.home, selector, &sealed),
         ctx,
+        &host.home,
     )
 }
 
@@ -359,11 +359,12 @@ fn decode_sealed(text: &str, limit: usize) -> Result<Vec<u8>, ()> {
 fn registration_reply(
     result: Result<RegisteredShare, crate::share_cache::ShareCacheError>,
     ctx: &AccessContext,
+    home: &std::path::Path,
 ) -> UdsResponse {
     use crate::share_cache::ShareCacheError;
     match result {
         Ok(share) => json_ok(&envelope(
-            &json!({ "database": database(&share) }),
+            &json!({ "database": database(home, &share) }),
             &ctx.user_id,
         )),
         Err(ShareCacheError::Invalid("database selector")) => {

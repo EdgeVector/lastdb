@@ -11,6 +11,9 @@ use serde::Deserialize;
 use super::types::{IncorporatedFrom, SnapshotEntry, SnapshotManifest, SnapshotPart};
 use super::RestoreError;
 
+/// G0 Exemem `SNAPSHOT_PART_RESPONSE_MAX_BYTES`. Snapshot part JSON only.
+const SNAPSHOT_PART_JSON_MAX_BYTES: usize = 1024 * 1024;
+
 /// Parse one manifest body. The input is capped at I's control JSON limit.
 pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError> {
     let body: ManifestBody = decode(bytes)?;
@@ -27,9 +30,15 @@ pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError
 }
 
 /// Parse one part body, including the entry array stored in `part`.
+///
+/// The response may be 1 MiB. Manifests stay on the control JSON limit.
 pub fn part_from_json(bytes: &[u8]) -> Result<SnapshotPart, RestoreError> {
-    let body: PartBody = decode(bytes)?;
-    if body.part.len() as u64 > CONTROL_JSON_MAX_BYTES {
+    if bytes.len() > SNAPSHOT_PART_JSON_MAX_BYTES {
+        return Err(RestoreError::Chain("snapshot json"));
+    }
+    let body: PartBody =
+        serde_json::from_slice(bytes).map_err(|_| RestoreError::Chain("snapshot json"))?;
+    if body.part.len() > SNAPSHOT_PART_JSON_MAX_BYTES {
         return Err(RestoreError::Chain("snapshot json"));
     }
     let docs: Vec<EntryDoc> =

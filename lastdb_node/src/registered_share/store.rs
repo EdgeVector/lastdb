@@ -1,9 +1,9 @@
 //! Receiver FoldDB for one signed-log share.
 //!
 //! The store is `<home>/received-shares-v1/<id>/log`. Its AES key is the
-//! publication key inside the stored invitation. E2 installs into this scope
-//! through [`receiver_store`]. This is not `databases/<id>/data` and not the
-//! personal store. There is no raw key file.
+//! publication key inside the stored invitation. Snapshot install opens this
+//! store through [`receiver_store`]. This is not `databases/<id>/data` and not
+//! the personal store. There is no raw key file and no second log store.
 
 use crate::byte_cloud_restore::MANAGED_SHARE_DIRECTORY;
 use crate::host::Host;
