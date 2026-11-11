@@ -74,7 +74,7 @@ pub struct SnapshotEntry {
     pub namespace: String,
     /// Incorporation source, when the entry was copied forward.
     pub incorporated_from: Option<IncorporatedFrom>,
-    /// Canonical record bytes, unpadded URL-safe base64.
+    /// Envelope bytes, unpadded URL-safe base64. Not canonical JSON.
     pub payload_b64: String,
 }
 
@@ -114,7 +114,7 @@ pub struct SnapshotFileRequest {
 /// Reads one record blob. E implements this. The installer does not.
 #[async_trait]
 pub trait SnapshotFileSource: Send {
-    /// Return the plaintext bytes for one blob path.
+    /// Return the stored fragment bytes. They are an envelope, not plaintext.
     async fn read_blob(&mut self, request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError>;
 }
 
@@ -131,7 +131,7 @@ impl SnapshotFileSource for NoSnapshotFiles {
 /// Static install failure. The text is a class, never record bytes or a path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestoreError {
-    /// The database id is not an open owned sibling.
+    /// The database id is not an open named database with a verified content key.
     Scope(&'static str),
     /// The chain, manifest, or part bytes are not acceptable.
     Chain(&'static str),

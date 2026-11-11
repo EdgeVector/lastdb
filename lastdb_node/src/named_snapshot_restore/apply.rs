@@ -2,9 +2,10 @@
 
 use std::path::Path;
 
-use cloud_backup_protocol::bytes_sha256;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
+
+use crate::log_envelope::DatabaseContentKey;
 
 use super::chain::Link;
 use super::decode::{self, FileSource, PreparedFile};
@@ -14,6 +15,7 @@ use super::RestoreError;
 
 pub(super) async fn replay(
     store: &FoldDB,
+    key: &DatabaseContentKey,
     home: &Path,
     database_id: &str,
     chain: &[Link],
@@ -25,7 +27,7 @@ pub(super) async fn replay(
         let link = &chain[index];
         pin_object(home, journal, link)?;
         if !object_closed(journal, link) {
-            drive_object(store, home, database_id, link, journal, files).await?;
+            drive_object(store, key, home, database_id, link, journal, files).await?;
         }
         journal
             .applied_refs
@@ -41,6 +43,7 @@ pub(super) async fn replay(
 
 async fn drive_object(
     store: &FoldDB,
+    key: &DatabaseContentKey,
     home: &Path,
     database_id: &str,
     link: &Link,
@@ -61,7 +64,16 @@ async fn drive_object(
             continue;
         }
         let entry = journal.next_entry as usize;
-        apply_one(store, home, database_id, journal, &entries[entry], files).await?;
+        apply_one(
+            store,
+            key,
+            home,
+            database_id,
+            journal,
+            &entries[entry],
+            files,
+        )
+        .await?;
         journal.next_entry += 1;
         journal.attempt = None;
         if journal.next_entry as usize == entries.len() {
@@ -73,13 +85,14 @@ async fn drive_object(
 
 async fn apply_one(
     store: &FoldDB,
+    key: &DatabaseContentKey,
     home: &Path,
     database_id: &str,
     journal: &mut Journal,
     entry: &SnapshotEntry,
     files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    let mut prepared = decode::decode_entry(database_id, entry)?;
+    let mut prepared = decode::decode_entry(key, database_id, entry)?;
     let hash = prepared.hash.clone();
     let mutation_id = prepared.mutation.uuid.clone();
     if let journal::Marker::Applied = journal::read_marker(home, database_id, &mutation_id, &hash)?
@@ -96,7 +109,16 @@ async fn apply_one(
         journal::save(home, journal)?;
     }
     if let Some(file) = prepared.file.take() {
-        seal_into(store, &mut prepared.mutation, file, files).await?;
+        seal_into(
+            store,
+            key,
+            database_id,
+            entry,
+            &mut prepared.mutation,
+            file,
+            files,
+        )
+        .await?;
     }
     write_record(store, home, journal, prepared.mutation, resumed).await?;
     journal::write_marker(home, database_id, &mutation_id, &hash)
@@ -144,6 +166,9 @@ fn resumed(journal: &Journal, hash: &str) -> Result<bool, RestoreError> {
 
 async fn seal_into(
     store: &FoldDB,
+    key: &DatabaseContentKey,
+    database_id: &str,
+    entry: &SnapshotEntry,
     mutation: &mut Mutation,
     file: PreparedFile,
     files: &mut (dyn SnapshotFileSource + Send),
@@ -155,7 +180,7 @@ async fn seal_into(
         sha256,
         source,
     } = file;
-    let plain = file_bytes(source, size_bytes, &sha256, files).await?;
+    let plain = file_bytes(key, database_id, entry, source, size_bytes, &sha256, files).await?;
     let sealed = store
         .db_ops()
         .records()
@@ -183,6 +208,9 @@ fn sealed_marker(
 }
 
 async fn file_bytes(
+    key: &DatabaseContentKey,
+    database_id: &str,
+    entry: &SnapshotEntry,
     source: FileSource,
     size_bytes: u64,
     sha256: &str,
@@ -190,14 +218,22 @@ async fn file_bytes(
 ) -> Result<Vec<u8>, RestoreError> {
     let plain = match source {
         FileSource::Inline(bytes) => bytes,
-        FileSource::Object(request) => files.read_blob(&request).await?,
+        FileSource::Object(request) => {
+            let sealed = files.read_blob(&request).await?;
+            decode::open_sealed(
+                key,
+                database_id,
+                entry,
+                &sealed,
+                RestoreError::File("snapshot file"),
+            )?
+        }
     };
-    if u64::try_from(plain.len()).ok() != Some(size_bytes)
-        || bytes_sha256(&plain).as_str() != sha256
-    {
-        return Err(RestoreError::File("snapshot file"));
+    if decode::plain_matches(&plain, size_bytes, sha256) {
+        Ok(plain)
+    } else {
+        Err(RestoreError::File("snapshot file"))
     }
-    Ok(plain)
 }
 
 fn pin_object(home: &Path, journal: &mut Journal, link: &Link) -> Result<(), RestoreError> {
