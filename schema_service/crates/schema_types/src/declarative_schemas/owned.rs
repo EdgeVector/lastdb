@@ -1,32 +1,17 @@
-//! Owned app declarations: the one normalization of an app's schema.
-//!
-//! The LastDB node runs this when an app declares a schema. One
-//! implementation gives one identity hash for one declaration.
-
-use serde_json::Value;
+//! Owned app declaration normalization and key-field type resolution.
 
 use super::DeclarativeSchemaDefinition;
+use crate::FieldValueType;
+use serde_json::Value;
+use std::collections::BTreeMap;
 
-/// Where an owned declaration resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedDeclaration {
-    /// The owning app id: the trimmed namespace.
     pub namespace: String,
-    /// The local schema id, `<namespace>/<local name>`.
     pub local_schema_id: String,
 }
 
 impl DeclarativeSchemaDefinition {
-    /// Normalize a declaration owned by `namespace`: name `<namespace>/<name>`,
-    /// `owner_app_id`, a default `descriptive_name`, and the identity hash.
-    ///
-    /// `namespace_label` names the request field in error text (`app_id` or
-    /// `namespace`). The checks run in a fixed order and the error text is
-    /// stable, because the node returns it to the declaring app.
-    ///
-    /// # Errors
-    /// A bad namespace or name, an invalid owned schema or definition, a
-    /// missing identity hash, an empty or blank field list, or an untyped field.
     pub fn normalize_owned_declaration(
         &mut self,
         namespace_label: &str,
@@ -64,7 +49,8 @@ impl DeclarativeSchemaDefinition {
         self.name.clone_from(&local_schema_id);
         self.validate_owned_schema()?;
         self.compute_identity_hash();
-        self.validate_runtime_definition()?;
+        self.validate_definition()
+            .map_err(|error| format!("Invalid data: {error}"))?;
         if self.get_identity_hash().is_none() {
             return Err("schema identity hash missing after compute_identity_hash".into());
         }
@@ -75,14 +61,10 @@ impl DeclarativeSchemaDefinition {
         })
     }
 
-    /// Drop declared field hashes so an owned schema computes them from its
-    /// own declaration.
     pub fn reset_field_hashes(&mut self) {
         self.field_hashes.clear();
     }
 
-    /// The normalization every wire load applies: `hash` and `superseded_by`
-    /// are not carried, and an `owner_app_id` without an identity hash gets one.
     pub fn normalize_wire(&mut self) {
         self.hash = None;
         self.superseded_by = None;
@@ -91,15 +73,6 @@ impl DeclarativeSchemaDefinition {
         }
     }
 
-    /// The definition check a node runs when it loads a schema. The text
-    /// matches the node's `Invalid data` error for the same failure.
-    fn validate_runtime_definition(&self) -> Result<(), String> {
-        self.validate_definition()
-            .map_err(|error| format!("Invalid data: {error}"))
-    }
-
-    /// Every field is named and names its type
-    /// (`decision-2026-11-02-field-types-no-any`).
     pub(super) fn require_typed_fields(&self) -> Result<(), String> {
         let fields = self.fields.as_deref().unwrap_or_default();
         if (fields.is_empty() && self.record_keys.is_none())
@@ -121,18 +94,105 @@ impl DeclarativeSchemaDefinition {
             ))
         }
     }
+
+    #[must_use]
+    pub fn key_field_type(&self, path: &str) -> FieldValueType {
+        if let Some(field_type) = self.field_types.get(path) {
+            return field_type.clone();
+        }
+        path.split_once('.')
+            .and_then(|(root, child)| {
+                self.field_types
+                    .get(root)
+                    .and_then(|ty| nested_type(ty, child))
+            })
+            .unwrap_or(FieldValueType::Any)
+    }
+
+    pub fn validate_key_field_types(&self) -> Result<(), String> {
+        for path in self
+            .key
+            .iter()
+            .flat_map(|key| key.hash_field.iter().map(String::as_str))
+        {
+            let temporal = if let Some(field_type) = self.field_types.get(path) {
+                temporal_at_path(field_type, None)
+            } else if let Some((root, child)) = path.split_once('.') {
+                self.field_types
+                    .get(root)
+                    .is_some_and(|field_type| temporal_at_path(field_type, Some(child)))
+            } else {
+                false
+            };
+            if temporal {
+                return Err(format!(
+                    "key field '{path}' uses Date or DateTime outside a typed range contract"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
-/// Parse one schema definition from a JSON value.
-///
-/// Every caller in the Schema Service Lambda parses a definition from a
-/// `Value` through this one function. A generic `from_value` call in each
-/// crate compiles its own copy of the definition deserializer (about 48 KB),
-/// and the Lambda zip has a 15 MiB bar, so this stays out of line.
-///
-/// # Errors
-/// The value is not a schema definition.
 #[inline(never)]
 pub fn schema_from_value(value: Value) -> Result<DeclarativeSchemaDefinition, serde_json::Error> {
     serde_json::from_value(value)
+}
+
+fn nested_type(field_type: &FieldValueType, path: &str) -> Option<FieldValueType> {
+    match field_type {
+        FieldValueType::Object(fields) => Some(
+            fields
+                .get(path)
+                .cloned()
+                .or_else(|| {
+                    path.split_once('.').and_then(|(root, child)| {
+                        fields.get(root).and_then(|ty| nested_type(ty, child))
+                    })
+                })
+                .unwrap_or(FieldValueType::Any),
+        ),
+        FieldValueType::Map(value_type) => Some((**value_type).clone()),
+        FieldValueType::Any => Some(FieldValueType::Any),
+        FieldValueType::OneOf(variants) => {
+            let types: Vec<_> = variants
+                .iter()
+                .filter_map(|ty| nested_type(ty, path))
+                .collect();
+            match types.as_slice() {
+                [] => None,
+                [only] => Some(only.clone()),
+                _ => Some(FieldValueType::OneOf(types)),
+            }
+        }
+        _ => None,
+    }
+}
+
+fn temporal_at_path(field_type: &FieldValueType, child: Option<&str>) -> bool {
+    match (field_type, child) {
+        (FieldValueType::Date | FieldValueType::DateTime, None) => true,
+        (FieldValueType::OneOf(variants), _) => variants
+            .iter()
+            .any(|variant| temporal_at_path(variant, child)),
+        (FieldValueType::Object(fields), Some(path)) => temporal_in_object(fields, path),
+        (FieldValueType::Map(value_type), Some(path)) => {
+            temporal_at_path(value_type, None)
+                || path
+                    .split_once('.')
+                    .is_some_and(|(_, child)| temporal_at_path(value_type, Some(child)))
+        }
+        _ => false,
+    }
+}
+
+fn temporal_in_object(fields: &BTreeMap<String, FieldValueType>, path: &str) -> bool {
+    if let Some(field_type) = fields.get(path) {
+        return temporal_at_path(field_type, None);
+    }
+    path.split_once('.').is_some_and(|(root, child)| {
+        fields
+            .get(root)
+            .is_some_and(|field_type| temporal_at_path(field_type, Some(child)))
+    })
 }

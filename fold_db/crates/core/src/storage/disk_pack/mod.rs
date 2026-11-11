@@ -161,35 +161,6 @@ impl PackNamespacedStore {
         Self::open_run(path, node_key)
     }
 
-    /// Open an existing v2 node home for an offline tool. The home must be
-    /// complete: it refuses a home whose creation has not written its
-    /// key-format proofs. It never creates a home or finishes a creation;
-    /// the node does those when it starts.
-    pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_complete_existing(path, node_key, true)
-    }
-
-    /// A stopped-home backup owns both native homes without a logical database
-    /// boot or merge worker. Capture may write only its normal backup metadata.
-    pub fn open_existing_for_backup(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_complete_existing(path, node_key, false)
-    }
-
-    fn open_complete_existing(
-        path: &Path,
-        node_key: &[u8; 32],
-        resume_merges: bool,
-    ) -> StorageResult<Self> {
-        if !path.join(NODE_MARKER).try_exists()? || run_node::creation_pending(path)? {
-            return Err(StorageError::InvalidOperation(format!(
-                "an offline tool needs a complete node home at {}; start the node once, then \
-                 stop it",
-                path.display()
-            )));
-        }
-        Self::open_run_with_merges(path, Some(node_key), resume_merges)
-    }
-
     /// One runtime over an opened physical home and its published root.
     fn assemble(
         physical: physical::V2Home,
@@ -246,11 +217,4 @@ impl PackNamespacedStore {
     pub fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
         Arc::clone(&self.runtime)
     }
-}
-
-/// Explicit stopped-home backup bootstrap. Consumers receive physical backup,
-/// status and coordination rights, never a logical namespace factory.
-pub fn open_backup_runtime(path: &Path, node_key: &[u8; 32]) -> StorageResult<Arc<PackRuntime>> {
-    let store = PackNamespacedStore::open_existing_for_backup(path, node_key)?;
-    Ok(store.runtime)
 }

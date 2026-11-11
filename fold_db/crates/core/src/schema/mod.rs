@@ -1,36 +1,10 @@
-//! # Schema System
-//!
-//! The schema module defines the structure and behavior of data in the FoldDB system.
-//! Schemas define fields, their types, permissions, and payment requirements.
-//!
-//! ## Components
-//!
-//! * `core` - Core schema functionality including loading, validation, and field mapping
-//! * `types` - Schema-related data structures and type definitions
-//!
-//! ## Architecture
-//!
-//! Schemas in FoldDB define the structure of data and the operations that can be
-//! performed on it. Each schema has a name and a set of fields, each with its own
-//! type, permissions, and payment requirements.
-//!
-//! The schema system supports field mapping between schemas, allowing fields from
-//! one schema to reference fields in another. This creates a graph-like structure
-//! of related data across schemas.
-//!
-//! Schemas are loaded from JSON definitions, validated, and then used to process
-//! queries and mutations against the database.
+//! Schema registry, retention policies, and core behaviors over `lastdb_model::schema`.
 
-// Internal modules
 pub mod core;
-
 pub mod manifest_retention;
-pub mod mutation_author;
 pub mod schema_types;
-/// Model types from `lastdb_model`, plus the core behavior over them.
 pub mod types;
 
-// Public re-exports
 pub use core::SchemaCore;
 pub use lastdb_model::schema::logical_rules::{require_logical_filter, require_logical_layout};
 pub use manifest_retention::{
@@ -42,3 +16,15 @@ pub use schema_types::{
     RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
 };
 pub use types::{Schema, SchemaError};
+
+pub mod mutation_author {
+    use crate::schema::types::author_clock::mutation_author_canonical_bytes;
+    use crate::schema::types::Mutation;
+    use crate::security::{Ed25519KeyPair, KeyUtils};
+
+    #[must_use]
+    pub fn sign_mutation_author_clock(mutation: &Mutation, keypair: &Ed25519KeyPair) -> String {
+        let signature = keypair.sign(&mutation_author_canonical_bytes(mutation));
+        KeyUtils::signature_to_base64(&signature)
+    }
+}

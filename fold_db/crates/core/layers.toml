@@ -19,28 +19,25 @@
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, and the crypto and signing primitives. The pure encodings and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
+doc = "Leaf helpers with no domain meaning: the clock, env parsing, and the crypto and signing primitives."
 modules = [
   "clock",
   "crypto",
   "env_flag",
-  "process_cpu",
   "security",
 ]
 
 [[layer]]
 name = "model"
-doc = "The core side of the data model. content_limit and schema::types re-export lastdb_model and add the shell-installed field value limit, caller-supplied mutation ids, and key order context that the model must not hold. Also the shared records, the access context, and the error kinds. No store. No I/O except the peer-credential reads and the manifest TTL floor."
+doc = "The core side of the data model: content_limit, schema::types, access context, and error kinds."
 modules = [
   "access",
   "content_limit",
   "error",
-  "records",
   "schema::manifest_retention",
   "schema::schema_types",
   "schema::types",
   "storage::error",
-  "user_context",
 ]
 
 [[layer]]

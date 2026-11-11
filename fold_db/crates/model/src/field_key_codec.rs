@@ -1,31 +1,13 @@
-//! Native per-key field key storage codec.
-//!
-//! The field key part of a key is `{F}:{esc(hash)}\0{range}`. Alternate keys
-//! (`ak:`) build their keys with it and add their own family prefix. Hash
-//! fields use an empty range; HashRange fields use both coordinates.
-//!
-//! The supplied field key UUID is an exact identity. Reads and writes never
-//! substitute a hex or base64url spelling. Hash blinding binds that same
-//! identity. One fixed key bundle defines each current field key.
-//!
-//! Free key builders take storage-form coordinates. API coordinates pass once
-//! through [`FieldKeyCodec::storage_hash`] and
-//! [`FieldKeyCodec::storage_range`], or through an `api_*` builder. Every
-//! non-empty hash is HMAC-blinded (`blind_v1`) with the field key's blind key.
-//! The hash is byte-stuffed before the separator, so hash prefixes cannot
-//! overlap. The typed range profile of the field key orders its range payloads.
+//! Native per-key field key storage codec (`{F}:{esc(hash)}\0{range}`).
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use schema_types::field_range_profile::FieldRangeProfile;
 use sha2::Sha256;
 
-mod profile;
-mod range_decode;
-
-/// The logical key format of a home: typed range keys. Physical run blocks
-/// keep their own format.
+/// Logical key format marker of a home: typed range keys.
 pub const KEY_FORMAT: &[u8] = b"typed-ranges";
+
 pub fn current_key_format(marker: &[u8]) -> bool {
     marker == KEY_FORMAT
 }
@@ -44,17 +26,7 @@ pub fn derive_blind_key(node_key: &[u8; 32], field_key_id: &str) -> [u8; 32] {
     expand.finalize().into_bytes().into()
 }
 
-/// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
-///
-/// MAC input (exact bytes):
-/// ```text
-/// hk|v1\0{field_key_id}\0{plaintext_hash}
-/// ```
-///
-/// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
-/// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
-/// `escape_segment` remains safe. `blind_key` is the field key bundle's key.
-/// A pure function of its inputs. `FieldKeyCodec::storage_hash` calls it.
+/// Deterministic storage-facing HashKey token (`hk|v1\0{field_key_id}\0{plaintext_hash}`).
 #[must_use]
 pub fn blind_hash_key(blind_key: &[u8; 32], field_key_id: &str, plaintext_hash: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(blind_key).expect("HMAC accepts any key length");
@@ -67,12 +39,9 @@ pub fn blind_hash_key(blind_key: &[u8; 32], field_key_id: &str, plaintext_hash: 
     URL_SAFE_NO_PAD.encode(&result[..16])
 }
 
-/// Chokepoint: API HashKey/RangeKey → storage segments for one field key.
-///
-/// Free `hash_range_*` builders below take **storage-form** segments.
+/// Chokepoint mapping API `HashKey`/`RangeKey` coordinates to storage segments.
 #[derive(Clone)]
 pub struct FieldKeyCodec {
-    /// The field key's HMAC key for blinded hash segments.
     blind_key: [u8; 32],
     range_profile: FieldRangeProfile,
 }
@@ -103,9 +72,17 @@ impl FieldKeyCodec {
         Self::new(derive_blind_key(node_key, field_key_id), range_profile)
     }
 
-    /// Map API HashKey to storage-form hash segment.
-    ///
-    /// Empty API hash (range-only / Single slots) is never blinded.
+    #[must_use]
+    pub fn range_profile(&self) -> FieldRangeProfile {
+        self.range_profile
+    }
+
+    pub fn require_text_range_prefix(&self) -> Result<(), FieldKeyCodecError> {
+        self.range_profile
+            .require_text_prefix()
+            .map_err(FieldKeyCodecError::InvalidRange)
+    }
+
     pub fn storage_hash(
         &self,
         field_key_id: &str,
@@ -117,8 +94,6 @@ impl FieldKeyCodec {
         Ok(blind_hash_key(&self.blind_key, field_key_id, api_hash))
     }
 
-    /// Map API RangeKey to storage-form range segment: the typed profile
-    /// payload.
     pub fn storage_range(
         &self,
         _field_key_id: &str,
@@ -129,8 +104,12 @@ impl FieldKeyCodec {
             .map_err(FieldKeyCodecError::InvalidRange)
     }
 
-    /// An ordered range prefix that can safely precede a NUL member delimiter.
-    /// Stuffing both control bytes preserves order and arbitrary UTF-8 prefixes.
+    pub fn api_range(&self, stored: &str) -> Result<String, FieldKeyCodecError> {
+        self.range_profile
+            .decode_value(stored)
+            .map_err(FieldKeyCodecError::InvalidRange)
+    }
+
     pub fn api_hash_range_member_prefix(
         &self,
         field_key_id: &str,
@@ -146,7 +125,6 @@ impl FieldKeyCodec {
         ))
     }
 
-    /// `{F}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.
     pub fn api_hash_range_scan_prefix_for_hash(
         &self,
         field_key_id: &str,
@@ -160,7 +138,6 @@ impl FieldKeyCodec {
 /// Errors from [`FieldKeyCodec`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKeyCodecError {
-    /// The field key's range profile rejects the coordinate or token.
     InvalidRange(String),
 }
 
@@ -174,13 +151,11 @@ impl std::fmt::Display for FieldKeyCodecError {
 
 impl std::error::Error for FieldKeyCodecError {}
 
-const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
-const ESC: char = '\u{1}'; // escape byte for the hash segment
+const SEP: char = '\u{0}';
+const ESC: char = '\u{1}';
 
-/// Byte-stuff a hash so it contains no `\0` (and no bare `\u{1}`), making the
-/// `\0` separator and the escape unambiguous. `\0 -> \x01\x01`, `\x01 -> \x01\x02`.
+/// Byte-stuff a segment so it contains no `\0` or bare `\u{1}`.
 pub(crate) fn escape_segment(segment: &str) -> String {
-    // Fast path: the overwhelmingly common case has neither control byte.
     if !segment.contains(SEP) && !segment.contains(ESC) {
         return segment.to_string();
     }
@@ -201,7 +176,6 @@ pub(crate) fn escape_segment(segment: &str) -> String {
     out
 }
 
-/// Inverse of [`escape_segment`]. Returns `None` on a malformed escape sequence.
 fn unescape_segment(escaped: &str) -> Option<String> {
     if !escaped.contains(ESC) {
         return Some(escaped.to_string());
@@ -222,5 +196,22 @@ fn unescape_segment(escaped: &str) -> Option<String> {
     Some(out)
 }
 
-mod record_keys;
-pub use record_keys::*;
+/// `{F}:{esc(hash)}\0{range}` — the field key part of a key.
+#[must_use]
+pub fn hash_range_record_key(field_key_id: &str, hash: &str, range: &str) -> String {
+    format!("{field_key_id}:{}{SEP}{range}", escape_segment(hash))
+}
+
+/// `{F}:{esc(hash)}\0` — prefix selecting one hash's ranges in a HashRange field.
+#[must_use]
+pub fn hash_range_scan_prefix_for_hash(field_key_id: &str, hash: &str) -> String {
+    format!("{field_key_id}:{}{SEP}", escape_segment(hash))
+}
+
+/// Parse `{esc(hash)}\0{range}` back into `(hash, range)`.
+#[must_use]
+pub fn decode_hash_range_suffix(suffix: &str) -> Option<(String, String)> {
+    let (esc, range) = suffix.split_once(SEP)?;
+    let hash = unescape_segment(esc)?;
+    Some((hash, range.to_string()))
+}

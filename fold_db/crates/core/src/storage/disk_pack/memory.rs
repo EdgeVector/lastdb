@@ -20,13 +20,6 @@ pub struct NativeMemoryPurgeReport {
 }
 
 impl PackRuntime {
-    /// The publication boundary keeps all warm set measurements on one view.
-    pub fn memory_status(&self) -> StorageResult<NativeMemoryStatus> {
-        let _view = self.view.read().map_err(|_| unavailable())?;
-        let mut core = self.core.lock().map_err(|_| unavailable())?;
-        Ok(measure_core(&mut core))
-    }
-
     /// Keep held records and definitions.
     /// A remaining held allocation can prevent the requested target.
     pub fn purge_clean_memory(&self, target_bytes: u64) -> StorageResult<NativeMemoryPurgeReport> {

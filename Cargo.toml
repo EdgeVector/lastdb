@@ -318,9 +318,6 @@ redundant_clone = "deny"
 # cargo unifies path deps by definition, so there is only one fold_db.
 fold_db = { path = "fold_db/crates/core" }
 lastdb_model = { path = "fold_db/crates/model" }
-# default-features = false at the workspace key so members can opt into
-# `features = ["otel"]` (or leave bare for Lambda light). Package `default =
-# ["otel"]` still applies to path deps that do not go through this key.
 observability = { path = "fold_db/crates/observability", default-features = false }
 schema_types = { path = "schema_service/crates/schema_types" }
 schema_service_core = { path = "schema_service/crates/core" }
@@ -328,8 +325,6 @@ app_identity_crypto = { path = "app_identity_crypto" }
 laststore = { path = "vendor/laststore" }
 
 tracing = "0.1"
-tracing-opentelemetry = "0.28"
-opentelemetry = "0.27"
 http = "1"
 clap = { version = "4.4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -337,7 +332,6 @@ serde_json = { version = "1.0", features = ["raw_value"] }
 semver = "1"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal"] }
 tempfile = "3.8"
-opentelemetry_sdk = "0.27"
 tracing-subscriber = "0.3"
 
 # Promoted from member crates (2026-05-21 audit) — these were each

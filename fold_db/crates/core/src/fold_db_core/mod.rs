@@ -1,24 +1,30 @@
 //! FoldDB Core — embedded database coordinator.
-//!
-//! Layout:
-//! - [`factory`] — production boot (local store stack, decrypt proof, sync attach)
-//! - [`fold_db`] — `FoldDB` struct + accessors / lifecycle / admin surfaces
-//! - [`mutation_manager`] — write path
-//! - [`query`] — query executor + hash-range paths
-//! - [`purge`] — schema/data purge
+
+use async_trait::async_trait;
+pub use cloud_backup_protocol::v2::blobs::BlobPath;
 
 pub mod factory;
 pub mod fold_db;
-
-pub mod query;
-
 pub mod mutation_manager;
 pub mod purge;
-pub mod record_blob_source;
-
-pub use query::QueryExecutor;
-
-pub use mutation_manager::MutationManager;
+pub mod query;
 
 pub use fold_db::FoldDB;
-pub use record_blob_source::{BlobFetch, RecordBlobSource, SIGN_IN_TO_FETCH_FILE};
+pub use mutation_manager::MutationManager;
+pub use query::QueryExecutor;
+
+/// Owner-visible body when a personal home has no saved credentials.
+pub const SIGN_IN_TO_FETCH_FILE: &str = "sign in to fetch this file";
+
+/// Result of one on-demand blob download.
+pub enum BlobFetch {
+    Bytes(Vec<u8>),
+    Absent,
+    Unavailable(String),
+}
+
+/// Downloads the sealed row of one record file version.
+#[async_trait]
+pub trait RecordBlobSource: Send + Sync {
+    async fn fetch(&self, path: &BlobPath, sealed_bytes: u64) -> BlobFetch;
+}

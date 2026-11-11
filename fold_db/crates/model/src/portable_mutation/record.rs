@@ -1,15 +1,20 @@
-use super::{codec, PortableMutationError, Position, Stamp};
+use super::{FileMarker, MutationEntry, MutationOperation, PortableMutationError, Position, Stamp};
 use crate::canonical::CanonicalValue;
-use crate::record_value::{InlineFile, MAX_RECORD_BYTES};
+use crate::record_value::{InlineFile, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES};
 use crate::schema::types::KeyValue;
 use schema_types::record_keys::{RecordKeyDefinition, RecordKeys};
 use serde::ser::SerializeMap;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::io::{self, Write};
 
-/// The range uses the canonical API text of its declared scalar type.
-/// The writer checks it against the installed schema before applying it.
+const ENTRY_FRAMING_BYTES: usize = 4096;
+const MAX_JSON_DEPTH: usize = 132;
+
+pub const MAX_PORTABLE_RECORD_BYTES: usize = MAX_RECORD_BYTES + MAX_INLINE_STORED_BYTES;
+pub const MAX_MUTATION_ENTRY_BYTES: usize = MAX_PORTABLE_RECORD_BYTES + ENTRY_FRAMING_BYTES;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordKey {
@@ -70,40 +75,6 @@ impl From<RecordKey> for KeyValue {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FileMarker {
-    pub version: Position,
-    pub name: Option<String>,
-    pub media_type: Option<String>,
-    pub size_bytes: u64,
-    pub sha256: String,
-}
-
-impl FileMarker {
-    fn validate(&self, record_position: &Position) -> Result<(), PortableMutationError> {
-        self.version.validate()?;
-        if self.sha256.len() != 64
-            || !self
-                .sha256
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            return Err(PortableMutationError::Invalid(
-                "file marker requires a lowercase SHA-256",
-            ));
-        }
-        if self.version.source_stream == record_position.source_stream
-            && self.version.sequence > record_position.sequence
-        {
-            return Err(PortableMutationError::Invalid(
-                "file version cannot follow its record in the same stream",
-            ));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordData {
@@ -113,9 +84,6 @@ pub struct RecordData {
     #[serde(serialize_with = "serialize_metadata")]
     pub metadata: Option<BTreeMap<String, Value>>,
     pub file: Option<FileMarker>,
-    /// The record's inline file travels inside the entry. Omitted when
-    /// absent, so an entry without one keeps its earlier canonical bytes.
-    /// Boxed so a delete operation stays small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_file: Option<Box<InlineFile>>,
 }
@@ -140,8 +108,6 @@ impl RecordData {
         Ok(())
     }
 
-    /// The size cap of the record value: the record cap, plus the room of its
-    /// inline file when it has one.
     #[must_use]
     pub fn max_record_bytes(&self) -> usize {
         MAX_RECORD_BYTES
@@ -223,12 +189,12 @@ impl StoredRecord {
 
     pub fn encode(&self) -> Result<Vec<u8>, PortableMutationError> {
         self.validate()?;
-        codec::encode(self, self.data.max_record_bytes())
+        encode(self, self.data.max_record_bytes())
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PortableMutationError> {
-        let record: Self = codec::parse(bytes, codec::MAX_PORTABLE_RECORD_BYTES)?;
-        codec::require_canonical(bytes, &record.encode()?)?;
+        let record: Self = parse(bytes, MAX_PORTABLE_RECORD_BYTES)?;
+        require_canonical(bytes, &record.encode()?)?;
         Ok(record)
     }
 }
@@ -245,12 +211,163 @@ impl Serialize for StoredRecord {
     }
 }
 
-/// The replacement codec checks the exact bytes of the prospective record
-/// without cloning its fields or allocating a second record body.
 #[derive(Serialize)]
-pub(super) struct RecordValue<'a> {
-    pub(super) primary_key: &'a RecordKey,
-    pub(super) data: &'a RecordData,
-    pub(super) written_at_ms: u64,
-    pub(super) last_mutation: &'a Position,
+struct RecordValue<'a> {
+    primary_key: &'a RecordKey,
+    data: &'a RecordData,
+    written_at_ms: u64,
+    last_mutation: &'a Position,
+}
+
+pub(super) fn entry_max_encoded_bytes(entry: &MutationEntry) -> usize {
+    let record = match &entry.operation {
+        MutationOperation::ReplaceRecord { data, .. } => data.max_record_bytes(),
+        MutationOperation::DeleteRecord { .. } | MutationOperation::DefineSchema { .. } => {
+            MAX_RECORD_BYTES
+        }
+    };
+    record + ENTRY_FRAMING_BYTES
+}
+
+pub(super) fn encode_entry(entry: &MutationEntry) -> Result<Vec<u8>, PortableMutationError> {
+    entry.validate()?;
+    if let MutationOperation::ReplaceRecord { primary_key, data } = &entry.operation {
+        let record = RecordValue {
+            primary_key,
+            data,
+            written_at_ms: entry.stamp.authored_at_ms,
+            last_mutation: &entry.stamp.position,
+        };
+        BoundedJson::new(data.max_record_bytes(), None).serialize(&record)?;
+    }
+    encode(entry, entry.max_encoded_bytes())
+}
+
+pub(super) fn decode_entry(bytes: &[u8]) -> Result<MutationEntry, PortableMutationError> {
+    let entry: MutationEntry = parse(bytes, MAX_MUTATION_ENTRY_BYTES)?;
+    require_canonical(bytes, &entry.encode()?)?;
+    Ok(entry)
+}
+
+fn encode(value: &impl Serialize, max_bytes: usize) -> Result<Vec<u8>, PortableMutationError> {
+    let mut bytes = Vec::new();
+    BoundedJson::new(max_bytes, Some(&mut bytes)).serialize(value)?;
+    Ok(bytes)
+}
+
+fn parse<T: DeserializeOwned>(bytes: &[u8], max_bytes: usize) -> Result<T, PortableMutationError> {
+    if bytes.len() > max_bytes {
+        return Err(PortableMutationError::TooLarge { max_bytes });
+    }
+    JsonDepth::default().admit(bytes)?;
+    let mut decoder = serde_json::Deserializer::from_slice(bytes);
+    decoder.disable_recursion_limit();
+    let invalid = |_| PortableMutationError::Invalid("invalid portable JSON");
+    let value = T::deserialize(&mut decoder).map_err(invalid)?;
+    decoder.end().map_err(invalid)?;
+    Ok(value)
+}
+
+fn require_canonical(bytes: &[u8], canonical: &[u8]) -> Result<(), PortableMutationError> {
+    if bytes != canonical {
+        return Err(PortableMutationError::Invalid(
+            "portable JSON must be in canonical form",
+        ));
+    }
+    Ok(())
+}
+
+struct BoundedJson<'a> {
+    max_bytes: usize,
+    remaining: usize,
+    depth: JsonDepth,
+    failure: Option<PortableMutationError>,
+    output: Option<&'a mut Vec<u8>>,
+}
+
+impl<'a> BoundedJson<'a> {
+    fn new(max_bytes: usize, output: Option<&'a mut Vec<u8>>) -> Self {
+        Self {
+            max_bytes,
+            remaining: max_bytes,
+            depth: JsonDepth::default(),
+            failure: None,
+            output,
+        }
+    }
+
+    fn serialize(mut self, value: &impl Serialize) -> Result<(), PortableMutationError> {
+        serde_json::to_writer(&mut self, value).map_err(|_| {
+            self.failure.unwrap_or(PortableMutationError::Invalid(
+                "cannot encode portable JSON",
+            ))
+        })
+    }
+}
+
+impl Write for BoundedJson<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let admission = if bytes.len() <= self.remaining {
+            self.depth.admit(bytes)
+        } else {
+            Err(PortableMutationError::TooLarge {
+                max_bytes: self.max_bytes,
+            })
+        };
+        if let Err(error) = admission {
+            self.failure = Some(error);
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        self.remaining -= bytes.len();
+        if let Some(output) = self.output.as_mut() {
+            output.extend_from_slice(bytes);
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct JsonDepth {
+    containers: usize,
+    quoted: bool,
+    escaped: bool,
+}
+
+impl JsonDepth {
+    fn admit(&mut self, bytes: &[u8]) -> Result<(), PortableMutationError> {
+        for &byte in bytes {
+            if self.quoted {
+                self.read_string_byte(byte);
+                continue;
+            }
+            match byte {
+                b'"' => self.quoted = true,
+                b'[' | b'{' => {
+                    self.containers += 1;
+                    if self.containers > MAX_JSON_DEPTH {
+                        return Err(PortableMutationError::Invalid(
+                            "portable JSON exceeds its nesting limit",
+                        ));
+                    }
+                }
+                b']' | b'}' => self.containers = self.containers.saturating_sub(1),
+                _ => (),
+            }
+        }
+        Ok(())
+    }
+
+    fn read_string_byte(&mut self, byte: u8) {
+        if self.escaped {
+            self.escaped = false;
+        } else if byte == b'\\' {
+            self.escaped = true;
+        } else if byte == b'"' {
+            self.quoted = false;
+        }
+    }
 }

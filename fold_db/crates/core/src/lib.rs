@@ -1,62 +1,25 @@
-//! # FoldDB Core Library
-//!
-//! This library implements the core database functionality of the Fold distributed data platform.
-//! It provides schema-based data storage and query with distributed networking capabilities.
-//!
-//! ## Core Components
-//!
-//! * `content_limit` - The maximum size of one field value
-//! * `db_operations` - Database operation handlers
-//! * `error` - Error types and handling
-//! * `fold_db_core` - Core database functionality
-//! * `schema` - Schema definition, validation, and execution
-//! * `security` - Cryptographic key management and signing
-//! * `storage` - Storage backend abstraction (Last Store)
-//!
-//! ## Architecture
-//!
-//! Fold uses a distributed architecture where each node can store and process data
-//! according to defined schemas. Nodes can communicate with each other to share and
-//! replicate data, with permissions controlling access to different schemas and operations.
-//!
-//! The system is built around the concept of schemas that define the structure of data
-//! and the operations that can be performed on it.
+//! FoldDB core database engine, typed record stores, schemas, and storage.
 
 pub mod access;
-/// The maximum size of one field value. The shell installs the parsed limit.
-pub mod content_limit;
-// Pure model modules. They moved to `lastdb_model`; the old paths stay.
-pub use lastdb_model::{canonical, hex, storage_policy};
-/// The stored record value of a home and its cap.
-pub use lastdb_model::{portable_mutation, portable_replay, record_replacement, record_value};
-
+pub mod alternate_keys;
 pub mod clock;
+pub mod content_limit;
 pub mod crypto;
 pub mod db_operations;
 pub mod env_flag;
 pub mod error;
 pub mod fold_db_core;
-#[cfg(unix)]
-pub mod process_cpu;
-/// On-disk record formats of the typed stores (model layer).
-pub(crate) mod records;
-/// Core logical memory and record retention.
 pub mod resident;
 pub mod schema;
 pub mod security;
 pub mod storage;
-pub mod user_context;
 
-// Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};
 pub use fold_db_core::FoldDB;
-
-// Re-export schema types
+pub use lastdb_model::{
+    canonical, hex, portable_mutation, portable_replay, record_replacement, record_value,
+    storage_policy,
+};
 pub use schema::types::operations::MutationType;
 pub use schema::SchemaState;
-
-// Re-export storage types
-pub use storage::cloud_backup_plan;
-pub use storage::DatabaseConfig;
-
-pub mod alternate_keys;
+pub use storage::{cloud_backup_plan, DatabaseConfig};

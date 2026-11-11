@@ -1,8 +1,84 @@
-use crate::schema::types::SchemaError;
+use std::fmt;
+use std::io::ErrorKind;
+
 use thiserror::Error;
-#[path = "error/native_proof.rs"]
-mod native_proof;
-pub use native_proof::{NativeProofCause, NativeProofStage};
+
+use crate::schema::types::SchemaError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeProofStage {
+    NativeReader,
+    Admission,
+    Validation,
+    Restore,
+    Profile,
+    PhysicalRoot,
+    Account,
+    Schemas,
+    Directories,
+    NativeCas,
+    Records,
+    FinalBinding,
+}
+
+impl fmt::Display for NativeProofStage {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str(match self {
+            Self::NativeReader => "native_reader",
+            Self::Admission => "admission",
+            Self::Validation => "validation",
+            Self::Restore => "restore",
+            Self::Profile => "profile",
+            Self::PhysicalRoot => "physical_root",
+            Self::Account => "account",
+            Self::Schemas => "schemas",
+            Self::Directories => "directories",
+            Self::NativeCas => "native_cas",
+            Self::Records => "records",
+            Self::FinalBinding => "final_binding",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeProofCause {
+    Static(&'static str),
+    Io {
+        kind: ErrorKind,
+        os_code: Option<i32>,
+    },
+    ReadResource,
+    WriteResource,
+    StorageFull,
+    Authentication,
+    NativeFormat,
+    Configuration,
+    InvalidOperation,
+    Encryption,
+    Backend,
+    Other,
+}
+
+impl fmt::Display for NativeProofCause {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Static(code) => out.write_str(code),
+            Self::Io { kind, os_code } => write!(out, "io kind={kind:?} os_code={os_code:?}"),
+            other => out.write_str(match other {
+                Self::ReadResource => "read_resource_limit",
+                Self::WriteResource => "write_resource_limit",
+                Self::StorageFull => "storage_full",
+                Self::Authentication => "authentication",
+                Self::NativeFormat => "native_format",
+                Self::Configuration => "configuration",
+                Self::InvalidOperation => "invalid_operation",
+                Self::Encryption => "encryption",
+                Self::Backend => "backend",
+                _ => "other",
+            }),
+        }
+    }
+}
 
 /// Comprehensive storage error type supporting multiple backends
 #[derive(Debug, Error)]
@@ -53,20 +129,6 @@ pub enum StorageError {
 
     /// The filesystem holding the database is out of space, so the write did
     /// not land.
-    ///
-    /// Carried as its own variant (not a stringly-typed [`Self::BackendError`])
-    /// because a full disk is not a backend defect and not something the
-    /// caller can fix by changing its request. Every retry fails identically
-    /// until an operator frees space, so the condition needs an
-    /// operator-facing message and a status of its own.
-    ///
-    /// Flattening it is what let a disk-full episode reach the caller as
-    /// `400 Bad Request` / "Invalid data" — telling the writer its payload was
-    /// malformed — and mint one Sentry issue per failed write (issue
-    /// `7620061902`: 207 error events from one 8-hour episode, 0 users).
-    ///
-    /// `detail` carries the underlying IO error for the log; the message above
-    /// is what an operator needs to act.
     #[error(
         "no space left on device — the filesystem holding the database is \
          full, so the write did not land. Free disk space and retry; nothing \
@@ -81,30 +143,58 @@ pub enum StorageError {
     EncryptionError(String),
 }
 
-/// `ENOSPC`. Identical on Linux and macOS/BSD, and checked directly because a
-/// backend can surface a raw OS error that `std` left
-/// [`std::io::ErrorKind::Uncategorized`].
+/// `ENOSPC`. Identical on Linux and macOS/BSD.
 const ENOSPC: i32 = 28;
 
 impl StorageError {
     /// True when `error` reports that the filesystem is out of space.
-    ///
-    /// Checks the categorized kind first and falls back to the raw OS code, so
-    /// the classification does not depend on `std` having categorized this
-    /// platform's `ENOSPC`.
     #[must_use]
     pub fn is_storage_full_io(error: &std::io::Error) -> bool {
-        error.kind() == std::io::ErrorKind::StorageFull || error.raw_os_error() == Some(ENOSPC)
+        error.kind() == ErrorKind::StorageFull || error.raw_os_error() == Some(ENOSPC)
     }
 
-    /// True when this error is the host running out of disk space.
-    ///
-    /// Callers use this to keep a full disk out of the paths meant for code
-    /// faults: it is an operator condition, so it must not be reported as bad
-    /// caller data and must not raise one alert per failed write.
-    #[must_use]
-    pub const fn is_storage_full(&self) -> bool {
-        matches!(self, Self::StorageFull { .. })
+    /// Preserve the nearest concrete proof stage and any typed static leaf.
+    pub fn native_proof_context(
+        &self,
+        stage: NativeProofStage,
+    ) -> (NativeProofStage, NativeProofCause) {
+        let cause = match self {
+            Self::NativeProof {
+                stage: prior,
+                cause,
+            } => {
+                let stage = if matches!(
+                    prior,
+                    NativeProofStage::Validation | NativeProofStage::NativeReader
+                ) {
+                    stage
+                } else {
+                    *prior
+                };
+                return (stage, *cause);
+            }
+            Self::IoError(io) => NativeProofCause::Io {
+                kind: io.kind(),
+                os_code: io.raw_os_error(),
+            },
+            Self::ReadResourceLimit { .. } => NativeProofCause::ReadResource,
+            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => {
+                NativeProofCause::WriteResource
+            }
+            Self::StorageFull { .. } => NativeProofCause::StorageFull,
+            Self::BackendError(_) => NativeProofCause::Backend,
+            Self::ConfigurationError(_) => NativeProofCause::Configuration,
+            Self::InvalidOperation(_) => NativeProofCause::InvalidOperation,
+            Self::EncryptionError(_) => NativeProofCause::Encryption,
+            _ => NativeProofCause::Other,
+        };
+        (stage, cause)
+    }
+
+    pub fn at_native_proof(self, stage: NativeProofStage) -> Self {
+        let (stage, cause) = self.native_proof_context(stage);
+        drop(self);
+        Self::NativeProof { stage, cause }
     }
 }
 
@@ -122,9 +212,6 @@ impl<T> From<std::sync::PoisonError<T>> for StorageError {
 
 pub type StorageResult<T> = Result<T, StorageError>;
 
-/// Preserve typed storage failures at the schema boundary. `SchemaError` is a
-/// model type; core owns this conversion because `StorageError` is a core
-/// type.
 impl From<StorageError> for SchemaError {
     fn from(error: StorageError) -> Self {
         match error {
@@ -132,15 +219,7 @@ impl From<StorageError> for SchemaError {
             StorageError::ReadResourceLimit { detail } => Self::ReadResourceLimit { detail },
             StorageError::WriteResourceLimit { detail }
             | StorageError::MutationLimit { detail } => Self::WriteResourceLimit { detail },
-            // A full disk keeps its identity across the boundary. Folding it
-            // into `InvalidData` here is what made every storage path report a
-            // host condition as a malformed request.
             StorageError::StorageFull { detail } => Self::StorageFull { detail },
-            // `ENOSPC` also reaches this boundary as a plain IO error, from the
-            // paths that build a `StorageError` straight off `std::io::Error`
-            // instead of through a backend's `map_error`. It is the same host
-            // condition either way, so the caller's status must not depend on
-            // which path happened to report it.
             StorageError::IoError(io) if StorageError::is_storage_full_io(&io) => {
                 Self::StorageFull {
                     detail: io.to_string(),

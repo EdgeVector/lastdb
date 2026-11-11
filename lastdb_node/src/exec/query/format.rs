@@ -8,26 +8,13 @@ use serde_json::Value;
 
 use crate::exec::reply::HostError;
 
-#[derive(Debug, Clone, Copy, Default)]
-pub(super) struct PageFlags {
-    pub(super) key_form: Option<fold_db::db_operations::KeyForm>,
-}
-
-impl From<fold_db::db_operations::PageKeyForms> for PageFlags {
-    fn from(forms: fold_db::db_operations::PageKeyForms) -> Self {
-        Self {
-            key_form: forms.key_form(),
-        }
-    }
-}
-
 pub(super) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
     limit: usize,
     offset: usize,
     has_more: bool,
-    flags: PageFlags,
+    key_form: Option<&'static str>,
 ) -> Value {
     let returned_count = page.len();
     Value::Object(serde_json::Map::from_iter([
@@ -41,12 +28,7 @@ pub(super) fn page_payload(
         ("offset".into(), Value::from(offset)),
         ("has_more".into(), Value::from(has_more)),
         ("next_cursor".into(), Value::Null),
-        (
-            "key_form".into(),
-            flags
-                .key_form
-                .map_or(Value::Null, |form| Value::from(form.as_str())),
-        ),
+        ("key_form".into(), key_form.map_or(Value::Null, Value::from)),
     ]))
 }
 
@@ -55,7 +37,6 @@ pub(super) fn cursor_payload(
     total_count: Option<usize>,
     limit: usize,
     offset: usize,
-    flags: PageFlags,
     resume: Option<KeyValue>,
     comparison: Option<String>,
 ) -> Value {
@@ -66,7 +47,7 @@ pub(super) fn cursor_payload(
     let next_cursor = resume
         .or_else(|| next_cursor_for(&page, has_more))
         .map(|key| QueryCursor::new(key, comparison));
-    let mut payload = page_payload(page, total_count, limit, offset, has_more, flags);
+    let mut payload = page_payload(page, total_count, limit, offset, has_more, None);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
 }
@@ -76,25 +57,19 @@ pub(super) fn overfetched_offset_payload(
     total_count: usize,
     limit: usize,
     offset: usize,
-    flags: PageFlags,
 ) -> Value {
     let has_more = page.len() > limit;
     if page.len() > limit {
         page.truncate(limit);
     }
-    page_payload(page, Some(total_count), limit, offset, has_more, flags)
+    page_payload(page, Some(total_count), limit, offset, has_more, None)
 }
 
-pub(super) fn materialized_page_payload(
-    results: Vec<Value>,
-    limit: usize,
-    offset: usize,
-    flags: PageFlags,
-) -> Value {
+pub(super) fn materialized_page_payload(results: Vec<Value>, limit: usize, offset: usize) -> Value {
     let total_count = results.len();
     let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
     let has_more = offset.saturating_add(page.len()) < total_count;
-    page_payload(page, Some(total_count), limit, offset, has_more, flags)
+    page_payload(page, Some(total_count), limit, offset, has_more, None)
 }
 
 fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
@@ -145,14 +120,12 @@ pub(in crate::exec) fn verified_query_page(
     has_more: bool,
     next_cursor: Option<QueryCursor>,
 ) -> Value {
-    let flags = PageFlags {
-        key_form: (!records.is_empty()).then_some(fold_db::db_operations::KeyForm::Api),
-    };
+    let key_form = (!records.is_empty()).then_some("api");
     let rows = records
         .into_iter()
         .map(|(key, record)| format_row(&key, record, compact))
         .collect();
-    let mut payload = page_payload(rows, total_count, limit, offset, has_more, flags);
+    let mut payload = page_payload(rows, total_count, limit, offset, has_more, key_form);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload
 }
@@ -191,7 +164,7 @@ pub(in crate::exec) fn format_alternate_page(
     } else {
         None
     };
-    let mut payload = page_payload(results, None, limit, 0, page.has_more, PageFlags::default());
+    let mut payload = page_payload(results, None, limit, 0, page.has_more, None);
     payload["next_cursor"] =
         serde_json::to_value(next).map_err(|_| HostError::internal("invalid alternate cursor"))?;
     Ok(payload)

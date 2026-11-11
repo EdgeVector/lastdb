@@ -1,9 +1,4 @@
 //! Imported data must use the same exact keys as a fresh native home.
-//!
-//! The `main` namespace holds the two layout control keys and the key
-//! families in [`CURRENT_FAMILIES`].
-//! Every native read by key, every write and every restored row passes
-//! [`validate`], which refuses every other family.
 
 use super::error::{StorageError, StorageResult};
 use super::format::{
@@ -11,15 +6,79 @@ use super::format::{
     CURRENT_FAMILIES, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY, MAIN_NAMESPACE,
 };
 
-pub(crate) mod families;
+pub(crate) mod families {
+    pub(crate) use crate::storage::format::{RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX};
+    use lastdb_model::portable_mutation::Position;
 
-/// The `main` key families of a home.
-///
-/// - `rk`: one record for each key. `ak`: the alternate key entries.
-/// - `ad`: one applied-delete stamp at the erased record's address.
-/// - `fi`: the inline file of the record at the same address.
-/// - `dellog`: the hard-delete audit rows.
-/// - `layout`: the key format marker and the delete replay floor.
+    /// One immutable file version owned by a single record.
+    pub(crate) fn record_file_path(
+        record: &str,
+        version: &Position,
+    ) -> super::StorageResult<String> {
+        use sha2::Digest as _;
+        let space = record
+            .strip_prefix(lastdb_model::record_space::RECORD_PREFIX)
+            .and_then(|rest| rest.split(':').next())
+            .filter(|space| !space.is_empty())
+            .ok_or_else(|| super::unsupported("a record file path needs a record key"))?;
+        let digest = lastdb_model::hex::hex_lower(sha2::Sha256::digest(record.as_bytes()));
+        Ok(format!(
+            "{RECORD_FILE_PREFIX}{space}:{digest}:{}:{:020}",
+            version.source_stream, version.sequence
+        ))
+    }
+
+    /// The cloud location of one record file version under the database identity.
+    pub(crate) fn record_blob_path(
+        database: &cloud_backup_protocol::Id,
+        record: &str,
+        version: &Position,
+    ) -> super::StorageResult<cloud_backup_protocol::v2::blobs::BlobPath> {
+        let path = record_file_path(record, version)?;
+        let invalid = || super::unsupported("a record file path has no cloud blob path");
+        let mut parts = path
+            .strip_prefix(RECORD_FILE_PREFIX)
+            .ok_or_else(invalid)?
+            .splitn(3, ':');
+        let (Some(space), Some(digest), Some(write_id)) =
+            (parts.next(), parts.next(), parts.next())
+        else {
+            return Err(invalid());
+        };
+        let blob = cloud_backup_protocol::v2::blobs::BlobPath {
+            database: database.clone(),
+            space: space.to_owned().try_into().map_err(|_| invalid())?,
+            record: digest.to_owned().try_into().map_err(|_| invalid())?,
+            write_id: write_id.to_owned().try_into().map_err(|_| invalid())?,
+        };
+        blob.validate().map_err(|_| invalid())?;
+        Ok(blob)
+    }
+
+    /// The "already in the cloud" marker of the record file row at `file_path`.
+    pub(crate) fn record_file_uploaded_path(file_path: &[u8]) -> super::StorageResult<Vec<u8>> {
+        let suffix = file_path
+            .strip_prefix(RECORD_FILE_PREFIX.as_bytes())
+            .filter(|suffix| !suffix.is_empty())
+            .ok_or_else(|| super::unsupported("an uploaded marker needs a record file path"))?;
+        Ok([RECORD_FILE_UPLOADED_PREFIX.as_bytes(), suffix].concat())
+    }
+
+    /// The record file family of a `cas_blobs` key: its family prefix and its schema space.
+    pub(crate) fn record_file_space(key: &str) -> Option<(&'static str, &str)> {
+        [RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX]
+            .into_iter()
+            .find_map(|prefix| {
+                let rest = key.strip_prefix(prefix)?;
+                Some((
+                    prefix,
+                    rest.split_once(':').map_or(rest, |(space, _)| space),
+                ))
+            })
+    }
+}
+
+/// Validate a `main` key family and coordinate.
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if namespace != MAIN_NAMESPACE {
         return Ok(());

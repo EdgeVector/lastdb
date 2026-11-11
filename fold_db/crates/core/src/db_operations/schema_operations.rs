@@ -1,8 +1,14 @@
-//! Logical schema writes establish field keys and liveness before publication.
-//! The underlying SchemaStore remains the physical schema-record boundary.
+//! Logical schema operations and manifest retention application.
 
 use super::core::DbOperations;
-use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
+use super::schema_store::SchemaStore;
+use crate::schema::manifest_retention::{
+    ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
+};
+use crate::schema::types::{
+    RetentionSource, Schema, SchemaError, SchemaRetentionPolicy, SchemaState,
+};
+use crate::storage::format::schemas::{keys::retention_policy_key, StateChange};
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::HashMap;
 
@@ -86,24 +92,6 @@ impl DbOperations {
         self.schemas().get_all_schema_states().await
     }
 
-    /// Remove one installed schema: block it, release the rows it stored, then
-    /// remove its schema record. Returns whether the schema was installed.
-    ///
-    /// The drop first stores the state `Blocked` ([`Self::block_schema_for_drop`]).
-    /// Every write reads that state inside the native write gate
-    /// (`MutationManager::load_schema_for_delta`, for local and peer writes), so
-    /// a write that enters the gate after the block is refused, and a write that
-    /// entered before it is staged before the release reads. No row can land
-    /// behind the release walk.
-    ///
-    /// The release goes next, in bounded batches with one write scope each
-    /// (`RecordStore::release_schema_rows`): the records and their files, the
-    /// alternate entries and applied deletes. A schema installed again under
-    /// the same name gets the same record space, so a leftover record would
-    /// come back in it. A
-    /// release that stops leaves the schema record and the state `Blocked`: no
-    /// write lands while the drop is unfinished, and the next drop goes on.
-    /// Then one write scope removes the schema record and its state.
     pub fn drop_schema<'a>(
         &'a self,
         schema_name: &'a str,
@@ -124,10 +112,6 @@ impl DbOperations {
         .boxed()
     }
 
-    /// Store the state `Blocked` for a schema that a drop removes, before the
-    /// drop releases any row. Returns the installed schema, or `None` when the
-    /// catalog does not have it. A schema that is already blocked (a drop that
-    /// stopped) is not written again.
     pub async fn block_schema_for_drop(
         &self,
         schema_name: &str,
@@ -148,6 +132,124 @@ impl DbOperations {
             Ok(Some(schema))
         })
         .await
+    }
+}
+
+impl SchemaStore {
+    pub async fn plan_manifest_retention(
+        &self,
+        schema_name: &str,
+        ttl_seconds: u64,
+    ) -> Result<ManifestRetentionPlan, SchemaError> {
+        let current = self
+            .schema_states_store
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
+            .await?;
+        let (next, status, shortened) = next_manifest_policy(current.as_ref(), ttl_seconds);
+        Ok(ManifestRetentionPlan {
+            anchor: schema_name.to_string(),
+            current,
+            next,
+            status,
+            shortened,
+        })
+    }
+
+    pub async fn apply_manifest_retention(
+        &self,
+        schema_name: &str,
+        ttl_seconds: u64,
+        owner_app: &str,
+        allow_shorter: bool,
+    ) -> Result<ManifestRetentionOutcome, SchemaError> {
+        let schema = self
+            .get_schema(schema_name)
+            .await?
+            .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
+        if schema.owner_app_id.as_deref() != Some(owner_app) {
+            return Err(SchemaError::InvalidData(format!(
+                "{schema_name} is not owned by {owner_app}"
+            )));
+        }
+        self.require_retention_format(schema_name).await?;
+        if ttl_seconds == 0 {
+            return Err(SchemaError::InvalidData(
+                "manifest retention ttl_seconds must be greater than zero".to_string(),
+            ));
+        }
+        let plan = self
+            .plan_manifest_retention(schema_name, ttl_seconds)
+            .await?;
+        if plan.shortened && !allow_shorter {
+            return Err(SchemaError::InvalidData(format!(
+                "the manifest TTL of {schema_name} would be shortened to {ttl_seconds}s, and \
+                 records between the two TTLs would expire. Confirm it explicitly"
+            )));
+        }
+        let Some(next) = plan.next.clone() else {
+            let effective = plan.current.clone().ok_or_else(|| {
+                SchemaError::InvalidData("manifest retention left no policy in force".to_string())
+            })?;
+            return Ok(ManifestRetentionOutcome {
+                anchor: plan.anchor,
+                status: plan.status,
+                previous: plan.current,
+                effective,
+                shortened: plan.shortened,
+            });
+        };
+        self.format
+            .put_state(StateChange::Policy {
+                schema: schema_name,
+                policy: &next,
+            })
+            .await?;
+        self.format.flush_states().await?;
+        Ok(ManifestRetentionOutcome {
+            anchor: plan.anchor,
+            status: plan.status,
+            previous: plan.current,
+            effective: next,
+            shortened: plan.shortened,
+        })
+    }
+}
+
+fn next_manifest_policy(
+    current: Option<&SchemaRetentionPolicy>,
+    ttl_seconds: u64,
+) -> (Option<SchemaRetentionPolicy>, ManifestRetentionStatus, bool) {
+    match current {
+        None => (
+            Some(SchemaRetentionPolicy::manifest(ttl_seconds)),
+            ManifestRetentionStatus::Applied,
+            false,
+        ),
+        Some(policy) if policy.source == RetentionSource::Manifest => {
+            if policy.ttl_seconds == ttl_seconds {
+                return (None, ManifestRetentionStatus::Unchanged, false);
+            }
+            let next = SchemaRetentionPolicy {
+                ttl_seconds,
+                ..policy.clone()
+            };
+            (
+                Some(next),
+                ManifestRetentionStatus::Updated,
+                ttl_seconds < policy.ttl_seconds,
+            )
+        }
+        Some(policy) => {
+            let status = ManifestRetentionStatus::OperatorOverride;
+            if policy.overridden_manifest_ttl_seconds == Some(ttl_seconds) {
+                return (None, status, false);
+            }
+            let next = SchemaRetentionPolicy {
+                overridden_manifest_ttl_seconds: Some(ttl_seconds),
+                ..policy.clone()
+            };
+            (Some(next), status, false)
+        }
     }
 }
 
