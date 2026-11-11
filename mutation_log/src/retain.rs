@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, PrincipalId, Snapshot,
-    StoredEntry, Writer, MAX_RETENTION_MS,
+    SnapshotRef, StoredEntry, Writer, MAX_RETENTION_MS,
 };
 
 impl LogState {
@@ -34,18 +34,37 @@ impl LogState {
         Ok(next)
     }
 
+    /// Record a zero ack for a device the first time it pulls.
+    ///
+    /// An existing ack is left alone. A device that has appended already
+    /// counts as zero in the floor even before this row exists.
+    pub fn register_reader(&self, reader: &Writer) -> Result<Self, LogError> {
+        if !self.reader_allowed(&reader.key) {
+            return Err(LogError::Unauthorized);
+        }
+        if self.acks.contains_key(reader) {
+            return Ok(self.clone());
+        }
+        let mut next = self.clone();
+        next.acks.insert(reader.clone(), 0);
+        Ok(next)
+    }
+
     /// Record a snapshot cut at the current delivery head.
     ///
+    /// `snapshot_ref` is the shell's pointer to the snapshot bytes.
     /// `caller` is the publisher key, or an owner key of a personal database.
     pub fn cut_snapshot(
         &self,
         caller: &PrincipalId,
         at_ms: u64,
+        snapshot_ref: SnapshotRef,
     ) -> Result<(Self, Snapshot), LogError> {
         self.authorize_maintainer(caller)?;
         let snapshot = Snapshot {
             through_delivery_seq: self.head.as_ref().map_or(0, |head| head.delivery_seq),
             at_ms,
+            snapshot_ref,
         };
         let mut next = self.clone();
         next.snapshot = Some(snapshot.clone());
@@ -55,12 +74,21 @@ impl LogState {
     /// Drop the prefix at or below the trim floor.
     ///
     /// The floor is the minimum device ack, and also the expired prefix,
-    /// and it never passes the latest snapshot. Without a snapshot nothing
-    /// is dropped, so a new device can still re-bootstrap. `caller` is the
+    /// and it never passes the latest snapshot. A floor that would drop
+    /// entries is refused unless a snapshot ref covers it. `caller` is the
     /// publisher key or an owner key.
     pub fn trim(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
-        let floor = self.effective_floor(now_ms);
+        let desired = self.desired_floor(now_ms);
+        if desired <= self.trimmed_through {
+            return Ok(self.clone());
+        }
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return Err(LogError::SnapshotRequired);
+        };
+        let floor = desired
+            .min(snapshot.through_delivery_seq)
+            .max(self.trimmed_through);
         if floor <= self.trimmed_through {
             return Ok(self.clone());
         }
@@ -122,14 +150,22 @@ impl LogState {
             .unwrap_or(0)
     }
 
-    /// Lowest device ack for `principal`. A key with no device ack counts as zero.
+    /// Lowest device position for `principal`.
+    ///
+    /// A device that has appended, and a device with an ack row, both count.
+    /// A tip with no ack row counts as zero. A key that has never appended
+    /// and has no ack row also counts as zero.
     fn principal_ack(&self, principal: &PrincipalId) -> u64 {
         let mut floor = None;
         for (writer, ack) in &self.acks {
-            if &writer.key != principal {
-                continue;
+            if &writer.key == principal {
+                floor = Some(floor.map_or(*ack, |kept: u64| kept.min(*ack)));
             }
-            floor = Some(floor.map_or(*ack, |kept: u64| kept.min(*ack)));
+        }
+        for writer in self.tips.keys() {
+            if &writer.key == principal && !self.acks.contains_key(writer) {
+                floor = Some(0);
+            }
         }
         floor.unwrap_or(0)
     }

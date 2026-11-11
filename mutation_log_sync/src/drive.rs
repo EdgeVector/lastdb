@@ -6,10 +6,9 @@ use mutation_log::{AppendOutcome, LogError, MutationLog, LIST_PAGE_LIMIT};
 /// Apply one participant event through `log`.
 ///
 /// On `Err`, `state` is unchanged. The port's own step also keeps its previous
-/// value when an append fails. A pull lists, then acks the scanned delivery
-/// sequence for this device. A cursor below the trim floor returns a reset
-/// snapshot plus the entries still stored for this device, and the ack is the
-/// cursor of that result.
+/// value when an append fails. A pull returns a page or a reset and does not
+/// ack. The caller applies that result, persists it, then acks the cursor.
+/// The first pull of a device records a zero ack without moving that cursor.
 pub fn drive<L: MutationLog>(
     state: &SyncState,
     log: &mut L,
@@ -56,34 +55,23 @@ fn pull<L: MutationLog>(
     after: u64,
     now_ms: u64,
 ) -> Result<Outcome, SyncError> {
+    log.register_reader(reader)?;
     match log.list(&reader.key, after, LIST_PAGE_LIMIT, now_ms) {
-        Ok(page) => {
-            log.ack(reader, page.next)?;
+        Ok(page) => Ok(Outcome::Pulled {
+            cursor: page.next,
+            entries: page.entries,
+            reset: None,
+        }),
+        Err(LogError::CursorExpired { .. }) => {
+            let recovered = log.recover(reader, after, now_ms)?;
             Ok(Outcome::Pulled {
-                cursor: page.next,
-                entries: page.entries,
-                reset: None,
+                reset: recovered.reset,
+                entries: recovered.entries,
+                cursor: recovered.next,
             })
         }
-        Err(LogError::CursorExpired { .. }) => recover(log, reader, now_ms),
         Err(error) => Err(error.into()),
     }
-}
-
-fn recover<L: MutationLog>(
-    log: &mut L,
-    reader: &mutation_log::Writer,
-    now_ms: u64,
-) -> Result<Outcome, SyncError> {
-    let recovered = log.recover(reader, now_ms)?;
-    let cursor = recovered.next;
-    let outcome = Outcome::Pulled {
-        reset: recovered.reset.then_some(recovered.snapshot),
-        entries: recovered.entries,
-        cursor,
-    };
-    log.ack(reader, cursor)?;
-    Ok(outcome)
 }
 
 pub(crate) fn commit(state: &SyncState, outcome: &Outcome) -> SyncState {

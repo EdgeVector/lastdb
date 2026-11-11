@@ -39,14 +39,16 @@ mod step;
 pub use append::AppendOutcome;
 pub use auth::can_read;
 pub use error::LogError;
-pub use id::{DatabaseId, DeviceId, Namespace, PrincipalId};
+pub use id::{DatabaseId, DeviceId, Namespace, PrincipalId, SnapshotRef};
 pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
     StoredEntry, Writer,
 };
 pub use namespace::{NamespaceKind, NamespacePolicy};
 pub use port::MutationLog;
-pub use read::{entry_visible, filter_readable, merge_order, ListPage, Recovery, ScopedHead};
+pub use read::{
+    entry_visible, filter_readable, merge_order, ListPage, Recovery, Reset, ScopedHead,
+};
 pub use state::LogState;
 pub use step::{step, Command, Outcome, StepResult};
 

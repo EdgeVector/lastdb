@@ -119,6 +119,8 @@ fn pull(log: &mut MemLog, state: &SyncState, now_ms: u64) -> (SyncState, Vec<Sto
             reset,
         } => {
             assert!(reset.is_none());
+            log.ack(&next.read_writer(), cursor)
+                .expect("ack after apply");
             assert_eq!(next.cursor, cursor);
             (next, entries)
         }

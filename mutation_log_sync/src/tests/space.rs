@@ -125,11 +125,18 @@ fn expired_cursor_restarts_from_the_snapshot() {
         Command::Snapshot {
             caller: publisher.clone(),
             at_ms: 1,
+            snapshot_ref: mutation_log::SnapshotRef::new("family-snap").expect("ref"),
         },
         &hearth,
     )
     .expect("snapshot")
     .state;
+    let covered: Vec<Vec<u8>> = state
+        .entries
+        .iter()
+        .map(|stored| stored.entry.payload.clone())
+        .collect();
+    assert_eq!(covered, vec![b"old".to_vec()]);
     let fresh = mutation_log::Entry {
         database_id: database("family"),
         writer: published.clone(),
@@ -178,9 +185,10 @@ fn expired_cursor_restarts_from_the_snapshot() {
         } => {
             assert_eq!(payloads(&entries), vec![b"fresh".to_vec()]);
             let snapshot = reset.expect("snapshot covers the trimmed entry");
-            assert_eq!(snapshot.through_delivery_seq, 1);
+            assert_eq!(snapshot.through, 1);
+            assert_eq!(snapshot.snapshot_ref.as_str(), "family-snap");
             assert_eq!(reader.cursor, cursor);
-            assert!(cursor > snapshot.through_delivery_seq);
+            assert!(cursor > snapshot.through);
         }
         Outcome::Appended { .. } | Outcome::Duplicate { .. } => panic!("pull stored an entry"),
     }

@@ -81,19 +81,34 @@ at most 90 entries, and each writer has at most one append in flight.
 
 The operations are append, head, list, ack, grant, revoke, and snapshot.
 Every cursor and every ack is a delivery sequence. An ack is stored per
-reading device, writer (node key, device), in the one log. `list` returns
-the readable entries and sets `next` to the last delivery sequence scanned,
+reading device, writer (node key, device), in the one log. A device that has
+appended, or that has pulled once, counts as acked at 0 until it acks. The
+first pull records that zero and does not move it. `list` returns the
+readable entries and sets `next` to the last delivery sequence scanned,
 including entries that reader cannot see, so hidden entries are covered.
-`head` reports that same scan cursor, so acking the head does not pin trim
-behind a hidden entry. The trim floor is the minimum of the device acks,
-and also a 30-day maximum retention. The floor does not move past the latest
-snapshot. Revoke drops every device ack of that key. A device whose cursor
-is below the floor gets `CursorExpired`. The sync step then returns a reset
-carrying the snapshot and the entries still stored for that device. The
-caller replaces its state with the snapshot and applies those entries. The
-device ack moves only as the cursor of that result, so a repeat does not
-return those entries again. Until a snapshot exists, aged entries stay
-readable and the step reports that a snapshot is due.
+`head` reports the log head's delivery sequence, including when every stored
+entry is hidden. Its stamp is the last entry this reader can see, and it is
+absent when none are visible, so a hidden entry's writer is not reported.
+Acking that cursor does not sit below the trim floor. The trim floor
+is the minimum of those device positions, and also a 30-day maximum
+retention. The floor does not move past the latest snapshot. Revoke drops
+every device ack of that key.
+
+Cutting a snapshot stores the shell's `snapshot_ref`, an opaque pointer to
+the snapshot bytes. The pointer is non-empty and has no control characters.
+The core does not cap its length and does not store those bytes. Trim that would
+drop entries is refused unless that snapshot covers the floor. A device
+whose position is below the floor gets `CursorExpired`. The sync step then
+returns `Reset { snapshot_ref, through, at_ms }` plus the entries still
+stored after the lesser of the device's local cursor and its stored ack. A
+reinstall that reuses a device id and is behind the stored ack is delivered
+from that lesser position, and it resets when that position is below the
+floor. The device downloads the snapshot by `snapshot_ref`, then applies the
+suffix. The pull does not ack. The caller applies the reset and the entries,
+persists them, then acks the returned cursor. Until that ack, the same pull
+delivers the same reset and entries again. Applying them twice is
+idempotent. Until a snapshot exists, aged entries stay readable and the step
+reports that a snapshot is due.
 
 ## Sharing invariant
 
@@ -229,7 +244,8 @@ The crate depends on `MutationLog` only.
 - `mutation_log_sync/src/step.rs` — the pure effect for append, pull, and re-append
 - `mutation_log_sync/src/drive.rs` — apply that effect through `MutationLog`.
   Append waits until `SyncState::resume` has loaded the writer tip. A pull
-  whose cursor is below the floor lists again from the latest snapshot.
+  returns the page or `Reset { snapshot_ref, through, at_ms }` plus the
+  suffix, and does not ack. The caller acks after it applies and persists.
 - `mutation_log_sync/src/tests/` — personal round trip, share round trip, flag off
 
 ## Later changes

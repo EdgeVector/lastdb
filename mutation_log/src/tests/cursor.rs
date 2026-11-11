@@ -41,6 +41,7 @@ fn caught_up_receiver_does_not_pin_the_floor_or_expire() {
         Command::Snapshot {
             caller: publisher.clone(),
             at_ms: 1,
+            snapshot_ref: snap("caught-up"),
         },
         &hearth,
     )
@@ -98,6 +99,7 @@ fn scoped_head_ack_does_not_pin_trim() {
         Command::Snapshot {
             caller: publisher.clone(),
             at_ms: 3,
+            snapshot_ref: snap("hidden-tail"),
         },
         &hearth,
     )
@@ -115,4 +117,28 @@ fn scoped_head_ack_does_not_pin_trim() {
     .state;
     assert!(state.entries.is_empty());
     assert_eq!(state.trimmed_through, head.cursor);
+}
+
+#[test]
+fn head_is_present_when_every_entry_is_hidden() {
+    let (mut state, publisher, _published) = shareable();
+    let receiver = principal("receiver");
+    let contributor = principal("contributor");
+    let submission = writer_of(&contributor, "contrib");
+    state = grant_receive(&state, &publisher, &receiver);
+    state = grant_submit(&state, &publisher, &contributor);
+    let hidden = entry(&state.database_id, &submission, "photos", 1, 1);
+    state = apply(&state, &submission, vec![hidden], 1);
+    let head = state
+        .head_for(&receiver, &hearth)
+        .expect("head")
+        .expect("hidden entry");
+    assert_eq!(
+        head.cursor,
+        state.head.as_ref().expect("log head").delivery_seq
+    );
+    assert!(head.stamp.is_none());
+    let page = state.list(&receiver, 0, 10, 1, &hearth).expect("page");
+    assert!(page.entries.is_empty());
+    assert_eq!(page.next, 1);
 }

@@ -1,6 +1,6 @@
 use crate::error::SyncError;
 use mutation_log::{
-    DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, Snapshot,
+    DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, Reset,
     StoredEntry, Writer,
 };
 
@@ -53,11 +53,11 @@ pub enum Outcome {
         entries: Vec<StoredEntry>,
         /// Delivery sequence for the next pull.
         cursor: u64,
-        /// Snapshot the caller installs before applying `entries`.
+        /// Snapshot the caller downloads before applying `entries`.
         ///
-        /// Set when the cursor was below the trim floor and this device has
-        /// not yet been given the snapshot. Absent on a repeat of that pull.
-        reset: Option<Snapshot>,
+        /// Set when the local cursor is below the trim floor. Absent once the
+        /// caller has acked a cursor at or above that floor.
+        reset: Option<Reset>,
     },
 }
 
@@ -143,6 +143,16 @@ impl SyncState {
         next.next_seq = tip.checked_add(1).ok_or(LogError::SequenceExhausted)?;
         next.resumed = true;
         Ok(next)
+    }
+
+    pub(crate) fn read_writer(&self) -> Writer {
+        let (principal, device) = match &self.role {
+            SyncRole::Owner { principal, device }
+            | SyncRole::Publisher { principal, device }
+            | SyncRole::Contributor { principal, device }
+            | SyncRole::Receiver { principal, device } => (principal, device),
+        };
+        writer_of(principal.clone(), device.clone())
     }
 
     pub(crate) fn reader(&self) -> &PrincipalId {
