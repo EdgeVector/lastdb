@@ -12,7 +12,6 @@
 //! `scripts/ci/model-purity-lint.sh` enforces these rules in CI.
 
 pub mod canonical;
-pub mod constants;
 pub mod content_limit;
 pub mod field_key_codec;
 pub mod field_key_id;

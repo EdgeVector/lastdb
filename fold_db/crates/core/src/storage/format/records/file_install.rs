@@ -72,7 +72,6 @@ impl RecordFormat {
             // move to another version between this read and the staged row.
             let current = self
                 .main_store
-                .inner()
                 .get(record_key.as_bytes())
                 .await?
                 .map(|bytes| StoredRecord::decode(&bytes))

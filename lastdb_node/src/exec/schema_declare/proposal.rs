@@ -75,9 +75,7 @@ pub(crate) fn normalize_direct_declare_proposal(
         namespace,
         local_schema_id,
     } = schema.normalize_owned_declaration(namespace_label, namespace)?;
-    schema
-        .populate_runtime_fields()
-        .map_err(|e| e.to_string())?;
+    schema.validate().map_err(|e| e.to_string())?;
     Ok(DirectDeclareProposal {
         namespace,
         local_schema_id,

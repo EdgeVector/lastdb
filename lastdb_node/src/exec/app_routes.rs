@@ -82,7 +82,7 @@ pub(super) fn change_visible_to_caller(
 pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option<usize> {
     let mgr = host.db.schema_manager();
     let schema = mgr.resolve_schema(canonical).await.ok()??;
-    if schema.runtime_fields.is_empty() {
+    if schema.fields.as_ref().is_none_or(Vec::is_empty) {
         return Some(0);
     }
 

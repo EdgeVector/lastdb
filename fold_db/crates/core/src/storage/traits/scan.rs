@@ -1,11 +1,8 @@
-//! Scan pages, cursors, and the batch mutation enum.
-
-use super::KvStore;
-use crate::storage::error::StorageResult;
+//! Scan pages and the batch mutation enum.
 
 /// One ordered mutation in a mixed durable batch.
 ///
-/// Backends that implement [`KvStore::batch_mutate`] must preserve this order.
+/// Backends that implement [`super::KvStore::batch_mutate`] must preserve this order.
 /// The disk format v2 backend validates the whole batch before it writes, then
 /// commits it as one write or stages it in the open transaction batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,29 +35,9 @@ impl KvMutation {
     }
 }
 
-/// Position of a resumable scan.
-///
-/// `after_key` is exclusive. Disk format v2 has no physical shards or hash
-/// groups, and every page comes from the default
-/// [`KvStore::scan_range_physical_paged`], so the cursor is the last key read.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PhysicalScanCursor {
-    /// Last raw key consumed. The next page starts after it.
-    pub after_key: Option<Vec<u8>>,
-}
-
-/// One physically bounded scan page.
-#[derive(Debug, Clone, Default)]
-pub struct PhysicalScanPage {
-    /// Rows returned from the visited physical handles.
-    pub rows: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Resume position, or `None` when the current physical walk is complete.
-    pub next_cursor: Option<PhysicalScanCursor>,
-}
-
 /// One read of a range that names where the next read continues.
 ///
-/// Returned by [`KvStore::scan_range_yielding`].
+/// Returned by [`super::KvStore::scan_range_yielding`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct YieldedScan {
     /// The rows read, in key order. It can be short or empty while the range
@@ -69,39 +46,4 @@ pub struct YieldedScan {
     /// The last key this read examined. The next read starts at the least key
     /// above it. `None` means the range ended.
     pub resume: Option<Vec<u8>>,
-}
-
-/// The default of [`KvStore::scan_range_physical_paged`]: one logical keyset page.
-pub(super) async fn keyset_physical_page<S: KvStore + ?Sized>(
-    store: &S,
-    start: &[u8],
-    end: &[u8],
-    cursor: Option<&PhysicalScanCursor>,
-    limit: usize,
-    max_handles: usize,
-) -> StorageResult<PhysicalScanPage> {
-    if limit == 0 || max_handles == 0 || start >= end {
-        return Ok(PhysicalScanPage {
-            next_cursor: cursor.cloned(),
-            ..Default::default()
-        });
-    }
-    let resume = cursor
-        .and_then(|position| position.after_key.as_deref())
-        .unwrap_or(start);
-    // `scan_range_paged` includes its start key. A resume page therefore
-    // needs one slot for that duplicate plus one slot for lookahead.
-    let lookahead = limit
-        .saturating_add(1)
-        .saturating_add(usize::from(cursor.is_some()));
-    let mut rows = store.scan_range_paged(resume, end, lookahead).await?;
-    if let Some(after) = cursor.and_then(|position| position.after_key.as_deref()) {
-        rows.retain(|(key, _)| key.as_slice() != after);
-    }
-    let more_remaining = rows.len() > limit;
-    rows.truncate(limit);
-    let next_cursor = more_remaining.then(|| PhysicalScanCursor {
-        after_key: rows.last().map(|(key, _)| key.clone()),
-    });
-    Ok(PhysicalScanPage { rows, next_cursor })
 }

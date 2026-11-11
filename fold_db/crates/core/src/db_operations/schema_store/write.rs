@@ -4,15 +4,7 @@ use super::*;
 use futures::FutureExt;
 
 impl SchemaStore {
-    /// Store a schema.
-    ///
-    /// **Skip-if-unchanged:** when the durable catalog body already matches
-    /// `schema` (JSON-equality of the serialized `Schema`, which skips
-    /// runtime-only fields), this is a no-op. Product mutations used to call
-    /// this on every write; without the skip, LastStore append-only segments
-    /// retained every full catalog rewrite and the `schemas` plane ballooned
-    /// (~354× historical copies measured on a daily-driver home). An existing
-    /// body that does not decode fails the write.
+    /// Store a schema (no-op if durable catalog bytes already match).
     pub async fn store_schema(
         &self,
         schema_name: &str,
@@ -38,19 +30,15 @@ impl SchemaStore {
                 ));
             }
             if durable_schema_eq(&existing, schema) {
-                self.stage_native_snapshot(schema_name).await?;
                 return Ok(());
             }
         }
         self.format.put_schema(input).await?;
-        self.stage_native_snapshot(schema_name).await?;
         self.format.flush_schemas().await?;
         Ok(())
     }
 
-    /// Store schema state.
-    ///
-    /// Same skip-if-unchanged contract as [`Self::store_schema`].
+    /// Store schema state (no-op if durable state already matches).
     pub async fn store_schema_state(
         &self,
         schema_name: &str,
@@ -74,7 +62,6 @@ impl SchemaStore {
             .await?
             .is_some_and(|existing| existing == *state)
         {
-            self.stage_native_snapshot(schema_name).await?;
             return Ok(());
         }
         self.format
@@ -83,18 +70,11 @@ impl SchemaStore {
                 state,
             })
             .await?;
-        self.stage_native_snapshot(schema_name).await?;
         self.format.flush_states().await?;
         Ok(())
     }
 
     /// Remove one installed schema identity from the catalog.
-    ///
-    /// Point Deletes of the `schemas` row, the `schema_states` row, the
-    /// name-claim row, and the retention keys for this identity. The caller
-    /// releases the product records first. Returns whether a
-    /// catalog body was present before the Deletes. A miss still runs the
-    /// Deletes so a retry is idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
         self.release_drop_tracking(schema_name).await?;
         crate::storage::disk_pack::transaction::scope(
@@ -119,14 +99,9 @@ impl SchemaStore {
                 schema: schema_name,
                 kind: StateKey::Policy,
             },
-            StateDelete::Key {
-                schema: schema_name,
-                kind: StateKey::Anchor,
-            },
         ];
         self.format.delete_schema(schema_name).await?;
         self.format.delete_states(state_keys).await?;
-        self.stage_native_snapshot(schema_name).await?;
         self.flush().await?;
         Ok(existed)
     }

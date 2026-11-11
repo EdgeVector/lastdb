@@ -61,9 +61,6 @@ ed25519-compact = "2.2.0"
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-mach2 = "0.4"
-
 [lib]
 bench = false
 doctest = false

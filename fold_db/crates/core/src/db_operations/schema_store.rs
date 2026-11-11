@@ -15,23 +15,17 @@ use std::sync::Arc;
 mod catalog_keys;
 mod claims_retention;
 mod drop_tracking;
+mod manifest_retention;
 mod name_claims;
-mod native_memory;
 mod read;
-mod read_snapshot;
 mod retention_backfill;
 mod retention_floors;
 mod retention_format;
-mod retention_layers;
-mod retention_move;
 mod retention_page;
 mod retention_partitions;
 mod retention_recheck;
-mod retention_sharing;
 mod write;
 
-pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
-pub(crate) use read_snapshot::SchemaReadSnapshot;
 pub use retention_floors::RetentionFloors;
 
 use catalog_keys::*;
@@ -80,14 +74,14 @@ impl SchemaStore {
         )
         .await?;
         let mut schemas = HashMap::with_capacity(rows.len());
-        for (key, mut schema) in rows {
+        for (key, schema) in rows {
             if schema.name != key {
                 return Err(SchemaError::InvalidData(format!(
                     "schema catalog row {key} names another schema: {}",
                     schema.name
                 )));
             }
-            schema.populate_runtime_fields().map_err(|error| {
+            schema.validate().map_err(|error| {
                 SchemaError::InvalidData(format!(
                     "schema catalog row {key} does not resolve: {error}"
                 ))
@@ -98,10 +92,6 @@ impl SchemaStore {
     }
 
     /// Get all schema states.
-    ///
-    /// The node-local families that share this namespace (name claims and
-    /// retention rows) sit under keys that start with a zero byte, so the read
-    /// starts above them.
     pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
         let rows = read_catalog_range::<SchemaState>(
             &self.schema_states_store,
@@ -114,12 +104,6 @@ impl SchemaStore {
     }
 }
 
-/// Read every row of one catalog namespace whose key falls in `start..end`.
-///
-/// The read walks the range in bounded pages, so it has no single unbounded
-/// scan. It is strict: a row that does not decrypt or decode fails the read,
-/// and so does a page that the backend returns out of order, or short while
-/// rows remain.
 async fn read_catalog_range<T: DeserializeOwned>(
     store: &ReadStore,
     catalog: &'static str,
@@ -130,7 +114,6 @@ async fn read_catalog_range<T: DeserializeOwned>(
     let mut out = Vec::new();
     loop {
         let page = store
-            .inner()
             .scan_range_paged(&cursor, end, CATALOG_PAGE_ROWS)
             .await
             .map_err(|error| {
@@ -166,7 +149,7 @@ async fn read_catalog_range<T: DeserializeOwned>(
             out.push((key, value));
         }
         if !full {
-            let trailing = store.inner().scan_range_paged(&next, end, 1).await?;
+            let trailing = store.scan_range_paged(&next, end, 1).await?;
             if !trailing.is_empty() {
                 return Err(SchemaError::InvalidData(format!(
                     "the {catalog} catalog read received a truncated page"

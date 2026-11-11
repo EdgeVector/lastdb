@@ -1,8 +1,4 @@
 //! Retention-policy methods of [`SchemaStore`].
-//!
-//! Each method takes the schema name the caller used and resolves it to the
-//! retention anchor first (see `retention_layers`), so an app schema with two
-//! installed names has one policy, one age index and one HashRange registry.
 
 use super::catalog_keys::*;
 use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
@@ -16,13 +12,12 @@ impl SchemaStore {
         schema_name: &str,
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
         self.require_installed_schema(schema_name).await?;
-        let anchor = self.retention_anchor(schema_name).await?;
         let policy = self
             .schema_states_store
-            .get_item(&retention_policy_key(&anchor))
+            .get_item(&retention_policy_key(schema_name))
             .await?;
         if policy.is_some() {
-            self.require_retention_format(&anchor).await?;
+            self.require_retention_format(schema_name).await?;
         }
         Ok(policy)
     }
@@ -38,8 +33,6 @@ impl SchemaStore {
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
         self.require_retention_format(schema_name).await?;
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
         if policy.ttl_seconds == 0 {
             return Err(SchemaError::InvalidData(
                 "schema retention ttl_seconds must be greater than zero".to_string(),
@@ -55,7 +48,6 @@ impl SchemaStore {
             .schema_states_store
             .get_item::<SchemaRetentionPolicy>(&key)
             .await?;
-        // An operator policy keeps the manifest TTL it shadows.
         let policy = SchemaRetentionPolicy::operator_over(
             current.as_ref(),
             policy.ttl_seconds,
@@ -77,52 +69,45 @@ impl SchemaStore {
     /// Clear the operator retention policy for an installed schema.
     ///
     /// An operator policy over a manifest policy gives way to it. Any other
-    /// policy is removed with its age index, its partition registry and the
-    /// manifest-name aliases that pointed at it.
+    /// policy is removed with its age index and its partition registry.
     pub async fn clear_schema_retention_policy(
         &self,
         schema_name: &str,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
         if self.restore_shadowed_manifest_policy(schema_name).await? {
             return Ok(());
         }
-        let mut keys = vec![StateDelete::Key {
-            schema: schema_name,
-            kind: StateKey::Policy,
-        }];
-        keys.push(StateDelete::Selected {
-            schema: schema_name,
-            kind: Tracking::Age,
-            keys: self
-                .schema_states_store
-                .list_keys_with_prefix(&retention_age_prefix(schema_name))
-                .await?,
-        });
-        keys.push(StateDelete::Selected {
-            schema: schema_name,
-            kind: Tracking::Latest,
-            keys: self
-                .schema_states_store
-                .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
-                .await?,
-        });
-        keys.push(StateDelete::Selected {
-            schema: schema_name,
-            kind: Tracking::Partition,
-            keys: self
-                .schema_states_store
-                .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
-                .await?,
-        });
-        // No alias is left pointing at a cleared policy.
-        let aliases = self.retention_aliases_of(schema_name).await?;
-        keys.extend(aliases.iter().map(|name| StateDelete::Key {
-            schema: name,
-            kind: StateKey::Anchor,
-        }));
+        let keys = vec![
+            StateDelete::Key {
+                schema: schema_name,
+                kind: StateKey::Policy,
+            },
+            StateDelete::Selected {
+                schema: schema_name,
+                kind: Tracking::Age,
+                keys: self
+                    .schema_states_store
+                    .list_keys_with_prefix(&retention_age_prefix(schema_name))
+                    .await?,
+            },
+            StateDelete::Selected {
+                schema: schema_name,
+                kind: Tracking::Latest,
+                keys: self
+                    .schema_states_store
+                    .list_keys_with_prefix(&retention_age_latest_prefix(schema_name))
+                    .await?,
+            },
+            StateDelete::Selected {
+                schema: schema_name,
+                kind: Tracking::Partition,
+                keys: self
+                    .schema_states_store
+                    .list_keys_with_prefix(&retention_hash_partition_prefix(schema_name))
+                    .await?,
+            },
+        ];
         self.format.delete_states(keys).await?;
         self.format.flush_states().await?;
         Ok(())
@@ -136,13 +121,9 @@ impl SchemaStore {
         schema_name: &str,
         ages: &[(KeyValue, u64)],
     ) -> Result<(), SchemaError> {
-        if ages.is_empty() {
+        if ages.is_empty() || !self.has_retention_policy(schema_name).await? {
             return Ok(());
         }
-        let Some(anchor) = self.retention_anchor_with_policy(schema_name).await? else {
-            return Ok(());
-        };
-        let schema_name = anchor.as_str();
         let mut clocks = std::collections::HashMap::<KeyValue, u64>::new();
         for (key, written_at) in ages {
             clocks
@@ -206,8 +187,6 @@ impl SchemaStore {
         if keys.is_empty() {
             return Ok(());
         }
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
         let latest_keys: Vec<_> = keys
             .iter()
             .map(|key| retention_age_latest_key(schema_name, key))
@@ -242,22 +221,14 @@ impl SchemaStore {
     }
 
     /// Record HashRange partitions that receive writes after TTL is enabled.
-    ///
-    /// The registry is operational state. It does not create an engine query
-    /// index or change the schema catalog. Each entry names one hash, which
-    /// lets the sweeper retain the required hash-scoped range access pattern.
     pub async fn record_schema_retention_hash_partitions(
         &self,
         schema_name: &str,
         keys: &[KeyValue],
     ) -> Result<(), SchemaError> {
-        if keys.is_empty() {
+        if keys.is_empty() || !self.has_retention_policy(schema_name).await? {
             return Ok(());
         }
-        let Some(anchor) = self.retention_anchor_with_policy(schema_name).await? else {
-            return Ok(());
-        };
-        let schema_name = anchor.as_str();
         let mut hashes: Vec<_> = keys.iter().filter_map(|key| key.hash.clone()).collect();
         hashes.sort();
         hashes.dedup();
@@ -276,29 +247,15 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// The anchor is present only when a retention policy exists for it.
-    async fn retention_anchor_with_policy(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<String>, SchemaError> {
-        let anchor = self.retention_anchor(schema_name).await?;
-        if self
+    async fn has_retention_policy(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        Ok(self
             .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(&anchor))
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
             .await?
-            .is_none()
-        {
-            return Ok(None);
-        }
-        Ok(Some(anchor))
+            .is_some())
     }
 
     /// Enumerate node-local retention policies for schemas that still exist.
-    ///
-    /// Reads only the reserved `\0retention_policy\0` prefix in `schema_states`.
-    /// A policy row whose schema is gone is skipped and does **not** create
-    /// that schema — the sweeper must not materialise an absent series in
-    /// order to expire it.
     pub async fn list_schema_retention_policies(
         &self,
     ) -> Result<Vec<(String, SchemaRetentionPolicy)>, SchemaError> {

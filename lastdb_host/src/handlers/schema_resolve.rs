@@ -2,9 +2,7 @@
 
 use super::*;
 
-mod read;
 mod rules;
-pub(in crate::handlers) use read::resolve_schema_name_for_read;
 
 use rules::{resolve_exact_alias, resolve_folded_alias};
 

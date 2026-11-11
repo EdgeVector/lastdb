@@ -15,7 +15,6 @@ env_flag = { workspace = true }
 lastdb_uds = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-async-trait = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true }

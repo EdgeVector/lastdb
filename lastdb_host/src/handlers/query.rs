@@ -73,7 +73,7 @@ async fn execute_query_scoped<H: HostNode>(
     // as noisy generic "Bad request: Schema error" events.
 
     let requested_schema_name = query.schema_name.clone();
-    match resolve_schema_name_for_read(host, &query.schema_name).await? {
+    match resolve_schema_name(host, &query.schema_name)? {
         Some(canonical) => query.schema_name = canonical,
         None if is_app_owned_schema_ref(&query.schema_name) => {
             return Err(HostError::new(
@@ -150,7 +150,7 @@ pub(super) async fn capture_key_comparison<H: HostNode>(
     let Some(schema) = host
         .fold_db()
         .schema_manager()
-        .resolve_schema_for_read(name)
+        .resolve_schema(name)
         .await
         .map_err(HostError::from)?
     else {

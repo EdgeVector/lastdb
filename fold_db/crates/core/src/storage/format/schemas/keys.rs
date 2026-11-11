@@ -17,7 +17,7 @@ pub(crate) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 // Root-owned names are shared by admission, writers and readers.
 pub(crate) use crate::storage::format::{
     NAME_CLAIM_KEY_PREFIX, RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX,
-    RETENTION_ANCHOR_KEY_PREFIX, RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
+    RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
 };
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -29,16 +29,6 @@ pub(crate) struct SchemaRetentionAgeEntry {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct SchemaRetentionHashPartition {
     pub(crate) hash: String,
-}
-
-/// The schema that holds the retention state for the name the row is keyed by.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub(crate) struct SchemaRetentionAnchor {
-    pub(crate) anchor: String,
-}
-
-pub(crate) fn retention_anchor_key(schema_name: &str) -> String {
-    format!("{RETENTION_ANCHOR_KEY_PREFIX}{schema_name}")
 }
 
 pub(crate) fn retention_policy_key(schema_name: &str) -> String {

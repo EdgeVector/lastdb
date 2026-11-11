@@ -9,7 +9,7 @@ mod tracking;
 use super::read::ReadStore;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvStore, StorageError, TypedKvStore};
+use crate::storage::{KvStore, StorageError};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -24,26 +24,25 @@ enum EncodedSchema {
     SchemaDelete(Vec<u8>),
     StatePut(Row, Option<String>),
     StateBatch(Vec<Row>, Vec<String>),
-    StateOneDelete(Vec<u8>),
     StateDelete(Vec<Vec<u8>>),
 }
 
 #[derive(Clone)]
 pub(crate) struct SchemaFormat {
-    schemas_store: Arc<TypedKvStore<dyn KvStore>>,
-    schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
+    schemas_store: Arc<dyn KvStore>,
+    schema_states_store: Arc<dyn KvStore>,
     runtime: Arc<PackRuntime>,
 }
 
 impl SchemaFormat {
     pub(in crate::storage::format) fn new(
-        schemas: Arc<dyn KvStore>,
-        states: Arc<dyn KvStore>,
+        schemas_store: Arc<dyn KvStore>,
+        schema_states_store: Arc<dyn KvStore>,
         runtime: Arc<PackRuntime>,
     ) -> Self {
         Self {
-            schemas_store: Arc::new(TypedKvStore::new(schemas)),
-            schema_states_store: Arc::new(TypedKvStore::new(states)),
+            schemas_store,
+            schema_states_store,
             runtime,
         }
     }
@@ -95,16 +94,11 @@ impl SchemaFormat {
             .await
     }
 
-    pub(crate) async fn delete_state(&self, schema: &str, kind: StateKey) -> StorageResult<()> {
-        self.write(EncodedSchema::StateOneDelete(delete::key(schema, kind)?))
-            .await
-    }
-
     pub(crate) async fn flush_schemas(&self) -> StorageResult<()> {
-        self.schemas_store.inner().flush().await
+        self.schemas_store.flush().await
     }
     pub(crate) async fn flush_states(&self) -> StorageResult<()> {
-        self.schema_states_store.inner().flush().await
+        self.schema_states_store.flush().await
     }
 
     /// Preserve each old standalone KvStore call's request boundary; callers
@@ -120,30 +114,18 @@ impl SchemaFormat {
             ));
         }
         match encoded {
-            EncodedSchema::SchemaPut((key, bytes)) => {
-                self.schemas_store.inner().put(&key, bytes).await
-            }
-            EncodedSchema::SchemaDelete(key) => {
-                self.schemas_store.inner().delete(&key).await.map(|_| ())
-            }
+            EncodedSchema::SchemaPut((key, bytes)) => self.schemas_store.put(&key, bytes).await,
+            EncodedSchema::SchemaDelete(key) => self.schemas_store.delete(&key).await.map(|_| ()),
             EncodedSchema::StatePut((key, bytes), owner) => {
                 self.require_tracking_writable(&owner.into_iter().collect::<Vec<_>>())
                     .await?;
-                self.schema_states_store.inner().put(&key, bytes).await
+                self.schema_states_store.put(&key, bytes).await
             }
             EncodedSchema::StateBatch(rows, owners) => {
                 self.require_tracking_writable(&owners).await?;
-                self.schema_states_store.inner().batch_put(rows).await
+                self.schema_states_store.batch_put(rows).await
             }
-            EncodedSchema::StateOneDelete(key) => self
-                .schema_states_store
-                .inner()
-                .delete(&key)
-                .await
-                .map(|_| ()),
-            EncodedSchema::StateDelete(keys) => {
-                self.schema_states_store.inner().batch_delete(keys).await
-            }
+            EncodedSchema::StateDelete(keys) => self.schema_states_store.batch_delete(keys).await,
         }
     }
 }

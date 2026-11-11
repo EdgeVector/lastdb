@@ -8,14 +8,14 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
-use crate::storage::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
+use crate::storage::{KvMutation, KvStore, NamespacedStore};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(crate) struct RecordFormat {
-    pub(super) main_store: Arc<TypedKvStore<dyn KvStore>>,
+    pub(super) main_store: Arc<dyn KvStore>,
     file_owner: Arc<dyn NamespacedStore>,
     pub(super) runtime: Arc<PackRuntime>,
     pub(super) content_key: Option<[u8; 32]>,
@@ -25,14 +25,14 @@ pub(crate) struct RecordFormat {
 
 impl RecordFormat {
     pub(in crate::storage::format) fn new(
-        main: Arc<dyn KvStore>,
+        main_store: Arc<dyn KvStore>,
         file_owner: Arc<dyn NamespacedStore>,
         runtime: Arc<PackRuntime>,
         content_key: Option<[u8; 32]>,
         metadata: Metadata,
     ) -> Self {
         Self {
-            main_store: Arc::new(TypedKvStore::new(main)),
+            main_store,
             file_owner,
             runtime,
             content_key,
@@ -50,7 +50,7 @@ impl RecordFormat {
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.main_store.inner().flush().await
+        self.main_store.flush().await
     }
 
     pub(crate) async fn stage_records(
@@ -87,7 +87,7 @@ impl RecordFormat {
             .encode_files(std::mem::take(&mut encoded.files))
             .await?;
         let written = encoded
-            .stage(self.main_store.inner().as_ref(), &self.runtime)
+            .stage(self.main_store.as_ref(), &self.runtime)
             .await?;
         self.stage_files(files).await?;
         self.metadata.stage_outgoing(entries).await?;
@@ -138,7 +138,7 @@ impl RecordFormat {
             .map(|change| change.key.as_str().as_bytes().to_vec())
             .collect();
         let expected = keys.len();
-        let stored = self.main_store.inner().get_many(keys).await?;
+        let stored = self.main_store.get_many(keys).await?;
         if stored.len() != expected {
             return Err(SchemaError::InvalidData(
                 "incomplete file record read".into(),

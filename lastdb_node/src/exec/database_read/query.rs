@@ -55,7 +55,6 @@ impl DatabaseRead<'_> {
         let schema = self.queryable_schema(&request.query.schema_name)?;
         let query = &request.query;
         if query.requires_post_key_work()
-            || query.rehydrate_depth.is_some()
             || query.include_tombstones
             || matches!(query.sort_order, Some(SortOrder::Desc))
         {

@@ -47,9 +47,6 @@ pub struct Host {
     /// UDS worker pool (set after boot once accept loops start). Used by
     /// `/api/status` for ops visibility; empty until `attach_uds_workers`.
     pub uds_workers: OnceLock<lastdb_uds::UdsWorkerPool>,
-    /// Bounded ordered persistence lane for durable app change-feed hints.
-    /// Requests reserve capacity before product commit and submit after it.
-    pub(crate) change_feed_queue: crate::change_feed_queue::ChangeFeedQueue,
     /// Explicit byte backup admission, worker completion and shutdown pause.
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// Serializes shared upload, replay and snapshot work for this running home.
@@ -109,11 +106,6 @@ impl Host {
             "minimal host booted"
         );
 
-        let change_feed_queue = crate::change_feed_queue::ChangeFeedQueue::new(
-            db.db_ops().change_feed().clone(),
-            Arc::clone(db.pending_tasks()),
-        );
-
         Ok(Self {
             home: home.to_path_buf(),
             data_dir: data_path,
@@ -122,7 +114,6 @@ impl Host {
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
-            change_feed_queue,
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
             ids,
@@ -141,7 +132,6 @@ impl Host {
 }
 
 /// The minimal daemon drives the shared owner-socket handlers (`lastdb_host::handlers`).
-#[async_trait::async_trait]
 impl lastdb_host::HostNode for Host {
     fn fold_db(&self) -> &Arc<FoldDB> {
         &self.db
@@ -153,10 +143,6 @@ impl lastdb_host::HostNode for Host {
 
     fn ids(&self) -> &dyn lastdb_host::IdGen {
         self.ids.as_ref()
-    }
-
-    async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {
-        self.db.wait_for_background_tasks(timeout).await
     }
 }
 

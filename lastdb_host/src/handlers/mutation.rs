@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
     MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
 };
@@ -196,18 +195,6 @@ pub(super) fn extend_json(base: Value, extra: Value) -> Value {
         base_map.insert(key, value);
     }
     Value::Object(base_map)
-}
-
-pub(super) async fn wait_for_requested_convergence<H: HostNode>(
-    host: &H,
-    convergence: MutationConvergence,
-) -> bool {
-    if !convergence.waits() {
-        return false;
-    }
-
-    host.wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
-        .await
 }
 
 /// Build the `{ mutation_id, success, … }` payload of a committed mutation.

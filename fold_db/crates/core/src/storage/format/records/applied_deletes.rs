@@ -54,10 +54,6 @@ pub(in crate::storage) fn is_age_key(key: &str) -> bool {
         .is_some_and(|(family, _)| family == DELETE_AGE_FAMILY)
 }
 
-pub(in crate::storage) fn validate_age_row(key: &str, bytes: &[u8]) -> StorageResult<()> {
-    decode_age_row(key, bytes).map(|_| ())
-}
-
 fn decode_age_row(key: &str, bytes: &[u8]) -> StorageResult<DeleteAge> {
     require_age_size(bytes)?;
     let age: DeleteAge = serde_json::from_slice(bytes).map_err(invalid)?;
@@ -112,7 +108,7 @@ fn age_key(time: u64, marker: &str) -> String {
     )
 }
 
-pub(in crate::storage) fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
+fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
     if bytes.len() > MAX_DELETE_BYTES {
         return Err(invalid("encoded value exceeds its bound"));
     }
@@ -140,7 +136,6 @@ impl RecordFormat {
         let end = format!("{DELETE_AGE_FAMILY}:{cutoff_ms:020}:");
         let rows = self
             .main_store
-            .inner()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), 32)
             .await?;
         let mut markers = Vec::with_capacity(rows.len());
@@ -152,7 +147,6 @@ impl RecordFormat {
         }
         let values = self
             .main_store
-            .inner()
             .get_many(
                 markers
                     .iter()
@@ -186,7 +180,7 @@ impl RecordFormat {
             mutations.push(KvMutation::delete(age));
         }
         if !mutations.is_empty() {
-            self.main_store.inner().batch_mutate(mutations).await?;
+            self.main_store.batch_mutate(mutations).await?;
         }
         Ok(reclaimed)
     }
@@ -197,7 +191,6 @@ impl RecordFormat {
     ) -> StorageResult<Vec<Option<Stamp>>> {
         let rows = self
             .main_store
-            .inner()
             .get_many(
                 keys.iter()
                     .map(|key| address(key.as_str()).into_bytes())

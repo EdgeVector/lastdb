@@ -207,7 +207,6 @@ impl RecordStore {
             };
             let result = self
                 .reader()
-                .inner()
                 .scan_range_yielding(&start, &end, asked, 0)
                 .await;
             match result.map_err(SchemaError::from) {

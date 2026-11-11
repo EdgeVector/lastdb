@@ -253,14 +253,6 @@ impl PackRuntime {
             .requests
             .last()
             .map_or(queue.next_sequence, |request| request.sequence);
-        for request in &queue.requests {
-            request
-                .pending
-                .path_protection
-                .lock()
-                .expect("completed core write holds")
-                .take();
-        }
         Ok((
             sequence,
             queue

@@ -15,10 +15,9 @@ impl SchemaStore {
         clocks: Vec<(KeyValue, u64)>,
         range_keyed: bool,
     ) -> Result<usize, SchemaError> {
-        let anchor = self.retention_anchor(name).await?;
         if self
             .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(&anchor))
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(name))
             .await?
             .is_none()
         {
@@ -41,7 +40,7 @@ impl SchemaStore {
                     .as_ref()
                     .ok_or_else(|| SchemaError::InvalidData("backfill key has no hash".into()))?;
                 puts.push((
-                    retention_hash_partition_key(&anchor, hash),
+                    retention_hash_partition_key(name, hash),
                     SchemaRetentionHashPartition { hash: hash.clone() },
                 ));
             }
@@ -50,8 +49,7 @@ impl SchemaStore {
                 .iter()
                 .map(|(key, age)| (key.clone(), *age))
                 .collect();
-            self.record_schema_retention_write_ages(&anchor, &ages)
-                .await?;
+            self.record_schema_retention_write_ages(name, &ages).await?;
             return Ok(unique.len());
         }
         // Several range keys can name the same hash. The batch writes it once.
@@ -60,7 +58,7 @@ impl SchemaStore {
             .batch_states(
                 puts.into_values()
                     .map(|entry| StateChange::Partition {
-                        schema: &anchor,
+                        schema: name,
                         entry,
                     })
                     .collect(),

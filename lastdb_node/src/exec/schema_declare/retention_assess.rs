@@ -1,21 +1,16 @@
 //! Assessing a manifest retention against the catalog schema a declare resolved to.
-//!
-//! The assessment reads the node (who shares the records, what the policy
-//! change would be, whether records exist) and writes nothing. A preview
-//! reports it. A declare acts on it.
 
 use super::retention::RetentionLayout;
 use super::*;
 use fold_db::schema::{
-    ManifestRetentionPlan, ManifestRetentionStatus, RetentionSharing, RetentionSource,
-    SchemaRetentionPolicy,
+    ManifestRetentionPlan, ManifestRetentionStatus, RetentionSource, SchemaRetentionPolicy,
 };
 use serde_json::{json, Map};
 
 pub(super) struct Assessment {
     pub(super) ttl_seconds: u64,
     pub(super) layout: RetentionLayout,
-    pub(super) sharing: RetentionSharing,
+    pub(super) foreign_owner: Option<String>,
     pub(super) plan: Result<ManifestRetentionPlan, String>,
     pub(super) existing_records_may_expire: bool,
 }
@@ -28,24 +23,31 @@ pub(super) async fn assess(
     layout: RetentionLayout,
 ) -> Result<Assessment, String> {
     let store = host.db.db_ops().schemas();
-    let binding = declare.local_schema_id.as_str();
-    let sharing = store
-        .retention_sharing(binding, anchor, &declare.namespace)
-        .await
-        .map_err(|e| e.to_string())?;
+    let foreign_owner = host
+        .db
+        .schema_manager()
+        .get_schema_metadata(anchor)
+        .map_err(|e| format!("failed to read schema {anchor}: {e}"))?
+        .filter(|schema| schema.owner_app_id.as_deref() != Some(declare.namespace.as_str()))
+        .map(|schema| {
+            schema
+                .owner_app_id
+                .clone()
+                .unwrap_or_else(|| "unowned".to_string())
+        });
     let plan = store
-        .plan_manifest_retention(binding, anchor, ttl_seconds)
+        .plan_manifest_retention(anchor, ttl_seconds)
         .await
         .map_err(|e| e.to_string());
     let new_policy = plan
         .as_ref()
         .is_ok_and(|plan| plan.status == ManifestRetentionStatus::Applied);
     let existing_records_may_expire =
-        layout.range_keyed && new_policy && existing_data(host, binding, anchor).await?;
+        layout.range_keyed && new_policy && existing_data(host, anchor).await?;
     Ok(Assessment {
         ttl_seconds,
         layout,
-        sharing,
+        foreign_owner,
         plan,
         existing_records_may_expire,
     })
@@ -53,27 +55,21 @@ pub(super) async fn assess(
 
 /// Whether the schema already holds a record. Probes the record space of the
 /// schema with one bounded read: no scan.
-async fn existing_data(host: &Host, binding: &str, anchor: &str) -> Result<bool, String> {
-    let manager = host.db.schema_manager();
-    for name in [anchor, binding] {
-        let Some(schema) = manager
-            .get_schema_metadata(name)
-            .map_err(|e| format!("failed to read schema {name}: {e}"))?
-        else {
-            continue;
-        };
-        let holds = host
-            .db
-            .db_ops()
-            .records()
-            .schema_may_hold_records(&schema)
-            .await
-            .map_err(|error| format!("failed to probe the records of {name}: {error}"))?;
-        if holds {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+async fn existing_data(host: &Host, anchor: &str) -> Result<bool, String> {
+    let Some(schema) = host
+        .db
+        .schema_manager()
+        .get_schema_metadata(anchor)
+        .map_err(|e| format!("failed to read schema {anchor}: {e}"))?
+    else {
+        return Ok(false);
+    };
+    host.db
+        .db_ops()
+        .records()
+        .schema_may_hold_records(&schema)
+        .await
+        .map_err(|error| format!("failed to probe the records of {anchor}: {error}"))
 }
 
 impl Assessment {
@@ -98,12 +94,14 @@ impl Assessment {
     pub(super) fn refusal(
         &self,
         declare: &DirectDeclareProposal,
-        anchor: &str,
         confirmed: bool,
     ) -> Option<String> {
         let binding = declare.local_schema_id.as_str();
-        if let Some(reason) = self.sharing.refusal(binding, anchor, &declare.namespace) {
-            return Some(reason);
+        if let Some(owner) = &self.foreign_owner {
+            return Some(format!(
+                "manifest retention refused on {binding}: schema is owned by {owner}, not {}",
+                declare.namespace
+            ));
         }
         if let Err(error) = &self.plan {
             return Some(error.clone());
@@ -177,7 +175,6 @@ impl Assessment {
         );
         report.insert("age_rule".into(), json!(self.layout.age_rule));
         report.insert("warnings".into(), json!(warnings));
-        report.insert("shared_with".into(), json!(self.sharing.shared_with));
         report.insert(
             "existing_records_may_expire".into(),
             json!(self.existing_records_may_expire),

@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! Domain (db_operations, factory, …)
-//!         │  TypedKvStore / KvStore / NamespacedStore
+//!         │  KvStore / NamespacedStore
 //!         ▼
 //! EncryptingNamespacedStore (local CAS records only)
 //!         │
@@ -42,4 +42,4 @@ pub use config::DatabaseConfig;
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::EncryptingNamespacedStore;
-pub use traits::{KvMutation, KvStore, NamespacedStore, TypedKvStore};
+pub use traits::{KvMutation, KvStore, NamespacedStore};

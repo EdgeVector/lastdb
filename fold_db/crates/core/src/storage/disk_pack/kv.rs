@@ -184,15 +184,6 @@ impl KvStore for PackKvStore {
         Ok(self.get(key).await?.is_some())
     }
 
-    async fn exists_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<bool>> {
-        Ok(self
-            .values(keys)
-            .await?
-            .into_iter()
-            .map(|body| body.is_some())
-            .collect())
-    }
-
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         self.prefix_rows(prefix, 10000, true).await
     }
@@ -252,8 +243,5 @@ impl KvStore for PackKvStore {
 
     async fn flush(&self) -> StorageResult<()> {
         self.runtime.flush().await
-    }
-    fn backend_name(&self) -> &'static str {
-        "laststore-disk-pack"
     }
 }

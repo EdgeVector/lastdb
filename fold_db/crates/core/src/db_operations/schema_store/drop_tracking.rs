@@ -32,7 +32,6 @@ impl SchemaStore {
                 let result = transaction::scope(self.runtime.clone(), async {
                     let scan = self
                         .schema_states_store
-                        .inner()
                         .scan_range_yielding(&start, &end, asked, 1)
                         .await?;
                     let count = scan.rows.len();

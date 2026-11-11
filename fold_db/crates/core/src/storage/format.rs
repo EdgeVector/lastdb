@@ -101,7 +101,6 @@ pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
 pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
-pub(crate) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";

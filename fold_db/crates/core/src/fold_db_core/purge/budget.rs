@@ -59,7 +59,10 @@ impl EraseShape {
             .as_ref()
             .map_or(0, |keys| keys.alternates.len());
         Self {
-            fields: schema.runtime_fields.len().max(1),
+            fields: schema
+                .fields
+                .as_ref()
+                .map_or(1, |fields| fields.len().max(1)),
             alternates,
         }
     }

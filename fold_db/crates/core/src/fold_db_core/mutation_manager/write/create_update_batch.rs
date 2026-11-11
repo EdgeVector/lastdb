@@ -25,7 +25,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn write_create_update_batch_async(
         &self,
         mutations: Vec<Mutation>,
-        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
@@ -47,7 +46,6 @@ impl MutationManager {
             super::native::NativeRequest {
                 runtime: self.db_ops.native_runtime(),
                 mutations,
-                author_clock: author_clock_barrier,
             },
             start_time,
             state,

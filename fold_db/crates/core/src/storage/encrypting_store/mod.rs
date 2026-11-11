@@ -1,5 +1,5 @@
 use super::error::{StorageError, StorageResult};
-use super::traits::{KvMutation, KvStore, PhysicalScanCursor, PhysicalScanPage};
+use super::traits::{KvMutation, KvStore};
 use crate::crypto::at_rest::{decode_binary_ciphertext, encode_binary_ciphertext};
 use crate::crypto::CryptoProvider;
 use async_trait::async_trait;
@@ -8,15 +8,7 @@ use std::sync::Arc;
 /// The storage envelope for record file rows (`cas_blobs`).
 ///
 /// This wraps any `KvStore` implementation, inserting an encryption layer
-/// between the `TypedKvStore` serialization boundary and the actual backend.
-///
-/// ```text
-/// TypedKvStore (JSON bytes)
-///       ↓
-/// EncryptingKvStore (encrypt → binary `ENB:` envelope)
-///       ↓
-/// byte-oriented KvStore backend
-/// ```
+/// above the byte-oriented backend.
 ///
 /// Keys are NOT encrypted — only values. This preserves indexing and scan_prefix.
 ///

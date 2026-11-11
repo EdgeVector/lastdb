@@ -1,7 +1,6 @@
 //! Logical store construction consumes only format-bound capabilities.
 
 use super::super::change_feed::ChangeFeedStore;
-use super::super::metadata_store::MetadataStore;
 use super::super::record_store::RecordStore;
 use super::super::schema_store::SchemaStore;
 use super::DbOperations;
@@ -39,7 +38,7 @@ impl DbOperations {
             schema_store: SchemaStore::new(schemas),
             field_keys,
             record_store,
-            metadata_store: MetadataStore::new(metadata),
+            metadata,
             change_feed: ChangeFeedStore::new(feed).await?,
         })
     }

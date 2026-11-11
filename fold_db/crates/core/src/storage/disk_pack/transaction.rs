@@ -3,12 +3,10 @@ use std::collections::BTreeMap;
 
 mod accounting;
 pub(crate) mod blocked;
-mod effects;
 mod empty;
 pub(crate) mod publication;
 mod request;
 mod warm_records;
-pub(crate) use effects::{prepared_core_memory, stage_core_memory};
 pub(crate) use request::{background_scope, request_scope};
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
@@ -33,13 +31,9 @@ pub(in crate::storage) struct PendingBatch {
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
-    raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
-    durable_only: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
-    definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
-    pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
     preparation_limit: Mutex<Option<String>>,
     operation_limit: usize,
     // Record values for the record warm set, published after the flush.
@@ -57,13 +51,9 @@ impl PendingBatch {
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
-            raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
-            durable_only: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
-            definitions: Mutex::new(BTreeMap::new()),
-            path_protection: Mutex::new(None),
             preparation_limit: Mutex::new(None),
             operation_limit: runtime.batch_operation_limit(),
             warm_records: Mutex::new(warm_records::WarmRecords::default()),
@@ -164,7 +154,6 @@ impl PendingBatch {
         data.operations
             .try_reserve(additional)
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
-        effects::forget_superseded(self, &operations);
         for operation in operations {
             let at = data.operations.len();
             data.latest
@@ -211,21 +200,6 @@ impl PendingBatch {
         std::time::Duration::from_micros(self.flush_blocked_us.load(Ordering::Acquire))
     }
 
-    /// Verify final staged bytes, not the request size when quota was retained.
-    pub(super) fn has_reserved_raw_memory(&self) -> bool {
-        let required = self.memory_quote();
-        self.raw_memory_reservation
-            .lock()
-            .expect("native raw memory reservation")
-            .as_ref()
-            .is_some_and(|reservation| reservation.bytes() >= required)
-    }
-
-    fn memory_quote(&self) -> u64 {
-        let stored = self.data.lock().expect("native pending batch").bytes;
-        stored.saturating_mul(4)
-    }
-
     pub(super) fn finish_publications(&self) -> StorageResult<()> {
         self.publications.finish()
     }
@@ -245,38 +219,6 @@ impl PendingBatch {
         }
         Ok(())
     }
-}
-
-/// An unsupported memory mapping still completes its complete disk batch.
-pub(crate) fn require_durable(runtime: &PackRuntime) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation("native durability choice requires a write scope".into())
-    })?;
-    pending.durable_only.store(true, Ordering::Release);
-    Ok(())
-}
-
-/// Include owned stored bytes, publication copies, and canonical body copies.
-pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation("native memory quote requires a write scope".into())
-    })?;
-    Ok(pending.memory_quote())
-}
-
-/// Only this typed quota can authorize read-held raw write bodies before disk.
-pub(crate) fn retain_raw_memory_reservation(
-    runtime: &PackRuntime,
-    reservation: crate::memory_budget::DeferReservation,
-) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation("native raw memory quota requires a write scope".into())
-    })?;
-    *pending
-        .raw_memory_reservation
-        .lock()
-        .expect("native raw memory reservation") = Some(Arc::new(reservation));
-    Ok(())
 }
 
 pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> StorageResult<()> {

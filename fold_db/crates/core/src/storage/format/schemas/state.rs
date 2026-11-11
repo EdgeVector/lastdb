@@ -15,10 +15,6 @@ pub(crate) enum StateChange<'a> {
         schema: &'a str,
         policy: &'a SchemaRetentionPolicy,
     },
-    Anchor {
-        schema: &'a str,
-        anchor: &'a SchemaRetentionAnchor,
-    },
     Claim {
         schema: &'a str,
         claim: SchemaNameClaim,
@@ -47,7 +43,6 @@ pub(super) fn encode(change: StateChange<'_>) -> StorageResult<Row> {
     let schema = match &change {
         StateChange::State { schema, .. }
         | StateChange::Policy { schema, .. }
-        | StateChange::Anchor { schema, .. }
         | StateChange::Claim { schema, .. }
         | StateChange::Age { schema, .. }
         | StateChange::Partition { schema, .. } => *schema,
@@ -62,10 +57,6 @@ pub(super) fn encode(change: StateChange<'_>) -> StorageResult<Row> {
                 ));
             }
             row(retention_policy_key(schema), policy)
-        }
-        StateChange::Anchor { anchor, .. } => {
-            require_name(&anchor.anchor)?;
-            row(retention_anchor_key(schema), anchor)
         }
         StateChange::Claim { claim, .. } => row(name_claim_key(schema), &claim),
         StateChange::Age { entry, latest, .. } => {

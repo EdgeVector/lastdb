@@ -7,7 +7,6 @@ use std::sync::Arc;
 pub(super) struct NativeRequest {
     pub runtime: Arc<PackRuntime>,
     pub mutations: Vec<Mutation>,
-    pub author_clock: Option<super::super::author_clock::AuthorClockPersistBarrier>,
 }
 
 struct NativeCommit {
@@ -38,11 +37,6 @@ impl MutationManager {
         request: NativeRequest,
         state: &mut super::create_update_batch::BatchState,
     ) -> Result<NativeCommit, SchemaError> {
-        // The clock queue uses native storage too. Complete its barrier before
-        // taking the request's exclusive storage gate, never while owning it.
-        if let Some(clock) = request.author_clock {
-            clock.wait().await?;
-        }
         // Owned inputs and the startup-frozen floor need no write gate.
         // Offline maintenance retains its exclusive no-writer contract.
         self.require_replay_cutoff(&request.mutations).await?;
@@ -107,7 +101,6 @@ impl MutationManager {
                 .change_feed()
                 .stage_native_events(notifications)
                 .await?;
-            self.reserve_native_core_memory(&request.runtime)?;
             Ok::<_, SchemaError>(NativeCommit {
                 mutation_ids,
                 record_revisions,
@@ -137,21 +130,6 @@ impl MutationManager {
             .metadata()
             .stage_author_clock(&writer, &durable)
             .await?;
-        Ok(())
-    }
-
-    /// Charge the request's staged core memory to the defer window, or make
-    /// the request wait for disk when the window is full.
-    pub(in crate::fold_db_core::mutation_manager) fn reserve_native_core_memory(
-        &self,
-        runtime: &PackRuntime,
-    ) -> Result<(), SchemaError> {
-        let bytes = transaction::memory_quote(runtime)?;
-        if let Some(reservation) = self.try_reserve_defer(bytes) {
-            transaction::retain_raw_memory_reservation(runtime, reservation)?;
-        } else {
-            transaction::require_durable(runtime)?;
-        }
         Ok(())
     }
 }

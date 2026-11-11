@@ -8,9 +8,7 @@ use crate::host_node::HostNode;
 use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
-use super::{
-    commit_mutation, mutation_response, wait_for_requested_convergence, MutationComponents,
-};
+use super::{commit_mutation, mutation_response, MutationComponents};
 
 /// Execute `POST /api/mutation`. Schema
 /// resolution precedes field validation and the write.
@@ -44,7 +42,7 @@ pub async fn execute_mutation<H: HostNode>(
         .last()
         .cloned()
         .ok_or_else(|| HostError::internal("Mutation returned no IDs"))?;
-    let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
+    let background_tasks_drained = convergence.waits();
     Ok(mutation_response(
         &mutation_id,
         background_tasks_drained,

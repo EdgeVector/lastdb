@@ -94,7 +94,7 @@ impl CoreWarmSet {
     }
 
     /// Call under the same publication boundary as the changed disk view.
-    pub(super) fn invalidate_records(&mut self, changes: &[(String, String)]) {
+    pub(crate) fn invalidate_records(&mut self, changes: &[(String, String)]) {
         if self.records.entries.is_empty() {
             return;
         }
