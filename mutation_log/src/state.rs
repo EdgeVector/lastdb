@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     Capability, DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, StreamId,
@@ -39,6 +39,11 @@ pub struct LogState {
     pub snapshot: Option<Snapshot>,
     /// Highest delivery sequence already dropped.
     pub trimmed_through: u64,
+    /// Submissions already copied onto the publisher stream.
+    ///
+    /// The key is `(submission_stream, writer_seq)`. Trim does not remove it,
+    /// so a repeated incorporation cannot create a second delivery.
+    pub incorporated: BTreeSet<(StreamId, u64)>,
 }
 
 impl LogState {
@@ -63,6 +68,7 @@ impl LogState {
             inflight: BTreeMap::new(),
             snapshot: None,
             trimmed_through: 0,
+            incorporated: BTreeSet::new(),
         }
     }
 
@@ -88,6 +94,17 @@ impl LogState {
             Some(_) => Err(LogError::Unauthorized),
             None => Err(LogError::AppendNotOpen),
         }
+    }
+
+    /// Last accepted writer sequence on `stream`, or zero when it has no entries.
+    ///
+    /// `reader` must be allowed to append that stream.
+    pub fn writer_tip(&self, reader: &PrincipalId, stream: &StreamId) -> Result<u64, LogError> {
+        self.authorize_append(reader, stream)?;
+        Ok(self
+            .streams
+            .get(stream)
+            .map_or(0, |progress| progress.last_writer_seq))
     }
 
     pub(crate) fn authorize_append(

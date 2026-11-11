@@ -7,6 +7,8 @@ description = "Shared-sync step over one mutation log per database. Off unless t
 
 [dependencies]
 mutation_log = { path = "../mutation_log" }
+
+[dev-dependencies]
 mutation_log_mem = { path = "../mutation_log_mem" }
 
 [lints]

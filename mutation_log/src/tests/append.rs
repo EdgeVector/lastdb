@@ -31,7 +31,7 @@ fn duplicate_accepts_next_and_gap_stores_nothing() {
     .expect("duplicate");
     assert_eq!(
         duplicate.outcome,
-        Outcome::Appended(AppendOutcome::Duplicate)
+        Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
     );
     assert_eq!(duplicate.state.entries.len(), 1);
 

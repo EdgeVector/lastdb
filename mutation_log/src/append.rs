@@ -6,8 +6,14 @@ use crate::{
 /// Result of an append that did not fail.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppendOutcome {
-    /// Every sequence was already accepted. The log body is unchanged.
-    Duplicate,
+    /// The batch stored nothing.
+    ///
+    /// `next_seq` is the next writer sequence this stream will accept: one past
+    /// the stored tip, not one past a sequence this call did not store.
+    Duplicate {
+        /// Next acceptable writer sequence on the batch's stream.
+        next_seq: u64,
+    },
     /// The new suffix was stored as one transaction.
     Accepted {
         /// Delivery sequences assigned to the new entries, in batch order.
@@ -18,9 +24,10 @@ pub enum AppendOutcome {
 impl LogState {
     /// Apply one batch. A gap or an app-private namespace stores nothing.
     ///
-    /// Dedupe uses the writer sequence only. A sequence at or below the
-    /// stream's last accepted value is a duplicate. The next value is
-    /// accepted. A higher value is a gap. There is no second idempotency key.
+    /// Dedupe uses the writer sequence. A sequence at or below the stream's
+    /// last accepted value is a duplicate. The next value is accepted. A
+    /// higher value is a gap. An incorporation of a submission that was already
+    /// copied is also a duplicate, and it does not advance the stream.
     pub fn append(
         &self,
         batch: &AppendBatch,
@@ -39,8 +46,8 @@ impl LogState {
             .ok_or(LogError::Unauthorized)?;
         let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
         let start = classify_seqs(last, &seqs)?;
-        if start == seqs.len() {
-            return Ok((self.clone(), AppendOutcome::Duplicate));
+        if start == seqs.len() || repeats_incorporation(self, batch, start) {
+            return Ok((self.clone(), duplicate_outcome(last)?));
         }
         let added = (seqs.len() - start) as u64;
         let delivery = self.head.as_ref().map_or(0, |head| head.delivery_seq);
@@ -124,12 +131,37 @@ fn classify_seqs(last: u64, seqs: &[u64]) -> Result<usize, LogError> {
     Ok(index)
 }
 
+fn duplicate_outcome(last: u64) -> Result<AppendOutcome, LogError> {
+    Ok(AppendOutcome::Duplicate {
+        next_seq: last.checked_add(1).ok_or(LogError::SequenceExhausted)?,
+    })
+}
+
+fn repeats_incorporation(state: &LogState, batch: &AppendBatch, start: usize) -> bool {
+    let mut fresh = batch.entries.iter().skip(start).peekable();
+    if fresh.peek().is_none() {
+        return false;
+    }
+    fresh.all(|entry| match &entry.incorporated_from {
+        Some(from) => state
+            .incorporated
+            .contains(&(from.submission_stream.clone(), from.writer_seq)),
+        None => false,
+    })
+}
+
 fn require_submission(state: &LogState, entry: &crate::Entry) -> Result<(), LogError> {
     let Some(from) = &entry.incorporated_from else {
         return Ok(());
     };
     if !on_publisher_stream(state, &entry.stream) {
         return Err(LogError::InvalidEntry);
+    }
+    if state
+        .incorporated
+        .contains(&(from.submission_stream.clone(), from.writer_seq))
+    {
+        return Ok(());
     }
     let matched = state.entries.iter().any(|stored| {
         stored.entry.incorporated_from.is_none()
@@ -164,6 +196,10 @@ fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, App
             accepted_at_ms: batch.accepted_at_ms,
             entry: entry.clone(),
         });
+        if let Some(from) = &entry.incorporated_from {
+            next.incorporated
+                .insert((from.submission_stream.clone(), from.writer_seq));
+        }
     }
     if let Some(progress) = next.streams.get_mut(&batch.stream) {
         if let Some(entry) = batch.entries.last() {
