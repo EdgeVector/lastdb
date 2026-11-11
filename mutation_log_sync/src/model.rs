@@ -11,7 +11,7 @@ pub enum SyncEvent {
     Append {
         /// Namespace of the schema, without the schema name.
         namespace: Namespace,
-        /// Opaque record bytes. Synthetic in tests.
+        /// Opaque record bytes.
         payload: Vec<u8>,
         /// When the participant composed the mutation.
         authored_at_ms: u64,

@@ -2016,7 +2016,6 @@ name = "mutation_log_sync"
 version = "0.1.0"
 dependencies = [
  "mutation_log",
- "mutation_log_mem",
 ]
 
 [[package]]

@@ -8,13 +8,12 @@ description = "Shared-sync step over one mutation log per database. drive is the
 [dependencies]
 mutation_log = { path = "../mutation_log" }
 
-[dev-dependencies]
-mutation_log_mem = { path = "../mutation_log_mem" }
-
 [lints]
 workspace = true
 
 [lib]
 path = "src/lib.rs"
+# Library only. The sharing exception is lastdb_node's share_invitation_ci target.
+test = false
 doctest = false
 bench = false

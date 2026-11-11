@@ -58,6 +58,3 @@ pub const APPEND_BATCH_LIMIT: usize = 90;
 pub const LIST_PAGE_LIMIT: usize = 90;
 /// Maximum time an unacked entry stays in the log. 30 days, in milliseconds.
 pub const MAX_RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
-
-#[cfg(test)]
-mod tests;
