@@ -238,16 +238,7 @@ fn introduced(member: &ShareMember) -> Result<(), ProtocolError> {
 fn transition(previous: &ShareMember, next: &ShareMember) -> Result<(), ProtocolError> {
     match (previous.state, next.state) {
         (ShareMemberState::Active, ShareMemberState::Active) if !next.regrant => Ok(()),
-        (ShareMemberState::Active, ShareMemberState::Revoked)
-            if !next.regrant && next.role == previous.role =>
-        {
-            Ok(())
-        }
-        (ShareMemberState::Revoked, ShareMemberState::Revoked)
-            if !next.regrant && next.role == previous.role =>
-        {
-            Ok(())
-        }
+        (_, ShareMemberState::Revoked) if !next.regrant && next.role == previous.role => Ok(()),
         (ShareMemberState::Revoked, ShareMemberState::Active) if next.regrant => Ok(()),
         (ShareMemberState::Revoked, ShareMemberState::Active) => {
             Err(ProtocolError::invalid("share.grant.regrant_required"))
