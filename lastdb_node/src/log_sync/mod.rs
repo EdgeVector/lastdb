@@ -5,8 +5,11 @@
 //! stop byte backup. This module does not change backup policy and does not
 //! install a snapshot. E2 owns installation through the normal replay path.
 //! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
-//! file set and is not that installer.
+//! file set and is not that installer. An empty client gets the original
+//! database id from `registered_share::accept` or `RestoreSession::restore`,
+//! not from an edit of `registry.json`.
 
+mod accepted;
 mod apply;
 mod cloud;
 mod cutover;
@@ -25,5 +28,4 @@ mod turn;
 mod wire;
 
 pub use cutover::legacy_resume_forbidden;
-pub use outbox::{capture_mutations, store_outbox};
 pub use turn::spawn;

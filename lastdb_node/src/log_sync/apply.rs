@@ -1,9 +1,11 @@
 //! Apply a pulled page on the booted store. The caller acks only after this returns.
 //!
 //! A reset is not installed here. E2 owns snapshot installation through the
-//! normal replay path. This module stages bytes when a reset arrives and does
-//! not replace the live store. `byte_cloud_restore::native::restore_at` writes
-//! an owner byte-backup file set and is not that installer.
+//! normal replay path, after `registered_share::accept` or
+//! `RestoreSession::restore` has opened the original database id. This module
+//! does not edit `registry.json`. It stages bytes when a reset arrives and
+//! does not replace the live store. `byte_cloud_restore::native::restore_at`
+//! writes an owner byte-backup file set and is not that installer.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

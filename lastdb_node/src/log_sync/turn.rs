@@ -1,4 +1,4 @@
-//! One sync turn: append the local outbox, pull, apply, then ack.
+//! One sync turn: pull, apply, then ack. Local capture is the native commit.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};

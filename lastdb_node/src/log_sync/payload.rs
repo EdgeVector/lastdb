@@ -1,4 +1,8 @@
-//! Canonical record payload. The cloud log stores these bytes, not a HashMap encoding.
+//! Record decode for a cloud entry that is already stored.
+//!
+//! This is not the local capture path. A file, a file write, an inline
+//! write, a schema definition, or a contribution is not represented here.
+//! New local writes stay in the native commit. See `accepted`.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -19,35 +23,6 @@ pub(crate) struct RecordPayload {
     pub expected: CasExpectation,
     pub mutation_id: String,
     pub pub_key: String,
-}
-
-pub(crate) fn from_mutation(mutation: &Mutation) -> Option<(Namespace, Vec<u8>)> {
-    if mutation.file.is_some()
-        || mutation.file_write.is_some()
-        || mutation.inline_write.is_some()
-        || mutation.definition_id.is_some()
-        || mutation.contribution.is_some()
-    {
-        return None;
-    }
-    let action = action_name(mutation.mutation_type)?;
-    let namespace = namespace_of(&mutation.schema_name)?;
-    let payload = RecordPayload {
-        schema: mutation.schema_name.clone(),
-        action: action.to_owned(),
-        key: mutation.key_value.clone(),
-        record: mutation
-            .record_fields
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-        alternates: mutation.alternates.clone(),
-        expected: mutation.expected.clone(),
-        mutation_id: mutation.uuid.clone(),
-        pub_key: mutation.pub_key.clone(),
-    };
-    let bytes = canonical_bytes(&payload).ok()?;
-    Some((namespace, bytes))
 }
 
 pub(crate) fn decode(bytes: &[u8]) -> Option<RecordPayload> {
@@ -104,15 +79,6 @@ pub(crate) fn namespace_of(schema: &str) -> Option<Namespace> {
         .map(|(prefix, _)| prefix)
         .unwrap_or(schema);
     Namespace::new(namespace).ok()
-}
-
-fn action_name(mutation_type: MutationType) -> Option<&'static str> {
-    match mutation_type {
-        MutationType::Create => Some("create"),
-        MutationType::Replace => Some("replace"),
-        MutationType::Delete => Some("delete"),
-        MutationType::Purge => None,
-    }
 }
 
 fn action_name_str(action: &str) -> Option<MutationType> {

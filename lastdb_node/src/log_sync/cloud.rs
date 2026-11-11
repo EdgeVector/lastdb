@@ -285,6 +285,9 @@ impl MutationLog for CloudLog {
     ) -> Result<Recovery, LogError> {
         // G returns snapshot_through on the list error. There is no recover route.
         // E2 owns installation. SnapshotRequired keeps the cursor where it is.
+        // An empty client opens the original database id through
+        // `registered_share::accept` or `RestoreSession::restore` before E2
+        // installs. This path does not edit `registry.json`.
         // restore_at installs an owner byte-backup file set, not this log.
         Err(LogError::SnapshotRequired)
     }

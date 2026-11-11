@@ -189,11 +189,6 @@ pub fn legacy_resume_forbidden(home: &Path) -> bool {
     !matches!(gate_for(&owner.id), Gate::Legacy)
 }
 
-/// Queue this database once its own service status has left the legacy path.
-pub(crate) fn captures(database_id: &str) -> bool {
-    !matches!(gate_for(database_id), Gate::Legacy)
-}
-
 /// Receipt revision remembered for this database, including while the reply is missing.
 pub(crate) fn receipt_revision(database_id: &str) -> Option<u64> {
     match gate_for(database_id) {

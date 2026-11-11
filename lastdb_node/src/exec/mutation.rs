@@ -101,15 +101,11 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
     parsed.mutation.pub_key = host.public_key();
 
-    let queued = crate::log_sync::capture_mutations(
-        &host.home,
-        &host.data_dir,
-        std::slice::from_ref(&parsed.mutation),
-    );
+    // The native commit is the durable capture. Named sync does not copy it
+    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.db.mutation_manager(), vec![parsed.mutation])
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
-    crate::log_sync::store_outbox(&host.home, &host.data_dir, queued);
     let mutation_id = receipt
         .mutation_ids
         .last()
@@ -154,11 +150,11 @@ async fn execute_mutations_batch(
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();
-    let queued = crate::log_sync::capture_mutations(&host.home, &host.data_dir, &mutations);
+    // The native commit is the durable capture. Named sync does not copy it
+    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.db.mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
-    crate::log_sync::store_outbox(&host.home, &host.data_dir, queued);
     Ok(commit_json(
         &receipt,
         serde_json::json!({

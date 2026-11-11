@@ -1,13 +1,17 @@
-//! Append, pull, apply, and ack for one database that is already open.
+//! Pull, apply, and ack for one database that is already open.
+//!
+//! Local writes are not appended from a side queue. `accepted::prefix` is
+//! the missing public read of the native commit.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use mutation_log::{DatabaseId, DatabaseKind, DeviceId, LogError, Namespace, PrincipalId};
+use mutation_log::{DatabaseId, DatabaseKind, DeviceId, LogError, PrincipalId};
 use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
 
 use crate::host::Host;
 
+use super::accepted;
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
 use super::outbox;
@@ -15,6 +19,7 @@ use super::session;
 use super::turn::{self, Pause};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
+static CAPTURE_WARNED: AtomicBool = AtomicBool::new(false);
 
 pub(super) struct Ready {
     pub(super) database_id: String,
@@ -24,56 +29,17 @@ pub(super) struct Ready {
 }
 
 pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
-    if drain_outbox(&ready.log, &mut ready.state, &host.home, &ready.database_id)
-        .await
-        .is_err()
+    if accepted::prefix(&host.data_dir, &ready.database_id).is_err()
+        && !CAPTURE_WARNED.swap(true, Ordering::Relaxed)
     {
-        return Pause::Retry;
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            reason = %accepted::Blocked,
+            queue = outbox::RETIRED,
+            "local writes stay in the native commit until the accepted prefix can be read"
+        );
     }
     pull_and_ack(host, &mut ready).await
-}
-
-async fn drain_outbox(
-    log: &CloudLog,
-    state: &mut SyncState,
-    home: &Path,
-    database_id: &str,
-) -> Result<(), ()> {
-    let notes = outbox::pending(home, database_id).map_err(|_| {
-        tracing::warn!(target: "lastdbd::log_sync", "cannot read the log outbox");
-    })?;
-    for (path, note) in notes {
-        let namespace = Namespace::new(&note.namespace).map_err(|_| {
-            tracing::warn!(target: "lastdbd::log_sync", "queued mutation namespace was refused");
-        })?;
-        let event = SyncEvent::Append {
-            namespace,
-            payload: note.payload,
-            authored_at_ms: note.authored_at_ms,
-            accepted_at_ms: note.accepted_at_ms,
-        };
-        match log.drive_once(state.clone(), event).await {
-            Ok((next, Outcome::Appended { .. } | Outcome::Duplicate { .. })) => {
-                *state = next;
-                if let Err(error) = outbox::remove(&path) {
-                    tracing::warn!(
-                        target: "lastdbd::log_sync",
-                        error = %error,
-                        "queued mutation was appended and the local note remains"
-                    );
-                }
-            }
-            Ok(_) => {
-                tracing::warn!(target: "lastdbd::log_sync", "append returned an unexpected outcome");
-                return Err(());
-            }
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::log_sync", error = %error, "append failed");
-                return Err(());
-            }
-        }
-    }
-    Ok(())
 }
 
 async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
