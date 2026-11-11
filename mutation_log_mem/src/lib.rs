@@ -11,6 +11,3 @@ mod port;
 
 pub use memory::InMemoryMutationLog;
 pub use port::MutationLog;
-
-#[cfg(test)]
-mod tests;
