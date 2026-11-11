@@ -44,7 +44,7 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
     })
 }
 
-async fn one_turn(host: &Host) -> Pause {
+async fn one_turn(host: &Arc<Host>) -> Pause {
     let databases = registry::databases(&host.home);
     if databases.is_empty() {
         return Pause::Idle;
@@ -65,14 +65,14 @@ fn fresh_native(database: &Database) -> bool {
     database.native && database.kind == "shareable" && database.spec.is_some()
 }
 
-async fn receipt_turn(host: &Host, database: &Database) -> Pause {
+async fn receipt_turn(host: &Arc<Host>, database: &Database) -> Pause {
     match prepare(host, database).await {
         Prep::Pause(pause) => pause,
-        Prep::Ready(ready) => run::run_ready(host, ready).await,
+        Prep::Ready(ready) => run::run_ready(host.as_ref(), ready).await,
     }
 }
 
-async fn prepare(host: &Host, database: &Database) -> Prep {
+async fn prepare(host: &Arc<Host>, database: &Database) -> Prep {
     note_ready(&host.home, database);
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
@@ -83,7 +83,15 @@ async fn prepare(host: &Host, database: &Database) -> Prep {
         }
     };
     let wanted = probe_revision(&host.home, &database.id, &database.kind);
-    let log = match CloudLog::connect(host, &database.id, &device, wanted).await {
+    let log = match CloudLog::connect(
+        host,
+        &database.id,
+        &device,
+        wanted,
+        database.kind != "personal",
+    )
+    .await
+    {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
@@ -121,7 +129,7 @@ pub(super) fn paused_for(database_id: &str) -> Pause {
     }
 }
 
-async fn open_signed(host: &Host, commit: Commit, log: CloudLog, device: &str) -> Prep {
+async fn open_signed(host: &Arc<Host>, commit: Commit, log: CloudLog, device: &str) -> Prep {
     if commit.database_kind != "personal" && !publisher_is_this_node(host, &commit.database_id) {
         warn_once(
             &AUTHORITY_WARNED,
@@ -147,7 +155,7 @@ async fn open_signed(host: &Host, commit: Commit, log: CloudLog, device: &str) -
 }
 
 pub(super) async fn open_native(
-    host: &Host,
+    host: &Arc<Host>,
     database: &Database,
     revision: u64,
     log: CloudLog,
@@ -177,12 +185,12 @@ pub(super) async fn open_native(
             }
             paused_for(&database.id)
         }
-        Prep::Ready(ready) => run::run_ready(host, ready).await,
+        Prep::Ready(ready) => run::run_ready(host.as_ref(), ready).await,
     }
 }
 
 async fn finish_open(
-    host: &Host,
+    host: &Arc<Host>,
     database_id: &str,
     kind: &str,
     wanted: u64,
@@ -191,7 +199,7 @@ async fn finish_open(
     unavailable: ServiceView,
 ) -> Prep {
     if log.member_revision() != wanted {
-        log = match CloudLog::connect(host, database_id, device, wanted).await {
+        log = match CloudLog::connect(host, database_id, device, wanted, kind != "personal").await {
             Ok(log) => log,
             Err(error) => {
                 tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");

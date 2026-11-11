@@ -7,18 +7,22 @@
 //! `identity_conflict` do not activate. This path does not read a receipt
 //! and does not write legacy evidence.
 
+use std::sync::Arc;
+
 use crate::host::Host;
+use crate::node_read::CanonicalPost;
 use serde::Serialize;
 
 use super::cloud::CloudLog;
 use super::cutover::{self, NativeView};
+use super::http::Proof;
 use super::paths;
 use super::registry::{Database, Spec};
 use super::session;
 use super::status;
 use super::turn::{self, Pause};
 
-pub(super) async fn turn(host: &Host, database: &Database) -> Pause {
+pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
     let Some(spec) = database.spec.as_ref() else {
         cutover::observe_native(&database.id, NativeView::Unavailable);
         return turn::paused_for(&database.id);
@@ -36,7 +40,7 @@ pub(super) async fn turn(host: &Host, database: &Database) -> Pause {
         }
     };
     let revision = turn::probe_revision(&host.home, &database.id, &database.kind);
-    let log = match CloudLog::connect(host, &database.id, &device, revision).await {
+    let log = match CloudLog::connect(host, &database.id, &device, revision, true).await {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
@@ -56,7 +60,14 @@ pub(super) async fn turn(host: &Host, database: &Database) -> Pause {
 }
 
 async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> NativeView {
-    let Ok((status, bytes)) = log.post_status(paths::CREATE, body).await else {
+    let Ok((status, bytes)) = log
+        .post_status(
+            paths::CREATE,
+            body,
+            Proof::Canonical(CanonicalPost::CreateDatabase),
+        )
+        .await
+    else {
         return NativeView::Unavailable;
     };
     if !(200..300).contains(&status) {

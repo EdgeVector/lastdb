@@ -1,22 +1,21 @@
-//! Cloud [`MutationLog`]. HTTP runs on the runtime; `drive` runs on a blocking thread.
-
 use std::sync::{mpsc, Arc};
 
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::Version;
-use cloud_backup_protocol::{canonical_bytes, AccountId, CloudScope, Id};
+use cloud_backup_protocol::{canonical_bytes, CloudScope, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, MutationLog, PrincipalId, Recovery,
     ScopedHead, Snapshot, SnapshotRef, Writer,
 };
 use mutation_log_sync::{Outcome, SyncEvent, SyncState};
-use serde::Serialize;
 
 use crate::host::Host;
+use crate::node_read::CanonicalPost;
 
+use super::account::{self, account_of, node_key};
 use super::cutover;
-use super::http::{self, Endpoint};
+use super::http::{self, Endpoint, Proof};
 use super::paths;
 use super::registry::Database;
 use super::status;
@@ -25,6 +24,7 @@ use super::wire;
 #[derive(Clone)]
 pub(crate) struct CloudLog {
     handle: tokio::runtime::Handle,
+    host: Arc<Host>,
     endpoint: Arc<Endpoint>,
     keypair: Arc<Ed25519KeyPair>,
     scope: CloudScope,
@@ -32,15 +32,17 @@ pub(crate) struct CloudLog {
     principal: PrincipalId,
     device: mutation_log::DeviceId,
     member_revision: u64,
+    named: bool,
     environment_label: &'static str,
 }
 
 impl CloudLog {
     pub(crate) async fn connect(
-        host: &Host,
+        host: &Arc<Host>,
         database_id: &str,
         device: &str,
         member_revision: u64,
+        named: bool,
     ) -> Result<Self, String> {
         let selected = http::selected_service(&host.home)?;
         let wire_id =
@@ -61,6 +63,7 @@ impl CloudLog {
         }
         Ok(Self {
             handle: tokio::runtime::Handle::current(),
+            host: Arc::clone(host),
             endpoint: Arc::new(endpoint),
             keypair: Arc::clone(&host.keypair),
             scope: context.scope,
@@ -70,8 +73,21 @@ impl CloudLog {
             device: mutation_log::DeviceId::new(device)
                 .map_err(|_| "device id is not a log label")?,
             member_revision,
+            named,
             environment_label: selected.label,
         })
+    }
+
+    pub(super) fn named(&self) -> bool {
+        self.named
+    }
+
+    pub(super) fn host(&self) -> &Host {
+        &self.host
+    }
+
+    pub(super) fn database_id(&self) -> &str {
+        self.database_id.as_str()
     }
 
     pub(crate) fn member_revision(&self) -> u64 {
@@ -96,6 +112,7 @@ impl CloudLog {
                 &body,
                 self.member_revision,
                 65_536,
+                Proof::Canonical(CanonicalPost::Access),
             )
             .await
         {
@@ -118,6 +135,7 @@ impl CloudLog {
         &self,
         path: &str,
         body: Vec<u8>,
+        proof: Proof,
     ) -> Result<(u16, Vec<u8>), ()> {
         self.endpoint
             .post_exchange(
@@ -128,9 +146,14 @@ impl CloudLog {
                 &body,
                 self.member_revision,
                 65_536,
+                proof,
             )
             .await
             .map_err(|_| ())
+    }
+
+    pub(super) async fn post_named(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
+        self.post(path, body).await
     }
 
     pub(crate) fn reader(&self) -> Writer {
@@ -189,6 +212,7 @@ impl CloudLog {
                 paths::SNAPSHOT_BYTES,
                 &body,
                 self.member_revision,
+                self.data_proof(),
             )
             .await
     }
@@ -202,11 +226,12 @@ impl CloudLog {
                 path,
                 &body,
                 self.member_revision,
+                self.data_proof(),
             )
             .await
     }
 
-    fn wait<T>(
+    pub(super) fn wait<T>(
         &self,
         future: impl std::future::Future<Output = T> + Send + 'static,
     ) -> Result<T, LogError>
@@ -226,11 +251,20 @@ impl CloudLog {
         let scope = self.scope.clone();
         let database_id = self.database_id.clone();
         let revision = self.member_revision;
+        let proof = self.data_proof();
         self.wait(async move {
             endpoint
-                .post_json(&keypair, &scope, &database_id, path, &body, revision)
+                .post_json(&keypair, &scope, &database_id, path, &body, revision, proof)
                 .await
         })?
+    }
+
+    fn data_proof(&self) -> Proof {
+        if self.named {
+            Proof::Named
+        } else {
+            Proof::Legacy
+        }
     }
 }
 
@@ -273,23 +307,16 @@ impl MutationLog for CloudLog {
     }
 
     fn register_reader(&mut self, _reader: &Writer) -> Result<(), LogError> {
-        // G records the device inside list and append. This does not post a route.
         Ok(())
     }
 
     fn recover(
         &self,
-        _reader: &Writer,
+        reader: &Writer,
         _local_cursor: u64,
         _now_ms: u64,
     ) -> Result<Recovery, LogError> {
-        // G returns snapshot_through on the list error. There is no recover route.
-        // E2 owns installation. SnapshotRequired keeps the cursor where it is.
-        // An empty client opens the original database id through
-        // `registered_share::accept` or `RestoreSession::restore` before E2
-        // installs. This path does not edit `registry.json`.
-        // restore_at installs an owner byte-backup file set, not this log.
-        Err(LogError::SnapshotRequired)
+        super::restore::recover(self, reader)
     }
 
     fn grant(
@@ -298,7 +325,6 @@ impl MutationLog for CloudLog {
         _principal: PrincipalId,
         _capability: Capability,
     ) -> Result<(), LogError> {
-        // G does not publish mutation-log/grant. Membership updates are not this route.
         Err(LogError::UnexpectedOutcome)
     }
 
@@ -308,8 +334,11 @@ impl MutationLog for CloudLog {
         principal: &PrincipalId,
         capability: &Capability,
     ) -> Result<(), LogError> {
+        if self.named {
+            return Err(LogError::UnexpectedOutcome);
+        }
         self.same_reader(caller)?;
-        let body = json_body(&wire::RevokeRequest {
+        let body = account::json_body(&wire::RevokeRequest {
             database_id: self.database_id.as_str(),
             principal: principal.as_str(),
             capability: wire::capability_name(capability),
@@ -323,10 +352,12 @@ impl MutationLog for CloudLog {
         _at_ms: u64,
         _snapshot_ref: SnapshotRef,
     ) -> Result<Snapshot, LogError> {
-        // G cuts the snapshot from the authenticated principal and its own clock.
         self.same_reader(caller)?;
         let body = wire::database_body(self.database_id.as_str())?;
-        wire::snapshot(&self.call(paths::SNAPSHOT, body)?)
+        wire::snapshot(
+            self.database_id.as_str(),
+            &self.call(paths::SNAPSHOT, body)?,
+        )
     }
 
     fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {
@@ -364,20 +395,4 @@ impl CloudLog {
             Err(LogError::Unauthorized)
         }
     }
-}
-
-fn json_body<T: Serialize>(value: &T) -> Result<Vec<u8>, LogError> {
-    canonical_bytes(value).map_err(|_| LogError::InvalidEntry)
-}
-
-fn node_key(host: &Host) -> String {
-    hex::encode(host.keypair.public_key_bytes())
-}
-
-fn account_of(host: &Host) -> Result<AccountId, String> {
-    let derived = crate::identity::user_hash_from_pubkey(&host.public_key())?;
-    if derived != host.user_hash {
-        return Err("node account id does not match the node key".into());
-    }
-    AccountId::try_from(derived).map_err(|_| "node account id is not a cloud account id".into())
 }

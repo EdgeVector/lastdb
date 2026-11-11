@@ -36,7 +36,7 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
             target: "lastdbd::log_sync",
             reason = %accepted::Blocked,
             queue = outbox::RETIRED,
-            "local writes stay in the native commit until the accepted prefix can be read"
+            "local writes stay in the native commit until accepted_writes::prefix is published"
         );
     }
     pull_and_ack(host, &mut ready).await
@@ -55,7 +55,7 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
             ) {
                 turn::warn_once(
                     &SNAPSHOT_WARNED,
-                    "list cursor is below the snapshot floor and this adapter does not install the snapshot",
+                    "snapshot restore stopped before this database could advance",
                 );
             }
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "pull failed");

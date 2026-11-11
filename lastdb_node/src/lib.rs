@@ -21,6 +21,7 @@ pub mod log_envelope;
 pub mod log_rotation;
 pub mod log_sync;
 pub mod named_snapshot_restore;
+pub mod node_read;
 pub mod offline_home;
 pub mod profile;
 pub mod registered_share;

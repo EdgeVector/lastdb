@@ -2,16 +2,30 @@
 
 use std::time::Duration;
 
+use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 use cloud_backup_protocol::CloudScope;
 use cloud_backup_protocol::Id;
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::LogError;
 use reqwest::Url;
 
+use crate::node_read::{self, CanonicalPost, SignedPostTarget};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::sign;
 use super::wire;
+
+/// Which node-read token a POST carries.
+///
+/// Create and access always use [`Proof::Canonical`]. A shareable data or
+/// delivery POST uses [`Proof::Named`] so the token includes `database_id`.
+/// A personal data POST stays [`Proof::Legacy`].
+#[derive(Clone, Copy)]
+pub(crate) enum Proof {
+    Legacy,
+    Canonical(CanonicalPost),
+    Named,
+}
 
 const JSON_LIMIT: usize = 8 * 1024 * 1024;
 const SNAPSHOT_LIMIT: u64 = 1024 * 1024 * 1024;
@@ -87,6 +101,7 @@ impl Endpoint {
         path: &str,
         body: &[u8],
         member_revision: u64,
+        proof: Proof,
     ) -> Result<Vec<u8>, LogError> {
         self.exchange(
             keypair,
@@ -96,6 +111,7 @@ impl Endpoint {
             body,
             member_revision,
             JSON_LIMIT as u64,
+            proof,
         )
         .await
         .and_then(|(status, bytes)| self.accepted(path, status, bytes))
@@ -109,6 +125,7 @@ impl Endpoint {
         path: &str,
         body: &[u8],
         member_revision: u64,
+        proof: Proof,
     ) -> Result<Vec<u8>, LogError> {
         self.exchange(
             keypair,
@@ -118,6 +135,7 @@ impl Endpoint {
             body,
             member_revision,
             SNAPSHOT_LIMIT,
+            proof,
         )
         .await
         .and_then(|(status, bytes)| self.accepted(path, status, bytes))
@@ -132,6 +150,7 @@ impl Endpoint {
         body: &[u8],
         member_revision: u64,
         limit: u64,
+        proof: Proof,
     ) -> Result<(u16, Vec<u8>), LogError> {
         self.exchange(
             keypair,
@@ -141,6 +160,7 @@ impl Endpoint {
             body,
             member_revision,
             limit,
+            proof,
         )
         .await
     }
@@ -170,19 +190,21 @@ impl Endpoint {
         body: &[u8],
         member_revision: u64,
         limit: u64,
+        proof: Proof,
     ) -> Result<(u16, Vec<u8>), LogError> {
         let now = fold_db::clock::unix_millis();
-        let header = sign::authorization(
-            keypair,
-            scope,
-            database_id,
-            path,
-            body,
-            member_revision,
-            now,
-            self.environment,
-        )
-        .map_err(|_| LogError::UnexpectedOutcome)?;
+        let header = self
+            .authorize(
+                keypair,
+                scope,
+                database_id,
+                path,
+                body,
+                member_revision,
+                now,
+                proof,
+            )
+            .map_err(|_| LogError::UnexpectedOutcome)?;
         let url = format!("{}{path}", self.origin);
         let response = self
             .http
@@ -196,6 +218,61 @@ impl Endpoint {
         let status = response.status().as_u16();
         let bytes = read_limited(response, limit).await?;
         Ok((status, bytes))
+    }
+
+    fn authorize(
+        &self,
+        keypair: &Ed25519KeyPair,
+        scope: &CloudScope,
+        database_id: &Id,
+        path: &str,
+        body: &[u8],
+        member_revision: u64,
+        now_ms: u64,
+        proof: Proof,
+    ) -> Result<String, String> {
+        match proof {
+            Proof::Legacy => sign::authorization(
+                keypair,
+                scope,
+                database_id,
+                path,
+                body,
+                member_revision,
+                now_ms,
+                self.environment,
+            ),
+            Proof::Canonical(route) => {
+                let environment = ShareEnvironment::parse(self.environment)
+                    .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
+                node_read::authorization(
+                    keypair,
+                    SignedPostTarget {
+                        scope,
+                        database_id,
+                        environment,
+                        route,
+                    },
+                    body,
+                    member_revision,
+                    now_ms,
+                )
+            }
+            Proof::Named => {
+                let environment = ShareEnvironment::parse(self.environment)
+                    .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
+                node_read::authorization_post(
+                    keypair,
+                    scope,
+                    database_id,
+                    environment,
+                    path,
+                    body,
+                    member_revision,
+                    now_ms,
+                )
+            }
+        }
     }
 }
 

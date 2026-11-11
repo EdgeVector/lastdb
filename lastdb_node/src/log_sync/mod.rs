@@ -2,14 +2,16 @@
 //!
 //! Exemem's authenticated mutation-log reply is the only signed-only switch.
 //! Each owned database has its own reply. A local file does not start sync or
-//! stop byte backup. This module does not change backup policy and does not
-//! install a snapshot. E2 owns installation through the normal replay path.
+//! stop byte backup. This module does not change backup policy. A named
+//! database installs a snapshot with `named_snapshot_restore` after
+//! `delivery/snapshot`. That install does not acknowledge. Local capture
+//! stays blocked until `accepted_writes` is a committed reader.
 //! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
-//! file set and is not that installer. An empty client gets the original
-//! database id from `registered_share::accept` or `RestoreSession::restore`,
-//! not from an edit of `registry.json`.
+//! file set and is not the named installer. This module does not edit
+//! `registry.json`.
 
 mod accepted;
+mod account;
 mod apply;
 mod cloud;
 mod cutover;
@@ -20,6 +22,7 @@ mod outbox;
 mod paths;
 mod payload;
 mod registry;
+mod restore;
 mod run;
 mod session;
 mod sign;

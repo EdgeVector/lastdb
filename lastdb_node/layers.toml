@@ -26,6 +26,7 @@ modules = [
   "identity",
   "lastdb_uds",
   "log_rotation",
+  "node_read",
   "profile",
   "seal",
   "saved_query",
@@ -56,8 +57,15 @@ modules = [
   "app_registry_index",
   "byte_cloud_backup",
   "byte_cloud_restore",
+  "log_envelope",
   "log_sync",
+  "named_snapshot_restore",
   "offline_home",
+  "registered_share",
+  "share_cache",
+  "share_contribution",
+  "share_invitation",
+  "share_publication",
 ]
 
 [[layer]]

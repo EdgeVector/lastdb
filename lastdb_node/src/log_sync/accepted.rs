@@ -13,12 +13,13 @@
 //! frontier, and `finish` keeps the native commit when its marker fails.
 //! Those writes are absent from the journal.
 //!
-//! The missing call is one public prefix for one data directory. Each item
-//! must carry the file, the file write, the inline write, the canonical
-//! schema definition, and the contribution, already sealed by that
-//! database's content key. Replay is idempotent on the mutation id. E3 owns
-//! that envelope. This module does not canonicalize record fields and does
-//! not invent a cipher.
+//! The reader this daemon must call is `lastdb_node::accepted_writes`:
+//! `prefix`, `acknowledge`, `note_snapshot`, and `status`. That module is not
+//! in this tree. [`prefix`] below stays [`Blocked`]. A blocked page is not
+//! published and is not acknowledged. This module does not copy an untracked
+//! reader, does not seal a side path, and does not invent a cipher.
+//! `log_envelope` seals a `Publish` canonical body only after `prefix`
+//! returns one.
 //!
 //! An empty client does not receive the original database id by an edit of
 //! `registry.json`. A share uses `registered_share::accept` (`lastdb share
