@@ -26,6 +26,7 @@ from faults import MAX_CONTENTION_TRIES
 
 
 PAGE_BYTES = 4096
+LIST_LIMIT = 90
 SERVER_ATTEMPTS = 3
 FULL_PARTITION_LOAD = True
 MUTATING_WRITE_UNITS = 4
@@ -70,14 +71,18 @@ def load_reads(main_bytes, sub_bytes):
 
 
 def recheck_hold(partition_bytes, sub_bytes):
-    """Worst case for the quiet logcheck: 8 full loads, main plus ``#sub``.
+    """Worst case for a quiet logcheck of this partition.
 
-    Each try is one head or list call. The dollars also include that call's
-    Lambda request, so the hold matches what ``charge`` will spend.
+    One pass is a head, one list per 90 entries, and one extra list. The
+    quiet recheck repeats that pass, and each call can take eight tries.
+    Page count comes from the partition bytes so a restored ledger still
+    holds the same reserve. Dollars include each call's Lambda request.
     """
-    reads = MAX_CONTENTION_TRIES * load_reads(partition_bytes, sub_bytes)
-    usd = reads * READ_USD
-    usd += MAX_CONTENTION_TRIES * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
+    per_entry = ENTRY_ROW_BYTES + ROW_OVERHEAD_BYTES
+    pages = -(-max(partition_bytes, 0) // (per_entry * LIST_LIMIT))
+    loads = 2 * MAX_CONTENTION_TRIES * (1 + pages + 1)
+    reads = loads * load_reads(partition_bytes, sub_bytes)
+    usd = reads * READ_USD + loads * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
     return reads, usd
 
 

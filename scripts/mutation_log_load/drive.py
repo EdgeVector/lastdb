@@ -5,7 +5,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from cost import SERVER_ATTEMPTS, CapExceeded
+from cost import LIST_LIMIT, SERVER_ATTEMPTS, CapExceeded
 from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
@@ -21,7 +21,6 @@ from routes import READS, RouteError, check_success, path_for
 ERROR_RATE = 0.01
 DISABLED_FIELD = "mutation_log.disabled"
 DISABLED = "mutation log is disabled"
-LIST_LIMIT = 90
 
 
 class LoadError(Exception):
