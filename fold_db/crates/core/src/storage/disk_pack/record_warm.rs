@@ -101,8 +101,6 @@ impl PackRuntime {
                 .record_lookup(&coordinates);
             (view.revision, found)
         };
-        let hits = found.iter().flatten().count();
-        laststore::record_logical_warm_misses((found.len() - hits) as u64);
         Ok(Some(WarmRecordRead {
             revision,
             coordinates,

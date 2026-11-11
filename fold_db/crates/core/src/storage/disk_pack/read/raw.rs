@@ -33,7 +33,6 @@ impl PackRuntime {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         trace_families(coordinates);
-        laststore::record_requested_keys(coordinates.len() as u64);
         let result = self.raw_many_inner(context, coordinates, pending);
         context.remembered(result)
     }
