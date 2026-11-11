@@ -14,6 +14,11 @@ export {
   resolveLoadedSchema,
 } from './responseParsers.js';
 export type { LastDbClientOptions } from './client.js';
+export type {
+  CreateDatabaseRequest,
+  DatabaseSpec,
+  ListedDatabase,
+} from './databases.js';
 
 export {
   LASTDB_API_ROUTES,
