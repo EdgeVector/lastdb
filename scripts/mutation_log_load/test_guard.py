@@ -8,10 +8,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
-                   allow_partition, allow_region, allow_stream, allow_table,
-                   allow_table_arn, continue_page, database_id_for_run, delete_batch,
-                   load_endpoints, query_request, record_ids_from_query,
+from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, STREAM_ID, GuardError,
+                   allow_endpoint, allow_partition, allow_region, allow_stream,
+                   allow_table, allow_table_arn, continue_page, database_id_for_run,
+                   delete_batch, load_endpoints, query_request, record_ids_from_query,
                    snap_partition, unprocessed_ids)
 from plan import STEADY_MS, TRIM_WRITERS, scenario, still_running
 from routes import PAYLOAD, path_for, prove_trimmed_list, request_body, require_trim
@@ -40,6 +40,8 @@ class TargetGuard(unittest.TestCase):
         expected = "c1da11d0-0000-4000-8000-" + digest[:12]
         self.assertEqual(len(expected), 36)
         self.assertEqual(database_id_for_run("17"), expected)
+        self.assertTrue(STREAM_ID.fullmatch(expected))
+        self.assertIsNone(STREAM_ID.fullmatch("c1da11d0-" + digest))
         self.assertEqual(allow_stream(expected), expected)
         snap = snap_partition(expected)
         self.assertEqual(snap, expected + "#snap")
@@ -116,9 +118,16 @@ class TargetGuard(unittest.TestCase):
             "database_id": database, "kind": "personal"}))
         self.assertEqual(created["kind"], "personal")
         self.assertEqual(PAYLOAD, "bG9hZA")
+        for operation in ("head", "snapshot", "trim", "append", "list", "ack"):
+            with self.assertRaises(Exception):
+                request_body(operation, {})
         for operation in ("head", "snapshot", "trim"):
             self.assertEqual(json.loads(request_body(operation, {"database_id": database})),
                              {"database_id": database})
+        prove_trimmed_list(4, 409, {
+            "code": "predecessor_conflict", "field": "mutation_log.cursor",
+            "snapshot_through": "4",
+        })
         self.assertNotIn("dropped", json.dumps(created))
         steady = scenario("100")
         self.assertEqual(steady.writers, 100)

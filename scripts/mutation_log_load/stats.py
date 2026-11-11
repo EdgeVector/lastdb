@@ -32,8 +32,9 @@ def format_summary(summary):
     ]
     if "contention_503" in summary:
         lines.append(
-            "  503 contention={contention_503} other={other_503} "
-            "rate={contention_rate:.4f} writes={write_attempts}".format(**summary)
+            "  503 contention={contention_503} rate={contention_rate:.4f} "
+            "throttle={throttle_503} throttle_rate={throttle_rate:.4f} "
+            "other={other_503} writes={write_attempts}".format(**summary)
         )
     return "\n".join(lines)
 

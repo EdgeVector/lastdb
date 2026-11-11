@@ -1,22 +1,28 @@
 """Classify mutation-log HTTP results and the process exit codes.
 
 A contention 503 is HTTP 503 whose body is a ``ProtocolError`` with code
-``retry_later`` and field ``mutation_log.transaction.conflict``.
-``RetryLater`` is ``ErrorCode`` in ``cloud_backup_protocol/src/error.rs``
-(lines 42-43). ``rename_all = "snake_case"`` (line 5) makes the wire code
-``retry_later``. ``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown`` and
-is not contention. ``ProtocolError`` serializes as ``{"code", "field"}``
-(lines 47-54, ``deny_unknown_fields``). The field string is the head-row
-conflict raised in exemem ``uploads/store769.rs`` around lines 1004-1005
-and 1023-1028.
+``retry_later`` and field ``mutation_log.transaction.conflict``. A throttle
+503 is the same code with field ``mutation_log.transaction.throttled`` or
+``mutation_log.submission.throttled`` (exemem ``store.rs`` ``send`` and
+``follow_submissions``). ``RetryLater`` is ``ErrorCode`` in
+``cloud_backup_protocol/src/error.rs`` (lines 42-43). ``rename_all =
+"snake_case"`` (line 5) makes the wire code ``retry_later``.
+``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown`` and stops the run.
+``ProtocolError`` serializes as ``{"code", "field"}`` (lines 47-54,
+``deny_unknown_fields``).
 
-Exit codes: 0 complete, 1 correctness, 2 the $6 cap, 3 scaling. Exit 3 is
-only contention above 1% of write attempts at 100 writers. It is not a
+Exit codes: 0 complete, 1 correctness, 2 the $6 cap, 3 a capacity finding.
+Exit 3 is contention above 1% of write attempts at 100 writers, or any
+throttle whose write later succeeded with the log intact. It is not a
 correctness failure. Exit 1 wins over 3, and 3 wins over 2.
 """
 
 CONTENTION_CODE = "retry_later"
 CONTENTION_FIELD = "mutation_log.transaction.conflict"
+THROTTLE_FIELDS = frozenset((
+    "mutation_log.transaction.throttled",
+    "mutation_log.submission.throttled",
+))
 CONTENTION_RATE = 0.01
 MAX_CONTENTION_TRIES = 8
 EXIT_OK = 0
@@ -32,6 +38,16 @@ def is_contention(status, payload):
     return (
         payload.get("code") == CONTENTION_CODE
         and payload.get("field") == CONTENTION_FIELD
+    )
+
+
+def is_throttle(status, payload):
+    """DynamoDB throttle. A capacity finding at every tier, once it succeeds."""
+    if status != 503 or not isinstance(payload, dict):
+        return False
+    return (
+        payload.get("code") == CONTENTION_CODE
+        and payload.get("field") in THROTTLE_FIELDS
     )
 
 
@@ -65,6 +81,13 @@ def scaling_finding(kind, contention, attempts):
     if kind != "steady" or not attempts:
         return False
     return (contention / attempts) > CONTENTION_RATE
+
+
+def capacity_finding(throttles, kind, contention, attempts):
+    """A succeeded throttle, or contention above 1% at 100 writers."""
+    if throttles:
+        return True
+    return scaling_finding(kind, contention, attempts)
 
 
 def exit_code(stopped):

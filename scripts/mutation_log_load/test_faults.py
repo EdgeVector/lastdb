@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from faults import (
     EXIT_CAP, EXIT_CORRECTNESS, EXIT_OK, EXIT_SCALING, already_created,
-    backoff_seconds, exit_code, is_contention, is_duplicate, scaling_finding,
-    worst_exit,
+    backoff_seconds, capacity_finding, exit_code, is_contention, is_duplicate,
+    is_throttle, scaling_finding, worst_exit,
 )
 
 
@@ -30,6 +30,27 @@ class Classifier(unittest.TestCase):
         )
         for status, body in others:
             self.assertFalse(is_contention(status, body), (status, body))
+
+    def test_throttles_are_capacity_and_other_503s_are_not(self):
+        throttled = (
+            {"code": "retry_later", "field": "mutation_log.transaction.throttled"},
+            {"code": "retry_later", "field": "mutation_log.submission.throttled"},
+        )
+        for body in throttled:
+            self.assertTrue(is_throttle(503, body))
+            self.assertFalse(is_contention(503, body))
+        rejected = (
+            CONFLICT,
+            {"code": "outcome_unknown", "field": "mutation_log.transaction"},
+            {"code": "retry_later", "field": "mutation_log.query"},
+            {"code": "retry_later", "field": "mutation_log.transaction"},
+        )
+        for body in rejected:
+            self.assertFalse(is_throttle(503, body), body)
+        self.assertTrue(capacity_finding(1, "full", 0, 10))
+        self.assertFalse(capacity_finding(0, "full", 5, 10))
+        self.assertTrue(capacity_finding(0, "steady", 2, 100))
+        self.assertFalse(capacity_finding(0, "steady", 1, 100))
 
     def test_duplicate_results_are_recognized(self):
         self.assertTrue(is_duplicate({"result": "duplicate"}))

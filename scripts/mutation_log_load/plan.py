@@ -1,8 +1,9 @@
 """How many writers run, and which calls each level makes.
 
-Five and twenty writers each finish ten appends, one list, and one ack.
-One hundred writers repeat append, list, and ack for three minutes.
+Five and twenty writers each append ten times, then ack the head cursor.
+One hundred writers repeat append and that same ack for three minutes.
 Trim uses 128 devices. They append, then ack the head cursor, then snapshot and trim.
+``through`` is a delivery sequence from head, never a writer sequence.
 """
 
 APPENDS = 10
@@ -45,6 +46,5 @@ def writer_calls(spec, index):
     if spec.kind == "trim":
         return [("append", index, 1)]
     if spec.kind == "full":
-        calls = [("append", index, seq) for seq in range(1, APPENDS + 1)]
-        return calls + [("list", index, 0), ("ack", index, APPENDS)]
-    return [("append", index, 1), ("list", index, 0), ("ack", index, 1)]
+        return [("append", index, seq) for seq in range(1, APPENDS + 1)]
+    return [("append", index, 1)]

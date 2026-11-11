@@ -1,10 +1,13 @@
 """One ledger for every phase, with a six-dollar hard cap.
 
 Each API call loads the whole log partition with a strongly consistent
-read: ``ceil(partition bytes / 4 KiB)`` read units, and at least one.
-A mutating call also spends 4 transactional write units. Writes use twice
-the on-demand write price. Cleanup Query and BatchWriteItem are counted
-separately and do not use that API model.
+read (``store.rs`` ``query``, ``consistent_read`` true): ``ceil(partition
+bytes / 4 KiB)`` read units, and at least one. A mutating call is a
+``TransactWriteItems`` and spends 4 write units at twice the on-demand
+price. The ledger also stops at ``MAX_REQUESTS``. That count is the most calls
+whose worst case stays under $6: each call writes a max head, a max entry,
+a tip, and an ack, then every later call rereads the whole partition.
+Cleanup Query and BatchWriteItem are counted separately.
 
 Lambda duration is ``LAMBDA_MB / 1024`` GB for 100 ms at the published
 GB-second price. 128 is the Lambda default. The mutation-log function's
@@ -25,6 +28,10 @@ LAMBDA_GB_SECOND_USD = 0.0000166667
 LAMBDA_DURATION_USD = (LAMBDA_MB / 1024) * LAMBDA_SECONDS * LAMBDA_GB_SECOND_USD
 STORAGE_USD_PER_BYTE = 0.25 / (1024 ** 3)
 CAP_USD = 6.0
+# One commit can rewrite the head (1024 bytes), one entry (350000 bytes of
+# JSON), one tip, and one ack. store.rs HEAD_ITEM_MAX_BYTES and
+# ENTRY_JSON_MAX_BYTES. Every later call reads that whole partition back.
+WORST_TX_BYTES = 1024 + 350_000 + 1024 + 1024
 
 
 class CapExceeded(Exception):
@@ -37,6 +44,29 @@ def read_units(partition_bytes):
     if partition_bytes <= 0:
         return 1
     return (partition_bytes + PAGE_BYTES - 1) // PAGE_BYTES
+
+
+def worst_spend(requests):
+    """Dollars if every call writes a full transaction and the log only grows."""
+    if requests <= 0:
+        return 0
+    reads = 0
+    units = (WORST_TX_BYTES + 1023) // 1024
+    for index in range(1, requests + 1):
+        reads += read_units(index * WORST_TX_BYTES)
+    lam = requests * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
+    return lam + reads * READ_USD + units * requests * WRITE_USD
+
+
+def request_limit(cap_usd=CAP_USD):
+    """Largest call count whose worst-case spend stays under the cap."""
+    allowed = 0
+    while worst_spend(allowed + 1) < cap_usd:
+        allowed += 1
+    return allowed
+
+
+MAX_REQUESTS = request_limit()
 
 
 class Ledger:
@@ -90,6 +120,8 @@ class Ledger:
 
     def charge(self, kind, nbytes=None):
         with self._lock:
+            if self.lambda_requests + 1 > MAX_REQUESTS:
+                raise CapExceeded(self.estimate())
             projected = self.project(kind, nbytes, direct=False)
             if projected["total_usd"] >= self.cap_usd:
                 raise CapExceeded(projected)

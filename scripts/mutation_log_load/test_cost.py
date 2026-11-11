@@ -8,7 +8,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cost import CAP_USD, PAGE_BYTES, READ_USD, WRITE_USD, CapExceeded, Ledger
+from cost import (
+    CAP_USD, MAX_REQUESTS, PAGE_BYTES, READ_USD, WRITE_USD, CapExceeded, Ledger,
+    worst_spend,
+)
 from drive import DISABLED, Flight, Session, drive, run_writers
 from faults import scaling_finding
 from guard import database_id_for_run
@@ -20,6 +23,7 @@ from stats import combine_exit
 
 CONFLICT = {"code": "retry_later", "field": "mutation_log.transaction.conflict"}
 THROTTLED = {"code": "retry_later", "field": "mutation_log.transaction.throttled"}
+UNKNOWN = {"code": "outcome_unknown", "field": "mutation_log.transaction"}
 
 
 class MemoryLog:
@@ -109,6 +113,13 @@ class CapAndRun(unittest.TestCase):
             capped.charge("write", 1)
         capped.record("write", 1)
         self.assertEqual(capped.write_units, 1)
+        self.assertLess(worst_spend(MAX_REQUESTS), CAP_USD)
+        self.assertGreaterEqual(worst_spend(MAX_REQUESTS + 1), CAP_USD)
+        bounded = Ledger(cap_usd=1e9)
+        for _call in range(MAX_REQUESTS):
+            bounded.charge("read")
+        with self.assertRaises(CapExceeded):
+            bounded.charge("read")
 
     def test_cleanup_failure_does_not_hide_the_load(self):
         self.assertEqual(combine_exit(1, 1), 1)
@@ -135,9 +146,15 @@ class CapAndRun(unittest.TestCase):
         self.assertEqual(appended["entries"][0]["payload"], PAYLOAD)
         self.assertEqual(PAYLOAD, "bG9hZA")
         database = database_id_for_run("17")
-        for suffix in ("/head", "/snapshot", "/trim"):
+        for suffix in ("/snapshot", "/trim"):
             matches = [body for path, body in log.seen if path.endswith(suffix)]
             self.assertFalse(matches)
+        heads = [json.loads(body) for path, body in log.seen if path.endswith("/head")]
+        self.assertTrue(heads)
+        self.assertTrue(all(item == {"database_id": database} for item in heads))
+        acks = [json.loads(body) for path, body in log.seen if path.endswith("/ack")]
+        self.assertTrue(acks)
+        self.assertTrue(all(item["through"] >= 1 for item in acks))
         self.assertTrue(all(
             json.loads(body)["database_id"] == database
             for path, body in log.seen if path.endswith("/create-database")))
@@ -165,25 +182,74 @@ class CapAndRun(unittest.TestCase):
 
         for level in ("5", "20"):
             session = self._session(MemoryLog(hook))
-            session.sleeper = self.fail
+            session.sleeper = self.refuse_retry
             report = drive(scenario(level), session)
             self.assertEqual(report["stopped"], "error", level)
             self.assertGreater(session.contention_503, 0, level)
             self.assertEqual(session.other_503, 0, level)
 
-    def test_a_throttled_503_is_not_contention(self):
-        unknown = {"code": "outcome_unknown", "field": "mutation_log.transaction"}
-        for body in (THROTTLED, unknown):
+    def test_a_throttle_is_a_capacity_finding_when_the_write_succeeds(self):
+        state = {"left": 1}
+
+        def hook(path, _parsed, _log):
+            if path.endswith("/append") and state["left"]:
+                state["left"] -= 1
+                return 503, THROTTLED, 4
+            return None
+
+        delays = []
+        session = self._session(MemoryLog(hook))
+        session.sleeper = delays.append
+        report = drive(scenario("5"), session)
+        self.assertEqual(report["stopped"], "scaling")
+        self.assertEqual(session.throttle_503, 1)
+        self.assertEqual(session.contention_503, 0)
+        self.assertEqual(session.errors, 0)
+        self.assertEqual(report["message"], "throttle")
+        self.assertGreater(delays[0], 0)
+        self.assertGreater(report["summary"]["throttle_rate"], 0)
+        self.assertEqual(report["summary"]["contention_rate"], 0)
+
+    def test_a_throttle_that_never_succeeds_is_a_correctness_failure(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/append"):
+                return 503, THROTTLED, 1
+            return None
+
+        session = self._session(MemoryLog(hook))
+        session.sleeper = lambda _delay: None
+        report = drive(Scenario("full", 1, None, False), session)
+        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(session.throttle_503, 8)
+
+    def test_outcome_unknown_and_other_503s_stop_the_run(self):
+        query = {"code": "retry_later", "field": "mutation_log.query"}
+        for body in (UNKNOWN, query):
             def hook(path, _parsed, _log, body=body):
                 if path.endswith("/append"):
-                    return 503, body, 3
+                    return 503, body, 1
                 return None
 
             session = self._session(MemoryLog(hook))
+            session.sleeper = self.refuse_retry
             report = drive(Scenario("steady", 1, 1, False), session)
             self.assertEqual(report["stopped"], "error")
+            self.assertEqual(session.throttle_503, 0)
             self.assertEqual(session.contention_503, 0)
             self.assertGreater(session.other_503, 0)
+
+    def test_ack_through_is_the_head_cursor(self):
+        def hook(path, _parsed, _log):
+            if path.endswith("/head"):
+                return 200, {"cursor": 40}, 1
+            return None
+
+        log = MemoryLog(hook)
+        report = drive(Scenario("full", 1, None, False), self._session(log))
+        self.assertEqual(report["stopped"], "complete")
+        acks = [json.loads(body) for _path, body in log.seen if _path.endswith("/ack")]
+        self.assertEqual([item["through"] for item in acks], [40])
+        self.assertNotEqual(acks[0]["through"], 10)
 
     def test_steady_retries_contention_until_the_write_succeeds(self):
         state = {"left": 1}
@@ -289,7 +355,7 @@ class CapAndRun(unittest.TestCase):
 
         return clock
 
-    def fail(self, _delay):
+    def refuse_retry(self, _delay):
         raise AssertionError("a closed tier must not retry a 503")
 
 
