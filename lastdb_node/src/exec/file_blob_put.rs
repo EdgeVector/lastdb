@@ -96,7 +96,7 @@ fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), 
         let length = length
             .parse::<usize>()
             .ok()
-            .filter(|length| *length <= lastdb_uds::uds_http::MAX_BODY_LEN)
+            .filter(|length| *length <= crate::lastdb_uds::uds_http::MAX_BODY_LEN)
             .ok_or_else(|| HostError::new(400, "invalid file metadata length"))?;
         let (json, bytes) = req
             .body
@@ -107,7 +107,7 @@ fn parse_put_blob(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, PutBlobMetadata), 
         reject_local_bytes(bytes, &metadata)?;
         return Ok((Cow::Borrowed(bytes), metadata));
     }
-    if req.body.len() > lastdb_uds::uds_http::MAX_BODY_LEN {
+    if req.body.len() > crate::lastdb_uds::uds_http::MAX_BODY_LEN {
         return Err(HostError::new(
             413,
             "JSON request exceeds the request body allowance",

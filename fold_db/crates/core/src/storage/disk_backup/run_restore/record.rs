@@ -11,10 +11,10 @@ use cloud_backup_protocol::Digest;
 use lastdb_model::record_value::{
     InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
 };
-use lastdb_model::{field_key_codec::FieldKeyCodec, record_space::record_space_uuid};
-use lastdb_storage_policy::backup_decode::{
+use lastdb_model::storage_policy::backup_decode::{
     NATIVE_STREAM_LOOKUP_READ_BYTES, RECORD_BODY_MAX_BYTES,
 };
+use lastdb_model::{field_key_codec::FieldKeyCodec, record_space::record_space_uuid};
 use laststore::disk_run::{home::RunRead, MAX_RUN_KEY_BYTES};
 use serde::Serialize;
 use serde_json::Value;

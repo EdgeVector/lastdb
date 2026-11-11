@@ -5,7 +5,7 @@ pub(super) fn execute_status_route(ctx: &AccessContext, host: &Host) -> UdsRespo
     let uds = host
         .uds_workers
         .get()
-        .map(lastdb_uds::UdsWorkerPool::snapshot)
+        .map(crate::lastdb_uds::UdsWorkerPool::snapshot)
         .map(|s| {
             serde_json::json!({
                 "workers": s.workers,

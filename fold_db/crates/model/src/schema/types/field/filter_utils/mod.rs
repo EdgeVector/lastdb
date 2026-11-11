@@ -1,12 +1,5 @@
 //! Shared limits and bounds of the record range reads.
 
-/// Page size for an unfiltered field resolve when the caller passes no filter.
-/// Matches the historical `SampleN(100)` default cap (now that SampleN is a peek
-/// capped at [`crate::schema::types::field::SAMPLE_PEEK_CAP`], the bulk default must be a real `Page`). The
-/// node query handler always supplies an explicit `Page`/key filter, so this
-/// only governs direct in-core callers.
-pub const DEFAULT_UNFILTERED_PAGE_LIMIT: usize = 100;
-
 /// Common filter application utilities
 pub struct FilterUtils;
 

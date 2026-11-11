@@ -125,7 +125,7 @@ impl RunRead {
     /// Admit the paired capture metadata shared by subsequent bounded calls.
     pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
         if bytes < self.retained_bytes()
-            || bytes > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes
+            || bytes > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
         {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -208,7 +208,7 @@ impl RunRead {
                     &self.key,
                     self.budget
                         .bytes
-                        .min(lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes),
+                        .min(lastdb_model::storage_policy::BACKUP_RESOURCES.decoded_values_bytes),
                 )?
             } else {
                 RunReader::open(&file.path, &self.key)?

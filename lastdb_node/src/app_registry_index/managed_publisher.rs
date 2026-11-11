@@ -1,7 +1,7 @@
 //! A first-party CI signer is an explicit trust grant, independent of the list key.
 
 use super::{managed::ManagedReceipt, ListEntry, Resolution};
-use folddb_profile::endpoints::{
+use crate::profile::endpoints::{
     registry_ci_publisher_keys_for, registry_index_url_for, Environment,
 };
 

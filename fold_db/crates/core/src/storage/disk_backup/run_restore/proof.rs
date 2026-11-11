@@ -12,7 +12,7 @@ use crate::storage::format::{
     METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE, SHARED_RECORD_PROFILE,
 };
 use crate::storage::StorageError;
-use lastdb_storage_policy::backup_decode as budget;
+use lastdb_model::storage_policy::backup_decode as budget;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 
 /// Verify account markers and content-key proof on an inactive native root.

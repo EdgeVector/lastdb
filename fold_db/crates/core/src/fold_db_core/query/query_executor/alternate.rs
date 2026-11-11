@@ -172,8 +172,7 @@ impl QueryExecutor {
 }
 
 fn validate_controls(query: &Query) -> Result<(), SchemaError> {
-    if query.requires_post_key_work()
-        || query.include_tombstones
+    if query.include_tombstones
         || query
             .sort_order
             .as_ref()

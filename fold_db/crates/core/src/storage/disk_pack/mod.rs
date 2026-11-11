@@ -149,8 +149,8 @@ pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {
 pub(in crate::storage) fn budget() -> ReadBudget {
     ReadBudget {
         pages: 4096,
-        blocks: lastdb_storage_policy::native_read::EAGER_BLOCKS,
-        bytes: lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
+        blocks: lastdb_model::storage_policy::native_read::EAGER_BLOCKS,
+        bytes: lastdb_model::storage_policy::native_read::EAGER_WORK_BYTES,
         keys: 10000,
     }
 }

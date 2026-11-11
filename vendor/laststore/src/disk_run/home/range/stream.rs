@@ -195,7 +195,7 @@ impl<'a> BoundedRange<'a> {
             .saturating_add(self.owner.costs.budget_bytes)
             .saturating_add(self.retained_bytes())
             .saturating_add(self.lower.len() as u64);
-        if retained > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes {
+        if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
             return Err(Error::ReadBudgetExceeded);
         }
         storage_key(&self.collection, &self.lower)

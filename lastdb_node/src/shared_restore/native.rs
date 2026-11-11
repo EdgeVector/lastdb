@@ -24,7 +24,7 @@ mod rejoin;
 pub use rejoin::PreparedRejoin;
 pub(super) use rejoin::{prepare_rejoin, RejoinSource};
 
-const FILE_INPUT_LIMIT: u64 = lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
+const FILE_INPUT_LIMIT: u64 = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 const BATCH_FILE_BYTES: u64 = FILE_INPUT_LIMIT / 2;
 const BATCH_RECORDS: usize = 128;
 
@@ -304,7 +304,7 @@ impl<'a> NativeWriter<'a> {
         let stage = self.stage.clone();
         let seed = self.keys.account_seed();
         self.close_verified().await?;
-        lastdb_identity::write_seed(&stage, seed)
+        crate::identity::write_seed(&stage, seed)
             .map_err(|_| RestoreError::Invalid("restored account identity"))?;
         Ok(())
     }

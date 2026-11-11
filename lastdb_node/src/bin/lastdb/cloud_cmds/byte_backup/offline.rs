@@ -1,5 +1,4 @@
 use super::*;
-use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest,
     discovery::StreamsListRequest,
@@ -9,6 +8,7 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Text};
 use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
+use lastdb_node::cloud_backup_client::byte_backup::ByteBackupClient;
 
 #[path = "offline/dependencies.rs"]
 mod dependencies;

@@ -4,10 +4,10 @@ mod service;
 mod spool;
 pub use service::ServiceObjects;
 
-use crate::shared_restore::recovery::seal_log;
-use cloud_backup_client::shared_log::{
+use crate::cloud_backup_client::shared_log::{
     AppendAuthorization, AppendOutcome, BackupTransportError, SharedLogClient,
 };
+use crate::shared_restore::recovery::seal_log;
 use cloud_backup_protocol::shared::{
     FileDependency, LogBatch, LogHead, SealedObject, WriterStream,
 };

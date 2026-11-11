@@ -2,10 +2,6 @@
 
 use super::super::{SharedWriterAction, SharedWriterCommand};
 use super::shared_restore;
-use cloud_backup_client::shared_peer::SharedPeerClient;
-use cloud_backup_client::{
-    shared_log::SharedLogClient, shared_objects::SharedObjectClient, AuthClient,
-};
 use cloud_backup_protocol::shared::{peer::PeerHeadsRequest, WriterStream};
 use cloud_backup_protocol::{AccountId, DecimalU64, Id};
 use fold_db::crypto::E2eKeys;
@@ -13,7 +9,11 @@ use fold_db::fold_db_core::factory::{create_fold_db_with_options, FoldDbOptions}
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use fold_db::FoldDB;
-use folddb_profile::endpoints::Environment;
+use lastdb_node::cloud_backup_client::shared_peer::SharedPeerClient;
+use lastdb_node::cloud_backup_client::{
+    shared_log::SharedLogClient, shared_objects::SharedObjectClient, AuthClient,
+};
+use lastdb_node::profile::endpoints::Environment;
 use lastdb_node::shared_peer::{PeerIdentity, PeerOutcome, PeerWorker};
 use lastdb_node::shared_snapshot::SignedSnapshotTransport;
 use lastdb_node::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};

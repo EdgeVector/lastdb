@@ -25,9 +25,6 @@ CLIPPY_ARGS = {
 LEAF_PREFIXES = {
   "mini" => %w[
     lastdb_node/
-    lastdb_host/
-    lastdb_uds/
-    lastdb_identity/
   ],
   "schema" => %w[
     schema_service/crates/server_lambda/

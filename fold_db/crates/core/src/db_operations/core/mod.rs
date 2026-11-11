@@ -11,8 +11,8 @@ mod open;
 mod page_tally;
 
 pub use page_tally::{
-    note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
-    with_query_page_tally, with_query_tally, KeyForm, PageEnd, PageKeyForms, PageResume,
+    note_page_key_forms, note_page_resume, page_can_resume, with_query_page_tally,
+    with_query_tally, KeyForm, PageEnd, PageKeyForms, PageResume,
 };
 
 /// Database operations with pluggable storage backend

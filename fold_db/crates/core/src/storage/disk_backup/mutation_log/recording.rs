@@ -117,7 +117,7 @@ impl<'a> Recording<'a> {
             .and_then(|n| n.checked_add(part.bytes))
             .and_then(|n| n.checked_add(4 * store::MAX_JSON))
             .ok_or_else(|| invalid("mutation log backlog size overflow"))?;
-        if quote > lastdb_storage_policy::BACKUP_RESOURCES.durable_spool_bytes {
+        if quote > lastdb_model::storage_policy::BACKUP_RESOURCES.durable_spool_bytes {
             return Err(invalid(
                 "mutation log backlog resource bound; snapshot required",
             ));

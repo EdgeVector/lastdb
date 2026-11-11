@@ -7,10 +7,10 @@ use std::sync::Arc;
 use fold_db::access::AccessContext;
 use lastdb_node::exec;
 use lastdb_node::host::Host;
-use lastdb_uds::uds::UdsSocket;
-use lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
-use lastdb_uds::uds_router;
-use lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
+use lastdb_node::lastdb_uds::uds::UdsSocket;
+use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
+use lastdb_node::lastdb_uds::uds_router;
+use lastdb_node::lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
 mod body_budget;
 mod deferred;
 
@@ -51,10 +51,10 @@ fn route_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    if req.target == lastdb_uds::database_path::DATABASES_PATH
+    if req.target == lastdb_node::lastdb_uds::database_path::DATABASES_PATH
         || req
             .target
-            .starts_with(lastdb_uds::database_path::DATABASE_SCOPE_PREFIX)
+            .starts_with(lastdb_node::lastdb_uds::database_path::DATABASE_SCOPE_PREFIX)
     {
         return exec::block_on_route(handle, ctx, exec::execute_database_request(req, ctx, host));
     }

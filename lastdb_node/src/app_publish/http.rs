@@ -44,7 +44,7 @@ pub(super) fn socket_post_json(
     .into_bytes();
     request.extend_from_slice(&body);
     let timeout = if path == "/api/apps/declare-schema" {
-        env_flag::var_parsed::<u64>("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
+        fold_db::env_flag::var_parsed::<u64>("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
             .filter(|value| *value > 0)
             .map_or(Duration::from_secs(600), Duration::from_secs)
     } else {

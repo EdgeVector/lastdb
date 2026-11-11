@@ -1,9 +1,9 @@
 //! Pure receipt and notification rules. Callers own clocks, queues, and writes.
 
+use crate::lastdb_host::handlers::MutationComponents;
+use crate::lastdb_host::HostError;
 use fold_db::db_operations::ChangeFeedEvent;
 use fold_db::schema::types::MutationType;
-use lastdb_host::handlers::MutationComponents;
-use lastdb_host::HostError;
 use serde_json::Value;
 
 /// Input identity retained while the mutation components move into the write.

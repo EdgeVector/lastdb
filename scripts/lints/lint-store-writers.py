@@ -21,7 +21,7 @@ import os
 import re
 import sys
 
-SOURCE_DIRS = ["fold_db/crates/model/src", "fold_db/crates/core/src", "lastdb_node/src", "lastdb_host", "lastdb_uds"]
+SOURCE_DIRS = ["fold_db/crates/model/src", "fold_db/crates/core/src", "lastdb_node/src"]
 ALLOW = "scripts/lints/store-writers.allow"
 
 WRITE = re.compile(

@@ -3,8 +3,8 @@ use super::{
     ShareCommand, ShareContributorCommand, ShareFilesCommand,
 };
 use base64::Engine as _;
-use cloud_backup_client::byte_backup::ShareEnvironment;
 use cloud_backup_protocol::Digest;
+use lastdb_node::cloud_backup_client::byte_backup::ShareEnvironment;
 use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
 use lastdb_node::share_publication;
 use std::fs::{File, OpenOptions};
@@ -156,7 +156,10 @@ fn create(
     let marker =
         serde_json::to_vec(&prepared.marker).map_err(|_| "cannot encode publication marker")?;
     let mut target = target.create()?;
-    target.write(lastdb_identity::IDENTITY_KEY_FILE, prepared.seed.as_ref())?;
+    target.write(
+        lastdb_node::identity::IDENTITY_KEY_FILE,
+        prepared.seed.as_ref(),
+    )?;
     target.write(share_publication::MARKER_FILE, &marker)?;
     target.commit()?;
     println!(

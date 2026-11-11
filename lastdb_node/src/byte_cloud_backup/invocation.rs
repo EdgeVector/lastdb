@@ -1,6 +1,6 @@
 use super::{model::Saved, source::Source, store::Store, BackupError};
 use crate::backup_runtime::InvocationOutcome;
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use std::fs::File;
 use std::sync::{atomic::AtomicBool, Arc};
 

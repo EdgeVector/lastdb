@@ -28,8 +28,9 @@ impl Manifest {
         home_id: Uuid,
         maximum: u64,
     ) -> Result<Self> {
-        let maximum = maximum.min(lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes);
-        let minimum = 2 * lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let maximum =
+            maximum.min(lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes);
+        let minimum = 2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
         if maximum < minimum {
             return Err(Error::ReadBudgetExceeded);
         }

@@ -31,7 +31,7 @@ impl QueryExecutor {
         let Some(schema) = self.prepare_query_schema(query).await? else {
             return Ok(None);
         };
-        if query.requires_post_key_work() || query.include_tombstones {
+        if query.include_tombstones {
             return Ok(None);
         }
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());

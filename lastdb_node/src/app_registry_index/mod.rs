@@ -40,7 +40,7 @@ pub const DEFAULT_CHANNEL: &str = "stable";
 
 /// Public list base. Fetch `<base>/<channel>/api/<api_version>.json` and `.sig`.
 pub const DEFAULT_INDEX_BASE_URL: &str =
-    folddb_profile::endpoints::registry_index_url_for(folddb_profile::endpoints::Environment::Prod);
+    crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
 
 /// The Ed25519 verifying key that signs the public index. Generated
 /// 2026-09-20 (`lastdb app dev-init --key-file ~/.lastdb/registry-index-signing.key`

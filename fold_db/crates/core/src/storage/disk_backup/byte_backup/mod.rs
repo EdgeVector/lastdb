@@ -16,9 +16,9 @@ mod snapshot_cleanup;
 mod store;
 mod terminal;
 
+use crate::storage::cloud_backup_plan::ClientNativeFile;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
-use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Begin,
@@ -89,7 +89,7 @@ impl ByteBackupCapture {
     /// A run file read holds no lookup buffer, so every stream of the central
     /// backup allowance is available.
     pub fn recommended_parallelism(&self) -> StorageResult<usize> {
-        Ok(lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams)
+        Ok(lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams)
     }
     pub fn begin(&self) -> StorageResult<Begin> {
         Ok(self.lock()?.begin.clone())

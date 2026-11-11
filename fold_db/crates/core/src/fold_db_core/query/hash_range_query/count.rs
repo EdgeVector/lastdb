@@ -1,21 +1,11 @@
-use super::{FutureExt, HashRangeQueryProcessor};
+use futures::FutureExt;
+
+use super::HashRangeQueryProcessor;
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::{Schema, SchemaError};
 
 impl HashRangeQueryProcessor {
-    /// Count the distinct **live** records a query over `schema` would return
-    /// -- the exact `total_count` for the paginated list path.
-    ///
-    /// A deleted record does not count. A live record counts, as the page does.
-    ///
-    /// `filter` scopes the count to the same rows the page path will read.
-    /// `None` counts the schema's whole live record set. Passing a
-    /// key-restricted filter counts that **partition** — which is what a
-    /// `HashKey` read's `total_count` has to mean, or the caller pages a
-    /// partition against the schema's record count and `has_more` never goes
-    /// false. Only key-restricted filters belong here: `Page` / `PageAfter`
-    /// bound how many rows come back rather than which ones exist, so
-    /// counting under one would report the page size as the total.
+    /// Count the distinct **live** records a keyed query over `schema` returns.
     pub async fn count_rows(
         &self,
         schema: &Schema,
@@ -23,11 +13,14 @@ impl HashRangeQueryProcessor {
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
         let comparison = self.db_ops.records().key_comparison_context(schema).await?;
-        let filter = comparison.canonical_filter(filter.cloned())?;
-        let context = std::sync::Arc::clone(&comparison);
+        let filter = comparison
+            .canonical_filter(filter.cloned())?
+            .ok_or_else(|| {
+                SchemaError::InvalidData("LastDB requires a Hash or HashRange key selector".into())
+            })?;
         self.current_query_scope(
             comparison,
-            async move { self.count_records(schema, filter.as_ref(), &context).await }.boxed(),
+            async move { self.count_records(schema, &filter).await }.boxed(),
         )
         .await
     }

@@ -113,7 +113,7 @@ pub(crate) fn sync_publish_parents(root: &Path, destination: &Path) -> Result<()
 }
 
 fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
-    let path = home.join(lastdb_identity::IDENTITY_KEY_FILE);
+    let path = home.join(crate::identity::IDENTITY_KEY_FILE);
     if path.try_exists()? {
         if !fs::symlink_metadata(&path)?.is_file() {
             return Err(RestoreError::Invalid("restore identity"));
@@ -129,7 +129,7 @@ fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
             file.write_all(identity_seed)?;
         }
     } else {
-        lastdb_identity::write_seed(home, identity_seed)
+        crate::identity::write_seed(home, identity_seed)
             .map_err(|_| RestoreError::Invalid("restore identity flush"))?;
     }
     File::open(path)?.sync_all()?;

@@ -7,7 +7,6 @@ description = "In-memory MutationLog port. Off unless the caller enables it."
 
 [dependencies]
 mutation_log = { path = "../mutation_log" }
-env_flag = { path = "../env_flag" }
 
 [lints]
 workspace = true

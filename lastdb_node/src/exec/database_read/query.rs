@@ -54,13 +54,10 @@ impl DatabaseRead<'_> {
     fn query(&self, request: QueryRequest) -> Result<Value, HostError> {
         let schema = self.queryable_schema(&request.query.schema_name)?;
         let query = &request.query;
-        if query.requires_post_key_work()
-            || query.include_tombstones
-            || matches!(query.sort_order, Some(SortOrder::Desc))
-        {
+        if query.include_tombstones || matches!(query.sort_order, Some(SortOrder::Desc)) {
             return Err(HostError::new(
                 400,
-                "Share queries support ascending keyed reads without record conditions",
+                "Share queries support ascending keyed reads",
             ));
         }
         if query.key_name.is_some() {
@@ -80,7 +77,7 @@ impl DatabaseRead<'_> {
             .as_ref()
             .ok_or_else(|| HostError::new(400, "Share queries require a key selector"))?;
         let binding = comparison.cursor_binding(&(self.id, filter))?;
-        let limit = lastdb_host::pagination::clamp_request_limit(limit);
+        let limit = crate::lastdb_host::pagination::clamp_request_limit(limit);
         let offset = offset.unwrap_or_default();
         let count_only = response_format == QueryResponseFormat::Count;
         if cursor.is_some() && (offset != 0 || count_only || query.expected_total_count.is_some())

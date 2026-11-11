@@ -2,91 +2,6 @@ use crate::schema::types::field::HashRangeFilter;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Numeric comparison filters for field values.
-///
-/// These filters compare current field values on the stored record. Multiple
-/// filters are AND'd before ordering and `predicate_limit`. Missing values
-/// remain accepted; a concrete non-numeric value fails its comparison.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ValueFilter {
-    /// field value > threshold
-    GreaterThan { field: String, value: f64 },
-    /// field value < threshold
-    LessThan { field: String, value: f64 },
-    /// field value == the exact represented float target
-    Equals { field: String, value: f64 },
-    /// min <= field value <= max
-    Between { field: String, min: f64, max: f64 },
-}
-
-/// Field predicates for one query.
-///
-/// Predicates run against the stored fields of each loaded record. A missing
-/// field is absent. This is still an O(M) walk of the selected keys, not a
-/// secondary index.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldPredicate {
-    /// field value == value
-    Eq { field: String, value: Value },
-    /// field value is one of values
-    In { field: String, values: Vec<Value> },
-    /// field timestamp >= instant. Instants accept RFC3339 strings or Unix seconds/millis.
-    After { field: String, instant: Value },
-    /// field timestamp <= instant. Instants accept RFC3339 strings or Unix seconds/millis.
-    Before { field: String, instant: Value },
-    /// field exists and is not null
-    Present { field: String },
-    /// field is missing or null
-    Absent { field: String },
-}
-
-impl FieldPredicate {
-    #[must_use]
-    pub fn field_name(&self) -> &str {
-        match self {
-            Self::Eq { field, .. }
-            | Self::In { field, .. }
-            | Self::After { field, .. }
-            | Self::Before { field, .. }
-            | Self::Present { field }
-            | Self::Absent { field } => field,
-        }
-    }
-}
-
-impl ValueFilter {
-    /// Tests whether the given JSON value satisfies this filter condition.
-    /// Returns `false` if the value is not numeric.
-    pub fn matches(&self, field_value: &serde_json::Value) -> bool {
-        let Some(number) = field_value.as_number() else {
-            return false;
-        };
-        let compare = |value| crate::json_order::compare_number_to_f64(number, value);
-        match self {
-            Self::GreaterThan { value, .. } => {
-                compare(*value).is_some_and(std::cmp::Ordering::is_gt)
-            }
-            Self::LessThan { value, .. } => compare(*value).is_some_and(std::cmp::Ordering::is_lt),
-            Self::Equals { value, .. } => compare(*value).is_some_and(std::cmp::Ordering::is_eq),
-            Self::Between { min, max, .. } => {
-                compare(*min).is_some_and(std::cmp::Ordering::is_ge)
-                    && compare(*max).is_some_and(std::cmp::Ordering::is_le)
-            }
-        }
-    }
-
-    /// Returns the field name this filter targets.
-    pub fn field_name(&self) -> &str {
-        match self {
-            Self::GreaterThan { field, .. }
-            | Self::LessThan { field, .. }
-            | Self::Equals { field, .. }
-            | Self::Between { field, .. } => field,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum SortOrder {
     Asc,
@@ -130,22 +45,7 @@ pub struct Query {
     pub filter: Option<HashRangeFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<SortOrder>,
-    /// Numeric conditions on stored field values.
-    /// Multiple filters are AND'd before `order_by` and `predicate_limit`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value_filters: Option<Vec<ValueFilter>>,
-    /// Field predicates. Serialized as `where`. They match the stored record.
-    #[serde(default, rename = "where", skip_serializing_if = "Option::is_none")]
-    pub field_predicates: Option<Vec<FieldPredicate>>,
-    /// Optional ordering by one stored field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order_by: Option<QueryOrderBy>,
-    /// Optional cap after field and numeric conditions and `order_by`.
-    /// Named separately from `/api/query` pagination `limit`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub predicate_limit: Option<usize>,
-    /// Optional assertion for an exact keyed row count. The host evaluates it
-    /// only on a keyed query with no post-key filters.
+    /// Optional assertion for an exact keyed row count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
     /// When `true`, the query takes the full read path instead of a keyed
@@ -155,22 +55,6 @@ pub struct Query {
 }
 
 impl Query {
-    /// Whether candidate keys need a later condition, ordering, or limit stage.
-    /// Empty condition lists are equivalent to omitted conditions for both
-    /// direct library callers and requests decoded from the wire.
-    #[must_use]
-    pub fn requires_post_key_work(&self) -> bool {
-        self.value_filters
-            .as_ref()
-            .is_some_and(|filters| !filters.is_empty())
-            || self
-                .field_predicates
-                .as_ref()
-                .is_some_and(|predicates| !predicates.is_empty())
-            || self.order_by.is_some()
-            || self.predicate_limit.is_some()
-    }
-
     #[must_use]
     pub fn new(schema_name: String) -> Self {
         Self::new_with_filter(schema_name, None)
@@ -183,22 +67,10 @@ impl Query {
             key_name: None,
             filter,
             sort_order: None,
-            value_filters: None,
-            field_predicates: None,
-            order_by: None,
-            predicate_limit: None,
             expected_total_count: None,
             include_tombstones: false,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct QueryOrderBy {
-    pub field: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order: Option<SortOrder>,
 }
 
 /// Every write supplies a complete record or an explicit conditional deletion.

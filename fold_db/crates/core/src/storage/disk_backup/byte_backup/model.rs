@@ -100,7 +100,8 @@ impl ObjectRecord {
     pub fn validate(&self, begin: &Begin) -> StorageResult<()> {
         self.input.validate().map_err(protocol)?;
         if self.input.job != begin.job
-            || self.segments.len() > lastdb_storage_policy::backup_transport::MAX_PACK_MEMBERS
+            || self.segments.len()
+                > lastdb_model::storage_policy::backup_transport::MAX_PACK_MEMBERS
             || self.segments.is_empty() != self.ciphertext.is_some()
             || (self.metadata_pack && self.segments.is_empty())
             || (!self.metadata_pack && self.segments.len() > 1)

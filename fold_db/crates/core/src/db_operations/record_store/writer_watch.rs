@@ -51,7 +51,7 @@ impl WriterWatch {
         Self {
             mark: write_scopes(),
             last_other: None,
-            quiet: Duration::from_secs(env_flag::var_or(QUIET_SECS_ENV, DEFAULT_QUIET_SECS)),
+            quiet: Duration::from_secs(crate::env_flag::var_or(QUIET_SECS_ENV, DEFAULT_QUIET_SECS)),
         }
     }
 

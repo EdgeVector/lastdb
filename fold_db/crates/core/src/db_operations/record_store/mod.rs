@@ -6,7 +6,7 @@
 //!
 //! Layout:
 //! - [`construct`] — `RecordStore` constructors and builder hooks
-//! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
+//! - [`records`], [`record_reads`] — record writes and keyed reads
 //! - [`schema_release`] — the release of the rows of a dropped schema
 //! - [`record_files`] — the one file of a record, at a path made from its key
 //! - [`read_scope`] — one memory and disk boundary for a read
@@ -24,7 +24,6 @@ mod read_scope;
 pub(crate) mod record_files;
 mod record_reads;
 mod record_spans;
-mod record_walk;
 mod records;
 mod schema_release;
 mod writer_watch;
@@ -33,8 +32,6 @@ pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};
-pub use record_walk::RECORD_WALK_ROWS;
-pub(crate) use record_walk::{WalkWindow, PAGE_READ_KEYS};
 pub(crate) use records::RecordChange;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 

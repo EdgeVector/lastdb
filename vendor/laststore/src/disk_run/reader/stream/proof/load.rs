@@ -115,7 +115,7 @@ impl RunReader {
             .saturating_add(maximum as u64)
             .saturating_add(fixed)
             .saturating_add(retained)
-            > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes
+            > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
         {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -163,7 +163,7 @@ impl RunReader {
 }
 
 fn preflight(maximum: usize, fixed: u64, retained: u64) -> Result<()> {
-    let resources = lastdb_storage_policy::BACKUP_RESOURCES;
+    let resources = lastdb_model::storage_policy::BACKUP_RESOURCES;
     // Keep the original accepted decoder window independent of cache payload
     // admission. Reserve its full workspace before frame authentication.
     let frame =

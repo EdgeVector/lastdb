@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 
 const MAX: u64 = cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
-    - lastdb_storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
+    - fold_db::storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
 
 impl RestoreSession {
     pub(super) fn reserve_spool(&self, bytes: u64) -> Result<()> {

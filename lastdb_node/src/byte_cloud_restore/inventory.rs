@@ -60,7 +60,8 @@ impl Inventory {
                 )?;
                 verifier.push(&page)?;
                 for receipt in page.objects {
-                    inventory.charge(lastdb_storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)?;
+                    inventory
+                        .charge(fold_db::storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)?;
                     if inventory
                         .receipts
                         .insert(digest_bytes(&receipt.receipt_id)?, receipt)
@@ -88,14 +89,14 @@ impl Inventory {
             return Err(RestoreError::Invalid("receipt inventory membership"));
         }
         if !self.used.contains(&id) {
-            self.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
+            self.charge(fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
             self.used.insert(id);
         }
         Ok(())
     }
 
     pub fn path(&mut self, identity: &[u8]) -> Result<()> {
-        self.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
+        self.charge(fold_db::storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
         if !self
             .paths
             .insert(digest_bytes(&cloud_backup_protocol::bytes_sha256(
@@ -121,7 +122,7 @@ impl Inventory {
             .ok_or(RestoreError::Limit("inventory memory"))?;
         if self.charged
             > cloud_backup_protocol::limits::DECODED_VALUES_MAX_BYTES
-                - lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES
+                - fold_db::storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES
         {
             return Err(RestoreError::Limit("inventory memory"));
         }

@@ -2,9 +2,6 @@
 
 use super::super::recovery_home::files;
 use super::{deadline, Owner};
-use cloud_backup_client::shared_objects::{
-    BackupTransportError, SharedObjectClient, SnapshotPublication,
-};
 use cloud_backup_protocol::shared::objects::{
     staging_expired, SharedObjectRequest, SharedObjectRole, SnapshotHeadRequest,
 };
@@ -13,6 +10,9 @@ use cloud_backup_protocol::shared::{
 };
 use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id};
+use lastdb_node::cloud_backup_client::shared_objects::{
+    BackupTransportError, SharedObjectClient, SnapshotPublication,
+};
 use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{json, Value};

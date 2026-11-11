@@ -2,9 +2,9 @@
 use super::files::FreshHome;
 use base64::Engine as _;
 use fold_db::security::Ed25519KeyPair;
-use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::IDENTITY_KEY_FILE;
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use std::io::Read;
 use std::path::Path;
 use zeroize::Zeroizing;
@@ -28,7 +28,8 @@ pub(super) fn command(
     let seed = seed()?;
     let pair =
         Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid stdin account seed")?;
-    if lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())? != account.as_str() {
+    if lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())? != account.as_str()
+    {
         return Err("stdin seed does not match the expected account".into());
     }
     let invite = invite_file.map(input::invite).transpose()?;

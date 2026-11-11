@@ -29,7 +29,7 @@ pub fn refuse_primary(path: &Path) -> Result<(), String> {
 
 fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     let abs = canonicalize_lenient(path);
-    let primary_abs = canonicalize_lenient(&user_home.join(folddb_profile::paths::LASTDB_DIR));
+    let primary_abs = canonicalize_lenient(&user_home.join(crate::profile::paths::LASTDB_DIR));
     if abs.starts_with(&primary_abs) {
         return Err(format!(
             "refusing primary path {}: use a home outside ~/.lastdb",
@@ -91,7 +91,7 @@ pub struct Preflight {
 /// The store open that follows takes the run home owner lock (`LOCK`), which
 /// excludes a running daemon and every other offline tool.
 pub fn preflight_stopped_home(home: &Path, store_root: &Path) -> Result<Preflight, String> {
-    let socket = lastdb_uds::uds::socket_path(store_root);
+    let socket = crate::lastdb_uds::uds::socket_path(store_root);
     if UnixStream::connect(&socket).is_ok() {
         return Err(format!(
             "refusing: the database socket is open at {}",

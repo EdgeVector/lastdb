@@ -1,6 +1,6 @@
 use super::capture::Capture;
 use super::{model::Saved, retry, store::Store, transfer, wait, BackupError, Phase, Result};
-use cloud_backup_client::byte_backup::ByteBackupClient;
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::access::{
     InventoryMetadata, InventoryPutRequest, InventoryPutResult,
 };
@@ -75,7 +75,7 @@ pub(super) async fn publish(
 fn budget(capture: &Capture, store: &Store) -> Result<()> {
     let quote = store
         .bytes()
-        .checked_add(lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES)
+        .checked_add(fold_db::storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES)
         .ok_or(BackupError::Limit)?;
     capture.set_coordinator_spool_bytes(quote)?;
     Ok(())
@@ -92,9 +92,9 @@ fn inventory(capture: &Capture, saved: &Saved) -> Result<(InventoryIndex, Vec<In
             return Err(BackupError::Identity);
         }
         let quote = (receipts.len() as u64 + 1)
-            .checked_mul(lastdb_storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)
+            .checked_mul(fold_db::storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)
             .ok_or(BackupError::Limit)?;
-        if quote > lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes / 2 {
+        if quote > fold_db::storage_policy::BACKUP_RESOURCES.decoded_values_bytes / 2 {
             return Err(BackupError::Limit);
         }
         if receipts

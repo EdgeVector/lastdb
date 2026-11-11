@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 # Cryptography
-env_flag = { workspace = true }
 base64.workspace = true
 ed25519-dalek = { version = "2.0", features = ["rand_core", "serde"] }
 aes-gcm = "0.10"
@@ -22,9 +21,6 @@ serde_json = { workspace = true }
 # Storage
 laststore = { path = "../../../vendor/laststore" }
 cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
-# The one upload planner. The snapshot capture keeps its objects in its store.
-cloud_backup_plan = { path = "../../../cloud_backup_plan" }
-lastdb_storage_policy = { path = "../../../lastdb_storage_policy" }
 
 # Core utilities
 uuid = { workspace = true, features = ["v4", "serde"] }
@@ -45,9 +41,6 @@ thiserror = { workspace = true }
 # No HTTP client: the cloud backup transport is the `cloud_backup_client`
 # crate, and the core does no network I/O.
 
-# Shared telemetry crate without `otel`: query filters only redact ids with
-# `observability::redact_id!`. W3C propagation is a cloud_backup_client need.
-observability = { workspace = true }
 # Pure wire schema types (shared with schema_service; no storage).
 schema_types = { workspace = true }
 # Pure LastDB models: records, field keys, schemas, keys, mutations (no behavior).

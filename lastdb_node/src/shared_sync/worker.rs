@@ -1,12 +1,12 @@
 use super::{config, snapshot};
 use crate::byte_cloud_backup::{BackupError, Result};
 use crate::byte_cloud_restore::RestoreError;
-use crate::shared_peer::{PeerError, PeerIdentity, PeerOutcome, PeerWorker};
-use crate::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
-use cloud_backup_client::{
+use crate::cloud_backup_client::{
     shared_log::SharedLogClient, shared_objects::SharedObjectClient, shared_peer::SharedPeerClient,
     AuthClient,
 };
+use crate::shared_peer::{PeerError, PeerIdentity, PeerOutcome, PeerWorker};
+use crate::shared_upload::{upload_next, ServiceObjects, UploadIdentity, UploadOutcome};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,

@@ -7,8 +7,8 @@
 //! (`POST cloud/backups/v2/blobs/read`) and downloads exactly the granted
 //! length. Core checks the bytes against the record's marker before it uses
 //! or installs them.
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use async_trait::async_trait;
-use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReadItem, BlobReadRequest};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::{Destination, Version};

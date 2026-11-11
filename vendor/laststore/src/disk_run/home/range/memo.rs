@@ -37,12 +37,12 @@ impl HeadMemo {
     ) -> Option<Self> {
         // Keep room for the next returned head and the selected-key copy before
         // either transient allocation can become a retained head.
-        let available = lastdb_storage_policy::BACKUP_RESOURCES
+        let available = lastdb_model::storage_policy::BACKUP_RESOURCES
             .working_memory_bytes
             .checked_sub(owner.shared_metadata_bytes.max(owner.retained_bytes()))?
             .checked_sub(owner.costs.budget_bytes)?
             .checked_sub(retained)?;
-        let maximum = lastdb_storage_policy::backup_decode::PROOF_KEY_HEAD_BYTES
+        let maximum = lastdb_model::storage_policy::backup_decode::PROOF_KEY_HEAD_BYTES
             .min(available)
             .checked_sub(2 * MAX_RUN_KEY_BYTES as u64)?;
         let count = owner
@@ -147,7 +147,7 @@ impl HeadMemo {
                 .iter()
                 .filter(|head| head.block.is_some())
                 .count()
-                < lastdb_storage_policy::backup_decode::PROOF_BLOCK_CURSOR_HANDLES =>
+                < lastdb_model::storage_policy::backup_decode::PROOF_BLOCK_CURSOR_HANDLES =>
             {
                 match owner.proof_head_at(
                     self.heads[index].slot,

@@ -158,7 +158,7 @@ async fn install_checkpoint(
     let bytes = contents.files.iter().try_fold(0u64, |total, file| {
         total
             .checked_add(file.object.bytes.get())
-            .filter(|total| *total <= lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES)
+            .filter(|total| *total <= fold_db::storage_policy::BACKUP_TOTAL_STORED_BYTES)
             .ok_or(RestoreError::Limit("native checkpoint bytes"))
     })?;
     check_capacity(stage, bytes)?;

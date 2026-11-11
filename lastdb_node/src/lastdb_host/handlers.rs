@@ -1,0 +1,45 @@
+//! The **shared owner-socket handler bodies** — the single implementation of
+//! query / mutation / native-index-search / schema-resolution that BOTH
+//! binaries' socket route executors (`lastdb_node::exec`,
+//! `fold_db_node::server::uds_exec`) drive.
+//!
+//! Historically each executor re-implemented these handler bodies against
+//! `fold_db` core, kept identical only by discipline (the extraction card's
+//! predecessor moved the *wire* layer here; this module moves the *handler*
+//! layer). Now the schema-resolution, pagination push-down, row formatting
+//! and native-search enrichment/filtering live in exactly
+//! one place, generic over [`HostNode`], so the two socket surfaces cannot
+//! drift below the app-identity axis.
+//!
+//! Each handler returns a serialized JSON payload (the inner object that the
+//! caller wraps in the [`crate::lastdb_host::envelope::envelope`] `{ ok, ...data, user_hash }`
+//! success shape via [`crate::lastdb_host::envelope::json_ok`]) or a [`HostError`] carrying an
+//! HTTP status + owner-visible message (the caller maps it through
+//! [`crate::lastdb_host::envelope::owner_or_content_free`] so a non-owner stays content-free —
+//! **I4**). The GET routes parse their own params from the request target; the
+//! POST routes take the already-parsed body value. The caller's only job is to
+//! bind the user-context task-local, parse the wire, and apply the envelope.
+
+use crate::lastdb_uds::uds_http::UdsResponse;
+use fold_db::access::AccessContext;
+use fold_db::error::FoldDbError;
+use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+use fold_db::schema::types::operations::{Query, SortOrder};
+use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
+use serde_json::Value;
+
+use crate::lastdb_host::envelope::{
+    envelope, json_ok, owner_json_or_content_free, owner_or_content_free,
+};
+use crate::lastdb_host::host_node::HostNode;
+use crate::lastdb_host::pagination::clamp_request_limit;
+
+mod errors;
+mod mutation;
+mod query;
+mod schema_resolve;
+
+pub use self::errors::*;
+pub use self::mutation::*;
+pub use self::query::*;
+pub use self::schema_resolve::*;

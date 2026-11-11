@@ -47,8 +47,7 @@ async fn keyed_page(
     query.key_name = Some(name.to_owned());
     query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
     let cursor = decode_cursor(request.cursor.as_deref())?;
-    let page =
-        handlers::execute_query(host, query, Some(request.limit), None, cursor, false).await?;
+    let page = handlers::execute_query(host, query, Some(request.limit), None, cursor).await?;
     report(request, &schema, &page)
 }
 
