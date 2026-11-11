@@ -36,7 +36,6 @@ use crate::log_envelope::DatabaseContentKey;
 use crate::Host;
 
 use journal::Resume;
-use types::SnapshotInstall;
 
 /// Apply one verified snapshot chain to the named database `request` selects.
 ///
