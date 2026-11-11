@@ -2,7 +2,7 @@
 
 Five and twenty writers each finish ten appends, one list, and one ack.
 One hundred writers repeat append, list, and ack for three minutes.
-Trim uses 128 devices, then one snapshot and one trim.
+Trim uses 128 devices. They append, then ack the head cursor, then snapshot and trim.
 """
 
 APPENDS = 10
@@ -43,7 +43,7 @@ def still_running(spec, elapsed_ms):
 
 def writer_calls(spec, index):
     if spec.kind == "trim":
-        return [("append", index, 1), ("ack", index, 1)]
+        return [("append", index, 1)]
     if spec.kind == "full":
         calls = [("append", index, seq) for seq in range(1, APPENDS + 1)]
         return calls + [("list", index, 0), ("ack", index, APPENDS)]

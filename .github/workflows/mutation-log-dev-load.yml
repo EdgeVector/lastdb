@@ -43,7 +43,7 @@ jobs:
         working-directory: scripts/mutation_log_load
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
-          python3 -m unittest test_guard.py test_cost.py test_token.py
+          python3 -m unittest test_guard.py test_cost.py test_faults.py test_token.py
       - name: Refuse a role outside the DEV account before assuming it
         env:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
@@ -65,12 +65,16 @@ jobs:
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
+          set +e
           python3 scripts/mutation_log_load/run.py \
             --phase load \
             --level "$LOAD_LEVEL" \
             --confirm-deployed "$CONFIRM_DEPLOYED" \
             --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
             --summary "$RUNNER_TEMP/mutation-log-load-summary.json"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/mutation-log-load-exit"
+          exit "$code"
       - name: Delete this run's load rows
         id: cleanup
         if: always()
@@ -81,23 +85,33 @@ jobs:
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
+          set +e
           python3 scripts/mutation_log_load/run.py \
             --phase cleanup \
             --confirm-deployed "$CONFIRM_DEPLOYED" \
             --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
             --summary "$RUNNER_TEMP/mutation-log-load-summary.json"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/mutation-log-cleanup-exit"
+          exit "$code"
       - name: Keep the load status in front of a cleanup failure
         if: always()
-        env:
-          LOAD_OUTCOME: ${{ steps.load.outcome }}
-          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
         run: |
           python3 - <<'PY'
           import os
           import sys
           sys.path.insert(0, "scripts/mutation_log_load")
           from stats import combine_exit
-          load = 0 if os.environ["LOAD_OUTCOME"] == "success" else 1
-          cleanup = 0 if os.environ["CLEANUP_OUTCOME"] == "success" else 1
-          sys.exit(combine_exit(load, cleanup))
+
+          def code(path):
+              try:
+                  return int(open(path, encoding="utf-8").read().strip())
+              except (OSError, ValueError):
+                  return 1
+
+          root = os.environ["RUNNER_TEMP"]
+          # 0 complete, 1 correctness, 2 cap, 3 scaling (contention over 1%).
+          sys.exit(combine_exit(
+              code(os.path.join(root, "mutation-log-load-exit")),
+              code(os.path.join(root, "mutation-log-cleanup-exit"))))
           PY

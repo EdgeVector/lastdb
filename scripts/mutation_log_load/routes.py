@@ -1,14 +1,19 @@
 """Mutation-log routes and the bodies those routes accept.
 
-Every path is under ``/api/cloud/backups/v2/mutation-log/``. Head, snapshot,
-and trim have no request struct: the database is the token stream id, and
-the body is empty. Other counters are JSON numbers. The payload is the
-string ``load``. Snapshot bytes stay in the table; the snapshot ref is a label.
+Every path is under ``/api/cloud/backups/v2/mutation-log/``. Every action,
+including head, snapshot, and trim, sends ``{"database_id": ...}``. The
+server dispatch reads that field. Counters are JSON numbers. The payload
+is the base64url (no padding) of the bytes ``load``, not the literal word.
+Snapshot bytes stay in the table; the snapshot ref is a label.
 """
 
+import base64
 import json
 
 from guard import allow_stream
+
+
+PAYLOAD = base64.urlsafe_b64encode(b"load").rstrip(b"=").decode("ascii")
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
@@ -16,7 +21,6 @@ OPERATIONS = (
     "create-database", "append", "head", "list", "ack", "revoke", "snapshot", "trim",
 )
 READS = frozenset({"head", "list"})
-EMPTY = frozenset({"head", "snapshot", "trim"})
 ENTRY_FIELDS = (
     "accepted_at_ms", "authored_at_ms", "delivery_seq", "namespace", "payload",
     "writer_device", "writer_key", "writer_seq",
@@ -25,12 +29,12 @@ ENTRY_FIELDS = (
 FIELDS = {
     "create-database": ("database_id", "kind"),
     "append": ("database_id", "device_id", "entries"),
-    "head": (),
+    "head": ("database_id",),
     "list": ("after", "database_id", "device_id", "limit"),
     "ack": ("database_id", "device_id", "through"),
     "revoke": ("capability", "database_id", "principal"),
-    "snapshot": (),
-    "trim": (),
+    "snapshot": ("database_id",),
+    "trim": ("database_id",),
 }
 
 
@@ -48,8 +52,6 @@ def request_body(operation, fields):
     allowed = FIELDS[operation]
     if set(fields) != set(allowed):
         raise RouteError("body")
-    if operation in EMPTY:
-        return b""
     allow_stream(fields["database_id"])
     if operation == "create-database" and fields["kind"] not in ("personal", "shareable"):
         raise RouteError("body")

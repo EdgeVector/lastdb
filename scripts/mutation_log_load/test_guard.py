@@ -9,11 +9,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
-                   allow_region, allow_stream, allow_table, allow_table_arn,
-                   database_id_for_run, delete_batch, load_endpoints, query_request,
-                   record_ids_from_query, unprocessed_ids)
+                   allow_partition, allow_region, allow_stream, allow_table,
+                   allow_table_arn, continue_page, database_id_for_run, delete_batch,
+                   load_endpoints, query_request, record_ids_from_query,
+                   snap_partition, unprocessed_ids)
 from plan import STEADY_MS, TRIM_WRITERS, scenario, still_running
-from routes import path_for, prove_trimmed_list, request_body, require_trim
+from routes import PAYLOAD, path_for, prove_trimmed_list, request_body, require_trim
 
 
 DEV = "https://dev.example.test"
@@ -36,14 +37,23 @@ class TargetGuard(unittest.TestCase):
 
     def test_load_database_id_is_accepted_and_other_ids_are_not(self):
         digest = hashlib.sha256(b"17").hexdigest()
-        expected = "c1da11d0-{0}-{1}-{2}-{3}".format(
-            digest[0:4], digest[4:8], digest[8:12], digest[12:24])
+        expected = "c1da11d0-0000-4000-8000-" + digest[:12]
+        self.assertEqual(len(expected), 36)
         self.assertEqual(database_id_for_run("17"), expected)
         self.assertEqual(allow_stream(expected), expected)
+        snap = snap_partition(expected)
+        self.assertEqual(snap, expected + "#snap")
+        self.assertEqual(allow_partition(snap), snap)
+        self.assertEqual(query_request(DEV_TABLE, snap)["ExpressionAttributeValues"][":id"]["S"],
+                         snap)
         for value in ("c1da11d0-load-17", "mutation-log/c1da11d0-load-17",
-                      "c1da11d0-load-", ""):
+                      "c1da11d0-load-", "", expected + "#other", expected + "#snap-extra"):
             with self.assertRaises(GuardError):
-                allow_stream(value)
+                allow_partition(value)
+        self.assertFalse(continue_page(3, None))
+        self.assertTrue(continue_page(63, {"database_id": {"S": expected}}))
+        with self.assertRaises(GuardError):
+            continue_page(64, {"database_id": {"S": expected}})
 
     def test_prod_endpoint_is_refused(self):
         self.assertEqual(allow_endpoint(DEV, DEV, PROD), DEV)
@@ -105,8 +115,10 @@ class TargetGuard(unittest.TestCase):
         created = json.loads(request_body("create-database", {
             "database_id": database, "kind": "personal"}))
         self.assertEqual(created["kind"], "personal")
-        self.assertEqual(request_body("head", {}), b"")
-        self.assertEqual(request_body("trim", {}), b"")
+        self.assertEqual(PAYLOAD, "bG9hZA")
+        for operation in ("head", "snapshot", "trim"):
+            self.assertEqual(json.loads(request_body(operation, {"database_id": database})),
+                             {"database_id": database})
         self.assertNotIn("dropped", json.dumps(created))
         steady = scenario("100")
         self.assertEqual(steady.writers, 100)

@@ -25,11 +25,17 @@ def summarize(samples, errors, elapsed_ms):
 
 
 def format_summary(summary):
-    return "\n".join([
+    lines = [
         "  latency_ms p50={p50_ms:.1f} p95={p95_ms:.1f} p99={p99_ms:.1f}".format(**summary),
         "  errors: {errors}".format(**summary),
         "  throughput: {throughput_per_s:.2f} req/s".format(**summary),
-    ])
+    ]
+    if "contention_503" in summary:
+        lines.append(
+            "  503 contention={contention_503} other={other_503} "
+            "rate={contention_rate:.4f} writes={write_attempts}".format(**summary)
+        )
+    return "\n".join(lines)
 
 
 def combine_exit(load_status, cleanup_status):

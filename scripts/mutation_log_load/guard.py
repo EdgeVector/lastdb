@@ -1,9 +1,12 @@
 """Refuse every target except the DEV mutation-log table in us-west-2.
 
 DEV and PROD share account 152335099025, so the region is the guard.
-The only table is ``ExememMutationLog-dev``. The database id is a protocol
-Id: a UUID whose first group is ``c1da11d0``, derived from the run id.
-Snapshot bytes are rows in that table. This module has no object-store target.
+The only table is ``ExememMutationLog-dev``. The database id is
+``c1da11d0-0000-4000-8000-`` plus 12 hex characters from SHA-256 of the run
+id. The DEV role's LeadingKeys scope is that same prefix with ``*``.
+DescribeTable belongs in a separate IAM statement on the table ARN only.
+That scope is pending LastDB CEO re-approval. This module does not change
+IAM. Snapshot rows live in the ``<id>#snap`` partition of the same table.
 """
 
 import hashlib
@@ -14,9 +17,10 @@ import re
 DEV_TABLE = "ExememMutationLog-dev"
 DEV_REGION = "us-west-2"
 DEV_ACCOUNT = "152335099025"
-STREAM_ID = re.compile(
-    r"c1da11d0-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+STREAM_PREFIX = "c1da11d0-0000-4000-8000-"
+STREAM_ID = re.compile(STREAM_PREFIX + r"[0-9a-f]{12}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,18}")
+PAGE_LIMIT = 64
 ROLE_ARN = re.compile(
     r"arn:aws:iam::" + DEV_ACCOUNT + r":role/[A-Za-z0-9+=,.@_-]{1,64}")
 BATCH_LIMIT = 25
@@ -93,13 +97,35 @@ def database_id_for_run(run_id):
     if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
         raise GuardError("database")
     digest = hashlib.sha256(run_id.encode("ascii")).hexdigest()
-    return allow_stream("c1da11d0-{0}-{1}-{2}-{3}".format(
-        digest[0:4], digest[4:8], digest[8:12], digest[12:24]))
+    return allow_stream(STREAM_PREFIX + digest[:12])
+
+
+def snap_partition(database_id):
+    """The snapshot partition is exactly the load id plus ``#snap``."""
+    return allow_stream(database_id) + "#snap"
+
+
+def allow_partition(value):
+    if isinstance(value, str) and value.endswith("#snap"):
+        base = value[:-len("#snap")]
+        if value != snap_partition(base):
+            raise GuardError("database")
+        return value
+    return allow_stream(value)
+
+
+def continue_page(pages, start, limit=PAGE_LIMIT):
+    """Keep querying while a continuation remains inside the page cap."""
+    if not start:
+        return False
+    if pages >= limit:
+        raise GuardError("page")
+    return True
 
 
 def query_request(table, database_id):
     allow_table(table)
-    allow_stream(database_id)
+    allow_partition(database_id)
     return {
         "TableName": table,
         "KeyConditionExpression": "database_id = :id",
@@ -110,7 +136,7 @@ def query_request(table, database_id):
 
 def delete_batch(table, database_id, record_ids):
     allow_table(table)
-    allow_stream(database_id)
+    allow_partition(database_id)
     if not record_ids or len(record_ids) > BATCH_LIMIT:
         raise GuardError("batch")
     deletes = []
@@ -127,7 +153,7 @@ def delete_batch(table, database_id, record_ids):
 def unprocessed_ids(response, table, database_id):
     """Ids still to delete. A key for another database is a hard failure."""
     allow_table(table)
-    allow_stream(database_id)
+    allow_partition(database_id)
     pending = response.get("UnprocessedItems", {})
     if not isinstance(pending, dict) or set(pending) - {table}:
         raise GuardError("table")
@@ -144,7 +170,7 @@ def unprocessed_ids(response, table, database_id):
 
 
 def record_ids_from_query(response, database_id):
-    allow_stream(database_id)
+    allow_partition(database_id)
     ids = []
     for item in response.get("Items", []):
         if item.get("database_id", {}).get("S") != database_id:

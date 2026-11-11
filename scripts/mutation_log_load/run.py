@@ -21,11 +21,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger, format_estimate
 from drive import LoadError, Session, drive
+from faults import worst_exit
 from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_region_environment, allow_role, allow_stream,
-                   allow_table, allow_table_arn, database_id_for_run,
+                   allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   refuse_prod_environment, unprocessed_ids)
+                   refuse_prod_environment, snap_partition, unprocessed_ids)
 from plan import phases
 from stats import format_summary
 from node_auth import NodeKey, TokenError, account_id, authorization
@@ -81,27 +82,33 @@ def aws(service, operation, payload):
 
 
 def cleanup(table, database_id, ledger):
+    base = allow_stream(database_id)
+    purge(table, base, ledger)
+    purge(table, snap_partition(base), ledger)
+
+
+def purge(table, partition, ledger):
     pending, start, pages = [], None, 0
-    while pages < 64:
-        request = query_request(table, database_id)
+    while True:
+        request = query_request(table, partition)
         if start is not None:
-            if start.get("database_id", {}).get("S") != database_id:
+            if start.get("database_id", {}).get("S") != partition:
                 raise GuardError("database")
             request["ExclusiveStartKey"] = start
         found = aws("dynamodb", "query", request)
         ledger.record("read")
-        pending.extend(record_ids_from_query(found, database_id))
+        pending.extend(record_ids_from_query(found, partition))
         start = found.get("LastEvaluatedKey")
         pages += 1
-        if not start:
+        if not continue_page(pages, start):
             break
     stalls = 0
     while pending:
         chunk = pending[:25]
         response = aws("dynamodb", "batch-write-item",
-                       delete_batch(table, database_id, chunk))
+                       delete_batch(table, partition, chunk))
         ledger.record("write", 64 * len(chunk))
-        left = unprocessed_ids(response, table, database_id)
+        left = unprocessed_ids(response, table, partition)
         pending = left + pending[len(chunk):]
         stalls = stalls + 1 if left == chunk else 0
         if stalls > 8:
@@ -159,6 +166,8 @@ def main(argv):
         for spec in phases(args.level):
             report = drive(spec, session)
             reports.append(report)
+            print("tier {0} writers={1}".format(spec.kind, spec.writers))
+            print(format_summary(report["summary"]))
             if report.get("message"):
                 print(report["message"], file=sys.stderr)
             if report["stopped"] != "complete":
@@ -168,12 +177,7 @@ def main(argv):
         if reports:
             summary_path.write_text(json.dumps(reports[-1]["summary"]), encoding="utf-8")
             print(format_estimate(ledger.snapshot()))
-            print(format_summary(reports[-1]["summary"]))
-    if any(report["stopped"] == "error" for report in reports):
-        return 1
-    if any(report["stopped"] == "cap" for report in reports):
-        return 2
-    return 0
+    return worst_exit(report["stopped"] for report in reports)
 
 
 if __name__ == "__main__":
