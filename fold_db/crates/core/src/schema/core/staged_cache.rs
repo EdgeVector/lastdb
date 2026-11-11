@@ -1,6 +1,5 @@
 //! Native schema reloads keep their cache state private until disk publication.
 
-use super::locks::{lock_map, read_map, write_map};
 use super::{Schema, SchemaCore, SchemaState};
 use crate::schema::types::SchemaError;
 use crate::storage::disk_pack::transaction::publication;
@@ -19,7 +18,7 @@ impl SchemaCore {
     ) -> Result<Option<Arc<CachedSchema>>, SchemaError> {
         Ok(publication::get(
             &self.db_ops.native_runtime(),
-            Arc::as_ptr(&self.schemas) as usize,
+            Arc::as_ptr(&self.catalog) as usize,
             name,
         )?)
     }
@@ -27,7 +26,7 @@ impl SchemaCore {
     pub(super) fn staged_schemas(&self) -> Result<Vec<(String, Arc<CachedSchema>)>, SchemaError> {
         Ok(publication::entries(
             &self.db_ops.native_runtime(),
-            Arc::as_ptr(&self.schemas) as usize,
+            Arc::as_ptr(&self.catalog) as usize,
         )?)
     }
 
@@ -37,8 +36,7 @@ impl SchemaCore {
         schema: Schema,
         state: SchemaState,
     ) -> Result<(), SchemaError> {
-        let schemas = Arc::clone(&self.schemas);
-        let states = Arc::clone(&self.schema_states);
+        let catalog = Arc::clone(&self.catalog);
         let name = name.to_string();
         let staged = CachedSchema {
             schema: schema.clone(),
@@ -46,32 +44,19 @@ impl SchemaCore {
         };
         publication::publish(
             &self.db_ops.native_runtime(),
-            Arc::as_ptr(&self.schemas) as usize,
+            Arc::as_ptr(&self.catalog) as usize,
             name.clone(),
             staged,
             move || {
-                let mut schemas =
-                    write_map(&schemas, "schemas").map_err(|error| cache_error(&error))?;
-                let mut states =
-                    lock_map(&states, "schema_states").map_err(|error| cache_error(&error))?;
-                schemas.insert(name.clone(), schema);
-                states.insert(name, state);
+                let mut guard = catalog.write().map_err(|e| {
+                    StorageError::BackendError(format!("schema catalog lock poisoned: {e}"))
+                })?;
+                let inner = Arc::make_mut(&mut *guard);
+                inner.schemas.insert(name.clone(), schema);
+                inner.states.insert(name, state);
                 Ok(())
             },
         )?;
         Ok(())
     }
-
-    pub(super) fn cached_schema_for_read(&self, name: &str) -> Result<Option<Schema>, SchemaError> {
-        if let Some(staged) = self.staged_schema(name)? {
-            return Ok(Some(staged.schema.clone_for_read_shared()));
-        }
-        Ok(read_map(&self.schemas, "schemas")?
-            .get(name)
-            .map(Schema::clone_for_read_shared))
-    }
-}
-
-fn cache_error(error: &SchemaError) -> StorageError {
-    StorageError::BackendError(error.to_string())
 }

@@ -1,10 +1,6 @@
-//! Core publication helpers: the receipt lock and typed definition protection.
+//! Core publication helpers: the receipt lock for one matching revision.
 
 use super::*;
-
-mod protection;
-
-pub(crate) use protection::{PathProtection, PathPublication};
 
 /// The published view, the call receipt, and the core for one matching revision.
 /// A newer view returns no guard and does not take the receipt or the core.

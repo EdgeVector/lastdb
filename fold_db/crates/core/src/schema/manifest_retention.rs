@@ -129,12 +129,9 @@ pub enum ManifestRetentionStatus {
 /// found. Nothing is written to produce it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ManifestRetentionPlan {
-    /// The schema that will hold the retention state.
+    /// The schema that holds the retention state.
     pub anchor: String,
-    /// The anchor the manifest name pointed at before, when the declare moved
-    /// it. The whole policy, tracking included, follows the schema.
-    pub moved_from: Option<String>,
-    /// The policy in force before the call (after any move).
+    /// The policy in force before the call.
     pub current: Option<SchemaRetentionPolicy>,
     /// The policy that will be in force after the call. `None` when nothing
     /// changes.
@@ -147,77 +144,13 @@ pub struct ManifestRetentionPlan {
 /// Result of [`crate::db_operations::schema_store::SchemaStore::apply_manifest_retention`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ManifestRetentionOutcome {
-    /// The schema that holds the retention state for both installed names.
+    /// The schema that holds the retention state.
     pub anchor: String,
     pub status: ManifestRetentionStatus,
-    /// The policy in force before the call (after any move).
+    /// The policy in force before the call.
     pub previous: Option<SchemaRetentionPolicy>,
     /// The policy in force after the call.
     pub effective: SchemaRetentionPolicy,
-    /// The anchor the policy came from, when the declare moved it.
-    pub moved_from: Option<String>,
     /// True when the manifest TTL is shorter than the manifest TTL running.
     pub shortened: bool,
-}
-
-/// Who else reads and writes the records a manifest TTL would delete.
-///
-/// A TTL sweep runs through the catalog schema. It removes a record from every
-/// field key that schema names, so it reaches every other schema that is bound
-/// to it, and every record it holds, whoever wrote it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct RetentionSharing {
-    /// Other loaded schemas bound to the catalog schema, by retention alias or
-    /// by a field key that it holds.
-    /// The declared manifest name is not listed.
-    pub shared_with: Vec<String>,
-    /// Schemas in the catalog schema's chain that another app owns.
-    pub foreign_owners: Vec<String>,
-}
-
-impl RetentionSharing {
-    /// The reason a manifest TTL must be refused, or `None` when it is safe.
-    pub fn refusal(&self, binding: &str, anchor: &str, owner_app: &str) -> Option<String> {
-        let mut reasons = Vec::new();
-        if !self.foreign_owners.is_empty() {
-            reasons.push(format!(
-                "the catalog schema {anchor} chain holds schemas that app '{owner_app}' does \
-                 not own: [{}]",
-                self.foreign_owners.join(", ")
-            ));
-        }
-        if !self.shared_with.is_empty() {
-            reasons.push(format!(
-                "shared_with=[{}]: other schemas are bound to the catalog schema {anchor}",
-                self.shared_with.join(", ")
-            ));
-        }
-        if reasons.is_empty() {
-            return None;
-        }
-        Some(format!(
-            "a manifest TTL on {binding} is refused. The TTL sweep runs through {anchor} and \
-             deletes the records of every schema bound to it. {}. Give each schema its own \
-             shape, or set a policy on purpose with `lastdb schema-retention set`",
-            reasons.join("; ")
-        ))
-    }
-}
-
-/// A retention policy whose sweep would delete through a schema that shares
-/// records with a schema being declared.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct RetentionPolicyInReach {
-    /// The schema that holds the policy. Its sweep deletes through this name.
-    pub anchor: String,
-    /// The manifest names that declared the TTL, other than the schema being
-    /// declared. Empty when an operator set the policy on the schema directly.
-    pub declared_by: Vec<String>,
-    pub policy: SchemaRetentionPolicy,
-}
-
-/// The retention policies a schema being declared would fall under.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct RetentionReach {
-    pub policies: Vec<RetentionPolicyInReach>,
 }

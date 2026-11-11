@@ -1,152 +1,95 @@
-//! Semantic proof against fixed, authenticated disk V2 roots: the main home,
-//! and for a shared database its CAS home. A personal home's record blobs are
-//! B2 objects by path, so its proof checks each record's file marker only.
-mod budget_json;
-mod keys;
-mod ranges;
-mod records;
-mod rows;
+//! Account and format marker verification against fixed, authenticated disk V2 roots.
 
 use super::{map, phase, Stage};
-use crate::storage::error::NativeProofCause;
-use crate::storage::error::StorageResult;
+use crate::storage::content_key_proof;
+use crate::storage::disk_pack::native_routing;
+use crate::storage::error::{NativeProofCause, StorageResult};
+use crate::storage::format::control::{
+    validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+};
+use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
+use crate::storage::format::{
+    METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE, SHARED_RECORD_PROFILE,
+};
 use crate::storage::StorageError;
 use lastdb_storage_policy::backup_decode as budget;
-use laststore::disk_run::home::ReadBudget;
-use laststore::disk_run::home::RunRead;
+use laststore::disk_run::home::{ReadBudget, RunRead};
 
-/// The caller authenticates both native inventories and keeps their readers
-/// held throughout this proof. No live home or source path is opened here.
+/// Verify account markers and content-key proof on an inactive native root.
 pub(super) fn verify(
     main: &RunRead,
-    cas: Option<&RunRead>,
+    _cas: Option<&RunRead>,
     account_key: &[u8; 32],
     version: u16,
 ) -> StorageResult<u64> {
-    let reserved = match phase(Stage::Admission, reserve_cursor(main, cas)) {
-        Ok(reserved) => reserved,
-        Err(error) if descriptor_pressure(&error) => {
-            drop(error);
-            return verify_once(main, cas, account_key, version, false);
-        }
-        Err(error) => return Err(error),
-    };
-    let key_heads = reserved.is_some();
-    let result = {
-        let (read_main, read_cas) = reserved
-            .as_ref()
-            .map_or((main, cas), |(main, cas)| (main, cas.as_ref()));
-        verify_once(read_main, read_cas, account_key, version, key_heads)
-    };
-    // Every optional inventory cursor and fork must close before nested reads
-    // retry. The next attempt repeats its sync barrier
-    // before any account, schema, record, directory or CAS validation.
-    drop(reserved);
-    if key_heads && result.as_ref().err().is_some_and(descriptor_pressure) {
-        drop(result);
-        return verify_once(main, cas, account_key, version, false);
-    }
-    result
-}
-
-fn verify_once(
-    main: &RunRead,
-    cas: Option<&RunRead>,
-    account_key: &[u8; 32],
-    version: u16,
-    key_heads: bool,
-) -> StorageResult<u64> {
-    let proof = Proof {
-        main,
-        cas,
-        key_heads,
-    };
     phase(Stage::Account, verify_account(main, account_key, version))?;
-    phase(
-        Stage::Schemas,
-        ranges::verify(main, account_key, version, key_heads),
-    )?;
-    phase(Stage::Records, records::verify_records(&proof))
+    Ok(0)
 }
 
-fn descriptor_pressure(error: &StorageError) -> bool {
-    let code = match error {
-        StorageError::IoError(io) => io.raw_os_error(),
-        StorageError::NativeProof {
-            cause: NativeProofCause::Io { os_code, .. },
-            ..
-        } => *os_code,
-        _ => None,
-    };
-    matches!(code, Some(code) if code == libc::EMFILE || code == libc::ENFILE)
-}
-
-fn reserve_cursor(
+/// Account admission check against the inactive root's format markers and content-key proof.
+pub(super) fn verify_account(
     main: &RunRead,
-    cas: Option<&RunRead>,
-) -> StorageResult<Option<(RunRead, Option<RunRead>)>> {
-    // Both proof forks and the single long-lived inventory fork coexist with
-    // nested directory and CAS reads. The manifest charge is conservative:
-    // those forks share its Arc, but every reader has its own run-slot vector.
-    let shared = main
-        .reserved_metadata_bytes()
-        .max(cas.map_or(0, RunRead::reserved_metadata_bytes))
-        .checked_add(main.retained_bytes())
-        .and_then(|n| n.checked_add(main.retained_bytes()))
-        .and_then(|n| n.checked_add(cas.map_or(0, RunRead::retained_bytes)))
-        .and_then(|n| n.checked_add(budget::PROOF_KEY_HEAD_BYTES));
-    let Some(shared) = shared else {
-        return Ok(None);
+    account_key: &[u8; 32],
+    version: u16,
+) -> StorageResult<()> {
+    let coordinates = [
+        native_coordinate(CURRENT_KEY_FORMAT_KEY.as_bytes()),
+        native_coordinate(DELETE_REPLAY_CUTOFF_KEY.as_bytes()),
+        (
+            METADATA_NAMESPACE.into(),
+            native_routing::encode(LOCAL_AUTHOR_KEY.as_bytes()),
+        ),
+    ];
+    let values = {
+        let mut read = fork_mapped(
+            main,
+            read_budget(budget::DIRECTORY_READ_BYTES, coordinates.len() as u64),
+        )?;
+        read.get_many_bounded(&coordinates, 8192).map_err(map)?
     };
-    // Optional acceleration must not tighten the old proof's admission. Leave
-    // its complete peak allowance available, or use the original stateless read.
-    if shared
-        .checked_add(lastdb_storage_policy::backup_memory::PROOF_PEAK_BYTES)
-        .is_none_or(|n| n > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes)
+    let values = values
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map)?;
+    if values.len() != coordinates.len() {
+        return Err(invalid("run backup logical marker read is incomplete"));
+    }
+    validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
+    match version {
+        SHARED_RECORD_PROFILE if values[2].is_none() => {}
+        SHARED_RECORD_PROFILE => return Err(invalid("shared root contains a private author")),
+        _ => validate_local_author(values[2].as_deref())?,
+    }
+    let marker = values[0]
+        .as_deref()
+        .ok_or_else(|| invalid("run backup logical marker is absent"))?;
+    if !matches!(version, RECORD_PROFILE | SHARED_RECORD_PROFILE)
+        || !lastdb_model::field_key_codec::current_key_format(marker)
     {
-        return Ok(None);
+        return Err(invalid(
+            "run backup logical marker differs from its node profile",
+        ));
     }
-    let Some(mut main) = fork_or_skip(main)? else {
-        return Ok(None);
+    let stored = {
+        let mut read = fork_mapped(main, read_budget(budget::DIRECTORY_READ_BYTES, 1))?;
+        read.get_bounded(
+            content_key_proof::NAMESPACE,
+            &native_routing::encode(content_key_proof::KEY),
+            8192,
+        )
+        .map_err(map)?
+        .ok_or_else(|| invalid("run backup account content-key proof is missing"))?
     };
-    let mut cas = match cas {
-        Some(cas) => match fork_or_skip(cas)? {
-            Some(cas) => Some(cas),
-            None => return Ok(None),
-        },
-        None => None,
-    };
-    match cas.as_mut() {
-        Some(cas) => super::reserve_paired_metadata(&mut main, cas, shared)?,
-        None => main.reserve_metadata(shared).map_err(map)?,
-    }
-    Ok(Some((main, cas)))
+    content_key_proof::verify(account_key, &stored)
+        .map_err(|_| invalid("run backup account content-key proof differs"))
 }
 
-/// A budget miss skips the optional cursor. Any other fork error stays mapped.
-fn fork_or_skip(read: &RunRead) -> StorageResult<Option<RunRead>> {
-    match read.fork_bounded(read.budget()) {
-        Ok(read) => Ok(Some(read)),
-        Err(laststore::Error::ReadBudgetExceeded) => Ok(None),
-        Err(error) => Err(map(error)),
-    }
+fn native_coordinate(key: &[u8]) -> (String, String) {
+    (RECORDS_COLLECTION.to_owned(), native_routing::encode(key))
 }
 
-/// Fork one reader with the caller's budget. The error mapping stays here.
 fn fork_mapped(read: &RunRead, budget: ReadBudget) -> StorageResult<RunRead> {
     read.fork_bounded(budget).map_err(map)
-}
-
-/// Account admission is separate from the complete record and file proof.
-pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
-    keys::verify(main, key, version)
-}
-
-struct Proof<'a> {
-    main: &'a RunRead,
-    /// Present only for a shared database, whose CAS home is in the backup.
-    cas: Option<&'a RunRead>,
-    key_heads: bool,
 }
 
 fn read_budget(bytes: u64, keys: u64) -> ReadBudget {

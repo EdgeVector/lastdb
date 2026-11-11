@@ -1,21 +1,12 @@
-use crate::schema::types::field::FieldVariant;
-use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
-
-mod runtime;
 
 /// Declarative schema definition - the primary schema representation.
 ///
-/// This is [`schema_types::DeclarativeSchemaDefinition`] (the wire fields, the
-/// identity hash, construction, equality and parsing) plus `runtime_fields`.
-/// Every wire field and method is reached through `Deref`, so there is one
-/// definition of the schema shape in the workspace.
+/// Wraps [`schema_types::DeclarativeSchemaDefinition`] (the wire fields,
+/// identity hash, construction, equality and parsing) with model-layer helpers.
 #[derive(Debug, Clone)]
 pub struct DeclarativeSchemaDefinition {
     wire: schema_types::DeclarativeSchemaDefinition,
-    /// Runtime field storage for database operations. Not serialized and not
-    /// part of equality. A payload field has no key.
-    pub runtime_fields: HashMap<String, FieldVariant>,
 }
 
 impl Deref for DeclarativeSchemaDefinition {
@@ -33,6 +24,20 @@ impl DerefMut for DeclarativeSchemaDefinition {
 }
 
 impl DeclarativeSchemaDefinition {
+    /// Whether `name` is one of the schema's declared fields.
+    #[must_use]
+    pub fn has_field(&self, name: &str) -> bool {
+        self.fields
+            .as_ref()
+            .is_some_and(|fields| fields.iter().any(|field| field == name))
+    }
+
+    /// Validate the declarative definition and convert errors to [`crate::schema::SchemaError`].
+    pub fn validate(&self) -> Result<(), crate::schema::SchemaError> {
+        self.validate_definition()
+            .map_err(crate::schema::SchemaError::InvalidData)
+    }
+
     /// The active home format requires explicit addresses; no payload-key fallback.
     pub fn require_record_keys(
         &self,
@@ -49,7 +54,7 @@ impl DeclarativeSchemaDefinition {
         schema_types::DeclarativeSchemaDefinition::validate_field_name(name)
     }
 
-    /// Creates a new schema with no runtime fields.
+    /// Creates a new schema definition.
     #[must_use]
     pub fn new(
         name: String,
@@ -66,10 +71,7 @@ impl DeclarativeSchemaDefinition {
     }
 
     fn with_wire(wire: schema_types::DeclarativeSchemaDefinition) -> Self {
-        Self {
-            wire,
-            runtime_fields: HashMap::new(),
-        }
+        Self { wire }
     }
 
     /// Split a canonical name into `(owner_app_id, name)`. See

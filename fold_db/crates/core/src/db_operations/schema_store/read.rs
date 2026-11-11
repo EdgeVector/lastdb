@@ -5,26 +5,17 @@ use super::*;
 impl SchemaStore {
     /// Get a specific schema by name.
     ///
-    /// Query falls back here on a cache miss (`resolve_schema_for_read`).
+    /// Query falls back here on a cache miss (`resolve_schema`).
     /// A row that does not decode is an error.
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
-        if let Some(snapshot) = self.prepared_snapshot(schema_name)? {
-            return Ok(snapshot.schema.clone());
-        }
-        let Some(bytes) = self
-            .schemas_store
-            .inner()
-            .get(schema_name.as_bytes())
-            .await?
-        else {
+        let Some(bytes) = self.schemas_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };
 
-        let mut schema =
-            decode_catalog_schema(&bytes).map_err(|error| SchemaError::StorageRead {
-                detail: format!("schema catalog row {schema_name} is unreadable: {error}"),
-            })?;
-        schema.populate_runtime_fields()?;
+        let schema = decode_catalog_schema(&bytes).map_err(|error| SchemaError::StorageRead {
+            detail: format!("schema catalog row {schema_name} is unreadable: {error}"),
+        })?;
+        schema.validate()?;
 
         Ok(Some(schema))
     }
@@ -35,12 +26,7 @@ impl SchemaStore {
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
-        let Some(bytes) = self
-            .schema_states_store
-            .inner()
-            .get(schema_name.as_bytes())
-            .await?
-        else {
+        let Some(bytes) = self.schema_states_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };
         let state = decode_catalog_json::<SchemaState>(&bytes).map_err(|error| {

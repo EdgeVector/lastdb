@@ -109,7 +109,6 @@ impl RecordStore {
         for chunk in misses.chunks(READ_CHUNK) {
             let rows = self
                 .main_store
-                .inner()
                 .get_many(
                     chunk
                         .iter()

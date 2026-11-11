@@ -86,12 +86,6 @@ pub enum SchemaError {
     StorageFull {
         detail: String,
     },
-    /// Persist-queue reservation failed before resident apply. The request
-    /// did not change resident state. Retry after the lane drains.
-    PersistQueueFull {
-        schema: String,
-        kind: String,
-    },
 }
 
 impl fmt::Display for SchemaError {
@@ -127,10 +121,6 @@ impl fmt::Display for SchemaError {
                 "no space left on device — the filesystem holding the database is full, \
                  so the write did not land. Free disk space and retry; nothing already \
                  stored was lost. Underlying error: {detail}"
-            ),
-            Self::PersistQueueFull { schema, kind } => write!(
-                f,
-                "persist queue full for schema '{schema}' ({kind}); retry after drain"
             ),
         }
     }

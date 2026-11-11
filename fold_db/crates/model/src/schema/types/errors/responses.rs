@@ -63,19 +63,4 @@ impl SchemaError {
             _ => None,
         }
     }
-
-    /// Discriminated `503 persist_queue_full` body. Clients retry after drain.
-    pub fn persist_queue_full_body(&self) -> Option<serde_json::Value> {
-        match self {
-            Self::PersistQueueFull { schema, kind } => Some(serde_json::json!({
-                "ok": false,
-                "error": "persist_queue_full",
-                "schema": schema,
-                "kind": kind,
-                "retryable": true,
-                "message": self.to_string(),
-            })),
-            _ => None,
-        }
-    }
 }

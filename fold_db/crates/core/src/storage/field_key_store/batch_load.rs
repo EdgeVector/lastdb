@@ -1,7 +1,8 @@
 //! Two batch reads resolve all uncached field key contracts for one schema.
 
 use super::{
-    validate_identity, wrap_key_for, BundleWrap, FieldKeyStore, StorageError, StorageResult,
+    metadata_key, validate_identity, wrap_key_for, BundleMetadata, BundleWrap, FieldKeyStore,
+    StorageError, StorageResult,
 };
 
 impl FieldKeyStore {
@@ -19,7 +20,17 @@ impl FieldKeyStore {
         if missing.is_empty() {
             return Ok(());
         }
-        let metadata = self.metadata_batch_from_memory(&missing).await?;
+        let metadata_keys: Vec<_> = missing
+            .iter()
+            .map(|field_key| metadata_key(field_key))
+            .collect();
+        let metadata = self
+            .entries
+            .get_items::<BundleMetadata>(&metadata_keys)
+            .await?;
+        if metadata.len() != missing.len() {
+            return Err(incomplete());
+        }
         let mut present = Vec::new();
         for (field_key, metadata) in missing.into_iter().zip(metadata) {
             let contract = metadata

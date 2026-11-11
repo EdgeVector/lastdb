@@ -51,7 +51,7 @@ pub(super) fn reject_unknown_conditions(
     names.dedup();
     let unknown: Vec<&str> = names
         .into_iter()
-        .filter(|name| !schema.runtime_fields.contains_key(*name))
+        .filter(|name| !schema.has_field(name))
         .collect();
     if unknown.is_empty() {
         return Ok(());

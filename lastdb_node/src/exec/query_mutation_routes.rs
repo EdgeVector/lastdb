@@ -64,10 +64,6 @@ pub(super) async fn commit_mutation_components(
     components: handlers::MutationComponents,
 ) -> Result<Value, HostError> {
     let hint = MutationWatchHint::from(&components);
-    let change_feed_reservation = host
-        .change_feed_queue
-        .try_reserve()
-        .map_err(|message| HostError::new(503, message))?;
     let (result, captured_notifications) = fold_db::db_operations::ChangeFeedStore::capture_native(
         vec![(
             handlers::resolve_schema_name(host, &hint.schema)
@@ -79,16 +75,19 @@ pub(super) async fn commit_mutation_components(
         handlers::execute_mutation(host, components),
     )
     .await;
-    result.and_then(|value| {
-        let mutation_id = single_mutation_id(&value)?;
-        let event = hint.event(
-            mutation_id.to_string(),
-            &value,
-            fold_db::clock::unix_millis(),
-        );
-        if !captured_notifications.contains(mutation_id) {
-            change_feed_reservation.submit(vec![event]);
+    let value = result?;
+    let mutation_id = single_mutation_id(&value)?.to_string();
+    if !captured_notifications.contains(&mutation_id) {
+        let event = hint.event(mutation_id, &value, fold_db::clock::unix_millis());
+        if let Err(error) = host
+            .db
+            .db_ops()
+            .change_feed()
+            .append_many(vec![event])
+            .await
+        {
+            tracing::error!(error = %error, "failed to append durable app change-feed event");
         }
-        Ok(value)
-    })
+    }
+    Ok(value)
 }

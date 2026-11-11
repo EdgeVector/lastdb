@@ -8,10 +8,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.inner.disk_pack_runtime()
     }
 
-    async fn restore_durability_barrier(&self) -> StorageResult<()> {
-        self.inner.restore_durability_barrier().await
-    }
-
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
         let inner_store = self.inner.open_namespace(name).await?;
 
@@ -24,13 +20,5 @@ impl NamespacedStore for EncryptingNamespacedStore {
             // Other records retain their own content/key protection without a storage envelope.
             Ok(inner_store)
         }
-    }
-
-    async fn list_namespaces(&self) -> StorageResult<Vec<String>> {
-        self.inner.list_namespaces().await
-    }
-
-    async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
-        self.inner.delete_namespace(name).await
     }
 }

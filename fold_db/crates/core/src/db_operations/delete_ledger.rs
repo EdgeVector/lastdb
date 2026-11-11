@@ -63,7 +63,6 @@ impl RecordStore {
             lastdb_model::kind_partition::anchored(crate::storage::format::DELETE_AUDIT_FAMILY, "");
         let rows = self
             .reader()
-            .inner()
             .scan_prefix(prefix.as_bytes())
             .await
             .map_err(|e| SchemaError::InvalidData(format!("delete ledger scan: {e}")))?;

@@ -2,10 +2,11 @@
 
 mod events;
 
+use super::read::ReadStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvStore, StorageError, TypedKvStore};
+use crate::storage::{KvStore, StorageError};
 use std::sync::Arc;
 
 pub(crate) use super::{
@@ -16,7 +17,7 @@ pub use events::ChangeFeedEvent;
 
 #[derive(Clone)]
 pub(crate) struct ChangeFeed {
-    feed_store: Arc<TypedKvStore<dyn KvStore>>,
+    feed_store: Arc<dyn KvStore>,
     runtime: Arc<PackRuntime>,
 }
 
@@ -32,11 +33,11 @@ pub(crate) struct PreparedEvents {
 
 impl ChangeFeed {
     pub(in crate::storage::format) fn new(
-        store: Arc<dyn KvStore>,
+        feed_store: Arc<dyn KvStore>,
         runtime: Arc<PackRuntime>,
     ) -> Self {
         Self {
-            feed_store: Arc::new(TypedKvStore::new(store)),
+            feed_store,
             runtime,
         }
     }
@@ -46,8 +47,7 @@ impl ChangeFeed {
     }
 
     pub(crate) async fn last_seq(&self) -> StorageResult<u64> {
-        Ok(self
-            .feed_store
+        Ok(ReadStore::new(Arc::clone(&self.feed_store))
             .get_item::<u64>(LAST_SEQ_KEY)
             .await?
             .unwrap_or(0))
@@ -59,8 +59,7 @@ impl ChangeFeed {
         limit: usize,
     ) -> StorageResult<Vec<ChangeFeedEvent>> {
         let start = events::event_key(after.saturating_add(1));
-        Ok(self
-            .feed_store
+        Ok(ReadStore::new(Arc::clone(&self.feed_store))
             .scan_items_in_range_paged::<ChangeFeedEvent>(
                 &start,
                 super::CHANGE_FEED_EVENT_END,
@@ -106,8 +105,8 @@ impl ChangeFeed {
     async fn stage(&self, batch: EncodedFeed) -> StorageResult<()> {
         self.require_scope()?;
         match batch {
-            EncodedFeed::Put(rows) => self.feed_store.inner().batch_put(rows).await,
-            EncodedFeed::Delete(keys) => self.feed_store.inner().batch_delete(keys).await,
+            EncodedFeed::Put(rows) => self.feed_store.batch_put(rows).await,
+            EncodedFeed::Delete(keys) => self.feed_store.batch_delete(keys).await,
         }
     }
 }

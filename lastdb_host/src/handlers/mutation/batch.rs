@@ -9,7 +9,7 @@ use crate::host_node::HostNode;
 use crate::HostError;
 
 use super::fields::{resolve_required_schema_name, validate_mutation_fields};
-use super::{commit_core_json, extend_json, wait_for_requested_convergence, MutationComponents};
+use super::{commit_core_json, extend_json, MutationComponents};
 
 mod rules;
 
@@ -41,7 +41,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
 
     let count = mutations.len();
     let receipt = write_batch(host, mutations).await?;
-    let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
+    let background_tasks_drained = convergence.waits();
 
     Ok(batch_response(&receipt, count, background_tasks_drained))
 }

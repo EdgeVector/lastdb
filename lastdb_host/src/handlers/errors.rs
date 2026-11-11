@@ -110,13 +110,6 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            schema_err @ SchemaError::PersistQueueFull { .. } => Self::new(
-                503,
-                schema_err
-                    .persist_queue_full_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
             other => Self::new(400, other.to_string()),
         }
     }

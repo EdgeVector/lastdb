@@ -3,10 +3,8 @@ use super::*;
 use budget::call_error;
 
 mod budget;
-pub(super) mod memory;
 mod overlay;
 mod raw;
-pub(crate) mod snapshots;
 mod write_reads;
 
 pub(super) struct ReadContext {
@@ -16,7 +14,6 @@ pub(super) struct ReadContext {
     // Only private write preparation can inspect the existing flush log.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     pub(super) hidden_prefix: bool,
-    snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) revision: u64,
     current: PhysicalRoot,
     write_owner: Option<Arc<transaction::PendingBatch>>,
@@ -88,7 +85,6 @@ impl ReadContext {
             hidden_prefix,
             revision,
             current,
-            snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home_identity(),
             failure: Arc::new(Mutex::new(None)),
             write_owner,
@@ -111,7 +107,6 @@ impl ReadContext {
                     failure,
                     accepted: context.accepted.clone(),
                     hidden_prefix: context.hidden_prefix,
-                    snapshots: Arc::clone(&context.snapshots),
                     revision: context.revision,
                     current: context.current.clone(),
                     write_owner: context.write_owner.clone(),
@@ -189,11 +184,6 @@ pub struct PackReadScope {
 }
 
 impl PackReadScope {
-    /// Capture the native root of the home that backs this store.
-    pub async fn for_store(store: &Arc<dyn NamespacedStore>) -> StorageResult<Self> {
-        Self::for_runtime(&store.disk_pack_runtime()).await
-    }
-
     pub(crate) async fn for_runtime(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
         Ok(Self {
             context: ReadContext::current(runtime).await?,

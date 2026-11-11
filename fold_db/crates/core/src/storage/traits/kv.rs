@@ -34,26 +34,6 @@ pub trait KvStore: Send + Sync {
     /// Check if a key exists
     async fn exists(&self, key: &[u8]) -> StorageResult<bool>;
 
-    /// Whether each of `keys` exists, preserving input order.
-    ///
-    /// The batched counterpart to [`Self::exists`], and deliberately *not*
-    /// spelled as `get_many(..).is_some()`: an existence probe over a page of
-    /// record keys must not pull a page of record bodies into memory to answer it
-    /// (bodies here run to `LASTDB_MAX_FIELD_VALUE_BYTES`, so a 1024-key probe
-    /// could materialize hundreds of MiB on a node whose resident budget is the
-    /// binding constraint).
-    ///
-    /// The default implementation is correctness-first and delegates to
-    /// [`Self::exists`] one key at a time. Sync-wrapped local backends should
-    /// override it to resolve each owning shard once per shard.
-    async fn exists_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<bool>> {
-        let mut found = Vec::with_capacity(keys.len());
-        for key in keys {
-            found.push(self.exists(&key).await?);
-        }
-        Ok(found)
-    }
-
     /// Scan keys with a given prefix
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>>;
 
@@ -197,23 +177,6 @@ pub trait KvStore: Send + Sync {
         Ok(YieldedScan { rows, resume })
     }
 
-    /// Scan one bounded page of a range for resumable maintenance.
-    ///
-    /// Product queries must use the globally ordered range methods above.
-    /// Disk format v2 has no sharded backend. The pack store keeps this
-    /// default (one logical keyset page with an `after_key` cursor), and the
-    /// encrypting store forwards to its inner store.
-    async fn scan_range_physical_paged(
-        &self,
-        start: &[u8],
-        end: &[u8],
-        cursor: Option<&PhysicalScanCursor>,
-        limit: usize,
-        max_handles: usize,
-    ) -> StorageResult<PhysicalScanPage> {
-        scan::keyset_physical_page(self, start, end, cursor, limit, max_handles).await
-    }
-
     /// Apply a batch of puts with the backend's documented failure and crash guarantees.
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()>;
 
@@ -224,10 +187,9 @@ pub trait KvStore: Send + Sync {
     /// every possible crash prefix safe. The default fails closed because two
     /// separate batches cannot satisfy this contract.
     async fn batch_mutate(&self, _mutations: Vec<KvMutation>) -> StorageResult<()> {
-        Err(StorageError::InvalidOperation(format!(
-            "backend '{}' does not support ordered mixed durable batches",
-            self.backend_name()
-        )))
+        Err(StorageError::InvalidOperation(
+            "backend does not support ordered mixed durable batches".into(),
+        ))
     }
 
     /// Batch delete operations
@@ -235,7 +197,4 @@ pub trait KvStore: Send + Sync {
 
     /// Flush pending operations to storage (no-op for backends that auto-flush)
     async fn flush(&self) -> StorageResult<()>;
-
-    /// Get storage backend name (for debugging/metrics)
-    fn backend_name(&self) -> &'static str;
 }

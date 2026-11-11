@@ -7,7 +7,6 @@
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
 
-mod author_clock;
 mod cas_rules;
 mod index;
 mod key_values;
@@ -27,9 +26,6 @@ pub use receipt::{
 };
 
 use crate::db_operations::DbOperations;
-use crate::memory_budget::{
-    DeferReservation, DeferredPersistGauge, RuntimeMemoryBudgetObservation,
-};
 use crate::schema::SchemaCore;
 
 /// Manages mutation operations for the FoldDB system
@@ -44,25 +40,10 @@ pub struct MutationManager {
     /// this so two `Host::boot` calls in one process do not race through
     /// process-global `LASTDB_HOME`.
     search_outbox_inbox: Option<PathBuf>,
-    /// Byte cap on in-flight deferred persist work, sized from the process
-    /// memory budget (`crate::memory_budget`).
-    ///
-    /// The count cap above and this cap bound **different resources**, which is
-    /// why #966's count-only window did not stop the balloon: 512 tasks each
-    /// holding a 512 KiB record batch is 256 MiB of acked-but-unpersisted state,
-    /// and the same 512 tasks holding one small record each is under a
-    /// megabyte. The 2026-07-29 restart loop was the first shape passing a cap
-    /// written for the second (brain
-    /// `incident-primary-lastdbd-restart-loop-10-11gb-rss-after-0231-183-cutover`).
-    defer_gauge: Arc<DeferredPersistGauge>,
     /// Resident high-water author clock for this device. Boot point-loads the
-    /// durable state once; requests only serialize the small in-memory
-    /// advance/sign step. Ordered persistence runs behind the T0 ACK.
+    /// durable state once; requests advance and sign in memory and persist the
+    /// high-water state atomically in the native write batch.
     author_clock_state: std::sync::Mutex<crate::schema::types::MutationAuthorClockState>,
-    /// Bounded FIFO for the author-clock metadata row. Queue admission occurs
-    /// before resident apply, so overload rejects without changing product
-    /// state. The worker owns a pending-task guard until the row lands.
-    author_clock_persist: Option<author_clock::AuthorClockPersistQueue>,
 }
 
 impl MutationManager {
@@ -71,69 +52,15 @@ impl MutationManager {
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
         signer: Arc<crate::security::Ed25519KeyPair>,
-        pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
         search_outbox_inbox: Option<PathBuf>,
         author_clock_state: crate::schema::types::MutationAuthorClockState,
     ) -> Self {
-        let policy = crate::resident::ResidentPolicy::from_env();
-        let defer_gauge = Arc::new(DeferredPersistGauge::from_process_budget_with_count(
-            policy.max_deferred_persists,
-        ));
-        let author_clock_persist = author_clock::AuthorClockPersistQueue::new(
-            signer.public_key_base64(),
-            author_clock_state,
-            pending_tasks,
-        );
         Self {
             db_ops,
             schema_manager,
             signer,
             search_outbox_inbox,
-            defer_gauge,
             author_clock_state: std::sync::Mutex::new(author_clock_state),
-            author_clock_persist: Some(author_clock_persist),
         }
-    }
-
-    /// Admit one deferred persist of `bytes`, or refuse.
-    ///
-    /// Both caps must pass: the deferred-persist task **count** window
-    /// (`LASTDB_RESIDENT_MAX_DEFERRED`, which bounds held write guards and the
-    /// per-task state bytes cannot cheaply measure) and the **byte** window
-    /// derived from the process memory budget. `Some(reservation)` means the
-    /// bytes are charged until the reservation drops; `None` means this batch
-    /// pays the inline durable path, which is always correct and always makes
-    /// progress.
-    pub(crate) fn try_reserve_defer(&self, bytes: u64) -> Option<DeferReservation> {
-        if !self.defer_gauge.try_reserve(bytes) {
-            return None;
-        }
-        Some(DeferReservation::new(Arc::clone(&self.defer_gauge), bytes))
-    }
-
-    /// In-flight deferred work and the caps it is charged against — for the
-    /// degrade log, and so tests can assert the window actually bounds.
-    #[inline]
-    pub fn defer_window_in_flight(&self) -> (usize, usize, u64, u64) {
-        (
-            self.defer_gauge.in_flight_count(),
-            self.defer_gauge.cap_count(),
-            self.defer_gauge.in_flight_bytes(),
-            self.defer_gauge.cap_bytes(),
-        )
-    }
-
-    /// Feed the periodic physical-footprint sample back into the defer window.
-    /// This is deliberately a cheap atomic-only control loop: status and
-    /// self-metrics must never scan storage to decide whether writes are safe.
-    #[must_use]
-    pub fn observe_memory_footprint(
-        &self,
-        measured_footprint_bytes: u64,
-    ) -> RuntimeMemoryBudgetObservation {
-        self.defer_gauge.observe_footprint(
-            measured_footprint_bytes,
-            crate::memory_budget::process_memory_budget(),
-        )
     }
 }

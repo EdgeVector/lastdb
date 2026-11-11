@@ -121,7 +121,6 @@ impl RecordStore {
         // The merge reads a record that it keeps once more, by key.
         let page = self
             .main_store
-            .inner()
             .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read record keys: {error}")))?;

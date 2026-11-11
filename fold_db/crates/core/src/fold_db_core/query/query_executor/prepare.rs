@@ -14,7 +14,7 @@ impl QueryExecutor {
         // The record-space and alternate bundles load ahead of the read.
         let Some(schema) = self
             .schema_manager
-            .resolve_schema_for_read(&query.schema_name)
+            .resolve_schema(&query.schema_name)
             .await?
         else {
             return Ok(None);
@@ -22,7 +22,6 @@ impl QueryExecutor {
         self.schema_manager.require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         crate::schema::require_logical_filter(query.filter.as_ref())?;
-        crate::schema::require_logical_query_controls(query)?;
         self.db_ops
             .field_keys()
             .load_schema(&schema)

@@ -1,7 +1,7 @@
 //! Durable inbox and atomic peer replay for explicitly admitted streams.
 
 use super::{invalid, MutationManager, ReplayCandidate};
-use crate::db_operations::metadata_store::PortablePeerProgress;
+use crate::db_operations::PortablePeerProgress;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::DefinitionSet;
@@ -110,13 +110,13 @@ impl MutationManager {
         stream: &StreamId,
         first_authored_at_ms: u64,
     ) -> Result<(), SchemaError> {
-        transaction::request_scope(
+        Ok(transaction::request_scope(
             self.db_ops.native_runtime(),
             self.db_ops
                 .metadata()
                 .stage_portable_peer(stream, first_authored_at_ms),
         )
-        .await
+        .await?)
     }
 
     /// Verify and store a complete authenticated range even when an earlier one is missing.
@@ -125,11 +125,11 @@ impl MutationManager {
         id: LogRangeId,
         bytes: Vec<u8>,
     ) -> Result<(), SchemaError> {
-        transaction::request_scope(
+        Ok(transaction::request_scope(
             self.db_ops.native_runtime(),
             self.db_ops.metadata().stage_portable_range(id, bytes),
         )
-        .await
+        .await?)
     }
 
     /// Durable applied positions for a bounded set of remote streams.
@@ -146,11 +146,12 @@ impl MutationManager {
         &self,
         streams: &BTreeSet<StreamId>,
     ) -> Result<PortablePeerProgress, SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .read_scope()
             .await?
             .run_result(self.db_ops.metadata().portable_peer_progress(streams))
-            .await
+            .await?)
     }
 
     /// Read the current gap-free inbox window. `None` when no range waits.
@@ -222,9 +223,9 @@ impl MutationManager {
             let candidates = installed.candidates(plan.candidates().iter().copied())?;
             self.stage_portable_candidates(&candidates, files).await?;
             let progress = plan.progress().clone();
-            metadata
+            Ok(metadata
                 .stage_portable_inbox_progress(window, progress)
-                .await
+                .await?)
         })
         .await
     }

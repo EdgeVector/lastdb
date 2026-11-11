@@ -7,9 +7,6 @@ pub struct NativeMemoryStatus {
     pub warm: crate::resident::CoreWarmByteStats,
     pub records: usize,
     pub held_records: usize,
-    /// Separate allowances; neither is part of the warm record purge target.
-    pub definition_bytes: usize,
-    pub write_metadata_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
@@ -56,8 +53,6 @@ fn measure_core(core: &mut crate::resident::CoreWarmSet) -> NativeMemoryStatus {
         warm: core.byte_stats(),
         records: stats.records,
         held_records: stats.held,
-        definition_bytes: core.memory_stats().used_bytes,
-        write_metadata_bytes: core.model_stats().metadata_used_bytes,
     }
 }
 

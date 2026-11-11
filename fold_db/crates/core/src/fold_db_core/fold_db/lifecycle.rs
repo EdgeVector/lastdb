@@ -3,61 +3,12 @@ use crate::storage::StorageError;
 use super::FoldDB;
 
 impl FoldDB {
-    /// Upper bound on how long [`FoldDB::shutdown`] waits for tracked tasks.
-    /// The limit matches the cold-cache model start limit.
-    const SHUTDOWN_TASK_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
     pub async fn shutdown(&self) -> Result<(), StorageError> {
-        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT)
-            .await
-    }
-
-    /// Wait for background tasks. Returns the failure message on timeout.
-    async fn drain_pending_tasks_at_shutdown(
-        &self,
-        task_drain_timeout: std::time::Duration,
-    ) -> Option<String> {
-        if self
-            .pending_tasks
-            .wait_for_completion(task_drain_timeout)
-            .await
-        {
-            None
-        } else {
-            let message =
-                format!("shutdown: background tasks did not drain within {task_drain_timeout:?}");
-            tracing::error!(
-                target: "fold_node::database",
-                remaining = self.pending_tasks.count(),
-                error = %message,
-                "shutdown: continuing to the final durability barrier"
-            );
-            Some(message)
-        }
-    }
-
-    async fn shutdown_with_task_drain_timeout(
-        &self,
-        task_drain_timeout: std::time::Duration,
-    ) -> Result<(), StorageError> {
         tracing::info!(
             target: "fold_node::database",
-            "Shutting down FoldDB: draining background tasks, flushing sync and storage"
+            "Shutting down FoldDB: flushing storage"
         );
-        let pending_task_timeout = self
-            .drain_pending_tasks_at_shutdown(task_drain_timeout)
-            .await;
-        // Keep the final barrier after accepted work has drained.
-        let flush_result = self.flush().await;
-        if let Some(timeout) = pending_task_timeout {
-            return match flush_result {
-                Ok(()) => Err(StorageError::BackendError(timeout)),
-                Err(error) => Err(StorageError::BackendError(format!(
-                    "{timeout}; final durability barrier also failed: {error}"
-                ))),
-            };
-        }
-        flush_result
+        self.flush().await
     }
 
     /// Flushes local storage to ensure all data is persisted
@@ -67,10 +18,4 @@ impl FoldDB {
             .await
             .map_err(|e| StorageError::IoError(std::io::Error::other(e.to_string())))
     }
-
-    /// Wait for all pending background tasks to complete
-    pub async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {
-        self.pending_tasks.wait_for_completion(timeout).await
-    }
 }
-mod accepted_flush;

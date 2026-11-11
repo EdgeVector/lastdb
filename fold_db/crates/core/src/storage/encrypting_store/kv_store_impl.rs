@@ -39,11 +39,6 @@ impl KvStore for EncryptingKvStore {
         self.inner.exists(key).await
     }
 
-    /// Existence checks do not decrypt values and retain one batch call.
-    async fn exists_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<bool>> {
-        self.inner.exists_many(keys).await
-    }
-
     async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let results = self.inner.scan_prefix(prefix).await?;
         self.decrypt_rows(results).await
@@ -107,24 +102,6 @@ impl KvStore for EncryptingKvStore {
         })
     }
 
-    async fn scan_range_physical_paged(
-        &self,
-        start: &[u8],
-        end: &[u8],
-        cursor: Option<&PhysicalScanCursor>,
-        limit: usize,
-        max_handles: usize,
-    ) -> StorageResult<PhysicalScanPage> {
-        let page = self
-            .inner
-            .scan_range_physical_paged(start, end, cursor, limit, max_handles)
-            .await?;
-        Ok(PhysicalScanPage {
-            rows: self.decrypt_rows(page.rows).await?,
-            next_cursor: page.next_cursor,
-        })
-    }
-
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         let mut encrypted_items = Vec::with_capacity(items.len());
         for (key, value) in items {
@@ -154,9 +131,5 @@ impl KvStore for EncryptingKvStore {
 
     async fn flush(&self) -> StorageResult<()> {
         self.inner.flush().await
-    }
-
-    fn backend_name(&self) -> &'static str {
-        "encrypting"
     }
 }
