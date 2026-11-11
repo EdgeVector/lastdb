@@ -12,7 +12,7 @@ impl HashRangeQueryProcessor {
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
-        let comparison = self.db_ops.records().key_comparison_context(schema).await?;
+        let comparison = self.db_ops.records().key_comparison_context(schema)?;
         let filter = comparison
             .canonical_filter(filter.cloned())?
             .ok_or_else(|| {
