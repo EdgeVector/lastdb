@@ -53,7 +53,7 @@ pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 pub(in crate::storage) use write::WriteGuard;
 
-use crate::storage::format::REGISTRY;
+use crate::storage::format::{NAMESPACES, REGISTRY};
 pub use crate::storage::format::{NODE_MARKER, SHARED_NODE_BYTES};
 
 /// Shared v2 run homes and their complete published root.

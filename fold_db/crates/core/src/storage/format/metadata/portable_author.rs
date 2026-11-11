@@ -35,7 +35,6 @@ pub(crate) use definitions::DefinitionSet;
 mod outgoing;
 mod rejoin;
 mod retention;
-pub(crate) use inbox::InboxWindow;
 pub use inbox::PortablePeerProgress;
 pub use outgoing::OutgoingPortablePage;
 

@@ -77,6 +77,20 @@ impl SchemaCore {
         Ok(self.catalog_snapshot()?.schemas.get(schema_name).cloned())
     }
 
+    /// Read a schema and its state together from one catalog snapshot.
+    pub(crate) fn get_schema_and_state(
+        &self,
+        schema_name: &str,
+    ) -> Result<(Option<Schema>, SchemaState), SchemaError> {
+        if let Some(staged) = self.staged_schema(schema_name)? {
+            return Ok((Some(staged.schema.clone()), staged.state));
+        }
+        let catalog = self.catalog_snapshot()?;
+        let schema = catalog.schemas.get(schema_name).cloned();
+        let state = catalog.states.get(schema_name).copied().unwrap_or_default();
+        Ok((schema, state))
+    }
+
     /// The named schema, or `Schema '{name}' not found`.
     /// This uses the raw lookup and does not refresh a stale cache from the database.
     pub(crate) fn require_schema_metadata(&self, schema_name: &str) -> Result<Schema, SchemaError> {
