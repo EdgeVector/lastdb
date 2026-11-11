@@ -106,11 +106,6 @@ impl InlineFile {
     }
 
     #[must_use]
-    pub fn stored_allowance(&self) -> usize {
-        self.data.len() + INLINE_MARKER_ALLOWANCE
-    }
-
-    #[must_use]
     pub fn is_well_formed(&self) -> bool {
         self.marker.fits_inline()
             && usize::try_from(self.marker.size_bytes)

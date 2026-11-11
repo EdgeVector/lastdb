@@ -5,11 +5,10 @@ use std::time::{Duration, Instant};
 
 use fold_db::clock::unix_secs;
 use fold_db::db_operations::{with_query_page_tally, PageResume};
-use fold_db::fold_db_core::purge::budget::EraseShape;
-use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::operations::Query;
 use fold_db::schema::types::schema::DeclarativeSchemaType;
-use fold_db::schema::types::{KeyValue, KeyValuePageOrder};
+use fold_db::schema::types::{KeyValue, KeyValuePageOrder, Schema};
 use fold_db::schema::SchemaRetentionPolicy;
 use tracing::Instrument;
 
@@ -18,6 +17,24 @@ use crate::host::Host;
 mod erase;
 
 const AGE_KEY_DIGITS: usize = 20;
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct EraseShape {
+    pub(super) fields: usize,
+    pub(super) alternates: usize,
+}
+
+impl EraseShape {
+    fn of(schema: &Schema) -> Self {
+        Self {
+            fields: schema.fields.as_ref().map_or(1, |f| f.len().max(1)),
+            alternates: schema
+                .record_keys
+                .as_ref()
+                .map_or(0, |k| k.alternates.len()),
+        }
+    }
+}
 
 fn ttl_sweep_enabled() -> bool {
     !matches!(
@@ -51,11 +68,8 @@ pub fn spawn_periodic(
                 }
                 let until = tokio::time::Instant::now() + interval;
                 while !shutdown.load(Ordering::Acquire) && tokio::time::Instant::now() < until {
-                    tokio::time::sleep(
-                        Duration::from_millis(250)
-                            .min(until.saturating_duration_since(tokio::time::Instant::now())),
-                    )
-                    .await;
+                    let rem = until.saturating_duration_since(tokio::time::Instant::now());
+                    tokio::time::sleep(Duration::from_millis(250).min(rem)).await;
                 }
             }
         }
@@ -65,15 +79,19 @@ pub fn spawn_periodic(
 
 async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     let started = Instant::now();
-    let policies = match host.db.db_ops().list_schema_retention_policies().await {
+    let policies = match host
+        .db
+        .db_ops()
+        .schemas()
+        .list_schema_retention_policies()
+        .await
+    {
         Ok(policies) if policies.is_empty() => return,
         Ok(policies) => policies,
         Err(error) => {
             tracing::warn!(
-                target: "lastdbd::ttl_sweep",
-                error = %error,
-                elapsed_ms = started.elapsed().as_millis() as u64,
-                "ttl sweep failed"
+                target: "lastdbd::ttl_sweep", error = %error,
+                elapsed_ms = started.elapsed().as_millis() as u64, "ttl sweep failed"
             );
             return;
         }
@@ -93,9 +111,7 @@ async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
             Ok(listed) => backlogs.extend(listed),
             Err(error) => {
                 tracing::warn!(
-                    target: "lastdbd::ttl_sweep",
-                    schema = %schema_name,
-                    error = %error,
+                    target: "lastdbd::ttl_sweep", schema = %schema_name, error = %error,
                     "ttl sweep could not list expired keys of schema; skipping for this pass"
                 );
                 totals.schemas_failed += 1;
@@ -108,26 +124,20 @@ async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     let elapsed_ms = started.elapsed().as_millis() as u64;
     if totals.schemas > 0 && totals.schemas_failed >= totals.schemas {
         tracing::warn!(
-            target: "lastdbd::ttl_sweep",
-            schemas = totals.schemas,
-            elapsed_ms,
+            target: "lastdbd::ttl_sweep", schemas = totals.schemas, elapsed_ms,
             "ttl sweep failed: no schema succeeded"
         );
     } else if totals.erased > 0 || totals.dropped > 0 {
         tracing::info!(
-            target: "lastdbd::ttl_sweep",
-            removed = totals.erased,
-            dropped_after_recheck = totals.dropped,
-            elapsed_ms,
+            target: "lastdbd::ttl_sweep", removed = totals.erased,
+            dropped_after_recheck = totals.dropped, elapsed_ms,
             "ttl sweep purged expired retained rows"
         );
     }
     if totals.keys_left > 0 || totals.cut {
         tracing::info!(
-            target: "lastdbd::ttl_sweep",
-            keys_left = totals.keys_left,
-            cut = totals.cut,
-            schemas_failed = totals.schemas_failed,
+            target: "lastdbd::ttl_sweep", keys_left = totals.keys_left,
+            cut = totals.cut, schemas_failed = totals.schemas_failed,
             "ttl sweep pass ended with listed keys left over; the next pass lists them again"
         );
     }
@@ -237,38 +247,31 @@ impl Backlog {
     pub(super) fn is_done(&self) -> bool {
         self.failed || (matches!(self.source, Source::Done) && self.left() == 0)
     }
-
     pub(super) fn left(&self) -> usize {
         self.abandoned + self.page_left()
     }
-
     pub(super) fn page_left(&self) -> usize {
         self.keys.len().saturating_sub(self.next)
     }
-
     pub(super) fn abandon(&mut self) {
         self.failed = true;
         self.abandoned += self.page_left();
         self.release_page();
     }
-
     pub(super) fn release_page(&mut self) {
         self.keys.clear();
         self.next = 0;
     }
-
     pub(super) fn take(&mut self, n: usize) -> Vec<KeyValue> {
         let end = self.keys.len().min(self.next.saturating_add(n));
         let chunk = self.keys[self.next..end].to_vec();
         self.next = end;
         chunk
     }
-
     pub(super) fn shrink_after_limit(&mut self, taken: usize) {
         self.next = self.next.saturating_sub(taken);
         self.batch_cap = (taken / 2).max(1);
     }
-
     pub(super) fn clear(&mut self) {
         self.next = self.keys.len();
         self.source = Source::Done;
@@ -323,15 +326,12 @@ pub(super) async fn fill_page(
                 end: format!("{:0AGE_KEY_DIGITS$}", backlog.cutoff),
             };
             let query = Query::new_with_filter(backlog.schema_name.clone(), Some(filter));
-            let executor = host.db.query_executor();
-            let cursor = after.clone();
-            let (rows, end) = with_query_page_tally(async {
-                match cursor {
-                    Some(c) => executor.query_keyset_windowed(query, c, limit).await,
-                    None => executor.query_windowed(query, (0, limit)).await,
-                }
-            })
-            .await;
+            let window = match after.clone() {
+                Some(c) => KeyWindow::after(c, limit),
+                None => KeyWindow::offset(0, limit),
+            };
+            let (rows, end) =
+                with_query_page_tally(host.db.query_executor().query_window(query, window)).await;
             let page_keys: Vec<KeyValue> = rows.map_err(|e| e.to_string())?.into_keys().collect();
             let resume = end.resume.map(|PageResume::Key(key)| key);
             if !page_keys.is_empty() {

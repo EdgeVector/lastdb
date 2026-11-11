@@ -4,11 +4,6 @@ use super::*;
 use schema_types::FieldValueType;
 use std::collections::BTreeSet;
 
-pub(super) struct DirectDeclarePlan {
-    pub(super) resolution: DirectDeclareResolution,
-    pub(super) register_reason: Option<&'static str>,
-}
-
 const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
 
 enum Installed {
@@ -156,32 +151,6 @@ fn make_resolution(
         runtime_schema: runtime.to_string(),
         reused: installed.is_some_and(|s| s.identity_hash == declare.catalog_schema.identity_hash),
     }
-}
-
-pub(super) async fn plan(
-    host: &Host,
-    declare: &DirectDeclareProposal,
-) -> Result<DirectDeclarePlan, String> {
-    let installed = check_local(host, declare)?;
-    if let Some(Installed::Reuse(schema)) = &installed {
-        precheck_declare_retention(host, declare, &schema.name).await?;
-        return Ok(DirectDeclarePlan {
-            resolution: DirectDeclareResolution {
-                runtime_schema: schema.name.clone(),
-                reused: true,
-            },
-            register_reason: None,
-        });
-    }
-    let installed = installed.as_ref().map(Installed::schema);
-    let runtime = installed.map_or(declare.local_schema_id.as_str(), |s| s.name.as_str());
-    owned_schema(declare, installed)?;
-    precheck_declare_retention(host, declare, runtime).await?;
-    let resolution = make_resolution(runtime, declare, installed);
-    Ok(DirectDeclarePlan {
-        register_reason: (!resolution.reused).then_some("independent_definition"),
-        resolution,
-    })
 }
 
 pub(super) async fn load(

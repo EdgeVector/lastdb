@@ -15,7 +15,7 @@ mod retention;
 
 use retention::{
     finish_declare_retention, precheck_declare_retention, prepare_declare_retention,
-    preview_declare_retention, validate_declare_retention,
+    validate_declare_retention,
 };
 
 static DECLARE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -33,7 +33,6 @@ pub(crate) struct DirectDeclareProposal {
 enum SchemaSyncIntent {
     #[default]
     CatalogSync,
-    Check,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +103,7 @@ fn declare_resolution_payload(
         .identity_hash
         .clone()
         .ok_or("declared schema has no catalog identity")?;
-    let definition = schema_types::PortableSchemaDefinition::from_catalog(
+    let definition_id = schema_types::PortableSchemaId::from_catalog(
         &catalog_id,
         declare.catalog_schema.to_wire(),
     )?;
@@ -116,7 +115,7 @@ fn declare_resolution_payload(
         "descriptive_name": declare.catalog_schema.descriptive_name,
         "canonical": resolution.runtime_schema,
         "identity_hash": declare.catalog_schema.identity_hash,
-        "definition_id": definition.id().as_str(),
+        "definition_id": definition_id.as_str(),
         "resolution": if resolution.reused { "reuse" } else { "register" },
     }))
 }
@@ -176,58 +175,33 @@ async fn dispatch_declare(
     declare: DirectDeclareProposal,
     intent: SchemaSyncIntent,
 ) -> UdsResponse {
+    let SchemaSyncIntent::CatalogSync = intent;
     if let Some(response) = logical_layout_error(ctx, &declare.catalog_schema) {
         return response;
     }
-    match intent {
-        SchemaSyncIntent::CatalogSync => {
-            if let Err(error) = validate_declare_retention(&declare) {
-                return error_response(409, &error, ctx);
-            }
-            let _guard = DECLARE_LOCK.lock().await;
-            let resolution = match owned::load(host, &declare).await {
-                Ok(r) => r,
-                Err(e) => return error_response(409, &e, ctx),
-            };
-            let mut payload = match declare_resolution_payload(&declare, &resolution) {
-                Ok(p) => p,
-                Err(e) => return error_response(409, &e, ctx),
-            };
-            payload["bind_eligible"] = serde_json::json!(true);
-            match finish_declare_retention(host, &declare, &resolution).await {
-                Ok(Some(r)) => payload["retention"] = r,
-                Ok(None) => {}
-                Err(e) => {
-                    return error_response(
-                        409,
-                        &format!("schema declared and bound, but its retention step failed: {e}"),
-                        ctx,
-                    );
-                }
-            }
-            json_ok(&envelope(&payload, ctx.user_id.as_str()))
-        }
-        SchemaSyncIntent::Check => {
-            let plan = match owned::plan(host, &declare).await {
-                Ok(p) => p,
-                Err(e) => return error_response(409, &e, ctx),
-            };
-            let mut payload = match declare_resolution_payload(&declare, &plan.resolution) {
-                Ok(p) => p,
-                Err(e) => return error_response(409, &e, ctx),
-            };
-            payload["intent"] = serde_json::json!("check");
-            payload["dry_run"] = serde_json::json!(true);
-            payload["bind_eligible"] = serde_json::json!(false);
-            if let Some(reason) = plan.register_reason {
-                payload["register_reason"] = serde_json::json!(reason);
-            }
-            match preview_declare_retention(host, &declare, &plan.resolution).await {
-                Ok(Some(r)) => payload["retention"] = r,
-                Ok(None) => {}
-                Err(e) => return error_response(409, &e, ctx),
-            }
-            json_ok(&envelope(&payload, ctx.user_id.as_str()))
+    if let Err(error) = validate_declare_retention(&declare) {
+        return error_response(409, &error, ctx);
+    }
+    let _guard = DECLARE_LOCK.lock().await;
+    let resolution = match owned::load(host, &declare).await {
+        Ok(r) => r,
+        Err(e) => return error_response(409, &e, ctx),
+    };
+    let mut payload = match declare_resolution_payload(&declare, &resolution) {
+        Ok(p) => p,
+        Err(e) => return error_response(409, &e, ctx),
+    };
+    payload["bind_eligible"] = serde_json::json!(true);
+    match finish_declare_retention(host, &declare, &resolution).await {
+        Ok(Some(r)) => payload["retention"] = r,
+        Ok(None) => {}
+        Err(e) => {
+            return error_response(
+                409,
+                &format!("schema declared and bound, but its retention step failed: {e}"),
+                ctx,
+            );
         }
     }
+    json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }

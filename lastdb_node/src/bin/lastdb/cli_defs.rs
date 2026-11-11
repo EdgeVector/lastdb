@@ -31,16 +31,6 @@ pub(crate) struct RecordListArgs {
     pub json: bool,
 }
 
-#[derive(Subcommand, Debug)]
-pub(crate) enum ServiceHomeCommand {
-    /// Persist the home directory service starts should use.
-    Set { home: PathBuf },
-    /// Show the persisted service home, if one is configured.
-    Show,
-    /// Clear the persisted service home.
-    Clear,
-}
-
 pub(super) fn durable_mutation_client_timeout() -> Duration {
     lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
 }
@@ -115,11 +105,6 @@ pub(super) enum Command {
         hydrate: Option<PathBuf>,
         #[arg(long, value_name = "FILE")]
         hydrate_inline: Option<PathBuf>,
-    },
-    /// Inspect one installed schema's key layout and legal query shapes.
-    Schema {
-        #[command(subcommand)]
-        action: SchemaInspectCommand,
     },
     /// Discover, install, and publish apps through the signed registry.
     App {

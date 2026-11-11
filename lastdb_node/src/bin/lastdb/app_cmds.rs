@@ -1,21 +1,11 @@
 use super::*;
 use lastdb_node::{app_publish, app_registry_index as registry};
 
-#[path = "app_cmds/advice.rs"]
-mod advice;
-#[path = "app_cmds/check.rs"]
-mod check;
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
 #[path = "app_cmds/managed.rs"]
 mod managed;
 
-mod publish_rule {
-    pub(super) use super::check::{listed_schemas, require_held_schemas_listed};
-}
-
-pub(crate) use self::advice::*;
-pub(crate) use self::check::*;
 use interface_publish::{publish_interface, InterfacePublish};
 
 #[derive(Clone)]
@@ -60,6 +50,19 @@ pub(crate) fn resolve_key_file(home: &Path, key_file: Option<PathBuf>) -> PathBu
     key_file.unwrap_or_else(|| app_publish::default_dev_key_path(home))
 }
 
+fn warn_trust_override(source: &registry::TrustSource) {
+    match source {
+        registry::TrustSource::Pinned => {}
+        registry::TrustSource::Flag => eprintln!("note: index trust key overridden by --trust-key"),
+        registry::TrustSource::Env => {
+            eprintln!(
+                "note: index trust key overridden by ${}",
+                registry::TRUST_KEY_ENV
+            );
+        }
+    }
+}
+
 pub(crate) fn public_list(
     home: &Path,
     channel: Option<&str>,
@@ -86,67 +89,10 @@ pub(crate) fn public_list(
     Ok(list)
 }
 
-fn app_resolve(
-    home: &Path,
-    app_id: &str,
-    channel: Option<&str>,
-    index: Option<&str>,
-    trust_key: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
-    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
-    let resolution = resolve_by_proof(&socket, app_id, channel, index, trust_key)?;
-    if json {
-        if let Some(entry) = &resolution.list_entry {
-            print_pretty_json(entry);
-        } else {
-            print_pretty_json(&resolution);
-        }
-    } else {
-        println!(
-            "{} {} @ {} proved with lastdb {} ({}) by {} at {}",
-            resolution.app_id,
-            resolution.app_version,
-            resolution.sha,
-            resolution.lastdb_version,
-            resolution.lastdb_version_source,
-            resolution.proof_run,
-            resolution.proved_at
-        );
-        println!("  source: {}", resolution.source);
-        println!(
-            "  index: {} (trust: {})",
-            resolution.index, resolution.trust
-        );
-    }
-    Ok(())
-}
-
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
         AppCommand::Managed(command) => managed::command(&home, command),
-        AppCommand::Lifecycle(AppLifecycleCommand::DevInit { key_file }) => {
-            let path = resolve_key_file(&home, key_file);
-            let pubkey = app_publish::generate_dev_key(&path)?;
-            println!("dev signing key written to {}", path.display());
-            println!("dev_pubkey: {pubkey}");
-            Ok(())
-        }
-        AppCommand::Lifecycle(AppLifecycleCommand::Check {
-            manifest,
-            json,
-            sync,
-            confirm_expire_existing,
-            schema_url,
-        }) => app_check_command(
-            &home,
-            &manifest,
-            json,
-            sync,
-            confirm_expire_existing,
-            schema_url,
-        ),
         AppCommand::Lifecycle(AppLifecycleCommand::Publish {
             manifest,
             env,
@@ -183,39 +129,57 @@ fn app_list_command(
         source.index.as_deref(),
         source.trust_key.as_deref(),
     );
-    match app_id {
-        Some(app_id) if catalog_entry => {
-            let list = public_list(home, ch, idx, tk)?;
-            let entry = list
-                .apps
-                .iter()
-                .find(|e| e.app_id == app_id)
-                .ok_or_else(|| {
-                    format!(
-                        "no app '{app_id}' was proved with lastdb API {}",
-                        list.api_version
-                    )
-                })?;
-            print_pretty_json(entry);
-            Ok(())
-        }
-        Some(app_id) => app_resolve(home, app_id, ch, idx, tk, json),
-        None => {
-            let list = public_list(home, ch, idx, tk)?;
-            if json {
-                print_pretty_json(&list);
-            } else {
-                println!(
-                    "# {} API {} · sequence {} · generated {}",
-                    list.channel, list.api_version, list.seq, list.generated_at
-                );
-                for entry in &list.apps {
-                    println!("{}\t{}\t{}", entry.app_id, entry.app_version, entry.sha);
-                }
+    let list = public_list(home, ch, idx, tk)?;
+    let Some(app_id) = app_id else {
+        if json {
+            print_pretty_json(&list);
+        } else {
+            println!(
+                "# {} API {} · sequence {} · generated {}",
+                list.channel, list.api_version, list.seq, list.generated_at
+            );
+            for entry in &list.apps {
+                println!("{}\t{}\t{}", entry.app_id, entry.app_version, entry.sha);
             }
-            Ok(())
         }
+        return Ok(());
+    };
+    let entry = list
+        .apps
+        .iter()
+        .find(|e| e.app_id == app_id)
+        .ok_or_else(|| {
+            format!(
+                "no app '{app_id}' was proved with lastdb API {}",
+                list.api_version
+            )
+        })?;
+    if catalog_entry || json {
+        print_pretty_json(entry);
+        return Ok(());
     }
+    let channel = ch.unwrap_or(registry::DEFAULT_CHANNEL);
+    let location = registry::IndexLocation::resolve(idx)?;
+    let (trust, trust_source) = registry::resolve_list_trust_key(tk)?;
+    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
+    let (node, node_source, _) = registry::running_node(&socket);
+    let trust_label = match trust_source {
+        registry::TrustSource::Pinned => "pinned".to_string(),
+        registry::TrustSource::Flag => "flag".to_string(),
+        registry::TrustSource::Env => format!("env:{}", registry::TRUST_KEY_ENV),
+    };
+    println!(
+        "{} {} @ {} proved with lastdb {node} ({node_source}) at {}",
+        entry.app_id, entry.app_version, entry.sha, entry.published_at
+    );
+    println!("  source: {}", entry.source);
+    println!(
+        "  index: {} (trust: {}:{})",
+        location.describe_interface(channel, list.api_version),
+        trust_label,
+        app_identity_crypto::key_id(&trust)
+    );
+    Ok(())
 }
 
 fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), String> {

@@ -210,7 +210,7 @@ impl RecordStore {
         self.format.stage_records(schema, changes).await
     }
 
-    pub(crate) fn seal_record_file(
+    pub fn seal_record_file(
         &self,
         plaintext: &[u8],
         name: Option<String>,
@@ -247,7 +247,7 @@ impl RecordStore {
             .await
     }
 
-    pub(crate) async fn reference_local_file(
+    pub async fn reference_local_file(
         &self,
         path: &std::path::Path,
         name: Option<String>,

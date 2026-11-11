@@ -1,12 +1,15 @@
 //! Publish the clean checkout and the running node's exact app interface.
 
-use super::publish_rule::{listed_schemas, require_held_schemas_listed};
 use super::*;
 use app_identity_crypto::{canonicalize, sign};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use fold_db::schema::types::DeclarativeSchemaDefinition;
+use lastdb_node::exec::normalize_app_manifest_schema;
 use lastdb_node::{app_publish, app_registry_index as registry};
 use serde_json::{json, Value};
 use std::process::Command;
+
+const NODE_SCHEMAS_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) struct InterfacePublish {
     pub manifest: PathBuf,
@@ -16,6 +19,159 @@ pub(crate) struct InterfacePublish {
     pub key_file: Option<PathBuf>,
     pub api_key: Option<String>,
     pub prepare: Option<PathBuf>,
+}
+
+struct ListedSchema {
+    name: String,
+    descriptive_name: Option<String>,
+    identity_hash: String,
+}
+
+struct HeldSchema {
+    name: String,
+    descriptive_name: Option<String>,
+    identity_hash: Option<String>,
+}
+
+fn require_dev_api_key(api_key: Option<String>) -> Result<String, String> {
+    match api_key.or_else(|| std::env::var("EXEMEM_DEV_API_KEY").ok()) {
+        Some(k) if !k.trim().is_empty() => Ok(k),
+        _ => Err("no developer API key — pass --api-key or set EXEMEM_DEV_API_KEY".into()),
+    }
+}
+
+fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<ListedSchema>, String> {
+    let schemas = manifest
+        .get("schemas")
+        .ok_or("manifest must list the schemas the app declares in `schemas` (an empty list when it declares none)")?
+        .as_array()
+        .ok_or("manifest `schemas` must be a list of schema declarations")?;
+    let untyped: Vec<String> = schemas
+        .iter()
+        .flat_map(|schema| {
+            let name = schema.get("name").and_then(Value::as_str).unwrap_or("?");
+            let typed = schema.get("field_types").and_then(Value::as_object);
+            schema
+                .get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(move |f| !typed.is_some_and(|m| m.contains_key(*f)))
+                .map(move |f| format!("{name}.{f}"))
+        })
+        .collect();
+    if !untyped.is_empty() {
+        return Err(format!(
+            "every schema field needs a type in field_types; these fields have none: {}",
+            untyped.join(", ")
+        ));
+    }
+    schemas
+        .iter()
+        .map(|entry| {
+            let label = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("<unnamed>");
+            let mut entry = entry.clone();
+            if let Some(object) = entry.as_object_mut() {
+                object.remove("retention");
+            }
+            let schema: DeclarativeSchemaDefinition =
+                serde_json::from_value(entry).map_err(|e| {
+                    format!("manifest schema '{label}' is not a schema declaration: {e}")
+                })?;
+            let schema = normalize_app_manifest_schema(app_id, schema)
+                .map_err(|e| format!("manifest schema '{label}' cannot be declared: {e}"))?;
+            let identity_hash = schema
+                .identity_hash
+                .clone()
+                .ok_or_else(|| format!("manifest schema '{label}' has no identity hash"))?;
+            Ok(ListedSchema {
+                name: schema.name,
+                descriptive_name: schema.descriptive_name,
+                identity_hash,
+            })
+        })
+        .collect()
+}
+
+fn held_schemas(socket: &Path, app_id: &str) -> Result<Vec<HeldSchema>, String> {
+    let req = format!(
+        "GET /api/schemas HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
+        client_headers()
+    );
+    let response = request_readonly_with_retry(socket, req.as_bytes(), NODE_SCHEMAS_TIMEOUT)?;
+    let value = parse_json_response(&response, "GET /api/schemas")?;
+    let rows = value
+        .get("data")
+        .unwrap_or(&value)
+        .get("schemas")
+        .and_then(Value::as_array)
+        .ok_or("the node's schema list has no schemas array")?;
+    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_string);
+    Ok(rows
+        .iter()
+        .filter(|row| row.get("owner_app_id").and_then(Value::as_str) == Some(app_id))
+        .map(|row| HeldSchema {
+            name: text(row, "name").unwrap_or_default(),
+            descriptive_name: text(row, "descriptive_name"),
+            identity_hash: text(row, "identity_hash"),
+        })
+        .collect())
+}
+
+fn require_held_schemas_listed(
+    socket: &Path,
+    app_id: &str,
+    listed: &[ListedSchema],
+) -> Result<(), String> {
+    let held = held_schemas(socket, app_id).map_err(|e| {
+        format!(
+            "publish reads the running node at {} to check that the manifest lists every schema app '{app_id}' declares: {e}",
+            socket.display()
+        )
+    })?;
+    let unlisted: Vec<String> = held
+        .iter()
+        .filter_map(|h| {
+            let held_id = h.identity_hash.as_deref();
+            let related: Vec<&ListedSchema> = listed
+                .iter()
+                .filter(|s| {
+                    s.name == h.name
+                        || held_id == Some(s.identity_hash.as_str())
+                        || (h.descriptive_name.is_some()
+                            && s.descriptive_name == h.descriptive_name)
+                })
+                .collect();
+            if related
+                .iter()
+                .any(|s| held_id == Some(s.identity_hash.as_str()))
+            {
+                return None;
+            }
+            let shown = held_id.unwrap_or("none");
+            Some(related.first().map_or_else(
+                || format!("{} (identity {shown}) is not listed", h.name),
+                |s| {
+                    format!(
+                        "{} has identity {shown} on the node, but the manifest's {} has identity {}",
+                        h.name, s.name, s.identity_hash
+                    )
+                },
+            ))
+        })
+        .collect();
+    if unlisted.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the manifest must list every schema app '{app_id}' declares, exactly as declared; the running node holds: {}",
+            unlisted.join("; ")
+        ))
+    }
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
@@ -55,21 +211,12 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
     if !registry::valid_app_id(app_id) {
         return Err("invalid app_id".into());
     }
-    // Advice prints before the publishing rule, so a refusal comes with it.
-    let environment = input.environment.as_deref().unwrap_or("prod");
-    print_schema_advice(
-        resolve_schema_service_url(None, Some(environment)),
-        app_id,
-        manifest
-            .get("schemas")
-            .and_then(Value::as_array)
-            .map_or(&[][..], Vec::as_slice),
-    );
     let listed = listed_schemas(&manifest, app_id)?;
     let version = manifest
         .get("version")
         .and_then(Value::as_str)
         .ok_or("manifest requires version")?;
+    app_publish::validate_version(version)?;
     let source = git(&root, &["remote", "get-url", "origin"])?;
     if !registry::valid_source(&source) {
         return Err("origin must be a public https://github.com/owner/repo.git URL".into());

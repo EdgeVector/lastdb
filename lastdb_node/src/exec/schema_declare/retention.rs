@@ -206,40 +206,6 @@ pub(super) async fn finish_declare_retention(
     Ok(Some(Value::Object(report)))
 }
 
-pub(super) async fn preview_declare_retention(
-    host: &Host,
-    declare: &DirectDeclareProposal,
-    resolution: &DirectDeclareResolution,
-) -> Result<Option<Value>, String> {
-    let anchor = resolution.runtime_schema.as_str();
-    let Some(retention) = declare.retention else {
-        return unmanaged_report(host, declare, anchor).await;
-    };
-    let (ttl_seconds, layout) =
-        validate_declare_retention(declare)?.ok_or("the declare carries no retention")?;
-    let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
-    let current = read_policy(host, anchor).await?;
-    let blocked = assessment.refusal(declare, retention.confirmed());
-    let operator_wins = current
-        .as_ref()
-        .is_some_and(|p| p.source == RetentionSource::Operator);
-    let mut report = assessment.report(binding, anchor, retention.confirmed());
-    report.extend([
-        (
-            "would_apply".into(),
-            json!(!operator_wins && blocked.is_none()),
-        ),
-        ("current".into(), json!(current)),
-        (
-            "requires_confirmation".into(),
-            json!(assessment.needs_confirmation()),
-        ),
-        ("blocked".into(), json!(blocked)),
-    ]);
-    Ok(Some(Value::Object(report)))
-}
-
 struct Assessment {
     ttl_seconds: u64,
     layout: RetentionLayout,

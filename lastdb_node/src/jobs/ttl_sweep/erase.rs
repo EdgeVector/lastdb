@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
+use fold_db::alternate_keys::MAX_ALTERNATE_ENTRIES;
 use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
-use fold_db::fold_db_core::purge::budget::max_erase_keys;
 use fold_db::record_replacement::{RecordExpectation, RecordTarget};
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::operations::{Mutation, MutationType};
@@ -16,6 +16,26 @@ use fold_db::schema::types::{KeyValue, Query};
 
 use super::{fill_page, key_is_expired, Backlog};
 use crate::host::Host;
+
+fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, is_delete: bool) -> usize {
+    let limit = host.db.db_ops().batch_operation_limit();
+    let shape = backlog.shape;
+    let (op_f, rd_f) = if is_delete { (5, 13) } else { (4, 12) };
+    let width = shape.fields.max(1);
+    let mut keys = (limit / width.saturating_mul(op_f))
+        .min(40_000 / width.saturating_mul(rd_f))
+        .min(MAX_ALTERNATE_ENTRIES / shape.alternates.max(1));
+    while keys > 0 {
+        let chunk_ops = keys.div_ceil(64).saturating_mul(shape.fields + 8);
+        let ops = keys * shape.fields * op_f + chunk_ops + keys * (shape.alternates + 2);
+        let reads = keys * shape.fields * rd_f + chunk_ops + keys * (shape.alternates * 4 + 2);
+        if ops <= limit && reads <= 40_000 && keys * shape.alternates <= MAX_ALTERNATE_ENTRIES {
+            break;
+        }
+        keys -= 1;
+    }
+    pace_batch.min(keys).min(backlog.batch_cap).max(1)
+}
 
 static WATCH: Mutex<Option<WriterWatch>> = Mutex::new(None);
 const REST_SLICE: Duration = Duration::from_millis(250);
@@ -55,16 +75,8 @@ impl Pace {
         }
         let work_ms = u64::try_from(blocked.as_millis()).unwrap_or(u64::MAX);
         let rest_ms = work_ms.saturating_mul(100 - self.duty_pct) / self.duty_pct;
-        Duration::from_millis(rest_ms)
-            .max(self.min_pause)
-            .min(MAX_PAUSE)
+        Duration::from_millis(rest_ms).clamp(self.min_pause, MAX_PAUSE)
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SweepVerb {
-    Delete,
-    Purge,
 }
 
 pub(super) fn warn_on_bad_verb_once() {
@@ -91,14 +103,9 @@ pub(super) async fn purge_round_robin(
     shutdown: &AtomicBool,
     mut totals: PassTotals,
 ) -> PassTotals {
-    let verb = if std::env::var(TTL_SWEEP_VERB_ENV)
+    let is_delete = std::env::var(TTL_SWEEP_VERB_ENV)
         .ok()
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("delete"))
-    {
-        SweepVerb::Delete
-    } else {
-        SweepVerb::Purge
-    };
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("delete"));
     let pace = Pace::from_env();
     let mut watch = WATCH
         .lock()
@@ -106,30 +113,29 @@ pub(super) async fn purge_round_robin(
         .take()
         .unwrap_or_default();
     'rounds: while backlogs.iter().any(|b| !b.is_done()) {
-        for backlog in &mut backlogs {
-            if backlog.is_done() {
+        for b in &mut backlogs {
+            if b.is_done() {
                 continue;
             }
             if shutdown.load(Ordering::Acquire) {
                 totals.cut = true;
                 break 'rounds;
             }
-            if let Err(error) =
-                fill_page(host, backlog, batch_size(host, backlog, pace.batch, verb)).await
-            {
+            let sz = batch_size(host, b, pace.batch, is_delete);
+            if let Err(error) = fill_page(host, b, sz).await {
                 tracing::warn!(
-                    target: "lastdbd::ttl_sweep", schema = %backlog.schema_name, error = %error,
+                    target: "lastdbd::ttl_sweep", schema = %b.schema_name, error = %error,
                     "ttl discovery failed; skip this schema for this pass"
                 );
-                backlog.abandon();
+                b.abandon();
                 totals.schemas_failed += 1;
                 continue;
             }
             if erase_page(
                 host,
-                backlog,
+                b,
                 shutdown,
-                (verb, pace),
+                (is_delete, pace),
                 &mut totals,
                 &mut watch,
             )
@@ -138,7 +144,7 @@ pub(super) async fn purge_round_robin(
                 totals.cut = true;
                 break 'rounds;
             }
-            backlog.release_page();
+            b.release_page();
         }
     }
     *WATCH.lock().expect("ttl writer watch") = Some(watch);
@@ -150,7 +156,7 @@ async fn erase_page(
     host: &Host,
     backlog: &mut Backlog,
     shutdown: &AtomicBool,
-    (verb, pace): (SweepVerb, Pace),
+    (is_delete, pace): (bool, Pace),
     totals: &mut PassTotals,
     watch: &mut WriterWatch,
 ) -> bool {
@@ -158,13 +164,11 @@ async fn erase_page(
         if shutdown.load(Ordering::Acquire) {
             return true;
         }
-        let chunk = backlog.take(batch_size(host, backlog, pace.batch, verb));
+        let chunk = backlog.take(batch_size(host, backlog, pace.batch, is_delete));
         let taken = chunk.len();
         let started = Instant::now();
-        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(erase_batch(
-            host, backlog, chunk, verb,
-        )))
-        .await;
+        let fut = erase_batch(host, backlog, chunk, is_delete);
+        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(fut)).await;
         let pause = pace.pause_after(blocked, watch.writer_present(scopes));
         match outcome {
             Ok((erased, dropped, missing)) => {
@@ -222,25 +226,17 @@ async fn erase_page(
     false
 }
 
-fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
-    let fits = max_erase_keys(
-        verb == SweepVerb::Delete,
-        backlog.shape,
-        host.db.db_ops().batch_operation_limit(),
-    );
-    pace_batch.min(fits).min(backlog.batch_cap).max(1)
-}
-
 async fn erase_batch(
     host: &Host,
     backlog: &mut Backlog,
     chunk: Vec<KeyValue>,
-    verb: SweepVerb,
+    is_delete: bool,
 ) -> Result<(usize, usize, usize), String> {
     let listed = chunk.len();
     let Some(policy) = host
         .db
         .db_ops()
+        .schemas()
         .get_schema_retention_policy(&backlog.schema_name)
         .await
         .map_err(|e| e.to_string())?
@@ -276,11 +272,12 @@ async fn erase_batch(
     let cutoff_nanos = hash_or_single.then(|| cutoff.saturating_mul(1_000_000_000));
     let mut missing = 0;
     loop {
-        let Err(error) = purge_keys(host, &backlog.schema_name, &keys, verb, cutoff_nanos).await
+        let Err(error) =
+            purge_keys(host, &backlog.schema_name, &keys, is_delete, cutoff_nanos).await
         else {
             return Ok((keys.len(), dropped, missing));
         };
-        if verb != SweepVerb::Purge {
+        if is_delete {
             return Err(error);
         }
         let absent = host
@@ -309,7 +306,7 @@ async fn purge_keys(
     host: &Host,
     schema_name: &str,
     keys: &[KeyValue],
-    verb: SweepVerb,
+    is_delete: bool,
     write_cutoff_nanos: Option<u64>,
 ) -> Result<(), String> {
     if keys.is_empty() {
@@ -324,45 +321,44 @@ async fn purge_keys(
             )
         })
         .collect();
-    let query = Query::new_with_filter(
-        schema_name.into(),
-        Some(HashRangeFilter::HashRangeKeys(pairs)),
-    );
+    let filter = Some(HashRangeFilter::HashRangeKeys(pairs));
     let mut rows = host
         .db
         .query_executor()
-        .query(query)
+        .query(Query::new_with_filter(schema_name.into(), filter))
         .await
         .map_err(|e| e.to_string())?;
     if rows.len() != keys.len() {
         return Err("erasure target disappeared before preparation".into());
     }
-    let (mutation_type, caller, sync) = match verb {
-        SweepVerb::Delete => (MutationType::Delete, "ttl-sweep-delete", Some(true)),
-        SweepVerb::Purge => (MutationType::Purge, "ttl-sweep-purge", None),
+    let (mutation_type, caller, sync) = if is_delete {
+        (MutationType::Delete, "ttl-sweep-delete", Some(true))
+    } else {
+        (MutationType::Purge, "ttl-sweep-purge", None)
     };
     let pubkey = host.public_key();
     let mutations: Vec<Mutation> = keys
         .iter()
         .map(|key| {
-            let record = rows.remove(key).expect("every erasure key was read");
-            let target = RecordTarget {
-                schema: schema_name.to_string(),
+            let r = rows.remove(key).expect("every erasure key was read");
+            let t = RecordTarget {
+                schema: schema_name.into(),
                 key: key.clone(),
-                alternates: record.alternates,
+                alternates: r.alternates,
+            };
+            let exp = RecordExpectation::Revision {
+                revision: r.revision,
             };
             let mut m = Mutation::with_uuid(
                 uuid::Uuid::new_v4().to_string(),
-                target,
+                t,
                 HashMap::new(),
                 pubkey.clone(),
                 mutation_type,
-                RecordExpectation::Revision {
-                    revision: record.revision,
-                },
-            );
+                exp,
+            )
+            .with_erase_caller(caller);
             m.synchronous = sync;
-            m = m.with_erase_caller(caller);
             if let Some(nanos) = write_cutoff_nanos {
                 m = m.with_erase_written_before_nanos(nanos);
             }

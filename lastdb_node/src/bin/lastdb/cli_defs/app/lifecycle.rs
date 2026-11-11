@@ -1,74 +1,19 @@
-//! `lastdb app` subcommands for dev init, schema check, and publish.
+//! `lastdb app` subcommand for publishing a signed app declaration.
 
 use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AppLifecycleCommand {
-    /// Generate the developer Ed25519 signing key used to publish apps.
-    DevInit {
-        /// Key path (default: <home>/dev-signing.key).
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-    },
-    /// Step 1: check every manifest schema against the target node's catalog.
-    ///
-    /// By default this is read-only. For each manifest schema it posts
-    /// `/api/apps/declare-schema` with intent `check` to the node that
-    /// `--data-dir` / LASTDB_HOME names. The node reports what a sync would do
-    /// (reuse or register) and any error a sync would hit, such as an invalid
-    /// field mapper. It registers nothing, binds nothing, and writes no audit
-    /// event.
-    ///
-    /// CAUTION: `--sync` is a WRITE. It uses intent `catalog_sync`: the node
-    /// can register schemas, bind them, and write schema-sync audit events.
-    /// Only `--sync` reports audited, bind-eligible coverage.
-    ///
-    /// A schema entry may carry `retention: {ttl_days | ttl_seconds}`. The read-only
-    /// check prints the policy it would apply, every change or removal of a
-    /// manifest TTL, who shares the records (`shared_with`), and whether the
-    /// TTL would delete existing records. `--sync` applies it. The node refuses
-    /// a TTL on a catalog schema that another app owns or another schema is
-    /// bound to. A TTL deletes records for good.
-    ///
-    /// It also sends each manifest schema to Schema Service advice
-    /// (`POST /v1/advice/schema`) and prints the findings on stderr. Advice
-    /// never changes the result; when the service does not answer, it prints
-    /// `advice unavailable: <reason>`.
-    Check {
-        /// App manifest (JSON: app_id, metadata, uses[], schemas[]).
-        #[arg(long)]
-        manifest: PathBuf,
-        #[arg(long)]
-        json: bool,
-        /// Write: synchronize the schemas (intent `catalog_sync`) instead of
-        /// the read-only check. Can register schemas on the node.
-        #[arg(long)]
-        sync: bool,
-        /// Confirm that records which already exist may expire. A manifest
-        /// `retention` is refused without it when it would delete existing
-        /// records: a new TTL on a Range or HashRange schema that holds data,
-        /// or a TTL shorter than the manifest TTL running.
-        #[arg(long)]
-        confirm_expire_existing: bool,
-        /// Schema Service base URL for advice (default: the DEV Schema
-        /// Service). Mini owns schema synchronization; this URL only gives
-        /// advice.
-        #[arg(long)]
-        schema_url: Option<String>,
-    },
     /// Publish this clean git commit for the running node's exact API version.
     ///
-    /// Before it signs, publish prints Schema Service advice for each
-    /// manifest schema on stderr, then refuses unless the manifest lists every
-    /// schema the app declares, typed: `schemas` is present (an empty list
-    /// when the running node holds no schema of the app), every field has a
-    /// type, and every schema the running node holds for the app is listed by
-    /// name and identity hash. Advice never stops a publish.
+    /// Publish refuses unless the manifest lists every schema the app declares,
+    /// typed: `schemas` is present (an empty list when the running node holds
+    /// no schema of the app), every field has a type, and every schema the
+    /// running node holds for the app is listed by name and identity hash.
     Publish {
         #[arg(long)]
         manifest: PathBuf,
-        /// Target registry environment (dev | prod). Default: prod. It also
-        /// picks the Schema Service that gives advice.
+        /// Target registry environment (dev | prod). Default: prod.
         #[arg(long)]
         env: Option<String>,
         #[arg(long)]

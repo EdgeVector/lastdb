@@ -2,7 +2,6 @@
 
 #[path = "lastdb/admin_cmds.rs"]
 mod admin_cmds;
-use admin_cmds::db_post_json;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
 use app_cmds::*;
@@ -12,9 +11,6 @@ use schema_record_cmds::*;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 use record_get_cmds::*;
-#[path = "lastdb/db_cmds.rs"]
-mod db_cmds;
-use db_cmds::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
 #[path = "lastdb/share_cmds.rs"]
@@ -197,22 +193,6 @@ mod socket_client {
         }
     }
 
-    pub(crate) fn format_bytes(n: u64) -> String {
-        const KIB: f64 = 1024.0;
-        const MIB: f64 = 1024.0 * 1024.0;
-        const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-        let f = n as f64;
-        if f >= GIB {
-            format!("{:.2} GiB", f / GIB)
-        } else if f >= MIB {
-            format!("{:.1} MiB", f / MIB)
-        } else if f >= KIB {
-            format!("{:.1} KiB", f / KIB)
-        } else {
-            format!("{n} B")
-        }
-    }
-
     pub(crate) fn parse_json_response(
         response: &str,
         label: &str,
@@ -280,16 +260,6 @@ fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf,
     Ok((home, socket))
 }
 
-fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
-    let message = match action {
-        ServiceHomeCommand::Set { home } => lastdb_node::service_home::set_configured_home(&home),
-        ServiceHomeCommand::Show => lastdb_node::service_home::show_configured_home(),
-        ServiceHomeCommand::Clear => lastdb_node::service_home::clear_configured_home(),
-    }?;
-    println!("{message}");
-    Ok(())
-}
-
 fn run(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Status {
         json: false,
@@ -301,13 +271,12 @@ fn run(cli: Cli) -> Result<(), String> {
             Command::Get { .. }
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
-                | Command::Schema { .. }
                 | Command::Share(ShareCommand::Files(
                     ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
                 ))
         )
     {
-        return Err("--db requires get, get-keys, mutate, schema show, or Files list/save".into());
+        return Err("--db requires get, get-keys, mutate, or Files list/save".into());
     }
     match command {
         Command::Status { json, timeout } => match status(cli.data_dir, json, timeout)? {
@@ -323,13 +292,6 @@ fn run(cli: Cli) -> Result<(), String> {
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
             record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }
-        Command::Schema {
-            action: SchemaInspectCommand::Show { name, json },
-        } => schema_show_command(
-            &DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?,
-            &name,
-            json,
-        ),
         Command::App { action } => app_command(cli.data_dir, action),
     }
 }
