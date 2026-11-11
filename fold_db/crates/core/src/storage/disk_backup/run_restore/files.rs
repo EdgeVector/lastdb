@@ -72,14 +72,7 @@ pub(super) fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
     Ok(())
 }
 
-pub(super) fn node_marker(root: &Path) -> StorageResult<()> {
-    if profile_version(root)?.is_none() {
-        return Err(invalid("run restore node marker differs"));
-    }
-    Ok(())
-}
-
-pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
+pub(super) fn profile_version(root: &Path) -> StorageResult<u16> {
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -90,7 +83,8 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
     crate::storage::retired::refuse_shared_home(root, &bytes)?;
-    Ok(crate::storage::disk_pack::run_node::profile(&bytes))
+    crate::storage::disk_pack::run_node::profile(&bytes)
+        .ok_or_else(|| invalid("run restore node marker differs"))
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
@@ -138,25 +132,25 @@ pub(super) fn home(
     let mut seen = BTreeSet::new();
     for entry in fs::read_dir(path.join(RUNS))? {
         let entry = entry?;
-        let name = entry
+        let entry_name = entry
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore file name"))?;
-        let id = name
+        let id = entry_name
             .strip_suffix(".ldrun")
             .ok_or_else(|| invalid("run restore file suffix"))?;
         let id = uuid::Uuid::parse_str(id).map_err(|_| invalid("run restore file identity"))?;
         let bytes = expected_runs
             .get(&id)
             .ok_or_else(|| invalid("run restore unreferenced file"))?;
-        if name != format!("{id}.ldrun")
+        if entry_name != format!("{id}.ldrun")
             || !seen.insert(id)
             || regular(&entry.path(), false)?.metadata()?.len() != *bytes
         {
             return Err(invalid("run restore file closure"));
         }
         entries.push(RunRestoreFile {
-            path: format!("{}/{name}", root_name(&path)?),
+            path: format!("{name}/{RUNS}/{entry_name}"),
             bytes: *bytes,
         });
     }
@@ -193,13 +187,6 @@ pub(super) fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding
     Ok(HomeBinding { home, runs, lock })
 }
 
-fn root_name(path: &Path) -> StorageResult<String> {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| format!("{name}/{RUNS}"))
-        .ok_or_else(|| invalid("run restore home name"))
-}
-
 fn require_home_members(path: &Path) -> StorageResult<()> {
     let mut names = BTreeSet::new();
     for entry in fs::read_dir(path)? {
@@ -225,27 +212,13 @@ fn hash(path: &Path, expected: &Digest) -> StorageResult<u64> {
     Ok(bytes)
 }
 
-/// Build one profile and validate it. Only a shared database profile names
-/// its CAS home; a personal CAS home is local and starts empty on restore.
+/// Build and validate the personal main-home profile; local CAS starts empty on restore.
 pub(super) fn backup_profile(
     root: &Path,
     version: u16,
-    main: &RunRead,
-    cas: &RunRead,
+    reader: &RunRead,
 ) -> StorageResult<RunBackupProfile> {
-    let profile = RunBackupProfile {
-        version,
-        main: profile(root, run_node::RUN_DIR, main)?,
-        cas: RunBackupProfile::carries_cas(version)
-            .then(|| profile(root, run_node::CAS_DIR, cas))
-            .transpose()?,
-    };
-    profile.validate()?;
-    Ok(profile)
-}
-
-pub(super) fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResult<RunBackupHome> {
-    let path = root.join(name);
+    let path = root.join(run_node::RUN_DIR);
     let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
     let (current_sha256, current_bytes) = inspect(&path.join(CURRENT))?;
     let mut files = 2u64;
@@ -260,38 +233,28 @@ pub(super) fn profile(root: &Path, name: &str, reader: &RunRead) -> StorageResul
             .checked_add(length)
             .ok_or_else(|| invalid("run restore profile bytes"))?;
     }
-    Ok(RunBackupHome {
-        home_id: Id::try_from(reader.home_id().to_string())
-            .map_err(|_| invalid("run restore home identity"))?,
-        generation: DecimalU64::new(reader.generation()),
-        frontier: DecimalU64::new(reader.frontier()),
-        descriptor_sha256,
-        current_sha256,
-        files,
-        bytes,
-    })
+    let profile = RunBackupProfile {
+        version,
+        main: RunBackupHome {
+            home_id: Id::try_from(reader.home_id().to_string())
+                .map_err(|_| invalid("run restore home identity"))?,
+            generation: DecimalU64::new(reader.generation()),
+            frontier: DecimalU64::new(reader.frontier()),
+            descriptor_sha256,
+            current_sha256,
+            files,
+            bytes,
+        },
+    };
+    profile.validate()?;
+    Ok(profile)
 }
 
 fn inspect(path: &Path) -> StorageResult<(Digest, u64)> {
     let mut file = regular(path, false)?;
     let before = file.metadata()?;
     let mut hasher = Sha256::new();
-    let mut buffer =
-        vec![0u8; lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize];
-    let mut count = 0u64;
-    loop {
-        let bytes = file.read(&mut buffer)?;
-        if bytes == 0 {
-            break;
-        }
-        count = count
-            .checked_add(bytes as u64)
-            .ok_or_else(|| invalid("run restore hash bytes"))?;
-        if count > before.len() {
-            return Err(invalid("run restore file grew"));
-        }
-        hasher.update(&buffer[..bytes]);
-    }
+    let count = std::io::copy(&mut (&mut file).take(before.len() + 1), &mut hasher)?;
     let after = file.metadata()?;
     same_entry(&file, path)?;
     if count != before.len()

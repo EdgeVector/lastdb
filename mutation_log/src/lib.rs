@@ -45,7 +45,9 @@ pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
     StoredEntry, SubmissionRecord, SubmissionStatus, Writer,
 };
-pub use namespace::{classify_shareable, NamespaceKind, NamespacePolicy, SHAREABLE_NAMESPACES};
+pub use namespace::{
+    classify_shareable, BoundPolicy, NamespaceKind, NamespacePolicy, SHAREABLE_NAMESPACES,
+};
 pub use port::MutationLog;
 pub use read::{
     entry_visible, filter_readable, merge_order, ListPage, Recovery, Reset, ScopedHead,
@@ -59,6 +61,3 @@ pub const APPEND_BATCH_LIMIT: usize = 90;
 pub const LIST_PAGE_LIMIT: usize = 90;
 /// Maximum time an unacked entry stays in the log. 30 days, in milliseconds.
 pub const MAX_RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
-
-#[cfg(test)]
-mod tests;

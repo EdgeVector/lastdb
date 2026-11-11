@@ -2,7 +2,7 @@
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::db_operations::{SchemaRecordKey, SchemaRecordKeysRequest};
+use fold_db::db_operations::SchemaRecordKey;
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{KeyValue, Query, QueryCursor, Schema};
 use serde_json::Value;
@@ -70,7 +70,7 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
         Err(e) => return render(Err(e), ctx),
     };
     if request.key_name.is_some() {
-        let result = match host.db.db_ops().read_scope().await {
+        let result = match host.records().db_ops().read_scope().await {
             Ok(scope) => {
                 scope
                     .run_result(Box::pin(alternate_keyed_page(host, &request, &canonical)))
@@ -84,14 +84,14 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
         );
     }
     match host
-        .db
-        .list_schema_record_keys(SchemaRecordKeysRequest {
-            requested: &request.requested,
-            schema_id: &canonical,
-            limit: request.limit,
-            cursor: request.cursor.as_deref(),
-            hash_filter: request.hash_filter.as_deref(),
-        })
+        .records()
+        .list_schema_record_keys(
+            &request.requested,
+            &canonical,
+            request.limit,
+            request.cursor.as_deref(),
+            request.hash_filter.as_deref(),
+        )
         .await
     {
         Ok(report) => json_ok(&envelope(
@@ -113,7 +113,7 @@ async fn alternate_keyed_page(
         .as_deref()
         .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
     let schema = host
-        .db
+        .records()
         .schema_manager()
         .get_schema_metadata(canonical)
         .map_err(HostError::from)?

@@ -23,14 +23,12 @@ pub(super) use recovery_home::files::FreshHome;
 const PHRASE_FILE: &str = "recovery-phrase.txt";
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
-    let action = match action {
-        CloudCommand::BackupV2 {
-            action: ref action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
-        } => {
-            return run_setup(data_dir.as_deref(), action);
-        }
-        action => action,
-    };
+    if let CloudCommand::BackupV2 {
+        action: action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
+    } = &action
+    {
+        return run_setup(data_dir.as_deref(), action);
+    }
     if recovery_home::handles(&action) {
         return recovery_home::command(data_dir.as_deref(), action);
     }
@@ -40,10 +38,10 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         return Err("V2 backup requires an explicit absolute --data-dir home".into());
     }
     let home = lastdb_node::host::resolve_home(data_dir)?;
-    match action {
-        CloudCommand::BackupV2 { action } => run_byte_backup(&home, action),
-        _ => unreachable!("handled before home resolution"),
-    }
+    let CloudCommand::BackupV2 { action } = action else {
+        unreachable!("handled before home resolution");
+    };
+    run_byte_backup(&home, action)
 }
 
 fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
@@ -181,32 +179,27 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
         .then(|| read_stdin_no_control(4096, "native enrollment invite"))
         .transpose()?;
     let device_id = directory.device_id()?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "cannot construct native enrollment runtime")?;
-    let registered = runtime
-        .block_on(register_native_device(
+    let registered = block_on_cloud(
+        "native enrollment",
+        register_native_device(
             Environment::Dev,
             &pair,
             &device_id,
             invite.as_deref().map(String::as_str),
-        ))
-        .map_err(|error| {
-            format!("{error}; registration may have committed; retry only by an explicit request")
-        })?;
+        ),
+    )
+    .map_err(|error| {
+        format!("{error}; registration may have committed; retry only by an explicit request")
+    })?;
     if registered.user_hash != account
         || directory.seed()?.as_ref() != seed.as_ref()
         || directory.device_id()? != device_id
     {
         return Err("native enrollment identity changed; registration may have committed".into());
     }
-    let credentials = Zeroizing::new(
-        serde_json::to_vec(&serde_json::json!({
-            "api_url": api_url, "api_key": registered.api_key,
-        }))
-        .map_err(|_| "cannot encode paused native credentials")?,
-    );
+    let credentials = lastdb_node::cloud::SavedCredentials::new(api_url, registered.api_key)
+        .key_json()
+        .map_err(|_| "cannot encode paused native credentials")?;
     directory
         .save_credentials(&credentials)
         .map_err(|error| format!("{error}; registration may have committed; retain this home"))?;
@@ -223,20 +216,17 @@ fn validate_restored_credentials(
         .map_err(|_| "invalid restored native account endpoint")?;
     let account =
         AccountId::try_from(account.to_owned()).map_err(|_| "invalid restored account identity")?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "cannot construct restored credential validation runtime")?;
-    runtime
-        .block_on(
-            client.context(&cloud_backup_protocol::v2::context::ContextReadRequest {
+    block_on_cloud("restored credential validation", async move {
+        client
+            .context(&cloud_backup_protocol::v2::context::ContextReadRequest {
                 version: cloud_backup_protocol::v2::Version::V2,
                 account_id: account,
                 required_destinations: Vec::new(),
-            }),
-        )
-        .map(|_| ())
-        .map_err(|_| "saved native credentials do not authorize the restored account".into())
+            })
+            .await
+            .map(|_| ())
+            .map_err(|_| "saved native credentials do not authorize the restored account".into())
+    })
 }
 
 fn print_connected(
@@ -303,16 +293,20 @@ fn run_existing(
     )
 }
 
+pub(super) fn block_on_cloud<T>(
+    label: &str,
+    future: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| format!("cannot construct {label} runtime"))?
+        .block_on(future)
+}
+
 fn print_backup(value: &serde_json::Value, json: bool) -> Result<(), String> {
     if !json {
-        println!(
-            "{}",
-            if value.get("backup_kind").and_then(serde_json::Value::as_str) == Some("shared") {
-                "Cloud sync"
-            } else {
-                "V2 backup"
-            }
-        );
+        println!("V2 backup");
     }
     println!(
         "{}",

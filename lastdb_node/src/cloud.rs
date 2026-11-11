@@ -48,12 +48,6 @@ pub struct SavedConnection {
     pub endpoint: String,
 }
 
-#[derive(Serialize)]
-struct KeyOnly<'a> {
-    api_url: &'a str,
-    api_key: &'a str,
-}
-
 /// The saved bytes are not the credential JSON. Carries no file content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidCredentials;
@@ -69,11 +63,7 @@ impl SavedCredentials {
 
     /// Compact JSON of `api_url` and `api_key` only.
     pub fn key_json(&self) -> serde_json::Result<Zeroizing<Vec<u8>>> {
-        serde_json::to_vec(&KeyOnly {
-            api_url: &self.api_url,
-            api_key: self.api_key.as_str(),
-        })
-        .map(Zeroizing::new)
+        Self::new(&self.api_url, self.api_key.as_str().to_owned()).to_json()
     }
 
     /// The serde error can quote a value, so the error drops it.
@@ -248,30 +238,25 @@ fn signed_register_request(
 }
 
 fn parse_registered_response(text: &str, expected_user_hash: &str) -> Result<Registered, String> {
-    let json: serde_json::Value = serde_json::from_str(text)
-        .map_err(|_| "Register response was not valid JSON".to_string())?;
-    if !json
-        .get("ok")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        return Err("Register request was rejected".to_string());
+    let json: serde_json::Value =
+        serde_json::from_str(text).map_err(|_| "Register response was not valid JSON")?;
+    if json.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        return Err("Register request was rejected".into());
     }
-    let field = |name: &str| -> Result<String, String> {
+    let field = |name: &str| {
         json.get(name)
-            .and_then(|v| v.as_str())
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string)
+            .and_then(serde_json::Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_owned)
             .ok_or_else(|| format!("Register response missing nonempty {name}"))
     };
     let registered = Registered {
         api_key: field("api_key")?,
         user_hash: field("user_hash")?,
     };
-    if registered.user_hash != expected_user_hash {
-        return Err("Register returned credentials for another signed account".into());
-    }
-    Ok(registered)
+    (registered.user_hash == expected_user_hash)
+        .then_some(registered)
+        .ok_or_else(|| "Register returned credentials for another signed account".into())
 }
 
 /// Explicit compiled-environment registration without a local store or recipient.

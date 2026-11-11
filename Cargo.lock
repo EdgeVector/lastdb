@@ -762,6 +762,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "database_policy"
+version = "0.1.0"
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,6 +1851,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloud_backup_protocol",
+ "database_policy",
  "dirs",
  "fold_db",
  "futures",
@@ -2003,6 +2008,9 @@ dependencies = [
 [[package]]
 name = "mutation_log"
 version = "0.1.0"
+dependencies = [
+ "database_policy",
+]
 
 [[package]]
 name = "mutation_log_mem"
@@ -2016,7 +2024,6 @@ name = "mutation_log_sync"
 version = "0.1.0"
 dependencies = [
  "mutation_log",
- "mutation_log_mem",
 ]
 
 [[package]]

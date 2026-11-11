@@ -2,8 +2,10 @@
 mod plan;
 
 use super::{
-    inventory::Inventory, local, native, recipient::GuestReplayCache, ByteBackupReader,
-    RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
+    inventory::Inventory,
+    local, native,
+    recipient::{self, GuestReplayCache},
+    ByteBackupReader, RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::v2::AcceptedBackup;
@@ -14,7 +16,6 @@ use fold_db::storage::disk_pack::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File};
-use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 
 pub(super) const MAX_CHAIN: u32 = 32768;
@@ -47,7 +48,7 @@ pub(super) async fn restore(
     decryption.validate_account(&latest.recovery.account_public_key)?;
     let plan = plan::prepare(session, client, decryption, &latest, None).await?;
     let base = load_base(session, client, decryption, &latest).await?;
-    if let Some(report) = VerifiedNativeContext::new(session, &base.root.native_root).published()? {
+    if let Some(report) = recipient::published(session)? {
         return Ok(report);
     }
     let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
@@ -58,12 +59,8 @@ pub(super) async fn restore(
     };
     let proof = replay(session, client, decryption, &latest, cursor).await?;
     let root = proof.native_root().map_err(RestoreError::native_proof)?;
-    let (files, bytes) = proof.totals().map_err(RestoreError::native_proof)?;
-    VerifiedNativeContext::new(session, &root).finish_run(
-        identity_seed,
-        super::NativeInventory { files, bytes },
-        &proof,
-    )
+    let totals = proof.totals().map_err(RestoreError::native_proof)?;
+    recipient::finish_run(session, &root, identity_seed, totals, &proof)
 }
 
 pub(super) async fn stage_guest(
@@ -122,7 +119,6 @@ async fn load_base(
     if root.recovery != latest.recovery
         || profile.main.home_id != latest.anchor.main_home
         || profile.main.frontier.get() != latest.anchor.frontiers.main
-        || profile.cas.is_some()
         || !base.accepted().begin.dependencies().is_empty()
     {
         return Err(RestoreError::Invalid("mutation exact snapshot boundary"));
@@ -148,7 +144,7 @@ async fn stage_base(
     )
     .await?;
     let proof = super::runs::verify_stage(&base.session, decryption, &base.root)?;
-    if proof.totals().map_err(RestoreError::native_proof)? != (total.files, total.bytes) {
+    if proof.totals().map_err(RestoreError::native_proof)? != total {
         return Err(RestoreError::Invalid("mutation snapshot proof"));
     }
     Ok(())
@@ -194,7 +190,7 @@ fn start_cursor(
         entry: 0,
         part: 0,
     };
-    plan::save(session, &cursor_path(session), &cursor)?;
+    session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, &cursor)?;
     Ok(cursor)
 }
 
@@ -205,13 +201,8 @@ async fn replay(
     latest: &MutationLogRoot,
     mut cursor: Cursor,
 ) -> Result<run_restore::RunRestoreGuard> {
-    let replay_files = session.root.join("replay-files");
-    match fs::DirBuilder::new().mode(0o700).create(&replay_files) {
-        Ok(()) => File::open(&session.root)?.sync_all()?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
-    }
-    local::directory(&replay_files)?;
+    local::ensure_directory(&session.root.join("replay-files"))?;
+    File::open(&session.root)?.sync_all()?;
     while cursor.remaining > 0 {
         replay_checkpoint(session, client, decryption, latest, &mut cursor).await?;
     }
@@ -310,14 +301,14 @@ async fn replay_checkpoint(
                 .part(entry, cursor.part, &path)
                 .map_err(|_| RestoreError::Invalid("original native mutation part replay"))?;
             cursor.part += 1;
-            plan::save(session, &cursor_path(session), cursor)?;
+            session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
         }
         cursor.position = entry
             .position_after(&cursor.position)
             .map_err(|_| RestoreError::Invalid("complete replay batch"))?;
         cursor.entry += 1;
         cursor.part = 0;
-        plan::save(session, &cursor_path(session), cursor)?;
+        session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
     }
     if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
@@ -327,7 +318,7 @@ async fn replay_checkpoint(
     cursor.previous = accepted;
     cursor.entry = 0;
     cursor.part = 0;
-    plan::save(session, &cursor_path(session), cursor)?;
+    session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
     replay
         .settle()
         .map_err(|_| RestoreError::Invalid("complete checkpoint native compaction"))?;

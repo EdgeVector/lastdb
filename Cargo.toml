@@ -18,6 +18,8 @@ members = [
 
     # Canonical native cloud backup wire contract; no runtime activation.
     "cloud_backup_protocol",
+    # Spec catalog and share admission. No I/O.
+    "database_policy",
     # Pure unified mutation log (one log per database). No I/O.
     "mutation_log",
     # In-memory MutationLog adapter. Off unless the caller enables it.

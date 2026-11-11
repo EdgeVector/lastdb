@@ -103,7 +103,7 @@ pub(in crate::exec) async fn commit_parsed_mutation(
 
     // The native commit is the durable capture. Named sync does not copy it
     // into a side queue after this acknowledgement.
-    let receipt = start_core_commit(host.db.mutation_manager(), vec![parsed.mutation])
+    let receipt = start_core_commit(host.records().mutation_manager(), vec![parsed.mutation])
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
     let mutation_id = receipt
@@ -152,7 +152,7 @@ async fn execute_mutations_batch(
     let count = mutations.len();
     // The native commit is the durable capture. Named sync does not copy it
     // into a side queue after this acknowledgement.
-    let receipt = start_core_commit(host.db.mutation_manager(), mutations)
+    let receipt = start_core_commit(host.records().mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
     Ok(commit_json(
@@ -189,7 +189,12 @@ async fn validate_mutation_fields(
     if record_fields.is_empty() {
         return Ok(());
     }
-    let Ok(Some(schema)) = host.db.schema_manager().resolve_schema(canonical).await else {
+    let Ok(Some(schema)) = host
+        .records()
+        .schema_manager()
+        .resolve_schema(canonical)
+        .await
+    else {
         return Ok(());
     };
     let mut unknown: Vec<String> = record_fields

@@ -1,8 +1,8 @@
 //! Read-only physical and account proof for an inactive native node.
 
 use super::{
-    files, invalid, map, open_paired_runs, phase, reserve_paired_metadata, RunBackupProfile,
-    RunRestoreFile, Stage, StorageResult,
+    files, fork_bounded, invalid, map, open_paired_runs, phase, reserve_paired_metadata,
+    RunBackupProfile, RunRestoreFile, Stage, StorageResult,
 };
 use crate::storage::content_key_proof;
 use crate::storage::disk_backup::byte_backup::RunBackupHome;
@@ -13,7 +13,7 @@ use crate::storage::format::control::{
 use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
 use crate::storage::format::{METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE};
 use lastdb_model::storage_policy::backup_decode as budget;
-use laststore::disk_run::home::{ReadBudget, RunRead};
+use laststore::disk_run::home::RunRead;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -41,7 +41,7 @@ impl RunNodeGuard {
     pub(in crate::storage::disk_backup::run_restore) fn require_empty_local_cas(
         &self,
     ) -> StorageResult<()> {
-        if self.profile.cas.is_none() && self.cas.referenced_runs().next().is_some() {
+        if self.cas.referenced_runs().next().is_some() {
             return Err(invalid("restored personal CAS home is not empty"));
         }
         Ok(())
@@ -50,8 +50,7 @@ impl RunNodeGuard {
     pub fn check_binding(&self) -> StorageResult<()> {
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
-        files::node_marker(&self.root)?;
-        if files::profile_version(&self.root)? != Some(self.profile.version) {
+        if files::profile_version(&self.root)? != self.profile.version {
             return Err(invalid("run restore logical profile changed"));
         }
         for (binding, name) in self
@@ -61,15 +60,7 @@ impl RunNodeGuard {
         {
             binding.check(&self.root, name)?;
         }
-        check_home(
-            &self.root,
-            run_node::RUN_DIR,
-            &self.main,
-            &self.profile.main,
-        )?;
-        if let Some(cas) = &self.profile.cas {
-            check_home(&self.root, run_node::CAS_DIR, &self.cas, cas)?;
-        }
+        check_home(&self.root, &self.main, &self.profile.main)?;
         files::require_root_members(&self.root)
     }
 
@@ -97,9 +88,7 @@ impl RunNodeGuard {
             marker.try_lock()
         }
         .map_err(|_| invalid("run restore node is owned"))?;
-        files::node_marker(root)?;
-        let version = files::profile_version(root)?
-            .ok_or_else(|| invalid("run restore logical profile is absent"))?;
+        let version = files::profile_version(root)?;
         files::require_root_members(root)?;
         let homes = [
             files::prepare_home(root, run_node::RUN_DIR)?,
@@ -107,15 +96,12 @@ impl RunNodeGuard {
         ];
         let (mut main, mut cas) = open_paired_runs(root, key, shared)?;
         reserve_roots(&mut main, &mut cas)?;
-        let profile = files::backup_profile(root, version, &main, &cas)?;
+        let profile = files::backup_profile(root, version, &main)?;
         let mut entries = vec![RunRestoreFile {
             path: NODE_MARKER.into(),
             bytes: profile.node_marker()?.len() as u64,
         }];
-        entries.extend(check_home(root, run_node::RUN_DIR, &main, &profile.main)?);
-        if let Some(expected) = &profile.cas {
-            entries.extend(check_home(root, run_node::CAS_DIR, &cas, expected)?);
-        }
+        entries.extend(check_home(root, &main, &profile.main)?);
         phase(Stage::Account, verify_account(&main, key, version))?;
         let guard = Self {
             root: root.to_path_buf(),
@@ -159,12 +145,7 @@ pub(in crate::storage::disk_backup::run_restore) fn verify_account(
         ),
     ];
     let values = {
-        let mut read = main
-            .fork_bounded(account_read_budget(
-                budget::DIRECTORY_READ_BYTES,
-                coordinates.len() as u64,
-            ))
-            .map_err(map)?;
+        let mut read = fork_bounded(main, budget::DIRECTORY_READ_BYTES, coordinates.len() as u64)?;
         read.get_many_bounded(&coordinates, 8192).map_err(map)?
     };
     let values = values
@@ -185,9 +166,7 @@ pub(in crate::storage::disk_backup::run_restore) fn verify_account(
         ));
     }
     let stored = {
-        let mut read = main
-            .fork_bounded(account_read_budget(budget::DIRECTORY_READ_BYTES, 1))
-            .map_err(map)?;
+        let mut read = fork_bounded(main, budget::DIRECTORY_READ_BYTES, 1)?;
         read.get_bounded(
             content_key_proof::NAMESPACE,
             &native_routing::encode(content_key_proof::KEY),
@@ -200,18 +179,8 @@ pub(in crate::storage::disk_backup::run_restore) fn verify_account(
         .map_err(|_| invalid("run backup account content-key proof differs"))
 }
 
-fn account_read_budget(bytes: u64, keys: u64) -> ReadBudget {
-    ReadBudget {
-        pages: budget::RECORD_INVENTORY_PAGES,
-        blocks: budget::NATIVE_STREAM_BLOCKS,
-        bytes,
-        keys,
-    }
-}
-
 fn check_home(
     root: &Path,
-    name: &str,
     reader: &RunRead,
     expected: &RunBackupHome,
 ) -> StorageResult<Vec<RunRestoreFile>> {
@@ -221,7 +190,7 @@ fn check_home(
     {
         return Err(invalid("run restore captured home differs"));
     }
-    files::home(root, name, reader, expected)
+    files::home(root, run_node::RUN_DIR, reader, expected)
 }
 
 fn reserve_roots(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {

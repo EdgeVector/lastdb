@@ -7,11 +7,11 @@ use crate::cloud::{SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use crate::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::{
+    bytes_sha256,
     v2::{context::ContextReadRequest, Destination, Version},
     AccountId, Digest, Id,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 use zeroize::Zeroize;
 
 pub(crate) mod files;
@@ -174,7 +174,7 @@ pub(super) fn automatic_binding(
         connection.account_id,
         connection.source_home,
         connection.endpoint,
-        digest(&key)?,
+        bytes_sha256(&key),
     ))
 }
 
@@ -191,12 +191,21 @@ pub(super) fn client_for_host(host: &crate::host::Host) -> Result<ByteBackupClie
         return Ok(client);
     }
     super::require_enabled()?;
-    super::credentials::client_for_recovery(&host.home).map_err(|_| BackupError::Identity)
+    super::client_from_home(&host.home).map_err(|_| BackupError::Identity)
 }
 
 fn load(host: &crate::host::Host) -> Result<Option<(SavedConnection, ByteBackupClient)>> {
     let (account, source) = identity(host)?;
-    load_identity(&host.home, &account, &source)
+    let directory = files::Directory::open(&host.home)?;
+    let Some((connection, credentials)) = read_connection(&directory, &account, &source)? else {
+        return Ok(None);
+    };
+    let client = client(environment(&connection.environment)?, &credentials.api_key)?;
+    if client.canonical_endpoint() != connection.endpoint {
+        return Err(BackupError::Identity);
+    }
+    directory.check()?;
+    Ok(Some((connection, client)))
 }
 
 fn read_connection(
@@ -221,23 +230,6 @@ fn read_connection(
     Ok(Some((connection, credentials)))
 }
 
-fn load_identity(
-    home: &std::path::Path,
-    account: &AccountId,
-    source: &Id,
-) -> Result<Option<(SavedConnection, ByteBackupClient)>> {
-    let directory = files::Directory::open(home)?;
-    let Some((connection, credentials)) = read_connection(&directory, account, source)? else {
-        return Ok(None);
-    };
-    let client = client(environment(&connection.environment)?, &credentials.api_key)?;
-    if client.canonical_endpoint() != connection.endpoint {
-        return Err(BackupError::Identity);
-    }
-    directory.check()?;
-    Ok(Some((connection, client)))
-}
-
 fn identity(host: &crate::host::Host) -> Result<(AccountId, Id)> {
     let runtime = host.db.db_ops().native_runtime();
     Ok((
@@ -259,10 +251,4 @@ fn client(environment: Environment, key: &str) -> Result<ByteBackupClient> {
         exemem_api_url_for(environment).to_owned(),
         key.to_owned(),
     ))?)
-}
-
-fn digest(bytes: &[u8]) -> Result<Digest> {
-    Ok(Digest::try_from(fold_db::hex::hex_lower(Sha256::digest(
-        bytes,
-    )))?)
 }

@@ -2,11 +2,9 @@
 # Every recognized writer needs an entry. Every entry must match a writer.
 
 fold_db/crates/core/src/storage/format/records/mod.rs|stage|consumes the format-minted opaque record and pointer batches in one staging call inside the existing write scope; never starts or commits an independent request
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage|private metadata writer accepts only author clocks minted by the format inside the existing native request; the domain store holds no raw namespace handle
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_batch|private metadata writer stages file-reference rows inside the existing native request
-fold_db/crates/core/src/storage/format/metadata/mod.rs|stage_deletes|private metadata writer removes file-reference rows whose live and pending state has cleared in the same native request
-fold_db/crates/core/src/storage/format/schemas/mod.rs|stage|private schema/state writer consumes only format-minted definition/state/retention batches and validated deletions in its native scope; providers hold read-only views
+fold_db/crates/core/src/storage/format/metadata.rs|stage|private metadata writer stages format-minted author clocks, contribution receipts, local stream state, and file-reference rows inside the existing native request
+fold_db/crates/core/src/storage/format/schemas.rs|stage|private schema/state writer consumes only format-minted definition/state/retention batches and validated deletions in its native scope; providers hold read-only views
 fold_db/crates/core/src/storage/format/records/store.rs|stage_files|private record-file sink consumes only file rows encoded by record changes, schema release, or reference reclamation; requires the existing native scope, with no provider raw append operation
 fold_db/crates/core/src/storage/format/records/file_crypto.rs|install_record_file|downloaded record file: authenticates the sealed row against the record marker, then in its own native scope re-reads the record and puts only that version's exact fb row and its fu uploaded marker when the record still selects it and the row is absent; never changes the record
 fold_db/crates/core/src/storage/format/records/release.rs|release_schema_batch|format-minted schema family validates selected keys and re-reads at most 256 under the same native scope, composing exact record/alternate/file cleanup
-fold_db/crates/core/src/storage/format/records/retention.rs|record_delete_audit|format selects the audit family/key and serializes typed erase facts inside the existing erase scope
+fold_db/crates/core/src/storage/format/records/release.rs|record_delete_audit|format selects the audit family/key and serializes typed erase facts inside the existing erase scope

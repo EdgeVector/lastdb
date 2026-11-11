@@ -4,7 +4,7 @@ pub mod manifest_retention;
 pub mod schema_types;
 pub mod types;
 
-use crate::storage::disk_pack::transaction::{self, publication};
+use crate::storage::disk_pack::transaction::publication;
 use crate::storage::StorageError;
 use ::schema_types::IdentityRecompute;
 use std::collections::HashMap;
@@ -123,11 +123,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    #[must_use]
-    pub const fn catalog_ready(&self) -> bool {
-        true
-    }
-
     pub fn get_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
         let mut schemas = self.catalog_snapshot()?.schemas.clone();
         for (name, staged) in self.staged_schemas()? {
@@ -148,14 +143,6 @@ impl SchemaCore {
             .map(|(name, schema)| {
                 SchemaWithState::new(schema, states.get(&name).copied().unwrap_or_default())
             })
-            .collect())
-    }
-
-    pub fn get_active_schemas_with_states(&self) -> Result<Vec<SchemaWithState>, SchemaError> {
-        Ok(self
-            .get_schemas_with_states()?
-            .into_iter()
-            .filter(|s| s.state != SchemaState::Blocked)
             .collect())
     }
 
@@ -276,16 +263,6 @@ impl SchemaCore {
         self.load_schema_internal(schema.clone()).await?;
         tracing::info!("Refreshed schema '{cached_name}' from database (stale cache)");
         Ok(self.get_schema_metadata(&cached_name)?.or(Some(schema)))
-    }
-
-    pub async fn load_schema_batch(&self, schemas: Vec<Schema>) -> Result<(), SchemaError> {
-        transaction::request_scope(self.db_ops.native_runtime(), async {
-            for schema in schemas {
-                self.load_schema_internal(schema).await?;
-            }
-            Ok(())
-        })
-        .await
     }
 
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {

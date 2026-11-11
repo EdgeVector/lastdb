@@ -214,7 +214,9 @@ async fn put_local_reference(
     }
     drop(plaintext);
     let file_write = host
-        .db
+        .records()
+        .db_ops()
+        .records()
         .reference_local_file(Path::new(path), name, media_type)
         .await
         .map_err(HostError::from)?;
@@ -236,7 +238,7 @@ async fn put_local_reference(
         "file marker does not match the local file",
     )?;
     let value = mutation::commit_parsed_mutation(host, parsed).await?;
-    host.db
+    host.records()
         .remember_local_file(&schema, &key, &source, &marker)
         .await
         .map_err(HostError::from)?;
@@ -276,7 +278,9 @@ async fn put_blob_file(
     (name, media_type, placement, thumbnail): BlobMeta,
 ) -> Result<serde_json::Value, HostError> {
     let file_write = host
-        .db
+        .records()
+        .db_ops()
+        .records()
         .seal_record_file(plaintext, name, media_type)
         .map_err(HostError::from)?;
     let FileWrite::Put(file) = &file_write else {

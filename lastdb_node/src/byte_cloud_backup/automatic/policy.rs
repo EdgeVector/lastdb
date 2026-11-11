@@ -51,46 +51,6 @@ pub(super) struct Policy {
 }
 
 impl Policy {
-    pub(super) fn new(
-        account: AccountId,
-        source_home: Id,
-        endpoint: String,
-        credential_sha256: Digest,
-        state: AutomaticBackupStatus,
-    ) -> Self {
-        Self {
-            version: VERSION,
-            account,
-            source_home,
-            endpoint,
-            credential_sha256,
-            state,
-            pending: None,
-            cleanup: None,
-        }
-    }
-
-    pub(super) fn empty_state(log: u64, snapshot: u64) -> AutomaticBackupStatus {
-        AutomaticBackupStatus {
-            enabled: false,
-            revision: 0,
-            log_interval_seconds: log,
-            snapshot_interval_seconds: snapshot,
-            next_log_at: 0,
-            next_snapshot_at: 0,
-            pending_request_id: None,
-            attempts: 0,
-            retry_at: 0,
-            last_completed_request_id: None,
-            last_completed_at: None,
-            last_snapshot_at: None,
-            last_log_at: None,
-            last_backed_up_frontiers: None,
-            snapshot_reason: None,
-            paused: None,
-        }
-    }
-
     pub fn save(&self, host: &crate::host::Host) -> Result<()> {
         self.validate(host)?;
         Store::write_configuration(&host.home, FILE, self)
@@ -188,19 +148,35 @@ pub(in crate::byte_cloud_backup) fn configure(
     }
     let (account, source_home, endpoint, credential_sha256) =
         super::super::connection::automatic_binding(host)?;
-    if old.as_ref().is_some_and(|p| p.pending.is_some()) {
-        old.as_ref()
-            .ok_or(BackupError::Invalid)?
-            .require_connection(host)?;
+    if let Some(existing) = old.as_ref().filter(|p| p.pending.is_some()) {
+        existing.require_connection(host)?;
     }
-    let mut policy = old.unwrap_or_else(|| {
-        Policy::new(
-            account.clone(),
-            source_home.clone(),
-            endpoint.clone(),
-            credential_sha256.clone(),
-            Policy::empty_state(log, snapshot),
-        )
+    let mut policy = old.unwrap_or_else(|| Policy {
+        version: VERSION,
+        account: account.clone(),
+        source_home: source_home.clone(),
+        endpoint: endpoint.clone(),
+        credential_sha256: credential_sha256.clone(),
+        state: AutomaticBackupStatus {
+            enabled: false,
+            revision: 0,
+            log_interval_seconds: log,
+            snapshot_interval_seconds: snapshot,
+            next_log_at: 0,
+            next_snapshot_at: 0,
+            pending_request_id: None,
+            attempts: 0,
+            retry_at: 0,
+            last_completed_request_id: None,
+            last_completed_at: None,
+            last_snapshot_at: None,
+            last_log_at: None,
+            last_backed_up_frontiers: None,
+            snapshot_reason: None,
+            paused: None,
+        },
+        pending: None,
+        cleanup: None,
     });
     policy.account = account;
     policy.source_home = source_home;
@@ -229,10 +205,6 @@ pub(in crate::byte_cloud_backup) fn configure(
     native(host)?.configure_mutation_log(true)?;
     host.byte_backup.wake();
     Ok(())
-}
-
-pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
-    retire_at(&Store::base(&host.home), id)
 }
 
 pub(in crate::byte_cloud_backup) fn retire_at(base: &Path, id: &Id) -> Result<()> {
@@ -290,27 +262,20 @@ fn remove_directory(root: &Path) -> Result<()> {
 }
 
 fn allowed(name: &str) -> bool {
-    if [
-        "state.json",
-        "state.pending",
-        "terminal.json",
-        "terminal.pending",
-        "recovery.json",
-        "recovery.pending",
-        "pause.json",
-        "pause.pending",
-        "log-plan.json",
-        "log-plan.pending",
-        "inventory-index.json",
-        "inventory-index.pending",
-        "close.json",
-        "close.pending",
-        "blobs.json",
-        "blobs.pending",
-    ]
-    .contains(&name)
-    {
-        return true;
+    let fixed = [
+        "state",
+        "terminal",
+        "recovery",
+        "pause",
+        "log-plan",
+        "inventory-index",
+        "close",
+        "blobs",
+    ];
+    if let Some((stem, "json" | "pending")) = name.rsplit_once('.') {
+        if fixed.contains(&stem) {
+            return true;
+        }
     }
     [
         "log-object-",

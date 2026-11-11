@@ -6,7 +6,6 @@ pub use cloud_backup_protocol::v2::blobs::BlobPath;
 pub mod factory;
 pub mod fold_db;
 pub mod mutation_manager;
-pub mod purge;
 pub mod query;
 
 pub use fold_db::FoldDB;

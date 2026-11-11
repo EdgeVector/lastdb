@@ -4,8 +4,8 @@ use super::bloom::{key_hash, put_filter};
 use super::codec::{corrupt, put_record, record_len};
 use super::footer::{put_refs, BlockRef, Footer, MergeSpace, Top, FOOTER_BYTES};
 use super::{
-    RunOptions, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
-    MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
+    INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES, MAX_TOP_BYTES,
+    RUN_SUFFIX, TOP_COUNTER,
 };
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::{encode_frame, FrameHeader};
@@ -16,39 +16,29 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-/// Summary of a finished run file.
+const BLOCK_BYTES: usize = 16 * 1024;
+const INDEX_BYTES: usize = 16 * 1024;
+const BLOOM_BITS_PER_KEY: u32 = 10;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunSummary {
-    /// Complete run file path.
-    pub path: PathBuf,
-    /// Run identifier selecting the derived block key.
-    pub run_id: Uuid,
-    /// Total records, tombstones included.
-    pub records: u64,
-    /// Tombstones among the records.
-    pub tombstones: u64,
-    /// Key and value bytes of records before compression.
-    pub record_bytes: u64,
-    /// Key bytes of tombstones.
-    pub tombstone_bytes: u64,
-    /// Encoded size of the run file.
-    pub file_bytes: u64,
-    /// Smallest key, or `None` for an empty run.
-    pub first_key: Option<Vec<u8>>,
-    /// Largest key, or `None` for an empty run.
-    pub last_key: Option<Vec<u8>>,
+pub(crate) struct RunSummary {
+    pub(crate) path: PathBuf,
+    pub(crate) run_id: Uuid,
+    pub(crate) records: u64,
+    pub(crate) tombstones: u64,
+    pub(crate) record_bytes: u64,
+    pub(crate) tombstone_bytes: u64,
+    pub(crate) file_bytes: u64,
+    pub(crate) first_key: Option<Vec<u8>>,
+    pub(crate) last_key: Option<Vec<u8>>,
 }
 
 pub(crate) struct PreparedRun {
     writer: RunWriter,
-    summary: RunSummary,
+    pub(crate) summary: RunSummary,
 }
 
 impl PreparedRun {
-    pub(crate) fn summary(&self) -> &RunSummary {
-        &self.summary
-    }
-
     pub(crate) fn finish(mut self) -> Result<RunSummary> {
         sync_dirty_file(&self.writer.file)?;
         let path = &self.summary.path;
@@ -56,20 +46,18 @@ impl PreparedRun {
         if let Some(space) = &self.writer.space {
             space.output(path);
         }
-        sync_directory(&File::open(&self.writer.dir)?)?;
+        sync_directory(&self.writer.dir)?;
         self.writer.finished = true;
         Ok(self.summary)
     }
 }
 
-/// Builds one run in a temporary file, then syncs and renames it to `<run id>.ldrun`.
-pub struct RunWriter {
+pub(crate) struct RunWriter {
     dir: PathBuf,
     tmp: PathBuf,
     file: File,
     data_key: [u8; 32],
     run_id: Uuid,
-    options: RunOptions,
     offset: u64,
     block: Vec<u8>,
     block_prev: Vec<u8>,
@@ -92,12 +80,7 @@ pub struct RunWriter {
 }
 
 impl RunWriter {
-    /// Starts a new run in `dir` with a fresh random run id.
-    pub fn create(dir: &Path, data_key: &[u8; 32], options: RunOptions) -> Result<Self> {
-        let sizes = 512..=MAX_RUN_VALUE_BYTES;
-        if !sizes.contains(&options.block_bytes) || !sizes.contains(&options.index_bytes) {
-            return Err(Error::Config("disk run: block sizes out of range".into()));
-        }
+    pub(crate) fn create(dir: &Path, data_key: &[u8; 32]) -> Result<Self> {
         let run_id = Uuid::new_v4();
         let tmp = dir.join(format!(".{run_id}.tmp"));
         let file = OpenOptions::new()
@@ -111,9 +94,8 @@ impl RunWriter {
             file,
             data_key: *data_key,
             run_id,
-            options,
             offset: 0,
-            block: Vec::with_capacity(options.block_bytes + 1024),
+            block: Vec::with_capacity(BLOCK_BYTES + 1024),
             block_prev: Vec::new(),
             block_first: Vec::new(),
             data_blocks: 0,
@@ -137,10 +119,9 @@ impl RunWriter {
     pub(crate) fn create_reserved(
         dir: &Path,
         data_key: &[u8; 32],
-        options: RunOptions,
         space: &MergeSpace,
     ) -> Result<Self> {
-        let mut writer = Self::create(dir, data_key, options)?;
+        let mut writer = Self::create(dir, data_key)?;
         writer.space = Some(space.clone());
         Ok(writer)
     }
@@ -149,8 +130,7 @@ impl RunWriter {
         self.offset + self.block.len() as u64
     }
 
-    /// Appends one record (`None` writes a tombstone). Keys must be strictly ascending.
-    pub fn push(&mut self, key: &[u8], value: Option<&[u8]>) -> Result<()> {
+    pub(crate) fn push(&mut self, key: &[u8], value: Option<&[u8]>) -> Result<()> {
         self.refuse_after_failure()?;
         if key.is_empty() || key.len() > MAX_RUN_KEY_BYTES {
             return Err(Error::Config("disk run: key size out of range".into()));
@@ -164,8 +144,7 @@ impl RunWriter {
             return Err(corrupt("keys pushed out of order"));
         }
         if !self.block.is_empty()
-            && self.block.len() + record_len(&self.block_prev, key, value)
-                > self.options.block_bytes
+            && self.block.len() + record_len(&self.block_prev, key, value) > BLOCK_BYTES
         {
             self.flush_block()?;
         }
@@ -192,38 +171,42 @@ impl RunWriter {
 
     fn refuse_after_failure(&self) -> Result<()> {
         if self.failed {
-            return Err(Error::WriteCapacity(
+            Err(Error::WriteCapacity(
                 "disk run: an earlier block write failed; start a new run".into(),
-            ));
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        if let Some(space) = &self.space {
+            space.admit_run(bytes.len() as u64)?;
+        }
+        self.file.write_all(bytes)?;
+        if let Some(space) = &self.space {
+            space.materialize(bytes.len() as u64)?;
         }
         Ok(())
     }
 
     fn write_frame(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
-        let written = self.write_frame_once(counter, payload);
+        let written = (|| {
+            let header = FrameHeader {
+                chunk_uuid: self.run_id,
+                shard: 0,
+                start_csn: 0,
+                counter,
+            };
+            let frame = encode_frame(&self.data_key, header, payload)?;
+            let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
+            self.write_bytes(&frame)?;
+            let offset = self.offset;
+            self.offset += frame.len() as u64;
+            Ok((offset, len))
+        })();
         self.failed |= written.is_err();
         written
-    }
-
-    fn write_frame_once(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
-        let header = FrameHeader {
-            chunk_uuid: self.run_id,
-            shard: 0,
-            start_csn: 0,
-            counter,
-        };
-        let frame = encode_frame(&self.data_key, header, payload)?;
-        let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
-        if let Some(space) = &self.space {
-            space.admit_run(u64::from(len))?;
-        }
-        self.file.write_all(&frame)?;
-        if let Some(space) = &self.space {
-            space.materialize(u64::from(len))?;
-        }
-        let offset = self.offset;
-        self.offset += frame.len() as u64;
-        Ok((offset, len))
     }
 
     fn flush_block(&mut self) -> Result<()> {
@@ -241,7 +224,7 @@ impl RunWriter {
             len,
         });
         self.data_blocks += 1;
-        if self.index_bytes >= self.options.index_bytes || self.index.len() >= MAX_INDEX_ENTRIES {
+        if self.index_bytes >= INDEX_BYTES || self.index.len() >= MAX_INDEX_ENTRIES {
             self.flush_index()?;
         }
         Ok(())
@@ -250,11 +233,7 @@ impl RunWriter {
     fn flush_index(&mut self) -> Result<()> {
         let mut payload = Vec::with_capacity(self.index_bytes + self.index_hashes.len() * 2);
         put_refs(&mut payload, &self.index);
-        put_filter(
-            &mut payload,
-            &self.index_hashes,
-            self.options.bloom_bits_per_key,
-        );
+        put_filter(&mut payload, &self.index_hashes, BLOOM_BITS_PER_KEY);
         let number = self.top.len() as u64;
         let (offset, len) = self.write_frame(INDEX_COUNTER_BASE + number, &payload)?;
         self.max_payload = self.max_payload.max(payload.len());
@@ -270,8 +249,7 @@ impl RunWriter {
         Ok(())
     }
 
-    /// Writes trailing blocks, syncs the file, and renames it into place.
-    pub fn finish(self) -> Result<RunSummary> {
+    pub(crate) fn finish(self) -> Result<RunSummary> {
         self.prepare_finish()?.finish()
     }
 
@@ -287,15 +265,16 @@ impl RunWriter {
             u32::try_from(self.max_payload).map_err(|_| corrupt("block over 4 GiB"))?;
         let data_blocks =
             u32::try_from(self.data_blocks).map_err(|_| corrupt("too many data blocks"))?;
+        let indexes = std::mem::take(&mut self.top);
+        let top_entries = indexes.len();
         let top = Top {
             records: self.records,
             data_blocks: self.data_blocks,
             max_payload: u64::from(max_payload),
-            indexes: std::mem::take(&mut self.top),
+            indexes,
             last_key: self.last_key.clone().unwrap_or_default(),
-        };
-        let top_entries = top.indexes.len();
-        let top = top.encode();
+        }
+        .encode();
         if top.len() > MAX_TOP_BYTES || top_entries > MAX_INDEX_ENTRIES {
             return Err(Error::WriteCapacity(
                 "disk run: top block over its read limit; write smaller runs".into(),
@@ -310,13 +289,7 @@ impl RunWriter {
             max_payload,
             data_blocks,
         };
-        if let Some(space) = &self.space {
-            space.admit_run(FOOTER_BYTES as u64)?;
-        }
-        self.file.write_all(&footer.encode())?;
-        if let Some(space) = &self.space {
-            space.materialize(FOOTER_BYTES as u64)?;
-        }
+        self.write_bytes(&footer.encode())?;
         let summary = RunSummary {
             path: self.dir.join(format!("{}{RUN_SUFFIX}", self.run_id)),
             run_id: self.run_id,

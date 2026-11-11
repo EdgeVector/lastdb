@@ -37,20 +37,14 @@ impl Store {
         home.join("data/cloud-share-backup-v2")
     }
     pub fn write_configuration<T: Serialize>(home: &Path, name: &str, value: &T) -> Result<()> {
-        let base = Self::base(home);
-        Self::write_configuration_at(&base, name, value)
+        Self::write_configuration_at(&Self::base(home), name, value)
     }
     pub fn write_configuration_at<T: Serialize>(base: &Path, name: &str, value: &T) -> Result<()> {
         directory(base)?;
         // Policy/disable uses the reserved control allowance, including while a
         // worker renames its separate checkpoints. No concurrent tree walk.
         let path = base.join(name);
-        let bytes = AtomicU64::new(
-            size(&path)?
-                .checked_add(size(&path.with_extension("pending"))?)
-                .ok_or(BackupError::Limit)?,
-        );
-        write(&path, value, &bytes)
+        write(&path, value, &AtomicU64::new(pair_size(&path)?))
     }
     pub fn active(home: &Path) -> Result<Option<Id>> {
         Self::active_at(&Self::base(home))
@@ -116,13 +110,8 @@ impl Store {
     /// return their bytes to the job's allowance. An absent file is removed.
     pub fn remove(&self, name: &str) -> Result<()> {
         let path = self.root.join(name);
-        let pending = path.with_extension("pending");
         let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
-        let freed = size(&path)?
-            .checked_add(size(&pending)?)
-            .ok_or(BackupError::Limit)?;
-        remove_owned(&pending)?;
-        remove_owned(&path)?;
+        let freed = remove_pair(&path)?;
         File::open(&self.root)?.sync_all()?;
         let used = self.bytes.load(Ordering::Relaxed);
         self.bytes
@@ -182,15 +171,9 @@ pub(super) fn close(home: &Path, id: &Id) -> Result<()> {
 
 pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
     let root = base.join("jobs").join(id.as_str());
-    let info = fs::symlink_metadata(&root)?;
-    if !info.is_dir() || info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
-        return Err(BackupError::Invalid);
-    }
+    owned_dir(&fs::symlink_metadata(&root)?)?;
     let path = root.join("close.json");
-    let previous = size(&path)?
-        .checked_add(size(&path.with_extension("pending"))?)
-        .ok_or(BackupError::Limit)?;
-    write(&path, id, &AtomicU64::new(previous))
+    write(&path, id, &AtomicU64::new(pair_size(&path)?))
 }
 
 pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
@@ -217,10 +200,9 @@ fn raw(path: &Path) -> Result<Option<Vec<u8>>> {
     private_file(&file.metadata()?)?;
     let mut bytes = Vec::new();
     file.take(MAX_JSON + 30).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_JSON + 29 {
-        return Err(BackupError::Limit);
-    }
-    Ok(Some(bytes))
+    (bytes.len() as u64 <= MAX_JSON + 29)
+        .then_some(Some(bytes))
+        .ok_or(BackupError::Limit)
 }
 
 fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
@@ -245,16 +227,7 @@ fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
     }
     let parent = path.parent().ok_or(BackupError::Disk)?;
     let pending = path.with_extension("pending");
-    let previous = size(path)?
-        .checked_add(size(&pending)?)
-        .ok_or(BackupError::Limit)?;
-    for file in [path, &pending] {
-        match fs::symlink_metadata(file) {
-            Ok(info) => private_file(&info)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
+    let previous = pair_size(path)?;
     let _space = laststore::space::reserve_space(
         parent,
         &laststore::space::SpacePolicy::default(),
@@ -293,13 +266,35 @@ pub(super) fn size(path: &Path) -> Result<u64> {
     }
 }
 
+fn pair_size(path: &Path) -> Result<u64> {
+    size(path)?
+        .checked_add(size(&path.with_extension("pending"))?)
+        .ok_or(BackupError::Limit)
+}
+
+pub(super) fn remove_pair(path: &Path) -> Result<u64> {
+    let freed = pair_size(path)?;
+    remove_owned(&path.with_extension("pending"))?;
+    remove_owned(path)?;
+    Ok(freed)
+}
+
 pub(super) fn remove_owned(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
-        Ok(info) => private_file(&info)?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Ok(info) => {
+            private_file(&info)?;
+            fs::remove_file(path)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    fs::remove_file(path)?;
+    Ok(())
+}
+
+fn owned_dir(info: &fs::Metadata) -> Result<()> {
+    if !info.is_dir() || info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
+        return Err(BackupError::Invalid);
+    }
     Ok(())
 }
 
@@ -320,11 +315,7 @@ fn directory(path: &Path) -> Result<()> {
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error.into()),
     }
-    let info = fs::symlink_metadata(path)?;
-    if !info.is_dir() || info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
-        return Err(BackupError::Invalid);
-    }
-    Ok(())
+    owned_dir(&fs::symlink_metadata(path)?)
 }
 
 fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
@@ -340,9 +331,7 @@ fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
         let path = entry?.path();
         let info = fs::symlink_metadata(&path)?;
         let extra = if info.is_dir() {
-            if info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
-                return Err(BackupError::Invalid);
-            }
+            owned_dir(&info)?;
             count(&path, depth + 1, entries)?
         } else {
             private_file(&info)?;

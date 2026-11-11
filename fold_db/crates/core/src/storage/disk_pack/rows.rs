@@ -1,8 +1,8 @@
 //! Bounded and yielding native prefix/range row scans.
 
-use super::physical::{PhysicalCursor, PhysicalRead};
+use super::physical::PhysicalRead;
 use super::*;
-use laststore::disk_run::home::RangeBounds;
+use laststore::disk_run::home::{RangeBounds, RunHashRange};
 use std::collections::VecDeque;
 
 pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
@@ -48,44 +48,25 @@ impl PackKvStore {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let prefix = std::str::from_utf8(prefix)
-            .map_err(|_| {
-                StorageError::InvalidOperation(
-                    "native metadata prefix requires its UTF-8 key codec".into(),
-                )
-            })?
-            .to_string();
+        let prefix = std::str::from_utf8(prefix).map_err(|_| {
+            StorageError::InvalidOperation(
+                "native metadata prefix requires its UTF-8 key codec".into(),
+            )
+        })?;
         if prefix.starts_with("b64:") {
             return Err(StorageError::InvalidOperation(
                 "reserved native ids require exact-key reads".into(),
             ));
         }
-        let runtime = Arc::clone(&self.runtime);
-        let context = read::ReadContext::current(&runtime).await?;
-        let pending = transaction::PendingBatch::current(&runtime);
-        let namespace = self.namespace.clone();
-        let observed = Arc::clone(&context);
-        let result = run_blocking(move || {
-            let collection = native_routing::collection_for_namespace(&namespace);
-            let end = text_upper(&prefix).map_or_else(|| vec![255], String::into_bytes);
-            let (rows, exhausted) = runtime.raw_rows(
-                &context,
-                collection,
-                prefix.as_bytes(),
-                &end,
-                limit,
-                pending.as_ref(),
-            )?;
-            finish_bounded_rows(
-                rows,
-                exhausted,
-                limit,
-                require_end,
-                "native prefix result requires a bounded continuation",
-            )
-        })
-        .await;
-        observed.remembered(result)
+        let end = text_upper(prefix).map_or_else(|| vec![255], String::into_bytes);
+        self.scan_bounded_rows(
+            prefix.as_bytes().to_vec(),
+            end,
+            limit,
+            require_end,
+            "native prefix result requires a bounded continuation",
+        )
+        .await
     }
 
     pub(super) async fn range_rows(
@@ -109,7 +90,24 @@ impl PackKvStore {
                 "native range requires UTF-8 ids or a metadata limit marker".into(),
             ));
         }
-        let (start, end) = (start.to_vec(), end.to_vec());
+        self.scan_bounded_rows(
+            start.to_vec(),
+            end.to_vec(),
+            limit,
+            require_end,
+            "native range requires a bounded continuation",
+        )
+        .await
+    }
+
+    async fn scan_bounded_rows(
+        &self,
+        start: Vec<u8>,
+        end: Vec<u8>,
+        limit: usize,
+        require_end: bool,
+        detail: &'static str,
+    ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
@@ -118,13 +116,7 @@ impl PackKvStore {
         let result = run_blocking(move || {
             let (rows, exhausted) =
                 runtime.raw_rows(&context, &collection, &start, &end, limit, pending.as_ref())?;
-            finish_bounded_rows(
-                rows,
-                exhausted,
-                limit,
-                require_end,
-                "native range requires a bounded continuation",
-            )
+            finish_bounded_rows(rows, exhausted, limit, require_end, detail)
         })
         .await;
         observed.remembered(result)
@@ -193,7 +185,7 @@ fn cursor<'a>(
     collection: &str,
     start: &[u8],
     end: &[u8],
-) -> StorageResult<PhysicalCursor<'a>> {
+) -> StorageResult<RunHashRange<'a>> {
     if let Ok(start_text) = std::str::from_utf8(start) {
         if let Some(at) = start_text.find('\0').filter(|at| *at > 0) {
             let prefix = &start_text[..at + 1];
@@ -271,7 +263,7 @@ impl PackRuntime {
                     disk.extend(page.records);
                 }
                 let use_overlay = match (overlay.peek(), disk.front()) {
-                    (Some(memory), Some(record)) => memory.key <= record.key,
+                    (Some(memory), Some((key, _))) => &memory.key <= key,
                     (Some(_), None) => true,
                     (None, _) => false,
                 };
@@ -283,20 +275,22 @@ impl PackRuntime {
                             memory.body.as_ref().map_or(0, Vec::len),
                         )
                         .map_err(map)?;
-                    if disk.front().is_some_and(|record| record.key == memory.key) {
+                    if disk.front().is_some_and(|(key, _)| *key == memory.key) {
                         disk.pop_front();
                     }
                     if let Some(body) = &memory.body {
                         out.push((memory.key.clone(), body.clone()));
                     }
                 } else if let Some(record) = disk.pop_front() {
-                    out.push((record.key, record.body));
+                    out.push(record);
                 } else if exhausted {
                     break;
                 }
             }
-            let complete = exhausted && disk.is_empty() && overlay.peek().is_none();
-            Ok((out, complete))
+            Ok((
+                out,
+                exhausted && disk.is_empty() && overlay.peek().is_none(),
+            ))
         })();
         context.remembered(result)
     }
@@ -336,15 +330,9 @@ impl PackRuntime {
                     }
                     Err(error) => return Err(map(error)),
                 };
-                out.extend(page.records.into_iter().map(|r| (r.key, r.body)));
-                if let Some(resume) = page.resume {
-                    let resume = String::from_utf8(resume).map_err(|_| {
-                        StorageError::InvalidOperation("range storage key is not UTF-8".into())
-                    })?;
-                    return Ok((out, Some(resume)));
-                }
-                if page.exhausted {
-                    return Ok((out, None));
+                out.extend(page.records);
+                if page.resume.is_some() || page.exhausted {
+                    return Ok((out, page.resume));
                 }
             }
         })();

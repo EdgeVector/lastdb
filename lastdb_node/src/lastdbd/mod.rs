@@ -4,7 +4,7 @@ pub(crate) mod serve;
 
 use std::fmt;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -166,16 +166,23 @@ pub(crate) fn init_tracing() -> Option<observability::layers::error::SentryGuard
     sentry_guard
 }
 
-pub(crate) type BackgroundTasks = (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>);
+pub(crate) type BackgroundTasks = (
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+);
 
 pub(crate) fn spawn_background(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     shutdown: &Arc<AtomicBool>,
     share: Option<lastdb_node::share_publication::AutomaticPublication>,
+    socket: &Path,
 ) -> Result<BackgroundTasks, String> {
     let _runtime_guard = runtime.enter();
     lastdb_node::byte_cloud_backup::register_blob_source(host);
+    let follow_saved_queries = share.is_none();
     let backup = if let Some(share) = share {
         share.spawn(Arc::clone(host), Arc::clone(shutdown))?
     } else {
@@ -195,25 +202,35 @@ pub(crate) fn spawn_background(
             }
         }
     });
+    // A publication-home daemon is not the owner of saved queries. The owner
+    // daemon follows source commits with the same durable-write watch.
+    let saved_queries = lastdb_node::jobs::saved_query::spawn(
+        Arc::clone(host),
+        socket.to_path_buf(),
+        Arc::clone(shutdown),
+        follow_saved_queries,
+    );
     Ok((
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
         backup,
         lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
+        saved_queries,
     ))
 }
 
 pub(crate) fn drain_background(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
-    (ttl_sweep_task, automatic_backup_task, received_shares_task): BackgroundTasks,
+    (ttl_sweep_task, automatic_backup_task, received_shares_task, saved_queries_task): BackgroundTasks,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
         let drain = async {
-            let (ttl_sweep, automatic, received_shares, byte_backup) = tokio::join!(
+            let (ttl_sweep, automatic, received_shares, saved_queries, byte_backup) = tokio::join!(
                 ttl_sweep_task,
                 automatic_backup_task,
                 received_shares_task,
+                saved_queries_task,
                 host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
@@ -221,6 +238,7 @@ pub(crate) fn drain_background(
                 ("ttl sweep", ttl_sweep),
                 ("automatic backup", automatic),
                 ("received shares", received_shares),
+                ("saved queries", saved_queries),
             ] {
                 if let Err(error) = result {
                     errors.push(format!("{name} task failed: {error}"));

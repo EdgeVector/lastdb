@@ -41,12 +41,6 @@ impl RunRestoreGuard {
         self.native.profile.native_root()
     }
 
-    /// The number of record files that the proof opened and checked against
-    /// their markers.
-    pub fn verified_records(&self) -> u64 {
-        0
-    }
-
     pub fn files(&self) -> impl Iterator<Item = &RunRestoreFile> {
         self.native.files.iter()
     }
@@ -130,7 +124,7 @@ impl MutationReplay {
     pub fn open(data: &Path, key: &[u8; 32], anchor: &LogAnchor) -> StorageResult<Self> {
         files::directory(data)?;
         files::require_root_members(data)?;
-        files::node_marker(data)?;
+        files::profile_version(data)?;
         let node = files::regular(&data.join(NODE_MARKER), true)?;
         node.try_lock()
             .map_err(|_| invalid("mutation replay node is owned"))?;
@@ -201,7 +195,6 @@ pub fn verify_replayed(
     let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(data, key))?;
     if native.profile.main.home_id != anchor.main_home
         || native.profile.main.frontier.get() != through.frontiers.main
-        || native.profile.cas.is_some()
     {
         return Err(invalid("mutation replay exact final frontier"));
     }
@@ -224,7 +217,6 @@ impl RunSnapshotReader {
         if native.profile.main.home_id != anchor.main_home
             || native.profile.main.frontier.get() != position.frontiers.main
             || position.epoch != anchor.epoch
-            || native.profile.cas.is_some()
         {
             return Err(invalid("cached mutation replay predecessor"));
         }
@@ -351,6 +343,17 @@ pub(in crate::storage::disk_backup::run_restore) fn reserve_paired_metadata(
 ) -> StorageResult<()> {
     main.reserve_metadata(shared).map_err(map)?;
     cas.reserve_metadata(shared).map_err(map)
+}
+
+pub(in crate::storage::disk_backup::run_restore) fn fork_bounded(
+    read: &RunRead,
+    bytes: u64,
+    keys: u64,
+) -> StorageResult<RunRead> {
+    let mut budget = read_budget();
+    budget.bytes = bytes;
+    budget.keys = keys;
+    read.fork_bounded(budget).map_err(map)
 }
 
 pub(in crate::storage::disk_backup::run_restore) fn read_budget() -> ReadBudget {

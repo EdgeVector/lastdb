@@ -4,16 +4,13 @@ mod footer;
 pub mod home;
 mod merge;
 mod reader;
-mod reader_diagnostic;
 mod reader_open;
 mod writer;
 
 pub(crate) use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
-pub use merge::{ReaderRef, RunRange};
-pub(crate) use reader::MetadataMemo;
-pub use reader::RunReader;
-pub(crate) use writer::PreparedRun;
-pub use writer::{RunSummary, RunWriter};
+pub(crate) use reader::{MetadataMemo, RunReader};
+pub(crate) use reader_open::SummaryCursor;
+pub(crate) use writer::{PreparedRun, RunSummary, RunWriter};
 
 pub(crate) mod space {
     pub(crate) use super::footer::MergeSpace;
@@ -47,27 +44,6 @@ impl Found {
     }
 }
 
-/// Block sizes for a new run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RunOptions {
-    /// Target decoded size of a data block.
-    pub block_bytes: usize,
-    /// Target decoded size of the entries in an index block.
-    pub index_bytes: usize,
-    /// Bloom filter bits for each key. Zero writes no filter.
-    pub bloom_bits_per_key: u32,
-}
-
-impl Default for RunOptions {
-    fn default() -> Self {
-        Self {
-            block_bytes: 16 * 1024,
-            index_bytes: 16 * 1024,
-            bloom_bits_per_key: 10,
-        }
-    }
-}
-
 pub(crate) const INDEX_COUNTER_BASE: u64 = 1 << 62;
 pub(crate) const TOP_COUNTER: u64 = 1 << 63;
 
@@ -80,9 +56,8 @@ pub(crate) mod bloom {
 
     pub(crate) fn key_hash(key: &[u8]) -> u64 {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in key {
-            h ^= u64::from(*byte);
-            h = h.wrapping_mul(0x0100_0000_01b3);
+        for &byte in key {
+            h = (h ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
         }
         mix(h)
     }
@@ -110,14 +85,13 @@ pub(crate) mod bloom {
         put_varint(out, u64::from(PROBES));
         let start = out.len();
         out.resize(start + bytes, 0);
-        if bytes == 0 {
-            return;
-        }
-        let bits = (bytes * 8) as u64;
-        let filter = &mut out[start..];
-        for hash in hashes {
-            for bit in probes(*hash, bits) {
-                filter[(bit / 8) as usize] |= 1 << (bit % 8);
+        if bytes > 0 {
+            let bits = (bytes * 8) as u64;
+            let filter = &mut out[start..];
+            for &hash in hashes {
+                for bit in probes(hash, bits) {
+                    filter[(bit / 8) as usize] |= 1 << (bit % 8);
+                }
             }
         }
     }
@@ -138,11 +112,10 @@ pub(crate) mod bloom {
         }
 
         pub(crate) fn may_hold(&self, hash: u64) -> bool {
-            if self.bits.is_empty() {
-                return true;
+            self.bits.is_empty() || {
+                let bits = (self.bits.len() * 8) as u64;
+                probes(hash, bits).all(|bit| self.bits[(bit / 8) as usize] & (1 << (bit % 8)) != 0)
             }
-            let bits = (self.bits.len() * 8) as u64;
-            probes(hash, bits).all(|bit| self.bits[(bit / 8) as usize] & (1 << (bit % 8)) != 0)
         }
     }
 }
@@ -184,8 +157,7 @@ pub(crate) mod codec {
     }
 
     pub(crate) fn get_len(bytes: &[u8], at: &mut usize, limit: usize) -> Result<usize> {
-        let value = get_varint(bytes, at)?;
-        usize::try_from(value)
+        usize::try_from(get_varint(bytes, at)?)
             .ok()
             .filter(|n| *n <= limit)
             .ok_or_else(|| corrupt("length over its limit"))
@@ -224,21 +196,21 @@ pub(crate) mod codec {
     pub(crate) fn record_len(prev: &[u8], key: &[u8], value: Option<&[u8]>) -> usize {
         let shared = shared_prefix(prev, key);
         let suffix = key.len() - shared;
-        let tag = value.map_or(0, |v| v.len() as u64 + 1);
+        let vlen = value.map_or(0, <[u8]>::len);
         varint_len(shared as u64)
             + varint_len(suffix as u64)
             + suffix
-            + varint_len(tag)
-            + value.map_or(0, <[u8]>::len)
+            + varint_len(value.map_or(0, |v| v.len() as u64 + 1))
+            + vlen
     }
 
     pub(crate) fn put_record(out: &mut Vec<u8>, prev: &[u8], key: &[u8], value: Option<&[u8]>) {
         put_key(out, prev, key);
         match value {
             None => put_varint(out, 0),
-            Some(value) => {
-                put_varint(out, value.len() as u64 + 1);
-                out.extend_from_slice(value);
+            Some(v) => {
+                put_varint(out, v.len() as u64 + 1);
+                out.extend_from_slice(v);
             }
         }
     }
@@ -246,17 +218,13 @@ pub(crate) mod codec {
     pub(crate) type BlockRecords = Vec<(Vec<u8>, Found)>;
 
     pub(crate) fn decode_block(payload: &[u8]) -> Result<BlockRecords> {
-        let mut records = Vec::new();
-        let mut at = 0;
-        let mut key = Vec::new();
+        let (mut records, mut at, mut key) = (Vec::new(), 0, Vec::new());
         while at < payload.len() {
             get_key(payload, &mut at, &mut key)?;
-            let ascending = records
+            if !records
                 .last()
-                .map_or(!key.is_empty(), |(before, _): &(Vec<u8>, Found)| {
-                    *before < key
-                });
-            if !ascending {
+                .map_or(!key.is_empty(), |(b, _): &(Vec<u8>, Found)| *b < key)
+            {
                 return Err(corrupt("block keys are not strictly ascending"));
             }
             let tag = get_len(payload, &mut at, MAX_RUN_VALUE_BYTES + 1)?;

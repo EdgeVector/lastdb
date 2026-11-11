@@ -1,6 +1,6 @@
 use super::*;
 use futures::StreamExt;
-use sha2::{Digest as _, Sha256};
+use sha2::Sha256;
 use std::future::Future;
 use std::io;
 use std::pin::Pin;

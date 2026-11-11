@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 const APP_ID: &str = "lastdb-files";
 
 pub(super) fn add(home: &Path, input: &Path) -> Result<(), String> {
+    lastdb_node::share_publication::require_files_publication(home)?;
     let socket = publication_socket(home)?;
     let edit = share_write_gate::begin_edit(home)?;
     let result = add_file(&socket, input);

@@ -12,9 +12,11 @@ import { TransportError } from './errors.js';
 import { udsTransport, type Transport } from './transport.js';
 
 /** Options for {@link ownerClient}. */
-export interface OwnerClientOptions {
+export interface OwnerClientOptions<DatabaseId extends string | undefined = undefined> {
   /** Canonical app id this client acts as. */
   appId: string;
+  /** Database ID or local alias. Omit for the personal default. */
+  databaseId?: DatabaseId;
   /**
    * Control-socket path. The file must exist. An owner-context app passes the
    * path it already resolved (`LASTDB_SOCKET_PATH`, `FOLDDB_SOCKET_PATH`, or
@@ -33,7 +35,7 @@ export interface OwnerClientOptions {
   timeoutMs?: number;
 }
 
-function resolveOwnerTransport(options: OwnerClientOptions): Transport {
+function resolveOwnerTransport(options: OwnerClientOptions<string | undefined>): Transport {
   const { socketPath, defaultHeaders, timeoutMs } = options;
   if (socketPath.length > 0 && existsSync(socketPath)) {
     return udsTransport(socketPath, defaultHeaders ?? {}, { timeoutMs });
@@ -49,7 +51,11 @@ function resolveOwnerTransport(options: OwnerClientOptions): Transport {
  *
  * The socket file must exist.
  */
-export function ownerClient(options: OwnerClientOptions): LastDbClient {
+export function ownerClient<DatabaseId extends string | undefined = undefined>(
+  options: OwnerClientOptions<DatabaseId>,
+): LastDbClient<DatabaseId> {
   const transport = resolveOwnerTransport(options);
-  return new LastDbClient(options.appId, transport);
+  return new LastDbClient(options.appId, transport, {
+    databaseId: options.databaseId,
+  });
 }

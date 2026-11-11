@@ -1,4 +1,5 @@
 use crate::Namespace;
+use database_policy::{admit_namespace, NamespaceClass, SpecBinding};
 
 /// Whether a namespace may travel in a shareable database.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,24 +10,67 @@ pub enum NamespaceKind {
     AppPrivate,
 }
 
-/// Interim namespaces a shareable database accepts.
+/// Union of provisioned share namespaces.
 ///
-/// This is the only list. A namespace that is not here is app-private.
-/// Named databases reserve official names later. The old schema-prefix
-/// reservation plan is superseded.
+/// This is not per-database admission. A named database passes
+/// [`BoundPolicy`] built from its registry spec binding. `social-graph`
+/// stays personal-only. `lastdb-files` is the explicit file publication.
+/// Contributor rules carry the caller's schema. Cloud share proofs publish
+/// under a generated `cloud-proof-<database>` namespace.
+/// `CloudProofLocalOnly` stays on the device. A generated name is not a
+/// stable entry.
+pub use database_policy::SHAREABLE_NAMESPACES;
+
+/// Namespace admission for one database spec binding.
 ///
-/// - `lastdb-files` — share files publishes `FileCatalog` and `FileChunk`
-///   (`lastdb_node/src/bin/lastdb/share_cmds/files/mod.rs`, `publisher.rs`).
-///   `scripts/operations/record_share_files.py` writes the same schemas.
-/// - `social` — lastdb-std 1.0, shareable (`spec/index.json`,
-///   `spec/README.md`, `spec/social/`).
-///
-/// `social-graph` stays personal-only (`spec/README.md`). Contributor rules
-/// carry the caller's schema.
-/// Cloud share proofs publish under a generated `cloud-proof-<database>`
-/// namespace. `CloudProofLocalOnly` stays on the device. A generated name
-/// is not a stable entry.
-pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social"];
+/// [`BoundPolicy::absent`] classifies every namespace as app-private, so a
+/// shareable log rejects the append until a binding is present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BoundPolicy {
+    binding: Option<SpecBinding>,
+}
+
+impl BoundPolicy {
+    /// No spec binding. Share appends fail closed.
+    pub fn absent() -> Self {
+        Self { binding: None }
+    }
+
+    /// Admit namespaces through this catalog binding.
+    ///
+    /// `binding` must already be [`SpecBinding::admitted`]. The registry row,
+    /// the publication marker, and this policy share that value.
+    pub fn new(binding: SpecBinding) -> Self {
+        Self {
+            binding: Some(binding),
+        }
+    }
+
+    /// Build the policy from the stored `{ "name", "version" }` object.
+    ///
+    /// This is the same admission as [`SpecBinding::admitted`]. A missing spec
+    /// is [`Self::absent`], not this call, and is not `lastdb-files`.
+    pub fn admitted(name: &str, version: u32) -> Result<Self, database_policy::PolicyError> {
+        Ok(Self::new(SpecBinding::admitted(name, version)?))
+    }
+
+    /// Borrow the binding, when one was supplied.
+    pub fn binding(&self) -> Option<&SpecBinding> {
+        self.binding.as_ref()
+    }
+}
+
+impl NamespacePolicy for BoundPolicy {
+    fn classify(&self, namespace: &Namespace) -> NamespaceKind {
+        if admit_namespace(self.binding.as_ref(), namespace.as_str())
+            == Ok(NamespaceClass::Official)
+        {
+            NamespaceKind::Official
+        } else {
+            NamespaceKind::AppPrivate
+        }
+    }
+}
 
 /// Classify with [`SHAREABLE_NAMESPACES`].
 ///

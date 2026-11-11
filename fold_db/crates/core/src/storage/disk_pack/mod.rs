@@ -16,16 +16,12 @@ pub(in crate::storage) use kv::native_routing;
 pub(in crate::storage) mod physical;
 mod queue;
 mod read;
-mod read_raw;
-pub(crate) mod record_warm;
-#[cfg(test)]
-mod retired_format;
 mod rows;
 mod run_commit;
 pub(in crate::storage) mod run_node;
 pub(crate) mod transaction;
 mod view;
-mod write;
+pub(crate) use view::record_warm;
 
 pub use crate::storage::disk_backup::byte_backup;
 pub use crate::storage::disk_backup::mutation_log;
@@ -36,13 +32,13 @@ pub use crate::storage::disk_cleanup::{
 };
 pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
 pub use physical::CAS_COLLECTION;
+pub use queue::NativeFlushReceipt;
+pub(in crate::storage) use queue::WriteGuard;
 pub use read::PackReadScope;
 pub use run_node::{CAS_DIR, RUN_DIR};
 pub use view::{
     NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeStorageDiagnostics,
 };
-pub use write::NativeFlushReceipt;
-pub(in crate::storage) use write::WriteGuard;
 
 use crate::storage::format::{NAMESPACES, REGISTRY};
 
@@ -113,6 +109,10 @@ pub struct PackRuntime {
 }
 
 impl PackRuntime {
+    pub(crate) fn batch_operation_limit(&self) -> usize {
+        physical::V2_BATCH_OPERATIONS
+    }
+
     pub(crate) fn fresh_initialization_pending(&self) -> bool {
         self.initializing.load(Ordering::Acquire)
     }
@@ -126,7 +126,10 @@ impl PackRuntime {
         Ok(())
     }
 
-    fn validate_initialization_write(&self, operations: &[HomeMutation]) -> StorageResult<()> {
+    pub(in crate::storage::disk_pack) fn validate_initialization_write(
+        &self,
+        operations: &[HomeMutation],
+    ) -> StorageResult<()> {
         if !self.fresh_initialization_pending() {
             return Ok(());
         }
@@ -166,6 +169,43 @@ impl PackRuntime {
                 runtime.initializing.store(false, Ordering::Release);
             }
             Ok(())
+        })
+        .await
+    }
+
+    pub(in crate::storage::disk_pack) async fn ensure_namespace(
+        self: &Arc<Self>,
+        name: &str,
+    ) -> StorageResult<()> {
+        let key = format!("{NAMESPACES}{name}");
+        let context = read::ReadContext::current(self).await?;
+        let pending = transaction::PendingBatch::current(self);
+        if self
+            .raw_get(&context, REGISTRY, &key, pending.as_ref())?
+            .is_none()
+        {
+            self.mutate(vec![HomeMutation {
+                collection: REGISTRY.into(),
+                key,
+                body: Some(vec![1]),
+            }])
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub(in crate::storage::disk_pack) async fn mutate(
+        self: &Arc<Self>,
+        operations: Vec<HomeMutation>,
+    ) -> StorageResult<()> {
+        if let Some(pending) = transaction::PendingBatch::current(self) {
+            return pending.stage(operations);
+        }
+        let gate = self.enter_write().await;
+        let runtime = Arc::clone(self);
+        run_blocking(move || {
+            let _gate = gate;
+            runtime.commit(operations)
         })
         .await
     }
@@ -259,7 +299,7 @@ impl PackNamespacedStore {
                 "namespace exceeds format limit or uses the reserved registry identity".into(),
             ));
         }
-        if !read::ReadContext::active(&self.runtime) {
+        if read::ReadContext::captured(&self.runtime).is_none() {
             self.runtime.ensure_namespace(name).await?;
         }
         Ok(PackKvStore {

@@ -130,7 +130,6 @@ impl BackupError {
                     _ => P::Refused,
                 },
                 BackupTransportError::Source | BackupTransportError::Task => P::Source,
-                BackupTransportError::UnsupportedFileScope => P::Unsupported,
                 BackupTransportError::Integrity(_) | BackupTransportError::InvalidResponse(_) => {
                     P::Identity
                 }

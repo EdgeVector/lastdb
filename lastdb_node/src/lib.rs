@@ -22,6 +22,8 @@ pub mod log_sync;
 pub mod offline_home;
 pub mod profile;
 pub mod registered_share;
+pub mod saved_query;
+pub mod saved_query_run;
 pub mod seal;
 pub mod service_home;
 pub mod share_cache;
@@ -29,6 +31,7 @@ pub mod share_contribution;
 pub mod share_file;
 pub mod share_invitation;
 pub mod share_publication;
+pub mod share_spec;
 pub mod shutdown_receipt;
 pub mod version;
 

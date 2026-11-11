@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 use crate::storage::current_keys::families::{record_file_path, record_file_uploaded_path};
 use crate::storage::disk_pack::{transaction, PackKvStore, PackNamespacedStore, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::format::metadata::{FileReferenceChange, Metadata};
+use crate::storage::format::metadata::Metadata;
 use crate::storage::format::read::ReadStore;
 use crate::storage::local_file_ref::{Remember, SidecarPlan};
 use crate::storage::KvMutation;
@@ -20,40 +20,14 @@ pub(in crate::storage::format::records) struct FileChange {
     pub(in crate::storage::format::records) write: Option<FileWrite>,
 }
 
-impl FileChange {
-    fn references(
-        &self,
-        before: Option<&StoredRecord>,
-        references: &mut BTreeMap<String, FileReferenceChange>,
-    ) -> Result<(), SchemaError> {
-        let previous = before.and_then(|record| record.file_version.as_ref());
-        let next = self.after.file_version.as_ref();
-        if previous != next {
-            if let Some(version) = previous {
-                let path = record_file_path(self.key.as_str(), version)?;
-                let change = references.entry(path).or_default();
-                change.live = Some(false);
-                change.local_detach = true;
-            }
-        }
-        if let Some(version) = next.filter(|_| previous != next) {
-            let path = record_file_path(self.key.as_str(), version)?;
-            let change = references.entry(path).or_default();
-            change.live = Some(true);
-        }
-        Ok(())
-    }
-}
-
 fn encode_file_change(
     change: FileChange,
     before: Option<&StoredRecord>,
     issuer: &FileWriteIssuer,
     content_key: &[u8; 32],
+    references: &mut BTreeMap<String, bool>,
 ) -> Result<(Vec<KvMutation>, SidecarPlan), SchemaError> {
-    let FileChange {
-        key, after, write, ..
-    } = change;
+    let FileChange { key, after, write } = change;
     let previous = before.and_then(|record| record.file_version.as_ref());
     let next = after.file_version.as_ref();
     if previous == next {
@@ -67,9 +41,13 @@ fn encode_file_change(
     let mut rows = Vec::new();
     let mut plan = SidecarPlan::default();
     if let Some(version) = previous {
-        plan.forget.push(record_file_path(key.as_str(), version)?);
+        let path = record_file_path(key.as_str(), version)?;
+        references.insert(path.clone(), false);
+        plan.forget.push(path);
     }
     if let Some(version) = next {
+        let path = record_file_path(key.as_str(), version)?;
+        references.insert(path.clone(), true);
         let marker = after
             .file
             .as_ref()
@@ -88,10 +66,7 @@ fn encode_file_change(
                     SchemaError::InvalidData("file payload belongs to another format writer".into())
                 })?;
                 super::file_crypto::require_row(content_key, &marker, &row)?;
-                rows.push(KvMutation::put(
-                    record_file_path(key.as_str(), version)?.into_bytes(),
-                    row,
-                ));
+                rows.push(KvMutation::put(path.into_bytes(), row));
             }
             Some(FileWrite::LocalPath(local)) => {
                 if local.marker() != &marker {
@@ -99,14 +74,14 @@ fn encode_file_change(
                         "local file reference differs from its record marker".into(),
                     ));
                 }
-                let path = issuer.admit_local(&local).ok_or_else(|| {
+                let local_path = issuer.admit_local(&local).ok_or_else(|| {
                     SchemaError::InvalidData(
                         "local file reference belongs to another format writer".into(),
                     )
                 })?;
                 plan.remember.push(Remember {
-                    cas_key: record_file_path(key.as_str(), version)?,
-                    path: path.to_path_buf(),
+                    cas_key: path,
+                    path: local_path.to_path_buf(),
                     sha256: marker.sha256.clone(),
                     size_bytes: marker.size_bytes,
                 });
@@ -183,29 +158,24 @@ impl RecordFormat {
         let written = encoded.stage(&self.main_store, &self.runtime).await?;
         self.stage_files(files).await?;
         self.runtime.stage_written_records(written);
-        self.schedule_local_file_refs(local_refs)?;
-        Ok(())
-    }
-
-    fn schedule_local_file_refs(&self, plan: SidecarPlan) -> Result<(), SchemaError> {
-        if plan.is_empty() {
-            return Ok(());
-        }
-        let runtime = Arc::clone(&self.runtime);
-        crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
-            let result = crate::storage::disk_pack::run_blocking(move || {
-                crate::storage::local_file_ref::apply(&runtime, plan)
+        if !local_refs.is_empty() {
+            let runtime = Arc::clone(&self.runtime);
+            transaction::after_commit(&self.runtime, async move {
+                if let Err(error) = crate::storage::disk_pack::run_blocking(move || {
+                    crate::storage::local_file_ref::apply(&runtime, local_refs)
+                })
+                .await
+                {
+                    tracing::error!(
+                        %error,
+                        "local file reference catalog update failed after commit"
+                    );
+                }
+                Ok(())
             })
-            .await;
-            if let Err(error) = result {
-                tracing::error!(
-                    %error,
-                    "local file reference catalog update failed after commit"
-                );
-            }
-            Ok(())
-        })
-        .map_err(SchemaError::from)
+            .map_err(SchemaError::from)?;
+        }
+        Ok(())
     }
 
     async fn encode_files(
@@ -234,12 +204,12 @@ impl RecordFormat {
                 .map(|bytes| StoredRecord::decode(&bytes))
                 .transpose()
                 .map_err(super::record_value_error)?;
-            change.references(before.as_ref(), &mut references)?;
             let (encoded, plan) = encode_file_change(
                 change,
                 before.as_ref(),
                 &self.file_issuer,
                 &self.content_key,
+                &mut references,
             )?;
             rows.extend(encoded);
             local_refs.forget.extend(plan.forget);

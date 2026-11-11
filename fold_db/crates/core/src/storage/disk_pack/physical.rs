@@ -1,28 +1,20 @@
 //! The physical home under one node store: the disk format v2 run homes.
-//!
-//! A node keeps the CAS files (`cas_blobs`) in their own run home so backups
-//! can route them separately from the rest of the data.
 
 use super::*;
-use laststore::disk_run::home::RangeBounds;
-use laststore::disk_run::home::{RunHashRange, RunHome, RunRead, RunRoot};
+pub(in crate::storage) use laststore::disk_run::home::RunReadCosts as PhysicalCosts;
+use laststore::disk_run::home::{RangeBounds, RunHashRange, RunHome, RunRead, RunRoot};
 
 pub use crate::storage::format::CAS_COLLECTION;
 
-/// Most operations in one v2 commit.
 pub(in crate::storage) const V2_BATCH_OPERATIONS: usize = 16_384;
 
 /// The v2 run homes (main and CAS) and their background merge thread.
 pub(in crate::storage) struct V2Home {
     pub(in crate::storage) home: Arc<RunHome>,
-    /// The CAS files only.
     pub(in crate::storage) cas: Arc<RunHome>,
-    /// Set while a merge thread runs; at most one runs at a time.
     pub(in crate::storage) merging: Arc<AtomicBool>,
-    /// Set when the node store closes; the thread stops after its step.
     pub(in crate::storage) stop: Arc<AtomicBool>,
     pub(in crate::storage) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// After a failed merge, no new merge thread starts before this time.
     pub(in crate::storage) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
     pub(in crate::storage) cas_delete_recovery: Option<super::cas_delete::CasDeleteRecovery>,
 }
@@ -40,7 +32,6 @@ impl V2Home {
         }
     }
 
-    /// The roots that reads use now.
     pub(in crate::storage) fn current_root(&self) -> V2Root {
         V2Root {
             main: self.home.current_root(),
@@ -80,28 +71,17 @@ pub(in crate::storage) struct V2Read {
     pub(in crate::storage) cas: RunRead,
 }
 
-/// The costs that the node store reads from a read call.
-#[derive(Clone, Copy)]
-pub(in crate::storage) struct PhysicalCosts {
-    pub(in crate::storage) examined_keys: u64,
-    pub(in crate::storage) budget_bytes: u64,
-}
-
-/// The limits of a new read call.
 #[derive(Clone, Copy)]
 pub(in crate::storage) enum ReadMode {
     Ordinary(ReadBudget),
     WritePreparation,
 }
 
-/// One published state of the physical home.
 pub(in crate::storage) type PhysicalRoot = V2Root;
-
-/// One read call against one held root.
 pub(in crate::storage) type PhysicalRead = V2Read;
 
 impl V2Read {
-    pub(in crate::storage::disk_pack) fn legacy_home(&mut self, collection: &str) -> &mut RunRead {
+    fn home_for(&mut self, collection: &str) -> &mut RunRead {
         if collection == CAS_COLLECTION {
             &mut self.cas
         } else {
@@ -117,8 +97,7 @@ impl V2Read {
         if !coordinates.iter().any(|(c, _)| c == CAS_COLLECTION) {
             return self.main.get_many(coordinates);
         }
-        let mut records = Vec::new();
-        let mut files = Vec::new();
+        let (mut records, mut files) = (Vec::new(), Vec::new());
         for (slot, (collection, _)) in coordinates.iter().enumerate() {
             if collection == CAS_COLLECTION {
                 files.push(slot);
@@ -129,19 +108,14 @@ impl V2Read {
         let mut out: Vec<Option<laststore::Result<Option<Vec<u8>>>>> =
             (0..coordinates.len()).map(|_| None).collect();
         for (slots, read) in [(records, &mut self.main), (files, &mut self.cas)] {
-            if slots.is_empty() {
-                continue;
-            }
-            let wanted: Vec<_> = slots
-                .iter()
-                .map(|slot| coordinates[*slot].clone())
-                .collect();
-            for (slot, found) in slots.into_iter().zip(read.get_many(&wanted)?) {
-                out[slot] = Some(found);
+            if !slots.is_empty() {
+                let wanted: Vec<_> = slots.iter().map(|&s| coordinates[s].clone()).collect();
+                for (slot, found) in slots.into_iter().zip(read.get_many(&wanted)?) {
+                    out[slot] = Some(found);
+                }
             }
         }
-        let costs = self.costs();
-        let limit = self.main.budget();
+        let (costs, limit) = (self.costs(), self.main.budget());
         if costs.examined_keys > limit.keys || costs.budget_bytes > limit.bytes {
             return Err(laststore::Error::ReadBudgetExceeded);
         }
@@ -176,10 +150,9 @@ impl V2Read {
         collection: &str,
         prefix: &str,
         bounds: RangeBounds,
-    ) -> laststore::Result<PhysicalCursor<'_>> {
-        self.legacy_home(collection)
+    ) -> laststore::Result<RunHashRange<'_>> {
+        self.home_for(collection)
             .hash_range(collection, prefix, bounds)
-            .map(PhysicalCursor)
     }
 
     pub(in crate::storage) fn administrative_range(
@@ -187,71 +160,13 @@ impl V2Read {
         collection: &str,
         start: &[u8],
         end: &[u8],
-    ) -> laststore::Result<PhysicalCursor<'_>> {
-        self.legacy_home(collection)
+    ) -> laststore::Result<RunHashRange<'_>> {
+        self.home_for(collection)
             .administrative_range(collection, start, end)
-            .map(PhysicalCursor)
-    }
-}
-
-/// One live record of a range page.
-pub(in crate::storage) struct PhysicalRecord {
-    pub(in crate::storage) key: String,
-    pub(in crate::storage) body: Vec<u8>,
-}
-
-pub(in crate::storage) struct PhysicalPage {
-    pub(in crate::storage) records: Vec<PhysicalRecord>,
-    pub(in crate::storage) exhausted: bool,
-    pub(in crate::storage) resume: Option<Vec<u8>>,
-}
-
-/// An ordered range under one held read call.
-pub(in crate::storage) struct PhysicalCursor<'a>(RunHashRange<'a>);
-
-impl PhysicalCursor<'_> {
-    pub(in crate::storage) fn account_memory_record(
-        &mut self,
-        key_bytes: usize,
-        body_bytes: usize,
-    ) -> laststore::Result<()> {
-        self.0.account_memory_record(key_bytes, body_bytes)
-    }
-
-    pub(in crate::storage) fn next_page(
-        &mut self,
-        limit: usize,
-    ) -> laststore::Result<PhysicalPage> {
-        self.0.next_page(limit).map(page)
-    }
-
-    pub(in crate::storage) fn next_page_yielding(
-        &mut self,
-        limit: usize,
-        held_rows: usize,
-        keys_per_row: usize,
-    ) -> laststore::Result<PhysicalPage> {
-        self.0
-            .next_page_yielding(limit, held_rows, keys_per_row)
-            .map(page)
-    }
-}
-
-fn page(page: laststore::disk_run::home::RunRangePage) -> PhysicalPage {
-    PhysicalPage {
-        records: page
-            .records
-            .into_iter()
-            .map(|(key, body)| PhysicalRecord { key, body })
-            .collect(),
-        exhausted: page.exhausted,
-        resume: page.resume.map(String::into_bytes),
     }
 }
 
 impl PackRuntime {
-    /// One read call against `root`. A write preparation call permits 40,000
-    /// examined keys with the ordinary node limits for the rest.
     pub(in crate::storage) fn physical_read(
         &self,
         root: &PhysicalRoot,
@@ -272,5 +187,134 @@ impl PackRuntime {
 
     pub(in crate::storage) fn home_identity(&self) -> uuid::Uuid {
         self.physical.identity()
+    }
+
+    pub(crate) fn record_read_stage(&self, stage: &'static str, items: usize) {
+        if let Some(context) = read::ReadContext::captured(self) {
+            context.record_stage(stage, items);
+        }
+    }
+
+    pub(in crate::storage::disk_pack) fn raw_get(
+        &self,
+        context: &Arc<read::ReadContext>,
+        collection: &str,
+        key: &str,
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Option<Vec<u8>>> {
+        Ok(self
+            .raw_many(
+                context,
+                &[(collection.to_string(), key.to_string())],
+                pending,
+            )?
+            .pop()
+            .expect("one native coordinate"))
+    }
+
+    pub(in crate::storage::disk_pack) fn raw_many(
+        &self,
+        context: &Arc<read::ReadContext>,
+        coordinates: &[(String, String)],
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+        trace_families(coordinates);
+        let result = (|| {
+            context.validate_owner(pending)?;
+            let maximum = if context.owns_write(pending) {
+                40_000
+            } else {
+                10_000
+            };
+            if coordinates.len() > maximum {
+                return Err(StorageError::ReadResourceLimit {
+                    detail: format!("native batch exceeds {maximum} keys"),
+                });
+            }
+            let mut call = context
+                .call
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            context.require_room(&call, coordinates.len() as u64, 0)?;
+            let mut out = Vec::with_capacity(coordinates.len());
+            for chunk in coordinates.chunks(10_000) {
+                out.extend(self.read_chunk(context, &mut call, chunk, pending)?);
+            }
+            Ok(out)
+        })();
+        context.remembered(result)
+    }
+
+    fn read_chunk(
+        &self,
+        context: &read::ReadContext,
+        call: &mut PhysicalRead,
+        coordinates: &[(String, String)],
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+        let (mut out, mut misses) = (vec![None; coordinates.len()], Vec::new());
+        for (slot, coordinate) in coordinates.iter().enumerate() {
+            let (collection, key) = coordinate;
+            if let Some(record) = context.overlay_record(pending, collection, key) {
+                context.account_memory_record(
+                    call,
+                    key.len(),
+                    record.body.as_ref().map_or(0, Vec::len),
+                )?;
+                out[slot] = record.body.clone();
+            } else if let Some(value) = context.reuse_disk_value(call, coordinate)? {
+                out[slot] = value;
+            } else {
+                misses.push(slot);
+            }
+        }
+        let addresses: Vec<_> = misses.iter().map(|&s| coordinates[s].clone()).collect();
+        let results = call.get_many(&addresses).map_err(|e| call_error(e, call))?;
+        for (slot, result) in misses.into_iter().zip(results) {
+            let value = result.map_err(|e| call_error(e, call))?;
+            context.remember_disk_value(&coordinates[slot], value.as_deref());
+            out[slot] = value;
+        }
+        Ok(out)
+    }
+}
+
+pub(super) fn call_error(error: laststore::Error, call: &PhysicalRead) -> StorageError {
+    if !matches!(error, laststore::Error::ReadBudgetExceeded) {
+        return map(error);
+    }
+    let (costs, limits) = (call.costs(), call.budget());
+    StorageError::ReadResourceLimit {
+        detail: format!(
+            "native call: examined_keys={}/{}, charged_bytes={}/{}",
+            costs.examined_keys, limits.keys, costs.budget_bytes, limits.bytes,
+        ),
+    }
+}
+
+fn trace_families(coordinates: &[(String, String)]) {
+    if !tracing::enabled!(target: "lastdb::native_read_family", tracing::Level::DEBUG) {
+        return;
+    }
+    let mut counts = std::collections::BTreeMap::new();
+    for (collection, key) in coordinates {
+        let family = match collection.as_str() {
+            crate::storage::format::SCHEMAS_NAMESPACE => "schema",
+            crate::storage::format::SCHEMA_STATES_NAMESPACE => "schema_state",
+            _ => match native_routing::decode(key)
+                .ok()
+                .and_then(|raw| String::from_utf8(raw).ok())
+                .as_deref()
+                .and_then(|k| k.split([':', '\0']).next())
+            {
+                Some("rk") => "record",
+                Some("ak") => "alternate_key",
+                _ => "other",
+            },
+        };
+        *counts.entry(family).or_insert(0usize) += 1;
+    }
+    for (family, keys) in counts {
+        tracing::debug!(target: "lastdb::native_read_family", family, keys, "native exact read families");
     }
 }

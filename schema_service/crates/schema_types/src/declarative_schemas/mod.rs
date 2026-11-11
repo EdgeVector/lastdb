@@ -7,7 +7,7 @@ mod owned;
 mod portable;
 
 pub use owned::OwnedDeclaration;
-pub use portable::{PortableSchemaDefinition, PortableSchemaId};
+pub use portable::PortableSchemaId;
 
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
 const RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION: u32 = 3;

@@ -77,7 +77,7 @@ fn serve_node(
         worker_pool.clone(),
     );
 
-    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, share)?;
+    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, share, socket.path())?;
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
 
@@ -91,6 +91,9 @@ fn serve_node(
     }
     if let Err(error) = lastdbd::drain_background(&runtime, &host, tasks) {
         shutdown_errors.push(error);
+    }
+    if let Err(error) = runtime.block_on(host.shutdown_owned_databases()) {
+        shutdown_errors.push(format!("owned database shutdown flush failed: {error}"));
     }
     if let Err(error) = runtime.block_on(host.db.shutdown()) {
         shutdown_errors.push(format!("FoldDB shutdown flush failed: {error}"));

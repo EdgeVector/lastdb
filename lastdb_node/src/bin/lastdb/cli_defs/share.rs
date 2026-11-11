@@ -13,6 +13,12 @@ pub(crate) enum ShareCommand {
         /// Whether this share accepts privately submitted contributor mutations.
         #[arg(long, default_value = "publisher-only", value_parser = ["publisher-only", "publisher-validated"])]
         write_mode: String,
+        /// Catalog spec name. Omit it to keep the legacy publication path.
+        #[arg(long)]
+        spec: Option<String>,
+        /// Registry spec version for `--spec`. Omitted version means `1`.
+        #[arg(long)]
+        spec_version: Option<u32>,
     },
     /// Export this LastDB identity's public contact code.
     Contact {
@@ -55,6 +61,46 @@ pub(crate) enum ShareCommand {
     /// Share files with the LastDB Files app.
     #[command(subcommand)]
     Files(ShareFilesCommand),
+    /// Publish a saved keyed query into one owned share database.
+    #[command(subcommand)]
+    Queries(ShareQueriesCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ShareQueriesCommand {
+    /// Check the query and store it in the source database. This copies no records.
+    Save {
+        /// Stable query id. A repeated save keeps the same destination and spec.
+        #[arg(long)]
+        id: String,
+        /// App that owns the source schemas.
+        #[arg(long)]
+        app: String,
+        /// Source database name or id. Use `personal` for the owner database.
+        #[arg(long)]
+        source: String,
+        /// Owned shareable database name or id.
+        #[arg(long)]
+        destination: String,
+        /// Spec name stored on the destination database.
+        #[arg(long)]
+        spec: String,
+        /// Spec version stored on the destination database.
+        #[arg(long, default_value_t = 1)]
+        spec_version: u32,
+        /// JSON file of keyed reads and links.
+        #[arg(long)]
+        query: PathBuf,
+    },
+    /// Copy eligible records into the destination and remove rows this query no longer selects.
+    Reconcile {
+        /// Query id stored in the source database.
+        #[arg(long)]
+        id: String,
+        /// Source database name or id used when the query was saved.
+        #[arg(long)]
+        source: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

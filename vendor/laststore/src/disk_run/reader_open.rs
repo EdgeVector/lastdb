@@ -1,10 +1,12 @@
-//! RunReader open paths, bounded value materialization, and mutation-run summary verification.
+//! RunReader open paths, summary verification, and checkpoint-only length cursors.
 
-use super::codec::corrupt;
-use super::footer::{BlockRef, Footer, Top, FOOTER_BYTES};
-use super::reader::stream::{copy_exact, Block};
-use super::reader::RunReader;
-use super::{RunSummary, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
+use super::codec::{corrupt, get_len, get_slice};
+use super::footer::{Footer, Top, FOOTER_BYTES};
+use super::reader::stream::Block;
+use super::reader::{IndexBlock, RunReader};
+use super::{
+    RunSummary, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
+};
 use crate::frame::PreparedFrameKey;
 use crate::{Error, Result};
 use std::fs::File;
@@ -13,10 +15,12 @@ use std::path::Path;
 use uuid::Uuid;
 
 const TAIL_BYTES: usize = 512;
+const FRAME_WORKSPACE: u64 = 8 * 1024 * 1024;
+
+pub(crate) type SummaryRecord = (Vec<u8>, Option<u64>);
 
 impl RunReader {
-    /// Opens a run and checks its footer and top block.
-    pub fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
+    pub(crate) fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
         Self::open_inner(path, data_key, None, 0)
     }
 
@@ -43,10 +47,8 @@ impl RunReader {
             .file_name()
             .and_then(|name| name.to_str())
             .and_then(|name| name.strip_suffix(RUN_SUFFIX))
-            .and_then(|stem| Uuid::parse_str(stem).ok());
-        let Some(named) = named else {
-            return Err(corrupt("run file name is not <run id>.ldrun"));
-        };
+            .and_then(|stem| Uuid::parse_str(stem).ok())
+            .ok_or_else(|| corrupt("run file name is not <run id>.ldrun"))?;
         let file = File::open(path)?;
         let len = file.metadata()?.len();
         if len < FOOTER_BYTES as u64 {
@@ -66,23 +68,17 @@ impl RunReader {
         if end != Some(len) {
             return Err(corrupt("top block is not before the footer"));
         }
+        let frame_key = match bytes {
+            None => Some(Box::new(PreparedFrameKey::new(data_key, footer.run_id)?)),
+            Some(_) => None,
+        };
         let mut reader = Self {
             reserved_memory: reserved,
             file,
             data_key: *data_key,
-            frame_key: if bytes.is_none() {
-                Some(Box::new(PreparedFrameKey::new(data_key, footer.run_id)?))
-            } else {
-                None
-            },
+            frame_key,
             footer,
-            top: Top {
-                records: 0,
-                data_blocks: 0,
-                max_payload: 0,
-                indexes: Vec::new(),
-                last_key: Vec::new(),
-            },
+            top: Top::default(),
         };
         reader.top = reader.read_top(bytes, tail.as_deref(), len)?;
         if !reader.top.agrees_with(&footer) {
@@ -92,31 +88,21 @@ impl RunReader {
     }
 
     fn read_top(&self, admission: Option<u64>, tail: Option<&[u8]>, len: u64) -> Result<Top> {
-        let footer = self.footer;
+        let f = self.footer;
         let payload = match admission {
-            Some(admission) => self.read_metadata_frame(
-                footer.top_offset,
-                footer.top_len,
-                TOP_COUNTER,
-                MAX_TOP_BYTES,
-                admission,
-            )?,
-            None => match cached_top(tail, len, &footer) {
+            Some(adm) => {
+                self.read_metadata_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, adm)?
+            }
+            None => match cached_top(tail, len, &f) {
                 Some(frame) => {
                     self.decode_checked_frame(frame, TOP_COUNTER, MAX_TOP_BYTES, None)?
                 }
-                None => self.read_frame(
-                    footer.top_offset,
-                    footer.top_len,
-                    TOP_COUNTER,
-                    MAX_TOP_BYTES,
-                )?,
+                None => {
+                    self.read_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, None)?
+                }
             },
         };
-        match admission {
-            Some(admission) => Top::decode_bounded(&payload, admission),
-            None => Top::decode(&payload),
-        }
+        Top::decode_bounded(&payload, admission.unwrap_or(u64::MAX))
     }
 
     pub(crate) fn verified_summary(&self, path: &Path) -> Result<RunSummary> {
@@ -136,17 +122,8 @@ impl RunReader {
         for number in 0..self.index_count() {
             let index = self.stream_index(number, admission)?;
             let retained = self.metadata_bytes()
-                + (index.blocks.capacity() * std::mem::size_of::<BlockRef>()) as u64
-                + index
-                    .blocks
-                    .iter()
-                    .map(|r| r.first_key.capacity() as u64)
-                    .sum::<u64>()
-                + index.filter_bytes.capacity() as u64
-                + summary
-                    .last_key
-                    .as_ref()
-                    .map_or(0, |key| key.capacity() as u64);
+                + index.footprint()
+                + summary.last_key.as_ref().map_or(0, |k| k.capacity() as u64);
             for reference in &index.blocks {
                 let mut block = Block::new(self, reference, admission / 4, retained)?;
                 while let Some(value) = block.checked_next(reference)? {
@@ -189,29 +166,124 @@ impl RunReader {
     }
 }
 
-pub(crate) struct StreamBody {
-    pub(in crate::disk_run) block: Block,
-    pub(in crate::disk_run) bytes: u64,
-    pub(in crate::disk_run) memory_available: u64,
+pub(crate) struct SummaryCursor {
+    reader: RunReader,
+    allowance: u64,
+    index: Option<IndexBlock>,
+    next_index: usize,
+    next_block: usize,
+    payload: Vec<u8>,
+    at: usize,
+    key: Vec<u8>,
+    first_key: Option<Vec<u8>>,
+    seen: bool,
 }
 
-impl StreamBody {
-    pub(crate) fn allocation_limit(&self) -> u64 {
-        self.memory_available
+impl SummaryCursor {
+    pub(crate) const fn frame_workspace_bytes() -> u64 {
+        FRAME_WORKSPACE
     }
 
-    pub(crate) fn into_vec(mut self, maximum: u64) -> Result<Vec<u8>> {
-        if self.bytes > maximum {
+    pub(crate) fn open(path: &Path, key: &[u8; 32], allowance: u64) -> Result<Self> {
+        let reader = RunReader::open_bounded(path, key, allowance / 8)?;
+        if u64::from(reader.footer.max_payload) > allowance / 8 {
             return Err(Error::ReadBudgetExceeded);
         }
-        let length = usize::try_from(self.bytes).map_err(|_| Error::ReadBudgetExceeded)?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(length)
+        Ok(Self {
+            reader,
+            allowance,
+            index: None,
+            next_index: 0,
+            next_block: 0,
+            payload: Vec::new(),
+            at: 0,
+            key: Vec::new(),
+            first_key: None,
+            seen: false,
+        })
+    }
+
+    pub(crate) fn next_record(&mut self) -> Result<Option<SummaryRecord>> {
+        if self.at == self.payload.len() && !self.load_block()? {
+            return Ok(None);
+        }
+        let shared = get_len(&self.payload, &mut self.at, self.key.len())?;
+        let suffix_len = get_len(&self.payload, &mut self.at, MAX_RUN_KEY_BYTES - shared)?;
+        let length = shared + suffix_len;
+        if (length.max(self.key.capacity()) as u64).saturating_mul(2) > self.allowance / 4 {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let suffix = get_slice(&self.payload, &mut self.at, suffix_len)?;
+        if length == 0 || self.seen && self.key[shared..].cmp(suffix).is_ge() {
+            return Err(corrupt("diagnostic record order"));
+        }
+        self.key.truncate(shared);
+        self.key
+            .try_reserve_exact(length.saturating_sub(self.key.len()))
             .map_err(|_| Error::ReadBudgetExceeded)?;
-        copy_exact(&mut self.block.input, &mut out, self.bytes)?;
-        self.block.remaining = 0;
-        self.block.finish()?;
-        Ok(out)
+        self.key.extend_from_slice(suffix);
+        if self.first_key.take().is_some_and(|first| first != self.key) {
+            return Err(corrupt("diagnostic block first key"));
+        }
+        self.seen = true;
+        let tag = get_len(&self.payload, &mut self.at, MAX_RUN_VALUE_BYTES + 1)?;
+        let bytes = tag.checked_sub(1);
+        if let Some(bytes) = bytes {
+            get_slice(&self.payload, &mut self.at, bytes)?;
+        }
+        Ok(Some((self.key.clone(), bytes.map(|n| n as u64))))
+    }
+
+    fn load_block(&mut self) -> Result<bool> {
+        self.payload = Vec::new();
+        loop {
+            if self
+                .index
+                .as_ref()
+                .is_none_or(|idx| self.next_block == idx.blocks.len())
+            {
+                self.index = None;
+                if self.next_index == self.reader.index_count() {
+                    return Ok(false);
+                }
+                self.index = Some(
+                    self.reader
+                        .stream_index(self.next_index, self.allowance / 4)?,
+                );
+                self.next_index += 1;
+                self.next_block = 0;
+            }
+            let Some(reference) = self
+                .index
+                .as_ref()
+                .expect("index")
+                .blocks
+                .get(self.next_block)
+            else {
+                continue;
+            };
+            if self.seen && reference.first_key <= self.key {
+                return Err(corrupt("diagnostic cross-block key order"));
+            }
+            if reference.first_key.len() as u64 > self.allowance / 8 {
+                return Err(Error::ReadBudgetExceeded);
+            }
+            self.next_block += 1;
+            self.payload = self.reader.read_frame(
+                reference.offset,
+                reference.len,
+                reference.number,
+                self.reader.block_limit(),
+                None,
+            )?;
+            (self.at, self.seen) = (0, false);
+            self.key.clear();
+            self.first_key = Some(reference.first_key.clone());
+            if self.payload.is_empty() {
+                return Err(corrupt("diagnostic empty block"));
+            }
+            return Ok(true);
+        }
     }
 }
 
@@ -234,6 +306,5 @@ fn cached_top<'a>(tail: Option<&'a [u8]>, len: u64, footer: &Footer) -> Option<&
     let tail = tail?;
     let start = len.checked_sub(tail.len() as u64)?;
     let offset = usize::try_from(footer.top_offset.checked_sub(start)?).ok()?;
-    let end = offset.checked_add(footer.top_len as usize)?;
-    tail.get(offset..end)
+    tail.get(offset..offset.checked_add(footer.top_len as usize)?)
 }

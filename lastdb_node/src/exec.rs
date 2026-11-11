@@ -42,6 +42,7 @@ macro_rules! heap_route_ctx_host {
 
 mod admin_routes;
 mod database_mutation;
+mod database_owned;
 mod database_read;
 mod database_routes;
 mod file_blob;

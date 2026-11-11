@@ -70,30 +70,22 @@ impl From<std::io::Error> for Error {
 pub(crate) mod durability {
     use crate::Result;
     use std::fs::File;
+    use std::path::Path;
 
-    #[cfg(target_os = "macos")]
-    fn barrier(file: &File) -> Result<()> {
+    pub(crate) fn sync_dirty_file(file: &File) -> Result<()> {
+        #[cfg(target_os = "macos")]
         rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn barrier(file: &File) -> Result<()> {
+        #[cfg(not(target_os = "macos"))]
         file.sync_data()?;
         Ok(())
     }
 
-    pub(crate) fn sync_dirty_file(file: &File) -> Result<()> {
-        barrier(file)
-    }
-
-    pub(crate) fn sync_directory(dir: &File) -> Result<()> {
+    pub(crate) fn sync_directory(dir: &Path) -> Result<()> {
+        let dir = File::open(dir)?;
         #[cfg(target_os = "macos")]
-        return barrier(dir);
+        rustix::fs::fcntl_fullfsync(&dir).map_err(std::io::Error::from)?;
         #[cfg(not(target_os = "macos"))]
-        {
-            dir.sync_all()?;
-            Ok(())
-        }
+        dir.sync_all()?;
+        Ok(())
     }
 }

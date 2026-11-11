@@ -21,6 +21,3 @@ pub use drive::drive;
 pub use error::SyncError;
 pub use model::{Outcome, SyncEvent, SyncRole, SyncState};
 pub use mutation_log::MutationLog;
-
-#[cfg(test)]
-mod tests;

@@ -2,15 +2,18 @@
 
 use super::commit::{meta, overflow, RunCommit};
 use super::manifest::{Manifest, RunFile, CURRENT, MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS};
-use super::{RunHome, RunRoot};
+use super::{verified_hard_link, write_private_file, RunHome, RunRoot};
 use crate::disk_run::space::MergeSpace;
-use crate::disk_run::{PreparedRun, RunReader};
-use crate::durability::{sync_directory, sync_dirty_file};
+use crate::disk_run::{
+    Found, MergeIter, MergeSource, PreparedRun, RunReader, RunSequence, RunWriter,
+};
+use crate::durability::sync_directory;
 use crate::frame::{encode_frame, min_encoded_len, FrameHeader};
 use crate::{Error, Result};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::fs::{self, File};
+use std::io::Read;
+use std::ops::Bound;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -51,16 +54,15 @@ impl RunHome {
         {
             return Err(invalid("log source file"));
         }
-        let reader = RunReader::open_bounded(
+        let summary = RunReader::open_bounded(
             source,
             &self.key,
             lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes,
-        )?;
-        let summary = reader.verified_summary(source)?;
+        )?
+        .verified_summary(source)?;
         let run_id = summary.run_id;
         let run = meta(summary)?;
-        let _commit = self.commit_lock()?;
-        let _publish = self.publish_lock()?;
+        let (_commit, _publish) = (self.commit_lock()?, self.publish_lock()?);
         self.refuse_if_poisoned()?;
         let held = self.held();
         if held.frontier == after {
@@ -100,8 +102,7 @@ impl RunHome {
         if next.levels.is_empty() {
             next.levels.push(Vec::new());
         }
-        let records = run.records;
-        let run_bytes = run.file_bytes;
+        let (records, run_bytes) = (run.records, run.file_bytes);
         let file = RunFile::new(&self.runs, run);
         next.levels[0].insert(0, Arc::clone(&file));
         let installed = self.install_or_discard(next, &[file])?;
@@ -161,16 +162,13 @@ impl RunHome {
     ) -> Result<Arc<Manifest>> {
         let mut run = Some(run);
         let parallel = std::thread::scope(|scope| {
-            let worker = match std::thread::Builder::new()
+            let Ok(worker) = std::thread::Builder::new()
                 .name("laststore-sync".into())
                 .spawn_scoped(scope, || {
-                    run.take()
-                        .expect("unclaimed private run")
-                        .finish()
-                        .map(|_| ())
-                }) {
-                Ok(worker) => worker,
-                Err(_) => return None,
+                    run.take().expect("unclaimed run").finish().map(|_| ())
+                })
+            else {
+                return None;
             };
             let _publish = match self.publish_lock() {
                 Ok(guard) => guard,
@@ -180,10 +178,9 @@ impl RunHome {
                 }
             };
             let staged = self.stage_new_run(&file);
-            let durable = match worker.join() {
-                Ok(result) => result,
-                Err(_) => Err(Error::Config("disk run: durability worker panicked".into())),
-            };
+            let durable = worker.join().unwrap_or_else(|_| {
+                Err(Error::Config("disk run: durability worker panicked".into()))
+            });
             if let Err(error) = durable {
                 if let Ok((_, path)) = staged {
                     let _ = fs::remove_file(path);
@@ -195,7 +192,7 @@ impl RunHome {
         match parallel {
             Some(result) => result,
             None => {
-                run.take().expect("unclaimed private run").finish()?;
+                run.take().expect("unclaimed run").finish()?;
                 let _publish = self.publish_lock()?;
                 let (next, path) = self.stage_new_run(&file)?;
                 self.publish_staged(next, &path)
@@ -214,6 +211,77 @@ impl RunHome {
         next.levels[0].insert(0, Arc::clone(file));
         let path = next.stage(&self.root, &self.key)?;
         Ok((next, path))
+    }
+
+    pub(in crate::disk_run::home) fn write_base_pieces(
+        &self,
+        merging: &[Arc<RunFile>],
+        taken: &[Arc<RunFile>],
+        cut: Option<&[u8]>,
+        upper: Option<&[u8]>,
+        target: u64,
+        space: &MergeSpace,
+    ) -> Result<Option<Vec<Arc<RunFile>>>> {
+        if !merging
+            .iter()
+            .any(|run| run.meta.meets_merge_interval(cut, upper))
+        {
+            return Ok(None);
+        }
+        let lower = cut.map_or(Bound::Unbounded, Bound::Excluded);
+        let upper = upper.map_or(Bound::Unbounded, Bound::Included);
+        let mut sources = Vec::with_capacity(merging.len() + 1);
+        for run in merging {
+            let reader = Arc::new(RunReader::open(&run.path, &self.key)?);
+            sources.push(MergeSource::Run(reader.shared_range(lower, upper)));
+        }
+        let paths = taken.iter().map(|run| run.path.clone()).collect();
+        sources.push(MergeSource::Sequence(RunSequence::new(
+            paths,
+            &self.key,
+            Bound::Unbounded,
+            Bound::Unbounded,
+        )));
+        let mut pieces = Vec::new();
+        if let Err(error) =
+            self.write_pieces(MergeIter::from_sources(sources), target, &mut pieces, space)
+        {
+            for piece in &pieces {
+                piece.retire();
+            }
+            return Err(error);
+        }
+        Ok(Some(pieces))
+    }
+
+    fn write_pieces(
+        &self,
+        records: MergeIter<'_>,
+        target: u64,
+        pieces: &mut Vec<Arc<RunFile>>,
+        space: &MergeSpace,
+    ) -> Result<()> {
+        let mut writer: Option<RunWriter> = None;
+        for record in records {
+            let (key, Found::Value(value)) = record? else {
+                continue;
+            };
+            let open = match &mut writer {
+                Some(w) => w,
+                None => writer.insert(RunWriter::create_reserved(&self.runs, &self.key, space)?),
+            };
+            open.push(&key, Some(&value))?;
+            if open.bytes_written() >= target {
+                pieces.push(RunFile::new(
+                    &self.runs,
+                    meta(writer.take().unwrap().finish()?)?,
+                ));
+            }
+        }
+        if let Some(open) = writer {
+            pieces.push(RunFile::new(&self.runs, meta(open.finish()?)?));
+        }
+        Ok(())
     }
 }
 
@@ -251,25 +319,13 @@ impl Manifest {
             space.admit_current(frame.len() as u64)?;
         }
         let tmp = root.join(format!(".{CURRENT}.{}.tmp", self.generation));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        let written = file
-            .write_all(&frame)
-            .map_err(Error::from)
-            .and_then(|()| sync_dirty_file(&file));
-        if let Err(error) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(error);
-        }
+        write_private_file(&tmp, &frame)?;
         Ok(tmp)
     }
 
     pub(in crate::disk_run::home) fn replace(root: &Path, staged: &Path) -> Result<()> {
         fs::rename(staged, root.join(CURRENT))?;
-        sync_directory(&File::open(root)?)
+        sync_directory(root)
     }
 }
 
@@ -288,21 +344,9 @@ fn private_parent(path: &Path) -> Result<()> {
 }
 
 fn link(source: &Path, target: &Path, bytes: u64) -> Result<()> {
-    let before = fs::symlink_metadata(source)?;
-    if !before.is_file() || before.len() != bytes {
-        return Err(invalid("log original file"));
-    }
-    fs::hard_link(source, target)?;
-    let held = fs::symlink_metadata(target)?;
-    if !held.is_file()
-        || (before.dev(), before.ino(), bytes) != (held.dev(), held.ino(), held.len())
-    {
-        return Err(invalid("log retained inode differs"));
-    }
+    verified_hard_link(source, target, bytes, "log retained inode differs")?;
     File::open(target)?.sync_all()?;
-    sync_directory(&File::open(
-        target.parent().ok_or_else(|| invalid("log link parent"))?,
-    )?)
+    sync_directory(target.parent().ok_or_else(|| invalid("log link parent"))?)
 }
 
 fn equal_files(left: &Path, right: &Path) -> Result<bool> {
@@ -314,10 +358,8 @@ fn equal_files(left: &Path, right: &Path) -> Result<bool> {
     if fs::metadata(left)?.len() != fs::metadata(right)?.len() {
         return Ok(false);
     }
-    let mut left = File::open(left)?;
-    let mut right = File::open(right)?;
-    let mut a = [0u8; 65536];
-    let mut b = [0u8; 65536];
+    let (mut left, mut right) = (File::open(left)?, File::open(right)?);
+    let (mut a, mut b) = ([0u8; 65536], [0u8; 65536]);
     loop {
         let count = left.read(&mut a)?;
         if count == 0 {

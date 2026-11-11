@@ -109,43 +109,8 @@ impl Source {
         }
         Ok(())
     }
-    /// Snapshot jobs queue every local record file version without an
-    /// upload marker, so versions from before the markers upload once.
-    pub async fn queue_unuploaded_blobs(&self) -> Result<u64> {
-        Ok(self.runtime.queue_unuploaded_blobs().await?)
-    }
-    pub async fn pending_blob_uploads(
-        &self,
-        after: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
-        Ok(self
-            .runtime
-            .pending_blob_uploads(&self.source_home, after, limit)
-            .await?)
-    }
-    pub async fn pending_blob_releases(
-        &self,
-        after: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<fold_db::storage::disk_pack::BlobRow>> {
-        Ok(self
-            .runtime
-            .pending_blob_releases(&self.source_home, after, limit)
-            .await?)
-    }
-    pub async fn blob_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.runtime.record_blob_bytes(key).await?)
-    }
-    pub async fn blobs_accepted(&self, uploaded: &[String], released: &[String]) -> Result<()> {
-        Ok(self.runtime.blobs_accepted(uploaded, released).await?)
-    }
-    pub fn runtime(&self) -> &PackRuntime {
+    pub fn runtime(&self) -> &Arc<PackRuntime> {
         &self.runtime
-    }
-    pub async fn flush(&self) -> Result<()> {
-        self.runtime.flush_native().await?;
-        Ok(())
     }
     pub async fn prepare(
         &self,
@@ -167,20 +132,13 @@ impl Source {
                             || capture_share_edit_gate(home),
                         )
                         .await?
-                } else if saved.begin_submitted {
+                } else {
                     self.runtime
                         .prepare_record_backup_capture(
                             begin.clone(),
                             &self.key,
                             self.recovery.clone(),
-                        )
-                        .await?
-                } else {
-                    self.runtime
-                        .prepare_unsubmitted_record_backup_capture(
-                            begin.clone(),
-                            &self.key,
-                            self.recovery.clone(),
+                            !saved.begin_submitted,
                         )
                         .await?
                 };
@@ -222,16 +180,11 @@ impl Source {
         store: &super::store::Store,
     ) -> Result<super::work::Capture> {
         match &saved.work {
-            super::work::Work::Snapshot { .. } => {
-                let capture = if self.publication_stream.is_some() {
-                    self.runtime
-                        .resume_publication_backup_capture(&self.key)
-                        .await?
-                } else {
-                    self.runtime.resume_byte_backup_capture(&self.key).await?
-                };
-                Ok(super::work::Capture::Snapshot(capture))
-            }
+            super::work::Work::Snapshot { .. } => Ok(super::work::Capture::Snapshot(
+                self.runtime
+                    .resume_byte_backup_capture(&self.key, self.publication_stream.is_none())
+                    .await?,
+            )),
             super::work::Work::MutationLog { context } => {
                 let core = self
                     .runtime
@@ -270,6 +223,20 @@ impl Source {
         self.runtime
             .cancel_unmaterialized_mutation_log_capture(&saved.request_id)?;
         Ok(())
+    }
+    pub fn replace_with_snapshot(
+        &self,
+        store: &super::store::Store,
+        saved: &mut Saved,
+    ) -> Result<()> {
+        saved.local_action = Some(super::model::LocalAction::ReplaceWithSnapshot);
+        store.save(saved)?;
+        store.select(&saved.request_id)?;
+        self.cancel_replacement(saved)?;
+        saved.phase = Phase::Closed;
+        saved.retained_source_bytes = Some(0);
+        saved.blocked_reason = None;
+        store.save(saved)
     }
 }
 

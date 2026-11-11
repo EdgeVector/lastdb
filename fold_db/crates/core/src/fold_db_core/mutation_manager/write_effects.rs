@@ -8,12 +8,20 @@ use lastdb_model::record_value::StoredRecord;
 use super::{AuthoredMutation, MutationManager, ResidentCommitStages};
 use crate::db_operations::record_store::RecordChange;
 use crate::db_operations::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
-use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
+
+fn describe_key(kv: &KeyValue) -> String {
+    match (&kv.hash, &kv.range) {
+        (Some(h), Some(r)) => format!("hash='{h}' range='{r}'"),
+        (Some(h), None) => format!("hash='{h}'"),
+        (None, Some(r)) => format!("range='{r}'"),
+        (None, None) => "<single>".to_string(),
+    }
+}
 
 type KeyGroups = Vec<(String, Vec<AuthoredMutation>)>;
 
