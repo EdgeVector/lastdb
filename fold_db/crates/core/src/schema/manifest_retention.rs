@@ -28,16 +28,6 @@ pub struct ManifestRetention {
 }
 
 impl ManifestRetention {
-    pub fn from_value(value: &serde_json::Value) -> Result<Self, String> {
-        let parsed: Self = serde_json::from_value(value.clone()).map_err(|e| {
-            format!(
-                "invalid retention: {e}; write {{\"ttl_days\": 90}} or {{\"ttl_seconds\": 7200}}"
-            )
-        })?;
-        parsed.ttl()?;
-        Ok(parsed)
-    }
-
     pub fn confirmed(&self) -> bool {
         self.confirm_expire_existing == Some(true)
     }

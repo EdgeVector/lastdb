@@ -18,8 +18,7 @@ pub mod field_range_profile {
 pub use alternate_keys::{AlternateKey, MissingAlternateKey};
 pub use declarative_schemas::{
     compute_identity_hash_parts, refuses_identity_downgrade, DeclarativeSchemaDefinition,
-    IdentityRecompute, OwnedDeclaration, PortableSchemaDefinition, PortableSchemaId,
-    IDENTITY_HASH_ALGO_VERSION,
+    IdentityRecompute, OwnedDeclaration, PortableSchemaId, IDENTITY_HASH_ALGO_VERSION,
 };
 pub use field_value_type::FieldValueType;
 

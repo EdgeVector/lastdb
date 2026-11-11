@@ -30,39 +30,6 @@ pub(super) fn record_command(target: &DatabaseTarget, command: Command) -> Resul
     }
 }
 
-pub(super) fn legal_query_shapes(
-    schema_type: &str,
-    hash_field: Option<&str>,
-    range_field: Option<&str>,
-) -> Vec<String> {
-    let hash = hash_field.unwrap_or("HASH");
-    let range = range_field.unwrap_or("RANGE");
-    match schema_type {
-        "HashRange" => vec![
-            format!(
-                "point get O(1): lastdb get <schema> --key-hash <{hash}> --key-range <{range}>"
-            ),
-            format!("range under one hash O(log M): lastdb get-keys <schema> --key-hash <{hash}>"),
-            "scan does not exist".into(),
-        ],
-        "Hash" => vec![
-            format!("point get O(1): lastdb get <schema> --key-hash <{hash}>"),
-            "keys page (not a census): lastdb get-keys <schema>".into(),
-            "scan does not exist".into(),
-        ],
-        "Range" => vec![
-            format!("point get O(1): lastdb get <schema> --key-hash <{range}>"),
-            "keys page (not a census): lastdb get-keys <schema>".into(),
-            "scan does not exist".into(),
-        ],
-        _ => vec![
-            "point get: lastdb get <schema> --key-hash <KEY>".into(),
-            "keys page (not a census): lastdb get-keys <schema>".into(),
-            "scan does not exist".into(),
-        ],
-    }
-}
-
 fn schema_is_hash_range(schema: &serde_json::Value) -> bool {
     schema
         .get("schema_type")

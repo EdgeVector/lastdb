@@ -122,17 +122,12 @@ impl StreamProgress {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PortableMutationError {
     Invalid(&'static str),
-    TooLarge { max_bytes: usize },
 }
 
 impl fmt::Display for PortableMutationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(message) => formatter.write_str(message),
-            Self::TooLarge { max_bytes } => write!(
-                formatter,
-                "encoded portable value exceeds the {max_bytes}-byte limit"
-            ),
         }
     }
 }

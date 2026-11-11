@@ -63,18 +63,17 @@ pub(super) async fn execute_db_fetch_blob_route(
         let target = FileTarget::parse(&req.body, "/api/db/fetch-blob")?;
         let schema = target.canonical(host)?;
         let revision = target.expected_revision.as_deref();
-        let result = match (target.placement, revision) {
-            (Placement::Inline, revision) => {
+        let result = match target.placement {
+            Placement::Inline => {
                 host.db
                     .read_record_inline_file(&schema, &target.key, revision)
                     .await
             }
-            (Placement::Blob, Some(revision)) => {
+            Placement::Blob => {
                 host.db
-                    .read_record_file_at_revision(&schema, &target.key, revision)
+                    .read_record_file(&schema, &target.key, revision)
                     .await
             }
-            (Placement::Blob, None) => host.db.read_record_file(&schema, &target.key).await,
         };
         result.map_err(HostError::from)?.ok_or_else(|| {
             HostError::new(

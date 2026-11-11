@@ -2,7 +2,7 @@
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::db_operations::{SchemaRecordKey, SchemaRecordKeysRequest};
+use fold_db::db_operations::SchemaRecordKey;
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{KeyValue, Query, QueryCursor, Schema};
 use serde_json::Value;
@@ -85,13 +85,13 @@ pub(in crate::exec) async fn execute_list_record_keys_route(
     }
     match host
         .db
-        .list_schema_record_keys(SchemaRecordKeysRequest {
-            requested: &request.requested,
-            schema_id: &canonical,
-            limit: request.limit,
-            cursor: request.cursor.as_deref(),
-            hash_filter: request.hash_filter.as_deref(),
-        })
+        .list_schema_record_keys(
+            &request.requested,
+            &canonical,
+            request.limit,
+            request.cursor.as_deref(),
+            request.hash_filter.as_deref(),
+        )
         .await
     {
         Ok(report) => json_ok(&envelope(

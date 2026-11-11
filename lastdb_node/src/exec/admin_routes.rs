@@ -84,7 +84,7 @@ pub(in crate::exec) async fn execute_db_schemas_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    match host.db.db_schema_storage().await {
+    match host.db.db_ops().schema_storage_report().await {
         Ok(report) => json_ok(&envelope(
             &json!({ "schema_storage": report }),
             ctx.user_id.as_str(),
@@ -200,7 +200,13 @@ pub(in crate::exec) async fn execute_db_delete_ledger_route(
     let limit = query_value(&req.target, "limit")
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0) as usize;
-    match host.db.list_record_delete_ledger(limit).await {
+    match host
+        .db
+        .db_ops()
+        .records()
+        .list_record_delete_ledger(limit)
+        .await
+    {
         Ok(entries) => json_ok(&envelope(
             &json!({ "delete_ledger": { "count": entries.len(), "entries": entries } }),
             ctx.user_id.as_str(),
@@ -245,65 +251,9 @@ fn clear_may_expire(
         return Ok(true);
     }
     Err(format!(
-        "clearing the operator policy of {}s puts the manifest TTL of {}s in force. existing_records_may_expire: every record older than {}s is deleted for good, a Range schema's at the next sweep. Review it, then run `lastdb admin retention clear --schema {} --confirm-expire-existing`",
-        operator.ttl_seconds, restored.ttl_seconds, restored.ttl_seconds, body.schema
+        "clearing the operator policy of {}s puts the manifest TTL of {}s in force. existing_records_may_expire: every record older than {}s is deleted for good, a Range schema's at the next sweep.",
+        operator.ttl_seconds, restored.ttl_seconds, restored.ttl_seconds
     ))
-}
-
-async fn run_retention_backfill_or_partitions(
-    body: &RetentionBody,
-    ctx: &AccessContext,
-    host: &Host,
-) -> Option<UdsResponse> {
-    if body.action == "backfill" {
-        if !body.confirm_expire_existing {
-            return Some(error_response(
-                409,
-                "retention backfill can expire existing records; confirm_expire_existing is required",
-                ctx,
-            ));
-        }
-        return Some(
-            match host
-                .db
-                .backfill_schema_retention_page(
-                    &body.schema,
-                    body.cursor.as_deref(),
-                    body.limit.unwrap_or(16),
-                )
-                .await
-            {
-                Ok(value) => json_ok(&envelope(&value, ctx.user_id.as_str())),
-                Err(e) => error_response(400, &format!("retention backfill failed: {e}"), ctx),
-            },
-        );
-    }
-    if body.action == "partitions" {
-        return Some(
-            match host
-                .db
-                .db_ops()
-                .schemas()
-                .schema_retention_hash_partitions_page(
-                    &body.schema,
-                    body.cursor.as_deref(),
-                    body.limit.unwrap_or(256),
-                )
-                .await
-            {
-                Ok((partitions, next_cursor)) => json_ok(&envelope(
-                    &json!({
-                        "schema": body.schema,
-                        "observed_hash_partitions": partitions,
-                        "next_cursor": next_cursor,
-                    }),
-                    ctx.user_id.as_str(),
-                )),
-                Err(e) => error_response(400, &format!("schema retention failed: {e}"), ctx),
-            },
-        );
-    }
-    None
 }
 
 pub(in crate::exec) async fn execute_db_schema_retention_route(
@@ -328,17 +278,30 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         return error_response(400, "schema is required", ctx);
     }
     let store = host.db.db_ops().schemas();
-    let previous = if body.action == "backfill" {
-        None
-    } else {
-        match store.get_schema_retention_policy(&body.schema).await {
-            Ok(prev) => prev,
-            Err(e) => return error_response(400, &format!("schema retention failed: {e}"), ctx),
-        }
-    };
-    if let Some(resp) = run_retention_backfill_or_partitions(&body, ctx, host).await {
-        return resp;
+    if body.action == "partitions" {
+        return match store
+            .schema_retention_hash_partitions_page(
+                &body.schema,
+                body.cursor.as_deref(),
+                body.limit.unwrap_or(256),
+            )
+            .await
+        {
+            Ok((partitions, next_cursor)) => json_ok(&envelope(
+                &json!({
+                    "schema": body.schema,
+                    "observed_hash_partitions": partitions,
+                    "next_cursor": next_cursor,
+                }),
+                ctx.user_id.as_str(),
+            )),
+            Err(e) => error_response(400, &format!("schema retention failed: {e}"), ctx),
+        };
     }
+    let previous = match store.get_schema_retention_policy(&body.schema).await {
+        Ok(prev) => prev,
+        Err(e) => return error_response(400, &format!("schema retention failed: {e}"), ctx),
+    };
     let may_expire = match clear_may_expire(&body, &previous) {
         Ok(v) => v,
         Err(msg) => return error_response(409, &msg, ctx),

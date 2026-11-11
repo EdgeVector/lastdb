@@ -5,7 +5,7 @@ use crate::alternate_keys::{self, AlternateEntry};
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::types::operations::SortOrder;
-use crate::schema::types::{KeyValue, Query, QueryCursor, Schema, SchemaError};
+use crate::schema::types::{Query, QueryCursor, Schema, SchemaError};
 use crate::schema::SchemaCore;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -33,25 +33,6 @@ impl QueryExecutor {
 
     pub async fn query(&self, query: Query) -> Result<QueryRecords, SchemaError> {
         self.query_internal(query, None).await
-    }
-
-    pub async fn query_windowed(
-        &self,
-        query: Query,
-        window: (usize, usize),
-    ) -> Result<QueryRecords, SchemaError> {
-        self.query_internal(query, Some(KeyWindow::offset(window.0, window.1)))
-            .await
-    }
-
-    pub async fn query_keyset_windowed(
-        &self,
-        query: Query,
-        after: KeyValue,
-        limit: usize,
-    ) -> Result<QueryRecords, SchemaError> {
-        self.query_internal(query, Some(KeyWindow::after(after, limit)))
-            .await
     }
 
     pub async fn query_window(

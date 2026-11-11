@@ -215,6 +215,8 @@ async fn put_local_reference(
     drop(plaintext);
     let file_write = host
         .db
+        .db_ops()
+        .records()
         .reference_local_file(Path::new(path), name, media_type)
         .await
         .map_err(HostError::from)?;
@@ -277,6 +279,8 @@ async fn put_blob_file(
 ) -> Result<serde_json::Value, HostError> {
     let file_write = host
         .db
+        .db_ops()
+        .records()
         .seal_record_file(plaintext, name, media_type)
         .map_err(HostError::from)?;
     let FileWrite::Put(file) = &file_write else {

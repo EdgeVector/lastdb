@@ -119,10 +119,10 @@ async fn read_write_preimages(
 fn require_contribution_definition(schema: &Schema, expected: &str) -> Result<(), SchemaError> {
     let wire = schema.to_wire();
     let id = wire.identity_hash.clone();
-    let definition = id
+    let definition_id = id
         .ok_or_else(|| "schema has no catalog identity".to_owned())
-        .and_then(|id| schema_types::PortableSchemaDefinition::from_catalog(&id, wire));
-    if definition.is_ok_and(|definition| definition.id().as_str() == expected) {
+        .and_then(|id| schema_types::PortableSchemaId::from_catalog(&id, wire));
+    if definition_id.is_ok_and(|id| id.as_str() == expected) {
         return Ok(());
     }
     Err(SchemaError::InvalidField(
