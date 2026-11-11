@@ -200,7 +200,7 @@ fn reader_error(reader: &ByteBackupReader, error: BackupTransportError) -> Resto
     source_error(error)
 }
 
-pub(super) async fn restore_closure(
+async fn restore_closure(
     session: &RestoreSession,
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
@@ -226,7 +226,7 @@ pub(super) async fn restore_closure(
     runs::restore(session, client, decryption, identity_seed, &root, inventory).await
 }
 
-pub(super) fn snapshot_closure(
+fn snapshot_closure(
     session: &RestoreSession,
     decryption: &RecoveryDecryption,
     bytes: &[u8],
@@ -239,7 +239,7 @@ pub(super) fn snapshot_closure(
     Ok(root)
 }
 
-pub(super) async fn load_closure(
+async fn load_closure(
     session: &RestoreSession,
     client: &ByteBackupReader,
 ) -> Result<(inventory::Inventory, Vec<u8>)> {

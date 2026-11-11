@@ -38,7 +38,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             return shared_restore::resume(data_dir.as_deref(), &workspace, json);
         }
         CloudCommand::BackupV2 {
-            action: action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
+            action: ref action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
         } => {
             return run_setup(data_dir.as_deref(), action);
         }
@@ -96,8 +96,8 @@ fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String>
     print_backup(&parse_json_response(&response, "V2 backup")?, json)
 }
 
-fn run_setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
-    if let ByteBackupCommand::Connect(args) = &action {
+fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Result<(), String> {
+    if let ByteBackupCommand::Connect(args) = action {
         if args.existing {
             if !args.api_key_stdin || args.dev || args.invite_code_stdin || args.restored {
                 return Err(

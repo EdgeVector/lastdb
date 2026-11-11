@@ -120,14 +120,11 @@ mod invocation {
                 .enable_all()
                 .build()
                 .map_err(|_| BackupError::Source)?;
-            match &client {
-                Some(client) => {
-                    runtime.block_on(worker::run(&source, &store, &mut saved, client, &pause))
-                }
-                None => {
-                    transfer::check_pause(&pause)?;
-                    runtime.block_on(worker::reconcile(&source, &store, &mut saved))
-                }
+            if let Some(client) = &client {
+                runtime.block_on(worker::run(&source, &store, &mut saved, client, &pause))
+            } else {
+                transfer::check_pause(&pause)?;
+                runtime.block_on(worker::reconcile(&source, &store, &mut saved))
             }
         }))
         .unwrap_or(Err(BackupError::WorkerPanic));

@@ -45,7 +45,7 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
             if !args.api_key_stdin {
                 return Err("prepare-recovery-home requires --api-key-stdin".into());
             }
-            prepare_recovery_home(source, args)
+            prepare_recovery_home(source, &args)
         }
         CloudCommand::RecoverDevCredentialsHome {
             into,
@@ -63,9 +63,9 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
     }
 }
 
-fn emit_receipt(json: bool, receipt: serde_json::Value, text: &str) -> Result<(), String> {
+fn emit_receipt(json: bool, receipt: &serde_json::Value, text: &str) -> Result<(), String> {
     if json {
-        serde_json::to_writer(std::io::stdout().lock(), &receipt)
+        serde_json::to_writer(std::io::stdout().lock(), receipt)
             .map_err(|_| "cannot write recovery receipt")?;
         println!();
     } else {
@@ -74,7 +74,7 @@ fn emit_receipt(json: bool, receipt: serde_json::Value, text: &str) -> Result<()
     Ok(())
 }
 
-fn prepare_recovery_home(source: Option<&Path>, args: PrepareRecoveryArgs) -> Result<(), String> {
+fn prepare_recovery_home(source: Option<&Path>, args: &PrepareRecoveryArgs) -> Result<(), String> {
     let source = source.ok_or("prepare-recovery-home requires an explicit --data-dir")?;
     let environment = Environment::try_from_str(&args.env)
         .map_err(|_| "recovery environment must be dev or prod")?;
@@ -112,7 +112,7 @@ fn prepare_recovery_home(source: Option<&Path>, args: PrepareRecoveryArgs) -> Re
     target.commit()?;
     emit_receipt(
         args.json,
-        serde_json::json!({
+        &serde_json::json!({
             "schema": "lastdb.recovery-home.v1", "ok": true, "environment": environment.as_str(),
             "credentials_only": true, "source_opened_read_only": true,
             "identity_matches_source": true, "api_key_matches_source": true,
@@ -166,7 +166,7 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
         .map_err(|_| "cannot commit paused credentials; retain the device intent")?;
     emit_receipt(
         args.json,
-        serde_json::json!({
+        &serde_json::json!({
             "schema": "lastdb.credentials-recovery.v1", "ok": true,
             "environment": environment.as_str(), "account_id": account, "device_id": device,
             "credentials_only": true, "cloud_sync_off": true,
@@ -315,7 +315,7 @@ fn seed_registration_command(
                 "local_store_opened": false, "cloud_data_published": false, "credentials_home_committed": false,
             }),
         };
-        emit_receipt(true, receipt, "")?;
+        emit_receipt(true, &receipt, "")?;
     } else if result.is_ok() {
         println!(
             "Prepared DEV credentials-only home; one fresh device registered; Cloud Sync stays Off."
