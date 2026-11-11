@@ -7,21 +7,11 @@ use serde::Serialize;
 
 use crate::shutdown_receipt::read_shutdown_flush_receipt;
 
-fn user_home() -> Result<PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| "HOME unset".to_string())
-}
-
 /// Refuse `path` when it is, or lies under, the primary home `~/.lastdb`.
-///
-/// A path that does not exist yet is resolved through its nearest existing
-/// ancestor, so a missing path under a primary home is still refused.
 pub fn refuse_primary(path: &Path) -> Result<(), String> {
-    refuse_primary_under(&user_home()?, path)
-}
-
-fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
+    let user_home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME unset".to_string())?;
     let abs = canonicalize_lenient(path);
     let primary_abs = canonicalize_lenient(&user_home.join(crate::profile::paths::LASTDB_DIR));
     if abs.starts_with(&primary_abs) {
@@ -33,8 +23,6 @@ fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Canonicalize `path`, resolving a missing tail through the nearest existing
-/// ancestor so symlinked prefixes (`/var` vs `/private/var`) still compare equal.
 fn canonicalize_lenient(path: &Path) -> PathBuf {
     let mut tail = Vec::new();
     let mut cursor = path;
@@ -52,7 +40,6 @@ fn canonicalize_lenient(path: &Path) -> PathBuf {
     }
 }
 
-/// What the preflight of a stopped home checked.
 #[derive(Debug, Serialize)]
 pub struct Preflight {
     pub socket_closed: bool,
@@ -60,12 +47,6 @@ pub struct Preflight {
 }
 
 /// Refuse unless the home is stopped and flushed.
-///
-/// 1. The daemon socket accepts no connection.
-/// 2. The previous daemon left a valid shutdown flush receipt.
-///
-/// The store open that follows takes the run home owner lock (`LOCK`), which
-/// excludes a running daemon and every other offline tool.
 pub fn preflight_stopped_home(home: &Path, store_root: &Path) -> Result<Preflight, String> {
     let socket = crate::lastdb_uds::uds::socket_path(store_root);
     if UnixStream::connect(&socket).is_ok() {

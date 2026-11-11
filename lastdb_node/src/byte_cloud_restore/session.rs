@@ -182,7 +182,7 @@ impl RestoreSession {
         let _admission = acquire_native_work()?;
         let reader = client.reader();
         self.authorize_read(&reader).await?;
-        super::closure::restore(self, &reader, keys.decryption(), keys.account_seed()).await
+        super::restore_closure(self, &reader, keys.decryption(), keys.account_seed()).await
     }
 
     pub(super) async fn authorize_read(&mut self, client: &ByteBackupReader) -> Result<()> {

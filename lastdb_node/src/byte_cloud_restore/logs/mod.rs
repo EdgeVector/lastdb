@@ -1,9 +1,9 @@
 //! Restore one fixed accepted root: a private snapshot followed by whole native batches.
 mod plan;
-mod routing;
+
 use super::{
-    inventory::Inventory, keys::RecoveryDecryption, local, recipient::GuestReplayCache,
-    ByteBackupReader, RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
+    inventory::Inventory, local, native, recipient::GuestReplayCache, ByteBackupReader,
+    RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::v2::AcceptedBackup;
@@ -12,6 +12,7 @@ use fold_db::storage::disk_pack::{
     byte_backup::ClientRoot, mutation_log::LogPosition, run_restore,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
@@ -46,7 +47,7 @@ pub(super) async fn restore(
     decryption.validate_account(&latest.recovery.account_public_key)?;
     let plan = plan::prepare(session, client, decryption, &latest, None).await?;
     let base = load_base(session, client, decryption, &latest).await?;
-    if let Some(report) = context(session, &base.root.native_root).published()? {
+    if let Some(report) = VerifiedNativeContext::new(session, &base.root.native_root).published()? {
         return Ok(report);
     }
     let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
@@ -58,7 +59,7 @@ pub(super) async fn restore(
     let proof = replay(session, client, decryption, &latest, cursor).await?;
     let root = proof.native_root().map_err(RestoreError::native_proof)?;
     let (files, bytes) = proof.totals().map_err(RestoreError::native_proof)?;
-    context(session, &root).finish_run(
+    VerifiedNativeContext::new(session, &root).finish_run(
         identity_seed,
         super::NativeInventory { files, bytes },
         &proof,
@@ -115,8 +116,8 @@ async fn load_base(
     latest: &MutationLogRoot,
 ) -> Result<BaseSnapshot> {
     let base = session.ancestor(latest.base.clone())?;
-    let (inventory, bytes) = super::closure::load(&base, client).await?;
-    let root = super::closure::snapshot(&base, decryption, &bytes)?;
+    let (inventory, bytes) = super::load_closure(&base, client).await?;
+    let root = super::snapshot_closure(&base, decryption, &bytes)?;
     let profile = &root.run;
     if root.recovery != latest.recovery
         || profile.main.home_id != latest.anchor.main_home
@@ -255,7 +256,7 @@ async fn replay_checkpoint(
     let accepted: AcceptedBackup =
         local::read_json(&plan::link_path(session, cursor.remaining - 1), 256 * 1024)?;
     let ancestor = session.ancestor(accepted.clone())?;
-    let (inventory, bytes) = super::closure::load(&ancestor, client).await?;
+    let (inventory, bytes) = super::load_closure(&ancestor, client).await?;
     let root = MutationLogRoot::decode(&bytes, decryption.content_key(), &accepted.begin)
         .map_err(|_| RestoreError::Invalid("replayed checkpoint root"))?;
     if root.base != latest.base
@@ -275,7 +276,7 @@ async fn replay_checkpoint(
     if cursor.position != position {
         return Err(RestoreError::Invalid("saved complete replay position"));
     }
-    routing::download_checkpoint(
+    plan::download_checkpoint(
         &ancestor,
         client,
         decryption,
@@ -309,41 +310,60 @@ async fn replay_checkpoint(
                 .part(entry, cursor.part, &path)
                 .map_err(|_| RestoreError::Invalid("original native mutation part replay"))?;
             cursor.part += 1;
-            plan::save(session, &session.root.join("chain/cursor.json"), cursor)?;
+            plan::save(session, &cursor_path(session), cursor)?;
         }
         cursor.position = entry
             .position_after(&cursor.position)
             .map_err(|_| RestoreError::Invalid("complete replay batch"))?;
         cursor.entry += 1;
         cursor.part = 0;
-        plan::save(session, &session.root.join("chain/cursor.json"), cursor)?;
+        plan::save(session, &cursor_path(session), cursor)?;
     }
     if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
     }
-    routing::release_checkpoint(session, &root)?;
+    release_checkpoint(session, &root)?;
     cursor.remaining -= 1;
     cursor.previous = accepted;
     cursor.entry = 0;
     cursor.part = 0;
-    plan::save(session, &session.root.join("chain/cursor.json"), cursor)?;
+    plan::save(session, &cursor_path(session), cursor)?;
     replay
         .settle()
         .map_err(|_| RestoreError::Invalid("complete checkpoint native compaction"))?;
     Ok(())
 }
 
-fn context<'a>(
-    session: &'a RestoreSession,
-    root: &'a cloud_backup_protocol::NativeRoot,
-) -> VerifiedNativeContext<'a> {
-    VerifiedNativeContext {
-        root: &session.root,
-        destination: &session.selection.destination,
-        session_id: session.selection.session_id,
-        commit_sha256: &session.accepted().commit_sha256,
-        native_root: root,
-        receipt_name: "byte-cloud-restore-receipt.json",
-        receipt_version: 2,
+fn release_checkpoint(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
+    let mut parents = BTreeSet::new();
+    for entry in &root.entries {
+        for part in &entry.parts {
+            let name = fold_db::storage::disk_pack::mutation_log::log_path(
+                &root.anchor.epoch,
+                entry.sequence,
+                part.role,
+                &part.run_id,
+            );
+            let path = session.root.join("replay-files").join(&name);
+            match fs::symlink_metadata(&path) {
+                Ok(meta) if meta.is_file() && meta.len() == part.bytes => fs::remove_file(&path)?,
+                Ok(_) => return Err(RestoreError::Invalid("mutation source release identity")),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            parents.insert(
+                path.parent()
+                    .ok_or(RestoreError::Invalid("mutation source parent"))?
+                    .to_path_buf(),
+            );
+            session
+                .remove_spool_file(&session.root.join("entries").join(native::path_key(&name)))?;
+        }
     }
+    for parent in parents {
+        File::open(parent)?.sync_all()?;
+    }
+    File::open(session.root.join("entries"))?.sync_all()?;
+    File::open(session.root.join("replay-files"))?.sync_all()?;
+    plan::clear_cache(session)
 }

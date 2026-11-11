@@ -1,9 +1,9 @@
 //! Guest staging and verified restored-home publication.
 use super::session::{acquire_native_work, RestoreMode};
 use super::{
-    closure, keys::RecoveryDecryption, logs, reader_error, report_atomic_json, report_owner_file,
-    report_read_json, runs, ByteBackupReader, NativeInventory, RestoreError, RestoreReport,
-    RestoreSession, Result, VerifiedNativeContext,
+    load_closure, local, logs, reader_error, runs, snapshot_closure, ByteBackupReader,
+    NativeInventory, RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result,
+    VerifiedNativeContext, RESTORE_RECEIPT_NAME, RESTORE_RECEIPT_VERSION,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::recovery::RecoveryProfile;
@@ -70,7 +70,7 @@ impl RestoreSession {
             return Err(invalid());
         }
         for path in [registry, entry, slot] {
-            super::local::directory(path)?;
+            local::directory(path)?;
         }
         Self::begin_in(&slot.join("unactivated"), accepted, RestoreMode::Recipient)
     }
@@ -98,10 +98,10 @@ impl RestoreSession {
         let _admission = acquire_native_work()?;
         self.require_unactivated()?;
         self.authorize_read(reader).await?;
-        let (inventory, bytes) = closure::load(self, reader).await?;
+        let (inventory, bytes) = load_closure(self, reader).await?;
         let data = self.root.join("home/data");
         let (proof, through) = if self.accepted().begin.dependencies().is_empty() {
-            let root = closure::snapshot(self, &decryption, &bytes)?;
+            let root = snapshot_closure(self, &decryption, &bytes)?;
             let total = runs::stage(self, reader, &decryption, &root, inventory).await?;
             let proof = runs::verify_stage(self, &decryption, &root)?;
             proof
@@ -150,7 +150,7 @@ struct Receipt {
     report: RestoreReport,
 }
 
-pub(crate) fn published_context(
+pub(super) fn published_context(
     session: &VerifiedNativeContext<'_>,
 ) -> Result<Option<RestoreReport>> {
     let destination = session.destination;
@@ -160,8 +160,8 @@ pub(crate) fn published_context(
         Ok(meta) if !meta.is_dir() => return Err(RestoreError::Invalid("published destination")),
         Ok(_) => {}
     }
-    let receipt: Receipt = report_read_json(&destination.join(session.receipt_name), 64 * 1024)?;
-    if receipt.version != session.receipt_version
+    let receipt: Receipt = local::read_json(&destination.join(RESTORE_RECEIPT_NAME), 64 * 1024)?;
+    if receipt.version != RESTORE_RECEIPT_VERSION
         || receipt.session_id != session.session_id
         || receipt.report.commit_sha256 != session.commit_sha256.as_str()
         || receipt.report.destination != *destination
@@ -169,11 +169,11 @@ pub(crate) fn published_context(
         return Err(RestoreError::Invalid("published receipt"));
     }
     sync_publish_parents(session.root, destination)?;
-    report_atomic_json(&session.root.join("result.json"), &receipt.report)?;
+    local::atomic_json(&session.root.join("result.json"), &receipt.report)?;
     Ok(Some(receipt.report))
 }
 
-pub(crate) fn finish_run_context(
+pub(super) fn finish_run_context(
     session: &VerifiedNativeContext<'_>,
     identity_seed: &[u8; 32],
     inventory: NativeInventory,
@@ -188,15 +188,6 @@ pub(crate) fn finish_run_context(
     if files != inventory.files || bytes != inventory.bytes {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
-    publish_context(session, identity_seed, inventory, proof.verified_records())
-}
-
-fn publish_context(
-    session: &VerifiedNativeContext<'_>,
-    identity_seed: &[u8; 32],
-    inventory: NativeInventory,
-    records: u64,
-) -> Result<RestoreReport> {
     let home = session.root.join("home");
     install_identity(&home, identity_seed)?;
     if crate::cloud::cloud_credentials_path(&home).try_exists()? {
@@ -206,19 +197,19 @@ fn publish_context(
         commit_sha256: session.commit_sha256.as_str().into(),
         native_files: inventory.files,
         native_bytes: inventory.bytes,
-        verified_records: records,
+        verified_records: proof.verified_records(),
         destination: session.destination.to_path_buf(),
     };
-    report_atomic_json(
-        &home.join(session.receipt_name),
+    local::atomic_json(
+        &home.join(RESTORE_RECEIPT_NAME),
         &Receipt {
-            version: session.receipt_version,
+            version: RESTORE_RECEIPT_VERSION,
             session_id: session.session_id,
             report: report.clone(),
         },
     )?;
     activate_owned_home(session.root, session.destination)?;
-    report_atomic_json(&session.root.join("result.json"), &report)?;
+    local::atomic_json(&session.root.join("result.json"), &report)?;
     Ok(report)
 }
 
@@ -250,11 +241,8 @@ pub(crate) fn sync_publish_parents(root: &Path, destination: &Path) -> Result<()
 fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
     let path = home.join(crate::identity::IDENTITY_KEY_FILE);
     if path.try_exists()? {
-        if !fs::symlink_metadata(&path)?.is_file() {
-            return Err(RestoreError::Invalid("restore identity"));
-        }
-        let mut file = report_owner_file(&path, false)?;
-        let mut seed = zeroize::Zeroizing::new(Vec::new());
+        let mut file = local::owner_file(&path, false)?;
+        let mut seed = Zeroizing::new(Vec::new());
         Read::by_ref(&mut file).take(33).read_to_end(&mut seed)?;
         if seed.len() > 32 || !identity_seed.starts_with(&seed) {
             return Err(RestoreError::Invalid("restore identity"));

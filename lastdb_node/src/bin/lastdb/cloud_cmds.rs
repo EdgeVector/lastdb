@@ -1,7 +1,12 @@
 //! Explicit V2 backup and credentials-only recovery-home commands.
 use super::*;
 use cloud_backup_protocol::{AccountId, Id};
+use fold_db::security::Ed25519KeyPair;
 use lastdb_node::byte_cloud_backup::{ByteBackupRequest, SensitiveConnectionRequest};
+use lastdb_node::cloud::{register_native_device, CLOUD_CREDENTIALS_FILE};
+use lastdb_node::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
+use lastdb_node::host::IDENTITY_KEY_FILE;
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use std::io::Read;
 use zeroize::Zeroizing;
 
@@ -9,14 +14,17 @@ use zeroize::Zeroizing;
 mod offline;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
-#[path = "cloud_cmds/byte_backup/setup.rs"]
-mod setup;
+#[path = "cloud_cmds/byte_backup/setup/files.rs"]
+mod setup_files;
 #[path = "cloud_cmds/shared_restore.rs"]
 mod shared_restore;
 #[path = "cloud_cmds/shared_writer.rs"]
 mod shared_writer;
 
+use recovery_home::files as recovery_files;
 pub(super) use recovery_home::files::FreshHome;
+
+const PHRASE_FILE: &str = "recovery-phrase.txt";
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
@@ -29,8 +37,10 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         CloudCommand::ResumeSharedRestore(ResumeSharedRestoreArgs { workspace, json }) => {
             return shared_restore::resume(data_dir.as_deref(), &workspace, json);
         }
-        CloudCommand::BackupV2 { action } if setup::is_setup(&action) => {
-            return setup::setup(data_dir.as_deref(), action);
+        CloudCommand::BackupV2 {
+            action: action @ (ByteBackupCommand::Init(_) | ByteBackupCommand::Connect(_)),
+        } => {
+            return run_setup(data_dir.as_deref(), action);
         }
         action => action,
     };
@@ -45,14 +55,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
         CloudCommand::BackupV2 { action } => run_byte_backup(&home, action),
-        CloudCommand::PrepareRecoveryHome(_)
-        | CloudCommand::RecoverCredentialsHome(_)
-        | CloudCommand::RecoverDevCredentialsHome { .. }
-        | CloudCommand::SharedWriter(_)
-        | CloudCommand::RestoreShared(_)
-        | CloudCommand::ResumeSharedRestore(_) => {
-            unreachable!("handled before home resolution")
-        }
+        _ => unreachable!("handled before home resolution"),
     }
 }
 
@@ -93,6 +96,182 @@ fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String>
     print_backup(&parse_json_response(&response, "V2 backup")?, json)
 }
 
+fn run_setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
+    if let ByteBackupCommand::Connect(args) = &action {
+        if args.existing {
+            if !args.api_key_stdin || args.dev || args.invite_code_stdin || args.restored {
+                return Err(
+                    "existing connection requires only an environment and API key stdin".into(),
+                );
+            }
+            return run_existing(
+                source.ok_or("existing connection requires an explicit --data-dir")?,
+                args.env
+                    .as_deref()
+                    .ok_or("existing connection requires --env")?,
+                args.expected_user_hash.as_deref(),
+                args.json,
+            );
+        }
+    }
+    lastdb_node::byte_cloud_backup::require_enabled().map_err(|error| error.to_string())?;
+    match action {
+        ByteBackupCommand::Init(args) => {
+            if source.is_some() {
+                return Err("native backup init uses --into without --data-dir".into());
+            }
+            initialize(&args.into, &args.recovery_phrase_out, args.json)
+        }
+        ByteBackupCommand::Connect(args) => {
+            if !args.dev
+                || args.existing
+                || args.env.is_some()
+                || args.api_key_stdin
+                || args.expected_user_hash.is_some()
+            {
+                return Err("native backup connect requires --dev".into());
+            }
+            if args.restored && args.invite_code_stdin {
+                return Err("restored account reconnect does not accept a new invite".into());
+            }
+            connect(
+                source.ok_or("native backup connect requires an explicit --data-dir")?,
+                args.invite_code_stdin,
+                args.restored,
+                args.json,
+            )
+        }
+        _ => Err("invalid native backup setup command".into()),
+    }
+}
+
+fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), String> {
+    if phrase_path != destination.join(PHRASE_FILE) {
+        return Err("--recovery-phrase-out must name <into>/recovery-phrase.txt".into());
+    }
+    let target = FreshHome::preflight_empty(destination)?;
+    let pair = Ed25519KeyPair::generate().map_err(|_| "cannot create fresh native identity")?;
+    let seed = Zeroizing::new(pair.secret_key_bytes());
+    let phrase = Zeroizing::new(
+        bip39::Mnemonic::from_entropy(seed.as_ref())
+            .map_err(|_| "cannot encode fresh native recovery phrase")?
+            .to_string(),
+    );
+    let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let mut target = target.create()?;
+    target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
+    target.write(PHRASE_FILE, phrase.as_bytes())?;
+    target.commit()?;
+    print_backup(
+        &serde_json::json!({
+            "schema": "lastdb.native-backup-init.v1", "ok": true, "environment": "dev",
+            "account_id": account, "home": destination, "recovery_phrase_file": phrase_path,
+            "cloud_sync_off": true, "local_store_opened": false, "network_request": false,
+            "identity_seed_output": false, "recovery_phrase_output": false,
+        }),
+        json,
+    )
+}
+
+fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Result<(), String> {
+    let directory = if restored {
+        setup_files::PreparedHome::open_restored(home)?
+    } else {
+        setup_files::PreparedHome::open(home)?
+    };
+    let seed = directory.seed()?;
+    let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
+        .map_err(|_| "invalid native backup identity")?;
+    let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let api_url = exemem_api_url_for(Environment::Dev);
+    if restored {
+        directory.device_id()?;
+    }
+    if directory.finish_saved_credentials(api_url)? {
+        return print_connected(&account, home, false, restored, json);
+    }
+    let invite = invite_stdin
+        .then(|| read_stdin_no_control(4096, "native enrollment invite"))
+        .transpose()?;
+    let device_id = directory.device_id()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "cannot construct native enrollment runtime")?;
+    let registered = runtime
+        .block_on(register_native_device(
+            Environment::Dev,
+            &pair,
+            &device_id,
+            invite.as_deref().map(String::as_str),
+        ))
+        .map_err(|error| {
+            format!("{error}; registration may have committed; retry only by an explicit request")
+        })?;
+    if registered.user_hash != account
+        || directory.seed()?.as_ref() != seed.as_ref()
+        || directory.device_id()? != device_id
+    {
+        return Err("native enrollment identity changed; registration may have committed".into());
+    }
+    let credentials = Zeroizing::new(
+        serde_json::to_vec(&serde_json::json!({
+            "api_url": api_url, "api_key": registered.api_key,
+        }))
+        .map_err(|_| "cannot encode paused native credentials")?,
+    );
+    directory
+        .save_credentials(&credentials)
+        .map_err(|error| format!("{error}; registration may have committed; retain this home"))?;
+    print_connected(&account, home, true, restored, json)
+}
+
+fn validate_restored_credentials(
+    api_url: &str,
+    api_key: &str,
+    account: &str,
+) -> Result<(), String> {
+    let auth = AuthClient::new(api_url.to_owned(), api_key.to_owned());
+    let client = ByteBackupClient::from_auth(auth)
+        .map_err(|_| "invalid restored native account endpoint")?;
+    let account =
+        AccountId::try_from(account.to_owned()).map_err(|_| "invalid restored account identity")?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "cannot construct restored credential validation runtime")?;
+    runtime
+        .block_on(
+            client.context(&cloud_backup_protocol::v2::context::ContextReadRequest {
+                version: cloud_backup_protocol::v2::Version::V2,
+                account_id: account,
+                required_destinations: Vec::new(),
+            }),
+        )
+        .map(|_| ())
+        .map_err(|_| "saved native credentials do not authorize the restored account".into())
+}
+
+fn print_connected(
+    account: &str,
+    home: &Path,
+    registered: bool,
+    restored: bool,
+    json: bool,
+) -> Result<(), String> {
+    print_backup(
+        &serde_json::json!({
+            "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
+            "account_id": account, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
+            "cloud_sync_off": true, "local_store_opened": restored,
+            "local_store_read_only": restored, "database_writer_opened": false,
+            "registration_attempted": registered, "credentials_saved": true,
+            "api_key_output": false, "restored_home": restored, "automatic_backup_enabled": false,
+        }),
+        json,
+    )
+}
+
 fn run_existing(
     home: &Path,
     environment: &str,
@@ -108,24 +287,11 @@ fn run_existing(
         .map(|value| AccountId::try_from(value.to_owned()))
         .transpose()
         .map_err(|_| "invalid expected account identity")?;
-    let mut bytes = Zeroizing::new(Vec::new());
-    std::io::stdin()
-        .take(4097)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read existing account API key")?;
-    if bytes.len() > 4096 {
-        return Err("existing account API key exceeds its byte limit".into());
-    }
-    let api_key = std::str::from_utf8(&bytes)
-        .map_err(|_| "API key must be UTF-8")?
-        .trim();
-    if api_key.is_empty() || api_key.chars().any(char::is_control) {
-        return Err("existing account API key is empty or invalid".into());
-    }
+    let api_key = read_stdin_no_control(4096, "existing account API key")?;
     let request = SensitiveConnectionRequest {
         environment: environment.to_owned(),
         expected_user_hash,
-        api_key: api_key.to_owned(),
+        api_key: api_key.as_str().to_owned(),
     };
     let body = Zeroizing::new(
         serde_json::to_vec(&request).map_err(|_| "cannot encode protected connection request")?,
@@ -169,20 +335,32 @@ fn print_backup(value: &serde_json::Value, json: bool) -> Result<(), String> {
 }
 
 fn read_recovery_phrase() -> Result<Zeroizing<String>, String> {
+    read_stdin_secret(4096, "recovery phrase")
+}
+
+fn read_stdin_no_control(limit: usize, label: &str) -> Result<Zeroizing<String>, String> {
+    let text = read_stdin_secret(limit, label)?;
+    if text.chars().any(char::is_control) {
+        return Err(format!("{label} is invalid"));
+    }
+    Ok(text)
+}
+
+fn read_stdin_secret(limit: usize, label: &str) -> Result<Zeroizing<String>, String> {
     let mut bytes = Zeroizing::new(Vec::new());
     std::io::stdin()
         .lock()
-        .take(4097)
+        .take((limit + 1) as u64)
         .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read recovery phrase")?;
-    if bytes.len() > 4096 {
-        return Err("recovery phrase exceeds its byte limit".into());
+        .map_err(|_| format!("cannot read {label}"))?;
+    if bytes.len() > limit {
+        return Err(format!("{label} exceeds its byte limit"));
     }
     let text = std::str::from_utf8(&bytes)
-        .map_err(|_| "recovery phrase must be UTF8")?
+        .map_err(|_| format!("{label} must be UTF-8"))?
         .trim();
     if text.is_empty() {
-        return Err("recovery phrase is empty".into());
+        return Err(format!("{label} is empty"));
     }
     Ok(Zeroizing::new(text.to_owned()))
 }

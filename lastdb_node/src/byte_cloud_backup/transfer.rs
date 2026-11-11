@@ -1,10 +1,17 @@
-use super::{retry, wait, BackupError, Result};
+use super::{work, BackupError, Result};
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
+use async_trait::async_trait;
+use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReadItem, BlobReadRequest};
+use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::transfer::*;
-use cloud_backup_protocol::v2::Version;
+use cloud_backup_protocol::v2::{Destination, Version};
+use cloud_backup_protocol::{AccountId, CloudScope};
+use fold_db::fold_db_core::{BlobFetch, RecordBlobSource, SIGN_IN_TO_FETCH_FILE};
 use std::cell::RefCell;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 
 pub(super) struct PreparedBatch {
     pub items: Vec<TransferItemResult>,
@@ -21,7 +28,7 @@ pub(super) async fn prepare(
         items: inputs.to_vec(),
     };
     let observed = RefCell::new(None);
-    let result = retry::control("transfer_prepare", pause, || async {
+    let result = work::control("transfer_prepare", pause, || async {
         let response = client.prepare(&request).await?;
         let error = batch_error(&response.items);
         let items = remember(&mut observed.borrow_mut(), response.items)?;
@@ -55,7 +62,7 @@ fn batch_error(items: &[TransferItemResult]) -> Option<BackupError> {
         .collect();
     let index = errors
         .iter()
-        .position(|error| !retry::temporary(error))
+        .position(|error| !work::temporary(error))
         .unwrap_or(0);
     (!errors.is_empty()).then(|| errors.swap_remove(index))
 }
@@ -82,13 +89,12 @@ fn remember(
 }
 
 /// An explicit invocation makes at most one conditional PUT for this frozen input.
-/// Polls never repeat PUT or queue admission. Uncertain outcomes retain the source.
 pub(super) async fn complete(
     client: &ByteBackupClient,
     input: &TransferInput,
     prepared: TransferItemResult,
     reader: Box<dyn Read + Send>,
-    context: &wait::Context<'_>,
+    context: &work::Context<'_>,
 ) -> Result<ObjectReceipt> {
     let result = complete_one(client, input, prepared, reader, context).await;
     context.note_result(&result);
@@ -100,7 +106,7 @@ async fn complete_one(
     input: &TransferInput,
     prepared: TransferItemResult,
     reader: Box<dyn Read + Send>,
-    context: &wait::Context<'_>,
+    context: &work::Context<'_>,
 ) -> Result<ObjectReceipt> {
     let pause = context.pause;
     check_pause(pause)?;
@@ -113,8 +119,6 @@ async fn complete_one(
         TransferResumeResult::Grant { response } => {
             context.check()?;
             context.check_upload(input, &response.grant)?;
-            // An HTTP outcome, including a timeout, never proves stored bytes.
-            // Complete resolves this same transfer through service authority.
             let _observation = client.upload(input, &response, reader).await;
         }
         TransferResumeResult::State { transfer } => {
@@ -128,7 +132,7 @@ async fn complete_one(
         TransferResumeResult::Error { error, .. } => return Err(cloud_error(error)),
     }
     check_pause(pause)?;
-    let completed = retry::control("transfer_complete", pause, || async {
+    let completed = work::control("transfer_complete", pause, || async {
         let item = client.complete(input).await?;
         match item {
             TransferItemResult::Error { error, .. } => Err(cloud_error(error)),
@@ -144,7 +148,7 @@ async fn complete_one(
         job: input.job.clone(),
         request_ids: vec![input.request_id.clone()],
     };
-    wait::poll(context, "transfer_status", || async {
+    work::poll(context, "transfer_status", || async {
         let reply = client
             .transfer_status(&request, std::slice::from_ref(input))
             .await?;
@@ -153,13 +157,12 @@ async fn complete_one(
     .await
 }
 
-/// Grant retries reuse the exact identity and precede the single PUT opportunity.
 async fn resume_with_retry(
     client: &ByteBackupClient,
     input: &TransferInput,
-    context: &wait::Context<'_>,
+    context: &work::Context<'_>,
 ) -> Result<TransferResumeResult> {
-    retry::control("transfer_resume", context.pause, || async {
+    work::control("transfer_resume", context.pause, || async {
         context.check()?;
         let result = client.resume(input).await;
         match result? {
@@ -188,6 +191,131 @@ pub(super) fn check_pause(pause: &AtomicBool) -> Result<()> {
         Ok(())
     }
 }
+
 pub(super) fn cloud_error(error: cloud_backup_protocol::ProtocolError) -> BackupError {
     BackupTransportError::Protocol(error).into()
+}
+
+/// Register the cloud source a personal home uses for non-local record blobs.
+pub fn register_blob_source(host: &crate::host::Host) {
+    if host.db.db_ops().native_runtime().is_dedicated_shared_home() {
+        return;
+    }
+    let source: Arc<dyn RecordBlobSource> = match blob_source(host) {
+        Ok(source) => Arc::new(source),
+        Err(reason) => {
+            if matches!(crate::cloud::load_saved_credentials(&host.home), Ok(None)) {
+                Arc::new(SignInRequired)
+            } else {
+                tracing::debug!(
+                    target: "lastdbd::blob_source",
+                    %reason,
+                    "record files download on request is off"
+                );
+                return;
+            }
+        }
+    };
+    host.db.set_record_blob_source(Some(source));
+}
+
+struct SignInRequired;
+
+#[async_trait]
+impl RecordBlobSource for SignInRequired {
+    async fn fetch(&self, _path: &BlobPath, _sealed_bytes: u64) -> BlobFetch {
+        BlobFetch::Unavailable(SIGN_IN_TO_FETCH_FILE.to_owned())
+    }
+}
+
+fn blob_source(host: &crate::host::Host) -> std::result::Result<CloudBlobSource, String> {
+    let client = super::credentials::client_for_recovery(&host.home)?;
+    let account = AccountId::try_from(host.user_hash.clone())
+        .map_err(|_| "the node account id is not a cloud account id".to_owned())?;
+    Ok(CloudBlobSource {
+        client,
+        account,
+        scope: tokio::sync::Mutex::new(None),
+    })
+}
+
+struct CloudBlobSource {
+    client: ByteBackupClient,
+    account: AccountId,
+    scope: tokio::sync::Mutex<Option<CloudScope>>,
+}
+
+#[async_trait]
+impl RecordBlobSource for CloudBlobSource {
+    async fn fetch(&self, path: &BlobPath, sealed_bytes: u64) -> BlobFetch {
+        match self.read(path, sealed_bytes).await {
+            Ok(fetch) => fetch,
+            Err(reason) => BlobFetch::Unavailable(reason),
+        }
+    }
+}
+
+impl CloudBlobSource {
+    async fn scope(&self) -> std::result::Result<CloudScope, String> {
+        let mut cached = self.scope.lock().await;
+        if let Some(scope) = cached.as_ref() {
+            return Ok(scope.clone());
+        }
+        let context = self
+            .client
+            .context(&ContextReadRequest {
+                version: Version::V2,
+                account_id: self.account.clone(),
+                required_destinations: vec![Destination::B2],
+            })
+            .await
+            .map_err(|error| format!("cloud account context: {error}"))?;
+        *cached = Some(context.scope.clone());
+        Ok(context.scope)
+    }
+
+    async fn read(
+        &self,
+        path: &BlobPath,
+        sealed_bytes: u64,
+    ) -> std::result::Result<BlobFetch, String> {
+        let request = BlobReadRequest {
+            version: Version::V2,
+            scope: self.scope().await?,
+            paths: vec![path.clone()],
+        };
+        let response = match self.client.blob_read(&request).await {
+            Ok(response) => response,
+            Err(error) => {
+                *self.scope.lock().await = None;
+                return Err(format!("cloud blob read: {error}"));
+            }
+        };
+        let item = response
+            .items
+            .into_iter()
+            .next()
+            .ok_or_else(|| "cloud blob read returned no result".to_owned())?;
+        match &item {
+            BlobReadItem::Absent { .. } => return Ok(BlobFetch::Absent),
+            BlobReadItem::Grant { bytes, .. } if bytes.get() != sealed_bytes => {
+                return Err(format!(
+                    "the cloud object has {} bytes; the record's file needs {sealed_bytes}",
+                    bytes.get()
+                ));
+            }
+            BlobReadItem::Grant { .. } => {}
+        }
+        let mut stream = self
+            .client
+            .open_blob(&item)
+            .await
+            .map_err(|error| format!("cloud blob download: {error}"))?;
+        let mut row = Vec::with_capacity(usize::try_from(sealed_bytes).unwrap_or(0));
+        stream
+            .read_to_end(&mut row)
+            .await
+            .map_err(|error| format!("cloud blob download: {error}"))?;
+        Ok(BlobFetch::Bytes(row))
+    }
 }

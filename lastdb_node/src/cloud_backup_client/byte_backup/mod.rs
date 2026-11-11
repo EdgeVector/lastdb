@@ -19,16 +19,14 @@ use cloud_backup_protocol::v2::transfer::{
     TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
     TransferStatusRequest,
 };
-use cloud_backup_protocol::v2::usage::{UsageReadRequest, UsageReadResponse};
-use cloud_backup_protocol::v2::{limits, AcceptedBackup, Begin, Version};
+use cloud_backup_protocol::v2::{limits, AcceptedBackup, Begin, Stream, Version};
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Read;
 
 mod contributions;
 mod guest_permission;
 mod reader;
-mod share_recovery;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};
 pub use contributions::GuestContributionWriter;
@@ -36,13 +34,23 @@ pub use guest_permission::{GuestAppendPermission, GuestReadPermission, ShareEnvi
 pub use reader::ByteBackupReader;
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
+#[derive(Serialize)]
+struct ShareRecoveryRequest<'a> {
+    stream: &'a Stream,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShareRecoveryStatus {
+    stream: Stream,
+    max_log_checkpoints: u8,
+}
+
 #[derive(Clone)]
 pub struct ByteBackupClient {
     transport: BackupTransport,
 }
 impl ByteBackupClient {
-    /// Construction reuses only configured credentials and bounded byte transport.
-    /// It starts no enrollment, claim, stream or background work.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         Ok(Self {
             transport: BackupTransport::from_auth(auth)?,
@@ -74,13 +82,6 @@ impl ByteBackupClient {
         Ok(response)
     }
 
-    pub async fn usage(&self, request: &UsageReadRequest) -> Result<UsageReadResponse> {
-        request.validate()?;
-        let response: UsageReadResponse = self.post("usage/read", request).await?;
-        response.validate_for(request)?;
-        Ok(response)
-    }
-
     pub async fn list(&self, request: &StreamsListRequest) -> Result<StreamsListResponse> {
         request.validate()?;
         let response: StreamsListResponse = self.post("streams/list", request).await?;
@@ -103,14 +104,10 @@ impl ByteBackupClient {
         self.reader().read_grants(request, accepted).await
     }
 
-    /// The caller validates accepted membership through read_grants before open.
-    /// EOF authenticates exact stored byte count and SHA256, not client plaintext.
     pub async fn open(&self, grant: &ReadGrant) -> Result<ObjectStream> {
         self.reader().open(grant).await
     }
 
-    /// Ask for GET grants for blob paths of the caller's account. An absent
-    /// object is a normal [`BlobReadItem::Absent`] result.
     pub async fn blob_read(&self, request: &BlobReadRequest) -> Result<BlobReadResponse> {
         request.validate()?;
         let response: BlobReadResponse = self.post("blobs/read", request).await?;
@@ -118,9 +115,6 @@ impl ByteBackupClient {
         Ok(response)
     }
 
-    /// Open one granted blob object. The read requires exactly the granted
-    /// length. No SHA-256 of the stored bytes exists; the caller authenticates
-    /// them (record files: AEAD decryption and the record's marker).
     pub async fn open_blob(&self, grant: &BlobReadItem) -> Result<ObjectStream> {
         let BlobReadItem::Grant {
             bytes,
@@ -142,9 +136,6 @@ impl ByteBackupClient {
             .await
     }
 
-    /// Record blob versions that an open job's records no longer use. The
-    /// service deletes them when it accepts the job. Repeating a request is
-    /// harmless; a path that was never uploaded is ignored.
     pub async fn release_blobs(&self, request: &BlobReleaseRequest) -> Result<BlobReleaseResponse> {
         request.validate()?;
         let response: BlobReleaseResponse = self.post("blobs/release", request).await?;
@@ -232,8 +223,6 @@ impl ByteBackupClient {
         Ok(response)
     }
 
-    /// The exact validated resume response binds its grant to the frozen input.
-    /// An HTTP observation never supplies verified receipt or publication authority.
     pub async fn upload(
         &self,
         input: &TransferInput,
@@ -253,6 +242,35 @@ impl ByteBackupClient {
             return self.transport.upload_part(object, grant, source).await;
         }
         self.transport.upload(object, grant, source).await
+    }
+
+    /// Return the retained checkpoint bound when guest recovery is enabled.
+    pub async fn share_recovery_limit(&self, stream: &Stream) -> Result<Option<u8>> {
+        stream.validate()?;
+        let response: ShareRecoveryStatus = match self
+            .post(
+                "streams/share-recovery/status",
+                &ShareRecoveryRequest { stream },
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(BackupTransportError::Http(404)) => return Ok(None),
+            Err(BackupTransportError::Protocol(error))
+                if (error.code == ErrorCode::NotFound && error.field == "http.route")
+                    || (error.code == ErrorCode::UnsupportedCapability
+                        && error.field == "guest.disabled") =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        if &response.stream != stream || !(1..=8).contains(&response.max_log_checkpoints) {
+            return Err(BackupTransportError::InvalidResponse(
+                "share recovery capability",
+            ));
+        }
+        Ok(Some(response.max_log_checkpoints))
     }
 }
 

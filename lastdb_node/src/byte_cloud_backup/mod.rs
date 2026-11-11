@@ -1,31 +1,75 @@
 //! Explicit V2 byte backup. The native format remains a client responsibility.
 mod automatic;
 pub(crate) mod automatic_publication;
-mod blob_source;
 mod blobs;
 pub(crate) mod connection;
 mod control;
 mod log_capture;
 mod publication;
-pub mod share_write_gate;
 mod source;
 mod store;
 mod transfer;
 mod work;
 mod worker;
 
-mod capture {
-    pub(in crate::byte_cloud_backup) use crate::byte_cloud_backup::work::Capture;
-}
+pub mod share_write_gate {
+    use super::connection::files::Directory;
+    use rustix::fs::{flock, FlockOperation};
+    use std::{fs::File, io, path::Path};
 
-mod retry {
-    pub(in crate::byte_cloud_backup) use crate::byte_cloud_backup::work::{control, temporary};
-}
+    const LOCK: &str = "share-edit.lock";
+    const HOLD: &str = "share-edit.pending";
+    const MARKER: &[u8] = b"1\n";
 
-mod wait {
-    pub(in crate::byte_cloud_backup) use crate::byte_cloud_backup::work::{
-        poll, record_error, Context,
-    };
+    pub struct ShareEdit {
+        directory: Directory,
+        _lock: File,
+    }
+
+    pub fn begin_edit(home: &Path) -> Result<ShareEdit, String> {
+        let directory = Directory::open(home).map_err(|e| e.to_string())?;
+        let lock = directory.open_lock(LOCK).map_err(|e| e.to_string())?;
+        flock(&lock, FlockOperation::NonBlockingLockExclusive)
+            .map_err(|_| "a share edit or snapshot capture is active; retry the file import")?;
+        match directory.read(HOLD).map_err(|e| e.to_string())? {
+            Some(current) if current.as_slice() == MARKER => {}
+            Some(_) => return Err("invalid pending share edit".into()),
+            None => directory
+                .publish(HOLD, None, MARKER)
+                .map_err(|e| e.to_string())?,
+        }
+        Ok(ShareEdit {
+            directory,
+            _lock: lock,
+        })
+    }
+
+    impl ShareEdit {
+        pub fn finish(self) -> Result<(), String> {
+            let result = self
+                .directory
+                .remove_exact(HOLD, MARKER)
+                .map_err(|e| e.to_string());
+            drop(self);
+            result
+        }
+    }
+
+    pub(crate) fn try_capture(home: &Path) -> Result<Option<File>, String> {
+        let directory = Directory::open(home).map_err(|e| e.to_string())?;
+        let lock = directory.open_lock(LOCK).map_err(|e| e.to_string())?;
+        match flock(&lock, FlockOperation::NonBlockingLockShared) {
+            Err(error) if io::Error::from(error).kind() == io::ErrorKind::WouldBlock => {
+                return Ok(None)
+            }
+            Err(_) => return Err("cannot lock share publication capture".into()),
+            Ok(()) => {}
+        }
+        if directory.read(HOLD).map_err(|e| e.to_string())?.is_some() {
+            return Ok(None);
+        }
+        Ok(Some(lock))
+    }
 }
 
 pub(crate) mod credentials {
@@ -45,11 +89,9 @@ pub(crate) mod credentials {
     }
 }
 
-pub(crate) mod invocation {
+mod invocation {
     use crate::backup_runtime::{BackupError, InvocationOutcome};
-    use crate::byte_cloud_backup::{
-        model::Saved, source::Source, store::Store, worker::run as run_worker,
-    };
+    use crate::byte_cloud_backup::{model::Saved, source::Source, store::Store, transfer, worker};
     use crate::cloud_backup_client::byte_backup::ByteBackupClient;
     use std::fs::File;
     use std::sync::{atomic::AtomicBool, Arc};
@@ -57,8 +99,19 @@ pub(crate) mod invocation {
     pub(in crate::byte_cloud_backup) fn run(
         source: Source,
         store: Store,
-        mut saved: Saved,
+        saved: Saved,
         client: ByteBackupClient,
+        permit: File,
+        pause: Arc<AtomicBool>,
+    ) -> InvocationOutcome {
+        execute(source, store, saved, Some(client), permit, pause)
+    }
+
+    pub(in crate::byte_cloud_backup) fn execute(
+        source: Source,
+        store: Store,
+        mut saved: Saved,
+        client: Option<ByteBackupClient>,
         permit: File,
         pause: Arc<AtomicBool>,
     ) -> InvocationOutcome {
@@ -67,7 +120,15 @@ pub(crate) mod invocation {
                 .enable_all()
                 .build()
                 .map_err(|_| BackupError::Source)?;
-            runtime.block_on(run_worker(&source, &store, &mut saved, &client, &pause))
+            match &client {
+                Some(client) => {
+                    runtime.block_on(worker::run(&source, &store, &mut saved, client, &pause))
+                }
+                None => {
+                    transfer::check_pause(&pause)?;
+                    runtime.block_on(worker::reconcile(&source, &store, &mut saved))
+                }
+            }
         }))
         .unwrap_or(Err(BackupError::WorkerPanic));
         let outcome = match result {
@@ -286,13 +347,13 @@ pub(crate) mod recovery {
 
 pub use crate::backup_runtime::{BackupError, BackupRuntime};
 pub use automatic::{spawn_automatic, AutomaticBackupStatus};
-pub use blob_source::register_blob_source;
 pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
 pub use control::request;
 pub(crate) use control::status;
 pub use credentials::client_from_home;
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
 pub(crate) use source::PublicationSource;
+pub use transfer::register_blob_source;
 pub type Result<T> = std::result::Result<T, BackupError>;
 
 pub const PUBLICATION_MARKER: &str = "share-publication.json";

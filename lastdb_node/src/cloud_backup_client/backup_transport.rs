@@ -11,11 +11,6 @@ use std::time::Duration;
 
 mod download;
 mod feed;
-mod shared;
-
-mod http {
-    pub(in crate::cloud_backup_client::backup_transport) use crate::cloud_backup_client::backup_transport::bounded;
-}
 
 pub use download::ObjectStream;
 pub(super) type Result<T> = std::result::Result<T, BackupTransportError>;
@@ -136,7 +131,7 @@ impl BackupTransport {
         })
     }
 
-    fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    pub(super) fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if let Some(auth) = &self.auth {
             auth.apply_auth(request)
         } else {
@@ -149,7 +144,6 @@ impl BackupTransport {
     }
 
     /// True when the presigned URL is one multipart UploadPart.
-    /// A direct R2 or B2 PUT has neither `uploadId` nor `partNumber`.
     pub(crate) fn upload_is_multipart(
         url: &str,
     ) -> std::result::Result<bool, BackupTransportError> {
@@ -215,8 +209,6 @@ impl BackupTransport {
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(BackupTransportError::Authentication);
         }
-        // ProviderPending is a safe protocol error with HTTP 202. A successful
-        // transport status must not erase the service's explicit classification.
         if let Ok(error) = serde_json::from_slice::<ProtocolError>(&body) {
             return Err(BackupTransportError::Protocol(error));
         }
@@ -266,8 +258,6 @@ impl BackupTransport {
             .map_err(|_| BackupTransportError::Task)?;
         let (body, mut feeder, cancel) =
             feed::start(source, object.bytes, object.sha256.clone(), permit);
-        // The deadline owns only the transport future. The feeder remains owned
-        // here so every timeout/error cancels and joins it before source release.
         let mut request = self
             .http
             .put(url)

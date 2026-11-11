@@ -1,19 +1,18 @@
 //! One owner, one saved pending request, separate log and snapshot schedules.
-mod cleanup;
 mod policy;
 use super::{
-    model::Saved,
+    model::{LocalAction, Saved},
     recovery::RecoveryPoint,
+    source::Source,
     store::{self, Store},
     work::Work,
     BackupError, Phase, Result,
 };
 use crate::backup_runtime::{Disposition, PauseReason, PauseState};
-pub(super) use cleanup::retire_at;
 use cloud_backup_protocol::v2::jobs::JobResult;
 use cloud_backup_protocol::Id;
 pub use policy::AutomaticBackupStatus;
-pub(super) use policy::{configure, status};
+pub(super) use policy::{configure, retire_at, status};
 use policy::{Pending, Policy};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -25,22 +24,28 @@ pub fn spawn_automatic(
     host: Arc<crate::host::Host>,
     shutdown: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut changes = host.byte_backup.subscribe();
-        let mut last_error = None;
-        while !shutdown.load(Ordering::Acquire) && !host.byte_backup.snapshot().shutting_down {
-            let error = tick(&host).err().map(|error| error.to_string());
-            if error != last_error {
-                if let Some(error) = &error { tracing::warn!(target: "lastdbd::byte_backup", error = %error, "automatic backup needs attention"); }
-                last_error = error;
-            }
-            tokio::select! {
-                result = changes.changed() => { if result.is_err() { break; } }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+    tokio::spawn(
+        async move {
+            let mut changes = host.byte_backup.subscribe();
+            let mut last_error = None;
+            while !shutdown.load(Ordering::Acquire) && !host.byte_backup.snapshot().shutting_down {
+                let error = tick(&host).err().map(|error| error.to_string());
+                if error != last_error {
+                    if let Some(error) = &error {
+                        tracing::warn!(target: "lastdbd::byte_backup", error = %error, "automatic backup needs attention");
+                    }
+                    last_error = error;
+                }
+                tokio::select! {
+                    result = changes.changed() => { if result.is_err() { break; } }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+                }
             }
         }
-    }.in_current_span())
+        .in_current_span(),
+    )
 }
+
 fn tick(host: &crate::host::Host) -> Result<()> {
     let _transition = host.byte_backup.transition()?;
     host.byte_backup.check_admission()?;
@@ -70,6 +75,7 @@ fn tick(host: &crate::host::Host) -> Result<()> {
     }
     result
 }
+
 fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
     policy.require_connection(host)?;
     let now = fold_db::clock::unix_secs();
@@ -78,7 +84,7 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
             policy.cleanup = None;
             policy.save(host)?;
         } else if Store::active(&host.home)?.as_ref() != Some(&id) {
-            cleanup::retire(host, &id)?;
+            policy::retire(host, &id)?;
             policy.cleanup = None;
             policy.save(host)?;
         }
@@ -148,13 +154,14 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
     policy.save(host)?;
     invoke(host, policy, &pending, now)
 }
+
 fn pending_job(
     host: &crate::host::Host,
     policy: &mut Policy,
     pending: &Pending,
     now: u64,
 ) -> Result<()> {
-    if cleanup::retire_replacement(host, policy, pending)? {
+    if retire_replacement(host, policy, pending)? {
         let saved = store::state(&host.home, &pending.id)?.ok_or(BackupError::Missing)?;
         return complete(host, policy, &saved, now);
     }
@@ -191,6 +198,63 @@ fn pending_job(
     }
     Ok(())
 }
+
+/// Recover a local-only log intent after native recovery requires a new snapshot.
+fn retire_replacement(
+    host: &crate::host::Host,
+    policy: &Policy,
+    pending: &Pending,
+) -> Result<bool> {
+    let Work::MutationLog { context } = &pending.work else {
+        return Ok(false);
+    };
+    let previous = store::state(&host.home, &pending.id)?;
+    if let Some(saved) = &previous {
+        policy.validate_job(saved)?;
+        if saved.terminal() || saved.begin_submitted {
+            return Ok(false);
+        }
+    }
+    let runtime = native(host)?;
+    let journal = runtime.mutation_log_status()?;
+    let already_replacing = previous.as_ref().is_some_and(|s| s.local_action.is_some());
+    if !already_replacing
+        && !journal.snapshot_required
+        && journal.anchor.as_ref() == Some(&context.anchor)
+    {
+        return Ok(false);
+    }
+    let _permit = Store::lock(&host.home)?;
+    super::control::ensure_previous(&host.home, &pending.id)?;
+    if runtime.mutation_log_capture_materialized(&pending.id)? {
+        return if already_replacing {
+            Err(BackupError::Identity)
+        } else {
+            Ok(false)
+        };
+    }
+    let source = Source::from_host(host)?;
+    let client = super::connection::client_for_host(host)?;
+    let mut saved = previous.unwrap_or_else(|| {
+        let mut saved = source.saved(pending.id.clone(), client.canonical_endpoint());
+        saved.work = pending.work.clone();
+        saved.automatic_revision = Some(pending.revision);
+        saved
+    });
+    policy.validate_job(&saved)?;
+    source.validate(&saved)?;
+    let store = Store::open(&host.home, &pending.id)?;
+    saved.local_action = Some(LocalAction::ReplaceWithSnapshot);
+    store.save(&saved)?;
+    store.select(&pending.id)?;
+    source.cancel_replacement(&saved)?;
+    saved.phase = Phase::Closed;
+    saved.retained_source_bytes = Some(0);
+    saved.blocked_reason = None;
+    store.save(&saved)?;
+    Ok(true)
+}
+
 fn complete(host: &crate::host::Host, policy: &mut Policy, saved: &Saved, now: u64) -> Result<()> {
     if saved.phase != Phase::Published {
         let replace = replace_closed(host, saved)?;
@@ -266,7 +330,6 @@ fn replace_closed(host: &crate::host::Host, saved: &Saved) -> Result<bool> {
         return Ok(false);
     };
     super::worker::validate_terminal(saved, &result)?;
-    // An owner close racing a lease expiry still means the owner asked to stop.
     Ok(super::worker::source_unavailable(&result)
         && store::read::<Id>(&job.join("close.json"))?.is_none())
 }
@@ -284,6 +347,7 @@ fn invoke(
     super::control::request_automatic(host, pending.id.clone(), pending.revision, &pending.work)?;
     Ok(())
 }
+
 fn native(host: &crate::host::Host) -> Result<Arc<fold_db::storage::disk_pack::PackRuntime>> {
     let runtime = host.db.db_ops().native_runtime();
     if runtime.requires_recovery() {

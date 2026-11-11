@@ -1,8 +1,8 @@
-use super::capture::Capture;
+use super::work::{self, Capture};
 use super::{
-    model::Saved, publication, retry, source::Source, store::Store, transfer, BackupError, Phase,
-    Result,
+    model::Saved, publication, source::Source, store::Store, transfer, BackupError, Phase, Result,
 };
+use crate::backup_runtime::InvocationOutcome;
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
@@ -11,10 +11,32 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
-use std::sync::atomic::AtomicBool;
+use std::fs::File;
+use std::sync::{atomic::AtomicBool, Arc};
 
-mod terminal;
-pub(super) use terminal::{source_unavailable, terminal_invocation, validate_terminal};
+pub(super) use publication::{source_unavailable, validate_terminal};
+
+pub(super) fn terminal_invocation(
+    source: Source,
+    store: Store,
+    saved: Saved,
+    permit: File,
+    pause: Arc<AtomicBool>,
+) -> InvocationOutcome {
+    super::invocation::execute(source, store, saved, None, permit, pause)
+}
+
+pub(super) async fn reconcile(source: &Source, store: &Store, saved: &mut Saved) -> Result<()> {
+    source.validate(saved)?;
+    let result: JobResult = store.read("terminal.json")?.ok_or(BackupError::Missing)?;
+    validate_terminal(saved, &result)?;
+    let capture = source.resume(saved, store).await?;
+    finish(&capture, store, saved, &result)?;
+    if source.publication_stream.is_none() {
+        super::blobs::accepted(source, store, saved).await?;
+    }
+    Ok(())
+}
 
 pub(super) async fn run(
     source: &Source,
@@ -25,7 +47,7 @@ pub(super) async fn run(
 ) -> Result<()> {
     source.validate(saved)?;
     if saved.begin.is_some() {
-        terminal::validate_saved_stream(source, store, saved)?;
+        publication::validate_saved_stream(source, store, saved)?;
     }
     if saved.local_action.is_some() {
         source.cancel_replacement(saved)?;
@@ -35,7 +57,7 @@ pub(super) async fn run(
         return store.save(saved);
     }
     if store.read::<JobResult>("terminal.json")?.is_some() {
-        return terminal::reconcile(source, store, saved).await;
+        return reconcile(source, store, saved).await;
     }
     transfer::check_pause(pause)?;
     if store.read::<Id>("close.json")?.is_some() {
@@ -81,25 +103,25 @@ async fn setup(
         account_id: source.account.clone(),
         required_destinations: vec![Destination::R2, Destination::B2],
     };
-    let context = retry::control("context_read", pause, || async {
+    let context = work::control("context_read", pause, || async {
         Ok(client.context(&context_request).await?)
     })
     .await?;
     if !context.new_work_allowed {
         if source.publication_stream.is_some()
             || (saved.automatic_revision.is_some()
-                && terminal::same_scope(source, store, &context.scope)?)
+                && publication::same_scope(source, store, &context.scope)?)
         {
             return Err(BackupError::AdmissionPending);
         }
         return Err(BackupError::Authority);
     }
-    let stream = terminal::select_stream(source, store, context.scope)?;
+    let stream = publication::select_stream(source, store, context.scope)?;
     let head_request = HeadReadRequest {
         version: Version::V2,
         stream: stream.clone(),
     };
-    let head = retry::control("head_read", pause, || async {
+    let head = work::control("head_read", pause, || async {
         match client.head(&head_request).await? {
             HeadReadResult::Error { error }
                 if error.code != ErrorCode::NotFound || error.field.as_str() != "stream" =>
@@ -141,8 +163,6 @@ async fn setup(
         required_destinations: vec![Destination::R2, Destination::B2],
         r2_multipart: None,
         predecessor,
-        // Declared so the service can retire points that no kept point needs.
-        // Every deployed V2 service package accepts this field.
         recovery_dependencies: saved.work.recovery_dependencies(),
         covered_logs,
     };
@@ -183,8 +203,6 @@ async fn drive(
         Err(BackupError::Cloud(BackupTransportError::Protocol(error)))
             if error.code == ErrorCode::JobClosed =>
         {
-            // Expiry can win during transfer or publication. Only the
-            // digest-bound terminal result can release this local capture.
             let result = begin_exact(client, &begin, pause).await?;
             if source_unavailable(&result) || matches!(result.status, JobStatus::Published { .. }) {
                 Ok(result)
@@ -201,7 +219,7 @@ async fn begin_exact(
     begin: &Begin,
     pause: &AtomicBool,
 ) -> Result<JobResult> {
-    retry::control("job_begin", pause, || async {
+    work::control("job_begin", pause, || async {
         Ok(client.begin(begin).await?)
     })
     .await
@@ -217,7 +235,6 @@ async fn upload_and_publish(
 ) -> Result<AcceptedBackup> {
     saved.phase = Phase::Uploading;
     store.save(saved)?;
-    // Record blobs go to their own paths before the job's inventory objects.
     if source.publication_stream.is_none() {
         super::blobs::upload(source, store, saved, client, pause).await?;
     }
@@ -252,23 +269,20 @@ async fn upload_and_publish(
             refresh(capture, store, saved)?;
             return Err(error);
         }
-        let context = super::wait::Context::new(store, saved, pause);
-        let mut work = Vec::new();
+        let context = work::Context::new(store, saved, pause);
+        let mut futures = Vec::new();
         for ((index, input), prepared) in batch.iter().zip(prepared.items) {
             let reader = capture.reader(*index)?;
-            work.push(transfer::complete(
+            futures.push(transfer::complete(
                 client, input, prepared, reader, &context,
             ));
         }
-        // Settle every upload future before releasing source/reader ownership.
-        let results = futures::future::join_all(work).await;
+        let results = futures::future::join_all(futures).await;
         let mut failure = None;
         for ((index, _), result) in batch.iter().zip(results) {
             match result {
                 Ok(receipt) => capture.confirm(*index, &receipt)?,
-                Err(error) => {
-                    super::wait::record_error(&mut failure, error);
-                }
+                Err(error) => work::record_error(&mut failure, error),
             }
         }
         refresh(capture, store, saved)?;
@@ -344,20 +358,6 @@ async fn close(
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
-    close_capture(&capture, store, saved, client, pause).await?;
-    if source.publication_stream.is_none() {
-        super::blobs::accepted(source, store, saved).await?;
-    }
-    Ok(())
-}
-
-async fn close_capture(
-    capture: &Capture,
-    store: &Store,
-    saved: &mut Saved,
-    client: &ByteBackupClient,
-    pause: &AtomicBool,
-) -> Result<()> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let request = JobCloseRequest {
         version: Version::V2,
@@ -365,9 +365,13 @@ async fn close_capture(
         begin_sha256: begin.input_sha256()?,
         reason: CloseReason::UserRequested,
     };
-    let result = retry::control("job_close", pause, || async {
+    let result = work::control("job_close", pause, || async {
         Ok(client.close(&request).await?)
     })
     .await?;
-    finish(capture, store, saved, &result)
+    finish(&capture, store, saved, &result)?;
+    if source.publication_stream.is_none() {
+        super::blobs::accepted(source, store, saved).await?;
+    }
+    Ok(())
 }

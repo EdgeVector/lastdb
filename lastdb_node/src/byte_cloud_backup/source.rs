@@ -151,8 +151,8 @@ impl Source {
         &self,
         saved: &Saved,
         store: &super::store::Store,
-    ) -> Result<super::capture::Capture> {
-        use super::{capture::Capture, work::Work};
+    ) -> Result<super::work::Capture> {
+        use super::work::{Capture, Work};
         let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
         saved.work.validate(Some(begin))?;
         match &saved.work {
@@ -220,7 +220,7 @@ impl Source {
         &self,
         saved: &Saved,
         store: &super::store::Store,
-    ) -> Result<super::capture::Capture> {
+    ) -> Result<super::work::Capture> {
         match &saved.work {
             super::work::Work::Snapshot { .. } => {
                 let capture = if self.publication_stream.is_some() {
@@ -230,13 +230,13 @@ impl Source {
                 } else {
                     self.runtime.resume_byte_backup_capture(&self.key).await?
                 };
-                Ok(super::capture::Capture::Snapshot(capture))
+                Ok(super::work::Capture::Snapshot(capture))
             }
             super::work::Work::MutationLog { context } => {
                 let core = self
                     .runtime
                     .resume_mutation_log_capture(&saved.request_id)?;
-                Ok(super::capture::Capture::Log(Box::new(
+                Ok(super::work::Capture::Log(Box::new(
                     super::log_capture::LogCapture::prepare(
                         core,
                         store,

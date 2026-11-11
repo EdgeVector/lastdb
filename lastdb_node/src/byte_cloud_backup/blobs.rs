@@ -1,36 +1,22 @@
-//! Personal record blobs in a backup job (design
-//! `design-lastdb-blob-files-on-demand-20261107`).
-//!
-//! A record file version is one B2 object at the path derived from its
-//! record, not a member of the job's inventory. The device that created the
-//! version uploads it in the job that publishes its write: the commit that
-//! adds the `fb:` row queues it (`fp:`), and the job plans its uploads after
-//! the capture, so every version that a captured record names is queued. A
-//! snapshot first queues every local version without an uploaded marker.
-//! After the service accepts the job, the node writes the `fu:` markers.
-//!
-//! Releases are derived from record writes, not from file rows: the commit
-//! that retires an `fb:` row after the main publication that dropped its
-//! version queues an `fr:` row. The job plans its releases before its first
-//! capture, so each planned release belongs to a write that the job's
-//! backup holds, and sends them (`blobs/release`) before it publishes. The
-//! service deletes the objects when it accepts the job; the node then drops
-//! the `fr:` rows. A release of a path that was never uploaded is harmless.
-
-use super::{model::Saved, retry, source::Source, store::Store, BackupError, Phase, Result};
+//! Personal record blobs in a backup job: uploads and releases by path.
+use super::{
+    model::Saved,
+    source::Source,
+    store::Store,
+    transfer,
+    work::{self, Work},
+    BackupError, Phase, Result,
+};
 use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReleaseRequest, MAX_BLOB_BATCH};
+use cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS;
 use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
-use cloud_backup_protocol::v2::Version;
+use cloud_backup_protocol::v2::{Destination, Object, Version};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 
-mod upload;
-pub(super) use upload::upload;
-
 const INDEX: &str = "blobs.json";
-/// Version 2: the plan has no page limit, keeps its cursors in the index,
-/// and shrinks a finished upload page to its uploaded keys.
 const VERSION: u16 = 2;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -140,6 +126,168 @@ pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved)
     store.write(INDEX, &index)
 }
 
+/// Plan and upload every queued version, page by page, after capture is prepared.
+pub(super) async fn upload(
+    source: &Source,
+    store: &Store,
+    saved: &Saved,
+    client: &ByteBackupClient,
+    pause: &AtomicBool,
+) -> Result<()> {
+    let mut index = load(store)?;
+    if !index.queued {
+        if matches!(saved.work, Work::Snapshot { .. }) {
+            source.queue_unuploaded_blobs().await?;
+        }
+        index.queued = true;
+        store.write(INDEX, &index)?;
+    }
+    loop {
+        if index.uploads_done < index.upload_pages {
+            let page = index.uploads_done;
+            upload_one_page(source, store, saved, client, pause, page).await?;
+            store.write(&uploaded_page(page), &uploaded_keys(store, page)?)?;
+            index.uploads_done += 1;
+            store.write(INDEX, &index)?;
+            store.remove(&upload_page(page))?;
+            continue;
+        }
+        if index.uploads_planned {
+            return Ok(());
+        }
+        let rows = source
+            .pending_blob_uploads(index.upload_cursor.as_deref(), MAX_BLOB_BATCH)
+            .await?;
+        let full = rows.len() == MAX_BLOB_BATCH;
+        if let Some(last) = rows.last() {
+            index.upload_cursor = Some(last.key.clone());
+            let entries: Vec<Upload> = rows
+                .into_iter()
+                .map(|row| Upload {
+                    key: row.key,
+                    path: row.path,
+                    input: None,
+                    receipt: None,
+                    vanished: false,
+                })
+                .collect();
+            store.write(&upload_page(index.upload_pages), &entries)?;
+            index.upload_pages += 1;
+        }
+        index.uploads_planned = !full;
+        store.write(INDEX, &index)?;
+    }
+}
+
+async fn upload_one_page(
+    source: &Source,
+    store: &Store,
+    saved: &Saved,
+    client: &ByteBackupClient,
+    pause: &AtomicBool,
+    page: u32,
+) -> Result<()> {
+    let name = upload_page(page);
+    let mut entries: Vec<Upload> = read_page(store, &name)?;
+    let open: Vec<usize> = (0..entries.len())
+        .filter(|&i| entries[i].receipt.is_none() && !entries[i].vanished)
+        .collect();
+    for chunk in open.chunks(MAX_BATCH_ITEMS) {
+        transfer::check_pause(pause)?;
+        let batch = freeze_batch(source, saved, &mut entries, chunk).await?;
+        store.write(&name, &entries)?;
+        if batch.is_empty() {
+            continue;
+        }
+        let inputs: Vec<_> = batch.iter().map(|(_, input, _)| input.clone()).collect();
+        let prepared = transfer::prepare(client, &inputs, pause).await?;
+        if let Some(error) = prepared.error {
+            for ((i, _, _), item) in batch.iter().zip(prepared.items) {
+                if let Ok(Some(receipt)) = transfer::verified(item) {
+                    entries[*i].receipt = Some(receipt);
+                }
+            }
+            store.write(&name, &entries)?;
+            return Err(error);
+        }
+        let context = work::Context::new(store, saved, pause);
+        let futures = batch
+            .iter()
+            .zip(prepared.items)
+            .map(|((_, input, bytes), item)| {
+                let reader: Box<dyn std::io::Read + Send> =
+                    Box::new(std::io::Cursor::new(bytes.clone()));
+                transfer::complete(client, input, item, reader, &context)
+            });
+        let results = futures::future::join_all(futures).await;
+        let mut failure = None;
+        for ((i, input, _), result) in batch.iter().zip(results) {
+            match result {
+                Ok(receipt) if receipt.object == input.object => {
+                    entries[*i].receipt = Some(receipt)
+                }
+                Ok(_) => work::record_error(&mut failure, BackupError::Identity),
+                Err(error) => work::record_error(&mut failure, error),
+            }
+        }
+        store.write(&name, &entries)?;
+        if let Some(error) = failure {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+async fn freeze_batch(
+    source: &Source,
+    saved: &Saved,
+    entries: &mut [Upload],
+    chunk: &[usize],
+) -> Result<Vec<(usize, TransferInput, Vec<u8>)>> {
+    let mut batch = Vec::new();
+    for &i in chunk {
+        let entry = &mut entries[i];
+        let Some(bytes) = source.blob_bytes(&entry.key).await? else {
+            if entry.input.is_some() {
+                return Err(BackupError::Source);
+            }
+            entry.vanished = true;
+            continue;
+        };
+        let input = match &entry.input {
+            Some(input) => input.clone(),
+            None => freeze(saved, &entry.path, &bytes)?,
+        };
+        if input.object != object(&bytes) {
+            return Err(BackupError::Identity);
+        }
+        entry.input = Some(input.clone());
+        batch.push((i, input, bytes));
+    }
+    Ok(batch)
+}
+
+fn object(bytes: &[u8]) -> Object {
+    Object {
+        sha256: bytes_sha256(bytes),
+        bytes: DecimalU64::new(bytes.len() as u64),
+        destination: Destination::B2,
+    }
+}
+
+fn freeze(saved: &Saved, path: &BlobPath, bytes: &[u8]) -> Result<TransferInput> {
+    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    let input = TransferInput {
+        version: Version::V2,
+        request_id: Id::try_from(uuid::Uuid::new_v4().to_string())?,
+        job: begin.job.clone(),
+        object: object(bytes),
+        blob: Some(path.clone()),
+    };
+    input.validate()?;
+    Ok(input)
+}
+
 /// Record the planned releases on the open job before it publishes.
 pub(super) async fn release(
     store: &Store,
@@ -156,7 +304,7 @@ pub(super) async fn release(
             job: begin.job.clone(),
             paths: entries.into_iter().map(|entry| entry.path).collect(),
         };
-        retry::control("blob_release", pause, || async {
+        work::control("blob_release", pause, || async {
             Ok(client.release_blobs(&request).await?)
         })
         .await?;
@@ -166,7 +314,7 @@ pub(super) async fn release(
     Ok(())
 }
 
-/// After the service accepted the job: mark its uploaded versions and drop its released `fr:` rows.
+/// Mark uploaded versions and drop released `fr:` rows after job acceptance.
 pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
     if saved.phase != Phase::Published {
         return Ok(());
@@ -209,20 +357,14 @@ struct Pages {
     release_pages: u32,
 }
 
-/// Remove the blob plan of a finished job by exact names.
 pub(super) fn remove_plan(root: &std::path::Path) -> Result<()> {
     let Some(pages) = super::store::read::<Pages>(&root.join(INDEX))? else {
         return Ok(());
     };
-    let mut names = Vec::new();
-    for page in 0..=pages.upload_pages {
-        names.push(upload_page(page));
-        names.push(uploaded_page(page));
-    }
-    for page in 0..=pages.release_pages {
-        names.push(release_page(page));
-    }
-    names.push(INDEX.to_owned());
+    let names = (0..=pages.upload_pages)
+        .flat_map(|p| [upload_page(p), uploaded_page(p)])
+        .chain((0..=pages.release_pages).map(release_page))
+        .chain(std::iter::once(INDEX.to_owned()));
     for name in names {
         let path = root.join(&name);
         super::store::remove_owned(&path.with_extension("pending"))?;

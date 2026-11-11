@@ -9,7 +9,7 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{bytes_sha256, Digest, RecoveryDescriptor};
 use fold_db::storage::disk_pack::byte_backup::{ByteBackupCaptureStatus, ByteBackupObject};
 use fold_db::storage::disk_pack::mutation_log::{
-    FrozenLogCapture, FrozenLogFile, MutationLogCapture, MutationLogReader,
+    FrozenLogCapture, MutationLogCapture, MutationLogReader,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -61,10 +61,6 @@ pub(super) fn file_name(index: usize) -> String {
 pub(super) fn payload_name(index: u64) -> String {
     format!("log-payload-{index:08}.enc")
 }
-/// Log files hold main-home runs only, which go to R2.
-pub(super) fn destination(_file: &FrozenLogFile) -> Destination {
-    Destination::R2
-}
 
 impl ObjectRecord {
     pub fn validate(&self, frozen: &FrozenLogCapture, index: u64) -> Result<()> {
@@ -88,7 +84,7 @@ impl ObjectRecord {
                     .offset
                     .checked_add(segment.bytes)
                     .is_none_or(|end| end > file.bytes)
-                || self.input.object.destination != destination(file)
+                || self.input.object.destination != Destination::R2
             {
                 return Err(BackupError::Identity);
             }
