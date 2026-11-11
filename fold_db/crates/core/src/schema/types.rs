@@ -60,11 +60,6 @@ pub mod key_comparison {
         }
 
         #[must_use]
-        pub fn identity(&self) -> &str {
-            &self.identity
-        }
-
-        #[must_use]
         pub fn range_comparison(&self) -> &RangeKeyComparison {
             &self.range
         }
@@ -135,31 +130,48 @@ pub mod key_comparison {
             }
         }
 
-        pub(crate) fn compare_current_keys(left: &KeyValue, right: &KeyValue) -> Ordering {
-            left.cmp_page_order_with(right, Self::compare_current_ranges)
-        }
-
-        pub fn canonical_range(&self, value: &str) -> Result<String, SchemaError> {
-            normalize::canonical_range(self.profile, value)
-        }
-
         pub fn canonical_key(&self, mut key: KeyValue) -> Result<KeyValue, SchemaError> {
-            normalize::canonical_key(self.profile, &mut key)?;
+            canonical_key(self.profile, &mut key)?;
             Ok(key)
         }
 
         pub fn canonical_filter(
             &self,
-            filter: Option<HashRangeFilter>,
+            mut filter: Option<HashRangeFilter>,
         ) -> Result<Option<HashRangeFilter>, SchemaError> {
-            normalize::canonical_filter(self.profile, filter)
+            use HashRangeFilter::*;
+            match filter.as_mut() {
+                Some(HashRangeKey { range, .. }) => *range = canonical_range(self.profile, range)?,
+                Some(HashRangeKeys(keys)) => {
+                    for (_, range) in keys {
+                        *range = canonical_range(self.profile, range)?;
+                    }
+                }
+                Some(HashRangeRange { start, end, .. }) => {
+                    *start = canonical_range(self.profile, start)?;
+                    *end = canonical_range(self.profile, end)?;
+                }
+                Some(HashRangePrefix { .. }) => {
+                    self.profile
+                        .require_text_prefix()
+                        .map_err(SchemaError::InvalidData)?;
+                }
+                None | Some(HashKey(_)) => {}
+            }
+            Ok(filter)
         }
 
         pub fn canonical_window(
             &self,
             window: Option<KeyWindow>,
         ) -> Result<Option<KeyWindow>, SchemaError> {
-            normalize::canonical_window(self.profile, window)
+            match window {
+                Some(KeyWindow::After { mut after, limit }) => {
+                    canonical_key(self.profile, &mut after)?;
+                    Ok(Some(KeyWindow::after(after, limit)))
+                }
+                other => Ok(other),
+            }
         }
     }
 
@@ -169,76 +181,31 @@ pub mod key_comparison {
 
     impl KeyValuePageOrder for KeyValue {
         fn cmp_page_order(&self, other: &Self) -> Ordering {
-            KeyComparisonContext::compare_current_keys(self, other)
+            self.cmp_page_order_with(other, KeyComparisonContext::compare_current_ranges)
         }
     }
 
-    pub(crate) mod normalize {
-        use lastdb_model::schema::types::field::{HashRangeFilter, KeyWindow};
-        use lastdb_model::schema::types::{KeyValue, SchemaError};
-        use schema_types::field_range_profile::FieldRangeProfile;
+    pub(crate) fn canonical_range(
+        profile: FieldRangeProfile,
+        value: &str,
+    ) -> Result<String, SchemaError> {
+        profile
+            .encode_value(value)
+            .and_then(|stored| profile.decode_value(&stored))
+            .map_err(SchemaError::InvalidData)
+    }
 
-        pub(crate) fn canonical_window(
-            profile: FieldRangeProfile,
-            window: Option<KeyWindow>,
-        ) -> Result<Option<KeyWindow>, SchemaError> {
-            match window {
-                Some(KeyWindow::After { mut after, limit }) => {
-                    canonical_key(profile, &mut after)?;
-                    Ok(Some(KeyWindow::after(after, limit)))
-                }
-                other => Ok(other),
-            }
+    pub(crate) fn canonical_key(
+        profile: FieldRangeProfile,
+        key: &mut KeyValue,
+    ) -> Result<(), SchemaError> {
+        if let Some(range) = key.range.as_mut() {
+            *range = canonical_range(profile, range)?;
+        } else if matches!(profile, FieldRangeProfile::TypedV1 { .. }) {
+            return Err(SchemaError::InvalidData(
+                "a typed range key requires a range coordinate".into(),
+            ));
         }
-
-        pub(crate) fn canonical_range(
-            profile: FieldRangeProfile,
-            value: &str,
-        ) -> Result<String, SchemaError> {
-            profile
-                .encode_value(value)
-                .and_then(|stored| profile.decode_value(&stored))
-                .map_err(SchemaError::InvalidData)
-        }
-
-        pub(crate) fn canonical_key(
-            profile: FieldRangeProfile,
-            key: &mut KeyValue,
-        ) -> Result<(), SchemaError> {
-            if let Some(range) = key.range.as_mut() {
-                *range = canonical_range(profile, range)?;
-            } else if matches!(profile, FieldRangeProfile::TypedV1 { .. }) {
-                return Err(SchemaError::InvalidData(
-                    "a typed range key requires a range coordinate".into(),
-                ));
-            }
-            Ok(())
-        }
-
-        pub(crate) fn canonical_filter(
-            profile: FieldRangeProfile,
-            mut filter: Option<HashRangeFilter>,
-        ) -> Result<Option<HashRangeFilter>, SchemaError> {
-            use HashRangeFilter::*;
-            match filter.as_mut() {
-                Some(HashRangeKey { range, .. }) => *range = canonical_range(profile, range)?,
-                Some(HashRangeKeys(keys)) => {
-                    for (_, range) in keys {
-                        *range = canonical_range(profile, range)?;
-                    }
-                }
-                Some(HashRangeRange { start, end, .. }) => {
-                    *start = canonical_range(profile, start)?;
-                    *end = canonical_range(profile, end)?;
-                }
-                Some(HashRangePrefix { .. }) => {
-                    profile
-                        .require_text_prefix()
-                        .map_err(SchemaError::InvalidData)?;
-                }
-                None | Some(HashKey(_)) => {}
-            }
-            Ok(filter)
-        }
+        Ok(())
     }
 }

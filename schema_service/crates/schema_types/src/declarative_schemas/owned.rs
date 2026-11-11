@@ -1,9 +1,8 @@
-//! Owned app declaration normalization and key-field type resolution.
+//! Owned app declaration normalization, wire deserialization, and key-field types.
 
 use super::DeclarativeSchemaDefinition;
-use crate::FieldValueType;
-use serde_json::Value;
-use std::collections::BTreeMap;
+use crate::{DeclarativeSchemaType, FieldValueType, KeyConfig};
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedDeclaration {
@@ -134,9 +133,147 @@ impl DeclarativeSchemaDefinition {
     }
 }
 
-#[inline(never)]
-pub fn schema_from_value(value: Value) -> Result<DeclarativeSchemaDefinition, serde_json::Error> {
-    serde_json::from_value(value)
+#[derive(serde::Deserialize)]
+struct DeclarativeSchemaDefinitionHelper {
+    name: String,
+    descriptive_name: Option<String>,
+    #[serde(default)]
+    purpose_statement: Option<String>,
+    schema_type: Option<DeclarativeSchemaType>,
+    key: Option<KeyConfig>,
+    #[serde(default)]
+    alternate_keys: BTreeMap<String, crate::AlternateKey>,
+    #[serde(default)]
+    record_keys: Option<crate::record_keys::RecordKeys>,
+    #[serde(default)]
+    file_required: bool,
+    fields: Option<serde_json::Value>,
+    #[serde(default)]
+    field_classifications: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    field_descriptions: HashMap<String, String>,
+    #[serde(default)]
+    field_interest_categories: HashMap<String, String>,
+    #[serde(default)]
+    field_types: HashMap<String, FieldValueType>,
+    #[serde(default)]
+    field_hashes: HashMap<String, String>,
+    #[serde(default)]
+    field_declarations: HashMap<String, String>,
+    #[serde(default)]
+    field_versions: HashMap<String, u32>,
+    identity_hash: Option<String>,
+    #[serde(default)]
+    identity_hash_algo_version: Option<u32>,
+    #[serde(default)]
+    superseded_by: Option<String>,
+    #[serde(default)]
+    owner_app_id: Option<String>,
+    #[serde(flatten)]
+    unknown: HashMap<String, serde::de::IgnoredAny>,
+}
+
+impl DeclarativeSchemaDefinitionHelper {
+    fn into_definition(self) -> Result<DeclarativeSchemaDefinition, String> {
+        for name in ["field_key_id", "record_mapper"] {
+            if self.unknown.contains_key(name) {
+                return Err(format!("schema-level '{name}' is not supported"));
+            }
+        }
+        let fields = normalize_fields(self.fields)?;
+        let schema_type = if let Some(keys) = &self.record_keys {
+            keys.validate()?;
+            let kind = match keys.primary.kind {
+                crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
+                crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
+            };
+            if self.key.is_some()
+                || !self.alternate_keys.is_empty()
+                || self
+                    .schema_type
+                    .as_ref()
+                    .is_some_and(|declared| declared != &kind)
+            {
+                return Err(
+                    "record_keys cannot be mixed with field-derived or conflicting key declarations"
+                        .into(),
+                );
+            }
+            kind
+        } else {
+            match (&self.schema_type, &self.key) {
+                (Some(st), _) => st.clone(),
+                (None, Some(k)) => match (k.hash_field.is_some(), k.range_field.is_some()) {
+                    (true, true) => DeclarativeSchemaType::HashRange,
+                    (true, false) => DeclarativeSchemaType::Hash,
+                    (false, true) => DeclarativeSchemaType::Range,
+                    (false, false) => DeclarativeSchemaType::Single,
+                },
+                (None, None) => DeclarativeSchemaType::Single,
+            }
+        };
+
+        let mut schema = DeclarativeSchemaDefinition {
+            name: self.name,
+            descriptive_name: self.descriptive_name,
+            purpose_statement: self.purpose_statement,
+            schema_type,
+            key: self.key,
+            alternate_keys: self.alternate_keys,
+            record_keys: self.record_keys,
+            file_required: self.file_required,
+            fields,
+            hash: None,
+            field_classifications: self.field_classifications,
+            field_descriptions: self.field_descriptions,
+            field_interest_categories: self.field_interest_categories,
+            field_types: self.field_types,
+            field_hashes: self.field_hashes,
+            field_versions: self.field_versions,
+            field_declarations: self.field_declarations,
+            identity_hash: self.identity_hash,
+            identity_hash_algo_version: self.identity_hash_algo_version,
+            superseded_by: self.superseded_by,
+            owner_app_id: self.owner_app_id,
+        };
+
+        if schema.identity_hash.is_none() && (schema.owner_app_id.is_some() || schema.file_required)
+        {
+            schema.compute_identity_hash();
+        }
+        schema.validate_definition()?;
+        Ok(schema)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DeclarativeSchemaDefinition {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        DeclarativeSchemaDefinitionHelper::deserialize(deserializer)?
+            .into_definition()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+fn normalize_fields(fields: Option<serde_json::Value>) -> Result<Option<Vec<String>>, String> {
+    let Some(val) = fields else {
+        return Ok(None);
+    };
+    if let Some(arr) = val.as_array() {
+        arr.iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "Invalid fields array; expected strings".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    } else if let Some(obj) = val.as_object() {
+        let mut names: Vec<String> = obj.keys().cloned().collect();
+        names.sort();
+        Ok(Some(names))
+    } else {
+        Err("Invalid fields; expected array or object map".into())
+    }
 }
 
 fn nested_type(field_type: &FieldValueType, path: &str) -> Option<FieldValueType> {

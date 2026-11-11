@@ -65,16 +65,6 @@ impl AlternateKey {
             .chain(self.range_field.as_deref())
             .chain(self.range_parts.iter().map(|part| part.field.as_str()))
     }
-
-    pub fn range_type(&self, schema: &DeclarativeSchemaDefinition) -> Option<FieldValueType> {
-        if self.range_parts.is_empty() {
-            self.range_field
-                .as_deref()
-                .map(|field| schema.key_field_type(field))
-        } else {
-            Some(FieldValueType::String)
-        }
-    }
 }
 
 fn validate_parts(key: &AlternateKey, schema: &DeclarativeSchemaDefinition) -> Result<(), String> {

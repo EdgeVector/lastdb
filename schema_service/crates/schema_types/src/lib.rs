@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fmt, io};
+use std::fmt;
 
 pub mod alternate_keys;
 pub mod declarative_schemas;
@@ -17,9 +17,9 @@ pub mod field_range_profile {
 
 pub use alternate_keys::{AlternateKey, MissingAlternateKey};
 pub use declarative_schemas::{
-    compute_identity_hash_parts, parse_canonical_name, refuses_identity_downgrade,
-    schema_from_value, DeclarativeSchemaDefinition, IdentityRecompute, OwnedDeclaration,
-    PortableSchemaDefinition, PortableSchemaId, IDENTITY_HASH_ALGO_VERSION,
+    compute_identity_hash_parts, refuses_identity_downgrade, DeclarativeSchemaDefinition,
+    IdentityRecompute, OwnedDeclaration, PortableSchemaDefinition, PortableSchemaId,
+    IDENTITY_HASH_ALGO_VERSION,
 };
 pub use field_value_type::FieldValueType;
 
@@ -40,51 +40,20 @@ pub struct KeyConfig {
     pub range_field: Option<String>,
 }
 
-impl KeyConfig {
-    pub fn new(hash_field: Option<String>, range_field: Option<String>) -> Self {
-        Self {
-            hash_field,
-            range_field,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum FoldDbError {
-    Schema(String),
-    Database(String),
     Config(String),
-    Io(io::Error),
-    Serialization(String),
-    Other(String),
 }
 
 impl fmt::Display for FoldDbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Schema(msg) => write!(f, "Schema error: {msg}"),
-            Self::Database(msg) => write!(f, "Database error: {msg}"),
             Self::Config(msg) => write!(f, "Configuration error: {msg}"),
-            Self::Io(err) => write!(f, "IO error: {err}"),
-            Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
-            Self::Other(msg) => write!(f, "Error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for FoldDbError {}
-
-impl From<io::Error> for FoldDbError {
-    fn from(error: io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl From<serde_json::Error> for FoldDbError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Serialization(error.to_string())
-    }
-}
 
 pub type FoldDbResult<T> = Result<T, FoldDbError>;
 

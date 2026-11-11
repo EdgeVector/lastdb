@@ -7,24 +7,15 @@ pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSI
 pub use cas::CasExpectation;
 pub use declarative_schemas::DeclarativeSchemaDefinition;
 pub use errors::SchemaError;
-pub use field_value_type::FieldValueType;
-pub use key_config::KeyConfig;
 pub use key_value::KeyValue;
 pub use mutation::{FileWrite, FileWriteIssuer, LocalFileReference, Mutation, SealedRecordFile};
 pub use operations::{MutationType, Operation, Query, SortOrder};
 pub use query_cursor::QueryCursor;
 pub use schema::{DeclarativeSchemaType as SchemaType, Schema};
+pub use schema_types::{FieldValueType, KeyConfig};
 
 pub mod cas {
     pub use crate::record_replacement::RecordExpectation as CasExpectation;
-}
-
-pub mod field_value_type {
-    pub use schema_types::FieldValueType;
-}
-
-pub mod key_config {
-    pub use schema_types::KeyConfig;
 }
 
 pub mod schema {
@@ -146,30 +137,6 @@ pub mod declarative_schemas {
         }
 
         #[must_use]
-        pub fn new(
-            name: String,
-            schema_type: schema_types::DeclarativeSchemaType,
-            key: Option<schema_types::KeyConfig>,
-            fields: Option<Vec<String>>,
-        ) -> Self {
-            Self::with_wire(schema_types::DeclarativeSchemaDefinition::new(
-                name,
-                schema_type,
-                key,
-                fields,
-            ))
-        }
-
-        fn with_wire(wire: schema_types::DeclarativeSchemaDefinition) -> Self {
-            Self { wire }
-        }
-
-        #[must_use]
-        pub fn parse_canonical_name(canonical: &str) -> (Option<String>, &str) {
-            schema_types::parse_canonical_name(canonical)
-        }
-
-        #[must_use]
         pub fn to_wire(&self) -> schema_types::DeclarativeSchemaDefinition {
             let mut wire = self.wire.clone();
             wire.normalize_wire();
@@ -178,9 +145,9 @@ pub mod declarative_schemas {
     }
 
     impl From<schema_types::DeclarativeSchemaDefinition> for DeclarativeSchemaDefinition {
-        fn from(mut base: schema_types::DeclarativeSchemaDefinition) -> Self {
-            base.normalize_wire();
-            Self::with_wire(base)
+        fn from(mut wire: schema_types::DeclarativeSchemaDefinition) -> Self {
+            wire.normalize_wire();
+            Self { wire }
         }
     }
 

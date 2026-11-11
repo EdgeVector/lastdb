@@ -50,8 +50,7 @@ pub fn search_inbox_dir_for_home(home: &Path) -> PathBuf {
     home.join("apps").join("search").join("inbox")
 }
 
-/// Resolve the Search app inbox directory for host delivery.
-pub fn resolve_search_inbox_dir() -> Option<PathBuf> {
+fn resolve_search_inbox_dir() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("LASTDB_SEARCH_INBOX") {
         let p = PathBuf::from(explicit.trim());
         if !p.as_os_str().is_empty() {
@@ -63,58 +62,37 @@ pub fn resolve_search_inbox_dir() -> Option<PathBuf> {
     (!home.is_empty()).then(|| search_inbox_dir_for_home(Path::new(home)))
 }
 
-/// File-backed outbox that delivers batches to the Search app inbox.
-pub struct SearchOutboxSink {
-    inbox: PathBuf,
-}
-
-impl SearchOutboxSink {
-    pub fn from_env() -> Option<Self> {
-        queue_policy::enabled()
-            .then(resolve_search_inbox_dir)
-            .flatten()
-            .map(|inbox| Self { inbox })
+/// Deliver one Search change batch to the configured or environment-resolved inbox.
+pub(crate) fn deliver_outbox(
+    inbox: Option<PathBuf>,
+    batch: &IndexChangeBatch,
+) -> Result<(), SchemaError> {
+    if !queue_policy::enabled() {
+        return Ok(());
     }
-
-    pub fn new(inbox: PathBuf) -> Self {
-        Self { inbox }
-    }
-
-    pub(crate) fn deliver(
-        inbox: Option<PathBuf>,
-        batch: &IndexChangeBatch,
-    ) -> Result<(), SchemaError> {
-        if !queue_policy::enabled() {
-            return Ok(());
-        }
-        if let Some(sink) = inbox.map(Self::new).or_else(Self::from_env) {
-            sink.write_batch(batch)?;
-        }
-        Ok(())
-    }
-
-    fn write_batch(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
-        let name = format!(
-            "{}_{}.json",
-            crate::clock::unix_millis(),
-            Uuid::new_v4().simple()
-        );
-        let path = self.inbox.join(&name);
-        let body = serde_json::to_vec_pretty(batch)
-            .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
-        let delivered = queue_policy::deliver(&self.inbox, &name, &body).map_err(|e| {
-            SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
-        })?;
-        debug!(
-            target: "search_outbox",
-            path = %path.display(),
-            schema = %batch.schema_name,
-            changes = batch.changes.len(),
-            delivered,
-            "Search batch delivery decision"
-        );
-        Ok(())
-    }
+    let Some(inbox) = inbox.or_else(resolve_search_inbox_dir) else {
+        return Ok(());
+    };
+    let name = format!(
+        "{}_{}.json",
+        crate::clock::unix_millis(),
+        Uuid::new_v4().simple()
+    );
+    let path = inbox.join(&name);
+    let body = serde_json::to_vec_pretty(batch)
+        .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
+    let delivered = queue_policy::deliver(&inbox, &name, &body).map_err(|e| {
+        SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
+    })?;
+    debug!(
+        target: "search_outbox",
+        path = %path.display(),
+        schema = %batch.schema_name,
+        changes = batch.changes.len(),
+        delivered,
+        "Search batch delivery decision"
+    );
+    Ok(())
 }
 
 pub(crate) mod inbox_fields {
@@ -137,7 +115,7 @@ pub(crate) mod inbox_fields {
         )
     }
 
-    pub(crate) fn is_search_excluded(classifications: &[String]) -> bool {
+    fn is_search_excluded(classifications: &[String]) -> bool {
         classifications.iter().any(|c| {
             c.eq_ignore_ascii_case("secret")
                 || c.eq_ignore_ascii_case("no_index")
@@ -164,9 +142,9 @@ pub mod queue_policy {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
-    pub const REBUILD_REQUIRED: &str = ".rebuild-required";
-    pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
-    pub const MAX_FILES: usize = 4096;
+    const REBUILD_REQUIRED: &str = ".rebuild-required";
+    const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+    const MAX_FILES: usize = 4096;
     static CLI_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub fn enable_for_process() {
@@ -179,7 +157,7 @@ pub mod queue_policy {
                 .is_ok_and(|value| matches!(value.trim(), "1" | "true" | "on"))
     }
 
-    pub fn max_bytes() -> u64 {
+    fn max_bytes() -> u64 {
         std::env::var("LASTDB_SEARCH_QUEUE_MAX_BYTES")
             .ok()
             .and_then(|value| value.parse().ok())

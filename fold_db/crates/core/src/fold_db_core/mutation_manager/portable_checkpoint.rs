@@ -1,6 +1,6 @@
-//! Applied writer positions bound to one frozen native generation, plus portable schema binding.
+//! Portable checkpoint capture, schema binding, and shared definition installation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cloud_backup_protocol::shared::{LogHead, StreamCover, WriterStream};
 use cloud_backup_protocol::Id;
@@ -14,15 +14,12 @@ use super::validation::validate_field_value;
 use super::MutationManager;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::byte_backup::SharedRunCapture;
-use crate::storage::format::metadata::CheckpointDirectory;
+use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::{CheckpointDirectory, DefinitionSet};
 
-/// Resolve once per schema and batch. The local schema carries the exact
-/// runtime address to use for records and alternate pointers.
 pub(super) struct PortableReplaySchema<'a> {
     id: &'a PortableSchemaId,
     local: &'a Schema,
-    /// The record's definition when the local schema may hold fields that
-    /// later definitions added. Its records use only its own fields.
     declared: Option<&'a DeclarativeSchemaDefinition>,
 }
 
@@ -42,8 +39,6 @@ impl<'a> PortableReplaySchema<'a> {
         })
     }
 
-    /// Bind a record's definition to the schema of its name, which may hold
-    /// fields that later accepted definitions added.
     pub(super) fn bind_version(
         definition: &'a PortableSchemaDefinition,
         expected: &PortableSchemaId,
@@ -59,20 +54,16 @@ impl<'a> PortableReplaySchema<'a> {
         })
     }
 
-    /// A mismatched identity, key, or field cannot advance replay progress.
     pub(super) fn validate_entry(&self, entry: &MutationEntry) -> Result<(), SchemaError> {
         if !matches!(&entry.schema, SchemaIdentity::Shared(id) if id == self.id.as_str()) {
-            return Err(SchemaError::InvalidData(
-                "portable mutation targets a different schema revision".into(),
+            return Err(invalid(
+                "portable mutation targets a different schema revision",
             ));
         }
-        let invalid_entry = |error: lastdb_model::portable_mutation::PortableMutationError| {
-            SchemaError::InvalidData(error.to_string())
-        };
-        entry.validate().map_err(invalid_entry)?;
+        entry.validate().map_err(detail)?;
         entry
             .validate_keys(self.local.require_record_keys()?)
-            .map_err(invalid_entry)?;
+            .map_err(detail)?;
         if let MutationOperation::ReplaceRecord { data, .. } = &entry.operation {
             for (field, value) in &data.fields {
                 let declared = self.declared.is_none_or(|definition| {
@@ -81,8 +72,8 @@ impl<'a> PortableReplaySchema<'a> {
                 if !declared
                     || validate_field_value(&self.local.name, self.local, field, value).is_err()
                 {
-                    return Err(SchemaError::InvalidData(
-                        "portable mutation has an undeclared or wrongly typed field".into(),
+                    return Err(invalid(
+                        "portable mutation has an undeclared or wrongly typed field",
                     ));
                 }
             }
@@ -98,8 +89,6 @@ pub struct PortableCheckpoint {
 }
 
 impl MutationManager {
-    /// Freeze original native files and read the matching applied positions.
-    /// The checkpoint carries the recorded definition of every shared alias.
     pub async fn try_freeze_portable_checkpoint(
         &self,
         snapshot: uuid::Uuid,
@@ -111,7 +100,6 @@ impl MutationManager {
             .await
     }
 
-    /// Wait for ordinary sync before selecting a cut with unaccepted writes.
     async fn try_capture_portable_checkpoint(
         &self,
     ) -> Result<Option<PortableCheckpoint>, SchemaError> {
@@ -125,10 +113,9 @@ impl MutationManager {
             self.db_ops
                 .native_runtime()
                 .require_shared_schema_set(definitions.keys().map(String::as_str))?;
-            let mut lookups = Vec::with_capacity(definitions.len());
-            for (name, definition) in &definitions {
+            futures::future::try_join_all(definitions.iter().map(|(name, definition)| {
                 let binding = directory.schemas.get(name);
-                lookups.push(async move {
+                async move {
                     let schema = self.load_schema_for_delta(name).await?;
                     if let Some(binding) = binding {
                         if definition.id().as_str() != binding.id
@@ -148,9 +135,9 @@ impl MutationManager {
                         return Err(invalid("shared checkpoint retention policy is deferred"));
                     }
                     Ok(())
-                });
-            }
-            futures::future::try_join_all(lookups).await?;
+                }
+            }))
+            .await?;
             if directory
                 .schemas
                 .keys()
@@ -164,6 +151,141 @@ impl MutationManager {
             }))
         })
         .await
+    }
+
+    pub async fn portable_accepted_definitions(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<PortableSchemaDefinition>>, SchemaError> {
+        let sets = self
+            .db_ops
+            .read_scope()
+            .await?
+            .run_result(self.db_ops.metadata().portable_definition_sets())
+            .await?;
+        Ok(sets
+            .into_iter()
+            .map(|(alias, set)| (alias, set.accepted.into_values().collect()))
+            .collect())
+    }
+
+    pub async fn record_portable_definitions(
+        &self,
+        definitions: &BTreeMap<String, PortableSchemaDefinition>,
+    ) -> Result<(), SchemaError> {
+        transaction::request_scope(
+            self.db_ops.native_runtime(),
+            self.stage_recorded_definitions(definitions),
+        )
+        .await
+    }
+
+    pub(super) async fn stage_recorded_definitions(
+        &self,
+        definitions: &BTreeMap<String, PortableSchemaDefinition>,
+    ) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        runtime.require_shared_schema_subset(definitions.keys().map(String::as_str))?;
+        futures::future::try_join_all(definitions.iter().map(|(alias, definition)| async move {
+            let schema = self.load_schema_for_delta(alias).await?;
+            PortableReplaySchema::bind(definition, definition.id(), &schema)?;
+            Ok::<_, SchemaError>(())
+        }))
+        .await?;
+        let metadata = self.db_ops.metadata();
+        let recorded = metadata.portable_definitions().await?;
+        if runtime
+            .shared_schema_aliases()
+            .iter()
+            .any(|alias| !recorded.contains_key(alias) && !definitions.contains_key(alias))
+        {
+            return Err(invalid("every shared alias requires its schema definition"));
+        }
+        Ok(metadata.stage_portable_definitions(definitions).await?)
+    }
+
+    pub async fn install_portable_definitions(
+        &self,
+        definitions: &[PortableSchemaDefinition],
+    ) -> Result<(), SchemaError> {
+        if !definitions.is_empty() {
+            transaction::request_scope(
+                self.db_ops.native_runtime(),
+                self.stage_log_definitions(definitions),
+            )
+            .await?;
+        }
+        self.follow_portable_definitions().await
+    }
+
+    async fn stage_log_definitions(
+        &self,
+        definitions: &[PortableSchemaDefinition],
+    ) -> Result<(), SchemaError> {
+        let metadata = self.db_ops.metadata();
+        let mut sets = metadata.portable_definition_sets().await?;
+        let mut changed = BTreeSet::new();
+        let mut added = BTreeMap::<String, Vec<PortableSchemaDefinition>>::new();
+        for definition in definitions {
+            definition.verify(definition.id()).map_err(detail)?;
+            if sets
+                .values()
+                .any(|set| set.accepted.contains_key(definition.id()))
+            {
+                continue;
+            }
+            let name = definition.canonical_name();
+            let mut holders = sets
+                .iter_mut()
+                .filter(|(_, set)| set.current.canonical_name() == name);
+            match (holders.next(), holders.next()) {
+                (Some((alias, set)), None) => {
+                    set.accepted
+                        .insert(definition.id().clone(), definition.clone());
+                    changed.insert(alias.clone());
+                }
+                (None, _) => {
+                    let versions = added.entry(name.to_owned()).or_default();
+                    if versions.iter().all(|known| known.id() != definition.id()) {
+                        versions.push(definition.clone());
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    return Err(invalid("two shared aliases hold one shared schema name"));
+                }
+            }
+        }
+        let mut staged = BTreeMap::new();
+        let mut schemas = Vec::new();
+        for alias in changed {
+            let mut set = sets
+                .remove(&alias)
+                .ok_or_else(|| invalid("a changed shared alias has no definitions"))?;
+            let accepted: Vec<_> = set.accepted.values().cloned().collect();
+            let current = PortableSchemaDefinition::current_of(&accepted).map_err(detail)?;
+            if current.id() != set.current.id() {
+                schemas.push(local_schema(&alias, &current)?);
+                set = DefinitionSet::new(current, accepted);
+            }
+            staged.insert(alias, set);
+        }
+        for (name, versions) in &added {
+            if sets.contains_key(name) || self.db_ops.schemas().get_schema(name).await?.is_some() {
+                return Err(invalid(
+                    "a shared schema definition names a schema already in this home",
+                ));
+            }
+            let current = PortableSchemaDefinition::current_of(versions).map_err(detail)?;
+            schemas.push(local_schema(name, &current)?);
+            staged.insert(name.clone(), DefinitionSet::new(current, versions.clone()));
+        }
+        if staged.is_empty() {
+            return Ok(());
+        }
+        metadata
+            .stage_shared_aliases(added.keys().map(String::as_str))
+            .await?;
+        metadata.stage_definition_sets(&staged).await?;
+        self.schema_manager.load_schema_batch(schemas).await
     }
 }
 
@@ -184,8 +306,6 @@ impl PortableCheckpoint {
         self.directory.delete_reclaimed_through_ms
     }
 
-    /// Bind all nonempty applied positions to exact authenticated accepted
-    /// batch ends. Callers can fetch these ends after capturing the root.
     pub fn covers(
         &self,
         accepted: &BTreeMap<StreamId, LogHead>,
@@ -216,6 +336,12 @@ impl PortableCheckpoint {
         }
         Ok(covers)
     }
+}
+
+fn local_schema(alias: &str, current: &PortableSchemaDefinition) -> Result<Schema, SchemaError> {
+    let mut local = current.verify(current.id()).map_err(detail)?.clone();
+    local.name = alias.to_owned();
+    Ok(Schema::from(local))
 }
 
 fn invalid(reason: &str) -> SchemaError {

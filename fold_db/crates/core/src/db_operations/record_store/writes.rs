@@ -32,25 +32,20 @@ pub(crate) struct SchemaRelease {
 
 impl RecordDeleteLedgerEntry {
     pub fn erasure(verb: &str, caller: &str, schema: &str, described_key: &str) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(schema.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(described_key.as_bytes());
         Self {
             verb: verb.to_string(),
             at: Utc::now().to_rfc3339(),
             caller: caller.to_string(),
             schema: schema.to_string(),
-            key_fingerprint: key_fingerprint(schema, described_key),
+            key_fingerprint: format!("{:x}", hasher.finalize()),
             records_erased: 0,
             file_records_erased: 0,
         }
     }
-}
-
-/// SHA-256 hex over `{schema}\0{described_key}`.
-pub fn key_fingerprint(schema: &str, described_key: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(schema.as_bytes());
-    hasher.update([0u8]);
-    hasher.update(described_key.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 impl RecordStore {
