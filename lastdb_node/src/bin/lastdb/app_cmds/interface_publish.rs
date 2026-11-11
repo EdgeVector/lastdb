@@ -89,8 +89,8 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<ListedSchema>, S
                 .clone()
                 .ok_or_else(|| format!("manifest schema '{label}' has no identity hash"))?;
             Ok(ListedSchema {
-                name: schema.name,
-                descriptive_name: schema.descriptive_name,
+                name: schema.name.clone(),
+                descriptive_name: schema.descriptive_name.clone(),
                 identity_hash,
             })
         })
