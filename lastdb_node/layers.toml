@@ -21,7 +21,6 @@ doc = "Parts that use only other leaf parts: storage homes, queues, the backup r
 modules = [
   "backup_runtime",
   "byte_cloud_log",
-  "change_feed_queue",
   "log_rotation",
   "seal",
   "service_home",

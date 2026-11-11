@@ -1,4 +1,4 @@
-use super::types::{field::HashRangeFilter, schema::DeclarativeSchemaType, Query};
+use super::types::{field::HashRangeFilter, schema::DeclarativeSchemaType};
 use super::SchemaError;
 
 /// Enforce supported logical layouts without changing catalog-template decoding.
@@ -38,17 +38,6 @@ pub fn require_logical_filter(filter: Option<&HashRangeFilter>) -> Result<(), Sc
     ) {
         return Err(SchemaError::InvalidData(
             "LastDB does not support ranges without a fixed hash or pattern filters; use Hash or HashRange key selectors"
-                .into(),
-        ));
-    }
-    Ok(())
-}
-
-/// Refuse unsupported controls at the logical read and count boundaries.
-pub fn require_logical_query_controls(query: &Query) -> Result<(), SchemaError> {
-    if query.rehydrate_depth.is_some() {
-        return Err(SchemaError::InvalidData(
-            "LastDB does not support rehydrate_depth queries; a read returns the stored record"
                 .into(),
         ));
     }

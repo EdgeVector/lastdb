@@ -128,9 +128,6 @@ pub struct Query {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_name: Option<String>,
     pub filter: Option<HashRangeFilter>,
-    /// Accepted only for an explicit refusal. No read supports recursive depth.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rehydrate_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<SortOrder>,
     /// Numeric conditions on stored field values.
@@ -185,7 +182,6 @@ impl Query {
             schema_name,
             key_name: None,
             filter,
-            rehydrate_depth: None,
             sort_order: None,
             value_filters: None,
             field_predicates: None,

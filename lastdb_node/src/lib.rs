@@ -10,7 +10,6 @@ pub mod backup_runtime;
 pub mod byte_cloud_backup;
 pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
-mod change_feed_queue;
 pub mod cloud;
 pub mod exec;
 pub mod host;

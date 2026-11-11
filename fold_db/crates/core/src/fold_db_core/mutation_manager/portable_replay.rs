@@ -62,10 +62,11 @@ impl MutationManager {
         progress: &BTreeMap<StreamId, StreamProgress>,
         cutoff: Option<u64>,
     ) -> Result<(), SchemaError> {
-        self.db_ops
+        Ok(self
+            .db_ops
             .metadata()
             .validate_portable_restore_checkpoint(progress, cutoff)
-            .await
+            .await?)
     }
 
     /// Resolve winners before acquiring their external file dependencies.
@@ -153,7 +154,7 @@ impl MutationManager {
         database: &Id,
         device: &Id,
     ) -> Result<(), SchemaError> {
-        transaction::request_scope(
+        Ok(transaction::request_scope(
             self.db_ops.native_runtime(),
             self.db_ops.metadata().stage_portable_restore(
                 progress,
@@ -163,7 +164,7 @@ impl MutationManager {
                 device,
             ),
         )
-        .await
+        .await?)
     }
 
     async fn prepare_portable_replay(

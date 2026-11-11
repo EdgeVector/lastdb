@@ -64,12 +64,7 @@ impl RecordFormat {
         record_key: &str,
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        let Some(row) = self
-            .main_store
-            .inner()
-            .get(address(record_key).as_bytes())
-            .await?
-        else {
+        let Some(row) = self.main_store.get(address(record_key).as_bytes()).await? else {
             return Ok(None);
         };
         let file = decode_for(&row, marker)?;
@@ -89,7 +84,7 @@ impl RecordFormat {
             .iter()
             .map(|(key, _)| address(key).into_bytes())
             .collect();
-        let rows = self.main_store.inner().get_many(keys).await?;
+        let rows = self.main_store.get_many(keys).await?;
         if rows.len() != wanted.len() {
             return Err(StorageError::InvalidOperation(
                 "the inline file read batch is incomplete".into(),

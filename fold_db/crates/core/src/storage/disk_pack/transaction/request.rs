@@ -78,7 +78,6 @@ where
     let (prepared, gate, publication) =
         run_blocking(move || Ok((owner.prepare_queued(operations)?, gate, publication))).await?;
     super::super::timing::mark(&mut timing, "capacity_prepare_us");
-    protect_paths(&runtime, &pending)?;
     // Every caller waits for the complete snapshot and clean core publication.
     // Publication, ownership transfer and worker creation contain no await.
     let pending_timing = Arc::clone(&pending);
@@ -165,42 +164,4 @@ fn note_gate_hold(
         "native write gate released"
     );
     held
-}
-
-fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult<()> {
-    // Recheck the complete staged batch before consuming its typed paths. A
-    // late metadata stage must not reuse an insufficient memory owner. The
-    // durable fallback invalidates/refetches records without an uncharged cache.
-    if !pending.has_reserved_raw_memory() {
-        pending
-            .raw_memory_reservation
-            .lock()
-            .expect("native model reservation")
-            .take();
-    }
-    let definitions = std::mem::take(
-        &mut *pending
-            .definitions
-            .lock()
-            .expect("native private definitions"),
-    )
-    .into_values()
-    .collect();
-    let owner = pending
-        .raw_memory_reservation
-        .lock()
-        .expect("native model reservation")
-        .clone();
-    let publication = super::super::logical_paths::PathPublication { definitions, owner };
-    let protection =
-        match super::super::logical_paths::PathProtection::reserve(runtime, publication) {
-            Ok(protection) => protection,
-            Err(StorageError::WriteResourceLimit { .. }) => return Ok(()),
-            Err(error) => return Err(error),
-        };
-    *pending
-        .path_protection
-        .lock()
-        .expect("native typed path protection") = Some(protection);
-    Ok(())
 }

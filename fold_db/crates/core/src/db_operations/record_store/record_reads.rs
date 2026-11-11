@@ -164,7 +164,6 @@ impl RecordStore {
         let prefix = space_prefix(schema);
         let rows = self
             .main_store
-            .inner()
             .scan_prefix(prefix.as_bytes())
             .await
             .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
@@ -221,7 +220,6 @@ impl RecordStore {
         let end = FilterUtils::create_prefix_end(&base)?;
         let rows = self
             .main_store
-            .inner()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), limit.saturating_add(1))
             .await
             .map_err(|error| SchemaError::InvalidData(format!("list record keys: {error}")))?;
@@ -252,7 +250,6 @@ impl RecordStore {
             let end = FilterUtils::create_prefix_end(&prefix)?;
             let rows = self
                 .main_store
-                .inner()
                 .scan_range_paged(prefix.as_bytes(), end.as_bytes(), RECORD_PROBE_ROWS + 1)
                 .await
                 .map_err(|error| SchemaError::InvalidData(format!("probe records: {error}")))?;

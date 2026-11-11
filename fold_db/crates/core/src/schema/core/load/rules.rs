@@ -10,7 +10,7 @@ pub(super) fn prepare_refresh(schema: &mut Schema, stored: &Schema) -> Result<()
                 .into(),
         ));
     }
-    schema.populate_runtime_fields()?;
+    schema.validate()?;
     Ok(())
 }
 

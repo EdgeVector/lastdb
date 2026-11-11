@@ -67,9 +67,9 @@ impl MutationManager {
                 .await?
                 .into_iter()
                 .collect();
-            metadata
+            Ok(metadata
                 .stage_portable_rejoin(progress, cutoff, writer, device, expected, &schemas)
-                .await
+                .await?)
         })
         .await
     }

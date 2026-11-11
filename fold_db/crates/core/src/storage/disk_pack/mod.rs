@@ -19,7 +19,6 @@ mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
 mod memory;
-mod namespace_delete;
 pub(in crate::storage) mod native_routing;
 pub(in crate::storage) mod physical;
 pub(in crate::storage) mod physical_v2;
@@ -37,8 +36,6 @@ mod timing;
 pub(crate) mod transaction;
 mod view;
 mod write;
-pub(crate) use crate::resident::CoreMemorySource;
-pub use crate::resident::CoreMemoryValue;
 pub use crate::storage::disk_backup::byte_backup;
 pub use crate::storage::disk_backup::mutation_log;
 pub use crate::storage::disk_backup::run_restore;
@@ -49,10 +46,6 @@ pub use crate::storage::disk_cleanup::{
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
 pub use physical_v2::CAS_COLLECTION;
-pub(crate) use read::memory::{
-    core_memory_get, core_memory_get_for_write, core_memory_insert, core_memory_sources,
-};
-pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get};
 pub use read::PackReadScope;
 pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub use run_node::{prepare_shared_restored_run, CAS_DIR, RUN_DIR};
@@ -60,7 +53,7 @@ pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 pub(in crate::storage) use write::WriteGuard;
 
-use crate::storage::format::{NAMESPACES, REGISTRY};
+use crate::storage::format::REGISTRY;
 pub use crate::storage::format::{NODE_MARKER, SHARED_NODE_BYTES};
 
 /// Shared v2 run homes and their complete published root.
@@ -255,46 +248,6 @@ impl NamespacedStore for PackNamespacedStore {
             runtime: Arc::clone(&self.runtime),
             namespace: name.to_string(),
         }))
-    }
-
-    async fn list_namespaces(&self) -> StorageResult<Vec<String>> {
-        let context = read::ReadContext::current(&self.runtime).await?;
-        let pending = transaction::PendingBatch::current(&self.runtime);
-        let runtime = Arc::clone(&self.runtime);
-        run_blocking(move || {
-            let (rows, complete) = runtime.raw_rows(
-                &context,
-                REGISTRY,
-                NAMESPACES.as_bytes(),
-                b"namespaces\x01",
-                10000,
-                pending.as_ref(),
-            )?;
-            if !complete {
-                return Err(StorageError::ReadResourceLimit {
-                    detail: "native namespace list exceeds its call limit".into(),
-                });
-            }
-            rows.into_iter()
-                .map(|(key, body)| {
-                    if body != [1] {
-                        return Err(StorageError::BackendError(
-                            "invalid native namespace registry value".into(),
-                        ));
-                    }
-                    Ok(key[NAMESPACES.len()..].to_string())
-                })
-                .collect()
-        })
-        .await
-    }
-
-    async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
-        self.runtime.delete_namespace(name).await
-    }
-
-    async fn restore_durability_barrier(&self) -> StorageResult<()> {
-        self.runtime.flush().await
     }
 
     fn disk_pack_runtime(&self) -> Arc<PackRuntime> {

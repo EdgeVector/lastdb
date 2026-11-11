@@ -19,7 +19,6 @@ impl RecordFormat {
         let bytes = serde_json::to_vec(&entry)
             .map_err(|error| StorageError::SerializationError(error.to_string()))?;
         self.main_store
-            .inner()
             .put(key.as_bytes(), bytes)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("stage erase audit: {error}")))

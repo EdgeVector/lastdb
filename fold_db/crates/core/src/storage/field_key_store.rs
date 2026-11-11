@@ -21,11 +21,6 @@ mod batch_load;
 mod cache;
 mod contracts;
 mod establish;
-mod metadata_batch;
-
-pub(crate) use crate::storage::format::field_keys::{
-    node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
-};
 
 pub(crate) type FieldKeyCache = Arc<RwLock<HashMap<String, CachedFieldKeyContract>>>;
 pub use crate::storage::format::field_keys::FieldKeyBundle;
@@ -101,17 +96,6 @@ impl FieldKeyStore {
         self.load_existing(&schema_field_key_ids(schema)).await?;
         self.require_schema_profiles(schema)
     }
-}
-
-fn metadata_memory_owner(cache: &FieldKeyCache) -> usize {
-    Arc::as_ptr(cache) as usize
-}
-
-/// Absent metadata charges 256. A present record charges the field key id capacity plus 256.
-fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
-    metadata.map_or(256, |value| {
-        value.field_key_id.capacity().saturating_add(256)
-    })
 }
 
 /// The record space and every named alternate key of a schema.

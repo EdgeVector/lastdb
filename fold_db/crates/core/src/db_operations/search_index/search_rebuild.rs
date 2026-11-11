@@ -88,7 +88,7 @@ async fn collect_schema_records(
                 .fields
                 .iter()
                 .filter(|&(name, _)| {
-                    schema.runtime_fields.contains_key(name.as_str())
+                    schema.has_field(name.as_str())
                         && searchable
                             .as_ref()
                             .is_none_or(|fields| fields.contains(name.as_str()))

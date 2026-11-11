@@ -10,7 +10,7 @@ mod frozen;
 use super::read::ReadStore;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvMutation, KvStore, StorageError, TypedKvStore};
+use crate::storage::{KvMutation, KvStore, StorageError};
 use schema_types::field_range_profile::FieldRangeProfile;
 use std::sync::Arc;
 
@@ -18,9 +18,7 @@ pub(crate) use super::FIELD_KEY_ROW_MAX_BYTES as NODE_KEY_ROW_MAX_BYTES;
 pub use bundle::FieldKeyBundle;
 use codec::open_wrap;
 pub(crate) use codec::{metadata_key, validate_identity, wrap_key_for, BundleMetadata, BundleWrap};
-pub(crate) use frozen::{
-    node_bundle_storage_keys, open_frozen_typed_bundle, verify_frozen_typed_profile,
-};
+pub(crate) use frozen::{node_bundle_storage_keys, open_frozen_typed_bundle};
 
 /// The field identity associated with one native bundle row.
 pub(in crate::storage) fn storage_key_identity(key: &str) -> Option<&str> {
@@ -44,19 +42,19 @@ struct EncodedFieldKeys {
 }
 
 pub(crate) struct FieldKeyFormat {
-    field_store: Arc<TypedKvStore<dyn KvStore>>,
+    field_store: Arc<dyn KvStore>,
     runtime: Arc<PackRuntime>,
     wrapping_key: Option<[u8; 32]>,
 }
 
 impl FieldKeyFormat {
     pub(in crate::storage::format) fn new(
-        store: Arc<dyn KvStore>,
+        field_store: Arc<dyn KvStore>,
         runtime: Arc<PackRuntime>,
         wrapping_key: Option<[u8; 32]>,
     ) -> Self {
         Self {
-            field_store: Arc::new(TypedKvStore::new(store)),
+            field_store,
             runtime,
             wrapping_key,
         }
@@ -69,7 +67,7 @@ impl FieldKeyFormat {
         Arc::clone(&self.runtime)
     }
     pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.field_store.inner().flush().await
+        self.field_store.flush().await
     }
 
     pub(crate) async fn stage_new(
@@ -114,6 +112,6 @@ impl FieldKeyFormat {
 
     async fn stage(&self, encoded: EncodedFieldKeys) -> StorageResult<()> {
         self.require_scope()?;
-        self.field_store.inner().batch_mutate(encoded.rows).await
+        self.field_store.batch_mutate(encoded.rows).await
     }
 }

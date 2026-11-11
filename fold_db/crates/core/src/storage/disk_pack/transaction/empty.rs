@@ -11,11 +11,6 @@ impl PendingBatch {
             .operations
             .is_empty()
             && self
-                .definitions
-                .lock()
-                .expect("native private definitions")
-                .is_empty()
-            && self
                 .after_commit
                 .lock()
                 .expect("native post-commit work")

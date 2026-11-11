@@ -25,10 +25,4 @@ impl FoldDB {
             })?
             .unwrap_or_default())
     }
-
-    /// Log the process memory budget. Actual native pool charges have their
-    /// own status counters.
-    pub(super) fn log_memory_budget() {
-        crate::memory_budget::process_memory_budget().log_at_boot();
-    }
 }

@@ -33,7 +33,6 @@ impl RecordStore {
     async fn read_minimum_replay_time(&self) -> StorageResult<u64> {
         let values = self
             .main_store
-            .inner()
             .get_many(vec![
                 crate::storage::format::CURRENT_KEY_FORMAT_KEY
                     .as_bytes()

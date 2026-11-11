@@ -18,7 +18,6 @@ impl RecordFormat {
     ) -> Result<(), StorageError> {
         let stored = self
             .main_store
-            .inner()
             .get(super::super::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?;
         if !stored
@@ -31,7 +30,6 @@ impl RecordFormat {
         }
         let controls = self
             .main_store
-            .inner()
             .get_many(vec![
                 super::super::CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
                 super::super::DELETE_REPLAY_CUTOFF_KEY.as_bytes().to_vec(),

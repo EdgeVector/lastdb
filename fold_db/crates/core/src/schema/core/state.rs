@@ -1,28 +1,19 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use super::locks::{lock_map, lock_set, read_map, write_map};
-use super::SchemaCore;
+use super::{SchemaCatalog, SchemaCore};
 use crate::schema::types::SchemaError;
 use crate::schema::SchemaState;
 
 impl SchemaCore {
     /// Creates a new SchemaCore with DbOperations (storage abstraction)
-    pub async fn new(
-        db_ops: std::sync::Arc<crate::db_operations::DbOperations>,
-    ) -> Result<Self, SchemaError> {
-        // Start not-ready so any concurrent reader during the store scan sees
-        // 503 rather than empty-ok (the post-rekey hang window).
-        let schemas = Arc::new(RwLock::new(std::collections::HashMap::new()));
+    pub async fn new(db_ops: Arc<crate::db_operations::DbOperations>) -> Result<Self, SchemaError> {
         let schema_core = Self {
-            schemas,
-            schema_states: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            retired_name_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            catalog: Arc::new(RwLock::new(Arc::new(SchemaCatalog::default()))),
             db_ops: db_ops.clone(),
             catalog_ready: AtomicBool::new(false),
         };
 
-        // Hydrate from durable store (may take minutes on large post-rekey homes).
         let stored_schemas = db_ops.get_all_schemas().await?;
         for schema in stored_schemas.values() {
             super::load::owned::admit_stored_schema(schema)?;
@@ -30,17 +21,16 @@ impl SchemaCore {
         let schema_states = db_ops.get_all_schema_states().await?;
         let retired_name_claims = db_ops.list_retired_name_claims().await?;
 
+        let hydrated = Arc::new(SchemaCatalog {
+            schemas: stored_schemas,
+            states: schema_states,
+            retired_name_claims: retired_name_claims.into_iter().collect(),
+        });
         {
-            let mut guard = write_map(&schema_core.schemas, "schemas")?;
-            *guard = stored_schemas;
-        }
-        {
-            let mut guard = lock_map(&schema_core.schema_states, "schema_states")?;
-            *guard = schema_states;
-        }
-        {
-            let mut guard = lock_set(&schema_core.retired_name_claims, "retired_name_claims")?;
-            *guard = retired_name_claims.into_iter().collect();
+            let mut guard = schema_core.catalog.write().map_err(|e| {
+                SchemaError::InvalidData(format!("schema catalog lock poisoned: {e}"))
+            })?;
+            *guard = hydrated;
         }
         schema_core.mark_catalog_ready();
 
@@ -48,9 +38,6 @@ impl SchemaCore {
     }
 
     /// Whether the initial schema catalog load from the store has finished.
-    ///
-    /// Used by `GET /api/schemas` so a hydrating node answers 503 not-ready
-    /// instead of `{count:0, ok:true}` (safe-upgrade false RED 2026-07-30).
     #[must_use]
     pub fn catalog_ready(&self) -> bool {
         self.catalog_ready.load(Ordering::Acquire)
@@ -64,7 +51,7 @@ impl SchemaCore {
     pub fn get_schema_states(
         &self,
     ) -> Result<std::collections::HashMap<String, SchemaState>, SchemaError> {
-        let mut states = lock_map(&self.schema_states, "schema_states")?.clone();
+        let mut states = self.catalog_snapshot()?.states.clone();
         for (name, staged) in self.staged_schemas()? {
             states.insert(name, staged.state);
         }
@@ -72,17 +59,12 @@ impl SchemaCore {
     }
 
     pub fn get_schema_state_cached(&self, schema_name: &str) -> Result<SchemaState, SchemaError> {
-        if self.native_read_snapshot_active() {
-            return self.captured_schema_state(schema_name)?.ok_or_else(|| {
-                SchemaError::StorageRead {
-                    detail: "native schema state requires its captured catalog value".into(),
-                }
-            });
-        }
         if let Some(staged) = self.staged_schema(schema_name)? {
             return Ok(staged.state);
         }
-        Ok(lock_map(&self.schema_states, "schema_states")?
+        Ok(self
+            .catalog_snapshot()?
+            .states
             .get(schema_name)
             .copied()
             .unwrap_or_default())
@@ -99,85 +81,43 @@ impl SchemaCore {
     }
 
     /// Retire one schema's claim on its `descriptive_name`.
-    ///
-    /// This is the supported retire primitive. It exists because the two
-    /// operations that look like they should do this cannot:
-    ///
-    /// - Renaming the schema is not a rename. `descriptive_name` folds into
-    ///   `compute_identity_hash_parts`, so re-declaring under another name
-    ///   mints a NEW schema and leaves the old one Available under the old
-    ///   name — the duplicate claim survives, now with a sibling.
-    /// - [`Self::block_schema`] retires too much. A `Blocked` schema refuses
-    ///   EVERY query, including one that names it by identity hash, so it
-    ///   breaks every by-hash pin that deliberately addresses the predecessor.
-    ///
-    /// Retiring the name claim changes exactly one thing: descriptive-name
-    /// resolution stops offering this schema as a candidate. Its identity
-    /// hash, its [`SchemaState`], its data, and every by-hash or
-    /// by-canonical-name read are untouched.
-    ///
-    /// Returns `true` when the durable record changed. Idempotent.
-    ///
-    /// # Errors
-    /// [`SchemaError::NotFound`] when no schema is installed under
-    /// `schema_name`, so a typo cannot silently retire nothing.
     pub async fn retire_name_claim(&self, schema_name: &str) -> Result<bool, SchemaError> {
         self.set_name_claim_retired(schema_name, true).await
     }
 
-    /// Restore a retired claim so the schema answers `descriptive_name`
-    /// resolution again. The inverse of [`Self::retire_name_claim`].
-    ///
-    /// # Errors
-    /// [`SchemaError::NotFound`] when no schema is installed under
-    /// `schema_name`.
+    /// Restore a retired claim so the schema answers `descriptive_name` resolution again.
     pub async fn restore_name_claim(&self, schema_name: &str) -> Result<bool, SchemaError> {
         self.set_name_claim_retired(schema_name, false).await
     }
 
     /// Remove one installed schema identity from the catalog and the RAM cache.
-    ///
-    /// ACK is catalog absence: later `get_schema_metadata` misses. The
-    /// records, their files, alternate entries and applied deletes of the schema
-    /// are released first (`DbOperations::drop_schema`). Returns whether the
-    /// catalog had the identity. A miss still evicts RAM so a retry is
-    /// idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        // The durable block refuses writes in the write gate before the
-        // release starts. The cache refuses queries and the early mutation
-        // check from the same point; a drop that stops leaves both blocked.
         if self
             .db_ops
             .block_schema_for_drop(schema_name)
             .await?
             .is_some()
         {
-            lock_map(&self.schema_states, "schema_states")?
-                .insert(schema_name.to_string(), SchemaState::Blocked);
+            self.update_catalog(|catalog| {
+                catalog
+                    .states
+                    .insert(schema_name.to_string(), SchemaState::Blocked);
+            })?;
         }
         let existed = self.db_ops.drop_schema(schema_name).await?;
-        {
-            let mut schemas = write_map(&self.schemas, "schemas")?;
-            schemas.remove(schema_name);
-        }
-        {
-            let mut states = lock_map(&self.schema_states, "schema_states")?;
-            states.remove(schema_name);
-        }
-        {
-            let mut claims = lock_set(&self.retired_name_claims, "retired_name_claims")?;
-            claims.remove(schema_name);
-        }
+        self.update_catalog(|catalog| {
+            catalog.schemas.remove(schema_name);
+            catalog.states.remove(schema_name);
+            catalog.retired_name_claims.remove(schema_name);
+        })?;
         Ok(existed)
     }
 
     /// The cached identities whose `owner_app_id` equals `owner_app`.
-    ///
-    /// # Errors
-    /// [`SchemaError::InvalidData`] when the in-memory catalog lock is poisoned.
     pub fn schema_names_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
-        let schemas = read_map(&self.schemas, "schemas")?;
-        Ok(schemas
+        let catalog = self.catalog_snapshot()?;
+        Ok(catalog
+            .schemas
             .iter()
             .filter(|(_, schema)| schema.owner_app_id.as_deref() == Some(owner_app))
             .map(|(name, _)| name.clone())
@@ -189,26 +129,23 @@ impl SchemaCore {
         schema_name: &str,
         retired: bool,
     ) -> Result<bool, SchemaError> {
-        // Persist first. The durable record is the source of truth.
         let changed = self
             .db_ops
             .set_schema_name_claim_retired(schema_name, retired)
             .await?;
-        let mut guard = lock_set(&self.retired_name_claims, "retired_name_claims")?;
-        if retired {
-            guard.insert(schema_name.to_string());
-        } else {
-            guard.remove(schema_name);
-        }
+        self.update_catalog(|catalog| {
+            if retired {
+                catalog.retired_name_claims.insert(schema_name.to_string());
+            } else {
+                catalog.retired_name_claims.remove(schema_name);
+            }
+        })?;
         Ok(changed)
     }
 
     /// Every schema name whose claim on its `descriptive_name` is retired.
-    ///
-    /// # Errors
-    /// [`SchemaError::InvalidData`] when the in-memory set lock is poisoned.
     pub fn retired_name_claims(&self) -> Result<std::collections::HashSet<String>, SchemaError> {
-        Ok(lock_set(&self.retired_name_claims, "retired_name_claims")?.clone())
+        Ok(self.catalog_snapshot()?.retired_name_claims.clone())
     }
 
     /// Get the database operations.

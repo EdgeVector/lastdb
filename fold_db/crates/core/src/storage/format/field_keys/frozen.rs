@@ -14,18 +14,6 @@ pub(crate) fn node_bundle_storage_keys(field_key_id: &str) -> StorageResult<[Str
     Ok([metadata_key(field_key_id), wrap_key_for(field_key_id)])
 }
 
-/// Verify a typed schema's existing field key contract at a held root.
-/// This reads no cache and creates no key.
-pub(crate) fn verify_frozen_typed_profile(
-    field_key: &str,
-    expected: FieldRangeProfile,
-    account_key: &[u8; 32],
-    metadata: Option<&[u8]>,
-    wrap: Option<&[u8]>,
-) -> StorageResult<()> {
-    open_frozen_typed_bundle(field_key, expected, account_key, metadata, wrap).map(drop)
-}
-
 pub(crate) fn open_frozen_typed_bundle(
     field_key: &str,
     expected: FieldRangeProfile,

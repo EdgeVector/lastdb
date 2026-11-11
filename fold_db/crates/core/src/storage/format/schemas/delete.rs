@@ -9,7 +9,6 @@ use crate::storage::StorageError;
 pub(crate) enum StateKey {
     State,
     Policy,
-    Anchor,
     Claim,
 }
 #[derive(Clone, Copy)]
@@ -79,7 +78,6 @@ pub(super) fn key(schema: &str, kind: StateKey) -> StorageResult<Vec<u8>> {
     Ok(match kind {
         StateKey::State => schema.to_owned(),
         StateKey::Policy => retention_policy_key(schema),
-        StateKey::Anchor => retention_anchor_key(schema),
         StateKey::Claim => name_claim_key(schema),
     }
     .into_bytes())

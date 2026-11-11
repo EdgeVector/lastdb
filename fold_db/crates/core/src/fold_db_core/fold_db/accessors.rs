@@ -18,11 +18,6 @@ impl FoldDB {
         &self.query_executor
     }
 
-    /// Returns a reference to the pending task tracker
-    pub fn pending_tasks(&self) -> &Arc<super::super::pending_task_tracker::PendingTaskTracker> {
-        &self.pending_tasks
-    }
-
     /// Get the schema manager for testing schema functionality
     pub fn schema_manager(&self) -> Arc<SchemaCore> {
         Arc::clone(&self.schema_manager)

@@ -13,13 +13,13 @@
 # Two placements are deliberate:
 # - crypto and security sit in primitives, below the model, because model
 #   types carry Ed25519KeyPair and E2eKeys values.
-# - resident and memory_budget sit in runtime, below storage, because the disk
-#   pack reads and publishes the warm set (resident::core_set) and resident
-#   itself uses no store.
+# - resident sits in runtime, below storage, because the disk pack reads and
+#   publishes the warm set (resident::core_set) and resident itself uses no
+#   store.
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
+doc = "Leaf helpers with no domain meaning: the clock, env parsing, the process CPU probe, and the crypto and signing primitives. The pure encodings and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
 modules = [
   "clock",
   "crypto",
@@ -35,7 +35,6 @@ modules = [
   "content_limit",
   "error",
   "records",
-  "schema::interpreter",
   "schema::manifest_retention",
   "schema::schema_types",
   "schema::types",
@@ -45,9 +44,8 @@ modules = [
 
 [[layer]]
 name = "runtime"
-doc = "Process-local runtime state with no store: the warm set (resident) and the memory budget."
+doc = "Process-local runtime state with no store: the warm set (resident)."
 modules = [
-  "memory_budget",
   "resident",
 ]
 

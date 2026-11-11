@@ -75,16 +75,6 @@ pub(crate) fn print_retention_text(retention: &Value) {
     if let Some(blocked) = text(retention, "blocked") {
         println!("    retention: REFUSED: {blocked}");
     }
-    let shared = retention
-        .get("shared_with")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    if !shared.is_empty() {
-        println!("    retention: shared_with=[{}]", shared.join(", "));
-    }
     let blocked = text(retention, "blocked").unwrap_or("");
     for key in ["notes", "warnings"] {
         let lines = retention

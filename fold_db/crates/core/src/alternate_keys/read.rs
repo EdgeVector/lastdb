@@ -31,7 +31,6 @@ impl RecordStore {
         }
         let rows = self
             .reader()
-            .inner()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
             .await?;
         let mut entries = Vec::with_capacity(rows.len());

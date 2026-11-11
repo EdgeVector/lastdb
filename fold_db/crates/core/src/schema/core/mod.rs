@@ -1,49 +1,50 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use crate::schema::types::Schema;
+use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
 
 mod cache;
 mod load;
-mod locks;
-mod read_snapshot;
 mod staged_cache;
 mod state;
 
-/// Core schema management system that combines schema interpretation, validation, and management.
-///
-/// SchemaCore is responsible for:
-/// - Loading and validating schemas
-/// - Managing schema storage and persistence
-/// - Handling schema field mappings
-/// - Providing schema access and validation services
-///
-/// This unified component simplifies the schema system by combining the functionality
-/// previously split across SchemaManager and SchemaInterpreter.
+/// Copy-on-write snapshot of the in-memory schema catalog.
+#[derive(Clone, Default)]
+pub(super) struct SchemaCatalog {
+    pub(super) schemas: HashMap<String, Schema>,
+    pub(super) states: HashMap<String, SchemaState>,
+    pub(super) retired_name_claims: HashSet<String>,
+}
+
+/// Core schema management system that combines schema validation, caching, and persistence.
 pub struct SchemaCore {
-    /// Management definitions shared with field mapping and schema declaration.
-    /// Native data calls resolve definitions through their captured core view.
-    /// Private reloads stage changes before publication of this management map.
-    schemas: Arc<RwLock<HashMap<String, Schema>>>,
-    /// Storage for all schemas known to the system and their load state
-    schema_states: Arc<Mutex<HashMap<String, SchemaState>>>,
-    /// Schema names whose claim on their `descriptive_name` is retired.
-    ///
-    /// A member is still `Available` and still resolves by canonical name and
-    /// by identity hash. It is only dropped from the candidate set when a
-    /// caller names a schema by `descriptive_name`, so a rekey predecessor
-    /// stops competing for the readable name without breaking the by-hash pins
-    /// that address it. Durable in the node-local `schema_states` namespace;
-    /// see `SchemaStore::set_schema_name_claim_retired`.
-    retired_name_claims: Arc<Mutex<HashSet<String>>>,
+    /// Unified copy-on-write catalog of schemas, states, and retired name claims.
+    catalog: Arc<RwLock<Arc<SchemaCatalog>>>,
     /// Unified database operations with storage abstraction
-    db_ops: std::sync::Arc<crate::db_operations::DbOperations>,
+    db_ops: Arc<crate::db_operations::DbOperations>,
     /// Set once the initial store → memory catalog load finishes.
-    ///
-    /// `GET /api/schemas` must not answer `{count:0, ok:true}` while this is
-    /// false — clients (and the safe-upgrade smoke bar) treat empty-ok as a
-    /// finished empty brain, which false-REDs a hydrating post-rekey home.
     catalog_ready: AtomicBool,
+}
+
+impl SchemaCore {
+    pub(super) fn catalog_snapshot(&self) -> Result<Arc<SchemaCatalog>, SchemaError> {
+        self.catalog
+            .read()
+            .map(|guard| Arc::clone(&guard))
+            .map_err(|e| SchemaError::InvalidData(format!("schema catalog lock poisoned: {e}")))
+    }
+
+    pub(super) fn update_catalog(
+        &self,
+        f: impl FnOnce(&mut SchemaCatalog),
+    ) -> Result<(), SchemaError> {
+        let mut guard = self
+            .catalog
+            .write()
+            .map_err(|e| SchemaError::InvalidData(format!("schema catalog lock poisoned: {e}")))?;
+        f(Arc::make_mut(&mut *guard));
+        Ok(())
+    }
 }

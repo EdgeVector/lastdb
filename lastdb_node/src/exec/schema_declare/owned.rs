@@ -99,7 +99,7 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<In
         {
             return Err(BREAKING_CHANGE.into());
         }
-        let schema = stored.clone_for_read_shared();
+        let schema = stored.clone();
         installed = Some(match field_change(stored, proposed) {
             Some(true) => Installed::Load(schema),
             Some(false) => Installed::Reuse(schema),
@@ -174,9 +174,7 @@ fn owned_schema(
         schema.name = installed.name.clone();
     }
     schema.ensure_field_hashes();
-    schema
-        .populate_runtime_fields()
-        .map_err(|error| error.to_string())?;
+    schema.validate().map_err(|error| error.to_string())?;
     schema.validate_owned_schema()?;
     Ok(schema)
 }
