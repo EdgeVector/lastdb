@@ -69,6 +69,14 @@ impl ProtocolError {
             field: field.into(),
         }
     }
+
+    /// Build an `Unauthorized` error naming `field`.
+    pub fn unauthorized(field: &'static str) -> Self {
+        Self {
+            code: ErrorCode::Unauthorized,
+            field: field.into(),
+        }
+    }
 }
 
 impl std::fmt::Display for ProtocolError {
