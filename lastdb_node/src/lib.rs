@@ -17,6 +17,7 @@ pub mod host;
 pub mod identity;
 pub mod jobs;
 pub mod lastdb_uds;
+pub mod log_envelope;
 pub mod log_rotation;
 pub mod named_snapshot_restore;
 pub mod offline_home;
