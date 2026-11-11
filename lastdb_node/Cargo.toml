@@ -36,6 +36,7 @@ mutation_log = { path = "../mutation_log" }
 mutation_log_sync = { path = "../mutation_log_sync" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
+mutation_log = { path = "../mutation_log" }
 laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
 observability = { workspace = true }
