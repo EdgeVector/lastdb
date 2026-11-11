@@ -118,24 +118,27 @@ fn save(path: &Path, catalog: &Catalog) -> StorageResult<()> {
         };
     }
     let temporary = path.with_extension("json.tmp");
-    {
-        let mut file = File::create(&temporary)?;
-        serde_json::to_writer(&mut file, catalog).map_err(|e| {
-            invalid(format!(
-                "local file reference catalog could not be written: {e}"
-            ))
-        })?;
-        file.sync_all()?;
-    }
+    let mut file = File::create(&temporary)?;
+    serde_json::to_writer(&mut file, catalog).map_err(|e| {
+        invalid(format!(
+            "local file reference catalog could not be written: {e}"
+        ))
+    })?;
+    file.sync_all()?;
+    drop(file);
     fs::rename(&temporary, path)?;
     Ok(())
 }
 
-fn resolve_regular(node: &Path, path: &Path, context: &str) -> StorageResult<(PathBuf, u64)> {
+fn resolve_regular(
+    node: &Path,
+    path: &Path,
+    expected_size: Option<u64>,
+    context: &str,
+) -> StorageResult<(PathBuf, u64)> {
     let canonical = fs::canonicalize(path)
         .map_err(|e| invalid(format!("local file {} {context}: {e}", path.display())))?;
-    let node = fs::canonicalize(node).unwrap_or_else(|_| node.to_path_buf());
-    if canonical.starts_with(&node) {
+    if canonical.starts_with(fs::canonicalize(node).unwrap_or_else(|_| node.to_path_buf())) {
         return Err(invalid(
             "a local file reference must stay outside the node home",
         ));
@@ -147,42 +150,33 @@ fn resolve_regular(node: &Path, path: &Path, context: &str) -> StorageResult<(Pa
             canonical.display()
         )));
     }
-    Ok((canonical, metadata.len()))
-}
-
-fn checked_source(node: &Path, path: &Path, size_bytes: u64) -> StorageResult<PathBuf> {
-    let (canonical, actual_len) = resolve_regular(node, path, "is not available for backup")?;
-    if actual_len != size_bytes {
+    if expected_size.is_some_and(|size| metadata.len() != size) {
         return Err(invalid(format!(
             "local file {} does not match its record marker",
             canonical.display()
         )));
     }
-    Ok(canonical)
+    Ok((canonical, metadata.len()))
 }
 
-fn hash_file(path: &Path) -> StorageResult<(u64, String)> {
-    let mut file = File::open(path)?;
+/// Canonicalize `path`, require a regular file outside the node, and hash it.
+pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {
+    let (canonical, expected_len) =
+        resolve_regular(&node_dir(runtime)?, path, None, "is not available")?;
+    let mut file = File::open(&canonical)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
-    let mut size = 0u64;
+    let mut size_bytes = 0u64;
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 {
             break;
         }
-        size = size
+        size_bytes = size_bytes
             .checked_add(count as u64)
             .ok_or_else(|| invalid("local file length overflow"))?;
         hasher.update(&buffer[..count]);
     }
-    Ok((size, hex_lower(hasher.finalize())))
-}
-
-/// Canonicalize `path`, require a regular file outside the node, and hash it.
-pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {
-    let (canonical, expected_len) = resolve_regular(&node_dir(runtime)?, path, "is not available")?;
-    let (size_bytes, sha256) = hash_file(&canonical)?;
     if size_bytes != expected_len {
         return Err(invalid(format!(
             "local file {} changed while it was hashed",
@@ -197,7 +191,7 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
         path: canonical,
         file_name,
         size_bytes,
-        sha256,
+        sha256: hex_lower(hasher.finalize()),
     })
 }
 
@@ -274,6 +268,12 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
             detail: "local file reference exceeds the in-memory file cap".into(),
         });
     }
+    let mismatch = || {
+        invalid(format!(
+            "local file {} does not match its record marker",
+            path.display()
+        ))
+    };
     let meta = fs::metadata(path).map_err(|e| {
         invalid(format!(
             "local file {} is not available: {e}",
@@ -281,10 +281,7 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
         ))
     })?;
     if !meta.is_file() || meta.len() != size_bytes {
-        return Err(invalid(format!(
-            "local file {} does not match its record marker",
-            path.display()
-        )));
+        return Err(mismatch());
     }
     let mut bytes = Vec::new();
     bytes
@@ -294,10 +291,7 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
         })?;
     File::open(path)?.read_to_end(&mut bytes)?;
     if bytes.len() as u64 != size_bytes || hex_lower(Sha256::digest(&bytes)) != sha256 {
-        return Err(invalid(format!(
-            "local file {} does not match its record marker",
-            path.display()
-        )));
+        return Err(mismatch());
     }
     Ok(bytes)
 }
@@ -307,9 +301,6 @@ pub(crate) async fn materialize(
     account_key: &[u8; 32],
 ) -> StorageResult<Vec<Vec<u8>>> {
     let entries = load_files(runtime)?;
-    if entries.is_empty() {
-        return Ok(Vec::new());
-    }
     let mut release_keys = Vec::with_capacity(entries.len());
     let mut put_keys = Vec::new();
     for (cas_key, entry) in entries {
@@ -336,26 +327,25 @@ async fn materialize_one(
     let node = node_dir(runtime)?;
     let path = PathBuf::from(&entry.path);
     let size_bytes = entry.size_bytes;
-    let canonical = run_blocking(move || checked_source(&node, &path, size_bytes)).await?;
+    let (canonical, _) = run_blocking(move || {
+        resolve_regular(
+            &node,
+            &path,
+            Some(size_bytes),
+            "is not available for backup",
+        )
+    })
+    .await?;
     if let Some(row) = runtime.cas_get(key).await? {
         let marker = FileMarker {
             name: None,
             media_type: None,
-            size_bytes: entry.size_bytes,
+            size_bytes,
             sha256: entry.sha256.clone(),
         };
         if require_row(account_key, &marker, &row).is_ok() {
             return Ok(false);
         }
-    }
-    if entry.size_bytes > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
-    {
-        return Err(StorageError::WriteResourceLimit {
-            detail: format!(
-                "local file {} exceeds the in-memory seal cap",
-                canonical.display()
-            ),
-        });
     }
     let sha256 = entry.sha256.clone();
     let plaintext = run_blocking(move || read_plaintext(&canonical, size_bytes, &sha256)).await?;
@@ -378,7 +368,7 @@ pub(crate) async fn release(runtime: &Arc<PackRuntime>, keys: &[Vec<u8>]) -> Sto
 }
 
 pub(crate) async fn release_catalog(runtime: &Arc<PackRuntime>) -> StorageResult<()> {
-    let keys: Vec<Vec<u8>> = load_files(runtime)?
+    let keys: Vec<_> = load_files(runtime)?
         .into_keys()
         .map(String::into_bytes)
         .collect();

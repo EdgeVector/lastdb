@@ -1,64 +1,130 @@
 //! Home creation, owner lock acquisition, crash-leftover removal, and stopped-home reads.
 
-use super::manifest::{Manifest, RunFile};
+use super::manifest::{Manifest, RunFile, MAX_CURRENT_BYTES};
 use super::{
-    read_descriptor, ReadBudget, RunHome, RunRead, RunReadCosts, CAS_DELETE, CURRENT,
-    DESCRIPTOR_BYTES, DESCRIPTOR_MAGIC, LOCK, NODE_CLEANUP, RUNS, RUN_HOME_MARKER,
+    read_descriptor, write_private_file, ReadBudget, RunHome, RunRead, RunReadCosts, CAS_DELETE,
+    CURRENT, DESCRIPTOR_BYTES, DESCRIPTOR_MAGIC, LOCK, NODE_CLEANUP, RUNS, RUN_HOME_MARKER,
 };
 use crate::disk_run::codec::corrupt;
-use crate::disk_run::{MetadataMemo, RunOptions, RunReader, RUN_SUFFIX};
-use crate::durability::{sync_directory, sync_dirty_file};
+use crate::disk_run::{MetadataMemo, RunReader, RUN_SUFFIX};
+use crate::durability::sync_directory;
+use crate::frame::{decode_frame_bounded, min_encoded_len, VerifiedFrameReader};
 use crate::{Error, Result};
 use rustix::fs::FlockOperation;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::Read;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use uuid::Uuid;
+use zeroize::Zeroizing;
+
+impl Manifest {
+    pub(super) fn load(root: &Path, key: &[u8; 32], home_id: Uuid) -> Result<Self> {
+        Self::load_paths(&root.join(CURRENT), &root.join(RUNS), key, home_id)
+    }
+
+    pub(in crate::disk_run::home) fn load_paths(
+        current: &Path,
+        runs: &Path,
+        key: &[u8; 32],
+        home_id: Uuid,
+    ) -> Result<Self> {
+        let mut file = File::open(current)?;
+        let len = file.metadata()?.len();
+        if len < min_encoded_len() as u64 || len > MAX_CURRENT_BYTES as u64 {
+            return Err(corrupt("CURRENT length"));
+        }
+        let mut frame = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut frame)?;
+        let decoded = decode_frame_bounded(key, &frame, MAX_CURRENT_BYTES)?;
+        let manifest = Self::decode(&decoded.payload, runs)?;
+        if manifest.home_id != home_id {
+            return Err(corrupt("CURRENT names another home"));
+        }
+        Ok(manifest)
+    }
+
+    pub(in crate::disk_run::home) fn load_paths_bounded(
+        current: &Path,
+        runs: &Path,
+        key: &[u8; 32],
+        home_id: Uuid,
+        maximum: u64,
+    ) -> Result<Self> {
+        let policy = &lastdb_model::storage_policy::BACKUP_RESOURCES;
+        let maximum = maximum.min(policy.working_memory_bytes);
+        if maximum < 2 * policy.stream_buffer_bytes + 16 {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .open(current)?;
+        let length = file.metadata()?.len();
+        if length < min_encoded_len() as u64 || length > MAX_CURRENT_BYTES as u64 {
+            return Err(corrupt("CURRENT length"));
+        }
+        let mut input = VerifiedFrameReader::open(&file, 0, length, key)?;
+        let (bytes, reader_mem) = (input.payload_len, input.memory_bytes);
+        if bytes.checked_add(reader_mem).is_none_or(|n| n > maximum) {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let count = usize::try_from(bytes).map_err(|_| Error::ReadBudgetExceeded)?;
+        let mut payload = Zeroizing::new(Vec::new());
+        payload
+            .try_reserve_exact(count)
+            .map_err(|_| Error::ReadBudgetExceeded)?;
+        if (payload.capacity() as u64)
+            .checked_add(reader_mem)
+            .is_none_or(|n| n > maximum)
+        {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        payload.resize(count, 0);
+        input.read_exact(&mut payload)?;
+        if input.read(&mut [0])? != 0 {
+            return Err(corrupt("CURRENT length"));
+        }
+        drop(input);
+        let manifest = Self::decode_bounded(&payload, payload.capacity(), runs, maximum)?;
+        if manifest.home_id != home_id {
+            return Err(corrupt("CURRENT names another home"));
+        }
+        Ok(manifest)
+    }
+}
 
 pub(in crate::disk_run::home) type ReadSlot = (Arc<RunFile>, Option<RunReader>);
 
 pub(in crate::disk_run::home) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
     fs::DirBuilder::new().mode(0o700).create(dir.join(RUNS))?;
-    let lock = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.join(LOCK))?;
-    sync_dirty_file(&lock)?;
+    write_private_file(&dir.join(LOCK), &[])?;
     let identity = Uuid::new_v4();
     let mut descriptor = [0u8; DESCRIPTOR_BYTES];
     descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
     descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
     descriptor[16..32].copy_from_slice(identity.as_bytes());
-    let crc = crc32fast::hash(&descriptor[..60]);
-    descriptor[60..].copy_from_slice(&crc.to_le_bytes());
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.join(RUN_HOME_MARKER))?;
-    file.write_all(&descriptor)?;
-    sync_dirty_file(&file)?;
+    let crc = crc32fast::hash(&descriptor[..60]).to_le_bytes();
+    descriptor[60..].copy_from_slice(&crc);
+    write_private_file(&dir.join(RUN_HOME_MARKER), &descriptor)?;
     let staged = Manifest::empty(identity).stage(dir, key)?;
     Manifest::replace(dir, &staged)?;
-    sync_directory(&File::open(dir.join(RUNS))?)
+    sync_directory(&dir.join(RUNS))
 }
 
 fn open_owner_lock(root: &Path) -> Result<File> {
-    let mut options = OpenOptions::new();
-    options
+    let flags =
+        rustix::fs::OFlags::NOFOLLOW.bits() as i32 | rustix::fs::OFlags::NONBLOCK.bits() as i32;
+    let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .mode(0o600)
-        .custom_flags(
-            rustix::fs::OFlags::NOFOLLOW.bits() as i32 | rustix::fs::OFlags::NONBLOCK.bits() as i32,
-        );
-    let lock = options.open(root.join(LOCK))?;
+        .custom_flags(flags)
+        .open(root.join(LOCK))?;
     match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => {
             require_path(root, &lock)?;
@@ -126,7 +192,6 @@ impl RunHome {
             runs,
             key: *key,
             identity,
-            options: RunOptions::default(),
             current: RwLock::new(Arc::new(manifest)),
             commit: Mutex::new(()),
             publish: Mutex::new(()),
@@ -137,27 +202,16 @@ impl RunHome {
         })
     }
 
-    /// Keep the owner lock after the run home closes and its merger stops.
-    pub fn retain_owner_lock(&self) -> Result<Arc<File>> {
-        require_path(&self.root, &self.lock)?;
-        Ok(Arc::clone(&self.lock))
-    }
-
     pub(in crate::disk_run::home) fn commit_lock(&self) -> Result<MutexGuard<'_, ()>> {
-        self.exclusive(&self.commit)
+        self.commit.lock().map_err(|_| self.poisoned_lock())
     }
 
     pub(in crate::disk_run::home) fn publish_lock(&self) -> Result<MutexGuard<'_, ()>> {
-        self.exclusive(&self.publish)
-    }
-
-    fn exclusive<'a>(&self, lock: &'a Mutex<()>) -> Result<MutexGuard<'a, ()>> {
-        lock.lock().map_err(|_| self.poisoned_lock())
+        self.publish.lock().map_err(|_| self.poisoned_lock())
     }
 
     pub(in crate::disk_run::home) fn install_current(&self, next: &Arc<Manifest>) -> Result<()> {
-        let mut current = self.current.write().map_err(|_| self.poisoned_lock())?;
-        *current = Arc::clone(next);
+        *self.current.write().map_err(|_| self.poisoned_lock())? = Arc::clone(next);
         Ok(())
     }
 
@@ -183,9 +237,7 @@ pub(in crate::disk_run::home) fn slots(manifest: &Manifest, maximum: u64) -> Res
     if (runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64 > maximum {
         return Err(Error::ReadBudgetExceeded);
     }
-    for run in manifest.newest_first() {
-        runs.push((Arc::clone(run), None));
-    }
+    runs.extend(manifest.newest_first().map(|run| (Arc::clone(run), None)));
     Ok(runs)
 }
 

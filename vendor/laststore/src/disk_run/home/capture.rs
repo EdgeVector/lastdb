@@ -2,15 +2,15 @@
 use super::{
     manifest::Manifest,
     open::{slots, ReadSlot},
-    read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts, CURRENT, RUNS,
-    RUN_HOME_MARKER,
+    read_descriptor_file, verified_hard_link, write_private_file, ReadBudget, RunHome, RunRead,
+    RunReadCosts, CURRENT, RUNS, RUN_HOME_MARKER,
 };
 use crate::disk_run::MetadataMemo;
 use crate::durability::sync_directory;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -78,8 +78,7 @@ fn write_uuid<S: serde::Serializer>(value: &Uuid, out: S) -> std::result::Result
 }
 
 fn read_uuid<'de, D: serde::Deserializer<'de>>(input: D) -> std::result::Result<Uuid, D::Error> {
-    let value = String::deserialize(input)?;
-    Uuid::parse_str(&value).map_err(serde::de::Error::custom)
+    Uuid::parse_str(&String::deserialize(input)?).map_err(serde::de::Error::custom)
 }
 
 impl RunHome {
@@ -123,21 +122,16 @@ impl RunHome {
             )?;
         }
         capture.files.sort_by(|a, b| a.path.cmp(&b.path));
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(destination.join("capture.json"))?;
-        serde_json::to_writer(&mut output, &capture)
-            .map_err(|_| invalid("run capture metadata encoding"))?;
-        output.write_all(b"\n")?;
-        output.sync_all()?;
-        sync_directory(&File::open(destination)?)?;
-        sync_directory(&File::open(
+        let mut encoded =
+            serde_json::to_vec(&capture).map_err(|_| invalid("run capture metadata encoding"))?;
+        encoded.push(b'\n');
+        write_private_file(&destination.join("capture.json"), &encoded)?;
+        sync_directory(destination)?;
+        sync_directory(
             destination
                 .parent()
                 .ok_or_else(|| invalid("capture parent"))?,
-        )?)?;
+        )?;
         Ok(capture)
     }
 }
@@ -151,18 +145,12 @@ impl CapturedRunHome {
         kind: CapturedRunKind,
         bytes: u64,
     ) -> Result<()> {
-        let before = fs::symlink_metadata(source)?;
-        if !before.is_file() || before.len() != bytes {
-            return Err(invalid("run capture original file"));
-        }
-        let target = self.root.join(held);
-        fs::hard_link(source, &target)?;
-        let after = fs::symlink_metadata(&target)?;
-        if !after.is_file()
-            || (before.dev(), before.ino(), before.len()) != (after.dev(), after.ino(), after.len())
-        {
-            return Err(invalid("run capture inode changed"));
-        }
+        verified_hard_link(
+            source,
+            &self.root.join(held),
+            bytes,
+            "run capture inode changed",
+        )?;
         self.files.push(CapturedRunFile {
             path: path.into(),
             held: held.into(),
@@ -297,7 +285,8 @@ impl CapturedRunHome {
             .read(true)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(self.root.join(&file.held))?;
-        if !input.metadata()?.is_file() || input.metadata()?.len() != file.bytes {
+        let meta = input.metadata()?;
+        if !meta.is_file() || meta.len() != file.bytes {
             return Err(invalid("run capture reader length"));
         }
         Ok(input)
@@ -305,9 +294,8 @@ impl CapturedRunHome {
 
     /// Read the exact captured root while the same native owner keeps its lock.
     pub fn read(&self, owner: &RunHome, budget: ReadBudget) -> Result<RunRead> {
-        if self.retained_bytes().saturating_add(self.reader_bytes())
-            > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
-        {
+        let working = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+        if self.retained_bytes().saturating_add(self.reader_bytes()) > working {
             return Err(Error::ReadBudgetExceeded);
         }
         if owner.identity != self.home_id {
@@ -318,8 +306,7 @@ impl CapturedRunHome {
                 .get()
                 .ok_or_else(|| invalid("run capture is not reopened"))?,
         );
-        let available = lastdb_model::storage_policy::BACKUP_RESOURCES
-            .working_memory_bytes
+        let available = working
             .checked_sub(self.retained_bytes())
             .ok_or(Error::ReadBudgetExceeded)?;
         let runs = slots(&manifest, available)?;
@@ -364,11 +351,11 @@ impl CapturedRunHome {
             }
             fs::remove_file(entry.path())?;
         }
-        sync_directory(&File::open(root)?)?;
+        sync_directory(root)?;
         fs::remove_dir(root)?;
-        sync_directory(&File::open(
+        sync_directory(
             root.parent()
                 .ok_or_else(|| invalid("run capture release parent"))?,
-        )?)
+        )
     }
 }

@@ -1,4 +1,4 @@
-//! Scope-local metadata publication and numeric operation accounting.
+//! Scope-local metadata publication, duty-cost tracking, and operation accounting.
 
 use super::{
     Arc, BTreeMap, HomeMutation, Mutex, PackRuntime, PendingBatch, PendingData, StorageError,
@@ -6,6 +6,55 @@ use super::{
 };
 use std::any::Any;
 use std::collections::BTreeSet;
+
+pub(crate) mod blocked {
+    use std::future::Future;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    static WRITE_SCOPES: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct Cost {
+        pub(crate) blocked: Duration,
+        pub(crate) scopes: u64,
+    }
+
+    #[derive(Default)]
+    struct JobCost {
+        blocked_us: AtomicU64,
+        scopes: AtomicU64,
+    }
+
+    tokio::task_local! {
+        static JOB: Arc<JobCost>;
+    }
+
+    pub(crate) async fn measure<F: Future>(work: F) -> (F::Output, Cost) {
+        let job = Arc::new(JobCost::default());
+        let output = JOB.scope(Arc::clone(&job), work).await;
+        let cost = Cost {
+            blocked: Duration::from_micros(job.blocked_us.load(Ordering::Acquire)),
+            scopes: job.scopes.load(Ordering::Acquire),
+        };
+        (output, cost)
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn opened() {
+        WRITE_SCOPES.fetch_add(1, Ordering::AcqRel);
+        let _ = JOB.try_with(|job| job.scopes.fetch_add(1, Ordering::AcqRel));
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn note(blocked: Duration) {
+        let micros = u64::try_from(blocked.as_micros()).unwrap_or(u64::MAX);
+        let _ = JOB.try_with(|job| job.blocked_us.fetch_add(micros, Ordering::AcqRel));
+    }
+
+    pub(crate) fn write_scopes() -> u64 {
+        WRITE_SCOPES.load(Ordering::Acquire)
+    }
+}
 
 type Action = Box<dyn FnOnce() -> StorageResult<()> + Send>;
 type CacheKey = (usize, String);
@@ -130,30 +179,23 @@ fn type_mismatch() -> StorageError {
     StorageError::BackendError("native metadata cache type differs".into())
 }
 
-struct Counts {
-    current: usize,
-    incoming: usize,
-    projected: usize,
-    unique: usize,
-}
-
-fn counts(data: &PendingData, operations: &[HomeMutation]) -> Counts {
+fn counts(data: &PendingData, operations: &[HomeMutation]) -> (usize, usize, usize, usize) {
     let mut unique: BTreeSet<_> = data
         .latest
         .keys()
-        .map(|(collection, key)| (collection.as_str(), key.as_str()))
+        .map(|(c, k)| (c.as_str(), k.as_str()))
         .collect();
     unique.extend(
         operations
             .iter()
-            .map(|operation| (operation.collection.as_str(), operation.key.as_str())),
+            .map(|op| (op.collection.as_str(), op.key.as_str())),
     );
-    Counts {
-        current: data.operations.len(),
-        incoming: operations.len(),
-        projected: data.operations.len().saturating_add(operations.len()),
-        unique: unique.len(),
-    }
+    (
+        data.operations.len(),
+        operations.len(),
+        data.operations.len().saturating_add(operations.len()),
+        unique.len(),
+    )
 }
 
 pub(in crate::storage::disk_pack::transaction) fn refusal(
@@ -161,11 +203,10 @@ pub(in crate::storage::disk_pack::transaction) fn refusal(
     operations: &[HomeMutation],
     limit: usize,
 ) -> StorageError {
-    let counts = counts(data, operations);
+    let (current, incoming, projected, unique) = counts(data, operations);
     StorageError::MutationLimit {
         detail: format!(
-            "complete native mutation exceeds {limit} storage operations: current={}, incoming={}, projected={}, projected_unique={}",
-            counts.current, counts.incoming, counts.projected, counts.unique,
+            "complete native mutation exceeds {limit} storage operations: current={current}, incoming={incoming}, projected={projected}, projected_unique={unique}"
         ),
     }
 }
@@ -178,16 +219,86 @@ pub(in crate::storage::disk_pack::transaction) fn record_stage(
     if !tracing::enabled!(target: "lastdb::native_write_budget", tracing::Level::DEBUG) {
         return;
     }
-    let counts = counts(data, operations);
+    let (current, incoming, projected, unique) = counts(data, operations);
     tracing::debug!(
         target: "lastdb::native_write_budget",
-        current_operations = counts.current,
-        incoming_operations = counts.incoming,
-        projected_operations = counts.projected,
-        projected_unique_operations = counts.unique,
+        current_operations = current,
+        incoming_operations = incoming,
+        projected_operations = projected,
+        projected_unique_operations = unique,
         operation_limit = limit,
         "native preparation cumulative stored operations"
     );
+}
+
+#[derive(Default)]
+pub(in crate::storage::disk_pack::transaction) struct BatchShape {
+    record_puts: u32,
+    record_deletes: u32,
+    alternate_puts: u32,
+    alternate_deletes: u32,
+    file_puts: u32,
+    file_deletes: u32,
+}
+
+impl BatchShape {
+    pub(in crate::storage::disk_pack::transaction) fn of(operations: &[HomeMutation]) -> Self {
+        let mut shape = Self::default();
+        if !tracing::enabled!(target: "fold_db::write_gate", tracing::Level::DEBUG) {
+            return shape;
+        }
+        for op in operations {
+            let key = op.key.as_str();
+            let (puts, deletes) =
+                if op.collection == crate::storage::disk_pack::physical::CAS_COLLECTION {
+                    (&mut shape.file_puts, &mut shape.file_deletes)
+                } else if key.starts_with(lastdb_model::record_space::RECORD_PREFIX) {
+                    (&mut shape.record_puts, &mut shape.record_deletes)
+                } else if key.starts_with(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX) {
+                    (&mut shape.alternate_puts, &mut shape.alternate_deletes)
+                } else {
+                    continue;
+                };
+            if op.body.is_some() {
+                *puts += 1;
+            } else {
+                *deletes += 1;
+            }
+        }
+        shape
+    }
+
+    pub(in crate::storage::disk_pack::transaction) fn log(
+        &self,
+        held_from: std::time::Instant,
+        operations: usize,
+        sequence: u64,
+    ) -> std::time::Duration {
+        let held = held_from.elapsed();
+        tracing::debug!(
+            target: "fold_db::write_gate",
+            hold_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX),
+            operations,
+            sequence,
+            record_puts = self.record_puts,
+            record_deletes = self.record_deletes,
+            alternate_puts = self.alternate_puts,
+            alternate_deletes = self.alternate_deletes,
+            file_puts = self.file_puts,
+            file_deletes = self.file_deletes,
+            "native write gate released"
+        );
+        held
+    }
+}
+
+pub(in crate::storage::disk_pack::transaction) fn note_gate_hold(
+    held_from: std::time::Instant,
+    operations: usize,
+    sequence: u64,
+    ops: &[HomeMutation],
+) -> std::time::Duration {
+    BatchShape::of(ops).log(held_from, operations, sequence)
 }
 
 impl PendingBatch {
@@ -215,4 +326,34 @@ impl PendingBatch {
                 detail: detail.clone(),
             })
     }
+}
+
+pub(in crate::storage) fn batch_bytes(
+    operations: &[HomeMutation],
+    operation_limit: usize,
+) -> StorageResult<u64> {
+    if operations.len() > operation_limit {
+        return Err(StorageError::MutationLimit {
+            detail: format!("complete native batch exceeds {operation_limit} operations"),
+        });
+    }
+    let mut bytes = 256u64;
+    for op in operations {
+        if op.collection.len() > 65531 || op.key.len() > 65535 {
+            return Err(StorageError::InvalidOperation(
+                "native collection or key exceeds format bounds".into(),
+            ));
+        }
+        bytes = bytes
+            .checked_add(
+                (160 + op.collection.len()
+                    + 2 * op.key.len()
+                    + op.body.as_ref().map_or(0, Vec::len)) as u64,
+            )
+            .filter(|&b| b <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES)
+            .ok_or_else(|| StorageError::MutationLimit {
+                detail: "complete native batch exceeds pending memory allowance".into(),
+            })?;
+    }
+    Ok(bytes)
 }

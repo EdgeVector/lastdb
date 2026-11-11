@@ -35,14 +35,11 @@ pub(in crate::storage) mod native_routing {
 }
 
 impl PackRuntime {
-    /// The cas namespace. Backup uses it to seal local file references into
-    /// the run that the hold hard-links, then to delete those rows.
-    pub(in crate::storage) async fn cas_store(self: &Arc<Self>) -> StorageResult<PackKvStore> {
-        self.ensure_namespace(CAS_COLLECTION).await?;
-        Ok(PackKvStore {
+    pub(super) fn cas_kv(self: &Arc<Self>) -> PackKvStore {
+        PackKvStore {
             runtime: Arc::clone(self),
             namespace: CAS_COLLECTION.to_string(),
-        })
+        }
     }
 
     /// One cas row. Backup skips a local file whose sealed row is already valid.
@@ -50,7 +47,8 @@ impl PackRuntime {
         self: &Arc<Self>,
         key: &[u8],
     ) -> StorageResult<Option<Vec<u8>>> {
-        self.cas_store().await?.get(key).await
+        self.ensure_namespace(CAS_COLLECTION).await?;
+        self.cas_kv().get(key).await
     }
 
     /// Put one sealed cas row. The caller already checked the envelope.
@@ -59,7 +57,7 @@ impl PackRuntime {
         key: &[u8],
         value: Vec<u8>,
     ) -> StorageResult<()> {
-        self.cas_store().await?.put(key, value).await
+        self.cas_kv().put(key, value).await
     }
 
     /// Delete cas rows. An empty list publishes nothing.
@@ -70,7 +68,9 @@ impl PackRuntime {
         if keys.is_empty() {
             return Ok(());
         }
-        self.cas_store().await?.batch_delete(keys).await
+        self.cas_kv()
+            .batch_mutate(keys.into_iter().map(KvMutation::delete).collect())
+            .await
     }
 }
 
@@ -114,77 +114,7 @@ impl PackKvStore {
         })
         .await
     }
-}
 
-fn prepare(
-    runtime: &PackRuntime,
-    context: &Arc<read::ReadContext>,
-    pending: Option<&Arc<transaction::PendingBatch>>,
-    namespace: &str,
-    mutations: Vec<KvMutation>,
-) -> StorageResult<Vec<HomeMutation>> {
-    let operation_limit = pending.map_or(4096, |pending| pending.operation_limit());
-    if mutations.len() > operation_limit {
-        return Err(StorageError::InvalidOperation(format!(
-            "native mutation exceeds {operation_limit} operation admission limit"
-        )));
-    }
-    for mutation in &mutations {
-        super::super::current_keys::validate(namespace, mutation.key())?;
-    }
-    let targets: Vec<_> = mutations
-        .iter()
-        .map(|mutation| coordinate(namespace, mutation.key()))
-        .collect();
-    let mut addresses = Vec::new();
-    for (mutation, target) in mutations.iter().zip(&targets) {
-        if matches!(mutation, KvMutation::Delete { .. }) {
-            addresses.push(target.clone());
-        }
-    }
-    addresses.sort();
-    addresses.dedup();
-    context.record_stage("write-probes-start", addresses.len());
-    let bodies = runtime.raw_many(context, &addresses, pending)?;
-    context.record_stage("write-probes-done", addresses.len());
-    let mut present: std::collections::BTreeMap<_, _> = addresses
-        .into_iter()
-        .zip(bodies.into_iter().map(|body| body.is_some()))
-        .collect();
-    let mut out = Vec::new();
-    for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
-        match mutation {
-            KvMutation::Put { value, .. } => {
-                out.push(HomeMutation {
-                    collection: target.clone(),
-                    key: key.clone(),
-                    body: Some(value),
-                });
-                present.insert((target.clone(), key.clone()), true);
-            }
-            KvMutation::Delete { .. } => {
-                if present.get(&(target.clone(), key.clone())) == Some(&true) {
-                    present.insert((target.clone(), key.clone()), false);
-                    out.push(HomeMutation {
-                        collection: target,
-                        key,
-                        body: None,
-                    });
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
-pub(in crate::storage::disk_pack) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
-    (
-        native_routing::collection_for_namespace(namespace).to_string(),
-        native_routing::encode(key),
-    )
-}
-
-impl PackKvStore {
     pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         Ok(self
             .values(vec![key.to_vec()])
@@ -199,17 +129,6 @@ impl PackKvStore {
 
     pub(crate) async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
         self.change(vec![KvMutation::put(key, value)]).await
-    }
-
-    pub(crate) async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
-        transaction::scope(Arc::clone(&self.runtime), async {
-            if self.get(key).await?.is_none() {
-                return Ok(false);
-            }
-            self.change(vec![KvMutation::delete(key)]).await?;
-            Ok(true)
-        })
-        .await
     }
 
     pub(crate) async fn scan_prefix(
@@ -249,26 +168,78 @@ impl PackKvStore {
         Ok(YieldedScan { rows, resume })
     }
 
-    pub(crate) async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
-        self.change(
-            items
-                .into_iter()
-                .map(|(key, value)| KvMutation::Put { key, value })
-                .collect(),
-        )
-        .await
-    }
-
     pub(crate) async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         self.change(mutations).await
-    }
-
-    pub(crate) async fn batch_delete(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
-        self.change(keys.into_iter().map(KvMutation::delete).collect())
-            .await
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.runtime.flush().await
     }
+}
+
+fn prepare(
+    runtime: &PackRuntime,
+    context: &Arc<read::ReadContext>,
+    pending: Option<&Arc<transaction::PendingBatch>>,
+    namespace: &str,
+    mutations: Vec<KvMutation>,
+) -> StorageResult<Vec<HomeMutation>> {
+    let operation_limit = pending.map_or(4096, |pending| pending.operation_limit());
+    if mutations.len() > operation_limit {
+        return Err(StorageError::InvalidOperation(format!(
+            "native mutation exceeds {operation_limit} operation admission limit"
+        )));
+    }
+    for mutation in &mutations {
+        super::super::current_keys::validate(namespace, mutation.key())?;
+    }
+    let targets: Vec<_> = mutations
+        .iter()
+        .map(|mutation| coordinate(namespace, mutation.key()))
+        .collect();
+    let mut addresses: Vec<_> = mutations
+        .iter()
+        .zip(&targets)
+        .filter(|(m, _)| matches!(m, KvMutation::Delete { .. }))
+        .map(|(_, target)| target.clone())
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+    context.record_stage("write-probes-start", addresses.len());
+    let bodies = runtime.raw_many(context, &addresses, pending)?;
+    context.record_stage("write-probes-done", addresses.len());
+    let mut present: std::collections::BTreeMap<_, _> = addresses
+        .into_iter()
+        .zip(bodies.into_iter().map(|body| body.is_some()))
+        .collect();
+    let mut out = Vec::new();
+    for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
+        match mutation {
+            KvMutation::Put { value, .. } => {
+                present.insert((target.clone(), key.clone()), true);
+                out.push(HomeMutation {
+                    collection: target,
+                    key,
+                    body: Some(value),
+                });
+            }
+            KvMutation::Delete { .. } => {
+                if present.insert((target.clone(), key.clone()), false) == Some(true) {
+                    out.push(HomeMutation {
+                        collection: target,
+                        key,
+                        body: None,
+                    });
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub(in crate::storage::disk_pack) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
+    (
+        native_routing::collection_for_namespace(namespace).to_string(),
+        native_routing::encode(key),
+    )
 }

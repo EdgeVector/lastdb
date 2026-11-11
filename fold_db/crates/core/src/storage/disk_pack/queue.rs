@@ -1,9 +1,24 @@
 //! Bounded complete requests share one generation-bound stored publication.
 
+use super::run_commit::PreparedCommit;
 use super::*;
 use tracing::Instrument;
 
 const MAX_REQUESTS: usize = 1024;
+
+/// Durable native boundary after all earlier accepted batches finish.
+#[derive(serde::Serialize)]
+pub struct NativeFlushReceipt {
+    pub generation: u64,
+    pub frontier: u64,
+    pub target_sequence: u64,
+    pub completed_sequence: u64,
+}
+
+pub(in crate::storage) struct WriteGuard {
+    _preparation: tokio::sync::OwnedMutexGuard<()>,
+    _publication: tokio::sync::OwnedMutexGuard<()>,
+}
 
 struct QueuedRequest {
     pending: Arc<transaction::PendingBatch>,
@@ -15,7 +30,7 @@ pub(super) struct WriteQueue {
     // Success clears this list only after disk publication and delivery. A
     // failure leaves the sealed queue as the owner of every pending reservation.
     requests: Vec<QueuedRequest>,
-    prepared: Option<write::PreparedCommit>,
+    prepared: Option<PreparedCommit>,
     next_sequence: u64,
     sealed: bool,
 }
@@ -37,6 +52,46 @@ impl PackRuntime {
         self.completed.subscribe()
     }
 
+    pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
+        let target_sequence = self.flush_prefix().await?;
+        let view = self.view.read().expect("native durable flush view");
+        Ok(NativeFlushReceipt {
+            generation: view.current.generation(),
+            frontier: view.current.frontier(),
+            target_sequence,
+            completed_sequence: *self.completed.borrow(),
+        })
+    }
+
+    pub(in crate::storage::disk_pack) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
+        if transaction::PendingBatch::current(self).is_some() {
+            return Ok(());
+        }
+        self.flush_prefix().await.map(|_| ())
+    }
+
+    async fn flush_prefix(self: &Arc<Self>) -> StorageResult<u64> {
+        let target = self.seal_queue();
+        self.wait_for_queue(target).await?;
+        Ok(target)
+    }
+
+    pub(in crate::storage) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
+        loop {
+            let gate = self.enter_prepare().await;
+            let target = self.seal_queue();
+            if target <= *self.completed.borrow() || self.failed.load(Ordering::Acquire) {
+                let publication = Arc::clone(&self.write_gate).lock_owned().await;
+                return WriteGuard {
+                    _preparation: gate,
+                    _publication: publication,
+                };
+            }
+            drop(gate);
+            let _ = self.wait_for_queue(target).await;
+        }
+    }
+
     /// A sealed prefix excludes new preparation until its durable result.
     pub(super) async fn enter_prepare(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
         loop {
@@ -54,18 +109,14 @@ impl PackRuntime {
         }
     }
 
-    pub(super) fn preparation_prefix(&self) -> (Arc<Vec<Arc<transaction::PendingBatch>>>, bool) {
+    pub(super) fn preparation_prefix(&self) -> Arc<Vec<Arc<transaction::PendingBatch>>> {
         let queue = self.queue.lock().expect("native preparation prefix");
-        let hidden = !queue.requests.is_empty();
-        (
-            Arc::new(
-                queue
-                    .requests
-                    .iter()
-                    .map(|request| Arc::clone(&request.pending))
-                    .collect(),
-            ),
-            hidden,
+        Arc::new(
+            queue
+                .requests
+                .iter()
+                .map(|request| Arc::clone(&request.pending))
+                .collect(),
         )
     }
 
@@ -73,7 +124,7 @@ impl PackRuntime {
     pub(super) fn prepare_queued(
         &self,
         incoming: Vec<HomeMutation>,
-    ) -> StorageResult<Option<write::PreparedAppend>> {
+    ) -> StorageResult<Option<PreparedCommit>> {
         let queue = self.queue.lock().expect("native accepted queue");
         if queue.requests.len() >= MAX_REQUESTS {
             return Err(StorageError::WriteResourceLimit {
@@ -83,7 +134,7 @@ impl PackRuntime {
         if incoming.is_empty() {
             return Ok(None);
         }
-        self.prepare_append(incoming, queue.prepared.as_ref())
+        self.prepare_commit(incoming, queue.prepared.as_ref())
             .map(Some)
     }
 
@@ -91,32 +142,36 @@ impl PackRuntime {
     pub(super) fn accept_queued(
         self: &Arc<Self>,
         pending: Arc<transaction::PendingBatch>,
-        prepared: Option<write::PreparedAppend>,
+        prepared: Option<PreparedCommit>,
     ) -> StorageResult<u64> {
         let mut queue = self.queue.lock().expect("native accepted queue");
         let sequence = queue.next_sequence.checked_add(1).ok_or_else(|| {
             StorageError::BackendError("native accepted sequence exhausted".into())
         })?;
         let first = queue.requests.is_empty();
-        if let Some(append) = &prepared {
-            append.reserve_capacity(queue.prepared.as_mut())?;
+        if let (Some(incoming), Some(previous)) = (&prepared, queue.prepared.as_mut()) {
+            previous
+                .operations
+                .try_reserve(incoming.operations.len())
+                .map_err(|_| StorageError::WriteResourceLimit {
+                    detail: "native prefix operation allocation refused".into(),
+                })?;
         }
         queue.requests.push(QueuedRequest { pending, sequence });
         queue.next_sequence = sequence;
-        if let Some(append) = prepared {
-            let previous = queue.prepared.take();
-            queue.prepared = Some(append.finish(previous));
+        if let Some(mut incoming) = prepared {
+            if let Some(mut previous) = queue.prepared.take() {
+                previous.operations.append(&mut incoming.operations);
+                incoming.operations = previous.operations;
+                incoming.space.absorb(previous.space);
+            }
+            queue.prepared = Some(incoming);
         }
         queue.sealed |= queue.requests.len() == MAX_REQUESTS;
         drop(queue);
         if first {
             let runtime = Arc::clone(self);
-            tokio::spawn(
-                async move {
-                    runtime.run_queue().await;
-                }
-                .in_current_span(),
-            );
+            tokio::spawn(async move { runtime.run_queue().await }.in_current_span());
         }
         Ok(sequence)
     }
@@ -159,8 +214,7 @@ impl PackRuntime {
         let gate_from = std::time::Instant::now();
         let runtime = Arc::clone(&self);
         let result = run_blocking(move || {
-            let _preparation = preparation;
-            let _gate = gate;
+            let (_preparation, _gate) = (preparation, gate);
             let result = runtime.commit_queue();
             if result.is_err() {
                 runtime.failed.store(true, Ordering::Release);
@@ -188,15 +242,12 @@ impl PackRuntime {
                     queue.sealed = false;
                 }
                 let signal = self.completed.clone();
-                // A stopped-home caller can reopen as soon as its flush
-                // returns. Release the worker's native ownership first.
                 drop(requests);
                 drop(self);
                 signal.send_modify(|completed| *completed = (*completed).max(sequence));
             }
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
-                // Notify without advancing the covered durable prefix.
                 self.completed.send_modify(|_| {});
                 tracing::error!(%error, "native complete accepted prefix requires recovery");
             }
@@ -220,7 +271,7 @@ impl PackRuntime {
             (queue.prepared.take(), hidden, requests)
         };
         if let Some(prepared) = prepared {
-            self.commit_prepared_group(prepared, &hidden, &requests)?;
+            self.commit_prepared(prepared, &hidden, &requests)?;
         } else {
             let current = self
                 .view
