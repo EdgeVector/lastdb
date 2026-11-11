@@ -234,7 +234,6 @@ pub(super) async fn write_scope<T>(
         super::run_blocking(move || ReadContext::capture(&runtime, Some(pending))).await?;
     let scope = PackReadScope { context };
     let result = scope.run(future).await;
-    scope.context.report_write_reads();
     if let Some(error) = scope.context.error() {
         return Err(error);
     }

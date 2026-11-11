@@ -4,9 +4,9 @@ mod events;
 
 use super::read::ReadStore;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
-use crate::storage::{KvStore, StorageError};
+use crate::storage::StorageError;
 use std::sync::Arc;
 
 pub(crate) use super::{
@@ -17,7 +17,7 @@ pub use events::ChangeFeedEvent;
 
 #[derive(Clone)]
 pub(crate) struct ChangeFeed {
-    feed_store: Arc<dyn KvStore>,
+    feed_store: PackKvStore,
     runtime: Arc<PackRuntime>,
 }
 
@@ -33,7 +33,7 @@ pub(crate) struct PreparedEvents {
 
 impl ChangeFeed {
     pub(in crate::storage::format) fn new(
-        feed_store: Arc<dyn KvStore>,
+        feed_store: PackKvStore,
         runtime: Arc<PackRuntime>,
     ) -> Self {
         Self {
@@ -47,7 +47,7 @@ impl ChangeFeed {
     }
 
     pub(crate) async fn last_seq(&self) -> StorageResult<u64> {
-        Ok(ReadStore::new(Arc::clone(&self.feed_store))
+        Ok(ReadStore::new(self.feed_store.clone())
             .get_item::<u64>(LAST_SEQ_KEY)
             .await?
             .unwrap_or(0))
@@ -59,7 +59,7 @@ impl ChangeFeed {
         limit: usize,
     ) -> StorageResult<Vec<ChangeFeedEvent>> {
         let start = events::event_key(after.saturating_add(1));
-        Ok(ReadStore::new(Arc::clone(&self.feed_store))
+        Ok(ReadStore::new(self.feed_store.clone())
             .scan_items_in_range_paged::<ChangeFeedEvent>(
                 &start,
                 super::CHANGE_FEED_EVENT_END,

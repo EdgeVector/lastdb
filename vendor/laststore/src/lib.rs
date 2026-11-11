@@ -9,21 +9,18 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-pub mod commit_timing;
 pub mod disk_run;
 mod durability;
 mod error;
 pub mod frame;
-mod read_receipt;
-mod read_receipt_io;
 pub mod space;
 
 pub use error::{Error, Result};
-pub use read_receipt::{
-    observe_disk_reads, record_decryption, record_lock_wait, record_logical_warm_hits,
-    record_logical_warm_misses, record_queue_wait, record_requested_keys, DiskReadContext,
-    DiskReadReceipt,
-};
+
+/// True when isolated storage diagnostics (`LASTDB_SNAPSHOT_TIMING=1`) are enabled.
+pub fn diagnostics_enabled() -> bool {
+    std::env::var("LASTDB_SNAPSHOT_TIMING").is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on"))
+}
 
 /// Crate version string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

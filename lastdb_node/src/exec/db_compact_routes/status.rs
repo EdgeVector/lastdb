@@ -17,7 +17,7 @@ pub(in crate::exec) async fn execute(
     });
     // This existing owner route is also the isolated benchmark checkpoint.
     // Normal requests keep their prior response and perform no diagnostic work.
-    if laststore::commit_timing::enabled() {
+    if laststore::diagnostics_enabled() {
         let inventory = match inventory_requested(req) {
             Ok(inventory) => inventory,
             Err(message) => return error_response(400, message, ctx),

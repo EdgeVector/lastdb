@@ -34,9 +34,7 @@ where
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
-    let mut timing = super::super::timing::start();
     let gate = runtime.enter_prepare().await;
-    super::super::timing::mark(&mut timing, "admission_us");
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
@@ -57,7 +55,6 @@ where
     }
     let result = result??;
     pending.require_final_format()?;
-    super::super::timing::mark(&mut timing, "logical_prepare_us");
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
         let target = runtime.seal_queue();
@@ -77,18 +74,14 @@ where
     // A cancelled pre-admission caller cannot release the queue's older quota.
     let (prepared, gate, publication) =
         run_blocking(move || Ok((owner.prepare_queued(operations)?, gate, publication))).await?;
-    super::super::timing::mark(&mut timing, "capacity_prepare_us");
     // Every caller waits for the complete snapshot and clean core publication.
     // Publication, ownership transfer and worker creation contain no await.
     let pending_timing = Arc::clone(&pending);
     let sequence = runtime.accept_queued(pending, prepared)?;
     drop(publication);
     drop(gate);
-    super::super::timing::mark(&mut timing, "accept_us");
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     runtime.wait_for_queue(sequence).await?;
-    super::super::timing::mark(&mut timing, "durable_wait_us");
-    super::super::timing::request(timing, sequence, background);
     super::blocked::note(if background {
         hold.saturating_add(pending_timing.flush_blocked())
     } else {
@@ -119,7 +112,7 @@ impl BatchShape {
         for operation in operations {
             let key = operation.key.as_str();
             let (puts, deletes) =
-                if operation.collection == crate::storage::disk_pack::physical_v2::CAS_COLLECTION {
+                if operation.collection == crate::storage::disk_pack::physical::CAS_COLLECTION {
                     (&mut shape.file_puts, &mut shape.file_deletes)
                 } else if key.starts_with(lastdb_model::record_space::RECORD_PREFIX) {
                     (&mut shape.record_puts, &mut shape.record_deletes)

@@ -13,10 +13,8 @@
 //! - Integration with network and permissions layers
 
 pub mod keys;
-pub mod signing;
 
 pub use keys::*;
-pub use signing::*;
 
 use thiserror::Error;
 

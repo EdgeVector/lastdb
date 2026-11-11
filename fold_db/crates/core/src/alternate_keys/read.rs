@@ -18,7 +18,7 @@ impl RecordStore {
             return Err(invalid("alternate page exceeds 4096 entries"));
         }
         let field_key = field_key(schema, name);
-        let codec = self.key_codec_for_field_key(&field_key)?;
+        let codec = self.alternate_codec(schema, name)?;
         let (mut start, end) = alternate_bounds(&codec, &field_key, filter)?;
         if let Some(after) = after {
             let cursor = storage_key(self, schema, name, &after.matched, &after.primary)?;

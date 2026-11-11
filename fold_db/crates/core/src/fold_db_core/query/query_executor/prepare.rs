@@ -22,16 +22,6 @@ impl QueryExecutor {
         self.schema_manager.require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         crate::schema::require_logical_filter(query.filter.as_ref())?;
-        self.db_ops
-            .field_keys()
-            .load_schema(&schema)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "load field key bundles for schema '{}': {error}",
-                    schema.name
-                ))
-            })?;
         Ok(Some(schema))
     }
 }

@@ -27,7 +27,7 @@ pub(crate) fn storage_address(
 ) -> Result<AlternateAddress, SchemaError> {
     let id = field_key(schema, name);
     let target = records.record_address(schema, primary)?;
-    AlternateAddress::new(&records.key_codec_for_field_key(&id)?, &id, key, &target)
+    AlternateAddress::new(&records.alternate_codec(schema, name)?, &id, key, &target)
 }
 
 pub(crate) fn invalid(message: &str) -> SchemaError {

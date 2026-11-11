@@ -122,7 +122,6 @@ fn trace_families(coordinates: &[(String, String)]) {
         let family = match collection.as_str() {
             crate::storage::format::SCHEMAS_NAMESPACE => "schema",
             crate::storage::format::SCHEMA_STATES_NAMESPACE => "schema_state",
-            crate::storage::format::FIELD_KEYS_NAMESPACE => "field_key_encryption_keys",
             _ => record_family(key),
         };
         *counts.entry(family).or_insert(0usize) += 1;

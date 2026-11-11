@@ -2,11 +2,19 @@
 use super::{manifest::Manifest, RunHome};
 use crate::{Error, Result};
 use serde::Serialize;
+use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub use super::diagnostic_files::FileDiagnostics;
 pub use super::diagnostic_inventory::{CollectionInventory, LogicalInventory};
+
+/// Allocated physical bytes at one captured checkpoint.
+#[derive(Debug, Default, Serialize)]
+pub struct FileDiagnostics {
+    /// Allocated bytes of every regular file in the two native directories.
+    pub total_allocated_bytes: u64,
+}
 
 /// Numeric totals for the runs in one part of a captured published root.
 #[derive(Debug, Serialize)]
@@ -82,15 +90,41 @@ impl RunHome {
 
     /// Capture both homes before either inventory starts; they share one deadline.
     pub fn diagnostic_checkpoint(&self, deadline: Instant) -> Result<RunDiagnosticCheckpoint> {
-        if !crate::commit_timing::enabled() {
+        if !crate::diagnostics_enabled() {
             return Err(Error::Config(
                 "storage diagnostics require an isolated timing capture".into(),
             ));
         }
-        let (root, files) = super::diagnostic_files::inspect(self, deadline)?;
+        let (root, files) = inspect_files(self, deadline)?;
         let report = from_root(&root, files);
         Ok(RunDiagnosticCheckpoint { root, report })
     }
+}
+
+fn inspect_files(home: &RunHome, deadline: Instant) -> Result<(Arc<Manifest>, FileDiagnostics)> {
+    let _commit = home.commit.lock().unwrap_or_else(|e| e.into_inner());
+    let _merge = home.merge.lock().unwrap_or_else(|e| e.into_inner());
+    home.refuse_if_poisoned()?;
+    let root = home.held();
+    let mut total_allocated_bytes = 0u64;
+    for dir in [&home.root, &home.runs] {
+        for entry in fs::read_dir(dir)? {
+            if Instant::now() >= deadline {
+                return Err(Error::ReadBudgetExceeded);
+            }
+            let metadata = fs::symlink_metadata(entry?.path())?;
+            if metadata.is_file() {
+                total_allocated_bytes =
+                    total_allocated_bytes.saturating_add(metadata.blocks().saturating_mul(512));
+            }
+        }
+    }
+    Ok((
+        root,
+        FileDiagnostics {
+            total_allocated_bytes,
+        },
+    ))
 }
 
 fn from_root(root: &Manifest, files: FileDiagnostics) -> RunHomeDiagnostics {

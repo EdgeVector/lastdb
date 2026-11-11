@@ -60,29 +60,11 @@ fn static_reason(mut detail: &str) -> &'static str {
     if let Some(reason) = REASONS.iter().copied().find(|allowed| *allowed == detail) {
         return reason;
     }
-    // These existing wrappers append private context. Emit only a fixed code.
-    const WRAPPERS: [(&str, &str); 4] = [
-        ("unwrap field key bundle: ", "field_key_unwrap"),
-        ("decode field key bundle: ", "field_key_bundle_json"),
-        (
-            "field key wrap metadata mismatch for ",
-            "field_key_wrap_metadata",
-        ),
-        ("unsupported key format: ", "unsupported_key_format"),
-    ];
-    WRAPPERS
-        .iter()
-        .find(|(prefix, _)| detail.starts_with(*prefix))
-        .map_or(fallback, |(_, reason)| *reason)
+    if detail.starts_with("unsupported key format: ") {
+        return "unsupported_key_format";
+    }
+    fallback
 }
 
 // Return only these source literals, never the caller's detail or a digest of it.
-const REASONS: &[&str] = &[
-    "record JSON suffix",
-    "decoded record JSON allocation cap",
-    "field key bundle requires non-empty field key and domain",
-    "field key bundle wrap is not encrypted",
-    "native field key identity exceeds its bound",
-    "native field key record exceeds its bound",
-    "native field key record format",
-];
+const REASONS: &[&str] = &["record JSON suffix", "decoded record JSON allocation cap"];

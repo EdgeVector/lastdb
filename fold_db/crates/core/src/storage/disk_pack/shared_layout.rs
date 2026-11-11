@@ -5,10 +5,10 @@ use crate::storage::current_keys::families::record_file_space;
 use crate::storage::format::{
     records::{applied_deletes, inline_files},
     CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
-    FIELD_KEYS_NAMESPACE, METADATA_NAMESPACE, RECORDS_COLLECTION, RETENTION_POLICY_KEY_PREFIX,
-    SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    METADATA_NAMESPACE, RECORDS_COLLECTION, RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE,
+    SCHEMA_STATES_NAMESPACE,
 };
-use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
+use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use laststore::disk_run::home::{RunHome, RunRead};
 use std::collections::{BTreeMap, BTreeSet};
@@ -164,8 +164,15 @@ impl Scope {
         if schema.name != name {
             return Err(invalid("shared schema alias differs from its definition"));
         }
-        let keys = crate::storage::field_key_store::schema_field_key_profiles(&schema)?;
-        self.alternates.extend(keys.into_iter().map(|(key, _)| key));
+        let definitions = schema
+            .require_record_keys()
+            .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
+        self.alternates.extend(
+            definitions
+                .alternates
+                .keys()
+                .map(|alt| alternate_field_key_id(&schema, alt)),
+        );
         self.schemas.insert(name, bytes.to_vec());
         Ok(())
     }
@@ -194,12 +201,6 @@ impl Scope {
                     || key
                         .strip_prefix(RETENTION_POLICY_KEY_PREFIX)
                         .is_some_and(|name| self.aliases.contains(name)) =>
-            {
-                Lane::Records
-            }
-            FIELD_KEYS_NAMESPACE
-                if crate::storage::format::field_keys::storage_key_identity(key)
-                    .is_some_and(|id| self.alternates.contains(id) || self.spaces.contains(id)) =>
             {
                 Lane::Records
             }
@@ -236,7 +237,6 @@ impl Scope {
                 | CAS_COLLECTION
                 | SCHEMAS_NAMESPACE
                 | SCHEMA_STATES_NAMESPACE
-                | FIELD_KEYS_NAMESPACE
                 | METADATA_NAMESPACE
         ) {
             return Some(Lane::Private);

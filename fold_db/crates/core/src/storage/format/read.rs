@@ -1,18 +1,17 @@
 //! Read capabilities for providers. Views do not expose write operations.
 
+use crate::storage::disk_pack::PackKvStore;
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::YieldedScan;
-use crate::storage::KvStore;
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct ReadStore {
-    store: Arc<dyn KvStore>,
+    store: PackKvStore,
 }
 
 impl ReadStore {
-    pub(in crate::storage::format) fn new(store: Arc<dyn KvStore>) -> Self {
+    pub(in crate::storage::format) fn new(store: PackKvStore) -> Self {
         Self { store }
     }
 
@@ -105,10 +104,10 @@ impl ReadStore {
     }
 
     pub(crate) async fn list_keys_with_prefix(&self, prefix: &str) -> StorageResult<Vec<String>> {
-        let keys = self.store.scan_prefix_keys(prefix.as_bytes()).await?;
-        Ok(keys
+        let rows = self.store.scan_prefix(prefix.as_bytes()).await?;
+        Ok(rows
             .into_iter()
-            .map(|k| String::from_utf8_lossy(&k).into_owned())
+            .map(|(k, _)| String::from_utf8_lossy(&k).into_owned())
             .collect())
     }
 

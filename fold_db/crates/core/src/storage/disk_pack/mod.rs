@@ -1,7 +1,6 @@
 //! Native disk backend with complete-request admission and captured read roots.
 
 use super::error::{StorageError, StorageResult};
-use super::traits::{KvStore, NamespacedStore};
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use laststore::space::SpaceReservation;
 use std::path::Path;
@@ -21,7 +20,6 @@ pub(crate) mod logical_paths;
 mod memory;
 pub(in crate::storage) mod native_routing;
 pub(in crate::storage) mod physical;
-pub(in crate::storage) mod physical_v2;
 mod queue;
 mod read;
 pub(crate) mod record_warm;
@@ -32,7 +30,6 @@ mod run_commit;
 pub(in crate::storage) mod run_node;
 mod shared_layout;
 pub(in crate::storage) mod space;
-mod timing;
 pub(crate) mod transaction;
 mod view;
 mod write;
@@ -45,7 +42,7 @@ pub use crate::storage::disk_cleanup::{
 };
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
-pub use physical_v2::CAS_COLLECTION;
+pub use physical::CAS_COLLECTION;
 pub use read::PackReadScope;
 pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub use run_node::{prepare_shared_restored_run, CAS_DIR, RUN_DIR};
@@ -121,17 +118,14 @@ pub struct PackNamespacedStore {
     runtime: Arc<PackRuntime>,
 }
 
-struct PackKvStore {
+#[derive(Clone)]
+pub(crate) struct PackKvStore {
     runtime: Arc<PackRuntime>,
     namespace: String,
 }
 
 pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {
     match error {
-        laststore::Error::NativeProof(code) => StorageError::NativeProof {
-            stage: crate::storage::error::NativeProofStage::NativeReader,
-            cause: crate::storage::error::NativeProofCause::Static(code),
-        },
         laststore::Error::Io(io) if StorageError::is_storage_full_io(&io) => {
             StorageError::StorageFull {
                 detail: io.to_string(),
@@ -231,9 +225,8 @@ impl PackNamespacedStore {
     }
 }
 
-#[async_trait::async_trait]
-impl NamespacedStore for PackNamespacedStore {
-    async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
+impl PackNamespacedStore {
+    pub(crate) async fn open_namespace(&self, name: &str) -> StorageResult<PackKvStore> {
         if name.len() > 65531 || name == REGISTRY {
             return Err(StorageError::InvalidOperation(
                 "namespace exceeds format limit or uses the reserved registry identity".into(),
@@ -244,13 +237,13 @@ impl NamespacedStore for PackNamespacedStore {
         if !read::ReadContext::active(&self.runtime) {
             self.runtime.ensure_namespace(name).await?;
         }
-        Ok(Arc::new(PackKvStore {
+        Ok(PackKvStore {
             runtime: Arc::clone(&self.runtime),
             namespace: name.to_string(),
-        }))
+        })
     }
 
-    fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
+    pub fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
         Arc::clone(&self.runtime)
     }
 }

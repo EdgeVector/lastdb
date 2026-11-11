@@ -1,7 +1,8 @@
 //! Explicit account-key proof, independent of storage wrapper policy.
 
 use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
-use crate::storage::{NamespacedStore, StorageError};
+use crate::storage::disk_pack::PackNamespacedStore;
+use crate::storage::StorageError;
 
 pub(crate) use crate::storage::format::CONTENT_KEY_PROOF_KEY as KEY;
 pub(crate) use crate::storage::format::METADATA_NAMESPACE as NAMESPACE;
@@ -32,7 +33,7 @@ pub(crate) fn verify(key: &[u8; 32], stored: &[u8]) -> Result<(), StorageError> 
 /// Home creation writes this record. Every keyed constructor checks it after
 /// its format fence, and a missing or different proof is refused.
 pub(crate) async fn verify_stored(
-    store: &dyn NamespacedStore,
+    store: &PackNamespacedStore,
     key: &[u8; 32],
 ) -> Result<(), StorageError> {
     let kv = store.open_namespace(NAMESPACE).await?;

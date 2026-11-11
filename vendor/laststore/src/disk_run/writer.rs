@@ -7,7 +7,6 @@ use super::space::MergeSpace;
 use super::{
     RunOptions, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
 };
-use crate::commit_timing as timing;
 use crate::frame::{encode_frame, FrameHeader};
 use crate::{Error, Result};
 use std::fs::{self, File, OpenOptions};
@@ -81,7 +80,6 @@ pub struct RunWriter {
 impl RunWriter {
     /// Starts a new run in `dir` with a fresh random run id.
     pub fn create(dir: &Path, data_key: &[u8; 32], options: RunOptions) -> Result<Self> {
-        let _timing = timing::stage("v2_run_create_us");
         let sizes = 512..=MAX_RUN_VALUE_BYTES;
         if !sizes.contains(&options.block_bytes) || !sizes.contains(&options.index_bytes) {
             return Err(Error::Config("disk run: block sizes out of range".into()));
@@ -93,7 +91,6 @@ impl RunWriter {
             .create_new(true)
             .mode(0o600)
             .open(&tmp)?;
-        timing::count("v2_run_files_created", 1);
         Ok(Self {
             dir: dir.to_path_buf(),
             tmp,
@@ -175,7 +172,6 @@ impl RunWriter {
             self.block_prev.clear();
             self.block_first = key.to_vec();
         }
-        let record_timing = timing::stage("v2_record_encoding_us");
         put_record(&mut self.block, &self.block_prev, key, value);
         self.block_prev.clear();
         self.block_prev.extend_from_slice(key);
@@ -190,7 +186,6 @@ impl RunWriter {
             self.first_key = Some(key.to_vec());
         }
         self.last_key = Some(key.to_vec());
-        drop(record_timing);
         Ok(())
     }
 
@@ -216,27 +211,21 @@ impl RunWriter {
             start_csn: 0,
             counter,
         };
-        let frame = timing::during("v2_frame_encode_us", || {
-            encode_frame(&self.data_key, header, payload)
-        })?;
+        let frame = encode_frame(&self.data_key, header, payload)?;
         let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
         if let Some(space) = &self.space {
             space.admit_run(u64::from(len))?;
         }
-        timing::during("v2_run_write_us", || self.file.write_all(&frame))?;
+        self.file.write_all(&frame)?;
         if let Some(space) = &self.space {
             space.materialize(u64::from(len))?;
         }
-        timing::count("v2_run_frames", 1);
-        timing::count("v2_run_frame_input_bytes", payload.len() as u64);
-        timing::count("v2_run_written_bytes", frame.len() as u64);
         let offset = self.offset;
         self.offset += frame.len() as u64;
         Ok((offset, len))
     }
 
     fn flush_block(&mut self) -> Result<()> {
-        timing::count("v2_run_data_blocks", 1);
         let payload = std::mem::take(&mut self.block);
         let (offset, len) = self.write_frame(self.data_blocks, &payload)?;
         self.max_payload = self.max_payload.max(payload.len());
@@ -258,7 +247,6 @@ impl RunWriter {
     }
 
     fn flush_index(&mut self) -> Result<()> {
-        let index_timing = timing::stage("v2_index_encoding_us");
         let mut payload = Vec::with_capacity(self.index_bytes + self.index_hashes.len() * 2);
         put_refs(&mut payload, &self.index);
         put_filter(
@@ -266,8 +254,6 @@ impl RunWriter {
             &self.index_hashes,
             self.options.bloom_bits_per_key,
         );
-        drop(index_timing);
-        timing::count("v2_run_index_blocks", 1);
         let number = self.top.len() as u64;
         let (offset, len) = self.write_frame(INDEX_COUNTER_BASE + number, &payload)?;
         self.max_payload = self.max_payload.max(payload.len());

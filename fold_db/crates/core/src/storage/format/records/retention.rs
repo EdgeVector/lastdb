@@ -4,9 +4,10 @@
 use super::{RecordAddress, RecordFormat};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::record_file_path;
+use crate::storage::disk_pack::PackKvStore;
 use crate::storage::format::metadata::{FileReferenceChange, FileRetention};
 use crate::storage::format::RECORD_FILE_PREFIX;
-use crate::storage::{KvMutation, KvStore};
+use crate::storage::KvMutation;
 use lastdb_model::portable_mutation::Position;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::StoredRecord;
@@ -67,7 +68,7 @@ impl RecordFormat {
     }
 
     async fn mark_live_file_page(&self, after: Vec<u8>) -> Result<FileRetention, SchemaError> {
-        let rows = page(self.main_store.as_ref(), RECORD_PREFIX, after, 64).await?;
+        let rows = page(&self.main_store, RECORD_PREFIX, after, 64).await?;
         let Some((last, _)) = rows.last() else {
             return Ok(FileRetention::Files(Vec::new()));
         };
@@ -93,7 +94,7 @@ impl RecordFormat {
         let files = self.file_store().await?;
         // The old index carries no owner address. Walk the exact file family
         // after marking every live file and establishing pending-log coverage.
-        let mut rows = page(files.as_ref(), RECORD_FILE_PREFIX, after, 1).await?;
+        let mut rows = page(&files, RECORD_FILE_PREFIX, after, 1).await?;
         let Some((key, _)) = rows.pop() else {
             return Ok(FileRetention::Complete);
         };
@@ -107,7 +108,7 @@ impl RecordFormat {
 }
 
 async fn page(
-    store: &dyn KvStore,
+    store: &PackKvStore,
     prefix: &str,
     after: Vec<u8>,
     limit: usize,

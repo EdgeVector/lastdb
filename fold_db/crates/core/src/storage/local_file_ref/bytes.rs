@@ -122,7 +122,7 @@ async fn materialize_one(
             size_bytes: entry.size_bytes,
             sha256: entry.sha256.clone(),
         };
-        if require_row(Some(account_key), &marker, &row).is_ok() {
+        if require_row(account_key, &marker, &row).is_ok() {
             return Ok(false);
         }
     }

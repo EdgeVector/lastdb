@@ -4,12 +4,12 @@ use super::*;
 impl PackRuntime {
     /// The cas namespace. Backup uses it to seal local file references into
     /// the run that the hold hard-links, then to delete those rows.
-    pub(in crate::storage) async fn cas_store(self: &Arc<Self>) -> StorageResult<Arc<dyn KvStore>> {
+    pub(in crate::storage) async fn cas_store(self: &Arc<Self>) -> StorageResult<PackKvStore> {
         self.ensure_namespace(CAS_COLLECTION).await?;
-        Ok(Arc::new(PackKvStore {
+        Ok(PackKvStore {
             runtime: Arc::clone(self),
             namespace: CAS_COLLECTION.to_string(),
-        }))
+        })
     }
 
     /// One cas row. Backup skips a local file whose sealed row is already valid.
@@ -151,9 +151,8 @@ pub(super) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
     )
 }
 
-#[async_trait::async_trait]
-impl KvStore for PackKvStore {
-    async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
+impl PackKvStore {
+    pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         Ok(self
             .values(vec![key.to_vec()])
             .await?
@@ -161,15 +160,15 @@ impl KvStore for PackKvStore {
             .expect("one native key"))
     }
 
-    async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
+    pub(crate) async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
         self.values(keys).await
     }
 
-    async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
+    pub(crate) async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
         self.change(vec![KvMutation::put(key, value)]).await
     }
 
-    async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
+    pub(crate) async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
         transaction::scope(Arc::clone(&self.runtime), async {
             if self.get(key).await?.is_none() {
                 return Ok(false);
@@ -180,15 +179,18 @@ impl KvStore for PackKvStore {
         .await
     }
 
-    async fn exists(&self, key: &[u8]) -> StorageResult<bool> {
+    pub(crate) async fn exists(&self, key: &[u8]) -> StorageResult<bool> {
         Ok(self.get(key).await?.is_some())
     }
 
-    async fn scan_prefix(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    pub(crate) async fn scan_prefix(
+        &self,
+        prefix: &[u8],
+    ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         self.prefix_rows(prefix, 10000, true).await
     }
 
-    async fn scan_prefix_paged(
+    pub(crate) async fn scan_prefix_paged(
         &self,
         prefix: &[u8],
         limit: usize,
@@ -196,11 +198,7 @@ impl KvStore for PackKvStore {
         self.prefix_rows(prefix, limit, false).await
     }
 
-    async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        self.range_rows(start, end, 10000, true).await
-    }
-
-    async fn scan_range_paged(
+    pub(crate) async fn scan_range_paged(
         &self,
         start: &[u8],
         end: &[u8],
@@ -209,7 +207,7 @@ impl KvStore for PackKvStore {
         self.range_rows(start, end, limit, false).await
     }
 
-    async fn scan_range_yielding(
+    pub(crate) async fn scan_range_yielding(
         &self,
         start: &[u8],
         end: &[u8],
@@ -222,7 +220,7 @@ impl KvStore for PackKvStore {
         Ok(YieldedScan { rows, resume })
     }
 
-    async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
+    pub(crate) async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         self.change(
             items
                 .into_iter()
@@ -232,16 +230,16 @@ impl KvStore for PackKvStore {
         .await
     }
 
-    async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
+    pub(crate) async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         self.change(mutations).await
     }
 
-    async fn batch_delete(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
+    pub(crate) async fn batch_delete(&self, keys: Vec<Vec<u8>>) -> StorageResult<()> {
         self.change(keys.into_iter().map(KvMutation::delete).collect())
             .await
     }
 
-    async fn flush(&self) -> StorageResult<()> {
+    pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.runtime.flush().await
     }
 }

@@ -10,8 +10,6 @@ use std::fs::File;
 fn barrier(file: &File) -> Result<()> {
     // Rust's sync_data also issues F_FULLFSYNC on Apple. Use the explicit
     // strongest barrier once and propagate errors; never fall back to fsync.
-    let _timing = crate::commit_timing::stage("device_flush_us");
-    crate::commit_timing::count("device_flushes", 1);
     rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
     Ok(())
 }

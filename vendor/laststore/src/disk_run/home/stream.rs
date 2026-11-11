@@ -6,8 +6,6 @@ use crate::disk_run::RunReader;
 use crate::{Error, Result};
 use sha2::{Digest, Sha256};
 use std::io::{self, Write};
-#[path = "stream/proof.rs"]
-mod proof;
 
 /// Exact stored bytes copied without a file-sized allocation.
 pub struct CopiedRunBody {
@@ -148,27 +146,6 @@ impl RunRead {
         Ok(None)
     }
 
-    /// Read the newest run already selected by authenticated key heads.
-    pub(in crate::disk_run::home) fn streamed_value_at(
-        &mut self,
-        slot: usize,
-        collection: &str,
-        key: &str,
-        maximum: u64,
-    ) -> Result<Option<Vec<u8>>> {
-        self.examine(1)?;
-        self.charge((collection.len() + key.len()) as u64)?;
-        let wanted = self.compound_key(collection, key.as_bytes())?;
-        if !self.runs[slot].0.meta.covers(&wanted) {
-            return Err(crate::disk_run::codec::corrupt("cached run key extent"));
-        }
-        let admission = self.stream_admission(wanted.len())?;
-        let body = self
-            .streamed_body_at(slot, &wanted, admission)?
-            .ok_or_else(|| crate::disk_run::codec::corrupt("cached run key missing"))?;
-        self.accept_streamed(body, admission, maximum)
-    }
-
     fn streamed_body_at(
         &mut self,
         slot: usize,
@@ -229,9 +206,7 @@ impl RunRead {
             .transpose()
     }
 
-    /// Select one authenticated key without reopening unrelated input runs.
-    /// `extra_retained` includes the caller's complete retained key-head cache.
-    pub(in crate::disk_run::home) fn streamed_next_key_at(
+    fn streamed_next_key_at(
         &mut self,
         slot: usize,
         lower: &[u8],

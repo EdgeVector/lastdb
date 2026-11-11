@@ -8,7 +8,6 @@ const MIN_SAVED_PERCENT: usize = 10;
 
 pub(super) fn stored_payload(payload: &[u8]) -> Result<(Vec<u8>, bool)> {
     if payload.len() < MIN_INPUT_BYTES || payload.len() > MAX_DECOMPRESSED_FRAME_BYTES {
-        crate::commit_timing::count("frame_compression_skipped_size", 1);
         return Ok((payload.to_vec(), false));
     }
     let compressed = zstd::bulk::compress(payload, ZSTD_LEVEL)
@@ -16,7 +15,6 @@ pub(super) fn stored_payload(payload: &[u8]) -> Result<(Vec<u8>, bool)> {
     let stored_len = compressed.len().saturating_add(UNCOMPRESSED_LEN_SIZE);
     let saved = payload.len().saturating_sub(stored_len);
     if saved < MIN_SAVED_BYTES || saved.saturating_mul(100) < payload.len() * MIN_SAVED_PERCENT {
-        crate::commit_timing::count("frame_compression_skipped_savings", 1);
         return Ok((payload.to_vec(), false));
     }
     let mut stored = Vec::with_capacity(stored_len);

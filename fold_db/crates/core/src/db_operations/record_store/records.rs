@@ -73,7 +73,7 @@ impl RecordStore {
         key: &KeyValue,
     ) -> Result<RecordAddress, SchemaError> {
         let space = record_space_uuid(&schema.name);
-        RecordAddress::new(&self.key_codec_for_field_key(&space)?, &space, key)
+        RecordAddress::new(&self.primary_codec(schema)?, &space, key)
     }
 
     /// The stored records at these storage keys, in the order given. Memory
@@ -146,8 +146,6 @@ impl RecordStore {
         schema: &Schema,
         changes: Vec<RecordChange>,
     ) -> Result<(), SchemaError> {
-        self.format
-            .stage_records(schema, changes, |id| self.key_codec_for_field_key(id))
-            .await
+        self.format.stage_records(schema, changes).await
     }
 }

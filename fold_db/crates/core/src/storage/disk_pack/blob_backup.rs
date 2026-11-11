@@ -20,7 +20,7 @@
 //!
 //! A shared database keeps its eager CAS backup and uses none of this.
 
-use super::super::traits::{KvMutation, KvStore};
+use super::super::traits::KvMutation;
 use super::physical::CAS_COLLECTION;
 use super::*;
 use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
@@ -326,24 +326,15 @@ impl PackRuntime {
         Ok(present.iter().map(Option::is_some).collect())
     }
 
-    /// The sealed row of one local record file version, as the record format
-    /// reads it (the storage envelope of `cas_blobs` removed), or None when
-    /// the version is gone. A download installs exactly these bytes.
-    pub async fn record_blob_bytes(
-        self: &Arc<Self>,
-        key: &str,
-        content_key: &[u8; 32],
-    ) -> StorageResult<Option<Vec<u8>>> {
+    /// The sealed row of one local record file version, or None when the
+    /// version is gone. A download installs exactly these bytes.
+    pub async fn record_blob_bytes(self: &Arc<Self>, key: &str) -> StorageResult<Option<Vec<u8>>> {
         if !key.starts_with(RECORD_FILE_PREFIX) {
             return Err(StorageError::InvalidOperation(
                 "a blob upload reads a record file key".into(),
             ));
         }
-        let files = crate::storage::encrypting_store::EncryptingKvStore::new(
-            Arc::new(self.blob_store()?),
-            Arc::new(crate::crypto::LocalCryptoProvider::from_key(*content_key)),
-        );
-        files.get(key.as_bytes()).await
+        self.blob_store()?.get(key.as_bytes()).await
     }
 
     /// After the service accepted a job: its uploaded versions are in the
