@@ -185,7 +185,7 @@ impl Tables {
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
             if !error.renamed {
                 let _ = store.shutdown().await;
-                let _ = store::remove(home, &id).await;
+                let _ = store::remove(home, &id);
             }
             return Err(error.kind);
         }

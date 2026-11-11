@@ -79,7 +79,7 @@ fn content_keys(node_seed: &[u8; 32], id: &str) -> Result<E2eKeys, String> {
     E2eKeys::from_ed25519_seed(&seed).map_err(|_| "cannot derive owned database content key".into())
 }
 
-pub(super) async fn remove(home: &Path, id: &str) -> Result<(), String> {
+pub(super) fn remove(home: &Path, id: &str) -> Result<(), String> {
     let root = home.join("databases").join(id);
     if root.is_dir() {
         std::fs::remove_dir_all(&root)

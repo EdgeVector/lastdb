@@ -16,7 +16,7 @@ const ACCEPT_PATH: &str = "/api/databases/accept";
 enum Selection {
     Owner,
     Owned(Arc<FoldDB>),
-    Share(RegisteredShare),
+    Share(Box<RegisteredShare>),
 }
 
 /// Dispatch a database registry operation or route an ordinary record request
@@ -79,12 +79,12 @@ async fn dispatch(
         }
         Selection::Share(share) => match route {
             DataRoute::Mutation | DataRoute::MutationBatch => {
-                received_mutation(route, req, ctx, &share).await
+                received_mutation(route, req, ctx, share.as_ref()).await
             }
             DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
-            _ => super::database_read::read(route, req, ctx, &share),
+            _ => super::database_read::read(route, req, ctx, share.as_ref()),
         },
     }
 }
@@ -118,7 +118,7 @@ pub fn execute_deferred_database_mutation<'a>(
                 with_handler_timeout_budget(
                     ctx,
                     data_route_budget(route),
-                    received_mutation(route, req, ctx, &share),
+                    received_mutation(route, req, ctx, share.as_ref()),
                 )
                 .await
             }
@@ -162,7 +162,7 @@ fn resolve_share(
     host: &Host,
 ) -> Result<Selection, UdsResponse> {
     match registered_share::resolve(&host.home, selector) {
-        Ok(Some(share)) => Ok(Selection::Share(share)),
+        Ok(Some(share)) => Ok(Selection::Share(Box::new(share))),
         Ok(None) => Err(error_response(
             404,
             "database is not registered on this node",
