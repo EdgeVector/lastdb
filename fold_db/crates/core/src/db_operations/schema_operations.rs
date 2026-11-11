@@ -63,20 +63,6 @@ impl DbOperations {
         self.schemas().store_schema_state(schema_name, state).await
     }
 
-    pub async fn set_schema_name_claim_retired(
-        &self,
-        schema_name: &str,
-        retired: bool,
-    ) -> Result<bool, SchemaError> {
-        self.schemas()
-            .set_schema_name_claim_retired(schema_name, retired)
-            .await
-    }
-
-    pub async fn list_retired_name_claims(&self) -> Result<Vec<String>, SchemaError> {
-        self.schemas().list_retired_name_claims().await
-    }
-
     pub async fn get_schema_retention_policy(
         &self,
         schema_name: &str,

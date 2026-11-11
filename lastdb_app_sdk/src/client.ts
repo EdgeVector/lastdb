@@ -31,8 +31,6 @@ import {
   type QueryBatchOutcome,
   type ConnectOptions,
   type AutoIdentityResult,
-  type ChangesOptions,
-  type ChangesResult,
   type QueryCursor,
   type ListOptions,
   type ListResult,
@@ -56,7 +54,6 @@ import {
   parseQueryResponse,
   isObject,
   parseMutationId,
-  parseChangesResponse,
   parseNodeVersion,
   parseAutoIdentityResponse,
   parseSchemaListResponse,
@@ -534,21 +531,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       identityHash: typeof identity === 'string' ? identity : null,
       resolution: typeof resolution === 'string' ? resolution : null,
     };
-  }
-
-  /**
-   * Read durable changed-row metadata since an opaque cursor (`POST /api/app/changes`).
-   */
-  async changes(opts: ChangesOptions = {}): Promise<ChangesResult> {
-    const body: Record<string, unknown> = {};
-    if (opts.since !== undefined) body.since_cursor = opts.since;
-    if (opts.limit !== undefined) body.limit = opts.limit;
-    if (opts.target !== undefined) body.target = opts.target;
-    const res = await this.transport.send('POST', this.dataPath(LASTDB_API_ROUTES.appChanges), {
-      body,
-    });
-    if (res.status === 200) return parseChangesResponse(res.body);
-    throw this.mapDataError('changes', res.status, res.body);
   }
 
   /**

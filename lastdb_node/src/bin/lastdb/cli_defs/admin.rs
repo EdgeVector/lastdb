@@ -5,7 +5,7 @@ pub(crate) enum AdminCommand {
     /// Manage the configured service home.
     #[command(subcommand)]
     ServiceHome(ServiceHomeCommand),
-    /// Drop installed schemas or manage descriptive-name claims.
+    /// Drop installed schemas.
     #[command(subcommand)]
     Schema(AdminSchemaCommand),
     /// Manage schema record expiration.
@@ -14,13 +14,6 @@ pub(crate) enum AdminCommand {
     /// Inspect storage or reclaim deleted space.
     #[command(subcommand)]
     Storage(AdminStorageCommand),
-    /// Rebuild the Search inbox from a stopped home.
-    SearchRebuild {
-        #[arg(long, default_value_t = 32)]
-        page_size: usize,
-        #[arg(long)]
-        json: bool,
-    },
     /// Prepare recovery credentials and operate on exact backup jobs.
     #[command(subcommand)]
     Backup(AdminBackupCommand),
@@ -38,20 +31,17 @@ pub(crate) enum AdminSchemaCommand {
             .args(["schema", "owner_app"])
     ))]
     Drop(SchemaDropArgs),
-    /// Retire or restore a schema's descriptive-name claim.
-    #[command(subcommand)]
-    NameClaim(SchemaNameClaimCommand),
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminStorageCommand {
-    /// Inspect live storage. This may walk a large part of the store.
+    /// Inspect live record storage by schema. This may walk a large part of the store.
     Inventory {
-        /// Walk only live records and report their sizes by schema.
+        /// Compatibility flag (schema-level record storage is always reported).
         #[arg(long)]
         by_schema: bool,
-        /// Limit human output for the schema-only view.
-        #[arg(long, requires = "by_schema")]
+        /// Limit human output rows (0 prints all).
+        #[arg(long)]
         limit: Option<usize>,
         #[arg(long)]
         json: bool,
@@ -62,6 +52,32 @@ pub(crate) enum AdminStorageCommand {
     },
     #[command(flatten)]
     Reclaim(DbReclaimCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum DbReclaimCommand {
+    /// Reclaim already-deleted v2 data in both active stores.
+    /// The request survives a restart. Backup copies are outside this operation.
+    Cleanup {
+        /// Read the last request without a new cleanup request.
+        #[arg(long)]
+        status: bool,
+        /// Wait for completion, read release, or the client deadline.
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        timeout: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read the durable record hard-delete audit trail (purge and delete), oldest first.
+    DeleteLedger {
+        /// Return at most N rows, oldest first. 0 (default) returns everything.
+        #[arg(long, default_value_t = 0)]
+        limit: u64,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

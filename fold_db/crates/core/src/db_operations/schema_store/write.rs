@@ -93,10 +93,6 @@ impl SchemaStore {
             },
             StateDelete::Key {
                 schema: schema_name,
-                kind: StateKey::Claim,
-            },
-            StateDelete::Key {
-                schema: schema_name,
                 kind: StateKey::Policy,
             },
         ];

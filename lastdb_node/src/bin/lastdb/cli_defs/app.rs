@@ -25,12 +25,28 @@ pub(crate) enum AppIndexCommand {
 mod catalog;
 #[path = "app/lifecycle.rs"]
 mod lifecycle;
-#[path = "app/managed.rs"]
-mod managed;
-pub(crate) use managed::AppManagedCommand;
 
 pub(crate) use catalog::AppCatalogCommand;
 pub(crate) use lifecycle::AppLifecycleCommand;
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AppManagedCommand {
+    /// Show actual installed versions and command-link health.
+    Status {
+        app_id: Option<String>,
+        /// Run the installed publisher probe (inactive apps are skipped).
+        #[arg(long)]
+        check: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Restore the previous retained app version and its service hooks.
+    Rollback {
+        app_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
 
 /// `lastdb app` subcommands. Grouped enums are flattened so each command
 /// keeps the name it had when every variant lived on one enum.

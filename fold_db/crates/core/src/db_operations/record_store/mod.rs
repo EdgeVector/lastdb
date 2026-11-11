@@ -3,22 +3,10 @@
 //! Supplies record values and read coordination to the format-owned main/file
 //! writer. It has no raw store or namespace factory. External callers use
 //! `DbOperations::records()` to reach these operations.
-//!
-//! Layout:
-//! - [`construct`] — `RecordStore` constructors and builder hooks
-//! - [`records`], [`record_reads`] — record writes and keyed reads
-//! - [`schema_release`] — the release of the rows of a dropped schema
-//! - [`record_files`] — the one file of a record, at a path made from its key
-//! - [`read_scope`] — one memory and disk boundary for a read
-//! - [`locks`] — write scopes and field key commit locks
-//! - [`key_format`] — the key format marker of a new empty home
-//! - [`erase_meters`] — the erase audit row
 
 mod bounded_range;
-mod construct;
 mod delete_replay;
 mod erase_meters;
-mod key_comparison;
 mod locks;
 mod read_scope;
 pub(crate) mod record_files;
@@ -28,13 +16,14 @@ mod records;
 mod schema_release;
 mod writer_watch;
 
-pub use bounded_range::WalkStats;
-pub(crate) use bounded_range::{RangeWalk, WalkTotals};
+pub(crate) use bounded_range::RangeWalk;
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};
 pub(crate) use records::RecordChange;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
+use crate::schema::types::key_comparison::KeyComparisonContext;
+use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::format::{read::ReadStore, records::RecordFormat};
 use std::sync::Arc;
@@ -51,25 +40,36 @@ pub struct RecordStore {
     /// this floor; replay cannot write its two metadata records.
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     node_key: [u8; 32],
-    /// Bounded range reads made by the admin walks since this process started.
-    range_walks: Arc<WalkTotals>,
 }
 
 impl RecordStore {
-    /// Totals of the bounded range reads of the admin walks.
-    pub(crate) fn range_walks(&self) -> &WalkTotals {
-        &self.range_walks
+    pub(crate) fn new(format: RecordFormat, node_key: [u8; 32]) -> Self {
+        Self {
+            main_store: format.reader(),
+            runtime: format.runtime(),
+            format: Arc::new(format),
+            serving_replay_cutoff: Arc::default(),
+            node_key,
+        }
+    }
+
+    /// Capture canonical key order for `schema`.
+    pub fn key_comparison_context(
+        &self,
+        schema: &crate::schema::Schema,
+    ) -> Result<Arc<KeyComparisonContext>, SchemaError> {
+        Ok(Arc::new(KeyComparisonContext::for_schema(schema)?))
     }
 
     pub(crate) fn primary_codec(
         &self,
         schema: &crate::schema::Schema,
-    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, crate::schema::SchemaError> {
+    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, SchemaError> {
         let profile = schema
             .require_record_keys()?
             .primary
             .range_profile()
-            .map_err(crate::schema::SchemaError::InvalidData)?;
+            .map_err(SchemaError::InvalidData)?;
         let space = lastdb_model::record_space::record_space_uuid(&schema.name);
         Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
             &self.node_key,
@@ -82,16 +82,14 @@ impl RecordStore {
         &self,
         schema: &crate::schema::Schema,
         name: &str,
-    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, crate::schema::SchemaError> {
+    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, SchemaError> {
         let profile = schema
             .require_record_keys()?
             .alternates
             .get(name)
-            .ok_or_else(|| {
-                crate::schema::SchemaError::InvalidData("alternate key is not declared".into())
-            })?
+            .ok_or_else(|| SchemaError::InvalidData("alternate key is not declared".into()))?
             .range_profile()
-            .map_err(crate::schema::SchemaError::InvalidData)?;
+            .map_err(SchemaError::InvalidData)?;
         let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
         Ok(lastdb_model::field_key_codec::FieldKeyCodec::from_node_key(
             &self.node_key,

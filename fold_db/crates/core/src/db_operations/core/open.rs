@@ -1,6 +1,5 @@
 //! Logical store construction consumes only format-bound capabilities.
 
-use super::super::change_feed::ChangeFeedStore;
 use super::super::record_store::RecordStore;
 use super::super::schema_store::SchemaStore;
 use super::DbOperations;
@@ -18,7 +17,6 @@ impl DbOperations {
             schemas,
             records,
             metadata,
-            feed,
         } = bind::open(store, node_key).await?;
         let record_store = RecordStore::new(records, node_key);
         Ok(Self {
@@ -26,7 +24,6 @@ impl DbOperations {
             schema_store: SchemaStore::new(schemas),
             record_store,
             metadata,
-            change_feed: ChangeFeedStore::new(feed).await?,
         })
     }
 

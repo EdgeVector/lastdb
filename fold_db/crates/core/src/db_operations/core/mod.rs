@@ -1,4 +1,3 @@
-use super::change_feed::ChangeFeedStore;
 use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
@@ -31,9 +30,6 @@ pub struct DbOperations {
     record_store: RecordStore,
     /// Metadata namespace for mutation author clocks
     metadata: Metadata,
-    /// Durable app change feed. Product rows remain authoritative. It rides
-    /// cloud backup sealed (`ENC:`).
-    change_feed: ChangeFeedStore,
 }
 
 impl DbOperations {
@@ -42,11 +38,6 @@ impl DbOperations {
     /// Access the schema domain store.
     pub fn schemas(&self) -> &SchemaStore {
         &self.schema_store
-    }
-
-    /// Access the durable node-local app change feed.
-    pub fn change_feed(&self) -> &ChangeFeedStore {
-        &self.change_feed
     }
 
     /// Access the record store.

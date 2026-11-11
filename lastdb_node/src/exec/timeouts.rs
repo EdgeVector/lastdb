@@ -70,7 +70,7 @@ where
     with_handler_timeout_budget(ctx, handler_timeout(), fut).await
 }
 
-pub(super) async fn with_handler_timeout_budget<F>(
+pub(in crate::exec) async fn with_handler_timeout_budget<F>(
     ctx: &AccessContext,
     budget: Duration,
     fut: F,
@@ -179,8 +179,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
     match route {
         // Owner admin work that walks the store, or blocks on a remote service.
         // Full-prefix scans over a multi-GiB home; minutes, not seconds.
-        DataRoute::DbInventory
-        | DataRoute::DbSchemas
+        DataRoute::DbSchemas
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
         | DataRoute::SyncByteBackupV2Connect
@@ -206,14 +205,10 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema
         | DataRoute::AutoIdentity
-        // One in-memory catalog list plus at most one durable row per
-        // colliding claimant. No store walk.
-        | DataRoute::RetireSchemaNameClaim
         | DataRoute::SeedSystemSchema
         | DataRoute::DbSchemaRetention
         | DataRoute::DbPutBlob
         | DataRoute::DbFetchBlob
-        | DataRoute::DbDeleteBlob
-        | DataRoute::AppChanges => handler_timeout(),
+        | DataRoute::DbDeleteBlob => handler_timeout(),
     }
 }

@@ -1,38 +1,27 @@
-//! Manifest-declared retention, applied at declare time.
-//!
-//! The `retention` key of a manifest schema entry travels beside `schema` in
-//! the declare body. It is node-local policy and never part of the schema, so
-//! it cannot change the schema artifact, its identity hash, or canonicalization.
-//!
-//! A catalog sync applies the TTL before it returns, so the policy exists
-//! before the first write. A read-only check only reports what it would apply.
-//! Applying and previewing live in `retention_apply`.
+//! Manifest-declared retention: validation, precheck, apply, preview, and reporting.
 
-use super::*;
 use fold_db::schema::types::FieldValueType;
-use fold_db::schema::{ManifestRetention, SchemaError, SchemaRetentionPolicy};
+use fold_db::schema::{
+    ManifestRetention, ManifestRetentionOutcome, ManifestRetentionStatus, RetentionSource,
+    SchemaError, SchemaRetentionPolicy,
+};
+use serde_json::{json, Value};
+
+use super::retention_assess::{assess, Assessment};
+use super::*;
 
 const RANGE_KEY_RULE: &str = "records expire by the entry time at the front of the range key: \
      unix seconds, zero-padded to 20 digits. A range key without that prefix never expires";
 const WRITE_TIME_RULE: &str = "records expire by the time since the last write; a rewrite \
      resets the age";
 
-/// How the age of a record is read for one schema layout, and what the manifest
-/// already shows is wrong with that layout.
-pub(crate) struct RetentionLayout {
-    pub(crate) age_rule: &'static str,
-    pub(crate) warnings: Vec<String>,
-    /// Range and HashRange: records expire by the key, so records that exist
-    /// before the policy can expire too.
-    pub(crate) range_keyed: bool,
+pub(super) struct RetentionLayout {
+    pub(super) age_rule: &'static str,
+    pub(super) warnings: Vec<String>,
+    pub(super) range_keyed: bool,
 }
 
-/// Check the `retention` of a declare body and who may ask for it.
-///
-/// A non-owner caller may not set a TTL: it deletes data. The key must sit
-/// beside `schema`; the same key inside `schema` would be dropped without a
-/// word by the schema parser, so it is refused.
-pub(crate) fn prepare_declare_retention(
+pub(super) fn prepare_declare_retention(
     ctx: &AccessContext,
     embedded_retention: bool,
     requested: Option<ManifestRetention>,
@@ -56,9 +45,7 @@ pub(crate) fn prepare_declare_retention(
     Ok(Some(retention))
 }
 
-/// Refuse a retention the declared layout cannot carry, before anything is
-/// written. `Ok(None)` means the declare asks for no retention.
-pub(crate) fn validate_declare_retention(
+pub(super) fn validate_declare_retention(
     declare: &DirectDeclareProposal,
 ) -> Result<Option<(u64, RetentionLayout)>, String> {
     let Some(retention) = declare.retention else {
@@ -106,13 +93,7 @@ fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
     }
 }
 
-/// The policy in force for `name` (a manifest name resolves to its anchor).
-/// `None` means the schema is not installed or holds no policy. A failed read
-/// is an error: a guard must never read a failure as "no policy".
-pub(crate) async fn read_policy(
-    host: &Host,
-    name: &str,
-) -> Result<Option<SchemaRetentionPolicy>, String> {
+async fn read_policy(host: &Host, name: &str) -> Result<Option<SchemaRetentionPolicy>, String> {
     match host
         .db
         .db_ops()
@@ -124,4 +105,181 @@ pub(crate) async fn read_policy(
         Err(SchemaError::NotFound(_)) => Ok(None),
         Err(error) => Err(format!("reading the retention policy of {name}: {error}")),
     }
+}
+
+pub(super) async fn precheck_declare_retention(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    anchor: &str,
+) -> Result<(), String> {
+    let Some(retention) = declare.retention else {
+        return Ok(());
+    };
+    let Some((ttl_seconds, layout)) = validate_declare_retention(declare)? else {
+        return Ok(());
+    };
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
+    assessment
+        .refusal(declare, retention.confirmed())
+        .map_or(Ok(()), Err)
+}
+
+async fn unmanaged_report(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    anchor: &str,
+) -> Result<Option<Value>, String> {
+    let binding = declare.local_schema_id.as_str();
+    let running = read_policy(host, anchor).await?;
+    let Some(manifest_ttl) = running
+        .as_ref()
+        .and_then(SchemaRetentionPolicy::manifest_ttl_seconds)
+    else {
+        return Ok(None);
+    };
+    let warning = format!(
+        "this manifest no longer declares a retention for {binding}, but a manifest TTL of \
+         {manifest_ttl}s is still running. Removing the key does not clear the policy. \
+         Run `lastdb admin retention clear --schema {anchor}` to remove it"
+    );
+    Ok(Some(json!({
+        "declared": false,
+        "status": "manifest_policy_still_running",
+        "ttl_seconds": manifest_ttl,
+        "anchor": anchor,
+        "notes": [],
+        "warnings": [warning],
+        "blocked": null,
+    })))
+}
+
+pub(super) async fn finish_declare_retention(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    resolution: &DirectDeclareResolution,
+) -> Result<Option<Value>, String> {
+    let anchor = resolution.runtime_schema.as_str();
+    let Some(retention) = declare.retention else {
+        return unmanaged_report(host, declare, anchor).await;
+    };
+    let (ttl_seconds, layout) = validate_declare_retention(declare)?
+        .ok_or_else(|| "the declare carries no retention".to_string())?;
+    let binding = declare.local_schema_id.as_str();
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
+    if let Some(reason) = assessment.refusal(declare, retention.confirmed()) {
+        return Err(reason);
+    }
+    let outcome = host
+        .db
+        .db_ops()
+        .schemas()
+        .apply_manifest_retention(
+            anchor,
+            ttl_seconds,
+            &declare.namespace,
+            retention.confirmed(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    tracing::info!(
+        target: "lastdb_node::apps_declare_schema",
+        schema = %binding,
+        anchor = %outcome.anchor,
+        ttl_seconds,
+        status = ?outcome.status,
+        "applied the manifest retention"
+    );
+    Ok(Some(applied_report(
+        &assessment,
+        &outcome,
+        binding,
+        anchor,
+        retention.confirmed(),
+    )))
+}
+
+pub(super) async fn preview_declare_retention(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    resolution: &DirectDeclareResolution,
+) -> Result<Option<Value>, String> {
+    let anchor = resolution.runtime_schema.as_str();
+    let Some(retention) = declare.retention else {
+        return unmanaged_report(host, declare, anchor).await;
+    };
+    let (ttl_seconds, layout) = validate_declare_retention(declare)?
+        .ok_or_else(|| "the declare carries no retention".to_string())?;
+    let binding = declare.local_schema_id.as_str();
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
+    let current: Option<SchemaRetentionPolicy> = read_policy(host, anchor).await?;
+    let blocked = assessment.refusal(declare, retention.confirmed());
+    Ok(Some(preview_report(
+        &assessment,
+        current.as_ref(),
+        binding,
+        anchor,
+        retention.confirmed(),
+        blocked.as_deref(),
+    )))
+}
+
+fn applied_report(
+    assessment: &Assessment,
+    outcome: &ManifestRetentionOutcome,
+    binding: &str,
+    anchor: &str,
+    confirmed: bool,
+) -> Value {
+    let notes = apply_notes(assessment, outcome);
+    let mut report = assessment.report(binding, anchor, confirmed);
+    report.insert("status".into(), json!(outcome.status));
+    report.insert("effective".into(), json!(outcome.effective));
+    report.insert("notes".into(), json!(notes));
+    Value::Object(report)
+}
+
+fn preview_report(
+    assessment: &Assessment,
+    current: Option<&SchemaRetentionPolicy>,
+    binding: &str,
+    anchor: &str,
+    confirmed: bool,
+    blocked: Option<&str>,
+) -> Value {
+    let operator_wins = current.is_some_and(|policy| policy.source == RetentionSource::Operator);
+    let mut report = assessment.report(binding, anchor, confirmed);
+    report.insert(
+        "would_apply".into(),
+        json!(!operator_wins && blocked.is_none()),
+    );
+    report.insert("current".into(), json!(current));
+    report.insert(
+        "requires_confirmation".into(),
+        json!(assessment.needs_confirmation()),
+    );
+    report.insert("blocked".into(), json!(blocked));
+    Value::Object(report)
+}
+
+fn apply_notes(assessment: &Assessment, outcome: &ManifestRetentionOutcome) -> Vec<String> {
+    let ttl = assessment.ttl_seconds;
+    let mut notes = Vec::new();
+    match outcome.status {
+        ManifestRetentionStatus::Applied => {
+            notes.push(format!("a new manifest TTL of {ttl}s is in force"));
+        }
+        ManifestRetentionStatus::Updated => notes.push(format!(
+            "the manifest TTL changed from {}s to {ttl}s ({})",
+            assessment.previous_ttl_seconds().unwrap_or(0),
+            assessment.change()
+        )),
+        ManifestRetentionStatus::Unchanged => {}
+        ManifestRetentionStatus::OperatorOverride => notes.push(format!(
+            "an operator policy of {}s is in force and wins; the manifest TTL of {ttl}s is kept \
+             beside it. Clearing the operator policy puts the manifest TTL in force: when it is \
+             shorter, that needs `--confirm-expire-existing`",
+            outcome.effective.ttl_seconds
+        )),
+    }
+    notes
 }

@@ -23,7 +23,6 @@ modules = [
   "byte_cloud_log",
   "cloud_backup_client",
   "identity",
-  "lastdb_host",
   "lastdb_uds",
   "log_rotation",
   "profile",

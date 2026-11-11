@@ -3,44 +3,17 @@ use super::*;
 pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {
     match action {
         AdminCommand::ServiceHome(action) => service_home_command(action),
-        AdminCommand::Schema(action) => match action {
-            AdminSchemaCommand::Drop(args) => schema_drop_command(
-                data_dir,
-                args.schema,
-                args.owner_app,
-                args.must_exist,
-                args.json,
-            ),
-            AdminSchemaCommand::NameClaim(action) => schema_name_claim_command(data_dir, action),
-        },
+        AdminCommand::Schema(AdminSchemaCommand::Drop(args)) => schema_drop_command(
+            data_dir,
+            args.schema,
+            args.owner_app,
+            args.must_exist,
+            args.json,
+        ),
         AdminCommand::Retention(action) => schema_retention_command(data_dir, action),
-        AdminCommand::Storage(action) => db_command(data_dir, storage_action(action)),
-        AdminCommand::SearchRebuild { page_size, json } => {
-            search_rebuild_command(data_dir, page_size, json)
-        }
+        AdminCommand::Storage(action) => db_storage_command(data_dir, action),
         AdminCommand::Backup(action) => cloud_command(data_dir, backup_action(action)?),
         AdminCommand::Shared(action) => shared(data_dir, action),
-    }
-}
-
-fn storage_action(action: AdminStorageCommand) -> DbCommand {
-    match action {
-        AdminStorageCommand::Inventory {
-            by_schema: true,
-            limit,
-            json,
-            out,
-            timeout,
-        } => DbCommand::Inspect(DbInspectCommand::Schemas {
-            limit: limit.unwrap_or(50),
-            json,
-            out,
-            timeout,
-        }),
-        AdminStorageCommand::Inventory {
-            json, out, timeout, ..
-        } => DbCommand::Inspect(DbInspectCommand::Inventory { json, out, timeout }),
-        AdminStorageCommand::Reclaim(action) => DbCommand::Reclaim(action),
     }
 }
 

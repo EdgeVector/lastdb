@@ -305,33 +305,6 @@ export interface DeclareSchemaResult {
   resolution: string | null;
 }
 
-/** Options for the durable, node-scoped app change feed. */
-export interface ChangesOptions {
-  since?: string;
-  limit?: number;
-  target?: string;
-}
-
-/** Thin changed-row metadata. Consumers point-read the authoritative row. */
-export interface ChangeEvent {
-  cursor: string;
-  mutationId: string;
-  schemaName: string;
-  key: KeyValue;
-  operation: string;
-  committedAtMs: number;
-  backgroundTasksDrained: boolean;
-  convergencePending: boolean;
-}
-
-/** One cursor page from `POST /api/app/changes`. */
-export interface ChangesResult {
-  changes: ChangeEvent[];
-  nextCursor: string;
-  hasMore: boolean;
-  gap: boolean;
-}
-
 /** One item of {@link LastDbClient.queryBatch}: the arguments of `query`. */
 export interface QueryBatchItem {
   schemaName: string;

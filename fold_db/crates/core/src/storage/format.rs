@@ -12,7 +12,6 @@
 //! startup key census or runtime format registry is introduced.
 
 pub(crate) mod bind;
-pub(crate) mod change_feed;
 pub(crate) mod control;
 pub(crate) mod metadata;
 pub(crate) mod read;
@@ -48,14 +47,6 @@ pub(crate) const METADATA_NAMESPACE: &str = "metadata";
 pub(in crate::storage::format) use crate::schema::types::author_clock::mutation_author_clock_key;
 pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
-pub(crate) const CHANGE_FEED_NAMESPACE: &str = "change_feed";
-pub(crate) const CHANGE_FEED_LAST_SEQ_KEY: &str = "last_seq";
-pub(in crate::storage::format) const CHANGE_FEED_EVENT_PREFIX: &str = "event:";
-pub(in crate::storage::format) const CHANGE_FEED_EVENT_END: &str = "event;";
-pub(crate) const CHANGE_FEED_APPEND_EVENTS: usize = 1_024;
-pub(crate) const CHANGE_FEED_APPEND_BYTES: usize = 32 * 1024 * 1024;
-/// Retained node-local notifications; readers report a gap beyond this window.
-pub const CHANGE_FEED_MAX_EVENTS: u64 = 250_000;
 /// Record files use a separate native home; namespace and collection coincide.
 pub const CAS_COLLECTION: &str = "cas_blobs";
 /// Every logical main key routes to this native collection.
@@ -90,7 +81,6 @@ pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
 /// job releases: `fr:` plus the suffix of its `fb:` key.
 pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
-pub(crate) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";

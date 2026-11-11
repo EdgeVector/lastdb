@@ -39,7 +39,6 @@ pub use manifest_retention::{
     MIN_MANIFEST_TTL_SECONDS,
 };
 pub use schema_types::{
-    RetentionSource, SchemaListEntry, SchemaNameClaim, SchemaRetentionPolicy, SchemaState,
-    SchemaWithState,
+    RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
 };
 pub use types::{Schema, SchemaError};

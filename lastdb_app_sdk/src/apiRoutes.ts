@@ -5,7 +5,6 @@ export const LASTDB_API_ROUTES = {
   /** Several independent `/api/query` bodies in one request. */
   queryBatch: '/api/queries/batch',
   mutation: '/api/mutation',
-  appChanges: '/api/app/changes',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',
   /** Owner socket. The response `definition_id` is the definition the app declared. */

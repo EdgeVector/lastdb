@@ -2,18 +2,16 @@
 
 use super::*;
 use crate::schema::types::field::{FilterUtils, HashRangeFilter};
-use crate::schema::{SchemaNameClaim, SchemaState, SchemaWithState};
-use crate::storage::format::schemas::keys::name_claim_key;
+use crate::schema::{SchemaState, SchemaWithState};
 use crate::storage::format::SCHEMA_STATES_NAMESPACE;
 use crate::storage::StorageError;
 use lastdb_model::record_space::{record_hash_prefix, RECORD_PREFIX};
 use lastdb_model::record_value::FileMarker;
 use serde::de::DeserializeOwned;
 
-/// Catalog entry and any retired descriptive-name claim in the verified copy.
+/// Catalog entry in the verified copy.
 pub struct SnapshotSchema {
     pub entry: SchemaWithState,
-    pub name_claim_retired: bool,
 }
 
 /// One page in native record-key order.
@@ -27,7 +25,7 @@ impl RunSnapshotReader {
     /// Read the catalog at the held version without starting a database writer.
     pub fn schemas(&self) -> StorageResult<Vec<SnapshotSchema>> {
         const CATALOG_LIMIT: usize = 1024;
-        let mut read = self.lookup(CATALOG_LIMIT * 3 + 8)?;
+        let mut read = self.lookup(CATALOG_LIMIT * 2 + 8)?;
         let page = read
             .administrative_range(SCHEMAS_NAMESPACE, b"", &[0xff])
             .map_err(map)?
@@ -48,11 +46,8 @@ impl RunSnapshotReader {
                 }
                 let state: SchemaState =
                     catalog_state(&mut read, &schema.name)?.unwrap_or_default();
-                let claim: Option<SchemaNameClaim> =
-                    catalog_state(&mut read, &name_claim_key(&schema.name))?;
                 Ok(SnapshotSchema {
                     entry: SchemaWithState::new(schema, state),
-                    name_claim_retired: claim.is_some_and(|claim| claim.retired),
                 })
             })
             .collect()

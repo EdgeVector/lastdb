@@ -209,9 +209,9 @@ pub(super) async fn execute_db_put_blob_route(
             placement,
             thumbnail,
         };
-        let components = handlers::MutationComponents::from_operation(mutation, None);
+        let parsed = ParsedMutation::from_operation(mutation, None);
         if !matches!(
-            components.mutation_type,
+            parsed.mutation.mutation_type,
             fold_db::schema::types::MutationType::Create
                 | fold_db::schema::types::MutationType::Replace
         ) {
@@ -227,12 +227,12 @@ pub(super) async fn execute_db_put_blob_route(
             ));
         }
         if let Some(path) = local_path {
-            return put_local_reference(host, components, path, plaintext, input).await;
+            return put_local_reference(host, parsed, path, plaintext, input).await;
         }
         if input.placement == Placement::Inline {
-            return put_inline_file(host, components, &plaintext, input).await;
+            return put_inline_file(host, parsed, &plaintext, input).await;
         }
-        put_blob_file(host, components, &plaintext, input).await
+        put_blob_file(host, parsed, &plaintext, input).await
     };
     render(put.await, ctx)
 }
@@ -246,7 +246,7 @@ struct BlobInput {
 
 async fn put_local_reference(
     host: &Host,
-    mut components: handlers::MutationComponents,
+    mut parsed: ParsedMutation,
     path: String,
     plaintext: Cow<'_, [u8]>,
     input: BlobInput,
@@ -277,7 +277,8 @@ async fn put_local_reference(
     };
     let marker = local.marker().clone();
     let source = local.path().to_path_buf();
-    if components
+    if parsed
+        .mutation
         .file
         .as_ref()
         .is_some_and(|supplied| supplied != &marker)
@@ -287,16 +288,16 @@ async fn put_local_reference(
             "file marker does not match the local file",
         ));
     }
-    components.file = Some(marker.clone());
-    let schema = components.schema.clone();
-    let key = components.key_value.clone();
-    components.file_write = Some(file_write);
+    parsed.mutation.file = Some(marker.clone());
+    let schema = parsed.mutation.schema_name.clone();
+    let key = parsed.mutation.key_value.clone();
+    parsed.mutation.file_write = Some(file_write);
     let thumbnail = thumbnail.map(Thumbnail::into_inline).transpose()?;
     let thumbnail_marker = thumbnail.as_ref().map(|file| file.marker.clone());
     if let Some(file) = thumbnail {
-        components.inline_write = Some(InlineWrite::Put(file));
+        parsed.mutation.inline_write = Some(InlineWrite::Put(file));
     }
-    let value = commit_mutation_components(host, components).await?;
+    let value = mutation::commit_parsed_mutation(host, parsed).await?;
     host.db
         .remember_local_file(&schema, &key, &source, &marker)
         .await
@@ -313,7 +314,7 @@ async fn put_local_reference(
 
 async fn put_inline_file(
     host: &Host,
-    mut components: handlers::MutationComponents,
+    mut parsed: ParsedMutation,
     plaintext: &[u8],
     input: BlobInput,
 ) -> Result<serde_json::Value, HostError> {
@@ -332,8 +333,8 @@ async fn put_inline_file(
     // The blob file and its marker stay as they are.
     let file = inline_file(plaintext, name, media_type)?;
     let marker = file.marker.clone();
-    components.inline_write = Some(InlineWrite::Put(file));
-    let value = commit_mutation_components(host, components).await?;
+    parsed.mutation.inline_write = Some(InlineWrite::Put(file));
+    let value = mutation::commit_parsed_mutation(host, parsed).await?;
     Ok(serde_json::json!({
         "file": marker,
         "placement": Placement::Inline,
@@ -344,7 +345,7 @@ async fn put_inline_file(
 
 async fn put_blob_file(
     host: &Host,
-    mut components: handlers::MutationComponents,
+    mut parsed: ParsedMutation,
     plaintext: &[u8],
     input: BlobInput,
 ) -> Result<serde_json::Value, HostError> {
@@ -363,7 +364,8 @@ async fn put_blob_file(
         return Err(HostError::new(500, "a sealed file is a put"));
     };
     let marker = file.marker().clone();
-    if components
+    if parsed
+        .mutation
         .file
         .as_ref()
         .is_some_and(|supplied| supplied != &marker)
@@ -373,13 +375,13 @@ async fn put_blob_file(
             "file marker does not match the supplied bytes",
         ));
     }
-    components.file = Some(marker.clone());
-    components.file_write = Some(file_write);
+    parsed.mutation.file = Some(marker.clone());
+    parsed.mutation.file_write = Some(file_write);
     let thumbnail_marker = thumbnail.as_ref().map(|file| file.marker.clone());
     if let Some(file) = thumbnail {
-        components.inline_write = Some(InlineWrite::Put(file));
+        parsed.mutation.inline_write = Some(InlineWrite::Put(file));
     }
-    let value = commit_mutation_components(host, components).await?;
+    let value = mutation::commit_parsed_mutation(host, parsed).await?;
     Ok(serde_json::json!({
         "file": marker,
         "placement": placement,
