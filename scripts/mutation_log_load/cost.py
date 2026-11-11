@@ -22,6 +22,8 @@ configured MemorySize is not in this repo.
 
 import threading
 
+from faults import MAX_CONTENTION_TRIES
+
 
 PAGE_BYTES = 4096
 SERVER_ATTEMPTS = 3
@@ -67,6 +69,18 @@ def load_reads(main_bytes, sub_bytes):
     return 1 + sub
 
 
+def recheck_hold(partition_bytes, sub_bytes):
+    """Worst case for the quiet logcheck: 8 full loads, main plus ``#sub``.
+
+    Each try is one head or list call. The dollars also include that call's
+    Lambda request, so the hold matches what ``charge`` will spend.
+    """
+    reads = MAX_CONTENTION_TRIES * load_reads(partition_bytes, sub_bytes)
+    usd = reads * READ_USD
+    usd += MAX_CONTENTION_TRIES * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
+    return reads, usd
+
+
 class Ledger:
     def __init__(self, cap_usd=CAP_USD):
         self.cap_usd = cap_usd
@@ -93,7 +107,7 @@ class Ledger:
         read_usd = self.reads * READ_USD
         write_usd = self.write_units * WRITE_USD
         storage_usd = self.stored_bytes * STORAGE_USD_PER_BYTE
-        return {
+        built = {
             "lambda_requests": self.lambda_requests,
             "reads": self.reads,
             "write_units": self.write_units,
@@ -106,6 +120,13 @@ class Ledger:
             "total_usd": request_usd + read_usd + write_usd + storage_usd,
             "cap_usd": self.cap_usd,
         }
+        return self._stamp(built, self.partition_bytes)
+
+    def _stamp(self, projected, partition):
+        reads, usd = recheck_hold(partition, self.sub_bytes)
+        projected["recheck_reserve_reads"] = reads
+        projected["recheck_reserve_usd"] = usd
+        return projected
 
     def project(self, kind, nbytes=None, direct=False, grow=None, attempts=1):
         size = 0 if nbytes is None else nbytes
@@ -129,12 +150,13 @@ class Ledger:
                     growth = stored_growth(size)
                     stored += growth
                     partition += growth
-        return _money(self, reads, writes, stored, partition)
+        return self._stamp(_money(self, reads, writes, stored, partition), partition)
 
-    def charge(self, kind, nbytes=None, grow=None, attempts=1):
+    def charge(self, kind, nbytes=None, grow=None, attempts=1, hold_recheck=True):
         with self._lock:
             projected = self.project(kind, nbytes, direct=False, grow=grow, attempts=attempts)
-            if projected["total_usd"] >= self.cap_usd:
+            reserve = projected["recheck_reserve_usd"] if hold_recheck else 0
+            if projected["total_usd"] + reserve >= self.cap_usd:
                 raise CapExceeded(projected)
             self._apply(projected)
             return projected

@@ -100,9 +100,10 @@ def check_log(session):
     session.ack_holds = ack_holds(entries, unresolved, acked)
 
 
-def audit_log(session):
+def _read_with_recheck(session):
     """Read the log. A drained recheck follows a read throttle, once."""
     session.in_logcheck = True
+    session.log_read_throttled = False
     try:
         check_log(session)
     except RetriesExhausted:
@@ -114,6 +115,12 @@ def audit_log(session):
         check_log(session)
     finally:
         session.in_logcheck = False
+        session.quiet = False
+
+
+def audit_log(session):
+    """Read the log after the writers have stopped."""
+    _read_with_recheck(session)
     session.audited = True
 
 
@@ -128,10 +135,20 @@ def after_exhausted(session):
     """Re-read after an exhausted snapshot or trim, then apply the intact-log rule."""
     if not session.audited:
         return "error"
+    return _checked(session)
+
+
+def verify_after_cap(session):
+    """A write already exhausted. Read the log before the budget stop wins."""
+    return _checked(session)
+
+
+def _checked(session):
+    from cost import CapExceeded
     from drive import LoadError
     try:
-        check_log(session)
-    except (LoadError, RouteError, RetriesExhausted):
+        audit_log(session)
+    except (LoadError, RouteError, RetriesExhausted, CapExceeded):
         return "error"
     if session.ack_holds:
         return "scaling"

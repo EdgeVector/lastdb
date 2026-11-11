@@ -45,6 +45,8 @@ def tier_summary(samples, errors, elapsed_ms, counters, estimate, tier_reads):
         "logcheck_recheck": bool(counters.get("logcheck_recheck", False)),
         "partition_bytes": estimate["partition_bytes"],
         "reads": estimate["reads"] - tier_reads,
+        "recheck_reserve_reads": estimate.get("recheck_reserve_reads", 0),
+        "recheck_reserve_usd": estimate.get("recheck_reserve_usd", 0),
     })
     return summary
 
@@ -73,10 +75,12 @@ def format_summary(summary):
         "  errors: {errors}".format(**summary),
         "  throughput: {throughput_per_s:.2f} req/s".format(**summary),
     ])
+    filled = dict(summary)
+    filled.setdefault("unresolved_appends", 0)
+    filled.setdefault("logcheck_recheck", False)
+    filled.setdefault("recheck_reserve_reads", 0)
+    filled.setdefault("recheck_reserve_usd", 0)
     if "contention_503" in summary:
-        filled = dict(summary)
-        filled.setdefault("unresolved_appends", 0)
-        filled.setdefault("logcheck_recheck", False)
         lines.append(
             "  503 contention={contention_503} rate={contention_rate:.4f} "
             "throttle={throttle_503} throttle_rate={throttle_rate:.4f} "
@@ -88,7 +92,9 @@ def format_summary(summary):
         )
     if "partition_bytes" in summary:
         lines.append(
-            "  modeled partition_bytes={partition_bytes} modeled reads={reads}".format(**summary)
+            "  modeled partition_bytes={partition_bytes} modeled reads={reads} "
+            "modeled recheck_reserve_reads={recheck_reserve_reads} "
+            "modeled recheck_reserve_usd={recheck_reserve_usd:.6f}".format(**filled)
         )
     return "\n".join(lines)
 

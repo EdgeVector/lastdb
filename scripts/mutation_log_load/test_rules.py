@@ -244,10 +244,11 @@ class AmendedExits(unittest.TestCase):
             return None
 
         class CapLater(Ledger):
-            def charge(self, kind, nbytes=None, grow=None, attempts=1):
+            def charge(self, kind, nbytes=None, grow=None, attempts=1, hold_recheck=True):
                 if self.lambda_requests >= 2:
                     raise CapExceeded(self.estimate())
-                return super().charge(kind, nbytes, grow=grow, attempts=attempts)
+                return super().charge(
+                    kind, nbytes, grow=grow, attempts=attempts, hold_recheck=hold_recheck)
 
         session = self._session(MemoryLog(hook), ledger=CapLater())
         session.sleeper = lambda _delay: None

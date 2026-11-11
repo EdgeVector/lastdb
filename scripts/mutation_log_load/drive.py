@@ -12,7 +12,7 @@ from faults import (
 )
 from finish import (
     ack_cursor, after_exhausted, audit_log, finding_text, read_log, request_for,
-    tier_report, trim_appends, trim_log,
+    tier_report, trim_appends, trim_log, verify_after_cap,
 )
 from plan import still_running, writer_calls
 from routes import READS, RouteError, check_success, path_for
@@ -155,7 +155,7 @@ class Session:
     def exchange(self, operation, required=False, accept=(), **fields):
         tries = 0
         while True:
-            if self.stop.is_set():
+            if self.stop.is_set() and not self.in_logcheck:
                 if self.capped.is_set():
                     raise CapExceeded(self.ledger.snapshot())
                 raise LoadError("stopped")
@@ -176,7 +176,8 @@ class Session:
             attempts = SERVER_ATTEMPTS if operation in ("append", "ack") else 1
             self.ledger.charge(
                 kind, None if kind == "read" else len(body),
-                grow=operation == "append", attempts=attempts)
+                grow=operation == "append", attempts=attempts,
+                hold_recheck=not self.in_logcheck)
         except CapExceeded:
             self.capped.set()
             self.stop.set()
@@ -324,7 +325,9 @@ def _exhausted(session):
 
 def _over_cap(session, spec):
     """The cap loses to a correctness failure and to a scaling finding."""
-    if _exhausted(session) and not (session.audited and session.ack_holds):
+    if _exhausted(session) and not session.audited:
+        return verify_after_cap(session)
+    if _exhausted(session) and not session.ack_holds:
         return "error"
     if _exhausted(session) or _capacity(session, spec):
         return "scaling"

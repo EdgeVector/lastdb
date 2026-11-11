@@ -110,7 +110,7 @@ def sub_partition(database_id):
 
 
 def _record_label(value):
-    if not isinstance(value, str) or not value or "#" in value or len(value) > 128:
+    if not isinstance(value, str) or not value or "#" in value:
         raise GuardError("record")
     return value
 
@@ -132,7 +132,7 @@ def snap_manifest_key(reference):
 def snap_part_key(reference, index):
     """Chunk sort key on ``{id}#snap``: ``snap#{reference}#{index:06}``."""
     _record_label(reference)
-    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 999999:
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
         raise GuardError("record")
     return "snap#{0}#{1:06d}".format(reference, index)
 

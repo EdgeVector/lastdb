@@ -170,6 +170,8 @@ class TargetGuard(unittest.TestCase):
         self.assertEqual(key, "sub#owner-key#phone#" + format(7, "020d"))
         self.assertEqual(snap_manifest_key("s"), "snap#s")
         self.assertEqual(snap_part_key("s", 3), "snap#s#000003")
+        self.assertEqual(snap_part_key("s", 1000000), "snap#s#1000000")
+        self.assertEqual(submission_key("n" * 200, "phone", 1)[:4], "sub#")
         for bad in (("#", "phone", 1), ("owner", "ph#one", 1)):
             with self.assertRaises(GuardError):
                 submission_key(*bad)
