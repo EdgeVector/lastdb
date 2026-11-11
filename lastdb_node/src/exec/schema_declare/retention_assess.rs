@@ -29,7 +29,12 @@ pub(super) async fn assess(
         .get_schema_metadata(anchor)
         .map_err(|e| format!("failed to read schema {anchor}: {e}"))?
         .filter(|schema| schema.owner_app_id.as_deref() != Some(declare.namespace.as_str()))
-        .map(|schema| schema.owner_app_id.unwrap_or_else(|| "unowned".to_string()));
+        .map(|schema| {
+            schema
+                .owner_app_id
+                .clone()
+                .unwrap_or_else(|| "unowned".to_string())
+        });
     let plan = store
         .plan_manifest_retention(anchor, ttl_seconds)
         .await

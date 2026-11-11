@@ -119,14 +119,14 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
         _ => return error_response(400, "action must be get, set, or clear", ctx),
     };
     match result {
-        Ok(policy) => retention_response(&body.schema, policy, may_expire, ctx),
+        Ok(policy) => retention_response(&body.schema, policy.as_ref(), may_expire, ctx),
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),
     }
 }
 
 fn retention_response(
     schema: &str,
-    policy: Option<fold_db::schema::SchemaRetentionPolicy>,
+    policy: Option<&fold_db::schema::SchemaRetentionPolicy>,
     may_expire: bool,
     ctx: &AccessContext,
 ) -> UdsResponse {
