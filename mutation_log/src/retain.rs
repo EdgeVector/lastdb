@@ -84,7 +84,10 @@ impl LogState {
         let floor = self.covered_floor(now_ms)?;
         let mut next = self.clone();
         let dropped = drop_covered(&mut next, floor, now_ms);
-        if !dropped && floor == self.trimmed_through {
+        prune_marks(&mut next, now_ms);
+        let marks_changed =
+            next.rejected != self.rejected || next.expired_submissions != self.expired_submissions;
+        if !dropped && !marks_changed && floor == self.trimmed_through {
             return Ok(self.clone());
         }
         next.trimmed_through = floor;
@@ -111,7 +114,8 @@ impl LogState {
             return Err(LogError::UnknownSubmission);
         }
         let mut next = self.clone();
-        next.rejected.insert((writer.clone(), writer_seq));
+        next.rejected
+            .insert((writer.clone(), writer_seq), stored.accepted_at_ms);
         Ok(next)
     }
 
@@ -238,7 +242,7 @@ fn live_pending(state: &LogState, stored: &StoredEntry, now_ms: u64) -> bool {
     pending_submission(state, stored)
         && !state
             .rejected
-            .contains(&(stored.entry.writer.clone(), stored.entry.writer_seq))
+            .contains_key(&(stored.entry.writer.clone(), stored.entry.writer_seq))
         && now_ms.saturating_sub(stored.accepted_at_ms) < MAX_RETENTION_MS
 }
 
@@ -256,7 +260,7 @@ fn pending_submission(state: &LogState, stored: &StoredEntry) -> bool {
 fn note_dropped(state: &mut LogState, stored: &StoredEntry, now_ms: u64) {
     let key = (stored.entry.writer.clone(), stored.entry.writer_seq);
     let expired = pending_submission(state, stored)
-        && !state.rejected.contains(&key)
+        && !state.rejected.contains_key(&key)
         && now_ms.saturating_sub(stored.accepted_at_ms) >= MAX_RETENTION_MS;
     let previous = state.trimmed_tips.get(&key.0).copied().unwrap_or(0);
     state
@@ -264,8 +268,17 @@ fn note_dropped(state: &mut LogState, stored: &StoredEntry, now_ms: u64) {
         .insert(key.0.clone(), previous.max(key.1));
     state.incorporated.remove(&key);
     if expired {
-        state.expired_submissions.insert(key);
+        state.expired_submissions.insert(key, now_ms);
     }
+}
+
+fn prune_marks(state: &mut LogState, now_ms: u64) {
+    state
+        .rejected
+        .retain(|_, at| now_ms.saturating_sub(*at) < MAX_RETENTION_MS);
+    state
+        .expired_submissions
+        .retain(|_, at| now_ms.saturating_sub(*at) < MAX_RETENTION_MS);
 }
 
 fn basis_entry(state: &LogState, stored: &StoredEntry, policy: &impl NamespacePolicy) -> bool {

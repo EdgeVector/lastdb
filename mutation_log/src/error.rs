@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::Writer;
+
 /// A refused log step. The caller's previous state is unchanged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LogError {
@@ -60,7 +62,19 @@ pub enum LogError {
     /// Trim would drop entries, and no snapshot pointer covers that floor.
     SnapshotRequired,
     /// A pending submission aged out before the publisher copied it.
-    SubmissionExpired,
+    SubmissionExpired {
+        /// Writer (node key, device) of the submission.
+        writer: Writer,
+        /// Writer sequence of that submission.
+        writer_seq: u64,
+    },
+    /// The publisher rejected this pending submission.
+    SubmissionRejected {
+        /// Writer (node key, device) of the submission.
+        writer: Writer,
+        /// Writer sequence of that submission.
+        writer_seq: u64,
+    },
 }
 
 impl fmt::Display for LogError {
@@ -133,9 +147,18 @@ impl fmt::Display for LogError {
             Self::SnapshotRequired => {
                 write!(formatter, "trim needs a snapshot that covers the floor")
             }
-            Self::SubmissionExpired => {
-                write!(formatter, "pending submission expired before it was copied")
-            }
+            Self::SubmissionExpired { writer, writer_seq } => write!(
+                formatter,
+                "pending submission expired before it was copied ({}, {}, seq {writer_seq})",
+                writer.key.as_str(),
+                writer.device.as_str()
+            ),
+            Self::SubmissionRejected { writer, writer_seq } => write!(
+                formatter,
+                "pending submission was rejected ({}, {}, seq {writer_seq})",
+                writer.key.as_str(),
+                writer.device.as_str()
+            ),
         }
     }
 }

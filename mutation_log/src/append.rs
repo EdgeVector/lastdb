@@ -144,11 +144,14 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
         if entry.writer_seq > last {
             continue;
         }
+        if submission_rejected(state, &entry.writer, entry.writer_seq) {
+            return Err(marked_rejected(&entry.writer, entry.writer_seq));
+        }
+        if submission_expired(state, &entry.writer, entry.writer_seq) {
+            return Err(marked_expired(&entry.writer, entry.writer_seq));
+        }
         match stored_entry(state, &entry.writer, entry.writer_seq) {
             Some(stored) if same_content(&stored.entry, entry) => {}
-            None if submission_expired(state, &entry.writer, entry.writer_seq) => {
-                return Err(LogError::SubmissionExpired);
-            }
             None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => {}
             Some(_) | None => return Err(LogError::Conflict),
         }
@@ -164,7 +167,27 @@ fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'
 }
 
 fn submission_expired(state: &LogState, writer: &Writer, seq: u64) -> bool {
-    state.expired_submissions.contains(&(writer.clone(), seq))
+    state
+        .expired_submissions
+        .contains_key(&(writer.clone(), seq))
+}
+
+fn submission_rejected(state: &LogState, writer: &Writer, seq: u64) -> bool {
+    state.rejected.contains_key(&(writer.clone(), seq))
+}
+
+fn marked_expired(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionExpired {
+        writer: writer.clone(),
+        writer_seq,
+    }
+}
+
+fn marked_rejected(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionRejected {
+        writer: writer.clone(),
+        writer_seq,
+    }
 }
 
 fn trimmed_tip(state: &LogState, writer: &Writer) -> u64 {
@@ -219,8 +242,11 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     if &entry.writer.key != publisher {
         return Err(LogError::InvalidEntry);
     }
+    if submission_rejected(state, &from.writer, from.writer_seq) {
+        return Err(marked_rejected(&from.writer, from.writer_seq));
+    }
     if submission_expired(state, &from.writer, from.writer_seq) {
-        return Err(LogError::SubmissionExpired);
+        return Err(marked_expired(&from.writer, from.writer_seq));
     }
     let Some(stored) = stored_entry(state, &from.writer, from.writer_seq) else {
         return Err(LogError::UnknownSubmission);

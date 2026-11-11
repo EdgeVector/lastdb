@@ -58,7 +58,8 @@ writer's `writer_seq` is gap-free:
 - `writer_seq <= last` with the same content is a duplicate
 - `writer_seq <= last` with different content, while the entry is still stored, is `Conflict`, and the call is not `Ok`
 - `writer_seq <= last` after that entry has been trimmed is a duplicate
-- `writer_seq <= last` for a pending submission that aged out is `SubmissionExpired`
+- `writer_seq <= last` for a pending submission that aged out is `SubmissionExpired`, naming that writer and sequence
+- `writer_seq <= last` for a rejected pending submission is `SubmissionRejected`, naming that writer and sequence
 - `last + 1` is accepted
 - a higher value is a gap, and the batch is not stored
 
@@ -77,12 +78,14 @@ submission stays in the log until the publisher re-appends it, rejects it,
 or 30 days pass. The snapshot does not include pending submissions. Trim
 drops entries around a young pending submission and leaves that submission
 in place. Acking a scan cursor that covered the submission does not drop it.
-After 30 days, the author's retry and a re-append are `SubmissionExpired`.
-A rejected submission can be trimmed while it is still young. Once its bytes
-are gone, the author's retry is a duplicate and a re-append is
-`UnknownSubmission`. The `incorporated` set is stored with the log. Trim
-drops a key when the submission it names is dropped. A persistent adapter
-stores the set alongside the log.
+After 30 days, the author's retry and a re-append are `SubmissionExpired`,
+naming that writer and sequence. A rejected submission can be trimmed while
+it is still young. The author's retry and a re-append are then
+`SubmissionRejected`, naming that writer and sequence. Those two marks leave
+the log once max retention passes, and a later retry of the trimmed bytes is
+a duplicate. The `incorporated` set is stored with the log. Trim drops a key
+when the submission it names is dropped. A persistent adapter stores the sets
+alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp
 `(authored_at_ms, writer, sequence)`. An append is one transaction of

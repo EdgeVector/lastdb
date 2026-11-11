@@ -31,10 +31,10 @@ fn expired_submission_is_not_a_duplicate() {
     state = trim_log(&state, &publisher, MAX_RETENTION_MS);
     assert!(state.entries.is_empty());
     let retry = append_entries(&state, &submission, vec![secret]);
-    assert_eq!(retry.err(), Some(LogError::SubmissionExpired));
+    assert_eq!(retry.err(), Some(expired(&submission, 1)));
     let copy = reappend(&state, &published, &submission, 1, 1, b"secret");
     let again = append_entries(&state, &published, vec![copy]);
-    assert_eq!(again.err(), Some(LogError::SubmissionExpired));
+    assert_eq!(again.err(), Some(expired(&submission, 1)));
 }
 
 #[test]
@@ -54,6 +54,21 @@ fn a_pending_submission_does_not_pin_its_neighbors() {
     assert_eq!(state.entries[0].delivery_seq, 2);
     assert_eq!(state.entries[0].entry.payload, b"secret");
     assert_eq!(state.trimmed_through, 3);
+    let receiver = principal("receiver");
+    state = grant_receive(&state, &publisher, &receiver);
+    let head = state
+        .head_for(&receiver, &hearth)
+        .expect("head")
+        .expect("log head");
+    assert_eq!(
+        head.cursor,
+        state.head.as_ref().expect("log head").delivery_seq
+    );
+    assert!(head.stamp.is_none());
+    assert!(state.list(&receiver, head.cursor, 10, 2, &hearth).is_ok());
+    assert!(state
+        .ack(&writer_of(&receiver, "phone"), head.cursor)
+        .is_ok());
 }
 
 #[test]
@@ -77,14 +92,49 @@ fn a_rejected_submission_can_be_trimmed() {
     state = cut(&state, &publisher, 2);
     state = trim_log(&state, &publisher, 2);
     assert!(state.entries.is_empty());
-    let retry = append_entries(&state, &submission, vec![secret]).expect("trimmed retry");
-    assert_eq!(
-        retry.outcome,
-        Outcome::Appended(AppendOutcome::Duplicate { next_seq: 2 })
-    );
+    let retry = append_entries(&state, &submission, vec![secret]);
+    assert_eq!(retry.err(), Some(rejected(&submission, 1)));
     let copy = reappend(&state, &published, &submission, 1, 1, b"secret");
     let again = append_entries(&state, &published, vec![copy]);
-    assert_eq!(again.err(), Some(LogError::UnknownSubmission));
+    assert_eq!(again.err(), Some(rejected(&submission, 1)));
+}
+
+#[test]
+fn marks_leave_after_max_retention() {
+    let (mut state, publisher, published, _person, submission) = contributors();
+    let secret = pending(&state, &submission, 1, b"secret");
+    state = apply(&state, &submission, vec![secret], 0);
+    state = step(
+        &state,
+        Command::Reject {
+            caller: publisher.clone(),
+            writer: submission.clone(),
+            writer_seq: 1,
+        },
+        &hearth,
+    )
+    .expect("reject")
+    .state;
+    state = ack(&state, &published, 1);
+    state = ack(&state, &submission, 1);
+    state = cut(&state, &publisher, 1);
+    state = trim_log(&state, &publisher, 1);
+    assert!(state.rejected.contains_key(&(submission, 1)));
+    state = trim_log(&state, &publisher, MAX_RETENTION_MS);
+    assert!(state.rejected.is_empty());
+
+    let (mut aged, publisher, published, _person, submission) = contributors();
+    let secret = pending(&aged, &submission, 1, b"secret");
+    aged = apply(&aged, &submission, vec![secret], 0);
+    aged = ack(&aged, &published, 1);
+    aged = ack(&aged, &submission, 1);
+    aged = cut(&aged, &publisher, 1);
+    aged = trim_log(&aged, &publisher, MAX_RETENTION_MS);
+    assert!(aged
+        .expired_submissions
+        .contains_key(&(submission, 1)));
+    aged = trim_log(&aged, &publisher, MAX_RETENTION_MS + MAX_RETENTION_MS);
+    assert!(aged.expired_submissions.is_empty());
 }
 
 fn contributors() -> (LogState, PrincipalId, Writer, PrincipalId, Writer) {
@@ -112,6 +162,20 @@ fn ack_all(
     let state = ack(state, published, through);
     let state = ack(&state, submission, through);
     ack(&state, &writer_of(receiver, "phone"), through)
+}
+
+fn expired(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionExpired {
+        writer: writer.clone(),
+        writer_seq,
+    }
+}
+
+fn rejected(writer: &Writer, writer_seq: u64) -> LogError {
+    LogError::SubmissionRejected {
+        writer: writer.clone(),
+        writer_seq,
+    }
 }
 
 fn pending(state: &LogState, writer: &Writer, seq: u64, payload: &[u8]) -> Entry {

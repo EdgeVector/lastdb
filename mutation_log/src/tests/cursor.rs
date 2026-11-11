@@ -63,18 +63,14 @@ fn caught_up_receiver_does_not_pin_the_floor_or_expire() {
     state = step(
         &state,
         Command::Trim {
-            caller: publisher.clone(),
-            now_ms: 1,
+            caller: publisher,
+            now_ms: MAX_RETENTION_MS,
         },
         &hearth,
     )
     .expect("trim")
     .state;
-    assert!(state
-        .entries
-        .iter()
-        .all(|row| row.entry.writer.key != publisher));
-    assert_eq!(state.entries.len(), 3);
+    assert!(state.entries.is_empty());
     assert_eq!(state.trimmed_through, 4);
 }
 
