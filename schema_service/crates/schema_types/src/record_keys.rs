@@ -5,7 +5,7 @@ use crate::{DeclarativeSchemaDefinition, FieldValueType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordKeyKind {
     Hash,
@@ -13,7 +13,7 @@ pub enum RecordKeyKind {
 }
 
 /// A key declares its shape and scalar range order, never a payload field.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordKeyDefinition {
     pub kind: RecordKeyKind,
@@ -72,7 +72,7 @@ impl RecordKeyDefinition {
 }
 
 /// Every replacement supplies exactly these named alternate addresses.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordKeys {
     pub primary: RecordKeyDefinition,

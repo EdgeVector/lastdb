@@ -1,6 +1,5 @@
-use super::{DeclarativeSchemaDefinition, SchemaSource};
+use super::DeclarativeSchemaDefinition;
 use crate::schema_type::DeclarativeSchemaType;
-use crate::DataClassification;
 use crate::FieldValueType;
 use crate::KeyConfig;
 use std::collections::HashMap;
@@ -25,14 +24,10 @@ struct DeclarativeSchemaDefinitionHelper {
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transform_fields: Option<HashMap<String, String>>,
     #[serde(default)]
     field_classifications: HashMap<String, Vec<String>>,
     #[serde(default)]
     field_descriptions: HashMap<String, String>,
-    #[serde(default)]
-    field_data_classifications: HashMap<String, DataClassification>,
     #[serde(default)]
     field_interest_categories: HashMap<String, String>,
     #[serde(default)]
@@ -50,11 +45,7 @@ struct DeclarativeSchemaDefinitionHelper {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     superseded_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    trust_domain: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     owner_app_id: Option<String>,
-    #[serde(default)]
-    source: SchemaSource,
     // Preserve unrelated unknown-field behavior, but refuse removed storage
     // configuration even when its JSON value is null. Stored Schema Service
     // records can carry keys of retired features; those keys land here and
@@ -111,29 +102,23 @@ impl DeclarativeSchemaDefinitionHelper {
             }
         };
 
-        // Use the constructor to create the actual struct with generated mappings
         let mut schema = DeclarativeSchemaDefinition::new(
             self.name,
             normalized_schema_type,
             self.key,
             normalized_fields,
-            self.transform_fields,
         );
 
-        // Preserve descriptive fields the constructor does not derive.
         schema.descriptive_name = self.descriptive_name;
         schema.purpose_statement = self.purpose_statement;
 
-        // Merge classifications from helper
         for (field_name, classifications) in self.field_classifications {
             schema
                 .field_classifications
                 .insert(field_name, classifications);
         }
 
-        // Preserve field_descriptions, field_data_classifications, field_interest_categories, field_types and identity_hash
         schema.field_descriptions = self.field_descriptions;
-        schema.field_data_classifications = self.field_data_classifications;
         schema.field_interest_categories = self.field_interest_categories;
         schema.field_types = self.field_types;
         schema.field_hashes = self.field_hashes;
@@ -142,9 +127,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.identity_hash = self.identity_hash;
         schema.identity_hash_algo_version = self.identity_hash_algo_version;
         schema.superseded_by = self.superseded_by;
-        schema.trust_domain = self.trust_domain;
         schema.owner_app_id = self.owner_app_id;
-        schema.source = self.source;
         schema.alternate_keys = self.alternate_keys;
         schema.record_keys = self.record_keys;
         schema.file_required = self.file_required;
@@ -162,7 +145,6 @@ impl DeclarativeSchemaDefinitionHelper {
     }
 }
 
-// Custom deserializer for DeclarativeSchemaDefinition that uses the constructor
 impl<'de> serde::Deserialize<'de> for DeclarativeSchemaDefinition {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -179,7 +161,6 @@ fn normalize_fields(fields: Option<serde_json::Value>) -> Result<Option<Vec<Stri
         None => None,
         Some(val) => {
             if let Some(arr) = val.as_array() {
-                // Expect array of strings
                 let mut out: Vec<String> = Vec::new();
                 for item in arr {
                     if let Some(s) = item.as_str() {
@@ -190,7 +171,6 @@ fn normalize_fields(fields: Option<serde_json::Value>) -> Result<Option<Vec<Stri
                 }
                 Some(out)
             } else if let Some(obj) = val.as_object() {
-                // Accept object map and use keys as field names
                 let mut names: Vec<String> = obj.keys().cloned().collect();
                 names.sort();
                 Some(names)

@@ -38,9 +38,8 @@ deleted the desktop node on **2026-07-12**.
 ├── lastdb_uds/                 # Unix-domain-socket transport
 ├── lastdb_identity/            # node identity helpers
 ├── lastdb_app_sdk/             # app SDK (separate docs card may refine this)
-├── schema_service/             # cloud schema registry
-│   ├── crates/{core,client,server_shared,server_http,server_lambda,…}
-│   └── openapi.yaml
+├── schema_service/             # advisory schema vocabulary + Lambda
+│   └── crates/{schema_types,core,server_lambda}
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
 └── docs/                       # designs for work in progress
 ```
@@ -260,29 +259,15 @@ accepted writes with private contribution streams.
 Immediate read revocation, interrupted import recovery, and Org sharing remain
 separate work.
 
-Mini ships the default `lastdb` / `lastdbd` binaries without the in-process
-FastEmbed semantic-search path; local runs use exact matching plus
-service-owned Search/schema resolver surfaces.
-
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —
 use a fresh empty home with synthetic data (`lastdb-safe-upgrade --probe-only` /
 smoke helpers). Never copy `~/.lastdb`.
 
-### schema_service dev server
-
-```bash
-cargo run -p schema_service_server_http --bin schema_service -- --port 9102
-```
-
-The dev server keeps its registry in memory only; a restart starts again
-from the built-in seeds. Use `--features fastembed` on that command only when validating the real
-local embedding path.
-
 ### Schema service deploys
 
 [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) owns the
-CDK and the deploy scripts for the schema service (Lambda and fastembed layer). It consumes this repository as a git submodule.
+CDK and the deploy scripts for the advisory schema service Lambda. It consumes this repository as a git submodule.
 
 ### Downstream submodule pointer policy
 

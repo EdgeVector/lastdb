@@ -1,21 +1,21 @@
-use super::{DeclarativeSchemaDefinition, SchemaSource};
+use super::DeclarativeSchemaDefinition;
 use crate::schema_type::DeclarativeSchemaType;
 use crate::FieldValueType;
 use crate::KeyConfig;
 use std::collections::HashMap;
 
 impl DeclarativeSchemaDefinition {
-    /// Creates a new DeclarativeSchemaDefinition and generates all hash mappings.
+    /// Creates a new DeclarativeSchemaDefinition.
     ///
     /// Pure wire form — no `runtime_fields` (those live on fold_db's wrapper).
+    #[must_use]
     pub fn new(
         name: String,
         schema_type: DeclarativeSchemaType,
         key: Option<KeyConfig>,
         fields: Option<Vec<String>>,
-        transform_fields: Option<HashMap<String, String>>,
     ) -> Self {
-        let mut schema = Self {
+        Self {
             name,
             descriptive_name: None,
             purpose_statement: None,
@@ -25,11 +25,9 @@ impl DeclarativeSchemaDefinition {
             record_keys: None,
             file_required: false,
             fields,
-            transform_fields,
             hash: None,
             field_classifications: HashMap::new(),
             field_descriptions: HashMap::new(),
-            field_data_classifications: HashMap::new(),
             field_interest_categories: HashMap::new(),
             field_types: HashMap::new(),
             field_hashes: HashMap::new(),
@@ -38,20 +36,12 @@ impl DeclarativeSchemaDefinition {
             identity_hash: None,
             identity_hash_algo_version: None,
             superseded_by: None,
-            trust_domain: None,
             owner_app_id: None,
-            source: SchemaSource::User,
-            inputs_schema_fields: Vec::new(),
-            source_schemas: Vec::new(),
-            field_to_hash_code: HashMap::new(),
-            hash_to_code: HashMap::new(),
-        };
-
-        schema.regenerate_metadata();
-        schema
+        }
     }
 
     /// Get the declared type for a field. Returns `Any` if no type is declared.
+    #[must_use]
     pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
         static ANY: FieldValueType = FieldValueType::Any;
         self.field_types.get(field_name).unwrap_or(&ANY)

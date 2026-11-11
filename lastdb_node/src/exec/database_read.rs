@@ -106,7 +106,6 @@ impl DatabaseRead<'_> {
             ));
         }
         let include_full = query_flag(target, "include_full");
-        let include_system = query_flag(target, "include_system");
         let mut retired = Vec::new();
         let mut newer = Vec::new();
         let mut schemas = Vec::new();
@@ -119,9 +118,7 @@ impl DatabaseRead<'_> {
             if schema.identity_is_newer_than_binary() {
                 newer.push(entry.name());
             }
-            if entry.state == SchemaState::Blocked
-                || (!include_system && schema.source == SchemaSource::SystemSeed)
-            {
+            if entry.state == SchemaState::Blocked {
                 continue;
             }
             let mut row = if include_full {

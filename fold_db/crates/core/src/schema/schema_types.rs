@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::schema::types::declarative_schemas::DeclarativeSchemaDefinition;
-use crate::schema::types::declarative_schemas::SchemaSource;
 use crate::schema::types::schema::DeclarativeSchemaType;
 
 /// State of a schema within the system.
@@ -238,9 +236,6 @@ pub struct SchemaListEntry {
     pub record_keys: Option<schema_types::record_keys::RecordKeys>,
     /// Declared data field names.
     pub fields: Option<Vec<String>>,
-    /// Transform fields are needed to distinguish transform schemas in a list.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transform_fields: Option<HashMap<String, String>>,
     /// SHA256 hash of the schema content for integrity verification.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
@@ -250,9 +245,6 @@ pub struct SchemaListEntry {
     /// Owning app namespace, when app-owned.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub owner_app_id: Option<String>,
-    /// Origin of this schema in the service.
-    #[serde(default)]
-    pub source: SchemaSource,
     /// Current state of the schema.
     pub state: SchemaState,
 }
@@ -268,11 +260,9 @@ impl SchemaListEntry {
             schema_type: schema.schema_type.clone(),
             record_keys: schema.record_keys.clone(),
             fields: schema.fields.clone(),
-            transform_fields: schema.transform_fields.clone(),
             hash: schema.hash.clone(),
             identity_hash: schema.identity_hash.clone(),
             owner_app_id: schema.owner_app_id.clone(),
-            source: schema.source,
             state,
         }
     }

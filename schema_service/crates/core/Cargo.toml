@@ -4,33 +4,12 @@ name = "schema_service_core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Schema service registry brain — schema dedup, canonical fields, views, transforms. Embedder injected by callers (no fastembed/ONNX dep)."
+description = "Advisory Schema Service core — canonical field vocabulary and deterministic schema advice."
 
 [dependencies]
-schema_core_resolver = { workspace = true }
 schema_types = { workspace = true }
-# App-identity (app_identity v3.1, Lane B2b): DevCert (ES256) + signed
-# envelope (Ed25519) + JCS verification for `POST /v1/apps` and the
-# `owner_app_id` schema-claim gate on `POST /v1/schemas`.
-app_identity_crypto = { workspace = true }
-base64 = { workspace = true }
-blake3 = { workspace = true }
-hmac = { workspace = true }
-
 serde = { workspace = true }
 serde_json = { workspace = true }
-semver = { workspace = true }
-tracing = { workspace = true }
-
-sha2 = { workspace = true }
-async-trait = { workspace = true }
-# Workspace `tokio` enables `rt-multi-thread` and `signal`, and member
-# features are additive, so this crate cannot inherit that entry.
-# `sync` is the in-process mutex and rwlock. `macros` is `try_join!`.
-tokio = { version = "1.0", default-features = false, features = ["sync", "macros"] }
-
-# Declaration ids and mutation-gate challenge ids are UUID v4.
-uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true

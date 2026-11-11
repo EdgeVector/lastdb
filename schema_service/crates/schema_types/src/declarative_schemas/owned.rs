@@ -82,12 +82,10 @@ impl DeclarativeSchemaDefinition {
     }
 
     /// The normalization every wire load applies: `hash` and `superseded_by`
-    /// are not carried, transform metadata is derived again, and an
-    /// `owner_app_id` without an identity hash gets one.
+    /// are not carried, and an `owner_app_id` without an identity hash gets one.
     pub fn normalize_wire(&mut self) {
         self.hash = None;
         self.superseded_by = None;
-        self.regenerate_metadata();
         if self.identity_hash.is_none() && self.owner_app_id.is_some() {
             self.compute_identity_hash();
         }
@@ -95,11 +93,9 @@ impl DeclarativeSchemaDefinition {
 
     /// The definition check a node runs when it loads a schema. The text
     /// matches the node's `Invalid data` error for the same failure.
-    fn validate_runtime_definition(&mut self) -> Result<(), String> {
+    fn validate_runtime_definition(&self) -> Result<(), String> {
         self.validate_definition()
-            .map_err(|error| format!("Invalid data: {error}"))?;
-        self.regenerate_metadata();
-        Ok(())
+            .map_err(|error| format!("Invalid data: {error}"))
     }
 
     /// Every field is named and names its type

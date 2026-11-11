@@ -15,10 +15,7 @@ CLIPPY_ARGS = {
   "broad" => %w[-p lastdb_node --lib --bins],
   "mini" => %w[-p lastdb_node --lib --bins],
   "schema" => %w[
-    -p schema_service_server_http
     -p schema_service_server_lambda
-    -p schema_service_s3
-    --lib
     --bins
   ],
 }.freeze
@@ -33,9 +30,7 @@ LEAF_PREFIXES = {
     lastdb_identity/
   ],
   "schema" => %w[
-    schema_service/crates/server_http/
     schema_service/crates/server_lambda/
-    schema_service/crates/schema_service_s3/
   ],
 }.freeze
 

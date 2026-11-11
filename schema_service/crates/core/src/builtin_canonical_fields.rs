@@ -1,9 +1,8 @@
 //! Curated starting vocabulary. App proposals never extend this list implicitly.
 
 use crate::field_name_policy::NAME_POLICY_VERSION;
-use crate::state::SchemaServiceState;
-use crate::types::CanonicalField;
-use schema_types::{DataClassification, FieldValueType, FoldDbError, FoldDbResult};
+use crate::types::{CanonicalField, DataClassification};
+use schema_types::{FieldValueType, FoldDbError, FoldDbResult};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -17,7 +16,7 @@ struct Entry {
     interest_category: Option<String>,
 }
 
-/// Build and validate the entire source vocabulary before any seed write.
+/// Build and validate the entire curated canonical vocabulary.
 pub fn definitions() -> FoldDbResult<Vec<(String, CanonicalField)>> {
     let entries: Vec<Entry> =
         serde_json::from_str(include_str!("builtin_canonical_fields.json"))
@@ -41,10 +40,4 @@ pub fn definitions() -> FoldDbResult<Vec<(String, CanonicalField)>> {
             Ok((entry.name, field))
         })
         .collect()
-}
-
-/// One batch, with complete validation before the first durable write.
-pub async fn seed(state: &SchemaServiceState) -> FoldDbResult<()> {
-    let fields = definitions()?;
-    state.add_canonical_fields(&fields).await
 }

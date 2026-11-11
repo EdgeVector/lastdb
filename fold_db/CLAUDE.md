@@ -50,6 +50,6 @@ idioms, feature flags, the security model, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules
 - `completed-programs` — closed product surfaces (Desktop/Tauri/web UI — do not resurrect)
 
-See also: workspace-root `CLAUDE.md`, `README.md`, `../schema_service/openapi.yaml`.
+See also: workspace-root `CLAUDE.md`, `README.md`.
 
 Do not write, restore, or run tests. Use product build, format, and lint checks.

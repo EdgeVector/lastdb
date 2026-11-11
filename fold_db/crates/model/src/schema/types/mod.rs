@@ -1,6 +1,5 @@
 pub mod author_clock;
 pub mod cas;
-pub mod data_classification;
 pub mod declarative_schemas;
 pub mod errors;
 pub mod field;
@@ -13,8 +12,7 @@ pub mod query_cursor;
 pub mod schema;
 pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
 pub use cas::CasExpectation;
-pub use data_classification::DataClassification;
-pub use declarative_schemas::{DeclarativeSchemaDefinition, SchemaSource};
+pub use declarative_schemas::DeclarativeSchemaDefinition;
 pub use errors::SchemaError;
 pub use field::{FieldKind, FieldVariant};
 pub use field_value_type::FieldValueType;

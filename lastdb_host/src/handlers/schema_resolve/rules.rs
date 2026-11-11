@@ -117,10 +117,9 @@ fn resolve_matches<'a>(
 
 fn candidate_summary(schema: &Schema) -> String {
     format!(
-        "canonical={} descriptive_name={} owner_app_id={} source={:?}",
+        "canonical={} descriptive_name={} owner_app_id={}",
         schema.name,
         schema.descriptive_name.as_deref().unwrap_or("<none>"),
         schema.owner_app_id.as_deref().unwrap_or("<none>"),
-        schema.source
     )
 }

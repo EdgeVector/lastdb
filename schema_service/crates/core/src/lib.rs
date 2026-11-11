@@ -1,135 +1,54 @@
-//! schema_service_core
-//!
-//! The registry brain of the schema service. Ported from
-//! `fold_db::schema_service::*` during Phase 2 of
-//! `projects/extract-schema-service-repo`.
-//!
-//! This crate has ZERO fastembed/ONNX dependencies — callers inject an
-//! [`Embedder`] implementation via [`SchemaServiceState::new_in_memory`]
-//! (local tools use [`InMemorySchemaPersistence`]; data is lost on restart)
-//! or [`SchemaServiceState::new_with_external`] (cloud Lambda uses S3).
-//!
-//! # Immutability contract
-//!
-//! **Everything the schema service approves is immutable forever.**
-//!
-//! Schemas, views, transforms, classifications, and any other artifact
-//! issued by this service is content-addressed and never mutated in place
-//! after approval. There is no in-place "update" path: a change ships as
-//! a NEW artifact with a NEW identity, registered alongside the old one.
-//! Old artifacts continue to exist and resolve until something explicitly
-//! removes them (a deliberate, observable action — not a side effect of
-//! upgrading).
-//!
-//! This is a hard contract, not a convention. Downstream correctness
-//! depends on it:
-//!
-//! * **Sync replay is convergent.** Two devices replaying the same log
-//!   compute identical records because the WASM they fetch (by hash, from
-//!   here) is bit-identical. There is no version-skew failure mode —
-//!   a `wasm_hash` mismatch is forgery, not stale data.
-//! * **fold_db needs no migration plumbing for view changes.** The local
-//!   schema cache can assume a view's shape is final from registration
-//!   on; reorganizing the data model means registering new schemas
-//!   that field-map onto the old field keys, not editing the old schema.
-//!
-//! "Approved" is the gate. Pre-approval, drafts are scratchpad. Once
-//! approval succeeds the artifact is frozen; any subsequent change is
-//! a distinct artifact registration with its own hash.
-
-// Time, env, filesystem, threads, runtimes, and randomness stay in the shell.
-// The ban list is `clippy.toml` in this crate, so it does not apply to the workspace.
-#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+//! Advisory Schema Service core: curated canonical vocabulary and deterministic
+//! draft schema advice (`GET /v1/fields/vocabulary`, `POST /v1/advice/schema`).
 
 pub mod advice;
-pub mod app_identity;
-pub mod app_release;
-pub mod blocking_runtime;
 pub mod builtin_canonical_fields;
-pub mod builtin_schemas;
-pub mod clock;
-pub mod declared_fields;
-pub mod embedder;
-pub mod external_persistence;
-mod field_identity_validation;
 pub mod field_name_policy;
-pub mod ids;
-mod lock_helpers;
-pub mod memory_persistence;
-pub mod name_validator;
-pub mod portable_schema;
-pub mod registry_index;
-pub mod resolver_config;
-pub mod schema_config;
-pub mod schema_expansion_commit;
-pub mod schema_mutation_gate;
-pub mod schema_resolver_abi;
-pub mod shared_surface;
-pub mod snapshot;
-pub mod state;
-mod state_anti_fields;
-mod state_canonicalization;
-mod state_expansion;
-mod state_expansion_persist;
-mod state_fields;
-mod state_matching;
-mod state_native_resolve;
-pub use state_expansion::{is_cross_key_layout, key_layout_fingerprint, KeyLayoutFingerprint};
-pub use state_native_resolve::{
-    field_context_text, proposal_field_id, FieldMatchProbeHit, FieldMatchProbeItem,
-    FieldMatchProbeReply, FieldMatchProbeRequest, FieldMatchProbeResponse,
-};
 pub mod types;
-mod vocabulary_admission;
-mod vocabulary_commit;
 mod vocabulary_matching;
-pub use vocabulary_commit::CanonicalVocabularyWrite;
 
-pub use app_identity::{
-    env_label, error_only_body, invalid_app_id_body, invalid_declare_field_body,
-    missing_dev_cert_body, reason_detail_body, reason_only_body, AppIdentityConfig,
-    AppPromoteError, AppPromoteOutcome, AppRegisterError, AppRegisterOutcome, AppRegisterRequest,
-    AppUpdateError, AppUpdateOutcome, AppUpdateRequest, ListLiveAppsReply, PromoteAppReply,
-    PublicAppReply, RegisterAppReply, SchemaClaimError, UpdateAppReply,
-};
-pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
-pub use clock::{Clock, FrozenInstant};
-pub use declared_fields::{
-    mint_declaration_id, DeclareFieldInput, DeclareFieldReply, DeclareFieldRequest, DeclaredField,
-    DeclaredFieldError, DeclaredFieldReadReply, DeclaredFieldRecord, DeclaredFieldRegistry,
-};
-pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
-pub use external_persistence::ExternalSchemaPersistence;
-pub use ids::IdGen;
-pub use memory_persistence::InMemorySchemaPersistence;
-pub use registry_index::{
-    RegistryIndexEntry, RegistryIndexEnvelope, RegistryIndexReply, RegistryIndexSignature,
-    RegistryIndexSuccess, REGISTRY_INDEX_FORMAT_VERSION,
-};
-pub use resolver_config::{
-    AlgorithmSelector, ResolverConfig, ResolverConfigError, NATIVE_COMPONENT_COVER_ALGORITHM_ID,
-    NATIVE_COMPONENT_COVER_ALGORITHM_VERSION, RESOLVER_CONFIG_FORMAT_VERSION,
-};
-pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
-pub use schema_mutation_gate::{
-    catalog_size_difficulty_bits, log_schema_mutation_gate_result,
-    max_difficulty_bits_for_challenge_ttl, node_signature_payload, pow_input, pow_satisfies,
-    schema_payload_hash, SchemaMutationChallengeReply, SchemaMutationChallengeRequest,
-    SchemaMutationChallengeResponse, SchemaMutationGateConfig, SchemaMutationGateError,
-    SchemaMutationGateHeaders, SchemaMutationGateQuotaStore, SchemaMutationGateStore,
-    HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE,
-    HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
-    HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
-};
-pub use shared_surface::{
-    include_in_shared_only_projection, validate_shared_surface_request, validate_surface_metadata,
-    SharedSurfaceCompatibility, SharedSurfaceMetadata, SharedSurfaceProposal,
-    SharedSurfaceProvenance, SharedSurfacePublishAttachRequest, SharedSurfacePurpose,
-    SharedSurfaceValidationError, SharedSurfaceVisibility,
-};
-pub use snapshot::{
-    offline_is_system_schema, project_snapshot_shared_only, AppArtifact, AppMetadata, AppRecord,
-    AppTier, SnapshotEmbeddings, SnapshotEnvelope, SnapshotImportReport, SNAPSHOT_FORMAT_VERSION,
-};
-pub use state::{SchemaServiceState, SchemaStorage};
-pub use state_matching::{REUSE_PURPOSE_THRESHOLD, REUSE_STRUCT_FLOOR};
+use schema_types::FoldDbResult;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashMap};
+
+pub use types::{CanonicalField, DataClassification, MAX_SENSITIVITY_LEVEL};
+
+/// Immutable in-memory advisory state constructed from the curated canonical vocabulary.
+#[derive(Debug, Clone)]
+pub struct SchemaServiceState {
+    pub(crate) canonical_fields: HashMap<String, CanonicalField>,
+    vocabulary_json: Value,
+}
+
+impl SchemaServiceState {
+    /// Load and validate the built-in canonical field vocabulary.
+    ///
+    /// # Errors
+    /// Returns an error if the embedded canonical seed violates vocabulary or naming rules.
+    pub fn from_builtin() -> FoldDbResult<Self> {
+        let definitions = builtin_canonical_fields::definitions()?;
+        let canonical_fields =
+            field_name_policy::canonical_fields_after_insert(&HashMap::new(), &definitions)?;
+        let sorted: BTreeMap<&String, &CanonicalField> = canonical_fields.iter().collect();
+        let vocabulary_json = json!({
+            "name_policy_version": field_name_policy::NAME_POLICY_VERSION,
+            "fields": sorted,
+        });
+        Ok(Self {
+            canonical_fields,
+            vocabulary_json,
+        })
+    }
+
+    /// Public standard vocabulary document (`GET /v1/fields/vocabulary`).
+    #[must_use]
+    pub const fn canonical_vocabulary(&self) -> &Value {
+        &self.vocabulary_json
+    }
+}
+
+/// Standard single-field JSON error envelope.
+#[must_use]
+pub fn error_only_body(message: &str) -> Value {
+    json!({ "error": message })
+}

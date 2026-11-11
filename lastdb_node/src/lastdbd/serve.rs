@@ -46,21 +46,6 @@ fn route_app_verb(
             ctx,
             exec::execute_apps_declare_schema_route(req, ctx, host),
         )),
-        ("POST", Some("/api/apps/verify-distribution-ready")) => Some(exec::block_on_route(
-            handle,
-            ctx,
-            exec::execute_apps_verify_distribution_ready_route(req, ctx, host),
-        )),
-        ("POST", Some("/api/apps/shared-surface/publish-attach")) => Some(exec::block_on_route(
-            handle,
-            ctx,
-            exec::execute_apps_shared_surface_publish_attach_route(req, ctx, host),
-        )),
-        ("GET", Some("/api/apps/shared-surface/attachments")) => Some(exec::block_on_route(
-            handle,
-            ctx,
-            exec::execute_apps_shared_surface_attachments_route(req, ctx, host),
-        )),
         _ => None,
     }
 }
@@ -81,15 +66,6 @@ fn route_request(
     let path = req.target.split(['?', '#']).next();
     if req.method == "GET" && path == Some("/health") {
         return storage_health_response(host);
-    }
-    // Schema loads (`brain init`, `kanban init`) and local app-schema
-    // declaration share the owner socket and its owner-only peer-cred gate.
-    if req.method == "POST" && path == Some("/api/schemas/load") {
-        return exec::block_on_route(
-            handle,
-            ctx,
-            exec::execute_load_schemas_route(req, ctx, host),
-        );
     }
     if let Some(response) = route_app_verb(handle, host, req, ctx, path) {
         return response;

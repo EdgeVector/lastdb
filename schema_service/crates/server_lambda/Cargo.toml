@@ -4,7 +4,7 @@ name = "schema_service_server_lambda"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "AWS Lambda wrapper around schema_service_server_shared. Deployed to schema.folddb.com via schema-infra."
+description = "AWS Lambda handler for the advisory Schema Service (`GET /v1/health`, `GET /v1/fields/vocabulary`, `POST /v1/advice/schema`)."
 
 [[bin]]
 bench = false
@@ -17,62 +17,19 @@ path = "src/main.rs"
 
 [features]
 default = []
-fastembed = ["schema_service_server_shared/fastembed-layer"]
+# Retained as an empty feature flag so schema-infra's `--features fastembed`
+# build invocation remains compatible across the advisory cutover.
+fastembed = []
 
 [dependencies]
-schema_service_core = { path = "../core" }
-schema_service_server_shared = { path = "../server_shared" }
-schema_service_s3 = { path = "../schema_service_s3" }
-schema_types = { workspace = true }
-
-# X-API-Key validation for `GET /v1/snapshot` (auth-gated by design —
-# the route is the read side of the dev-hydration flow): SHA-256 hash +
-# DynamoDB `GetItem` on the deployment's key table, see `src/api_key.rs`.
-sha2 = { workspace = true }
-
-# AWS Lambda runtime
+schema_service_core = { workspace = true }
 lambda_http = "0.13"
-# Diet cut #5: only what this binary uses (`#[tokio::main]`,
-# `tokio::sync::OnceCell`). `full` pulled process/signal/net/fs and friends
-# the Lambda never needs.
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
-
-# `lambda_http` re-exports `http::Request`/`Response` but not the `http`
-# crate itself. `cors_builder` names `http::response::Builder` as a
-# return type (non-test code), so depend on `http` directly.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 http = { workspace = true }
-
-# AWS SDK (S3 for schema persistence; DynamoDB for `X-API-Key`
-# validation on `GET /v1/snapshot`; SQS for release verifier jobs).
-# Diet cut #5: drop aws-config default features that pull SSO / external
-# credential-process clients — Lambda uses the execution role + env only.
-# The member declares aws-config itself with default-features = false.
-aws-config = { version = "1", default-features = false, features = [
-    "behavior-version-latest",
-    "rt-tokio",
-    "default-https-client",
-] }
-aws-sdk-s3 = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
-aws-sdk-sqs = { workspace = true }
-
-# `typed_json_body` names `DeserializeOwned`. The crate is already in the
-# binary through the schema crates. This line only makes that bound legal.
 serde = { workspace = true }
 serde_json = { workspace = true }
-
 tracing = { workspace = true }
-
-# Shared observability stack: JSON FMT to stdout (Lambda → CloudWatch).
-# Workspace dep is default-features=false; leave `otel` off so the Lambda
-# graph drops OTel/reqwest (diet cut #4). `init_lambda` still works as
-# JSON+optional-Sentry without the otel feature. Sentry stays compile-time
-# optional via observability's `sentry` feature (not enabled here).
 observability = { workspace = true }
-
-# Diet cut #5: removed vendored OpenSSL. The Lambda AWS stack rides
-# hyper-rustls; nothing in this crate referenced openssl symbols, and the
-# vendored build was pure compile-time cost for AL2023 packaging.
 
 [lints]
 workspace = true

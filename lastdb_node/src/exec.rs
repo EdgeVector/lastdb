@@ -12,8 +12,6 @@
 //! daemon serves in its own way:
 //! - Request/response wire parsing (shared `lastdb_host::wire`) + the final
 //!   envelope/error render (shared `lastdb_host::handlers::render`).
-//! - `POST /api/schemas/load` — a setup verb on the owner socket (first-time
-//!   schema loads for brain bootstrap).
 //! - `GET /api/schemas` / `GET /api/schema/{name}` / `POST /api/schemas/declare`
 //!   — the catalog listing (with record counts), the single-schema fetch, and
 //!   the owner direct-declare, which resolve schema names via the shared
@@ -27,7 +25,6 @@ use std::time::Duration;
 use base64::Engine as _;
 use fold_db::access::AccessContext;
 use fold_db::schema::schema_types::SchemaWithState;
-use fold_db::schema::types::declarative_schemas::SchemaSource;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::DataRoute;
@@ -166,7 +163,6 @@ mod query_mutation_routes;
 mod query_read_receipt;
 mod schema_list_rows;
 mod schema_routes;
-mod setup_routes;
 mod socket_queue;
 mod timeouts;
 pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
@@ -181,5 +177,4 @@ use introspection_routes::*;
 use query_filters::*;
 use query_mutation_routes::*;
 use schema_routes::*;
-pub use setup_routes::*;
 pub use timeouts::*;

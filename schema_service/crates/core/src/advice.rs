@@ -1,26 +1,22 @@
-//! Advice for one draft schema declaration (`POST /v1/advice/schema`,
-//! `design-lastdb-advisory-schema-service` section 9).
+//! Advice for one draft schema declaration (`POST /v1/advice/schema`).
 //!
 //! A node declares its schemas locally, so nothing here can block a declare.
-//! Advice reads the canonical vocabulary and the catalog, writes nothing, and
-//! returns findings: canonical matches, names that mean something else here,
-//! near names, name policy problems, missing types, usual classifications, and
-//! schemas of other apps that cover most of the same fields.
+//! Advice reads the canonical vocabulary and returns findings: canonical
+//! matches, names that mean something else here, near names, name policy
+//! problems, missing types, and usual classifications.
 
-use schema_types::{DataClassification, FieldValueType};
+use crate::types::DataClassification;
+use schema_types::FieldValueType;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 
 mod findings;
 
-/// The most fields one draft may name. A larger draft is refused before any
-/// matching runs.
+/// Maximum fields one draft may name before advice refuses it.
 pub const MAX_ADVICE_FIELDS: usize = 512;
 
-/// One draft declaration: the JSON an app puts in `lastdb-app.json`
-/// `schemas`, as written. `app_id`, when given, leaves that app's own schemas
-/// out of the similar-schema findings.
+/// One draft declaration: the JSON an app puts in `lastdb-app.json` `schemas`.
 #[derive(Debug, Deserialize)]
 pub struct SchemaAdviceRequest {
     #[serde(default)]
@@ -37,18 +33,13 @@ pub enum AdviceKind {
     Abbreviation,
     MissingType,
     SuggestedClassification,
-    SimilarSchema,
 }
 
-/// The catalog facts behind a finding. Every member is optional.
+/// Catalog facts behind a finding. Every member is optional.
 #[derive(Debug, Default, Serialize)]
 pub struct AdviceEvidence {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canonical_field_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema_identity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub app_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,7 +52,7 @@ pub struct AdviceEvidence {
 #[derive(Debug, Serialize)]
 pub struct AdviceFinding {
     pub kind: AdviceKind,
-    /// The field the finding is about; `None` for a schema-level finding.
+    /// Field the finding is about; `None` for a schema-level finding.
     pub field: Option<String>,
     pub message: String,
     pub evidence: AdviceEvidence,
@@ -75,26 +66,21 @@ pub struct SchemaAdviceResponse {
 pub enum SchemaAdviceReply {
     Ready(SchemaAdviceResponse),
     Invalid(String),
-    Failed(String),
 }
 
 impl SchemaAdviceReply {
-    /// The response, or the HTTP status and error body.
+    /// Convert to response or HTTP status + JSON error body.
     ///
     /// # Errors
-    /// HTTP 400 for a draft advice cannot read, HTTP 500 for a lock failure.
+    /// HTTP 400 when `request.schema` cannot be parsed as a draft object.
     pub fn into_http(self) -> Result<SchemaAdviceResponse, (u16, Value)> {
         match self {
             Self::Ready(response) => Ok(response),
             Self::Invalid(message) => Err((400, crate::error_only_body(&message))),
-            Self::Failed(message) => Err((500, crate::error_only_body(&message))),
         }
     }
 }
 
-/// The parts of a draft that advice reads. Parsing is loose on purpose: a
-/// member advice does not understand is ignored, and a type that does not
-/// parse counts as missing, so any manifest entry gets advice.
 struct Draft {
     fields: Vec<String>,
     types: HashMap<String, FieldValueType>,
@@ -103,7 +89,6 @@ struct Draft {
     classified: BTreeSet<String>,
 }
 
-/// The name and value of each member of the object `member`, if it is one.
 fn members<'a>(
     object: &'a serde_json::Map<String, Value>,
     member: &str,

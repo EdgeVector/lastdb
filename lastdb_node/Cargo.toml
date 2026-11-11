@@ -49,8 +49,7 @@ lastdb_identity = { workspace = true }
 lastdb_host = { workspace = true }
 folddb_profile = { workspace = true }
 schema_types = { workspace = true }
-schema_service_client = { workspace = true }
-schema_service_core = { workspace = true }
+semver = { workspace = true }
 app_identity_crypto = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

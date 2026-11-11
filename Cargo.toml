@@ -9,14 +9,9 @@ members = [
     "fold_db/crates/observability",
 
     # schema_service crates
-    "schema_service/crates/schema_core_resolver",
     "schema_service/crates/schema_types",
     "schema_service/crates/core",
-    "schema_service/crates/server_shared",
-    "schema_service/crates/server_http",
     "schema_service/crates/server_lambda",
-    "schema_service/crates/client",
-    "schema_service/crates/schema_service_s3",
 
     # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
     "app_identity_crypto",
@@ -75,12 +70,9 @@ default-members = [
     "fold_db/crates/core",
     "fold_db/crates/model",
     "fold_db/crates/observability",
+    "schema_service/crates/schema_types",
     "schema_service/crates/core",
-    "schema_service/crates/server_shared",
-    "schema_service/crates/server_http",
     "schema_service/crates/server_lambda",
-    "schema_service/crates/client",
-    "schema_service/crates/schema_service_s3",
     "app_identity_crypto",
     "folddb_profile",
 
@@ -91,21 +83,6 @@ default-members = [
     "lastdb_host",
     "lastdb_node",
 ]
-
-exclude = [
-
-    # Vendored dependency forks are not workspace members; they are wired
-    # in via [patch.crates-io] below.
-    "vendor/fastembed-4.9.0-no-image",
-]
-
-# Vendored fastembed 4.9.0. The fork keeps text embeddings for schema
-# service seed generation and drops image, rerank, and sparse modules.
-# TextEmbedding stays on the v4.9.0 ONNX Runtime so embedding floats stay
-# the same. A 5.x bump moves ONNX Runtime 1.20 to 1.28. The Mini daemon
-# does not link this crate.
-[patch.crates-io]
-fastembed = { path = "vendor/fastembed-4.9.0-no-image" }
 
 [workspace.package]
 version = "0.1.0"
@@ -377,10 +354,8 @@ lastdb_model = { path = "fold_db/crates/model" }
 # `features = ["otel"]` (or leave bare for Lambda light). Package `default =
 # ["otel"]` still applies to path deps that do not go through this key.
 observability = { path = "fold_db/crates/observability", default-features = false }
-schema_core_resolver = { path = "schema_service/crates/schema_core_resolver" }
 schema_types = { path = "schema_service/crates/schema_types" }
 schema_service_core = { path = "schema_service/crates/core" }
-schema_service_client = { path = "schema_service/crates/client" }
 app_identity_crypto = { path = "app_identity_crypto" }
 folddb_profile = { path = "folddb_profile" }
 env_flag = { path = "env_flag" }
@@ -391,27 +366,10 @@ cloud_backup_client = { path = "cloud_backup_client" }
 cloud_backup_plan = { path = "cloud_backup_plan" }
 laststore = { path = "vendor/laststore" }
 
-# External — copied verbatim from schema_service's workspace.dependencies
-# Every actix-web default feature except `http2`: the schema service binds
-# plain HTTP/1.1 only, and `http2` pulls h2 0.3, which has RUSTSEC-2026-0258
-# with no 0.3 fix.
-actix-web = { version = "4.13", default-features = false, features = [
-  "macros",
-  "compress-brotli",
-  "compress-gzip",
-  "compress-zstd",
-  "cookies",
-  "unicode",
-  "compat",
-  "ws",
-] }
-actix-cors = "0.7"
 tracing = "0.1"
-tracing-actix-web = "0.7"
 tracing-opentelemetry = "0.28"
 opentelemetry = "0.27"
 http = "1"
-futures-util = "0.3"
 clap = { version = "4.4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
@@ -438,52 +396,8 @@ base64 = "0.22"
 # derive surface. Converging thiserror needs the opentelemetry 0.27 -> 0.28+
 # bump first.
 thiserror = "1"
-# `default-features = false` drops each SDK's legacy `rustls` feature. That
-# feature is `aws-smithy-runtime/tls-rustls`, which pulls the whole hyper 0.14
-# stack (hyper 0.14, hyper-rustls 0.24, rustls 0.21, tokio-rustls 0.24,
-# rustls-webpki 0.101, http-body 0.4) alongside the modern one. The HTTPS
-# client the SDKs actually use comes from `default-https-client`
-# (aws-smithy-http-client/rustls-aws-lc). On the current SDK that legacy
-# `rustls` feature is still a default, so a member or dev-dependency that
-# omits `default-features = false` turns the old connector back on for the
-# whole resolve. Use `workspace = true` for these crates.
-#
-# Keep aws-sdk-s3, aws-sdk-dynamodb, and aws-sdk-sqs on one smithy release.
-# aws-config has no workspace key. schema_service/crates/server_lambda/Cargo.toml
-# declares it directly, and Cargo.lock keeps it on the same smithy release.
-# They publish together; updating one crate's lock entry without the others
-# duplicates aws-smithy-http, aws-smithy-json, and the HTTP stack under them.
-# `http-1x` selects the http 1 types. `http-02x` is the optional http 0.2
-# compatibility feature and stays off.
-#
-# aws-sdk-s3's other non-default-critical default, `sigv4a`, is also off. It
-# gates `aws-sigv4/sigv4a`, which pulls p256 0.11 and with it the entire
-# superseded RustCrypto major line (ecdsa 0.14, elliptic-curve 0.12, ff 0.12,
-# group 0.12, crypto-bigint 0.4, der 0.6, spki 0.6, sec1 0.3, pkcs8 0.9,
-# const-oid 0.9, base16ct 0.1, rfc6979 0.3, signature 1.6) next to the 0.13/0.7
-# line the rest of the graph uses. SigV4A only signs S3 Multi-Region Access
-# Point requests; this workspace addresses buckets by plain name from env
-# (SCHEMA_STORE_BUCKET, SYNC_BUCKET, DASHBOARD_BUCKET, R2_BUCKET_NAME) and
-# talks to R2/B2, which do not implement SigV4A. Re-enable this feature here if
-# an MRAP ARN ever becomes a bucket target.
-aws-sdk-s3 = { version = "1", default-features = false, features = [
-    "http-1x",
-    "default-https-client",
-    "rt-tokio",
-] }
-aws-sdk-dynamodb = { version = "1", default-features = false, features = [
-    "default-https-client",
-    "rt-tokio",
-] }
-# The schema service Lambda sends release verifier jobs. Same feature set and
-# smithy release as aws-sdk-dynamodb.
-aws-sdk-sqs = { version = "1", default-features = false, features = [
-    "default-https-client",
-    "rt-tokio",
-] }
 async-trait = "0.1"
 sha2 = "0.10"
-blake3 = "1"
 uuid = "1.0"
 sentry = { version = "0.47", default-features = false }
 rand = "0.8"
