@@ -110,7 +110,7 @@ jobs:
                   return 1
 
           root = os.environ["RUNNER_TEMP"]
-          # 0 complete, 1 correctness, 2 cap, 3 scaling (contention over 1%).
+          # 0 complete, 1 correctness, 2 cap, 3 scaling.
           sys.exit(combine_exit(
               code(os.path.join(root, "mutation-log-load-exit")),
               code(os.path.join(root, "mutation-log-cleanup-exit"))))

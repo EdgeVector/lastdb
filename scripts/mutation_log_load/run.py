@@ -26,7 +26,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_region_environment, allow_role, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   refuse_prod_environment, snap_partition, unprocessed_ids)
+                   load_partitions, refuse_prod_environment, unprocessed_ids)
 from plan import phases
 from stats import format_summary
 from node_auth import NodeKey, TokenError, account_id, authorization
@@ -82,9 +82,8 @@ def aws(service, operation, payload):
 
 
 def cleanup(table, database_id, ledger):
-    base = allow_stream(database_id)
-    purge(table, base, ledger)
-    purge(table, snap_partition(base), ledger)
+    for partition in load_partitions(database_id):
+        purge(table, partition, ledger)
 
 
 def purge(table, partition, ledger):

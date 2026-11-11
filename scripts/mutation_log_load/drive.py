@@ -7,14 +7,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 from cost import CapExceeded
 from faults import (
-    MAX_CONTENTION_TRIES, already_created, backoff_seconds, capacity_finding,
-    is_contention, is_duplicate, is_throttle,
+    UnresolvedContention, already_created, backoff_seconds, capacity_finding,
+    is_contention, is_duplicate, is_throttle, retry_action,
 )
-from logcheck import collect_pages, verify_log
-from plan import TRIM_WRITERS, still_running, writer_calls
+from finish import check_log, read_log, trim_log
+from plan import still_running, writer_calls
 from routes import (
-    PAYLOAD, READS, RouteError, check_success, path_for, prove_trimmed_list,
-    request_body, require_ack, require_head, require_snapshot, require_trim,
+    PAYLOAD, READS, RouteError, check_success, path_for, request_body,
+    require_ack, require_head,
 )
 from stats import finding_message, tier_summary
 
@@ -88,6 +88,11 @@ class Session:
         self.throttle_503 = 0
         self.other_503 = 0
         self.write_attempts = 0
+        self.contention_unresolved = 0
+        self.unresolved = []
+        self.acked_through = 0
+        self.ack_holds = True
+        self.audit_cursor = 0
         self.accepted = {}
         self._lock = threading.Lock()
         self.stop = threading.Event()
@@ -99,7 +104,7 @@ class Session:
 
     def begin_tier(self, spec):
         self.device_prefix = "{0}{1}".format(spec.kind, spec.writers)
-        self.allow_contention = spec.kind == "steady"
+        self.allow_contention = spec.kind in ("full", "steady")
         self.tier_reads = self.ledger.snapshot()["reads"]
         self.samples = []
         self.errors = 0
@@ -108,6 +113,9 @@ class Session:
         self.throttle_503 = 0
         self.other_503 = 0
         self.write_attempts = 0
+        self.contention_unresolved = 0
+        self.unresolved = []
+        self.ack_holds = True
 
     def call(self, operation, required=False, accept=(), **fields):
         status, payload = self.exchange(operation, required=required, accept=accept, **fields)
@@ -128,7 +136,7 @@ class Session:
             self._charge(operation, body)
             status, payload, latency = self.transport("POST", path_for(operation), body)
             self._note_try(operation, latency)
-            if self._retry(status, payload, tries):
+            if self._retry(status, payload, tries, operation, fields):
                 tries += 1
                 self._pause(tries)
                 continue
@@ -152,21 +160,32 @@ class Session:
             if operation not in READS:
                 self.write_attempts += 1
 
-    def _retry(self, status, payload, tries):
+    def _retry(self, status, payload, tries, operation, fields):
         throttle = is_throttle(status, payload)
         contention = is_contention(status, payload)
-        if not throttle and not contention:
+        action = retry_action(throttle, contention, tries, self.allow_contention)
+        if action == "done":
             return False
         with self._lock:
             if throttle:
                 self.throttle_503 += 1
             else:
                 self.contention_503 += 1
-        retry = throttle or self.allow_contention
-        if retry and tries + 1 < MAX_CONTENTION_TRIES:
+            if action == "unresolved":
+                self._remember_unresolved(operation, fields)
+        if action == "retry":
             return True
+        if action == "unresolved":
+            raise UnresolvedContention()
         self._fail()
         raise LoadError("http")
+
+    def _remember_unresolved(self, operation, fields):
+        self.contention_unresolved += 1
+        if operation != "append" or "seq" not in fields:
+            return
+        device = fields.get("device_id") or _device(self.device_prefix, fields["index"])
+        self.unresolved.append((device, fields["seq"]))
 
     def _pause(self, tries):
         with self._lock:
@@ -278,36 +297,50 @@ def drive(spec, session):
             _steady(spec, session, started)
         else:
             run_writers(spec.writers, lambda index: _script(spec, session, index))
-        _audit(session)
-        if spec.trim:
-            _trim(session)
+        check_log(session)
+        if spec.trim and not session.contention_unresolved:
+            trim_log(session)
     except CapExceeded:
         return _report(session, session.clock() - started, "cap", "")
     except (LoadError, RouteError) as error:
         return _report(session, session.clock() - started, "error", str(error))
-    if capacity_finding(session.throttle_503, spec.kind, session.contention_503,
-                        session.write_attempts):
-        return _report(session, session.clock() - started, "scaling", finding_message(
-            session.throttle_503, spec.kind, session.contention_503, session.write_attempts))
+    message = _finding(session, spec)
+    if session.contention_unresolved and not session.ack_holds:
+        return _report(session, session.clock() - started, "error", message)
+    if session.contention_unresolved or capacity_finding(
+            session.throttle_503, spec.kind, session.contention_503, session.write_attempts):
+        return _report(session, session.clock() - started, "scaling", message)
     return _report(session, session.clock() - started, "complete", "")
 
 
+def _finding(session, spec):
+    return finding_message(
+        session.throttle_503, spec.kind, session.contention_503,
+        session.write_attempts, session.contention_unresolved)
+
+
 def _script(spec, session, index):
-    for operation, writer, seq in writer_calls(spec, index):
-        if session.call(operation, index=writer, seq=seq) is None:
-            raise LoadError("http")
-    if spec.kind == "full":
-        _ack_cursor(session, index)
+    try:
+        for operation, writer, seq in writer_calls(spec, index):
+            if session.call(operation, index=writer, seq=seq) is None:
+                raise LoadError("http")
+        if spec.kind == "full":
+            _ack_cursor(session, index)
+    except UnresolvedContention:
+        return
 
 
 def _steady(spec, session, started):
     def worker(index):
         seq = 1
-        while still_running(spec, session.clock() - started) and not session.stop.is_set():
-            if session.call("append", index=index, seq=seq) is None:
-                raise LoadError("http")
-            _ack_cursor(session, index)
-            seq += 1
+        try:
+            while still_running(spec, session.clock() - started) and not session.stop.is_set():
+                if session.call("append", index=index, seq=seq) is None:
+                    raise LoadError("http")
+                _ack_cursor(session, index)
+                seq += 1
+        except UnresolvedContention:
+            return
 
     run_writers(spec.writers, worker)
 
@@ -323,49 +356,16 @@ def _ack_cursor(session, index):
     if cursor is None or cursor < 1:
         raise LoadError("ack")
     acked = session.call("ack", required=True, index=index, seq=cursor)
-    if acked is None or require_ack(acked) < cursor:
+    through = None if acked is None else require_ack(acked)
+    if through is None or through < cursor:
         raise LoadError("ack")
-
-
-def _audit(session):
     with session._lock:
-        accepted = {device: set(seqs) for device, seqs in session.accepted.items()}
-    verify_log(_pages(session), accepted)
+        if through > session.acked_through:
+            session.acked_through = through
 
 
 def _pages(session):
-    head = session.call("head", required=True, index=0)
-    if head is None:
-        raise LoadError("log")
-
-    def fetch(after):
-        page = session.call("list", required=True, index=0, after=after)
-        if page is None:
-            raise LoadError("log")
-        return page
-
-    try:
-        return collect_pages(require_head(head), fetch)
-    except RouteError as error:
-        raise LoadError("log") from error
-
-
-def _trim(session):
-    head = session.call("head", required=True)
-    cursor = require_head(head)
-    if cursor is None or cursor < TRIM_WRITERS:
-        raise LoadError("trim")
-    for device in sorted(session.accepted):
-        acked = session.call("ack", required=True, device_id=device, seq=cursor)
-        if acked is None or require_ack(acked) < cursor:
-            raise LoadError("trim")
-    require_snapshot(session.call("snapshot", required=True))
-    through = require_trim(session.call("trim", required=True))
-    if through < cursor:
-        raise LoadError("trim")
-    status, listed = session.exchange(
-        "list", required=True, accept=(409,), index=0, after=0)
-    prove_trimmed_list(through, status, listed)
+    return read_log(session)
 
 
 def _report(session, elapsed_ms, stopped, message):
@@ -375,6 +375,7 @@ def _report(session, elapsed_ms, stopped, message):
         "throttle_503": session.throttle_503,
         "other_503": session.other_503,
         "write_attempts": session.write_attempts,
+        "contention_unresolved": session.contention_unresolved,
     }
     summary = tier_summary(
         session.samples, session.errors, elapsed_ms, counters, estimate, session.tier_reads)

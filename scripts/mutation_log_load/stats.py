@@ -1,6 +1,6 @@
 """Latency percentiles and throughput for one load run."""
 
-from faults import capacity_finding
+from faults import scaling_finding
 
 
 def percentile(samples, percent):
@@ -37,18 +37,23 @@ def tier_summary(samples, errors, elapsed_ms, counters, estimate, tier_reads):
         "write_attempts": attempts,
         "contention_rate": (counters["contention_503"] / attempts) if attempts else 0,
         "throttle_rate": (counters["throttle_503"] / attempts) if attempts else 0,
+        "contention_unresolved": counters.get("contention_unresolved", 0),
         "partition_bytes": estimate["partition_bytes"],
         "reads": estimate["reads"] - tier_reads,
     })
     return summary
 
 
-def finding_message(throttles, kind, contention, attempts):
+def finding_message(throttles, kind, contention, attempts, unresolved=0):
     parts = []
     if throttles:
         parts.append("throttle")
-    if capacity_finding(0, kind, contention, attempts):
+    if scaling_finding(kind, contention, attempts):
         parts.append("contention above 1 percent of write attempts")
+    elif contention and not unresolved and kind in ("full", "steady"):
+        parts.append("contention retried")
+    if unresolved:
+        parts.append("contention unresolved {0}".format(unresolved))
     return ", ".join(parts)
 
 
@@ -62,7 +67,8 @@ def format_summary(summary):
         lines.append(
             "  503 contention={contention_503} rate={contention_rate:.4f} "
             "throttle={throttle_503} throttle_rate={throttle_rate:.4f} "
-            "other={other_503} writes={write_attempts}".format(**summary)
+            "other={other_503} unresolved={contention_unresolved} "
+            "writes={write_attempts}".format(**summary)
         )
     if "partition_bytes" in summary:
         lines.append(

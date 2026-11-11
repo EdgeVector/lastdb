@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from faults import (
     EXIT_CAP, EXIT_CORRECTNESS, EXIT_OK, EXIT_SCALING, already_created,
     backoff_seconds, capacity_finding, exit_code, is_contention, is_duplicate,
-    is_throttle, scaling_finding, worst_exit,
+    is_throttle, retry_action, scaling_finding, worst_exit,
 )
 
 
@@ -35,6 +35,7 @@ class Classifier(unittest.TestCase):
         throttled = (
             {"code": "retry_later", "field": "mutation_log.transaction.throttled"},
             {"code": "retry_later", "field": "mutation_log.submission.throttled"},
+            {"code": "retry_later", "field": "mutation_log.query.throttled"},
         )
         for body in throttled:
             self.assertTrue(is_throttle(503, body))
@@ -48,9 +49,15 @@ class Classifier(unittest.TestCase):
         for body in rejected:
             self.assertFalse(is_throttle(503, body), body)
         self.assertTrue(capacity_finding(1, "full", 0, 10))
-        self.assertFalse(capacity_finding(0, "full", 5, 10))
+        self.assertTrue(capacity_finding(0, "full", 5, 10))
+        self.assertFalse(capacity_finding(0, "full", 0, 10))
         self.assertTrue(capacity_finding(0, "steady", 2, 100))
-        self.assertFalse(capacity_finding(0, "steady", 1, 100))
+        self.assertTrue(capacity_finding(0, "steady", 1, 100))
+        self.assertEqual(retry_action(False, True, 0, True), "retry")
+        self.assertEqual(retry_action(False, True, 7, True), "unresolved")
+        self.assertEqual(retry_action(False, True, 0, False), "fail")
+        self.assertEqual(retry_action(True, False, 7, False), "fail")
+        self.assertEqual(retry_action(False, False, 0, True), "done")
 
     def test_duplicate_results_are_recognized(self):
         self.assertTrue(is_duplicate({"result": "duplicate"}))

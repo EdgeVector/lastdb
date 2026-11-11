@@ -12,7 +12,7 @@ from guard import (DEV_ACCOUNT, DEV_REGION, DEV_TABLE, STREAM_ID, GuardError,
                    allow_endpoint, allow_partition, allow_region, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   snap_partition, unprocessed_ids)
+                   load_partitions, snap_partition, sub_partition, unprocessed_ids)
 from plan import STEADY_MS, TRIM_WRITERS, scenario, still_running
 from routes import PAYLOAD, path_for, prove_trimmed_list, request_body, require_trim
 
@@ -45,7 +45,11 @@ class TargetGuard(unittest.TestCase):
         self.assertEqual(allow_stream(expected), expected)
         snap = snap_partition(expected)
         self.assertEqual(snap, expected + "#snap")
+        self.assertEqual(sub_partition(expected), expected + "#sub")
         self.assertEqual(allow_partition(snap), snap)
+        self.assertEqual(allow_partition(expected + "#sub"), expected + "#sub")
+        self.assertEqual(load_partitions(expected),
+                         (expected, expected + "#snap", expected + "#sub"))
         self.assertEqual(query_request(DEV_TABLE, snap)["ExpressionAttributeValues"][":id"]["S"],
                          snap)
         for value in ("c1da11d0-load-17", "mutation-log/c1da11d0-load-17",

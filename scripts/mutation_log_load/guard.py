@@ -104,12 +104,24 @@ def snap_partition(database_id):
     return allow_stream(database_id) + "#snap"
 
 
+def sub_partition(database_id):
+    """Submission records live in exactly the load id plus ``#sub``."""
+    return allow_stream(database_id) + "#sub"
+
+
+def load_partitions(database_id):
+    """The load id, its snapshot partition, and its submission partition."""
+    base = allow_stream(database_id)
+    return (base, snap_partition(base), sub_partition(base))
+
+
 def allow_partition(value):
-    if isinstance(value, str) and value.endswith("#snap"):
-        base = value[:-len("#snap")]
-        if value != snap_partition(base):
-            raise GuardError("database")
-        return value
+    for suffix, builder in (("#snap", snap_partition), ("#sub", sub_partition)):
+        if isinstance(value, str) and value.endswith(suffix):
+            base = value[:-len(suffix)]
+            if value != builder(base):
+                raise GuardError("database")
+            return value
     return allow_stream(value)
 
 

@@ -1,20 +1,25 @@
 """Classify mutation-log HTTP results and the process exit codes.
 
 A contention 503 is HTTP 503 whose body is a ``ProtocolError`` with code
-``retry_later`` and field ``mutation_log.transaction.conflict``. A throttle
-503 is the same code with field ``mutation_log.transaction.throttled`` or
-``mutation_log.submission.throttled`` (exemem ``store.rs`` ``send`` and
-``follow_submissions``). ``RetryLater`` is ``ErrorCode`` in
-``cloud_backup_protocol/src/error.rs`` (lines 42-43). ``rename_all =
-"snake_case"`` (line 5) makes the wire code ``retry_later``.
-``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown`` and stops the run.
-``ProtocolError`` serializes as ``{"code", "field"}`` (lines 47-54,
-``deny_unknown_fields``).
+``retry_later`` and field ``mutation_log.transaction.conflict``. At 5, 20,
+and 100 writers the client retries it. A retry that succeeds is exit 3.
+Contention above 1% of write attempts at 100 writers is also exit 3. A
+write that is still failing after every retry is exit 3 only when that
+write left no partial row, the log invariants hold, and nothing
+acknowledged was lost. Otherwise it is exit 1.
+
+A throttle 503 is the same code with field
+``mutation_log.transaction.throttled``,
+``mutation_log.submission.throttled``, or ``mutation_log.query.throttled``.
+A retry that succeeds is exit 3. Plain ``mutation_log.query`` stays exit 1.
+``RetryLater`` is ``ErrorCode`` in ``cloud_backup_protocol/src/error.rs``
+(lines 42-43). ``rename_all = "snake_case"`` (line 5) makes the wire code
+``retry_later``. ``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown``
+and stops the run. ``ProtocolError`` serializes as ``{"code", "field"}``
+(lines 47-54, ``deny_unknown_fields``).
 
 Exit codes: 0 complete, 1 correctness, 2 the $6 cap, 3 a capacity finding.
-Exit 3 is contention above 1% of write attempts at 100 writers, or any
-throttle whose write later succeeded with the log intact. It is not a
-correctness failure. Exit 1 wins over 3, and 3 wins over 2.
+Exit 1 wins over 3, and 3 wins over 2.
 """
 
 CONTENTION_CODE = "retry_later"
@@ -22,6 +27,7 @@ CONTENTION_FIELD = "mutation_log.transaction.conflict"
 THROTTLE_FIELDS = frozenset((
     "mutation_log.transaction.throttled",
     "mutation_log.submission.throttled",
+    "mutation_log.query.throttled",
 ))
 CONTENTION_RATE = 0.01
 MAX_CONTENTION_TRIES = 8
@@ -39,6 +45,10 @@ def is_contention(status, payload):
         payload.get("code") == CONTENTION_CODE
         and payload.get("field") == CONTENTION_FIELD
     )
+
+
+class UnresolvedContention(Exception):
+    """A conflicted write used every client retry and still failed."""
 
 
 def is_throttle(status, payload):
@@ -76,6 +86,18 @@ def backoff_seconds(tries, draw):
     return (low + draw(base - low + 1)) / 1000.0
 
 
+def retry_action(throttle, contention, tries, allow_contention):
+    """``retry``, ``unresolved``, ``fail``, or ``done`` for one 503."""
+    if not throttle and not contention:
+        return "done"
+    retryable = throttle or (contention and allow_contention)
+    if retryable and tries + 1 < MAX_CONTENTION_TRIES:
+        return "retry"
+    if contention and allow_contention:
+        return "unresolved"
+    return "fail"
+
+
 def scaling_finding(kind, contention, attempts):
     """100 writers, contention above 1% of write attempts."""
     if kind != "steady" or not attempts:
@@ -84,8 +106,10 @@ def scaling_finding(kind, contention, attempts):
 
 
 def capacity_finding(throttles, kind, contention, attempts):
-    """A succeeded throttle, or contention above 1% at 100 writers."""
+    """A succeeded throttle or conflict at 5, 20, or 100 writers."""
     if throttles:
+        return True
+    if kind in ("full", "steady") and contention:
         return True
     return scaling_finding(kind, contention, attempts)
 

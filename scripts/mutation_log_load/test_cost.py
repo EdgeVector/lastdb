@@ -207,20 +207,6 @@ class CapAndRun(unittest.TestCase):
         heads = [body for path, body in log.seen if path.endswith("/head")]
         self.assertEqual(json.loads(heads[0]), {"database_id": database_id_for_run("17")})
 
-    def test_any_503_at_five_writers_is_a_correctness_failure(self):
-        def hook(path, _parsed, _log):
-            if path.endswith("/append"):
-                return 503, CONFLICT, 3
-            return None
-
-        for level in ("5", "20"):
-            session = self._session(MemoryLog(hook))
-            session.sleeper = self.refuse_retry
-            report = drive(scenario(level), session)
-            self.assertEqual(report["stopped"], "error", level)
-            self.assertGreater(session.contention_503, 0, level)
-            self.assertEqual(session.other_503, 0, level)
-
     def test_a_throttle_is_a_capacity_finding_when_the_write_succeeds(self):
         state = {"left": 1}
 
@@ -326,7 +312,7 @@ class CapAndRun(unittest.TestCase):
         self.assertEqual(report["stopped"], "error")
         self.assertGreater(session.contention_503, 0)
 
-    def test_exhausted_retries_are_a_lost_write(self):
+    def test_exhausted_retries_with_an_intact_log_are_scaling(self):
         def hook(path, _parsed, _log):
             if path.endswith("/append"):
                 return 503, CONFLICT, 1
@@ -335,8 +321,9 @@ class CapAndRun(unittest.TestCase):
         session = self._session(MemoryLog(hook))
         session.sleeper = lambda _delay: None
         report = drive(Scenario("steady", 1, 1, False), session)
-        self.assertEqual(report["stopped"], "error")
+        self.assertEqual(report["stopped"], "scaling")
         self.assertEqual(session.contention_503, 8)
+        self.assertEqual(report["summary"]["contention_unresolved"], 1)
 
     def test_duplicate_and_disabled_and_cap_stop(self):
         def duplicate(path, _parsed, _log):
