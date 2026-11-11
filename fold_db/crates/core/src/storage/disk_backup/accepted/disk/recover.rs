@@ -43,7 +43,7 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
         .copied()
         .filter(|sequence| *sequence <= state.acked)
     {
-        io::remove_dir(&entries.join(files::seq_name(*sequence)))?;
+        io::remove_dir(&entries.join(files::seq_name(sequence)))?;
     }
     let live: Vec<u64> = sequences
         .into_iter()

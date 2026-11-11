@@ -1,7 +1,7 @@
 //! Accepted notes staged on the open native write batch.
 
 use super::PendingBatch;
-use crate::storage::disk_backup::accepted::disk::Note;
+use crate::storage::disk_backup::accepted::Note;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::Ordering;

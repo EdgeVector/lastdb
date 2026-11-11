@@ -86,7 +86,7 @@ pub(super) fn read_limited(path: &Path, max: u64) -> Result<Option<Vec<u8>>, Err
     {
         return Err(Error::Gap);
     }
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .custom_flags(NOFOLLOW)
         .open(path)

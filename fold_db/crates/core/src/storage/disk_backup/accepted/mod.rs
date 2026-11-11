@@ -10,7 +10,7 @@ mod disk;
 mod io;
 
 pub(crate) use capture::{stage_records, stage_schema_drop, stage_schema_put};
-pub(in crate::storage) use disk::Log;
+pub(in crate::storage) use disk::{Log, Note};
 
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};

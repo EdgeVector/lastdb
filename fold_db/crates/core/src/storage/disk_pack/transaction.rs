@@ -38,7 +38,7 @@ pub(in crate::storage) struct PendingBatch {
     identity: uuid::Uuid,
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
-    accepted: Mutex<Vec<crate::storage::disk_backup::accepted::disk::Note>>,
+    accepted: Mutex<Vec<crate::storage::disk_backup::accepted::Note>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
