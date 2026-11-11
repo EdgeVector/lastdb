@@ -1,9 +1,9 @@
 //! Capture entry points, terminal settlement, local cancel, and legacy-capture retirement.
 
 use super::{
-    invalid, object_name, protocol, run_source::RunSource, snapshot_cleanup::held_root,
-    store::Store, ByteBackupCapture, Inner, PackRuntime, State, StorageResult, MAX_OBJECTS,
-    RUN_INTENT_FILE, STATE_FORMAT,
+    invalid, object_name, protocol, run_source::RunSource, shared_run::held_root, store::Store,
+    ByteBackupCapture, Inner, PackRuntime, State, StorageResult, MAX_OBJECTS, RUN_INTENT_FILE,
+    STATE_FORMAT,
 };
 use cloud_backup_protocol::v2::{
     jobs::{JobResult, JobStatus},
@@ -77,7 +77,7 @@ impl PackRuntime {
         begin: &Begin,
         key: &[u8; 32],
     ) -> StorageResult<()> {
-        super::snapshot_cleanup::cancel(self, begin, key).await
+        super::shared_run::cancel(self, begin, key).await
     }
 
     pub fn retire_previous_backup_capture(&self, dropped: Option<&str>) -> StorageResult<bool> {

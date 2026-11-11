@@ -5,16 +5,40 @@ use crate::schema::{Schema, SchemaError};
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::disk_pack::PackKvStore;
 use crate::storage::format::metadata::{FileReferenceChange, FileRetention};
-use crate::storage::format::RECORD_FILE_PREFIX;
-use crate::storage::KvMutation;
+use crate::storage::format::{
+    control, CURRENT_KEY_FORMAT_KEY, DELETE_AUDIT_FAMILY, DELETE_REPLAY_CUTOFF_KEY,
+    RECORD_FILE_PREFIX,
+};
+use crate::storage::{KvMutation, StorageError};
 use lastdb_model::portable_mutation::{
     FileMarker, MutationEntry, MutationOperation, PortableMutationError, Position, RecordData,
     RecordKey, SchemaIdentity,
 };
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{self, InlineFile, InlineWrite, StoredRecord};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+/// One audit row per erase batch. The row joins the native erase atomically,
+/// so a stored row always names a committed erase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordDeleteLedgerEntry {
+    /// The retained delete or purge verb.
+    pub verb: String,
+    /// When the batch was planned (RFC3339); the key is stamped when staged.
+    pub at: String,
+    /// Free-form caller provenance tag (not authenticated identity).
+    pub caller: String,
+    /// The schema whose records were erased.
+    pub schema: String,
+    /// SHA-256 hex over `{schema}\0{described key}`.
+    pub key_fingerprint: String,
+    /// Records the batch erased.
+    pub records_erased: u64,
+    /// Erased records that had a file.
+    pub file_records_erased: u64,
+}
 
 pub(in crate::storage::format::records) fn kept_inline_files(
     changes: &[RecordChange],
@@ -127,6 +151,49 @@ fn invalid_portable(error: &PortableMutationError) -> SchemaError {
 }
 
 impl RecordFormat {
+    pub(in crate::storage::format) async fn require_current_key_format(
+        &self,
+    ) -> Result<(), StorageError> {
+        let controls = self
+            .main_store
+            .get_many(vec![
+                CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
+                DELETE_REPLAY_CUTOFF_KEY.as_bytes().to_vec(),
+            ])
+            .await?;
+        if controls.len() != 2 {
+            return Err(control::invalid("incomplete fence read"));
+        }
+        if !controls[0]
+            .as_deref()
+            .is_some_and(lastdb_model::field_key_codec::current_key_format)
+        {
+            return Err(StorageError::InvalidOperation(
+                "the logical key format does not match this node home".into(),
+            ));
+        }
+        control::validate_frozen_replay_floor(controls[0].as_deref(), controls[1].as_deref())
+            .map(|_| ())
+    }
+
+    pub(crate) async fn record_delete_audit(
+        &self,
+        entry: RecordDeleteLedgerEntry,
+    ) -> Result<(), SchemaError> {
+        self.require_scope()?;
+        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
+        let key = lastdb_model::kind_partition::anchored(
+            DELETE_AUDIT_FAMILY,
+            &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
+        );
+        let bytes = serde_json::to_vec(&entry)
+            .map_err(|error| StorageError::SerializationError(error.to_string()))?;
+        self.main_store
+            .put(key.as_bytes(), bytes)
+            .await
+            .map_err(|error| SchemaError::InvalidData(format!("stage erase audit: {error}")))
+    }
+
     pub(crate) async fn stage_completed_file_references(
         &self,
         files: Vec<(RecordAddress, Position)>,

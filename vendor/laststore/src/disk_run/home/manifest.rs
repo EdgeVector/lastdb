@@ -6,25 +6,23 @@
 //! (complete commits), the runs of each tiered level (newest first), the runs
 //! of a base merge in progress with its cut, and the runs of the base.
 
-use super::super::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
-use super::super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
+use super::super::codec::put_varint;
+use super::super::RUN_SUFFIX;
 use crate::Result;
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
-const MAGIC: &[u8; 8] = b"LDRCUR2\0";
+pub(super) const MAGIC: &[u8; 8] = b"LDRCUR2\0";
 /// File name of the sealed list of runs and the frontier.
 pub const CURRENT: &str = "CURRENT";
 /// Directory name of the immutable run files.
 pub const RUNS: &str = "runs";
 /// Most levels one CURRENT may name.
 pub(super) const MAX_LEVELS: usize = 32;
-/// Most runs one level, the merging runs, or the base may hold. Merges keep
-/// them far below this.
+/// Most runs one level, the merging runs, or the base may hold.
 pub(super) const MAX_LEVEL_RUNS: usize = 4096;
 /// Largest CURRENT file a reader accepts.
 pub(super) const MAX_CURRENT_BYTES: usize = 64 * 1024 * 1024;
@@ -68,11 +66,8 @@ impl RunMeta {
 
     /// True when the run can hold a key in `[lower, upper)`.
     pub(super) fn overlaps(&self, lower: &[u8], upper: Option<&[u8]>) -> bool {
-        let below_upper = match upper {
-            Some(upper) => self.first_key.as_slice() < upper,
-            None => true,
-        };
-        self.last_key.as_slice() >= lower && below_upper
+        self.last_key.as_slice() >= lower
+            && upper.is_none_or(|upper| self.first_key.as_slice() < upper)
     }
 }
 
@@ -86,17 +81,13 @@ pub(super) struct RunFile {
     obsolete: AtomicBool,
     /// Record bytes of the older versions that this run's records hide,
     /// plus one; zero while not yet counted. Only tiered runs need it.
-    hidden: AtomicU64,
+    pub(super) hidden: AtomicU64,
 }
 
 impl RunFile {
     pub(super) fn new(runs: &Path, meta: RunMeta) -> Arc<Self> {
-        Self::counted(runs, meta, 0)
-    }
-
-    fn counted(runs: &Path, meta: RunMeta, hidden: u64) -> Arc<Self> {
         let path = runs.join(format!("{}{RUN_SUFFIX}", meta.run_id));
-        Self::from_parts(meta, path, hidden)
+        Self::from_parts(meta, path, 0)
     }
 
     pub(in crate::disk_run::home) fn from_parts(
@@ -131,7 +122,6 @@ impl RunFile {
 impl Drop for RunFile {
     fn drop(&mut self) {
         if self.obsolete.load(Ordering::Acquire) {
-            // A failed delete leaves an orphan; the next open removes it.
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -144,18 +134,12 @@ pub(super) struct Manifest {
     pub(super) generation: u64,
     pub(super) frontier: u64,
     /// Tiered levels, level 0 first; inside a level, the newest run first.
-    /// Runs in one level can overlap.
     pub(super) levels: Vec<Vec<Arc<RunFile>>>,
-    /// The runs that a base merge in progress moves into the base, newest
-    /// first: older than every tiered run and newer than the base. Empty
-    /// when no base merge runs.
+    /// Runs that a base merge in progress moves into the base, newest first.
     pub(super) merging: Vec<Arc<RunFile>>,
-    /// The key through which the base holds the merging runs: base runs up
-    /// to it are base merge outputs, later base runs are its inputs. `None`
-    /// before the first step.
+    /// Key through which the base holds the merging runs.
     pub(super) merge_cut: Option<Vec<u8>>,
-    /// The base: the oldest data, below every other run. Its runs are in
-    /// key order and do not overlap, and it holds no tombstone.
+    /// The base: non-overlapping runs in key order with no tombstones.
     pub(super) base: Vec<Arc<RunFile>>,
 }
 
@@ -172,8 +156,7 @@ impl Manifest {
         }
     }
 
-    /// Every run, newest first: the order a read must search. The base runs
-    /// do not overlap, so their order inside the base does not matter.
+    /// Every run, newest first: the order a read must search.
     pub(super) fn newest_first(&self) -> impl Iterator<Item = &Arc<RunFile>> {
         self.levels
             .iter()
@@ -209,62 +192,6 @@ impl Manifest {
         out
     }
 
-    pub(in crate::disk_run::home) fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
-        if bytes.get(..8) != Some(MAGIC.as_slice()) || bytes.len() < 24 {
-            return Err(corrupt("bad CURRENT"));
-        }
-        let home_id = Uuid::from_slice(&bytes[8..24]).expect("16 bytes");
-        let mut at = 24;
-        let generation = get_varint(bytes, &mut at)?;
-        let frontier = get_varint(bytes, &mut at)?;
-        let mut levels = Vec::new();
-        for _ in 0..get_len(bytes, &mut at, MAX_LEVELS)? {
-            levels.push(get_runs(bytes, &mut at, runs)?);
-        }
-        let merging = get_runs(bytes, &mut at, runs)?;
-        let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
-        let merge_cut = match cut.checked_sub(1) {
-            Some(len) => Some(get_slice(bytes, &mut at, len)?.to_vec()),
-            None => None,
-        };
-        let base = get_runs(bytes, &mut at, runs)?;
-        if at != bytes.len() || generation == 0 {
-            return Err(corrupt("bad CURRENT"));
-        }
-        let manifest = Self {
-            home_id,
-            generation,
-            frontier,
-            levels,
-            merging,
-            merge_cut,
-            base,
-        };
-        manifest.check_shape()?;
-        Ok(manifest)
-    }
-
-    /// The facts reads and merges rely on: each run named once, a cut only
-    /// during a base merge, and base runs in key order with no overlap and
-    /// no tombstone.
-    pub(super) fn check_shape(&self) -> Result<()> {
-        let mut seen = HashSet::new();
-        if !self.newest_first().all(|run| seen.insert(run.meta.run_id)) {
-            return Err(corrupt("CURRENT names a run twice"));
-        }
-        if self.merge_cut.is_some() && self.merging.is_empty() {
-            return Err(corrupt("CURRENT has a base merge cut but no merging runs"));
-        }
-        let ordered = self
-            .base
-            .windows(2)
-            .all(|pair| pair[0].meta.last_key < pair[1].meta.first_key);
-        if !ordered || self.base.iter().any(|run| run.meta.tombstones > 0) {
-            return Err(corrupt("CURRENT has an unordered base"));
-        }
-        Ok(())
-    }
-
     /// Read and authenticate CURRENT, and check that it names `home_id`.
     pub(super) fn load(root: &Path, key: &[u8; 32], home_id: Uuid) -> Result<Self> {
         Self::load_paths(&root.join(CURRENT), &root.join(RUNS), key, home_id)
@@ -291,44 +218,4 @@ fn put_runs(out: &mut Vec<u8>, runs: &[Arc<RunFile>]) {
             out.extend_from_slice(key);
         }
     }
-}
-
-/// One list of runs with their counts.
-fn get_runs(bytes: &[u8], at: &mut usize, dir: &Path) -> Result<Vec<Arc<RunFile>>> {
-    let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
-    let mut runs = Vec::with_capacity(count);
-    for _ in 0..count {
-        let id = get_slice(bytes, at, 16)?;
-        let run_id = Uuid::from_slice(id).expect("16 bytes");
-        let records = get_varint(bytes, at)?;
-        let mut values = [0u64; 5];
-        for value in &mut values {
-            *value = get_varint(bytes, at)?;
-        }
-        let [tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = values;
-        let first_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
-        let first_key = get_slice(bytes, at, first_len)?.to_vec();
-        let last_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
-        let last_key = get_slice(bytes, at, last_len)?.to_vec();
-        if run_id.is_nil()
-            || records == 0
-            || tombstones > records
-            || tombstone_bytes > record_bytes
-            || first_key > last_key
-        {
-            return Err(corrupt("bad run entry in CURRENT"));
-        }
-        let meta = RunMeta {
-            run_id,
-            records,
-            tombstones,
-            record_bytes,
-            tombstone_bytes,
-            file_bytes,
-            first_key,
-            last_key,
-        };
-        runs.push(RunFile::counted(dir, meta, hidden));
-    }
-    Ok(runs)
 }

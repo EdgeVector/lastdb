@@ -42,7 +42,7 @@ impl GcmReader {
             .ok_or(Error::ReadBudgetExceeded)?;
         let input = buffer(input_bytes)?;
         let plain = buffer(plain_bytes)?;
-        let _ = input
+        input
             .capacity()
             .checked_add(plain.capacity())
             .ok_or(Error::ReadBudgetExceeded)?;
@@ -106,11 +106,12 @@ impl GcmReader {
 
     fn finish(&mut self) -> Result<()> {
         if !self.finalized {
-            let count = self
+            if self
                 .cipher
                 .finalize(&mut self.plain)
-                .map_err(|_| Error::AeadAuthFail)?;
-            if count != 0 {
+                .map_err(|_| Error::AeadAuthFail)?
+                != 0
+            {
                 return Err(Error::Corrupt("streamed GCM final length differs".into()));
             }
             self.finalized = true;

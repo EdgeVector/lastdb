@@ -1,24 +1,112 @@
-//! A node home in disk format v2: the node marker and two run homes.
+//! Node home creation, format admission, and v2 run home opening.
 
 use super::shared_layout::{Scope, SharedHome};
 use super::*;
 use crate::storage::content_key_proof;
+use crate::storage::format::control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY};
 use crate::storage::format::metadata::{
-    initial_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY, LOCAL_AUTHOR_KEY,
-    NATIVE_SHARED_SCOPE_KEY,
+    initial_local_author, validate_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY,
+    LOCAL_AUTHOR_KEY, NATIVE_SHARED_SCOPE_KEY,
 };
 use crate::storage::format::{
     CAS_KEY_LABEL, CREATION_INTENT as INTENT, CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE,
-    HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, PRIVATE_KEY_LABEL,
-    STAGED_NODE_MARKER as STAGED_MARKER,
+    HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, PRIVATE_KEY_LABEL, RECORDS_COLLECTION,
+    RECORD_PROFILE, SHARED_RECORD_PROFILE, STAGED_NODE_MARKER as STAGED_MARKER,
 };
-use laststore::disk_run::home::RunHome;
-use std::io::Write;
+use lastdb_model::field_key_codec::current_key_format;
+use laststore::disk_run::home::{ReadBudget, RunHome, RunRead};
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 
 pub(in crate::storage) use crate::storage::format::PRIVATE_DIR;
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 
-/// True when `path` is absent or empty: a new node home, which is v2.
+/// The backup profile version of a node marker. Only the current marker has one.
+pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
+    match bytes {
+        RECORD_NODE_BYTES => Some(RECORD_PROFILE),
+        SHARED_NODE_BYTES => Some(SHARED_RECORD_PROFILE),
+        _ => None,
+    }
+}
+
+fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
+    let marker = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(root.join(NODE_MARKER))?;
+    if !marker.metadata()?.is_file() {
+        return Err(admission_invalid("the node marker is not a regular file"));
+    }
+    let mut bytes = Vec::new();
+    marker.take(129).read_to_end(&mut bytes)?;
+    let version =
+        profile(&bytes).ok_or_else(|| admission_invalid("the node range format is unsupported"))?;
+    let admit_budget = ReadBudget {
+        pages: 16384,
+        blocks: 65536,
+        bytes: 8 * 1024 * 1024,
+        keys: 16,
+    };
+    let mut main =
+        RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), admit_budget).map_err(map)?;
+    let _cas =
+        RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), admit_budget).map_err(map)?;
+    verify_proofs(&mut main, key, version)?;
+    Ok(version)
+}
+
+fn verify_proofs(main: &mut RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
+    let coordinates = vec![
+        (RECORDS_COLLECTION.into(), CURRENT_KEY_FORMAT_KEY.into()),
+        (RECORDS_COLLECTION.into(), DELETE_REPLAY_CUTOFF_KEY.into()),
+        (
+            content_key_proof::NAMESPACE.into(),
+            native_routing::encode(content_key_proof::KEY),
+        ),
+        (
+            METADATA_NAMESPACE.into(),
+            native_routing::encode(LOCAL_AUTHOR_KEY.as_bytes()),
+        ),
+    ];
+    let values = main
+        .get_many_bounded(&coordinates, 8192)
+        .map_err(map)?
+        .into_iter()
+        .collect::<laststore::Result<Vec<_>>>()
+        .map_err(map)?;
+    if values.len() != coordinates.len() {
+        return Err(admission_invalid(
+            "the account/format proof batch is incomplete",
+        ));
+    }
+    let marker = values[0]
+        .as_deref()
+        .ok_or_else(|| admission_invalid("the logical format is absent"))?;
+    if !current_key_format(marker) {
+        return Err(admission_invalid(
+            "the logical format differs from the node marker",
+        ));
+    }
+    validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
+    match version {
+        SHARED_RECORD_PROFILE if values[3].is_none() => {}
+        SHARED_RECORD_PROFILE => {
+            return Err(admission_invalid("shared root contains a private author"))
+        }
+        _ => validate_local_author(values[3].as_deref())?,
+    }
+    let proof = values[2]
+        .as_deref()
+        .ok_or_else(|| admission_invalid("the account proof is absent"))?;
+    content_key_proof::verify(key, proof)
+}
+
+fn admission_invalid(text: &str) -> StorageError {
+    StorageError::InvalidOperation(format!("node range admission: {text}"))
+}
+
 pub(in crate::storage::disk_pack) fn is_new_home(path: &Path) -> StorageResult<bool> {
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => Some(entries),
@@ -28,7 +116,6 @@ pub(in crate::storage::disk_pack) fn is_new_home(path: &Path) -> StorageResult<b
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
-/// True when a v2 home creation stopped before its node marker.
 pub(in crate::storage::disk_pack) fn creation_stopped(path: &Path) -> StorageResult<bool> {
     Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
 }
@@ -107,17 +194,18 @@ fn initialize_home(
     scope: Option<&Scope>,
 ) -> StorageResult<&'static [u8]> {
     let (collection, key) = kv::coordinate(MAIN_NAMESPACE, CURRENT_KEY_FORMAT_KEY.as_bytes());
-    let format = HomeMutation {
-        collection,
-        key,
-        body: Some(CURRENT_KEY_FORMAT_VALUE.to_vec()),
-    };
-    let proof = HomeMutation {
-        collection: content_key_proof::NAMESPACE.into(),
-        key: super::native_routing::encode(content_key_proof::KEY),
-        body: Some(content_key_proof::create(node_key)?),
-    };
-    let mut rows = vec![format, proof];
+    let mut rows = vec![
+        HomeMutation {
+            collection,
+            key,
+            body: Some(CURRENT_KEY_FORMAT_VALUE.to_vec()),
+        },
+        HomeMutation {
+            collection: content_key_proof::NAMESPACE.into(),
+            key: super::native_routing::encode(content_key_proof::KEY),
+            body: Some(content_key_proof::create(node_key)?),
+        },
+    ];
     let marker = if let Some(scope) = scope {
         rows.push(HomeMutation {
             collection: METADATA_NAMESPACE.into(),
@@ -141,12 +229,12 @@ fn local_rows(stream: uuid::Uuid) -> StorageResult<Vec<HomeMutation>> {
         body: Some(initial_local_author(stream)?),
     };
     let (collection, key) = kv::coordinate(METADATA_NAMESPACE, FILE_RETENTION_KEY.as_bytes());
-    let file_retention = HomeMutation {
+    let retention = HomeMutation {
         collection,
         key,
         body: Some(FILE_RETENTION_COMPLETE.to_vec()),
     };
-    Ok(vec![author, file_retention])
+    Ok(vec![author, retention])
 }
 
 impl PackNamespacedStore {
@@ -177,7 +265,7 @@ impl PackNamespacedStore {
             let marker = initialize_home(&main, node_key, scope.as_ref())?;
             drop(main);
             let staged = path.join(STAGED_MARKER);
-            let mut file = std::fs::OpenOptions::new()
+            let mut file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
@@ -196,11 +284,11 @@ impl PackNamespacedStore {
         node_key: Option<&[u8; 32]>,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        let version = super::run_admission::admit(path, node_key)?;
+        let version = admit(path, node_key)?;
         let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut v2 = physical::V2Home::new(home, cas);
-        if version == super::run_admission::SHARED_RECORD_PROFILE {
+        if version == SHARED_RECORD_PROFILE {
             open_shared(path, node_key, &mut v2)?;
         }
         v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
@@ -215,8 +303,7 @@ impl PackNamespacedStore {
 
 /// Create the device-private disk home after authenticating a downloaded shared snapshot.
 pub fn prepare_shared_restored_run(path: &Path, key: &[u8; 32]) -> StorageResult<()> {
-    let version = super::run_admission::admit(path, key)?;
-    if version == super::run_admission::SHARED_RECORD_PROFILE {
+    if admit(path, key)? == SHARED_RECORD_PROFILE {
         create_private(path, key)?;
     }
     Ok(())
@@ -244,14 +331,12 @@ fn open_shared(path: &Path, key: &[u8; 32], v2: &mut physical::V2Home) -> Storag
     Ok(())
 }
 
-pub(in crate::storage) fn verify_private_author(
-    local: &mut laststore::disk_run::home::RunRead,
-) -> StorageResult<()> {
+pub(in crate::storage) fn verify_private_author(local: &mut RunRead) -> StorageResult<()> {
     let (collection, author_key) = kv::coordinate(METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes());
     let author = local
         .get_bounded(&collection, &author_key, 8192)
         .map_err(map)?;
-    crate::storage::format::metadata::validate_local_author(author.as_deref())
+    validate_local_author(author.as_deref())
 }
 
 pub(in crate::storage::disk_pack) fn complete_initialization(run_home: &Path) -> StorageResult<()> {

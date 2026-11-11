@@ -31,7 +31,7 @@ pub(super) fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> 
         || status.main_home != v2.home.identity().to_string()
         || status.cas_home != v2.cas.identity().to_string()
         || status.private_home != expected.private_home
-        || status.private.is_some() != expected.private_some()
+        || status.private.is_some() != expected.private.is_some()
         || !status.backup_copies_excluded
         || status.live_cas_orphan_repair_included
         || status
@@ -52,12 +52,6 @@ pub(super) fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> 
         ));
     }
     Ok(status)
-}
-
-impl NativeCleanupStatus {
-    const fn private_some(&self) -> bool {
-        self.private.is_some()
-    }
 }
 
 impl PackRuntime {

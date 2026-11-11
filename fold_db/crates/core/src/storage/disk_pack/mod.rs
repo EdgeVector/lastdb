@@ -19,10 +19,7 @@ mod read;
 mod read_raw;
 pub(crate) mod record_warm;
 mod rows;
-mod rows_yielding;
-pub(in crate::storage) mod run_admission;
 mod run_commit;
-mod run_merge;
 pub(in crate::storage) mod run_node;
 mod shared_layout;
 pub(crate) mod transaction;
@@ -36,9 +33,9 @@ pub use crate::storage::disk_backup::NativeCloudWorkGuard;
 pub use crate::storage::disk_cleanup::{
     NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
 };
+pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES};
 pub use physical::CAS_COLLECTION;
 pub use read::PackReadScope;
-pub use run_admission::{HOME_FORMAT, RECORD_NODE_BYTES};
 pub use run_node::{prepare_shared_restored_run, CAS_DIR, RUN_DIR};
 pub use view::{
     NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeStorageDiagnostics,
@@ -47,7 +44,6 @@ pub use write::NativeFlushReceipt;
 pub(in crate::storage) use write::WriteGuard;
 
 use crate::storage::format::{NAMESPACES, REGISTRY};
-pub use crate::storage::format::{NODE_MARKER, SHARED_NODE_BYTES};
 
 pub(in crate::storage) mod space {
     use crate::storage::error::{StorageError, StorageResult};

@@ -4,9 +4,7 @@ use super::{
 };
 use crate::storage::disk_pack::{CAS_DIR, NODE_MARKER, RUN_DIR};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
-use laststore::disk_run::home::{
-    CapturedRunHome, ReadBudget, RunRead, SnapshotFile, CURRENT, RUN_HOME_MARKER,
-};
+use laststore::disk_run::home::{CapturedRunHome, SnapshotFile, CURRENT, RUN_HOME_MARKER};
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
@@ -165,33 +163,6 @@ impl RunSource {
             bytes,
         })
     }
-    pub fn reads(&self, budget: ReadBudget) -> StorageResult<(RunRead, Option<RunRead>)> {
-        let homes = &self.runtime.physical;
-        let retained = self
-            .retained_bytes()
-            .saturating_add(self.main.reader_bytes())
-            .saturating_add(self.cas.as_ref().map_or(0, CapturedRunHome::reader_bytes));
-        if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
-            return Err(invalid("run paired read allowance"));
-        }
-        let mut main = self
-            .main
-            .read(&homes.home, budget)
-            .map_err(crate::storage::disk_pack::map)?;
-        let mut cas = self
-            .cas
-            .as_ref()
-            .map(|cas| cas.read(&homes.cas, budget))
-            .transpose()
-            .map_err(crate::storage::disk_pack::map)?;
-        main.reserve_metadata(retained)
-            .map_err(crate::storage::disk_pack::map)?;
-        if let Some(cas) = cas.as_mut() {
-            cas.reserve_metadata(retained)
-                .map_err(crate::storage::disk_pack::map)?;
-        }
-        Ok((main, cas))
-    }
     fn retained_bytes(&self) -> u64 {
         self.main.retained_bytes()
             + self.cas.as_ref().map_or(0, CapturedRunHome::retained_bytes)
@@ -228,7 +199,7 @@ fn marker_profile(root: &Path) -> StorageResult<(u16, u64)> {
     let mut marker = RunSource::node_file(root)?;
     let mut bytes = Vec::new();
     (&mut marker).take(129).read_to_end(&mut bytes)?;
-    let profile = crate::storage::disk_pack::run_admission::profile(&bytes)
+    let profile = crate::storage::disk_pack::run_node::profile(&bytes)
         .ok_or_else(|| invalid("run backup node marker is not a supported node format"))?;
     Ok((profile, bytes.len() as u64))
 }
@@ -238,9 +209,32 @@ pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {
         .run
         .as_ref()
         .ok_or_else(|| invalid("run source unavailable"))?;
-    let (main, cas) = source.reads(crate::storage::disk_pack::budget())?;
-    super::super::run_restore::verify_readers_for_profile(&main, cas.as_ref(), key, source.version)
-        .map(|_| ())
+    let homes = &source.runtime.physical;
+    let retained = source
+        .retained_bytes()
+        .saturating_add(source.main.reader_bytes())
+        .saturating_add(source.cas.as_ref().map_or(0, CapturedRunHome::reader_bytes));
+    if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
+        return Err(invalid("run paired read allowance"));
+    }
+    let budget = crate::storage::disk_pack::budget();
+    let mut main = source
+        .main
+        .read(&homes.home, budget)
+        .map_err(crate::storage::disk_pack::map)?;
+    let mut cas = source
+        .cas
+        .as_ref()
+        .map(|cas| cas.read(&homes.cas, budget))
+        .transpose()
+        .map_err(crate::storage::disk_pack::map)?;
+    main.reserve_metadata(retained)
+        .map_err(crate::storage::disk_pack::map)?;
+    if let Some(cas) = cas.as_mut() {
+        cas.reserve_metadata(retained)
+            .map_err(crate::storage::disk_pack::map)?;
+    }
+    super::super::run_restore::verify_captured_account(&main, key, source.version)
 }
 fn hash(mut input: File) -> StorageResult<Digest> {
     let mut hash = Sha256::new();

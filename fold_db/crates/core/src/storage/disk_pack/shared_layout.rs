@@ -1,8 +1,10 @@
 //! Physical placement for a dedicated shared database.
 
 use super::*;
+use crate::schema::Schema;
 use crate::storage::current_keys::families::record_file_space;
 use crate::storage::format::{
+    metadata::NATIVE_SHARED_SCOPE_KEY as SCOPE_KEY,
     records::{applied_deletes, inline_files},
     CAS_COLLECTION, CONTENT_KEY_PROOF_KEY, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
     METADATA_NAMESPACE, RECORDS_COLLECTION, RETENTION_POLICY_KEY_PREFIX, SCHEMAS_NAMESPACE,
@@ -13,11 +15,9 @@ use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use laststore::disk_run::home::{RunHome, RunRead};
 use std::collections::{BTreeMap, BTreeSet};
 
-mod extension;
 pub(super) mod journal;
 pub(super) mod range;
 
-use crate::storage::format::metadata::NATIVE_SHARED_SCOPE_KEY as SCOPE_KEY;
 const CREATE_ENV: &str = "LASTDB_NATIVE_SHARED_SCHEMAS";
 const CONFIG_BYTES: usize = 16 * 1024;
 
@@ -83,19 +83,20 @@ impl Scope {
             .map_err(map)?
             .ok_or_else(|| invalid("shared schema scope is missing"))?;
         let mut scope = Self::decode(&bytes)?;
-        let coordinates = scope
-            .aliases
+        let names: Vec<_> = scope.aliases.iter().cloned().collect();
+        let coordinates: Vec<_> = names
             .iter()
-            .map(|name| {
+            .map(|n| {
                 (
                     SCHEMAS_NAMESPACE.to_owned(),
-                    native_routing::encode(name.as_bytes()),
+                    native_routing::encode(n.as_bytes()),
                 )
             })
-            .collect::<Vec<_>>();
-        let rows = read.get_many(&coordinates).map_err(map)?;
-        let names = scope.aliases.iter().cloned().collect::<Vec<_>>();
-        for (name, row) in names.into_iter().zip(rows) {
+            .collect();
+        for (name, row) in names
+            .into_iter()
+            .zip(read.get_many(&coordinates).map_err(map)?)
+        {
             if let Some(bytes) = row.map_err(map)? {
                 scope.add_schema(name, &bytes)?;
             }
@@ -132,8 +133,12 @@ impl Scope {
             let key = native_routing::decode(&op.key)?;
             let name =
                 std::str::from_utf8(&key).map_err(|_| invalid("schema alias is not UTF-8"))?;
-            let active = scope.as_ref().unwrap_or(current.as_ref());
-            if !active.aliases.contains(name) {
+            if !scope
+                .as_ref()
+                .unwrap_or(current.as_ref())
+                .aliases
+                .contains(name)
+            {
                 continue;
             }
             if op.collection == SCHEMA_STATES_NAMESPACE {
@@ -146,9 +151,9 @@ impl Scope {
                 .body
                 .as_deref()
                 .ok_or_else(|| invalid("a shared schema cannot be removed"))?;
-            match active.schemas.get(name) {
+            match scope.as_ref().unwrap_or(current.as_ref()).schemas.get(name) {
                 Some(previous) if previous == bytes => continue,
-                Some(previous) => extension::require(previous, bytes)?,
+                Some(previous) => require_extension(previous, bytes)?,
                 None => {}
             }
             scope
@@ -159,17 +164,16 @@ impl Scope {
     }
 
     fn add_schema(&mut self, name: String, bytes: &[u8]) -> StorageResult<()> {
-        let schema: crate::schema::Schema = serde_json::from_slice(bytes)
+        let schema: Schema = serde_json::from_slice(bytes)
             .map_err(|_| invalid("shared schema definition encoding"))?;
         if schema.name != name {
             return Err(invalid("shared schema alias differs from its definition"));
         }
-        let definitions = schema
+        let defs = schema
             .require_record_keys()
-            .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
+            .map_err(|e| StorageError::InvalidOperation(e.to_string()))?;
         self.alternates.extend(
-            definitions
-                .alternates
+            defs.alternates
                 .keys()
                 .map(|alt| alternate_field_key_id(&schema, alt)),
         );
@@ -178,16 +182,14 @@ impl Scope {
     }
 
     pub(super) fn lane(&self, collection: &str, key: &str) -> Lane {
-        let decoded;
-        let key = if key.starts_with("b64:") {
-            decoded = native_routing::decode(key).ok();
-            decoded
-                .as_deref()
-                .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                .unwrap_or(key)
-        } else {
-            key
-        };
+        let decoded = key
+            .starts_with("b64:")
+            .then(|| native_routing::decode(key).ok())
+            .flatten();
+        let key = decoded
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .unwrap_or(key);
         match collection {
             CAS_COLLECTION
                 if record_file_space(key).is_some_and(|(_, space)| self.spaces.contains(space)) =>
@@ -231,33 +233,19 @@ impl Scope {
         end: &[u8],
     ) -> Option<Lane> {
         let key = std::str::from_utf8(start).ok()?;
-        if !matches!(
-            collection,
-            RECORDS_COLLECTION
-                | CAS_COLLECTION
-                | SCHEMAS_NAMESPACE
-                | SCHEMA_STATES_NAMESPACE
-                | METADATA_NAMESPACE
-        ) {
-            return Some(Lane::Private);
-        }
         let prefix = match collection {
             RECORDS_COLLECTION => {
                 let body = inline_files::owning_record(key);
-                let prefix = if body.starts_with(RECORD_PREFIX) {
+                let p = if body.starts_with(RECORD_PREFIX) {
                     RECORD_PREFIX
                 } else {
                     ALTERNATE_ENTRY_PREFIX
                 };
-                part(body, prefix).map(|id| {
-                    let offset = key.len() - body.len();
-                    &key[..offset + prefix.len() + id.len()]
-                })
+                part(body, p).map(|id| &key[..(key.len() - body.len()) + p.len() + id.len()])
             }
-            CAS_COLLECTION => {
-                record_file_space(key).map(|(prefix, space)| &key[..prefix.len() + space.len()])
-            }
-            _ => None,
+            CAS_COLLECTION => record_file_space(key).map(|(p, s)| &key[..p.len() + s.len()]),
+            SCHEMAS_NAMESPACE | SCHEMA_STATES_NAMESPACE | METADATA_NAMESPACE => return None,
+            _ => return Some(Lane::Private),
         }?;
         end.starts_with(prefix.as_bytes())
             .then(|| self.lane(collection, key))
@@ -275,43 +263,35 @@ impl Scope {
 }
 
 impl PackRuntime {
+    fn shared_scope(&self) -> Option<std::sync::RwLockReadGuard<'_, Arc<Scope>>> {
+        self.physical
+            .shared
+            .as_ref()
+            .map(|shared| shared.scope.read().expect("shared disk scope"))
+    }
+
     pub(crate) fn is_shared_schema(&self, name: &str) -> bool {
-        self.physical.shared.as_ref().is_some_and(|shared| {
-            shared
-                .scope
-                .read()
-                .expect("shared disk scope")
-                .aliases
-                .contains(name)
-        })
+        self.shared_scope()
+            .is_some_and(|scope| scope.aliases.contains(name))
     }
 
     pub fn require_shared_schema_set<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<()> {
-        if let Some(shared) = &self.physical.shared {
-            if !shared
-                .scope
-                .read()
-                .expect("shared disk scope")
-                .aliases_match(names)
-            {
-                return Err(invalid(
-                    "writer schema aliases differ from its dedicated shared disk scope",
-                ));
-            }
+        if self.shared_scope().is_some_and(|s| !s.aliases_match(names)) {
+            return Err(invalid(
+                "writer schema aliases differ from its dedicated shared disk scope",
+            ));
         }
         Ok(())
     }
 
-    /// A writer binds a subset of the shared aliases. Peer definitions add the rest.
     pub fn require_shared_schema_subset<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<()> {
-        if let Some(shared) = &self.physical.shared {
-            let scope = shared.scope.read().expect("shared disk scope");
+        if let Some(scope) = self.shared_scope() {
             if names.into_iter().any(|name| !scope.aliases.contains(name)) {
                 return Err(invalid(
                     "writer schema alias is outside its dedicated shared disk scope",
@@ -322,25 +302,17 @@ impl PackRuntime {
     }
 
     pub(crate) fn shared_schema_aliases(&self) -> Vec<String> {
-        let Some(shared) = &self.physical.shared else {
-            return Vec::new();
-        };
-        let scope = shared.scope.read().expect("shared disk scope");
-        scope.aliases.iter().cloned().collect()
+        self.shared_scope()
+            .map_or_else(Vec::new, |s| s.aliases.iter().cloned().collect())
     }
 
-    /// The caller grows the scope only by aliases that no schema in this home
-    /// uses yet, so no existing private row changes its lane.
     pub(in crate::storage) fn grown_shared_aliases<'a>(
         &self,
         names: impl IntoIterator<Item = &'a str>,
     ) -> StorageResult<Option<Vec<u8>>> {
-        let Some(shared) = &self.physical.shared else {
-            return Err(invalid(
-                "shared schema definitions require a dedicated shared disk home",
-            ));
-        };
-        let active = shared.scope.read().expect("shared disk scope");
+        let active = self.shared_scope().ok_or_else(|| {
+            invalid("shared schema definitions require a dedicated shared disk home")
+        })?;
         let mut names: BTreeSet<_> = names.into_iter().map(str::to_owned).collect();
         if names.is_subset(&active.aliases) {
             return Ok(None);
@@ -360,21 +332,31 @@ impl PackRuntime {
         key: &str,
         shared_record: bool,
     ) -> StorageResult<()> {
-        if let Some(shared) = &self.physical.shared {
-            if shared
-                .scope
-                .read()
-                .expect("shared disk scope")
-                .owns_record(key)
-                != shared_record
-            {
-                return Err(invalid(
-                    "record operation differs from its dedicated shared disk scope",
-                ));
-            }
+        if self
+            .shared_scope()
+            .is_some_and(|scope| scope.owns_record(key) != shared_record)
+        {
+            return Err(invalid(
+                "record operation differs from its dedicated shared disk scope",
+            ));
         }
         Ok(())
     }
+}
+
+fn require_extension(earlier: &[u8], later: &[u8]) -> StorageResult<()> {
+    let decode = |bytes: &[u8]| {
+        serde_json::from_slice::<Schema>(bytes)
+            .map(|schema| schema.to_wire())
+            .map_err(|_| invalid("shared schema definition encoding"))
+    };
+    if !decode(later)?
+        .extends(&decode(earlier)?)
+        .map_err(|e| invalid(&e))?
+    {
+        return Err(invalid("a shared schema definition cannot be replaced"));
+    }
+    Ok(())
 }
 
 fn validate_aliases(aliases: &BTreeSet<String>) -> StorageResult<()> {

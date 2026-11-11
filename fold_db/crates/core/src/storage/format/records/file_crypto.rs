@@ -1,26 +1,21 @@
-//! The one file of a record (design `design-lastdb-no-shared-file-blobs`).
-//!
-//! The file lives in `cas_blobs`, the CAS run home that the backup sends to
-//! B2, at a path made from the record key and originating mutation position.
-//! Each record selects its live file version. Other records own their own
-//! versions, even when the contents match.
-//!
-//! Every write that changes the marker changes the path in the same native
-//! request. Native commit publishes new bytes before the record selects them
-//! and removes the previous version after the record publication is durable.
-//!
-//! The row is the envelope `0x01 ‖ nonce ‖ AES-256-GCM ciphertext and tag`.
-//! The key comes from the account key and the marker's plaintext SHA-256
-//! (account-v2 derivation) and the nonce from the key, so no key is stored: a
-//! reader derives it again from the marker. A new file at the same path has a
-//! new hash and so a new key and nonce.
+//! Record file encryption, verification, and on-demand blob installation.
 
+use super::super::{
+    FILE_DEK_LABEL, FILE_ENVELOPE_VERSION, FILE_KEY_SALT, FILE_NONCE_LABEL, FILE_NONCE_SALT,
+    FILE_NONCE_SIZE, FILE_TAG_SIZE,
+};
 use super::RecordFormat;
 use crate::error::FoldDbError;
 use crate::schema::types::FileWrite;
 use crate::schema::SchemaError;
+use crate::storage::current_keys::families::{
+    record_blob_path, record_file_path, record_file_uploaded_path,
+};
+use crate::storage::disk_pack::transaction;
+use crate::storage::KvMutation;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use cloud_backup_protocol::v2::blobs::BlobPath;
 use hkdf::Hkdf;
 use lastdb_model::hex::hex_lower;
 use lastdb_model::portable_mutation::Position;
@@ -28,16 +23,8 @@ use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use sha2::{Digest, Sha256};
 
-use super::super::{
-    FILE_DEK_LABEL, FILE_ENVELOPE_VERSION, FILE_KEY_SALT, FILE_NONCE_LABEL, FILE_NONCE_SALT,
-    FILE_NONCE_SIZE, FILE_TAG_SIZE,
-};
-
-use crate::storage::current_keys::families::record_file_path;
-
 /// The file paths that a drop of these stored rows releases: one for each
-/// record row with a file. Other rows hold no file. A key that does not parse
-/// or a record row that does not decode fails the drop.
+/// record row with a file.
 pub(super) fn dropped_file_paths<'a>(
     rows: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
 ) -> Result<Vec<Vec<u8>>, SchemaError> {
@@ -63,7 +50,10 @@ fn file_crypto_error(detail: impl std::fmt::Display) -> FoldDbError {
     FoldDbError::SecurityError(format!("record file encryption: {detail}"))
 }
 
-/// The file key of one plaintext hash, and its nonce.
+fn differs(detail: &str) -> FoldDbError {
+    FoldDbError::SecurityError(format!("downloaded record file {detail}"))
+}
+
 fn file_key(
     account_key: &[u8; 32],
     sha256: &str,
@@ -82,6 +72,74 @@ fn file_key(
 }
 
 impl RecordFormat {
+    pub(crate) fn dedicated_shared_home(&self) -> bool {
+        self.runtime.is_dedicated_shared_home()
+    }
+
+    pub(crate) fn record_blob_path(
+        &self,
+        record_key: &str,
+        version: &Position,
+    ) -> Result<BlobPath, FoldDbError> {
+        let database =
+            cloud_backup_protocol::Id::try_from(self.runtime.native_home_id().to_string())
+                .map_err(|_| FoldDbError::Database("the home identity is not a cloud id".into()))?;
+        Ok(record_blob_path(&database, record_key, version)?)
+    }
+
+    pub(crate) fn sealed_file_bytes(marker: &FileMarker) -> Result<u64, FoldDbError> {
+        marker
+            .size_bytes
+            .checked_add((1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64)
+            .ok_or_else(|| differs("size overflows"))
+    }
+
+    pub(crate) async fn install_record_file(
+        &self,
+        record_key: &str,
+        version: &Position,
+        marker: &FileMarker,
+        row: Vec<u8>,
+    ) -> Result<Vec<u8>, FoldDbError> {
+        if Self::sealed_file_bytes(marker)? != row.len() as u64 {
+            return Err(differs("has a different length than its marker"));
+        }
+        require_row(&self.content_key, marker, &row)
+            .map_err(|_| differs("differs from its format or marker"))?;
+        let plaintext = self.open_file_row(&row, marker)?;
+        let path = record_file_path(record_key, version)?.into_bytes();
+        let uploaded = record_file_uploaded_path(&path)?;
+        transaction::request_scope(self.runtime(), async {
+            let current = self
+                .main_store
+                .get(record_key.as_bytes())
+                .await?
+                .map(|bytes| StoredRecord::decode(&bytes))
+                .transpose()
+                .map_err(super::record_value_error)?;
+            let selected = current.as_ref().is_some_and(|record| {
+                record.file_version.as_ref() == Some(version)
+                    && record.file.as_ref() == Some(marker)
+            });
+            if !selected {
+                return Ok::<_, FoldDbError>(());
+            }
+            let store = self.file_store().await?;
+            if store.get(&path).await?.is_some() {
+                return Ok(());
+            }
+            store
+                .batch_mutate(vec![
+                    KvMutation::put(path, row),
+                    KvMutation::put(uploaded, vec![1]),
+                ])
+                .await?;
+            Ok(())
+        })
+        .await?;
+        Ok(plaintext)
+    }
+
     pub(crate) async fn portable_file(
         &self,
         key: &super::RecordAddress,
@@ -122,22 +180,11 @@ impl RecordFormat {
         sealed: Vec<u8>,
     ) -> Result<FileWrite, SchemaError> {
         require_row(&self.content_key, &marker, &sealed)?;
-        let (key, _) = file_key(&self.content_key, &marker.sha256)
-            .map_err(|_| SchemaError::InvalidData("portable file key".into()))?;
-        let plaintext = crate::crypto::envelope::decrypt_envelope(&key, &sealed)
+        self.open_file_row(&sealed, &marker)
             .map_err(|_| SchemaError::InvalidData("portable file authentication".into()))?;
-        if plaintext.len() as u64 != marker.size_bytes
-            || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
-        {
-            return Err(SchemaError::InvalidData(
-                "portable file differs from its marker".into(),
-            ));
-        }
         Ok(self.file_issuer.issue(marker, sealed))
     }
 
-    /// Seal a new file under the account key and bind the immutable output
-    /// to this format instance. The issuer never leaves this writer.
     pub(crate) fn seal_record_file(
         &self,
         plaintext: &[u8],
@@ -154,7 +201,6 @@ impl RecordFormat {
         Ok(self.file_issuer.issue(marker, row))
     }
 
-    /// Name an external file. The marker matches the file. No cas row is stored.
     pub(crate) async fn reference_local_file(
         &self,
         path: &std::path::Path,
@@ -181,8 +227,6 @@ impl RecordFormat {
         Ok(self.file_issuer.issue_local(marker, described.path))
     }
 
-    /// The plaintext of the file of the record at `record_key`, checked
-    /// against its marker. `None` when the path holds no row.
     pub(crate) async fn open_record_file(
         &self,
         record_key: &str,
@@ -213,14 +257,7 @@ impl RecordFormat {
         self.open_file_row(&row, marker).map(Some)
     }
 
-    /// Decrypt one sealed file row and check the plaintext against the
-    /// record's marker. A row that does not open or differs is a security
-    /// error.
-    pub(super) fn open_file_row(
-        &self,
-        row: &[u8],
-        marker: &FileMarker,
-    ) -> Result<Vec<u8>, FoldDbError> {
+    fn open_file_row(&self, row: &[u8], marker: &FileMarker) -> Result<Vec<u8>, FoldDbError> {
         let (key, _) = file_key(&self.content_key, &marker.sha256)?;
         let plaintext =
             crate::crypto::envelope::decrypt_envelope(&key, row).map_err(file_crypto_error)?;
@@ -235,14 +272,6 @@ impl RecordFormat {
     }
 }
 
-/// The exact length of the sealed row of a file with this marker.
-pub(super) fn sealed_row_bytes(marker: &FileMarker) -> Option<u64> {
-    marker
-        .size_bytes
-        .checked_add((1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64)
-}
-
-/// Seal `plaintext` into the cas envelope. The hash is the marker hash.
 pub(crate) fn seal_file_row(
     account_key: &[u8; 32],
     plaintext: &[u8],
@@ -267,9 +296,6 @@ pub(crate) fn seal_file_row(
     Ok((row, sha256))
 }
 
-/// Validate the stored envelope at the only file-row write boundary. This
-/// checks framing and the configured deterministic nonce, not the GCM tag;
-/// authenticated opening and plaintext-hash verification remain on reads.
 pub(crate) fn require_row(
     content_key: &[u8; 32],
     marker: &FileMarker,

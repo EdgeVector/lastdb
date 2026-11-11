@@ -1,6 +1,6 @@
 //! The run footer, block-ref entries, and replacement-file space admission.
 
-use super::codec::{corrupt, get_key, get_len, get_slice, get_varint, put_key, put_varint};
+use super::codec::{corrupt, get_len, get_slice, get_varint, put_key, put_varint};
 use super::MAX_RUN_KEY_BYTES;
 use crate::space::{reserve_space, SpacePolicy, SpaceReservation};
 use crate::{Error, Result};
@@ -83,25 +83,7 @@ pub(super) fn put_refs(out: &mut Vec<u8>, refs: &[BlockRef]) {
 }
 
 pub(super) fn get_refs(bytes: &[u8], at: &mut usize) -> Result<Vec<BlockRef>> {
-    let count = get_len(bytes, at, MAX_ENTRIES)?;
-    let mut refs: Vec<BlockRef> = Vec::with_capacity(count.min(4096));
-    let mut key = Vec::new();
-    for _ in 0..count {
-        get_key(bytes, at, &mut key)?;
-        if refs.last().is_some_and(|prev| prev.first_key >= key) {
-            return Err(corrupt("block entries are not ascending"));
-        }
-        let number = get_varint(bytes, at)?;
-        let offset = get_varint(bytes, at)?;
-        let len = u32::try_from(get_varint(bytes, at)?).map_err(|_| corrupt("block length"))?;
-        refs.push(BlockRef {
-            first_key: key.clone(),
-            number,
-            offset,
-            len,
-        });
-    }
-    Ok(refs)
+    get_refs_bounded(bytes, at, u64::MAX)
 }
 
 pub(super) fn get_refs_bounded(
@@ -177,23 +159,7 @@ impl Top {
     }
 
     pub(super) fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut at = 0;
-        let records = get_varint(bytes, &mut at)?;
-        let data_blocks = get_varint(bytes, &mut at)?;
-        let max_payload = get_varint(bytes, &mut at)?;
-        let indexes = get_refs(bytes, &mut at)?;
-        let last_len = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES)?;
-        let last_key = get_slice(bytes, &mut at, last_len)?.to_vec();
-        if at != bytes.len() {
-            return Err(corrupt("trailing bytes in top block"));
-        }
-        Ok(Self {
-            records,
-            data_blocks,
-            max_payload,
-            indexes,
-            last_key,
-        })
+        Self::decode_bounded(bytes, u64::MAX)
     }
 
     pub(super) fn decode_bounded(bytes: &[u8], maximum: u64) -> Result<Self> {

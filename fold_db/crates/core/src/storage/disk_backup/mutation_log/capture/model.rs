@@ -1,7 +1,12 @@
 use super::*;
-use cloud_backup_protocol::v2::{jobs::JobResult, Begin, Commit, Destination};
+use cloud_backup_protocol::v2::{
+    jobs::{JobResult, JobStatus},
+    Begin, Commit, Destination,
+};
 use cloud_backup_protocol::RelativePath;
 use serde::{Deserialize, Serialize};
+use std::io::{self, Read, Seek, SeekFrom};
+use std::sync::atomic::Ordering;
 
 pub(super) const MAX_BATCH_ENTRIES: u64 = 128;
 
@@ -98,7 +103,6 @@ impl FrozenLogCapture {
     }
 
     pub(super) fn validate_terminal(&self, result: &JobResult) -> StorageResult<()> {
-        use cloud_backup_protocol::v2::jobs::JobStatus;
         result
             .validate_for_begin(&self.begin)
             .map_err(|_| invalid("mutation capture terminal job"))?;
@@ -130,4 +134,188 @@ pub fn log_path(epoch: &Id, sequence: u64, role: CommitRole, run: &Id) -> String
         role.directory(),
         run.as_str()
     )
+}
+
+pub struct MutationLogReader {
+    inner: Arc<Inner>,
+    file: File,
+    remaining: u64,
+}
+
+impl MutationLogCapture {
+    pub fn reader(
+        &self,
+        index: usize,
+        offset: u64,
+        bytes: u64,
+    ) -> StorageResult<MutationLogReader> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| invalid("mutation capture state owner"))?;
+        if !state.ready
+            || state.local_cancelled
+            || state.terminal.is_some()
+            || state.released
+            || self.inner.readers.load(Ordering::Acquire)
+                >= lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams
+        {
+            return Err(invalid("mutation capture reader admission"));
+        }
+        let selected = state
+            .files
+            .get(index)
+            .ok_or_else(|| invalid("mutation capture file number"))?;
+        if bytes == 0
+            || offset
+                .checked_add(bytes)
+                .is_none_or(|end| end > selected.bytes)
+        {
+            return Err(invalid("mutation capture reader extent"));
+        }
+        let mut file = input(
+            &self
+                .inner
+                .directory
+                .join(format!("{}.ldrun", selected.run_id.as_str())),
+            selected.bytes,
+        )?;
+        file.seek(SeekFrom::Start(offset))?;
+        self.inner.readers.fetch_add(1, Ordering::AcqRel);
+        Ok(MutationLogReader {
+            inner: Arc::clone(&self.inner),
+            file,
+            remaining: bytes,
+        })
+    }
+
+    pub fn seal_commit(&self, commit: &Commit) -> StorageResult<()> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| invalid("mutation capture state owner"))?;
+        commit
+            .validate_for(&state.begin)
+            .map_err(|_| invalid("mutation capture sealed commit input"))?;
+        if !state.ready
+            || state.local_cancelled
+            || state.terminal.is_some()
+            || state.released
+            || state.commit.as_ref().is_some_and(|old| old != commit)
+        {
+            return Err(invalid("mutation capture commit phase or identity"));
+        }
+        self.write_capture_state(&mut state, |saved| saved.commit = Some(commit.clone()))
+    }
+
+    pub fn terminal(&self, result: &JobResult) -> StorageResult<()> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| invalid("mutation capture state owner"))?;
+        if self.inner.readers.load(Ordering::Acquire) != 0 {
+            return Err(invalid("mutation capture still has readers"));
+        }
+        if state.local_cancelled {
+            return Err(invalid(
+                "locally cancelled mutation capture has no cloud terminal",
+            ));
+        }
+        state.validate_terminal(result)?;
+        if state.terminal.as_ref().is_some_and(|old| old != result) {
+            return Err(invalid("mutation capture terminal authority changed"));
+        }
+        if state.released {
+            return Ok(());
+        }
+        if state.terminal.is_none() {
+            self.write_capture_state(&mut state, |saved| {
+                saved.terminal = Some(result.clone());
+            })?;
+        }
+        if matches!(result.status, JobStatus::Published { .. }) {
+            self.inner
+                .runtime
+                .mutation_log
+                .acknowledge(&state.through)?;
+        }
+        self.release_capture_files(&mut state)
+    }
+
+    /// Only the coordinator's durable never-submitted branch can use this path.
+    pub fn cancel_unsubmitted(&self) -> StorageResult<()> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| invalid("mutation capture state owner"))?;
+        if self.inner.readers.load(Ordering::Acquire) != 0
+            || state.terminal.is_some()
+            || state.commit.is_some()
+        {
+            return Err(invalid("mutation capture cannot be locally cancelled"));
+        }
+        if state.released {
+            return Ok(());
+        }
+        self.write_capture_state(&mut state, |saved| saved.local_cancelled = true)?;
+        self.release_capture_files(&mut state)
+    }
+
+    fn write_capture_state(
+        &self,
+        state: &mut FrozenLogCapture,
+        change: impl FnOnce(&mut FrozenLogCapture),
+    ) -> StorageResult<()> {
+        let mut saved = state.clone();
+        change(&mut saved);
+        store::write(&self.inner.directory.join("capture.json"), &saved)?;
+        *state = saved;
+        Ok(())
+    }
+
+    fn release_capture_files(&self, state: &mut FrozenLogCapture) -> StorageResult<()> {
+        for file in &state.files {
+            store::remove_part(
+                &self
+                    .inner
+                    .directory
+                    .join(format!("{}.ldrun", file.run_id.as_str())),
+                file.bytes,
+            )?;
+        }
+        File::open(&self.inner.directory)?.sync_all()?;
+        self.write_capture_state(state, |saved| saved.released = true)
+    }
+}
+
+impl Read for MutationLogReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.remaining == 0 || buffer.is_empty() {
+            return Ok(0);
+        }
+        let maximum = self
+            .remaining
+            .min(buffer.len() as u64)
+            .min(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
+            as usize;
+        let count = self.file.read(&mut buffer[..maximum])?;
+        if count == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "frozen mutation log file ends early",
+            ));
+        }
+        self.remaining -= count as u64;
+        Ok(count)
+    }
+}
+
+impl Drop for MutationLogReader {
+    fn drop(&mut self) {
+        self.inner.readers.fetch_sub(1, Ordering::AcqRel);
+    }
 }
