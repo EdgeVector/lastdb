@@ -13,10 +13,10 @@
 //! service starts should use without baking a personal path into the formula.
 
 mod lastdbd;
-mod shutdown_runtime;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use lastdb_node::lastdb_uds::uds::UdsSocket;
 use lastdb_node::lastdb_uds::uds_router;
@@ -205,7 +205,8 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         },
         accept_result,
     );
-    shutdown_runtime::finish(runtime, shutdown_result)?;
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    shutdown_result?;
 
     println!("lastdbd: shutdown signal received, exiting");
     Ok(())

@@ -1,15 +1,14 @@
 //! Signed device registration.
 
+use std::time::Duration;
+
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
+
 use super::*;
 
-#[path = "register/recovery.rs"]
-mod recovery;
-pub use recovery::{
-    register_dev_native_device, register_dev_recovery_device, register_native_device,
-};
+const RESPONSE_LIMIT: usize = 65_536;
 
-/// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519
-/// seed.
+/// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519 seed.
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {
     let mnemonic =
         bip39::Mnemonic::parse(words.trim()).map_err(|_| "Invalid recovery phrase".to_string())?;
@@ -31,15 +30,15 @@ pub struct Registered {
 
 /// An owned register request. Do not derive `Debug`: the JSON body contains
 /// the one-use invite supplied on stdin.
-pub(super) struct SignedRegisterRequest {
-    pub(super) url: reqwest::Url,
-    pub(super) body: serde_json::Value,
-    pub(super) expected_user_hash: String,
+struct SignedRegisterRequest {
+    url: reqwest::Url,
+    body: serde_json::Value,
+    expected_user_hash: String,
 }
 
 /// Sign `{public_key_hex}:{timestamp}` with the account key for the Exemem CLI
 /// register endpoint (`POST {api_url}/api/auth/cli/register`).
-pub(super) fn signed_register_request(
+fn signed_register_request(
     api_url: &str,
     keypair: &Ed25519KeyPair,
     invite_code: Option<&str>,
@@ -59,7 +58,6 @@ pub(super) fn signed_register_request(
     if let Some(code) = invite_code {
         body["invite_code"] = serde_json::Value::String(code.to_string());
     }
-    // Multi-device: scope key rotation to this device.
     if let Some(device) = device_id {
         body["device_id"] = serde_json::Value::String(device.to_string());
     }
@@ -105,4 +103,71 @@ fn parse_registered_response(text: &str, expected_user_hash: &str) -> Result<Reg
         return Err("Register returned credentials for another signed account".into());
     }
     Ok(registered)
+}
+
+/// Register one fresh DEV device without an invite or caller endpoint.
+pub async fn register_dev_recovery_device(
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+) -> Result<Registered, String> {
+    register_dev_native_device(keypair, device_id, None).await
+}
+
+/// Register one native-backup DEV device through the signed auth API.
+pub async fn register_dev_native_device(
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+    invite_code: Option<&str>,
+) -> Result<Registered, String> {
+    register_native_device(Environment::Dev, keypair, device_id, invite_code).await
+}
+
+/// Explicit compiled-environment registration without a local store or recipient.
+pub async fn register_native_device(
+    environment: Environment,
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+    invite_code: Option<&str>,
+) -> Result<Registered, String> {
+    let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid DEV recovery device ID")?;
+    if parsed.get_version() != Some(uuid::Version::Random) {
+        return Err("DEV recovery requires a random device ID".into());
+    }
+    let request = signed_register_request(
+        exemem_api_url_for(environment),
+        keypair,
+        invite_code,
+        Some(device_id),
+    )?;
+    let client = crate::cloud_backup_client::build_shared_http_client()
+        .map_err(|_| "cannot construct DEV recovery register client")?;
+    let mut response = client
+        .post(request.url.clone())
+        .timeout(Duration::from_secs(30))
+        .json(&request.body)
+        .send()
+        .await
+        .map_err(|_| "DEV recovery register request failed")?;
+    if response.status().is_redirection() || response.url() != &request.url {
+        return Err("DEV recovery register redirected".into());
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "DEV recovery register HTTP status {}",
+            response.status().as_u16()
+        ));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "cannot read DEV recovery response")?
+    {
+        if chunk.len() > RESPONSE_LIMIT.saturating_sub(bytes.len()) {
+            return Err("DEV recovery response exceeds supported size".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| "DEV recovery response is not UTF-8")?;
+    parse_registered_response(text, &request.expected_user_hash)
 }

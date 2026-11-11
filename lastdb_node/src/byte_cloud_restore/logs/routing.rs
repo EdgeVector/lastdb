@@ -1,11 +1,18 @@
-//! Small local evidence for the route checks on one exact accepted log link.
-use super::{local, plan, MutationLogRoot, RestoreError, RestoreSession, Result};
-use crate::byte_cloud_restore::inventory::Inventory;
-use cloud_backup_protocol::v2::{inventory::InventoryRoot, AcceptedBackup};
+//! Mutation log route checks, checkpoint staging/release, and transient cache cleanup.
+use super::super::{
+    bounded_bytes, download, inventory::Inventory, native, runs::coverage::Coverage,
+};
+use super::*;
+use crate::byte_cloud_log::MutationLogPage;
+use cloud_backup_protocol::v2::{access::ReadSelector, inventory::InventoryRoot, AcceptedBackup};
 use cloud_backup_protocol::Digest;
 use fold_db::cloud_backup_plan::ClientNativeFile;
-use fold_db::storage::disk_pack::mutation_log::LogPosition;
+use fold_db::storage::disk_pack::{
+    byte_backup::CODEC_ENVELOPE_MAX_BYTES, mutation_log::LogPosition,
+};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use std::fs::{self, File};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,7 +63,6 @@ impl Routing {
         })
     }
 
-    /// Call only after page context, file paths and receipt destinations pass.
     pub(super) fn page(
         &mut self,
         files: &[ClientNativeFile],
@@ -65,7 +71,6 @@ impl Routing {
         for file in files {
             add(&mut self.native_files, 1)?;
             add(&mut self.native_bytes, file.native_bytes.get())?;
-            // The log carries main-home runs only; record blobs are not logged.
             if file.path.as_str().split('/').nth(3) != Some("main") {
                 return Err(RestoreError::Invalid("mutation route role"));
             }
@@ -77,7 +82,6 @@ impl Routing {
         Ok(())
     }
 
-    /// The caller completes both coverage and inventory checks before this write.
     pub(super) fn save(&self, session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
         if self.main_files != self.native_files
             || self.native_files != root.native_file_count
@@ -129,4 +133,128 @@ fn entry_hashes(root: &MutationLogRoot) -> Result<Vec<Digest>> {
         return Err(RestoreError::Invalid("mutation route complete position"));
     }
     Ok(hashes)
+}
+
+pub(super) fn clear_cache(session: &RestoreSession) -> Result<()> {
+    let root = session.root.join("cache");
+    local::directory(&root)?;
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        if files.len() > 2 * cloud_backup_protocol::v2::limits::MAX_PAGES + 8 {
+            return Err(RestoreError::Limit("mutation metadata cache files"));
+        }
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .ok_or(RestoreError::Invalid("mutation cache name"))?;
+        let digest = name.strip_suffix(".object").is_some_and(|id| {
+            id.len() == 64
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        });
+        if !digest && name != "payload.object" {
+            return Err(RestoreError::Invalid("mutation cache entry"));
+        }
+        local::owner_file(&entry.path(), false)?;
+        files.push(entry.path());
+    }
+    for path in files {
+        session.remove_spool_file(&path)?;
+    }
+    File::open(root)?.sync_all()?;
+    Ok(())
+}
+
+pub(super) async fn download_checkpoint(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+    root: &MutationLogRoot,
+    mut inventory: Inventory,
+    link_index: u32,
+) -> Result<()> {
+    let mut coverage = Coverage::new_pages(&root.pages, session, &mut inventory)?;
+    let mut routes = Routing::new(session, root, &inventory, link_index)?;
+    for batch in root
+        .pages
+        .chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS)
+    {
+        let selectors = batch
+            .iter()
+            .map(|page| ReadSelector::Receipt {
+                receipt_id: page.receipt_id.clone(),
+            })
+            .collect();
+        let grants = download::grants(session, client, selectors).await?;
+        for (expected, grant) in batch.iter().zip(grants) {
+            grant.validate_for_receipt(inventory.receipt(&expected.receipt_id)?)?;
+            inventory.use_receipt(&expected.receipt_id)?;
+            let path = download::fetch(session, client, &grant, true).await?;
+            let page = MutationLogPage::decode(
+                &bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
+                decryption.content_key(),
+                &session.accepted().begin,
+            )
+            .map_err(|_| RestoreError::Invalid("mutation file page"))?;
+            root.validate_page(&page)
+                .map_err(|_| RestoreError::Invalid("mutation file page context"))?;
+            if page.page_index != expected.page_index {
+                return Err(RestoreError::Invalid("mutation page order"));
+            }
+            coverage.page_with(&page.files, &mut inventory, |file| {
+                root.validate_file(file)
+                    .map_err(|_| RestoreError::Invalid("mutation native file identity"))
+            })?;
+            routes.page(&page.files, root)?;
+            native::restore_at(
+                session,
+                client,
+                &mut inventory,
+                &page.files,
+                &session.root.join("replay-files"),
+            )
+            .await?;
+        }
+    }
+    coverage.finish()?;
+    inventory.finish()?;
+    routes.save(session, root)
+}
+
+pub(super) fn release_checkpoint(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
+    let mut parents = BTreeSet::new();
+    for entry in &root.entries {
+        for part in &entry.parts {
+            let name = fold_db::storage::disk_pack::mutation_log::log_path(
+                &root.anchor.epoch,
+                entry.sequence,
+                part.role,
+                &part.run_id,
+            );
+            let path = session.root.join("replay-files").join(&name);
+            match fs::symlink_metadata(&path) {
+                Ok(meta) if meta.is_file() && meta.len() == part.bytes => {
+                    fs::remove_file(&path)?;
+                }
+                Ok(_) => return Err(RestoreError::Invalid("mutation source release identity")),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            parents.insert(
+                path.parent()
+                    .ok_or(RestoreError::Invalid("mutation source parent"))?
+                    .to_path_buf(),
+            );
+            session
+                .remove_spool_file(&session.root.join("entries").join(native::path_key(&name)))?;
+        }
+    }
+    for parent in parents {
+        File::open(parent)?.sync_all()?;
+    }
+    File::open(session.root.join("entries"))?.sync_all()?;
+    File::open(session.root.join("replay-files"))?.sync_all()?;
+    clear_cache(session)
 }

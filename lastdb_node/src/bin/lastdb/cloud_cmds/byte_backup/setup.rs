@@ -9,7 +9,7 @@ use std::io::Read;
 
 #[path = "setup/files.rs"]
 mod files;
-use super::super::recovery_home::files as recovery_files;
+use super::recovery_home::files as recovery_files;
 
 const PHRASE_FILE: &str = "recovery-phrase.txt";
 
@@ -37,7 +37,7 @@ pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<
                     "existing connection requires only an environment and API key stdin".into(),
                 );
             }
-            super::existing::run(
+            super::run_existing(
                 source.ok_or("existing connection requires an explicit --data-dir")?,
                 env.as_deref().ok_or("existing connection requires --env")?,
                 expected_user_hash.as_deref(),
@@ -105,7 +105,7 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(PHRASE_FILE, phrase.as_bytes())?;
     target.commit()?;
-    print(
+    print_backup(
         &serde_json::json!({
             "schema": "lastdb.native-backup-init.v1", "ok": true, "environment": "dev",
             "account_id": account, "home": destination, "recovery_phrase_file": phrase_path,
@@ -200,7 +200,7 @@ fn connected(
     restored: bool,
     json: bool,
 ) -> Result<(), String> {
-    print(
+    print_backup(
         &serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
             "account_id": account, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,

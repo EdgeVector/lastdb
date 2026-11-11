@@ -34,36 +34,19 @@ const _: () = assert!(
 #[derive(Clone)]
 pub struct AuthClient {
     base_url: String,
-    credential: AccountCredential,
-}
-
-#[derive(Clone)]
-enum AccountCredential {
-    ApiKey(Arc<str>),
-    Session(Arc<str>),
+    api_key: Arc<str>,
 }
 
 impl AuthClient {
     pub fn new(base_url: String, api_key: String) -> Self {
         Self {
             base_url,
-            credential: AccountCredential::ApiKey(api_key.into()),
-        }
-    }
-
-    /// Use an existing account session for bounded service requests.
-    pub fn with_session(base_url: String, session: String) -> Self {
-        Self {
-            base_url,
-            credential: AccountCredential::Session(session.into()),
+            api_key: api_key.into(),
         }
     }
 
     pub(crate) fn apply_auth(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        match &self.credential {
-            AccountCredential::ApiKey(key) => request.header("X-API-Key", key.as_ref()),
-            AccountCredential::Session(token) => request.bearer_auth(token.as_ref()),
-        }
+        request.header("X-API-Key", self.api_key.as_ref())
     }
 }
 

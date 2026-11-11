@@ -1,12 +1,7 @@
-//! Blocking unix-socket HTTP client for the `lastdb` CLI: request headers,
-//! `post_json*`, timeouts, and the read-only retry loop.
+//! Blocking unix-socket HTTP client and response parsers for the `lastdb` CLI.
 
 use super::*;
 
-/// Headers every hand-built `lastdb` CLI request sends: the client self-ID
-/// for Mini request-ops telemetry plus a fresh per-request correlation ID
-/// (`x-lastdb-request-id`, rendered as `req=<id>` in `lastdb ops` Slowest
-/// recent). Minted per call so two CLI requests never share an ID.
 pub(super) fn client_headers() -> String {
     format!(
         "X-LastDB-Client: lastdb\r\nX-LastDB-Request-Id: {}\r\n",
@@ -15,11 +10,6 @@ pub(super) fn client_headers() -> String {
 }
 
 /// POST JSON over the owner socket with the **admin** UDS deadline.
-///
-/// Use for long owner routes that the server already dispatches via
-/// [`lastdb_node::exec::block_on_admin_route`] (inventory-class walks,
-/// laststore snapshot, heal-staging, …). Durable GC admission and attachment
-/// use a short deadline; neither request waits for the cloud executor.
 pub(super) fn post_json_admin(
     socket: &Path,
     path: &str,
@@ -113,12 +103,6 @@ pub(super) const READ_ONLY_RETRY_BACKOFF_MS: u64 = 25;
 pub(super) const READ_ONLY_TRANSIENT_MAX_ELAPSED: Duration = Duration::from_secs(1);
 
 /// Retry transient read-side EAGAIN/EWOULDBLOCK for idempotent status probes.
-///
-/// The caller's timeout remains an overall budget: retries receive only the
-/// time left after earlier attempts and backoff. A `WouldBlock` returned at the
-/// configured deadline is still reported as a client timeout; only an early
-/// read-side EAGAIN is retried. Mutating requests continue to use
-/// [`request_with_timeout`] and are never replayed here.
 pub(super) fn request_readonly_with_retry(
     socket: &Path,
     bytes: &[u8],
@@ -172,21 +156,6 @@ where
 }
 
 /// Map socket I/O failures to operator-honest language.
-///
-/// On macOS/Unix a `set_read_timeout` deadline often surfaces as
-/// `WouldBlock` / "Resource temporarily unavailable (os error 35)" — that is
-/// **not** node backpressure (EAGAIN from a full accept queue); it is the CLI
-/// giving up on its own deadline while the daemon may still be walking. Name
-/// the duration and how to raise it.
-///
-/// Every socket call site shares this helper, so it cannot know which flags
-/// its caller defines and must not prescribe one. `LASTDB_UDS_ADMIN_TIMEOUT_SECS`
-/// is the remediation that always applies: [`admin_scan_client_timeout`] reads
-/// it for the CLI's own deadline, and the daemon reads it for the server side,
-/// so setting it in the environment raises both. `--timeout` exists only on
-/// `admin storage inventory`, its `--by-schema` view, and `admin ops`; naming it unconditionally sent
-/// operators to `unexpected argument '--timeout' found` when a command
-/// does not accept the flag.
 pub(super) fn format_socket_io_error(op: &str, err: &std::io::Error, timeout: Duration) -> String {
     if is_client_deadline_error(err) {
         let secs = timeout.as_secs().max(1);
@@ -224,4 +193,53 @@ pub(crate) fn probe_health(socket: &Path) -> Result<(), String> {
     } else {
         Err(format!("unexpected /health status: {first_line}"))
     }
+}
+
+pub(crate) fn format_bytes(n: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    let f = n as f64;
+    if f >= GIB {
+        format!("{:.2} GiB", f / GIB)
+    } else if f >= MIB {
+        format!("{:.1} MiB", f / MIB)
+    } else if f >= KIB {
+        format!("{:.1} KiB", f / KIB)
+    } else {
+        format!("{n} B")
+    }
+}
+
+pub(crate) fn parse_json_response(
+    response: &str,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let status_line = response.lines().next().unwrap_or("<empty response>");
+    if !response.starts_with("HTTP/1.1 200 ") {
+        let body = response
+            .split_once("\r\n\r\n")
+            .map_or("", |(_, b)| b.trim());
+        return Err(format!("{label} returned {status_line}: {body}"));
+    }
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .ok_or_else(|| format!("{label} response had no body"))?;
+    serde_json::from_str(body).map_err(|e| format!("invalid {label} JSON: {e}"))
+}
+
+pub(crate) fn parse_binary_response(response: &[u8], label: &str) -> Result<Vec<u8>, String> {
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| format!("{label} response had no headers"))?;
+    let header = std::str::from_utf8(&response[..header_end])
+        .map_err(|e| format!("invalid {label} response headers: {e}"))?;
+    let status_line = header.lines().next().unwrap_or("<empty response>");
+    if !status_line.starts_with("HTTP/1.1 200 ") {
+        let body = String::from_utf8_lossy(&response[header_end + 4..]);
+        return Err(format!("{label} returned {status_line}: {}", body.trim()));
+    }
+    Ok(response[header_end + 4..].to_vec())
 }

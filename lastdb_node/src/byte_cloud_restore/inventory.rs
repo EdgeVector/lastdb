@@ -1,9 +1,101 @@
+//! Verified backup object inventory and recovery key derivation.
 use super::{download, local, ByteBackupReader, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::v2::access::ReadSelector;
 use cloud_backup_protocol::v2::inventory::{InventoryIndex, InventoryPage, InventoryVerifier};
 use cloud_backup_protocol::v2::transfer::ObjectReceipt;
-use cloud_backup_protocol::Digest;
+use cloud_backup_protocol::{AccountId, Digest};
+use fold_db::crypto::E2eKeys;
 use std::collections::{BTreeMap, BTreeSet};
+use zeroize::Zeroizing;
+
+/// The caller supplies the phrase again after restart; the session stores no secret.
+pub struct RecoveryKeys {
+    seed: Zeroizing<[u8; 32]>,
+    decryption: RecoveryDecryption,
+    account_id: AccountId,
+}
+
+/// Key material used to verify and decrypt a backup.
+pub(super) struct RecoveryDecryption {
+    content: Zeroizing<[u8; 32]>,
+    account_public_key: String,
+}
+
+impl RecoveryKeys {
+    /// Derive locally before the opaque encrypted root is available.
+    pub fn from_scope_phrase(phrase: &str, account_id: &AccountId) -> Result<Self> {
+        let keys = Self::from_phrase(phrase)?;
+        if keys.account_id != *account_id {
+            return Err(RestoreError::Invalid("recovery account"));
+        }
+        Ok(keys)
+    }
+
+    fn from_phrase(phrase: &str) -> Result<Self> {
+        let seed = Zeroizing::new(
+            crate::cloud::seed_from_phrase(phrase)
+                .map_err(|_| RestoreError::Invalid("recovery phrase"))?,
+        );
+        Self::from_seed(seed)
+    }
+
+    pub(crate) fn from_seed(seed: Zeroizing<[u8; 32]>) -> Result<Self> {
+        let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
+            .map_err(|_| RestoreError::Invalid("recovery key"))?;
+        let keys = E2eKeys::from_ed25519_seed(&seed)
+            .map_err(|_| RestoreError::Invalid("recovery derivation"))?;
+        let account_id = crate::identity::user_hash_from_pubkey(&pair.public_key_base64())
+            .map_err(|_| RestoreError::Invalid("recovery account"))?;
+        Ok(Self {
+            seed,
+            decryption: RecoveryDecryption {
+                content: Zeroizing::new(keys.encryption_key()),
+                account_public_key: fold_db::hex::hex_lower(pair.public_key_bytes()),
+            },
+            account_id: AccountId::try_from(account_id)
+                .map_err(|_| RestoreError::Invalid("recovery account"))?,
+        })
+    }
+
+    pub(super) fn decryption(&self) -> &RecoveryDecryption {
+        &self.decryption
+    }
+
+    pub(crate) fn account_seed(&self) -> &[u8; 32] {
+        &self.seed
+    }
+
+    pub(crate) fn content_key(&self) -> &[u8; 32] {
+        self.decryption.content_key()
+    }
+
+    pub(crate) fn account_id(&self) -> &AccountId {
+        &self.account_id
+    }
+}
+
+impl RecoveryDecryption {
+    pub(super) fn for_publication(
+        content: Zeroizing<[u8; 32]>,
+        account_public_key: &Digest,
+    ) -> Self {
+        Self {
+            content,
+            account_public_key: account_public_key.as_str().to_owned(),
+        }
+    }
+
+    pub(super) fn validate_account(&self, account_public_key: &Digest) -> Result<()> {
+        if self.account_public_key != account_public_key.as_str() {
+            return Err(RestoreError::Invalid("recovery public key"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn content_key(&self) -> &[u8; 32] {
+        &self.content
+    }
+}
 
 pub(super) struct Inventory {
     pub receipts: BTreeMap<[u8; 32], ObjectReceipt>,

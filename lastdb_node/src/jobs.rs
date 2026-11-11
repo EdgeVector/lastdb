@@ -2,5 +2,4 @@
 //!
 //! [`Host`]: crate::host::Host
 
-mod paced_rest;
 pub mod ttl_sweep;

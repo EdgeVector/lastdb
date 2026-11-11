@@ -3,18 +3,57 @@ use super::{
     store::{self, Store},
     BackupError, Result,
 };
+use crate::cloud::{SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use crate::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::{
     v2::{context::ContextReadRequest, Destination, Version},
     AccountId, Digest, Id,
 };
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+use zeroize::Zeroize;
 
 pub(crate) mod files;
-mod model;
-use crate::cloud::{SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE};
-pub use model::{ManualConnectionStatus, SensitiveConnectionRequest};
+
+/// A dedicated owner request. The API key never enters the ordinary backup command enum.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensitiveConnectionRequest {
+    pub environment: String,
+    pub expected_user_hash: Option<AccountId>,
+    pub api_key: String,
+}
+
+impl Drop for SensitiveConnectionRequest {
+    fn drop(&mut self) {
+        self.api_key.zeroize();
+    }
+}
+
+/// Public connection state contains no credentials and starts no work.
+#[derive(Clone, Debug, Serialize)]
+pub struct ManualConnectionStatus {
+    pub account_id: AccountId,
+    pub source_home: Id,
+    pub environment: String,
+    pub manual_backup_enabled: bool,
+    pub automatic_backup_enabled: bool,
+    pub registration_attempted: bool,
+}
+
+impl From<SavedConnection> for ManualConnectionStatus {
+    fn from(record: SavedConnection) -> Self {
+        Self {
+            account_id: record.account_id,
+            source_home: record.source_home,
+            environment: record.environment,
+            manual_backup_enabled: true,
+            automatic_backup_enabled: false,
+            registration_attempted: false,
+        }
+    }
+}
 
 pub async fn connect_existing(
     host: &crate::host::Host,
@@ -122,8 +161,7 @@ pub(super) fn status(host: &crate::host::Host) -> Result<Option<ManualConnection
     Ok(status)
 }
 
-/// The connected account, source home and endpoint, and the digest of the
-/// saved key, which changes only when the key or its URL changes.
+/// The connected account, source home and endpoint, and the digest of the saved key.
 pub(super) fn automatic_binding(
     host: &crate::host::Host,
 ) -> Result<(AccountId, Id, String, Digest)> {
@@ -161,8 +199,6 @@ fn load(host: &crate::host::Host) -> Result<Option<(SavedConnection, ByteBackupC
     load_identity(&host.home, &account, &source)
 }
 
-/// The saved consent for this account and source home, with its credentials.
-/// `None` when the home has no credentials or no consent.
 fn read_connection(
     directory: &files::Directory,
     account: &AccountId,

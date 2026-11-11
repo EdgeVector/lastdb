@@ -1,9 +1,78 @@
-use super::*;
+//! Client-only mutation-log manifests. The cloud never decodes these values.
+use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Destination};
+use cloud_backup_protocol::{Digest, RecoveryDescriptor};
+use fold_db::cloud_backup_plan::ClientNativeFile;
+use fold_db::storage::disk_pack::byte_backup::{
+    ClientPageReference, CODEC_ENVELOPE_MAX_BYTES, CODEC_PLAINTEXT_MAX_BYTES, MAX_CLIENT_PAGES,
+    MAX_PAGE_FILES,
+};
+use fold_db::storage::disk_pack::mutation_log::{log_path, LogAnchor, LogEntry, LogPosition};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+/// Version 5 logs main-home runs only; record blobs upload by path.
+pub const VERSION: u16 = 5;
+pub const MAX_BATCH_ENTRIES: usize = 128;
+
+#[derive(Debug)]
+pub struct LogCodecError(&'static str);
+
+impl std::fmt::Display for LogCodecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for LogCodecError {}
+
+pub type Result<T> = std::result::Result<T, LogCodecError>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LogKind {
     NativeMutationLog,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutationLogPage {
+    pub version: u16,
+    pub page_index: u32,
+    pub begin_sha256: Digest,
+    pub descriptor_sha256: Digest,
+    pub files: Vec<ClientNativeFile>,
+}
+
+impl MutationLogPage {
+    pub fn validate_for(&self, begin: &Begin) -> Result<()> {
+        context(
+            self.version,
+            &self.begin_sha256,
+            &self.descriptor_sha256,
+            begin,
+        )?;
+        if self.page_index as usize >= MAX_CLIENT_PAGES
+            || self.files.is_empty()
+            || self.files.len() > MAX_PAGE_FILES
+        {
+            return Err(LogCodecError("mutation log page resource bound"));
+        }
+        let mut previous = None;
+        for file in &self.files {
+            file.validate()
+                .map_err(|_| LogCodecError("mutation log file extents"))?;
+            if previous.is_some_and(|old| old >= file.path.as_str()) {
+                return Err(LogCodecError("mutation log page path order"));
+            }
+            previous = Some(file.path.as_str());
+        }
+        encoded_bound(self)
+    }
+
+    pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> Result<Self> {
+        let value: Self = decode(bytes, key)?;
+        value.validate_for(begin)?;
+        Ok(value)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,4 +220,60 @@ impl MutationLogRoot {
         value.validate_for(begin)?;
         Ok(value)
     }
+}
+
+fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> Result<()> {
+    begin
+        .validate()
+        .map_err(|_| LogCodecError("mutation log begin"))?;
+    if version != VERSION
+        || !begin.descriptor.as_value().is_null()
+        || begin.required_destinations != [Destination::R2, Destination::B2]
+        || *digest
+            != begin
+                .input_sha256()
+                .map_err(|_| LogCodecError("mutation log begin digest"))?
+        || *descriptor
+            != begin
+                .descriptor
+                .commitment()
+                .map_err(|_| LogCodecError("mutation log descriptor digest"))?
+    {
+        return Err(LogCodecError("mutation log metadata frozen context"));
+    }
+    Ok(())
+}
+
+pub fn encode(value: &impl Serialize, key: &[u8; 32]) -> Result<Vec<u8>> {
+    let bytes = zeroize::Zeroizing::new(
+        serde_json::to_vec(value).map_err(|_| LogCodecError("mutation log metadata encoding"))?,
+    );
+    if bytes.len() as u64 > CODEC_PLAINTEXT_MAX_BYTES {
+        return Err(LogCodecError("mutation log metadata size"));
+    }
+    fold_db::crypto::encrypt_envelope(key, &bytes)
+        .map_err(|_| LogCodecError("mutation log metadata protection"))
+}
+
+fn decode<T: DeserializeOwned>(bytes: &[u8], key: &[u8; 32]) -> Result<T> {
+    if bytes.len() as u64 > CODEC_ENVELOPE_MAX_BYTES {
+        return Err(LogCodecError("mutation log metadata envelope size"));
+    }
+    let plain = zeroize::Zeroizing::new(
+        fold_db::crypto::decrypt_envelope(key, bytes)
+            .map_err(|_| LogCodecError("mutation log metadata protection"))?,
+    );
+    if plain.len() as u64 > CODEC_PLAINTEXT_MAX_BYTES {
+        return Err(LogCodecError("mutation log metadata size"));
+    }
+    serde_json::from_slice(&plain).map_err(|_| LogCodecError("mutation log metadata format"))
+}
+
+fn encoded_bound(value: &impl Serialize) -> Result<()> {
+    let bytes =
+        serde_json::to_vec(value).map_err(|_| LogCodecError("mutation log metadata encoding"))?;
+    if bytes.len() as u64 > CODEC_PLAINTEXT_MAX_BYTES {
+        return Err(LogCodecError("mutation log metadata size"));
+    }
+    Ok(())
 }

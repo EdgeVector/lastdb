@@ -1,36 +1,14 @@
 use super::*;
 
-/// Default wall-clock budget for one UDS handler's async work
-/// (`LASTDB_UDS_HANDLER_TIMEOUT_SECS` overrides).
-///
-/// A worker is occupied for the full handler. Socket read/write has its own
-/// 10s budget, but **handler** work (query/mutate/`block_on`) used to be
-/// unbounded. Hung futures occupied all workers and blocked new requests.
-/// This budget forces a 503 and releases the worker. It must be ≥ the QoS bulk
-/// queue budget (~60s) so healthy bulk work does not time out.
-pub const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
-
-/// Longer budget for owner DB admin scans (`/api/db/inventory`,
-/// `/api/db/schemas`) — full-prefix walks over multi-GiB stores.
-/// Override with `LASTDB_UDS_ADMIN_TIMEOUT_SECS`.
-pub const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
+const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
+const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
 
 /// Default client deadline for ordinary CLI Unix-socket reads (list, get,
 /// app-storage, app-publish, and the `lastdb status` health default).
-///
-/// Distinct from [`DEFAULT_HANDLER_TIMEOUT_SECS`] (server handler 90s) and
-/// [`DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS`] (admin-scan 600s). Declare-schema
-/// keeps the 600s admin budget via `LASTDB_UDS_ADMIN_TIMEOUT_SECS`.
 pub const DEFAULT_CLI_UDS_TIMEOUT_SECS: u64 = 30;
 
-/// Canary Pipeline v2 treats a status response past two seconds as build
-/// evidence, not as an absent signal. The status route must therefore release
-/// its worker at this bound.
-pub const CANARY_STATUS_HANDLER_TIMEOUT_SECS: u64 = 2;
-
-/// The boot identity route is one durable-row read. It has a tighter budget
-/// because callers use it to decide whether a fresh process is the candidate.
-pub const CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS: u64 = 1;
+const CANARY_STATUS_HANDLER_TIMEOUT_SECS: u64 = 2;
+const CANARY_BOOT_IDENTITY_HANDLER_TIMEOUT_SECS: u64 = 1;
 
 /// Effective handler deadline from env or [`DEFAULT_HANDLER_TIMEOUT_SECS`].
 #[must_use]
@@ -61,9 +39,7 @@ pub fn admin_handler_timeout() -> Duration {
         .unwrap_or(Duration::from_secs(DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS))
 }
 
-/// Run `fut` under the handler wall-clock budget; on expiry return a 503 so the
-/// UDS worker can accept another connection when the handler returns.
-pub async fn with_handler_timeout<F>(ctx: &AccessContext, fut: F) -> UdsResponse
+async fn with_handler_timeout<F>(ctx: &AccessContext, fut: F) -> UdsResponse
 where
     F: std::future::Future<Output = UdsResponse>,
 {
@@ -145,7 +121,7 @@ pub fn block_on_data_route(
 }
 
 /// The same deadline applies when a mutation awaits outside its socket worker.
-pub async fn execute_data_route_with_timeout(
+pub(in crate::exec) async fn execute_data_route_with_timeout(
     route: DataRoute,
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -160,22 +136,9 @@ pub async fn execute_data_route_with_timeout(
 }
 
 /// Wall-clock budget for one data route.
-///
-/// **This match is deliberately exhaustive — do not add a `_` arm.** Every
-/// route added since this list was written that walks the whole keyspace
-/// (`tombstone-flag-audit`, `order-log-audit`, `order-log-bloat-audit`,
-/// `drain-plane-residue`) silently inherited the 90s default because the old
-/// catch-all classified anything unlisted as short work. On a real store that
-/// is not "slow" — it is fatal: a whole-keyspace audit
-/// 503'd at 90s **before returning a resume cursor**, which meant no progress
-/// ever persisted and retrying started from zero.
-///
-/// Forcing a compile error on a new variant is the point. A route author must
-/// decide "is this bounded per-request work, or does it scan the store?" —
-/// getting it wrong by omission is what shipped the bug.
 #[must_use]
 // lint:fn-size-ok one exhaustive match with no `_` arm, so a new DataRoute forces a budget decision; the length is the variant list.
-pub fn data_route_budget(route: DataRoute) -> Duration {
+pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
     match route {
         // Owner admin work that walks the store, or blocks on a remote service.
         // Full-prefix scans over a multi-GiB home; minutes, not seconds.

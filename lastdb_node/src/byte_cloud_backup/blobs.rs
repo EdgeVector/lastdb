@@ -16,22 +16,16 @@
 //! backup holds, and sends them (`blobs/release`) before it publishes. The
 //! service deletes the objects when it accepts the job; the node then drops
 //! the `fr:` rows. A release of a path that was never uploaded is harmless.
-//!
-//! A job has no limit on the number of versions it uploads or releases.
-//! Every request still carries at most 64 paths. The job state keeps the
-//! plan as an index and pages of 64 entries in the job's store, so memory
-//! stays bounded and a restart resumes each frozen transfer exactly. A page
-//! whose uploads are done shrinks to the keys of its uploaded versions,
-//! which is all that the node needs after the service accepts the job.
 
-use super::{model::Saved, source::Source, store::Store, BackupError, Phase, Result};
-use cloud_backup_protocol::v2::blobs::{BlobPath, MAX_BLOB_BATCH};
+use super::{model::Saved, retry, source::Source, store::Store, BackupError, Phase, Result};
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
+use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReleaseRequest, MAX_BLOB_BATCH};
 use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
+use cloud_backup_protocol::v2::Version;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::AtomicBool;
 
-mod release;
 mod upload;
-pub(super) use release::{plan_releases, release};
 pub(super) use upload::upload;
 
 const INDEX: &str = "blobs.json";
@@ -43,31 +37,21 @@ const VERSION: u16 = 2;
 #[serde(deny_unknown_fields)]
 struct Index {
     version: u16,
-    /// A snapshot queued the local versions without markers.
     queued: bool,
     upload_pages: u32,
-    /// The `fb:` key of the last planned upload; the next page starts after it.
     upload_cursor: Option<String>,
-    /// Every upload page is planned.
     uploads_planned: bool,
-    /// Pages whose entries all have a receipt or vanished. Each of them is
-    /// kept only as its uploaded keys.
     uploads_done: u32,
-    /// The releases are planned, before the job's first capture.
     releases_planned: bool,
     release_pages: u32,
-    /// The `fr:` key of the last planned release.
     release_cursor: Option<String>,
-    /// Release pages that the service recorded on the job.
     releases_sent: u32,
-    /// The `fu:` markers are written for an accepted job.
     marked: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Release {
-    /// The `fr:` key.
     key: String,
     path: BlobPath,
 }
@@ -81,7 +65,6 @@ struct Upload {
     input: Option<TransferInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     receipt: Option<ObjectReceipt>,
-    /// The version left the device before its upload: no record names it.
     #[serde(default)]
     vanished: bool,
 }
@@ -90,7 +73,6 @@ fn upload_page(index: u32) -> String {
     format!("blob-upload-{index:04}.json")
 }
 
-/// The keys of the versions that a finished upload page uploaded.
 fn uploaded_page(index: u32) -> String {
     format!("blob-uploaded-{index:04}.json")
 }
@@ -123,9 +105,68 @@ fn read_page<T: serde::de::DeserializeOwned>(store: &Store, name: &str) -> Resul
     Ok(page)
 }
 
-/// After the service accepted the job: mark its uploaded versions and drop
-/// its released `fr:` rows, one page at a time. Repeating this is harmless,
-/// so a crash before the index records it only repeats it.
+/// Plan once, before the job's first capture: every queued release, in pages of 64.
+pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
+    let mut index = load(store)?;
+    if index.releases_planned {
+        return Ok(());
+    }
+    if !saved.begin_submitted {
+        loop {
+            let rows = source
+                .pending_blob_releases(index.release_cursor.as_deref(), MAX_BLOB_BATCH)
+                .await?;
+            let Some(last) = rows.last() else {
+                break;
+            };
+            let full = rows.len() == MAX_BLOB_BATCH;
+            index.release_cursor = Some(last.key.clone());
+            let entries: Vec<Release> = rows
+                .into_iter()
+                .map(|row| Release {
+                    key: row.key,
+                    path: row.path,
+                })
+                .collect();
+            store.write(&release_page(index.release_pages), &entries)?;
+            index.release_pages += 1;
+            store.write(INDEX, &index)?;
+            if !full {
+                break;
+            }
+        }
+    }
+    index.releases_planned = true;
+    store.write(INDEX, &index)
+}
+
+/// Record the planned releases on the open job before it publishes.
+pub(super) async fn release(
+    store: &Store,
+    saved: &Saved,
+    client: &ByteBackupClient,
+    pause: &AtomicBool,
+) -> Result<()> {
+    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    let mut index = load(store)?;
+    while index.releases_sent < index.release_pages {
+        let entries: Vec<Release> = read_page(store, &release_page(index.releases_sent))?;
+        let request = BlobReleaseRequest {
+            version: Version::V2,
+            job: begin.job.clone(),
+            paths: entries.into_iter().map(|entry| entry.path).collect(),
+        };
+        retry::control("blob_release", pause, || async {
+            Ok(client.release_blobs(&request).await?)
+        })
+        .await?;
+        index.releases_sent += 1;
+        store.write(INDEX, &index)?;
+    }
+    Ok(())
+}
+
+/// After the service accepted the job: mark its uploaded versions and drop its released `fr:` rows.
 pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
     if saved.phase != Phase::Published {
         return Ok(());
@@ -151,7 +192,6 @@ pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> R
     store.write(INDEX, &index)
 }
 
-/// The keys of the entries of one upload page that have a receipt.
 fn uploaded_keys(store: &Store, page: u32) -> Result<Vec<String>> {
     let entries: Vec<Upload> = read_page(store, &upload_page(page))?;
     Ok(entries
@@ -161,8 +201,6 @@ fn uploaded_keys(store: &Store, page: u32) -> Result<Vec<String>> {
         .collect())
 }
 
-/// The page counts of a job's plan, read without its other fields, so a
-/// cleanup can remove the plan of any index version.
 #[derive(Deserialize)]
 struct Pages {
     #[serde(default)]
@@ -171,9 +209,7 @@ struct Pages {
     release_pages: u32,
 }
 
-/// Remove the blob plan of a finished job by exact names: every page that
-/// its index counts, one page past each count (a page written before its
-/// index), then the index last, so a repeat finds the same names.
+/// Remove the blob plan of a finished job by exact names.
 pub(super) fn remove_plan(root: &std::path::Path) -> Result<()> {
     let Some(pages) = super::store::read::<Pages>(&root.join(INDEX))? else {
         return Ok(());

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use peer_cred::{AuditToken, CallerHandle, PeerCredVerdict, PeerCredential};
+pub use peer_cred::{PeerCredVerdict, PeerCredential};
 
 /// Request identity context for local callers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,66 +23,16 @@ impl AccessContext {
 pub mod peer_cred {
     use serde::{Deserialize, Serialize};
 
-    /// Kernel audit token of a macOS socket peer (`audit_token_t`, eight `u32` words).
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-    pub struct AuditToken {
-        words: [u32; 8],
-    }
-
-    impl AuditToken {
-        pub fn from_words(words: [u32; 8]) -> Self {
-            Self { words }
-        }
-
-        pub fn words(&self) -> [u32; 8] {
-            self.words
-        }
-    }
-
-    /// Process handle captured from a same-user UDS peer.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-    pub enum CallerHandle {
-        Pid(i32),
-        Token(AuditToken),
-    }
-
-    impl CallerHandle {
-        pub fn best(pid: Option<i32>, token: Option<AuditToken>) -> Option<Self> {
-            token.map(Self::Token).or_else(|| pid.map(Self::Pid))
-        }
-    }
-
     /// OS peer credentials read from a connected Unix-domain socket.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct PeerCredential {
         uid: u32,
-        gid: Option<u32>,
         pid: Option<i32>,
-        token: Option<AuditToken>,
     }
 
     impl PeerCredential {
-        pub fn new(uid: u32, gid: Option<u32>, pid: Option<i32>) -> Self {
-            Self {
-                uid,
-                gid,
-                pid,
-                token: None,
-            }
-        }
-
-        pub fn with_token(
-            uid: u32,
-            gid: Option<u32>,
-            pid: Option<i32>,
-            token: Option<AuditToken>,
-        ) -> Self {
-            Self {
-                uid,
-                gid,
-                pid,
-                token,
-            }
+        pub fn new(uid: u32, pid: Option<i32>) -> Self {
+            Self { uid, pid }
         }
 
         pub fn uid(&self) -> u32 {
@@ -93,16 +43,9 @@ pub mod peer_cred {
             self.pid
         }
 
-        pub fn token(&self) -> Option<AuditToken> {
-            self.token
-        }
-
         pub fn evaluate(&self, owner_uid: u32) -> PeerCredVerdict {
             if self.uid == owner_uid {
-                PeerCredVerdict::SameUser {
-                    pid: self.pid,
-                    token: self.token,
-                }
+                PeerCredVerdict::SameUser { pid: self.pid }
             } else {
                 PeerCredVerdict::ForeignUser {
                     peer_uid: self.uid,
@@ -116,14 +59,8 @@ pub mod peer_cred {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "verdict")]
     pub enum PeerCredVerdict {
-        SameUser {
-            pid: Option<i32>,
-            token: Option<AuditToken>,
-        },
-        ForeignUser {
-            peer_uid: u32,
-            owner_uid: u32,
-        },
+        SameUser { pid: Option<i32> },
+        ForeignUser { peer_uid: u32, owner_uid: u32 },
     }
 
     #[cfg(target_os = "linux")]
@@ -146,11 +83,7 @@ pub mod peer_cred {
         if rc != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(PeerCredential::new(
-            cred.uid,
-            Some(cred.gid),
-            Some(cred.pid),
-        ))
+        Ok(PeerCredential::new(cred.uid, Some(cred.pid)))
     }
 
     #[cfg(target_os = "macos")]
@@ -175,36 +108,8 @@ pub mod peer_cred {
                 "unexpected xucred version from LOCAL_PEERCRED",
             ));
         }
-        let token = read_peer_token(fd).ok();
         let pid = read_peer_pid(fd).ok();
-        Ok(PeerCredential::with_token(cred.cr_uid, None, pid, token))
-    }
-
-    #[cfg(target_os = "macos")]
-    fn read_peer_token(fd: std::os::unix::io::RawFd) -> std::io::Result<AuditToken> {
-        const AUDIT_TOKEN_WORDS: usize = 8;
-        const LOCAL_PEERTOKEN: libc::c_int = 0x006;
-        let mut words = [0u32; AUDIT_TOKEN_WORDS];
-        let mut len = std::mem::size_of::<[u32; AUDIT_TOKEN_WORDS]>() as libc::socklen_t;
-        let rc = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_LOCAL,
-                LOCAL_PEERTOKEN,
-                words.as_mut_ptr().cast::<libc::c_void>(),
-                &mut len,
-            )
-        };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if len as usize != std::mem::size_of::<[u32; AUDIT_TOKEN_WORDS]>() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "unexpected audit_token_t size from LOCAL_PEERTOKEN",
-            ));
-        }
-        Ok(AuditToken::from_words(words))
+        Ok(PeerCredential::new(cred.cr_uid, pid))
     }
 
     #[cfg(target_os = "macos")]

@@ -184,27 +184,10 @@ pub struct UdsSocket {
 }
 
 impl UdsSocket {
-    /// Bind the node's owner control socket under `data_dir`
-    /// (`<data_dir>/folddb.sock`).
-    ///
-    /// Validates the path length, clears a stale socket, binds a
-    /// [`UnixListener`], and tightens the socket file to owner-only. Returns the
-    /// owned socket; the file is removed when it is dropped.
-    pub fn bind(data_dir: &Path) -> io::Result<Self> {
-        Self::bind_at(socket_path(data_dir))
-    }
-
     /// Bind a control socket at an explicit `path`.
     ///
-    /// Same lifecycle as [`bind`](Self::bind) — length validation, stale-socket
-    /// removal, owner-only (`0o600`) permissions, removal on drop — but at a
-    /// caller-chosen path rather than the data-dir-derived one. This is how the
-    /// **app data-plane socket** is bound OUTSIDE the node data dir (Option B):
-    /// the data dir is denied to a jailed app, so the app socket must live at a
-    /// path the launcher controls and the jail leaves reachable. The owner-only
-    /// mode still applies — the same-user peer-credential gate is the
-    /// authoritative check, and the app's confinement is enforced by its verified
-    /// `AccessContext`, not by the socket file's visibility.
+    /// Validates the path length, removes any stale socket, binds owner-only
+    /// (`0o600`), and removes the socket file on drop.
     pub fn bind_at(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
         validate_socket_path_len(&path)?;
@@ -259,11 +242,6 @@ impl UdsSocket {
     pub fn path(&self) -> &Path {
         &self.path
     }
-
-    /// Borrow the underlying listener (for the accept loop).
-    pub fn listener(&self) -> &UnixListener {
-        &self.listener
-    }
 }
 
 impl Drop for UdsSocket {
@@ -274,40 +252,15 @@ impl Drop for UdsSocket {
     }
 }
 
-// --- Accept-side peer-credential evaluation (I3a) --------------------------
-//
-// Builds on the bound listener above: for each accepted connection the node
-// reads the kernel-set peer credential and applies the same-user gate
-// (`fold_db::access`), turning a raw connection into a verdict the access
-// boundary can act on. This is the *decision* layer of the accept loop. Two
-// further steps build on it:
-//   - the loop that spawns on the listener and dispatches accepted connections
-//     into the HTTP handler stack, threading verification into each request's
-//     `AccessContext`, and
-//   - the macOS code-signature check (I3b / B4) that promotes an accepted
-//     connection from `Unverified` to `CodeSignatureVerified`.
-// Until that check runs, an accepted same-user peer stays unverified. The
-// same-user gate is not app identity.
-
-use fold_db::access::{AuditToken, CallerHandle};
-
 /// Verdict for a connection accepted on the control socket (invariant **I3a**).
-///
-/// Carries only numeric ids (uid/pid) and the opaque audit-token words — never
-/// any namespace data — so logging or auditing a verdict cannot leak
-/// isolated-namespace content (the I4 concern). It mirrors the pure
-/// [`PeerCredVerdict`](fold_db::access::PeerCredVerdict) one layer up, adding
-/// the same-user decision the accept loop uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsConnVerdict {
-    /// Same-user peer. Dispatched only as `Unverified` until code-signature check.
+    /// Same-user peer.
     Accepted {
-        /// Legacy pid. `None` if unreported; a missing pid and token is unverifiable.
+        /// Peer process id, when reported by the platform.
         pid: Option<i32>,
-        /// macOS audit token. `pidversion` invalidates on PID reuse (blocker **B3**).
-        token: Option<AuditToken>,
     },
-    /// Different OS user. Drop the connection; do not attempt a code-signature check.
+    /// Different OS user. Drop the connection.
     Rejected {
         /// OS user id of the connecting peer.
         peer_uid: u32,
@@ -317,21 +270,7 @@ pub enum UdsConnVerdict {
 }
 
 impl UdsConnVerdict {
-    /// The strongest handle to hand the I3b code-signature check — the audit
-    /// token when the platform reported one (blocker **B3**: its `pidversion`
-    /// invalidates on PID reuse), else the pid. `None` for a rejected
-    /// connection, or an accepted one with neither reported.
-    pub fn candidate_handle(&self) -> Option<CallerHandle> {
-        match self {
-            Self::Accepted { pid, token } => CallerHandle::best(*pid, *token),
-            Self::Rejected { .. } => None,
-        }
-    }
-
     /// Whether this connection passed the same-user gate.
-    ///
-    /// A rejected connection is dropped and never becomes a request context.
-    /// An accepted peer stays unverified until the code-signature check.
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Accepted { .. })
     }
@@ -339,14 +278,6 @@ impl UdsConnVerdict {
 
 /// Read the peer credential off a connected control-socket stream and apply the
 /// same-user gate against `owner_uid` (invariant **I3a**).
-///
-/// `owner_uid` is the uid the node process runs as. A peer with a matching uid
-/// is [`UdsConnVerdict::Accepted`] (carrying its pid for the downstream I3b
-/// check); any other uid is [`UdsConnVerdict::Rejected`]. Errors only if the
-/// underlying `getsockopt` peer-credential read fails.
-///
-/// Limited to the platforms whose peer-credential FFI exists
-/// (`fold_db::access::read_peer_credential` is Linux/macOS only).
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn evaluate_connection(
     stream: &std::os::unix::net::UnixStream,
@@ -358,7 +289,7 @@ pub fn evaluate_connection(
 
     let cred = read_peer_credential(stream.as_raw_fd())?;
     Ok(match cred.evaluate(owner_uid) {
-        PeerCredVerdict::SameUser { pid, token } => UdsConnVerdict::Accepted { pid, token },
+        PeerCredVerdict::SameUser { pid } => UdsConnVerdict::Accepted { pid },
         PeerCredVerdict::ForeignUser {
             peer_uid,
             owner_uid,

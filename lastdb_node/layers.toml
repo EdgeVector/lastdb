@@ -10,10 +10,10 @@
 # and the jobs that take `&Host` (sampler, TTL sweep, footprint relief) live
 # in `jobs`, above the node features they report on.
 
-# The daemon binary (main.rs with its private lastdbd and shutdown_runtime
-# modules) and the bin/ tools are separate crates. They reach this library
-# through `lastdb_node::` paths, so the library layer order does not cover them.
-exclude = ["main.rs", "lastdbd", "shutdown_runtime.rs", "bin"]
+# The daemon binary (main.rs with its private lastdbd module) and the bin/
+# tools are separate crates. They reach this library through `lastdb_node::`
+# paths, so the library layer order does not cover them.
+exclude = ["main.rs", "lastdbd", "bin"]
 
 [[layer]]
 name = "leaf"
@@ -36,7 +36,6 @@ modules = [
 name = "cloud"
 doc = "Cloud account configuration, registration, the saved cloud credentials loader, and backup access."
 modules = [
-  "backup_access",
   "cloud",
 ]
 

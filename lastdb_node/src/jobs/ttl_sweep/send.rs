@@ -1,25 +1,126 @@
-//! Send one batch of expired keys to the erase, and drop the keys of a purge
-//! that are already gone.
+//! Batch pacing, sweep verb selection, and missing-key retry erasure.
 
-use fold_db::schema::types::MutationIds;
 use std::collections::HashMap;
+use std::sync::Once;
+use std::time::Duration;
 
-use fold_db::schema::types::operations::Mutation;
+use fold_db::schema::types::operations::{Mutation, MutationType};
 use fold_db::schema::types::KeyValue;
 
-use super::verb::SweepVerb;
 use crate::host::Host;
 
-/// Send `keys`. A purge refuses a batch that names a key already gone, and a
-/// client, a peer or another purger can remove a key after the re-check, or
-/// while the batch waits. After a refused purge the sweep finds the absent
-/// keys, counts them as done, drops them, and sends the rest.
-///
-/// Each refusal that names an absent key makes the batch smaller by at least
-/// one key, so the loop ends after at most one round for each key of the batch.
-/// A refusal that names no absent key is a real error and goes back to the
-/// caller. A key that another purger removed is never an error of the sweep.
-/// Returns the count sent and the count dropped as absent.
+const TTL_SWEEP_BATCH_ENV: &str = "LASTDB_TTL_SWEEP_BATCH";
+const TTL_SWEEP_DUTY_PCT_ENV: &str = "LASTDB_TTL_SWEEP_DUTY_PCT";
+const TTL_SWEEP_MIN_PAUSE_MS_ENV: &str = "LASTDB_TTL_SWEEP_MIN_PAUSE_MS";
+const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
+
+const DEFAULT_BATCH: usize = 16;
+const MAX_BATCH: usize = 64;
+const DEFAULT_DUTY_PCT: u64 = 25;
+const DEFAULT_MIN_PAUSE_MS: u64 = 25;
+const MAX_PAUSE: Duration = Duration::from_secs(600);
+
+const DELETE_CALLER: &str = "ttl-sweep-delete";
+const PURGE_CALLER: &str = "ttl-sweep-purge";
+
+/// The tuned pacing values of one pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Pace {
+    pub(super) batch: usize,
+    duty_pct: u64,
+    min_pause: Duration,
+}
+
+impl Pace {
+    pub(super) fn from_env() -> Self {
+        Self::new(
+            fold_db::env_flag::var_or(TTL_SWEEP_BATCH_ENV, DEFAULT_BATCH),
+            fold_db::env_flag::var_or(TTL_SWEEP_DUTY_PCT_ENV, DEFAULT_DUTY_PCT),
+            fold_db::env_flag::var_or(TTL_SWEEP_MIN_PAUSE_MS_ENV, DEFAULT_MIN_PAUSE_MS),
+        )
+    }
+
+    fn new(batch: usize, duty_pct: u64, min_pause_ms: u64) -> Self {
+        Self {
+            batch: batch.clamp(1, MAX_BATCH),
+            duty_pct: duty_pct.clamp(1, 100),
+            min_pause: Duration::from_millis(min_pause_ms).min(MAX_PAUSE),
+        }
+    }
+
+    /// With a duty share of `d` percent, the rest is `blocked * (100 - d) / d`.
+    pub(super) fn pause_after(&self, blocked: Duration, others_wrote: bool) -> Duration {
+        if !others_wrote {
+            return self.min_pause;
+        }
+        let work_ms = u64::try_from(blocked.as_millis()).unwrap_or(u64::MAX);
+        let rest_ms = work_ms.saturating_mul(100 - self.duty_pct) / self.duty_pct;
+        Duration::from_millis(rest_ms)
+            .max(self.min_pause)
+            .min(MAX_PAUSE)
+    }
+}
+
+/// How the sweep erases an expired key (`purge` by default, or `delete`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SweepVerb {
+    Delete,
+    Purge,
+}
+
+impl SweepVerb {
+    pub(super) fn from_env() -> Self {
+        match std::env::var(TTL_SWEEP_VERB_ENV)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+        {
+            Some(raw) if raw.eq_ignore_ascii_case("delete") => Self::Delete,
+            _ => Self::Purge,
+        }
+    }
+
+    pub(super) fn caller(self) -> &'static str {
+        match self {
+            Self::Delete => DELETE_CALLER,
+            Self::Purge => PURGE_CALLER,
+        }
+    }
+
+    pub(super) fn mutation_type(self) -> MutationType {
+        match self {
+            Self::Delete => MutationType::Delete,
+            Self::Purge => MutationType::Purge,
+        }
+    }
+
+    pub(super) fn waits_for_lane(self) -> bool {
+        self == Self::Delete
+    }
+}
+
+/// Log one warning when the node environment names an unknown sweep verb.
+pub(super) fn warn_on_bad_verb_once() {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        let Ok(raw) = std::env::var(TTL_SWEEP_VERB_ENV) else {
+            return;
+        };
+        let value = raw.trim();
+        if !value.is_empty()
+            && !value.eq_ignore_ascii_case("delete")
+            && !value.eq_ignore_ascii_case("purge")
+        {
+            tracing::warn!(
+                target: "lastdbd::ttl_sweep",
+                value,
+                "unknown {TTL_SWEEP_VERB_ENV} value; the ttl sweep uses the default verb `purge` (valid: purge, delete)"
+            );
+        }
+    });
+}
+
+/// Send `keys`, dropping any already-absent keys on a refused `Purge` batch.
 pub(super) async fn send_with_missing_retry(
     host: &Host,
     schema_name: &str,

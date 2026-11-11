@@ -147,9 +147,9 @@ fn retire_previous(
     home: &std::path::Path,
     runtime: &fold_db::storage::disk_pack::PackRuntime,
 ) -> Result<()> {
-    let version = store::read::<super::previous::Version>(&Store::base(home).join(FILE))?;
-    if version.is_some_and(|v| v.version == super::previous::PREVIOUS_VERSION) {
-        super::previous::retire(home, runtime)?;
+    let version = store::read::<super::cleanup::Version>(&Store::base(home).join(FILE))?;
+    if version.is_some_and(|v| v.version == super::cleanup::PREVIOUS_VERSION) {
+        super::cleanup::retire_previous_policy(home, runtime)?;
     }
     Ok(())
 }

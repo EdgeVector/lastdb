@@ -1,14 +1,14 @@
-//! `lastdb mutate`: request body construction and the command.
+//! `lastdb mutate`: request body construction, file input, and submission.
 
 use super::*;
+
+const PUT_BLOB_PATH: &str = "/api/db/put-blob";
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecordInput {
     mutation: serde_json::Value,
     file: Option<InputFile>,
-    /// `blob` (the default) or `inline`: which file of the record `file`
-    /// writes, or which file `file: null` removes.
     #[serde(default)]
     placement: Option<String>,
 }
@@ -19,10 +19,8 @@ struct InputFile {
     source: PathBuf,
     name: Option<String>,
     media_type: Option<String>,
-    /// Keep the file at `source`. Backup seals it into the cloud file format.
     #[serde(default)]
     local: bool,
-    /// A small file stored as the record's inline file next to a new blob.
     thumbnail: Option<InputThumbnail>,
 }
 
@@ -34,8 +32,6 @@ struct InputThumbnail {
     media_type: Option<String>,
 }
 
-/// The `thumbnail` part of a put-blob request: the inline file bytes ride in
-/// the JSON metadata, so they are read and encoded here.
 fn thumbnail_metadata(
     base: &Path,
     thumbnail: Option<&InputThumbnail>,
@@ -102,14 +98,14 @@ pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> 
 
 pub(super) fn mutate_command(
     target: &DatabaseTarget,
-    request_file: &std::path::Path,
+    request_file: &Path,
     durable: bool,
     mutation_id: Option<uuid::Uuid>,
 ) -> Result<(), String> {
     if mutation_id.is_some() && !target.is_explicit() {
         return Err("--mutation-id requires --db".into());
     }
-    let text = if request_file == std::path::Path::new("-") {
+    let text = if request_file == Path::new("-") {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut text)
             .map_err(|e| format!("read mutation: {e}"))?;
@@ -215,4 +211,96 @@ fn send_mutation(
     .map_err(describe_error)?;
     let mut stdout = std::io::stdout().lock();
     write_mutate_receipt(&mut stdout, &raw).map_err(describe_error)
+}
+
+fn put_blob_request(
+    path: &str,
+    bytes: &[u8],
+    metadata: &serde_json::Value,
+) -> Result<Vec<u8>, String> {
+    admit_local_file_input(bytes.len() as u64)?;
+    let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
+    let body_length = json
+        .len()
+        .checked_add(bytes.len())
+        .ok_or("local file request length overflow")?;
+    let head = format!(
+        "POST {path} HTTP/1.1\r\n\
+         Host: localhost\r\n\
+         {}Content-Type: application/octet-stream\r\n\
+         X-LastDB-File-Blob-Metadata-Length: {}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n",
+        client_headers(),
+        json.len(),
+        body_length
+    );
+    let capacity = head
+        .len()
+        .checked_add(body_length)
+        .ok_or_else(|| "local file request length overflow".to_string())?;
+    admit_local_file_input(capacity as u64)?;
+    let mut request = Vec::new();
+    request
+        .try_reserve_exact(capacity)
+        .map_err(|_| "local file request allocation refused".to_string())?;
+    request.extend_from_slice(head.as_bytes());
+    request.extend_from_slice(&json);
+    request.extend_from_slice(bytes);
+    Ok(request)
+}
+
+fn admit_local_file_input(bytes: u64) -> Result<(), String> {
+    if bytes > fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+        return Err("local file input exceeds native pending memory allowance".into());
+    }
+    Ok(())
+}
+
+fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = input
+            .read(&mut buffer)
+            .map_err(|e| format!("read local file input: {e}"))?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        let length = bytes
+            .len()
+            .checked_add(count)
+            .ok_or_else(|| "local file input length overflow".to_string())?;
+        admit_local_file_input(length as u64)?;
+        if length > bytes.capacity() {
+            let maximum =
+                fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
+            let capacity = bytes.capacity().saturating_mul(2).max(length).min(maximum);
+            bytes
+                .try_reserve_exact(capacity - bytes.len())
+                .map_err(|_| "local file input allocation refused".to_string())?;
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
+}
+
+fn put_record_file(
+    target: &DatabaseTarget,
+    metadata: &serde_json::Value,
+    source: &Path,
+) -> Result<serde_json::Value, String> {
+    let input = std::fs::File::open(source)
+        .map_err(|error| format!("open {}: {error}", source.display()))?;
+    admit_local_file_input(
+        input
+            .metadata()
+            .map_err(|error| format!("file metadata: {error}"))?
+            .len(),
+    )?;
+    let bytes = read_local_file_input(input)?;
+    let request = put_blob_request(&target.path(PUT_BLOB_PATH), &bytes, metadata)?;
+    drop(bytes);
+    let response = request_with_timeout(&target.socket, &request, admin_scan_client_timeout())?;
+    parse_json_response(&response, PUT_BLOB_PATH)
 }

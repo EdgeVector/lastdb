@@ -17,13 +17,14 @@ use super::wire::{body_object, parse_query_body, QueryRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-mod batch;
 mod format;
 mod rules;
 
-pub(in crate::exec) use batch::{batch_results, execute_query_batch_route, parse_query_batch};
+pub(in crate::exec) use format::{
+    batch_results, execute_query_batch_route, format_alternate_page, parse_query_batch,
+    verified_query_page,
+};
 use format::{cursor_payload, format_rows, materialized_page_payload, overfetched_offset_payload};
-pub(in crate::exec) use format::{format_alternate_page, verified_query_page};
 
 const DEFAULT_QUERY_LIMIT: usize = 100;
 const MAX_QUERY_LIMIT: usize = 1000;

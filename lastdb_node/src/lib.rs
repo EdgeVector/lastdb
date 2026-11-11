@@ -5,12 +5,12 @@
 
 pub mod app_publish;
 pub mod app_registry_index;
-pub mod backup_access;
 pub mod backup_runtime;
 pub mod byte_cloud_backup;
 pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
 pub mod cloud;
+pub use crate::cloud as backup_access;
 pub mod cloud_backup_client;
 pub mod exec;
 pub mod host;

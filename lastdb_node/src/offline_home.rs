@@ -1,14 +1,8 @@
-//! Primary-home guards and key loading for the current storage recovery proof.
-//!
-//! One definition of the primary-home guard keeps every tool on the same
-//! protected home.
+//! Primary-home guards and stopped-home preflight for storage recovery.
 
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use fold_db::crypto::E2eKeys;
-use fold_db::security::Ed25519KeyPair;
 use serde::Serialize;
 
 use crate::shutdown_receipt::read_shutdown_flush_receipt;
@@ -56,24 +50,6 @@ fn canonicalize_lenient(path: &Path) -> PathBuf {
             _ => return path.to_path_buf(),
         }
     }
-}
-
-/// Load the account E2E content keys and the device signing key from the
-/// `identity.key` seed in `data_dir`.
-pub fn load_e2e_keys(data_dir: &Path) -> Result<(E2eKeys, Arc<Ed25519KeyPair>), String> {
-    let identity_path = data_dir.join("identity.key");
-    let bytes = std::fs::read(&identity_path)
-        .map_err(|e| format!("read {}: {e}", identity_path.display()))?;
-    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        format!(
-            "identity.key has invalid length {} (expected 32)",
-            bytes.len()
-        )
-    })?;
-    let e2e = E2eKeys::from_ed25519_seed(&seed).map_err(|e| format!("e2e keys: {e}"))?;
-    let keypair =
-        Arc::new(Ed25519KeyPair::from_secret_key(&seed).map_err(|e| format!("ed25519: {e}"))?);
-    Ok((e2e, keypair))
 }
 
 /// What the preflight of a stopped home checked.

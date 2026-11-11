@@ -1,12 +1,150 @@
 use super::*;
+use lastdb_node::lastdb_uds::database_path::{self, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
+use std::borrow::Cow;
+
+pub(crate) struct DatabaseTarget {
+    pub(crate) socket: PathBuf,
+    selector: Option<String>,
+}
+
+impl DatabaseTarget {
+    pub(crate) fn open(data_dir: Option<PathBuf>, selector: Option<&str>) -> Result<Self, String> {
+        let (_, socket) = resolve_client_home_and_socket(data_dir)?;
+        let selector = selector
+            .map(|value| resolve_database(&socket, value))
+            .transpose()?;
+        Ok(Self { socket, selector })
+    }
+
+    pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
+        match self.selector.as_deref() {
+            Some(selector) => Cow::Owned(format!(
+                "{DATABASE_SCOPE_PREFIX}{selector}{}",
+                path.strip_prefix("/api")
+                    .expect("database path starts with /api")
+            )),
+            None => Cow::Borrowed(path),
+        }
+    }
+
+    pub(crate) fn is_explicit(&self) -> bool {
+        self.selector.is_some()
+    }
+
+    pub(crate) fn selector(&self) -> Option<&str> {
+        self.selector.as_deref()
+    }
+}
+
+fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
+    if !database_path::valid_selector(selector) {
+        return Err("invalid database ID or name".into());
+    }
+    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+        return Ok(selector.to_owned());
+    }
+    let response = read_databases(socket)?;
+    let id = databases(&response)?
+        .iter()
+        .find(|database| database["name"].as_str() == Some(selector))
+        .and_then(|database| database["id"].as_str())
+        .filter(|id| cloud_backup_protocol::Id::try_from((*id).to_owned()).is_ok())
+        .ok_or("database is not registered on this node")?;
+    Ok(id.to_owned())
+}
+
+fn read_databases(socket: &Path) -> Result<serde_json::Value, String> {
+    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
+    parse_json_response(&raw, "database list")
+}
+
+fn databases(response: &serde_json::Value) -> Result<&[serde_json::Value], String> {
+    response["databases"]
+        .as_array()
+        .map(Vec::as_slice)
+        .ok_or("missing database list".into())
+}
+
+pub(super) fn list_databases(data_dir: Option<PathBuf>, json: bool) -> Result<(), String> {
+    let target = DatabaseTarget::open(data_dir, None)?;
+    let response = read_databases(&target.socket)?;
+    if json {
+        println!("{response}");
+    } else {
+        for database in databases(&response)? {
+            let id = database["id"].as_str().ok_or("database has no ID")?;
+            let name = database["name"].as_str().unwrap_or(id);
+            let access = database["access"]
+                .as_str()
+                .ok_or("database has no access mode")?;
+            let state = database["state"].as_str().ok_or("database has no state")?;
+            println!("{name}\t{id}\t{access}\t{state}");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn truncate_label(label: &str, max: usize) -> String {
+    if label.chars().count() <= max {
+        return label.to_string();
+    }
+    let mut out: String = label.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+pub(crate) fn inventory_client_timeout(timeout_secs: Option<u64>) -> Duration {
+    match timeout_secs {
+        Some(secs) if secs > 0 => Duration::from_secs(secs),
+        _ => admin_scan_client_timeout(),
+    }
+}
+
+pub(crate) const DEFAULT_STATUS_CLIENT_TIMEOUT_SECS: u64 =
+    lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS;
+
+pub(crate) fn status_default_client_timeout() -> Duration {
+    lastdb_node::exec::admin_handler_timeout_override()
+        .unwrap_or(Duration::from_secs(DEFAULT_STATUS_CLIENT_TIMEOUT_SECS))
+}
+
+pub(crate) fn status_client_timeout(timeout_secs: Option<u64>, default: Duration) -> Duration {
+    match timeout_secs {
+        Some(secs) if secs > 0 => Duration::from_secs(secs),
+        _ => default,
+    }
+}
+
+pub(crate) fn write_product_file_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create out dir {}: {e}", parent.display()))?;
+        }
+    }
+    let tmp = {
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(".tmp.{}", std::process::id()));
+        PathBuf::from(name)
+    };
+    match std::fs::write(&tmp, bytes) {
+        Ok(()) => match std::fs::rename(&tmp, path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                Err(format!("rename inventory out to {}: {e}", path.display()))
+            }
+        },
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(format!("write inventory temp {}: {e}", tmp.display()))
+        }
+    }
+}
 
 /// `lastdb status` exit code when the owner socket did not answer `/health`.
 pub(super) const STATUS_UNREACHABLE_EXIT: i32 = 1;
 
-/// Outcome of a rendered `lastdb status` report.
-///
-/// `Unreachable` means the report already went to stdout; the process must
-/// still exit 1 so scripts can gate on the socket, not on a trailing `Reason:`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StatusRun {
     Serving,
@@ -79,10 +217,6 @@ pub(super) fn status(
     Ok(StatusRun::Serving)
 }
 
-/// Machine-readable live status.
-///
-/// This path must stay safe for health and recovery gates: it walks no
-/// directory. `lastdb admin storage inventory` reports the disk totals.
 pub(super) fn status_json(
     home: &Path,
     socket: &Path,
@@ -137,16 +271,10 @@ pub(super) fn status_json(
     }
 }
 
-/// `status` lines describing the home's durable physical placement.
-///
-/// Silent when the home has no disk format v2 node marker (one never opened):
-/// `status` should not invent a layout it cannot see.
 pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
     run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The node marker of a home in the current format (the only format this
-/// release opens) names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     use fold_db::storage::disk_pack::{
         HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES,
