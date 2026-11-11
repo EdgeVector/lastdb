@@ -1,0 +1,40 @@
+{
+  "namespace": "social",
+  "schema": {
+    "name": "Comment",
+    "descriptive_name": "Comment",
+    "purpose_statement": "A comment on one record in any canonical database.",
+    "schema_type": "HashRange",
+    "record_keys": {
+      "primary": {
+        "kind": "hash_range",
+        "range_type": "String"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "target",
+      "author_id",
+      "social_comment_text",
+      "created_at"
+    ],
+    "field_types": {
+      "target": {
+        "Object": {
+          "database": "String",
+          "schema": "String",
+          "key": "String"
+        }
+      },
+      "author_id": "String",
+      "social_comment_text": "String",
+      "created_at": "DateTime"
+    },
+    "field_descriptions": {
+      "target": "The record this comment is about: database, schema, and key.",
+      "author_id": "person_id of the author.",
+      "social_comment_text": "Comment text.",
+      "created_at": "When the comment was written, RFC 3339."
+    }
+  }
+}

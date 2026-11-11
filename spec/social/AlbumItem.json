@@ -1,0 +1,31 @@
+{
+  "namespace": "social",
+  "schema": {
+    "name": "AlbumItem",
+    "descriptive_name": "Album item",
+    "purpose_statement": "One photo placed in one album.",
+    "schema_type": "HashRange",
+    "record_keys": {
+      "primary": {
+        "kind": "hash_range",
+        "range_type": "String"
+      },
+      "alternates": {}
+    },
+    "fields": [
+      "photo_id",
+      "added_by",
+      "position"
+    ],
+    "field_types": {
+      "photo_id": "String",
+      "added_by": "String",
+      "position": "Integer"
+    },
+    "field_descriptions": {
+      "photo_id": "photo_id of the photo in this album.",
+      "added_by": "person_id of who added it.",
+      "position": "Order within the album. Lower comes first."
+    }
+  }
+}

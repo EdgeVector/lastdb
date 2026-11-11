@@ -1,0 +1,27 @@
+{
+  "spec_version": "1.0",
+  "namespaces": [
+    {
+      "namespace": "social-graph",
+      "visibility": "personal-only",
+      "schemas": [
+        "Person",
+        "Circle",
+        "Membership",
+        "Binding"
+      ]
+    },
+    {
+      "namespace": "social",
+      "visibility": "shareable",
+      "kind": "social",
+      "schemas": [
+        "Card",
+        "Photo",
+        "Album",
+        "AlbumItem",
+        "Comment"
+      ]
+    }
+  ]
+}
