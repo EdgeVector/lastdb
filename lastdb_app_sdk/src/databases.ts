@@ -12,8 +12,9 @@ import type { Transport } from './transport.js';
 
 const DATABASES_PATH = '/api/databases';
 const SELECTOR = /^[A-Za-z0-9_-]{1,64}$/;
-const DATABASE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const NIL_DATABASE_ID = '00000000-0000-0000-0000-000000000000';
+const UUID_HYPHENATED =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
 const RESERVED_SPEC_NAMES = new Set(['social', 'medical', 'finance', 'work']);
 
 /** Versioned spec binding stored on an owned database. */
@@ -76,18 +77,18 @@ export async function createNodeDatabase(
 
 function createBody(request: CreateDatabaseRequest): { name: string; spec?: DatabaseSpec } {
   const name = request.name;
-  if (!SELECTOR.test(name) || isDatabaseId(name)) {
+  if (!SELECTOR.test(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
     throw new RequestRejectedError('invalid_request', 'invalid database name');
   }
-  if (name.toLowerCase() === 'personal' || name === 'graph') {
-    throw new RequestRejectedError('invalid_request', 'database name is reserved and not provisioned');
+  if (name === 'graph') {
+    throw new RequestRejectedError('conflict', 'database name is reserved and not provisioned');
   }
   const spec = request.spec ?? null;
   if (spec !== null && !validSpec(spec)) {
     throw new RequestRejectedError('invalid_request', 'invalid spec binding');
   }
   if (RESERVED_SPEC_NAMES.has(name) && spec?.name !== name) {
-    throw new RequestRejectedError('invalid_request', 'reserved database name requires its spec');
+    throw new RequestRejectedError('conflict', 'reserved database name requires its spec');
   }
   return spec === null ? { name } : { name, spec };
 }
@@ -99,8 +100,8 @@ function validSpec(spec: DatabaseSpec): boolean {
     && spec.version <= 4_294_967_295;
 }
 
-function isDatabaseId(value: string): boolean {
-  return DATABASE_ID.test(value) && value !== NIL_DATABASE_ID;
+function isUuidName(value: string): boolean {
+  return UUID_HYPHENATED.test(value) || UUID_SIMPLE.test(value);
 }
 
 function parseListedDatabase(value: unknown): ListedDatabase {

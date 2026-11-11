@@ -49,7 +49,7 @@ pub(super) fn select_database(
         .iter()
         .find(|db| db["id"].as_str() == Some(selector))
         .or_else(|| list.iter().find(|db| db["name"].as_str() == Some(selector)))
-        .ok_or("database is not registered on this node")?;
+        .ok_or("database is not registered")?;
     print_database(database, json)
 }
 
@@ -58,10 +58,10 @@ fn create_spec(
     spec_name: Option<&str>,
     spec_version: Option<u32>,
 ) -> Result<Option<serde_json::Value>, String> {
-    if !database_path::valid_selector(name) || is_database_id(name) {
+    if !valid_database_name(name) {
         return Err("invalid database name".into());
     }
-    if name.eq_ignore_ascii_case("personal") || name == "graph" {
+    if name == "graph" {
         return Err("database name is reserved and not provisioned".into());
     }
     let spec = match (spec_name, spec_version) {
@@ -81,8 +81,11 @@ fn create_spec(
     Ok(spec)
 }
 
-fn is_database_id(name: &str) -> bool {
-    cloud_backup_protocol::Id::try_from(name.to_owned()).is_ok()
+/// Same create-name rule as the owned-database host: a label, not `personal`, not a UUID.
+fn valid_database_name(name: &str) -> bool {
+    database_path::valid_selector(name)
+        && !name.eq_ignore_ascii_case("personal")
+        && uuid::Uuid::parse_str(name).is_err()
 }
 
 fn print_database(database: &serde_json::Value, json: bool) -> Result<(), String> {
