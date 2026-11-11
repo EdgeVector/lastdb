@@ -166,12 +166,7 @@ pub(crate) fn init_tracing() -> Option<observability::layers::error::SentryGuard
     sentry_guard
 }
 
-pub(crate) type BackgroundTasks = (
-    JoinHandle<()>,
-    JoinHandle<()>,
-    JoinHandle<()>,
-    JoinHandle<()>,
-);
+pub(crate) type BackgroundTasks = (JoinHandle<()>, JoinHandle<()>, JoinHandle<()>);
 
 pub(crate) fn spawn_background(
     runtime: &tokio::runtime::Runtime,
@@ -189,7 +184,6 @@ pub(crate) fn spawn_background(
     Ok((
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
         backup,
-        lastdb_node::shared_sync::spawn_automatic(Arc::clone(host), Arc::clone(shutdown)),
         lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
     ))
 }
@@ -197,15 +191,14 @@ pub(crate) fn spawn_background(
 pub(crate) fn drain_background(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
-    (ttl_sweep_task, automatic_backup_task, shared_sync_task, received_shares_task): BackgroundTasks,
+    (ttl_sweep_task, automatic_backup_task, received_shares_task): BackgroundTasks,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
         let drain = async {
-            let (ttl_sweep, automatic, shared_sync, received_shares, byte_backup) = tokio::join!(
+            let (ttl_sweep, automatic, received_shares, byte_backup) = tokio::join!(
                 ttl_sweep_task,
                 automatic_backup_task,
-                shared_sync_task,
                 received_shares_task,
                 host.byte_backup.drain(deadline),
             );
@@ -213,7 +206,6 @@ pub(crate) fn drain_background(
             for (name, result) in [
                 ("ttl sweep", ttl_sweep),
                 ("automatic backup", automatic),
-                ("shared sync", shared_sync),
                 ("received shares", received_shares),
             ] {
                 if let Err(error) = result {

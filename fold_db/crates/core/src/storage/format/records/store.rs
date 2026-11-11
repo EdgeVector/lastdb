@@ -18,8 +18,6 @@ pub(in crate::storage::format::records) struct FileChange {
     pub(in crate::storage::format::records) key: RecordAddress,
     pub(in crate::storage::format::records) after: Arc<StoredRecord>,
     pub(in crate::storage::format::records) write: Option<FileWrite>,
-    pub(in crate::storage::format::records) shared: bool,
-    pub(in crate::storage::format::records) needs_upload: bool,
 }
 
 impl FileChange {
@@ -35,16 +33,13 @@ impl FileChange {
                 let path = record_file_path(self.key.as_str(), version)?;
                 let change = references.entry(path).or_default();
                 change.live = Some(false);
-                change.local_detach = !self.shared;
+                change.local_detach = true;
             }
         }
-        if let Some(version) = next.filter(|_| previous != next || self.needs_upload) {
+        if let Some(version) = next.filter(|_| previous != next) {
             let path = record_file_path(self.key.as_str(), version)?;
             let change = references.entry(path).or_default();
             change.live = Some(true);
-            if self.needs_upload {
-                change.pending_through = self.after.stamp.position.sequence;
-            }
         }
         Ok(())
     }
@@ -180,16 +175,6 @@ impl RecordFormat {
                 "this record requires a file".into(),
             ));
         }
-        for change in &changes {
-            self.runtime.require_shared_record_route(
-                change.key.as_str(),
-                !matches!(change.portable, super::PortableEffect::Local),
-            )?;
-        }
-        let kept = self
-            .inline_files(super::retention::kept_inline_files(&changes))
-            .await?;
-        let entries = super::retention::outgoing_entries(schema, &changes, &kept)?;
         let alternates = super::encode_alternates(schema, &changes, &self.content_key)?;
         let mut encoded: EncodedRecords = super::encode(changes, alternates)?;
         let (files, local_refs) = self
@@ -197,7 +182,6 @@ impl RecordFormat {
             .await?;
         let written = encoded.stage(&self.main_store, &self.runtime).await?;
         self.stage_files(files).await?;
-        self.metadata.stage_outgoing(entries).await?;
         self.runtime.stage_written_records(written);
         self.schedule_local_file_refs(local_refs)?;
         Ok(())

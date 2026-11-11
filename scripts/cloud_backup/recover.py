@@ -203,7 +203,6 @@ class Operation:
 
 TITLES = {"lastdb.cloud-ci-preflight.v2": "DEV CI admission",
           "lastdb.cloud-ci-cleanup.v1": "DEV CI cleanup pass",
-          "lastdb.cloud-dev-shared-recovery.v1": "DEV shared snapshot and recovery",
           "lastdb.cloud-ci-kept.v1": "DEV kept CI snapshot after cleanup"}
 
 

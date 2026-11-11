@@ -143,13 +143,6 @@ impl BackupTransport {
         self.api_endpoint(operation).to_string()
     }
 
-    /// True when the presigned URL is one multipart UploadPart.
-    pub(crate) fn upload_is_multipart(
-        url: &str,
-    ) -> std::result::Result<bool, BackupTransportError> {
-        download::is_multipart(url)
-    }
-
     pub async fn post<Q: Serialize, R: DeserializeOwned>(
         &self,
         operation: &str,

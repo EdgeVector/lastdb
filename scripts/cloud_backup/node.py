@@ -91,7 +91,6 @@ class OwnedNode:
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
         self.backup_source = backup_source
-        self.shared_sync = None
         self.isolated_copy = backup_source or isolated_copy
         require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
         require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
@@ -171,7 +170,7 @@ class OwnedNode:
         if self.cloud_credentials is not None or self.device_sign_in:
             (self.home / CREDENTIALS_FILE).unlink(missing_ok=True)
 
-    def start(self, *, shared_schema=None, storage_inventory=False, sign_in=True):
+    def start(self, *, storage_inventory=False, sign_in=True):
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         require(type(sign_in) is bool, "sign_in_flag")
         if sign_in:
@@ -190,8 +189,6 @@ class OwnedNode:
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
             environment.pop(name, None)
         environment.update(self.ci_uploads())
-        if shared_schema is not None:
-            environment["LASTDB_NATIVE_SHARED_SCHEMAS"] = json.dumps([shared_schema])
         if storage_inventory:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         self.process = subprocess.Popen(
@@ -223,11 +220,7 @@ class OwnedNode:
     def health(self, readiness=False):
         paths = ("/health", "/api/status", "/api/system/boot-identity", "/api/db/native-status")
         # Independent observations settle before the caller uses any of them.
-        with ThreadPoolExecutor(max_workers=len(paths) + (self.shared_sync is not None)) as pool:
-            policy = None
-            if self.shared_sync is not None:
-                # General status is sampled. Check a just-changed policy at its live endpoint.
-                policy = pool.submit(self.call, "/api/sync/byte-backup-v2", {"action": "status"})
+        with ThreadPoolExecutor(max_workers=len(paths)) as pool:
             health, status, boot, native = list(pool.map(self.call, paths))
         require(self.process is not None and self.process.poll() is None, "daemon_health_exit")
         instance = health["instance_id"]
@@ -247,12 +240,7 @@ class OwnedNode:
         measured = status["status"]
         require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
-        if policy is not None:
-            shared = policy.result()["shared_sync"]
-            require(shared["enabled"] is self.shared_sync
-                    and (self.shared_sync or shared["progress"]["running"] is False),
-                    "daemon_shared_sync_policy")
-        elif not self.backup_source:
+        if not self.backup_source:
             require(durability["automatic_enabled"] is False and durability["running"] is False,
                     "daemon_backup_off")
         self.offline()

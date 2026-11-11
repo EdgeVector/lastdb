@@ -54,11 +54,6 @@ modules = [
   "byte_cloud_backup",
   "byte_cloud_restore",
   "offline_home",
-  "shared_peer",
-  "shared_restore",
-  "shared_snapshot",
-  "shared_sync",
-  "shared_upload",
 ]
 
 [[layer]]

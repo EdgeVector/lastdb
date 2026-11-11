@@ -9,11 +9,6 @@ use std::time::Duration;
 
 mod backup_transport;
 pub mod byte_backup;
-mod shared_authority;
-pub mod shared_log;
-pub mod shared_objects;
-pub mod shared_peer;
-pub mod shared_recovery;
 
 pub(crate) const DEFAULT_AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SHARED_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -26,8 +21,6 @@ const _: () = assert!(
             == fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes
         && cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
             == fold_db::storage_policy::BACKUP_RESOURCES.durable_spool_bytes
-        && cloud_backup_protocol::shared::MAX_BATCH_FILE_BYTES
-            == fold_db::storage_policy::native_write::PENDING_MEMORY_BYTES
 );
 
 /// Explicit account credentials only. Construction starts no request or claim.

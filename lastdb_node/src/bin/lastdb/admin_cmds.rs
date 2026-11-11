@@ -13,18 +13,6 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(),
         AdminCommand::Retention(action) => schema_retention_command(data_dir, action),
         AdminCommand::Storage(action) => db_storage_command(data_dir, action),
         AdminCommand::Backup(action) => cloud_command(data_dir, backup_action(action)?),
-        AdminCommand::Shared(action) => match action {
-            AdminSharedCommand::Snapshot(args) => snapshot_cmd::run(data_dir.as_deref(), args),
-            AdminSharedCommand::Restore(args) => {
-                cloud_command(data_dir, CloudCommand::RestoreShared(args))
-            }
-            AdminSharedCommand::ResumeRestore(args) => {
-                cloud_command(data_dir, CloudCommand::ResumeSharedRestore(args))
-            }
-            AdminSharedCommand::Writer(args) => {
-                cloud_command(data_dir, CloudCommand::SharedWriter(args))
-            }
-        },
     }
 }
 

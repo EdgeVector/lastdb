@@ -2,7 +2,7 @@
 //!
 //! A personal backup carries the main home only. Restore installs an empty
 //! CAS home ([`install_empty_cas_home`]); record blobs are fetched from their
-//! cloud paths on request. A shared database backup still carries its CAS home.
+//! cloud paths on request.
 
 mod database;
 mod files;
@@ -23,7 +23,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
 pub use database::{SnapshotRecordPage, SnapshotSchema};
-pub use node::{validate_replayed_shared_node, validate_restored_node, RunNodeGuard};
+pub use node::{validate_restored_node, RunNodeGuard};
 pub use record::{RunSnapshotReader, SnapshotAlternatePage, StagedRecord, StagedRecordQuery};
 
 pub struct RunRestoreFile {
@@ -129,7 +129,7 @@ pub struct MutationReplay {
 impl MutationReplay {
     pub fn open(data: &Path, key: &[u8; 32], anchor: &LogAnchor) -> StorageResult<Self> {
         files::directory(data)?;
-        files::require_root_members(data, false)?;
+        files::require_root_members(data)?;
         files::node_marker(data)?;
         let node = files::regular(&data.join(NODE_MARKER), true)?;
         node.try_lock()

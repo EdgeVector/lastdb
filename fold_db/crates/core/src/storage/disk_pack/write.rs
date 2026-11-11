@@ -23,10 +23,6 @@ impl PreparedCommit {
         &self.space
     }
 
-    pub(in crate::storage::disk_pack) fn operations(&self) -> &[HomeMutation] {
-        &self.operations
-    }
-
     pub(in crate::storage::disk_pack) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
         cas_delete::key_bytes(&self.operations)
     }

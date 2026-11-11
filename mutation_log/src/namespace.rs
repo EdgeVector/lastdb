@@ -21,8 +21,8 @@ pub enum NamespaceKind {
 /// - `social` — lastdb-std 1.0, shareable (`spec/index.json`,
 ///   `spec/README.md`, `spec/social/`).
 ///
-/// `social-graph` stays personal-only (`spec/README.md`). Share snapshots,
-/// contributor rules, and the shared-writer CLI carry the caller's schema.
+/// `social-graph` stays personal-only (`spec/README.md`). Contributor rules
+/// carry the caller's schema.
 /// Cloud share proofs publish under a generated `cloud-proof-<database>`
 /// namespace. `CloudProofLocalOnly` stays on the device. A generated name
 /// is not a stable entry.

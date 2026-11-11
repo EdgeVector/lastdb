@@ -212,10 +212,6 @@ impl PackKvStore {
         .await
     }
 
-    pub(crate) async fn exists(&self, key: &[u8]) -> StorageResult<bool> {
-        Ok(self.get(key).await?.is_some())
-    }
-
     pub(crate) async fn scan_prefix(
         &self,
         prefix: &[u8],

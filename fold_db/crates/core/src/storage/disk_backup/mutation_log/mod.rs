@@ -348,7 +348,6 @@ impl PackRuntime {
 
     /// Remove the version 1 mutation log of the previous program from a personal home.
     pub fn retire_previous_mutation_log(&self) -> StorageResult<bool> {
-        self.require_ordinary_backup_home()?;
         let _admission = super::NativeCloudWorkGuard::acquire()?;
         self.mutation_log.retire_version_one()
     }

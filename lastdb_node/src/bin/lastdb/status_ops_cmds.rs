@@ -242,13 +242,8 @@ fn status_json(
 }
 
 fn layout_status_line(store_root: &Path) -> Option<String> {
-    use fold_db::storage::disk_pack::{
-        HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES, SHARED_NODE_BYTES,
-    };
+    use fold_db::storage::disk_pack::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
     match std::fs::read(store_root.join(NODE_MARKER)).ok()?.as_slice() {
-        SHARED_NODE_BYTES => Some(format!(
-            "Layout: format {HOME_FORMAT} shared home (disk-run for shared records, disk-cas for shared file blobs, disk-private for device-only state)"
-        )),
         RECORD_NODE_BYTES => Some(format!(
             "Layout: format {HOME_FORMAT} record home (disk-run for records, disk-cas for file blobs, typed range keys)"
         )),

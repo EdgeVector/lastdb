@@ -122,31 +122,6 @@ impl RecordStore {
         Ok(released)
     }
 
-    pub(crate) async fn stage_completed_file_references(
-        &self,
-        files: Vec<(RecordAddress, Position)>,
-        through: u64,
-    ) -> Result<(), SchemaError> {
-        self.format
-            .stage_completed_file_references(files, through)
-            .await
-    }
-
-    pub(crate) async fn file_retention_complete(&self) -> Result<bool, SchemaError> {
-        self.format.file_retention_complete().await
-    }
-
-    pub(crate) async fn stage_file_retention_step(&self) -> Result<bool, SchemaError> {
-        self.format.stage_file_retention_step().await
-    }
-
-    pub(crate) async fn stage_delete_reclamation(
-        &self,
-        cutoff_ms: u64,
-    ) -> Result<format::ReclaimedDeletes, SchemaError> {
-        Ok(self.format.stage_delete_reclamation(cutoff_ms).await?)
-    }
-
     pub(crate) async fn read_applied_deletes(
         &self,
         keys: &[&RecordAddress],
@@ -235,23 +210,6 @@ impl RecordStore {
         self.format.stage_records(schema, changes).await
     }
 
-    pub(crate) async fn portable_file(
-        &self,
-        key: &RecordAddress,
-        version: &Position,
-        marker: &FileMarker,
-    ) -> Result<Vec<u8>, SchemaError> {
-        self.format.portable_file(key, version, marker).await
-    }
-
-    pub(crate) fn admit_portable_file(
-        &self,
-        marker: FileMarker,
-        sealed: Vec<u8>,
-    ) -> Result<FileWrite, SchemaError> {
-        self.format.admit_portable_file(marker, sealed)
-    }
-
     pub(crate) fn seal_record_file(
         &self,
         plaintext: &[u8],
@@ -267,10 +225,6 @@ impl RecordStore {
         marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
         self.format.open_inline_file(record_key, marker).await
-    }
-
-    pub(crate) fn dedicated_shared_home(&self) -> bool {
-        self.format.dedicated_shared_home()
     }
 
     pub(crate) fn record_blob_path(

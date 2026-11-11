@@ -190,35 +190,6 @@ impl MutationManager {
             .await
     }
 
-    pub(super) async fn stage_replayed_record_group(
-        &self,
-        schema: &Schema,
-        changes: Vec<RecordChange>,
-    ) -> Result<(), SchemaError> {
-        let outcomes = record_outcomes(&changes);
-        let keys: Vec<_> = changes
-            .iter()
-            .map(|change| change.key.api_key().clone())
-            .collect();
-        self.db_ops.records().stage_records(schema, changes).await?;
-        let schemas = self.db_ops.schemas();
-        schemas.note_live_writes(
-            schema,
-            keys.iter()
-                .zip(&outcomes)
-                .filter(|(_, outcome)| outcome.live)
-                .map(|(key, _)| key),
-        )?;
-        self.stage_record_retention(schema, keys.iter(), &outcomes)
-            .await?;
-        if schema.schema_type == DeclarativeSchemaType::HashRange {
-            schemas
-                .record_schema_retention_hash_partitions(&schema.name, &keys)
-                .await?;
-        }
-        Ok(())
-    }
-
     async fn stage_record_retention<'a>(
         &self,
         schema: &Schema,

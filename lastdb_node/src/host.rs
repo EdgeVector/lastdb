@@ -25,7 +25,6 @@ pub struct Host {
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
-    pub shared_sync: crate::backup_runtime::SharedSyncRuntime,
 }
 
 impl Host {
@@ -95,7 +94,6 @@ impl Host {
             user_hash,
             uds_workers: OnceLock::new(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
-            shared_sync: crate::backup_runtime::SharedSyncRuntime::default(),
         })
     }
 

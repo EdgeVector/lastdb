@@ -8,6 +8,7 @@ pub mod disk_pack;
 pub mod error;
 pub(crate) mod format;
 pub(crate) mod local_file_ref;
+pub(crate) mod retired;
 
 pub mod config {
     use std::path::PathBuf;
@@ -151,6 +152,9 @@ pub(crate) mod current_keys {
 
     /// Validate a `main` key family and coordinate.
     pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
+        if super::retired::is_journal_key(namespace, key) {
+            return Err(StorageError::RetiredFormat(super::retired::JOURNAL_RETIRED));
+        }
         if namespace != MAIN_NAMESPACE {
             return Ok(());
         }
@@ -162,9 +166,7 @@ pub(crate) mod current_keys {
         if !CURRENT_FAMILIES.contains(&family) {
             return Err(unsupported("unknown key family"));
         }
-        if family == applied_deletes::DELETE_AGE_FAMILY {
-            applied_deletes::validate_age_key(key)?;
-        } else if let Some(record) =
+        if let Some(record) =
             applied_deletes::record_key(key).or_else(|| inline_files::record_key(key))
         {
             let rest = record
