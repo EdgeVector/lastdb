@@ -31,6 +31,7 @@ mod session;
 mod sign;
 mod status;
 mod turn;
+mod upload;
 mod wire;
 
 pub use cutover::legacy_resume_forbidden;

@@ -17,9 +17,9 @@ use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 use crate::named_snapshot_restore;
 
 use super::cloud::CloudLog;
-use super::files::{self, ObjectState};
 use super::registry;
 use super::retry::{self, Seal};
+use super::upload;
 
 const PAGE_LIMIT: u32 = 8;
 
@@ -159,38 +159,16 @@ async fn send_item(host: &Host, log: &CloudLog, item: &Item, next: &mut u64) -> 
     else {
         return true;
     };
-    if let Some(ciphertext) = file_ciphertext {
-        if !file_ready(host, log, mutation_id, canonical, ciphertext).await {
+    let published = if let Some(ciphertext) = file_ciphertext {
+        let Some(body) = upload::cloud_body(host, log, mutation_id, canonical, ciphertext).await
+        else {
             return false;
-        }
-    }
-    append_canonical(host, log, mutation_id, canonical, next).await
-}
-
-async fn file_ready(
-    host: &Host,
-    log: &CloudLog,
-    mutation_id: &str,
-    canonical: &[u8],
-    ciphertext: &[u8],
-) -> bool {
-    if retry::store_file(&host.home, log.database_id(), mutation_id, ciphertext).is_err() {
-        return false;
-    }
-    let Ok(path) = files::path_for(log.database_id(), mutation_id, canonical) else {
-        return false;
+        };
+        body
+    } else {
+        canonical.clone()
     };
-    match files::confirm(log, &path, ciphertext).await {
-        Ok(ObjectState::Present) => true,
-        Ok(ObjectState::Absent) => {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                "file row has no authenticated upload at its accepted path"
-            );
-            false
-        }
-        Err(()) => false,
-    }
+    append_canonical(host, log, mutation_id, &published, next).await
 }
 
 async fn append_canonical(
