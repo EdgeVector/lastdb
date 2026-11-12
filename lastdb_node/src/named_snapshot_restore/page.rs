@@ -146,11 +146,11 @@ async fn apply_change(
 ) -> Result<bool, RestoreError> {
     match change {
         payload::Change::Schema(change) => {
-            apply::apply_schema(store, change).await?;
+            apply::apply_schema(store, *change).await?;
             Ok(false)
         }
         payload::Change::Record(mut change) => {
-            apply::stage_file(store, key, database_id, entry, &mut change, files).await?;
+            apply::stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
             if apply::bind_expected(store, &mut change.mutation, resumed).await? {
                 return first_conflict(apply::write_record(store, change.mutation, resumed).await);
             }
