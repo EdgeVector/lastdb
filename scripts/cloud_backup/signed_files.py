@@ -14,8 +14,8 @@ import uuid
 import baseline_data
 from fresh_source import write_private
 from node import OwnedNode
-from programs import Programs
-from support import OperationError, dev_endpoint, failure, require
+from programs import Programs, execute
+from support import OperationError, decode_json, dev_endpoint, failure, require
 
 
 @contextmanager
@@ -114,10 +114,11 @@ def main():
         write_private(publisher.home / "identity.key", baseline_data.seed(phrase))
         del phrase
         recipient_home = root / "recipient"
-        initialized = programs.command(publisher.home, [
-            "admin", "backup", "init", "--into", str(recipient_home),
-            "--recovery-phrase-out", str(recipient_home / "recovery-phrase.txt"), "--json",
-        ])
+        initialized = decode_json(execute([
+            str(programs.directory / "lastdb"), "admin", "backup", "init",
+            "--into", str(recipient_home), "--recovery-phrase-out",
+            str(recipient_home / "recovery-phrase.txt"), "--json",
+        ], programs.environment, timeout=20))
         recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
         with running(publisher, remove_saved=True), running(recipient):
             transfer(programs, root, publisher, recipient, api_key)
