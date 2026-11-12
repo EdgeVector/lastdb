@@ -13,6 +13,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// Which database this read is publishing.
+#[derive(Clone, Copy)]
 pub enum Publication<'a> {
     /// Every sealed entry is publishable.
     Personal,
