@@ -45,29 +45,30 @@ pub(super) async fn replay(
     delivered: &[DeliveredEntry],
     files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    authorize(host, database_id, publisher)?;
-    check_page(database_id, publisher, delivered)?;
     let target = super::resolve_target(host, database_id)?;
-    if !matches!(&target.place, super::Place::Received) {
-        return Err(RestoreError::Scope("database store"));
+    match &target.place {
+        super::Place::Received => authorize(host, database_id, publisher)?,
+        super::Place::Owned(_)
+            if target.private && publisher == hex::encode(host.keypair.public_key_bytes()) => {}
+        super::Place::Owned(_) => return Err(RestoreError::Scope("database store")),
     }
+    check_page(database_id, publisher, delivered)?;
     let store = super::open_store(host, database_id, &target, true).await?;
-    for item in delivered {
-        apply_item(
-            store.as_ref(),
-            &target.key,
-            &host.home,
-            database_id,
-            item,
-            files,
-        )
-        .await?;
-    }
+    let decoder = target.decoder(database_id);
+    let replay = async {
+        for item in delivered {
+            apply_item(&store, decoder, &host.home, item, files).await?;
+        }
+        store
+            .flush()
+            .await
+            .map_err(|_| RestoreError::Durable("database flush"))
+    };
     store
-        .flush()
+        .db_ops()
+        .native_runtime()
+        .replay_accepted(replay)
         .await
-        .map_err(|_| RestoreError::Durable("database flush"))?;
-    Ok(())
 }
 
 fn authorize(host: &Host, database_id: &str, publisher: &str) -> Result<(), RestoreError> {
@@ -104,13 +105,13 @@ fn check_page(
 
 async fn apply_item(
     store: &FoldDB,
-    key: &DatabaseContentKey,
+    decoder: decode::EntryDecoder<'_>,
     home: &Path,
-    database_id: &str,
     item: &DeliveredEntry,
     files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    let prepared = decode::decode_entry(key, database_id, &item.entry)?;
+    let database_id = decoder.database_id;
+    let prepared = decoder.open(&item.entry)?;
     if let journal::Marker::Applied =
         journal::read_marker(home, database_id, &prepared.id, &prepared.hash)?
     {
@@ -119,7 +120,7 @@ async fn apply_item(
     let resumed = begin_attempt(home, database_id, item.delivery_seq, &prepared.hash)?;
     if apply_change(
         store,
-        key,
+        decoder.key,
         database_id,
         &item.entry,
         files,

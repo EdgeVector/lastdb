@@ -63,7 +63,8 @@ pub async fn install(
         &request.snapshot_ref,
         &request.objects,
     )?;
-    decode::check_chain(&target.key, &request.database_id, &chain)?;
+    let decoder = target.decoder(&request.database_id);
+    decode::check_chain(decoder, &chain)?;
     let mut journal = journal::load(&host.home, &request.database_id)?
         .unwrap_or_else(|| journal::Journal::fresh(&request.database_id, &request.snapshot_ref));
     let plan = journal::plan(&journal, request, &chain)?;
@@ -82,9 +83,8 @@ pub async fn install(
         }
         let replay = apply::replay(
             store.as_ref(),
-            &target.key,
+            decoder,
             &host.home,
-            &request.database_id,
             &chain,
             &mut journal,
             files,
@@ -99,7 +99,7 @@ pub async fn install(
     prefix(&chain)
 }
 
-/// Apply one received log page into the registered receiver store.
+/// Apply one signed log page into its registered store.
 ///
 /// The page is durable when this returns. A snapshot journal is left as it is.
 pub(crate) async fn replay_delivered(
@@ -115,6 +115,17 @@ pub(crate) async fn replay_delivered(
 struct RestoreTarget {
     key: DatabaseContentKey,
     place: Place,
+    private: bool,
+}
+
+impl RestoreTarget {
+    fn decoder<'a>(&'a self, database_id: &'a str) -> decode::EntryDecoder<'a> {
+        decode::EntryDecoder {
+            key: &self.key,
+            database_id,
+            private: self.private,
+        }
+    }
 }
 
 enum Place {
@@ -130,10 +141,15 @@ fn resolve_target(host: &Host, database_id: &str) -> Result<RestoreTarget, Resto
         Some((store, key)) => Ok(RestoreTarget {
             key,
             place: Place::Owned(store),
+            private: host
+                .owned
+                .is_private_id(database_id)
+                .map_err(|_| RestoreError::Scope("database registry"))?,
         }),
         None => Ok(RestoreTarget {
             key: received_key(host, database_id)?,
             place: Place::Received,
+            private: false,
         }),
     }
 }

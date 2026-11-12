@@ -96,7 +96,7 @@ async fn received_page(
     Ok(PagePlan::Ack(cursor))
 }
 
-fn delivered_entry(stored: &StoredEntry) -> DeliveredEntry {
+pub(super) fn delivered_entry(stored: &StoredEntry) -> DeliveredEntry {
     let entry = &stored.entry;
     DeliveredEntry {
         delivery_seq: stored.delivery_seq,

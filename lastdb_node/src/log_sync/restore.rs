@@ -39,7 +39,7 @@ pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<R
     }
 }
 
-async fn install(log: CloudLog) -> Result<u64, LogError> {
+pub(super) async fn install(log: CloudLog) -> Result<u64, LogError> {
     let chain = walk(&log).await?;
     let tip = chain
         .first()
