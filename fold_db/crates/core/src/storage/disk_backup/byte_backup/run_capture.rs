@@ -223,7 +223,13 @@ fn capture_main(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         .home
         .capture_files(&root.join("main"))
         .map_err(map)?;
-    let node = runtime.physical.path().join(NODE_MARKER);
+    // physical.path() is the disk-run home. The node marker is its parent.
+    let node = runtime
+        .physical
+        .path()
+        .parent()
+        .ok_or_else(|| invalid("run node parent"))?
+        .join(NODE_MARKER);
     let meta = fs::symlink_metadata(&node)?;
     if !meta.is_file() || meta.len() > 128 || run_node::profile(&fs::read(&node)?).is_none() {
         return Err(invalid("run source node marker"));
