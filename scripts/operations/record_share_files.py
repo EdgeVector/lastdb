@@ -17,12 +17,12 @@ def subcommands(result):
 
 def check_addressing(command, cli, owner, publication_id, missing_id):
     catalog = "lastdb-files/FileCatalog"
-    listed = command(cli, "--data-dir", owner.home, "db", "list", "--json")
+    listed = command(cli, "db", "list", "--json")
     require(listed.returncode == 0, "database list failed: " + listed.stderr)
     databases = json.loads(listed.stdout)["databases"]
     require(any(db["id"] == publication_id and db["name"] == "files-proof"
                 for db in databases), "the Files database did not expose its own ID")
-    selected = ["--data-dir", owner.home, "--db", publication_id]
+    selected = ["--db", publication_id]
     keys = command(cli, *selected, "get-keys", catalog, "--json")
     require(keys.returncode == 0, "selected database key list failed: " + keys.stderr)
     require([key["hash"] for key in json.loads(keys.stdout)["keys"]] == ["files-v1"],
@@ -79,22 +79,20 @@ def check_addressing(command, cli, owner, publication_id, missing_id):
     require(written.returncode != 0, "a repeated owner delete must conflict")
     print("Owner repeated delete conflicted:", written.stderr.strip(), flush=True)
 
-    original = command(cli, "--db", "personal", "get", "RecordById", "--key-hash", "one", "--json",
-                       node=owner)
+    original = command(cli, "--db", "personal", "get", "RecordById", "--key-hash", "one", "--json")
     require(original.returncode == 0 and json.loads(original.stdout)["results"][0]["fields"]["value"] == "v3",
             "explicit personal selection did not read the original record: " + original.stderr)
     wrong = command(cli, "--db", missing_id, "get", "RecordById", "--key-hash", "one", "--json",
                     node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must never read the node's personal records: " + wrong.stderr)
-    wrong = command(cli, "--db", missing_id, "mutate", "--request-file", request, node=owner)
+    wrong = command(cli, "--db", missing_id, "mutate", "--request-file", request)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
 
 
 def check_files(command, cli, owner, publication_id, other_id, source, manifest):
-    home = ["--data-dir", owner.home]
-    selected = [*home, "--db", publication_id, "share", "files"]
+    selected = ["--db", publication_id, "share", "files"]
     listed = command(cli, *selected, "list")
     require(listed.returncode == 0, "selected Files list failed: " + listed.stderr)
     listing = json.loads(listed.stdout)
@@ -109,17 +107,17 @@ def check_files(command, cli, owner, publication_id, other_id, source, manifest)
             "selected Files save returned the wrong database or path")
     require(output.read_bytes() == source.read_bytes(), "selected Files save changed the file bytes")
 
-    refused = command(cli, *home, "--db", other_id, "share", "files", "list")
+    refused = command(cli, "--db", other_id, "share", "files", "list")
     require(refused.returncode == 1 and "database is not registered" in refused.stderr,
             "an unknown database selector must not fall back to the local Files catalog: "
             + refused.stderr)
 
 
 def exercise(cli, owner):
-    def command(binary, *arguments, node=None):
-        environment = None if node is None else {
-            **os.environ, "LASTDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.socket),
-        }
+    environment = {**os.environ, "LASTDB_HOME": str(owner.home),
+                   "LASTDB_SOCKET_PATH": str(owner.socket)}
+
+    def command(binary, *arguments):
         return subprocess.run([binary, *arguments], capture_output=True, text=True, timeout=60,
                               env=environment)
 
@@ -136,8 +134,7 @@ def exercise(cli, owner):
         require(result.returncode == 2 and "unrecognized subcommand" in result.stderr,
                 f"the retired share {retired} command should be refused")
 
-    home = ["--data-dir", owner.home]
-    made = command(cli, *home, "db", "create", "files-proof", "--spec-name", "lastdb-files",
+    made = command(cli, "db", "create", "files-proof", "--spec-name", "lastdb-files",
                    "--spec-version", "1", "--json")
     require(made.returncode == 0, "Files database create failed: " + made.stderr)
     publication_id = json.loads(made.stdout)["id"]
@@ -145,7 +142,7 @@ def exercise(cli, owner):
     payload = bytes(range(251)) * 2300 + b"LastDB Files product operation\n"
     path = owner.root / "file.txt"
     path.write_bytes(payload)
-    added = command(cli, *home, "--db", "files-proof", "share", "files", "add", path)
+    added = command(cli, "--db", "files-proof", "share", "files", "add", path)
     require(added.returncode == 0, "share files add failed: " + added.stderr)
     receipt = json.loads(added.stdout)
     require(receipt["name"] == path.name and receipt["size_bytes"] == len(payload)
