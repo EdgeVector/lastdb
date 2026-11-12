@@ -208,12 +208,10 @@ class Programs:
             return arguments
         if arguments[:2] == ["cloud", "backup-v2"]:
             verb, *rest = arguments[2:]
-            if verb in ("enable-automatic", "disable-automatic"):
-                mode = "on" if verb == "enable-automatic" else "off"
-                return ["backup", "policy", mode, *rest]
-            if verb in ("init", "resume", "close", "inspect-dependencies"):
+            if verb == "init":
                 return ["admin", "backup", verb, *rest]
-            return ["backup", "list" if verb == "discover" else verb, *rest]
+            if verb in ("connect", "restore"):
+                return ["backup", verb, *rest]
         if arguments[:2] == ["db", "cleanup"]:
             return ["admin", "storage", *arguments[1:]]
         if arguments[0] == "cloud":
@@ -224,21 +222,10 @@ class Programs:
 
     def command(self, home, arguments, input_bytes=None, extra=None, timeout=120):
         self.verify()
-        environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
+        environment = dict(self.environment)
         environment.update(extra or {})
         command = [str(self.directory / "lastdb")]
         if home is not None:
             command.extend(("--data-dir", str(home)))
         command.extend(self.cli_arguments(arguments))
         return decode_json(execute(command, environment, input_bytes, timeout))
-
-    def restore(self, home, destination, baseline, phrase):
-        self.verify()
-        environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
-        command = [str(self.directory / "lastdb"), "--data-dir", str(home),
-                   *self.cli_arguments(["cloud", "backup-v2", "restore"]),
-                   "--recovery-phrase-stdin", "--stream",
-                   baseline["stream_id"], "--generation", baseline["account_generation"],
-                   "--commit", baseline["commit_id"], "--commit-sha256", baseline["commit_sha256"],
-                   "--into", str(destination), "--json"]
-        return decode_json(execute(command, environment, phrase, timeout=1200))

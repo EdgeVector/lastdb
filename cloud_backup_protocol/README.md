@@ -18,9 +18,7 @@ The signing key is the node key. DEV and PROD use the same mutation-log paths.
 Data routes use `authorize_request` once the database is native or committed.
 Native create is only `POST /api/cloud/backups/v2/mutation-log/create-database`.
 That request authorizes and creates the database in one transaction, with no migration evidence.
-Legacy cutover is only `POST /api/cloud/backups/v2/mutation-log/cutover`.
-Its authority is the live authenticated TLS response after Exemem stores the receipt.
-A saved file does not authorize cutover, and the receipt has no service signature.
+The LastDB client does not post `POST /api/cloud/backups/v2/mutation-log/cutover`.
 The member-list read uses `member_list_read_view`.
 A node-key revoke covers every device of that key. The body-less proof remains only while that database is open.
 Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.

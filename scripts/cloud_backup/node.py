@@ -13,7 +13,7 @@ import socket
 import subprocess
 import time
 
-from support import (ACCOUNT, BACKUP_DIR, CHUNK, CREDENTIALS_FILE, OperationError, canonical_uuid, decode_json,
+from support import (ACCOUNT, CHUNK, CREDENTIALS_FILE, OperationError, canonical_uuid, decode_json,
                      read_json, require)
 
 
@@ -129,9 +129,6 @@ class OwnedNode:
             return
         if self.cloud_credentials is None:
             require(not os.path.lexists(self.home / CREDENTIALS_FILE), "restored_home_cloud_off")
-        require(not os.path.lexists(self.home / "data/cloud-byte-backup-v2/active.json"),
-                "restored_no_active_backup")
-        require(not (self.home / "data/disk-run" / BACKUP_DIR).exists(), "restored_no_backup_job")
 
     def connect(self):
         """Sign this restored home in as its own device, or copy saved credentials."""
@@ -183,7 +180,6 @@ class OwnedNode:
         # measurement boots request inventory on these owned generated homes.
         isolated = self.isolated_copy or storage_inventory
         environment = dict(self.programs.environment,
-                     LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
                      LASTDB_ISOLATED_COPY="1" if isolated else "0",
                      LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0")
         for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
@@ -199,7 +195,7 @@ class OwnedNode:
         while time.monotonic() < deadline:
             require(self.process.poll() is None, "daemon_start_exit")
             try:
-                ready = self.health(readiness=True)
+                ready = self.health()
             except (OSError, http.client.HTTPException):
                 time.sleep(0.2)
                 continue
@@ -217,7 +213,7 @@ class OwnedNode:
             environment["LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"] = "1"
         return environment
 
-    def health(self, readiness=False):
+    def health(self):
         paths = ("/health", "/api/status", "/api/system/boot-identity", "/api/db/native-status")
         # Independent observations settle before the caller uses any of them.
         with ThreadPoolExecutor(max_workers=len(paths)) as pool:
@@ -237,16 +233,8 @@ class OwnedNode:
         require(type(start) is int and start > 0 and self.start_ts in (None, start)
                 and status["status"]["process_start_ts"] == start, "daemon_start_identity")
         self.start_ts, self.instance_id = start, instance
-        measured = status["status"]
         require(native["native_disk"]["writer_failed"] is False, "daemon_native_health")
-        durability = measured["durability"]
-        if not self.backup_source:
-            require(durability["automatic_enabled"] is False and durability["running"] is False,
-                    "daemon_backup_off")
         self.offline()
-        if readiness and durability["observed"] is False:
-            return False
-        require(durability["observed"] is True, "daemon_backup_observation")
         return True
 
     def stop(self, *, remove_saved=False):

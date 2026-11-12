@@ -12,10 +12,9 @@ import time
 import uuid
 
 import baseline_data
-from fresh_source import write_private
 from node import OwnedNode
 from programs import Programs
-from support import OperationError, dev_endpoint, failure, require
+from support import OperationError, dev_endpoint, failure, require, write_private
 
 
 @contextmanager
@@ -71,8 +70,9 @@ def transfer(programs, root, publisher, recipient, api_key):
             and manifest["chunks"] == 3, "files_import_receipt")
     connected = owner("backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
                       "--expected-user-hash", baseline_data.ACCOUNT, "--json", input_bytes=api_key)
-    require(connected["manual_backup_enabled"] and not connected["automatic_backup_enabled"]
-            and not connected["registration_attempted"], "files_dev_connection")
+    require(connected["ok"] is True and connected["credentials_saved"] is True
+            and connected["registration_attempted"] is False
+            and connected["account_id"] == baseline_data.ACCOUNT, "files_dev_connection")
     contact = reader("share", "contact", "--out", str(contact_path))
     # The canonical DEV create is asynchronous. The same member update can be
     # retried until the daemon enrolls the named database.

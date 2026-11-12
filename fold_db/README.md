@@ -36,7 +36,7 @@ cargo clippy -p fold_db --all-targets -- -D warnings
 ```
 
 - Storage: disk format v2 (`laststore::disk_run`, vendored under monorepo `vendor/laststore`)
-- Cloud backup: the explicit V2 byte backup, off by default
+- Cloud sync: the signed database log
 - Observability helpers in `crates/observability`
 
 Compatibility note: package name, paths, and env vars may still say

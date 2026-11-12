@@ -9,14 +9,13 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cloud_backup"))
 
 from drive import LoadError
-from fresh_source import write_private
 from native_records import create, key as record_key
 from node import OwnedNode
 from node_auth import NodeKey, account_id
 from programs import Programs
 from routes import ROOT, decimal
 from signed_files import retry, running, summary
-from support import OperationError, failure, require
+from support import OperationError, failure, require, write_private
 
 SCHEMA = "PrivateRecovery"
 FIELDS = {"id": "signed-recovery", "note": "owner-only DEV record"}
@@ -27,13 +26,14 @@ def connect(programs, node, api_key):
         "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
         "--expected-user-hash", node.account, "--json",
     ], input_bytes=api_key.encode(), timeout=30)
-    require(receipt["manual_backup_enabled"] and not receipt["automatic_backup_enabled"]
-            and not receipt["registration_attempted"], "private_dev_connection")
+    require(receipt["ok"] is True and receipt["credentials_saved"] is True
+            and not receipt["registration_attempted"]
+            and receipt["account_id"] == node.account, "private_dev_connection")
 
 
 def restore(programs, credentials, destination, database, phrase, through):
     receipt = programs.command(credentials, [
-        "backup", "restore", "--signed", "--stream", database, "--recovery-phrase-stdin",
+        "backup", "restore", "--stream", database, "--recovery-phrase-stdin",
         "--into", str(destination), "--json",
     ], input_bytes=phrase, timeout=100)
     require(receipt["database_id"] == database and receipt["through_delivery_seq"] == through,

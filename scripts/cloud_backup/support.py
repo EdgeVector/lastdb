@@ -197,6 +197,14 @@ def baseline_from_environment():
     return value
 
 
+def write_private(path, payload):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def dev_endpoint():
     path = Path(__file__).resolve().parents[2] / "lastdb_node/environments.json"
     require(path.is_file() and path.stat().st_size <= 65536, "compiled_profile")
@@ -214,7 +222,6 @@ def child_environment(root):
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C", "TZ": "UTC",
         "HOME": str(root / "os-home"), "TMPDIR": str(root / "tmp"),
         "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev",
-        "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
         "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1", "RUST_MIN_STACK": "16777216",
         "LASTDB_SELF_METRICS_TO_DB": "false",
         "RUST_LOG": "warn", "OBS_SENTRY_DSN": "", "POSTHOG_API_KEY": "",

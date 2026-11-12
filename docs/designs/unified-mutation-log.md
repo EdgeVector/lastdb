@@ -257,24 +257,20 @@ Pure core, no I/O, crate `mutation_log`:
 
 There is no flag. `drive` is the only shared-sync step.
 
-The server cutover, in exemem-infra, drops `CLOUD_MUTATION_LOG_ENABLED`,
-creates the PROD table, and imports a mandatory fresh full snapshot per
-database with a receipt.
+Every owned database, personal and private included, registers with
+`POST /api/cloud/backups/v2/mutation-log/create-database` and then syncs
+that database id. The owner store records accepted writes for that log.
+There is no byte backup, no cutover receipt, and no second path.
 
 The signed client resolves the database id to a store and its existing
 content key. It uses the same envelope, file upload, and snapshot replay for
 private and shareable databases. Publication and grants determine who may
 see the contents. The name is a local selector.
 
-Existing owner homes keep byte backup. Turning it off requires a live
-cutover receipt and a local accepted stream with verified coverage of the
-pre-migration frontier. Receiving a log page or installing a cloud snapshot
-alone does not establish coverage of local writes.
-
-ExeMem admits newly registered private and shareable databases on the
-same signed API. Create an owner-only database with
-`lastdb db create NAME --private`. The owner key and cloud account scope
-are bound at registration. The database accepts no share grants.
+ExeMem admits private and shareable databases on the same signed API.
+Create an owner-only database with `lastdb db create NAME --private`.
+The owner key and cloud account scope are bound at registration.
+The database accepts no share grants.
 The old contributor inbox still has `MAX_WRITERS = 12`.
 
 Old server rows stay until a second device acks and keyed reads match.
