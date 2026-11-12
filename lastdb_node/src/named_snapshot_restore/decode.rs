@@ -79,7 +79,7 @@ pub(super) fn open_sealed(
     }
 }
 
-fn binding<'a>(database_id: &'a str, entry: &'a SnapshotEntry) -> LogBinding<'a> {
+pub(super) fn binding<'a>(database_id: &'a str, entry: &'a SnapshotEntry) -> LogBinding<'a> {
     LogBinding {
         database_id,
         writer_key: &entry.writer_key,

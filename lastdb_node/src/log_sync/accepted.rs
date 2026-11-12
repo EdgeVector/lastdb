@@ -150,63 +150,67 @@ async fn send_page(
 async fn send_item(host: &Host, log: &CloudLog, item: &Item, next: &mut u64) -> bool {
     let Item::Publish {
         mutation_id,
+        kind,
         canonical,
         file_ciphertext,
+        file_reference,
         ..
     } = item
     else {
         return true;
     };
-    let published = if let Some(ciphertext) = file_ciphertext {
-        let Some(body) = upload::cloud_body(host, log, mutation_id, canonical, ciphertext).await
-        else {
-            return false;
-        };
-        body
-    } else {
-        canonical.clone()
-    };
-    append_canonical(host, log, mutation_id, &published, next).await
-}
-
-async fn append_canonical(
-    host: &Host,
-    log: &CloudLog,
-    mutation_id: &str,
-    canonical: &[u8],
-    next: &mut u64,
-) -> bool {
     let Some(namespace) = namespace_of(canonical) else {
         return false;
     };
-    let Some(sealed) = sealed_payload(host, log, mutation_id, canonical, &namespace, next) else {
+    let Ok(saved) = retry::load(&host.home, log.database_id(), mutation_id) else {
         return false;
     };
-    let Some(entry) = cloud_entry(log, &sealed.0, &namespace, sealed.1) else {
+    let source = upload::FileSource {
+        canonical,
+        row: file_ciphertext.as_deref(),
+        reference: file_reference.as_deref(),
+    };
+    let sealed = match saved {
+        Some((seal, payload)) if seal.writer_seq <= *next && seal.namespace == namespace => {
+            Some((seal, payload))
+        }
+        Some(_) => None,
+        None => {
+            let seal = Seal {
+                writer_seq: *next,
+                authored_at_ms: fold_db::clock::unix_millis(),
+                namespace,
+            };
+            prepare_payload(host, log, mutation_id, kind, source, seal).await
+        }
+    };
+    let Some((seal, payload)) = sealed else {
         return false;
     };
-    append_entry(log, entry).await
+    let Some(entry) = cloud_entry(log, &seal, payload) else {
+        return false;
+    };
+    if !append_entry(log, entry).await {
+        return false;
+    }
+    *next = (*next).max(seal.writer_seq.saturating_add(1));
+    true
 }
 
-fn sealed_payload(
+async fn prepare_payload(
     host: &Host,
     log: &CloudLog,
     mutation_id: &str,
-    canonical: &[u8],
-    namespace: &str,
-    next: &mut u64,
+    kind: &str,
+    source: upload::FileSource<'_>,
+    seal: Seal,
 ) -> Option<(Seal, Vec<u8>)> {
-    if let Some(saved) = retry::load(&host.home, log.database_id(), mutation_id).ok()? {
-        if saved.0.writer_seq > *next || saved.0.namespace != namespace {
-            return None;
-        }
-        *next = (*next).max(saved.0.writer_seq.saturating_add(1));
-        return Some(saved);
-    }
-    let seal = Seal {
-        writer_seq: *next,
-        authored_at_ms: fold_db::clock::unix_millis(),
-        namespace: namespace.to_owned(),
+    let (canonical, seal) = if source.row.is_some() || source.reference.is_some() {
+        upload::cloud_body(host, log, mutation_id, source, seal).await?
+    } else if kind == "file" {
+        return None;
+    } else {
+        (source.canonical.to_vec(), seal)
     };
     let key = content_key(host, log.database_id())?;
     let envelope = log_envelope::seal(
@@ -217,24 +221,23 @@ fn sealed_payload(
             writer_device: log.device().as_str(),
             writer_seq: seal.writer_seq,
             authored_at_ms: seal.authored_at_ms,
-            namespace,
+            namespace: &seal.namespace,
             incorporated_from: None,
         },
-        canonical,
+        &canonical,
     )
     .ok()?;
     retry::store(&host.home, log.database_id(), mutation_id, &seal, &envelope).ok()?;
-    *next = next.saturating_add(1);
     Some((seal, envelope))
 }
 
-fn cloud_entry(log: &CloudLog, seal: &Seal, namespace: &str, payload: Vec<u8>) -> Option<Entry> {
+fn cloud_entry(log: &CloudLog, seal: &Seal, payload: Vec<u8>) -> Option<Entry> {
     Some(Entry {
         database_id: DatabaseId::new(log.database_id()).ok()?,
         writer: log.reader(),
         writer_seq: seal.writer_seq,
         authored_at_ms: seal.authored_at_ms,
-        namespace: Namespace::new(namespace).ok()?,
+        namespace: Namespace::new(&seal.namespace).ok()?,
         incorporated_from: None,
         payload,
     })

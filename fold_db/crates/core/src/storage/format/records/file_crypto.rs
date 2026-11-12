@@ -204,18 +204,30 @@ impl RecordFormat {
     }
 
     fn open_file_row(&self, row: &[u8], marker: &FileMarker) -> Result<Vec<u8>, FoldDbError> {
-        let (key, _) = file_key(&self.content_key, &marker.sha256)?;
-        let plaintext =
-            crate::crypto::envelope::decrypt_envelope(&key, row).map_err(file_crypto_error)?;
-        if plaintext.len() as u64 != marker.size_bytes
-            || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
-        {
-            return Err(FoldDbError::SecurityError(
-                "record file differs from its marker".into(),
-            ));
-        }
-        Ok(plaintext)
+        decrypt_file_row(&self.content_key, marker, row)
     }
+}
+
+/// Open one sealed file row with the native file key. The row is the accepted
+/// entry or the file-store object for that marker, not a later record version.
+pub(crate) fn decrypt_file_row(
+    content_key: &[u8; 32],
+    marker: &FileMarker,
+    row: &[u8],
+) -> Result<Vec<u8>, FoldDbError> {
+    require_row(content_key, marker, row)
+        .map_err(|_| FoldDbError::SecurityError("record file differs from its marker".into()))?;
+    let (key, _) = file_key(content_key, &marker.sha256)?;
+    let plaintext =
+        crate::crypto::envelope::decrypt_envelope(&key, row).map_err(file_crypto_error)?;
+    if plaintext.len() as u64 != marker.size_bytes
+        || hex_lower(Sha256::digest(&plaintext)) != marker.sha256
+    {
+        return Err(FoldDbError::SecurityError(
+            "record file differs from its marker".into(),
+        ));
+    }
+    Ok(plaintext)
 }
 
 pub(crate) fn seal_file_row(

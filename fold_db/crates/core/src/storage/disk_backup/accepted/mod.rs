@@ -62,6 +62,8 @@ pub struct Entry {
     pub envelope: Vec<u8>,
     /// Sealed file row when the entry has an external file.
     pub file_ciphertext: Option<Vec<u8>>,
+    /// Admitted custody path for a local file. The bytes stay outside the spool.
+    pub file_reference: Option<String>,
 }
 
 /// One exclusive page of the sealed stream.
@@ -198,6 +200,15 @@ impl PackRuntime {
         };
         log.note_split_committed(frontier_before).map_err(storage)
     }
+}
+
+/// Open one immutable sealed file row. This is the native file-row decoder.
+pub fn open_file_row(
+    content_key: &[u8; 32],
+    marker: &lastdb_model::record_value::FileMarker,
+    row: &[u8],
+) -> Result<Vec<u8>, crate::error::FoldDbError> {
+    crate::storage::format::records::decrypt_file_row(content_key, marker, row)
 }
 
 fn idle_prefix(after: u64, limit: u32) -> Result<Page, Error> {

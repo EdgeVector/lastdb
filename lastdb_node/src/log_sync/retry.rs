@@ -75,6 +75,19 @@ pub(super) fn store_file(
     disk::write_private(&file_path(home, database_id, mutation_id), ciphertext).map_err(|_| ())
 }
 
+pub(super) fn load_file(
+    home: &Path,
+    database_id: &str,
+    mutation_id: &str,
+) -> Result<Option<Vec<u8>>, ()> {
+    if !id_ok(mutation_id) {
+        return Err(());
+    }
+    let limit = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES + 4096;
+    let limit = usize::try_from(limit).map_err(|_| ())?;
+    disk::read_limited(&file_path(home, database_id, mutation_id), limit).map_err(|_| ())
+}
+
 fn id_ok(mutation_id: &str) -> bool {
     !mutation_id.is_empty()
         && mutation_id.len() <= 128

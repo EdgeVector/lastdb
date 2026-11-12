@@ -193,6 +193,9 @@ pub(super) fn write_staged(
         if let Some(file) = note.file.as_deref() {
             io::write_bytes(&dir.join("file.bin"), file)?;
         }
+        if let Some(reference) = note.reference.as_deref() {
+            io::write_bytes(&dir.join("reference.txt"), reference.as_bytes())?;
+        }
     }
     Ok(())
 }

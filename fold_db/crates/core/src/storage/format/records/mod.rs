@@ -4,7 +4,7 @@ mod file_crypto;
 mod release;
 mod store;
 
-pub(crate) use file_crypto::{require_row, seal_file_row};
+pub(crate) use file_crypto::{decrypt_file_row, require_row, seal_file_row};
 pub use release::RecordDeleteLedgerEntry;
 pub(crate) use release::{
     alternate_bounds, release_families, AlternateAddress, RecordAddress, ReleaseFamily, ReleaseKind,

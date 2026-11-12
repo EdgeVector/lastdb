@@ -138,6 +138,7 @@ pub(super) fn seal(content_key: &[u8; 32], body: &impl Serialize) -> StorageResu
         plaintext_sha256,
         envelope,
         file: None,
+        reference: None,
     })
 }
 

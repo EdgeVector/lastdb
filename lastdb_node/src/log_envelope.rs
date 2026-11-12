@@ -2,8 +2,8 @@
 //!
 //! The plaintext is the canonical record bytes. The ciphertext uses the
 //! database content key and binds the log metadata as associated data.
-//! File bytes stay on the existing record-file path. This module does not
-//! wrap them and does not accept a plaintext wire encoding.
+//! File bytes travel through the existing blob path. A separate encryption
+//! domain binds them to the same log entry.
 
 use std::ops::Deref;
 
@@ -20,6 +20,7 @@ use crate::share_invitation::{seal_invitation, OpenedShareInvitation, ShareConta
 
 /// Domain mixed into the associated data. It is not stored in the ciphertext.
 pub const MUTATION_LOG_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log:v1";
+const MUTATION_LOG_BLOB_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log-blob:v1";
 
 /// Metadata both the producer and the receiver already know.
 ///
@@ -154,7 +155,7 @@ pub fn seal(
     if plaintext.is_empty() {
         return Err(LogEnvelopeError::PlaintextRefused);
     }
-    let (aes, aad) = bound(key, binding)?;
+    let (aes, aad) = bound(key, binding, MUTATION_LOG_AAD_DOMAIN)?;
     encrypt_envelope_with_aad(aes, &aad, plaintext).map_err(|_| LogEnvelopeError::Seal)
 }
 
@@ -164,16 +165,43 @@ pub fn open(
     binding: &LogBinding<'_>,
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, LogEnvelopeError> {
-    if ciphertext.first() != Some(&ENVELOPE_VERSION) {
-        return Err(LogEnvelopeError::PlaintextRefused);
-    }
-    let (aes, aad) = bound(key, binding)?;
-    let plain =
-        decrypt_envelope_with_aad(aes, &aad, ciphertext).map_err(|_| LogEnvelopeError::Open)?;
+    let plain = open_bound(key, binding, MUTATION_LOG_AAD_DOMAIN, ciphertext)?;
     if plain.is_empty() {
         return Err(LogEnvelopeError::Open);
     }
     Ok(plain)
+}
+
+/// Seal the bytes of the external file for this log entry.
+pub(crate) fn seal_blob(
+    key: &DatabaseContentKey,
+    binding: &LogBinding<'_>,
+    plaintext: &[u8],
+) -> Result<Vec<u8>, LogEnvelopeError> {
+    let (aes, aad) = bound(key, binding, MUTATION_LOG_BLOB_AAD_DOMAIN)?;
+    encrypt_envelope_with_aad(aes, &aad, plaintext).map_err(|_| LogEnvelopeError::Seal)
+}
+
+/// Open the external file for this log entry. An empty file is valid.
+pub(crate) fn open_blob(
+    key: &DatabaseContentKey,
+    binding: &LogBinding<'_>,
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, LogEnvelopeError> {
+    open_bound(key, binding, MUTATION_LOG_BLOB_AAD_DOMAIN, ciphertext)
+}
+
+fn open_bound(
+    key: &DatabaseContentKey,
+    binding: &LogBinding<'_>,
+    domain: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, LogEnvelopeError> {
+    if ciphertext.first() != Some(&ENVELOPE_VERSION) {
+        return Err(LogEnvelopeError::PlaintextRefused);
+    }
+    let (aes, aad) = bound(key, binding, domain)?;
+    decrypt_envelope_with_aad(aes, &aad, ciphertext).map_err(|_| LogEnvelopeError::Open)
 }
 
 /// Seal only the shareable database content key to one recipient.
@@ -199,18 +227,19 @@ pub fn seal_content_key_invitation(
 fn bound<'a>(
     key: &'a DatabaseContentKey,
     binding: &LogBinding<'_>,
+    domain: &[u8],
 ) -> Result<(&'a [u8; 32], Vec<u8>), LogEnvelopeError> {
     if binding.database_id != key.database_id {
         return Err(LogEnvelopeError::InvalidBinding);
     }
-    let aad = associated_data(binding)?;
+    let aad = associated_data(binding, domain)?;
     Ok((key.bytes.deref(), aad))
 }
 
-fn associated_data(binding: &LogBinding<'_>) -> Result<Vec<u8>, LogEnvelopeError> {
+fn associated_data(binding: &LogBinding<'_>, domain: &[u8]) -> Result<Vec<u8>, LogEnvelopeError> {
     validate_binding(binding)?;
     let mut writer = CanonicalWriter::new()
-        .field(MUTATION_LOG_AAD_DOMAIN)
+        .field(domain)
         .u64(u64::from(ENVELOPE_VERSION))
         .field(binding.database_id.as_bytes())
         .field(binding.writer_key.as_bytes())

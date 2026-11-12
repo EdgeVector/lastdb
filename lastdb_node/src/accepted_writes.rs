@@ -30,6 +30,8 @@ pub enum Item {
         kind: String,
         canonical: Vec<u8>,
         file_ciphertext: Option<Vec<u8>>,
+        /// Custody path recorded for this entry. Absent when the sealed row is present.
+        file_reference: Option<String>,
     },
     /// The sequence is occupied. It carries no plaintext and no file.
     Withheld { sequence: u64, mutation_id: String },
@@ -153,6 +155,7 @@ fn classify(
         kind: kind.to_string(),
         canonical: plain,
         file_ciphertext: entry.file_ciphertext,
+        file_reference: entry.file_reference,
     })
 }
 

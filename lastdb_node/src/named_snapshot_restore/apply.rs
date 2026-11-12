@@ -164,13 +164,9 @@ async fn load_file(
             path: fetch.object.path.clone(),
         })
         .await?;
-    let plain = decode::open_sealed(
-        key,
-        database_id,
-        entry,
-        &sealed,
-        RestoreError::File("snapshot file"),
-    )?;
+    let binding = decode::binding(database_id, entry);
+    let plain = crate::log_envelope::open_blob(key, &binding, &sealed)
+        .map_err(|_| RestoreError::File("snapshot file"))?;
     if !plain_matches(&plain, &fetch.marker) {
         return Err(RestoreError::File("snapshot file"));
     }

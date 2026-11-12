@@ -162,7 +162,26 @@ pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
         mutation_id: meta.mutation_id,
         envelope,
         file_ciphertext,
+        file_reference: read_reference(&dir)?,
     })
+}
+
+fn read_reference(dir: &Path) -> Result<Option<String>, Error> {
+    match io::read_limited(&dir.join("reference.txt"), 4096)? {
+        None => Ok(None),
+        Some(bytes) => {
+            let text = std::str::from_utf8(&bytes).map_err(|_| Error::Gap)?;
+            if text.is_empty()
+                || text.len() > 4096
+                || text
+                    .bytes()
+                    .any(|byte| byte == 0 || byte == b'\n' || byte == b'\r')
+            {
+                return Err(Error::Gap);
+            }
+            Ok(Some(text.to_owned()))
+        }
+    }
 }
 
 pub(super) fn unacked_bytes(root: &Path, through: u64, head: u64) -> Result<u64, Error> {

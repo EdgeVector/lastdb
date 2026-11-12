@@ -18,6 +18,8 @@ pub(in crate::storage) struct Note {
     pub plaintext_sha256: String,
     pub envelope: Vec<u8>,
     pub file: Option<Vec<u8>>,
+    /// Custody path for a local file. Absent when the sealed row is in `file`.
+    pub reference: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
