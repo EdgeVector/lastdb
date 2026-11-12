@@ -331,6 +331,9 @@ pub(in crate::exec) async fn execute_byte_backup(
     let Ok(request) = serde_json::from_slice::<ByteBackupRequest>(&req.body) else {
         return error_response(400, "invalid byte backup request", ctx);
     };
+    if !matches!(&request, ByteBackupRequest::Status) {
+        return error_response(404, "unknown backup operation", ctx);
+    }
     match byte_cloud_backup::request(host, request).await {
         Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
         Err(error) => error_response(409, &error.to_string(), ctx),
