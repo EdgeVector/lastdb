@@ -3,6 +3,7 @@
 //! The binary delegates host boot and owner-socket data routes to this library.
 //! Administrative modules share those product types without a second daemon.
 
+pub mod accepted_writes;
 pub mod app_publish;
 pub mod app_registry_index;
 pub mod backup_runtime;

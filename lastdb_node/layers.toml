@@ -19,6 +19,7 @@ exclude = ["main.rs", "lastdbd", "bin"]
 name = "leaf"
 doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, shutdown receipts, and versions."
 modules = [
+  "accepted_writes",
   "backup_runtime",
   "share_spec",
   "byte_cloud_log",

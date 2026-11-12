@@ -1,7 +1,7 @@
 //! Bound main/file capabilities and record-owned file version encoding.
 
 use super::{EncodedRecords, RecordAddress, RecordChange};
-use crate::schema::types::{FileWrite, FileWriteIssuer, Schema};
+use crate::schema::types::{FileWrite, FileWriteIssuer, LocalFileReference, Schema};
 use crate::schema::SchemaError;
 use crate::storage::current_keys::families::{record_file_path, record_file_uploaded_path};
 use crate::storage::disk_pack::{transaction, PackKvStore, PackNamespacedStore, PackRuntime};
@@ -12,6 +12,7 @@ use crate::storage::local_file_ref::{Remember, SidecarPlan};
 use crate::storage::KvMutation;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 pub(in crate::storage::format::records) struct FileChange {
@@ -129,6 +130,14 @@ impl RecordFormat {
 
     pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
         Arc::clone(&self.runtime)
+    }
+
+    pub(crate) fn content_key(&self) -> &[u8; 32] {
+        &self.content_key
+    }
+
+    pub(crate) fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
+        self.file_issuer.admit_local(file)
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {

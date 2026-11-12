@@ -1,5 +1,6 @@
 //! Record domain store: key codecs, paged hash spans, write/read scopes, replay fence, and writer watch.
 
+mod accepted;
 mod reads;
 mod writes;
 

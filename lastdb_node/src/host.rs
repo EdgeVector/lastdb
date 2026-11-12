@@ -71,6 +71,7 @@ impl Host {
             fold_db::fold_db_core::factory::FoldDbOptions {
                 offline_maintenance: false,
                 search_outbox_inbox: Some(search_outbox_inbox.clone()),
+                capture_accepted: false,
             },
         )
         .await

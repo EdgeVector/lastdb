@@ -73,9 +73,19 @@ impl PackRuntime {
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
+        let frontier_before = self.physical.current_root().frontier();
+        let notes = transaction::take_accepted_notes(requests);
+        self.prepare_accepted(frontier_before, &notes)?;
         let PreparedCommit {
             operations, space, ..
         } = prepared;
+        let split = !notes.is_empty()
+            && operations
+                .iter()
+                .any(|operation| operation.collection == CAS_COLLECTION);
+        if split {
+            self.arm_accepted_split()?;
+        }
         let v2 = &self.physical;
         let result = (|| {
             cas_delete::require_clear(v2)?;
@@ -91,9 +101,16 @@ impl PackRuntime {
             Ok(())
         })();
         if let Err(error) = result {
-            self.failed.store(true, Ordering::Release);
-            *self.failed_write.lock().expect("native failed write owner") = Some(space);
-            return Err(error);
+            return Err(self.fail_native(frontier_before, space, error));
+        }
+        if split {
+            if let Err(error) = self.note_accepted_split(frontier_before) {
+                return Err(self.fail_native(frontier_before, space, error));
+            }
+        }
+        let frontier_after = self.physical.current_root().frontier();
+        if let Err(error) = self.publish_accepted(frontier_before, frontier_after) {
+            return Err(self.fail_native(frontier_before, space, error));
         }
         let root = v2.current_root();
         let (generation, frontier) = (root.generation(), root.frontier());
@@ -108,6 +125,18 @@ impl PackRuntime {
             &self.space_policy,
         );
         Ok(())
+    }
+
+    fn fail_native(
+        &self,
+        frontier_before: u64,
+        space: SpaceReservation,
+        error: StorageError,
+    ) -> StorageError {
+        self.fail_accepted(frontier_before);
+        self.failed.store(true, Ordering::Release);
+        *self.failed_write.lock().expect("native failed write owner") = Some(space);
+        error
     }
 
     pub(super) fn resume_merges(&self) {
