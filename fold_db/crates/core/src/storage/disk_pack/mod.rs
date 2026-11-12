@@ -3,7 +3,7 @@
 use super::error::{StorageError, StorageResult};
 use crate::resident::CoreWarmSet;
 use crate::storage::disk_cleanup::CleanupJob;
-use crate::storage::format::{NAMESPACES, REGISTRY};
+use crate::storage::format::{CREATION_INTENT, NAMESPACES, REGISTRY};
 use lastdb_model::storage_policy::native_read::{EAGER_BLOCKS, EAGER_WORK_BYTES};
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use laststore::space::{SpacePolicy, SpaceReservation};
@@ -14,14 +14,12 @@ use tokio::runtime::{Handle, RuntimeFlavor};
 
 mod blob_backup;
 pub use blob_backup::{blob_path_of_key, BlobRow};
-pub(in crate::storage) mod cas_delete;
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
 mod kv;
 pub(in crate::storage) use kv::native_routing;
 pub(in crate::storage) mod physical;
 mod queue;
 mod read;
-mod rows;
 mod run_commit;
 pub(in crate::storage) mod run_node;
 pub(crate) mod transaction;
@@ -32,7 +30,7 @@ pub use crate::storage::disk_backup::{
     byte_backup, mutation_log, run_restore, NativeCloudWorkGuard,
 };
 pub use crate::storage::disk_cleanup::{
-    NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
+    NativeCleanupBoundary, NativeCleanupPhase, NativeCleanupStatus,
 };
 pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
 pub use physical::CAS_COLLECTION;
@@ -40,11 +38,183 @@ pub use queue::NativeFlushReceipt;
 pub(in crate::storage) use queue::WriteGuard;
 pub use read::PackReadScope;
 pub use run_node::{CAS_DIR, RUN_DIR};
-pub use view::{
-    NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeStorageDiagnostics,
-};
+pub use view::{NativeDiskStatus, NativeMemoryPurgeReport, NativeStorageDiagnostics};
 
-/// Run synchronous native disk work from an async caller.
+pub(in crate::storage) mod cas_delete {
+    use super::blob_backup::with_releases;
+    use super::physical::{V2Home, CAS_COLLECTION};
+    use super::{map, HomeMutation, StorageError, StorageResult};
+    use laststore::disk_run::home::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Copy, Debug, Serialize)]
+    pub struct CasDeleteRecovery {
+        pub outcome: CasDeleteRecoveryOutcome,
+        pub intent_keys: u64,
+        pub main_frontier: u64,
+        pub cas_frontier_before: u64,
+        pub cas_frontier_after: u64,
+        pub intent_released: bool,
+    }
+
+    #[derive(Clone, Copy, Debug, Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum CasDeleteRecoveryOutcome {
+        MainNotPublished,
+        Completed,
+        AlreadyComplete,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Intent {
+        version: u16,
+        main_home: uuid::Uuid,
+        cas_home: uuid::Uuid,
+        main_before: u64,
+        main_after: u64,
+        cas_before: u64,
+        cas_after_add: u64,
+        keys: Vec<String>,
+    }
+
+    fn invalid(message: &str) -> StorageError {
+        StorageError::InvalidOperation(message.into())
+    }
+
+    pub(in crate::storage::disk_pack) fn reserved_space(
+        ops: &[HomeMutation],
+        prev: Option<&[HomeMutation]>,
+    ) -> StorageResult<u64> {
+        let bytes = ops
+            .iter()
+            .chain(prev.into_iter().flatten())
+            .filter(|op| op.collection == CAS_COLLECTION && op.body.is_none())
+            .try_fold(0u64, |b, op| {
+                b.checked_add((op.key.len() as u64).saturating_mul(6) + 4)
+            })
+            .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
+        if bytes == 0 {
+            return Ok(0);
+        }
+        let reserved = bytes
+            .checked_add(8192)
+            .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
+        (reserved <= MAX_CAS_DELETE_CHECKPOINT_BYTES as u64)
+            .then_some(reserved)
+            .ok_or_else(|| StorageError::WriteResourceLimit {
+                detail: "CAS deletion intent exceeds its byte bound".into(),
+            })
+    }
+
+    pub(in crate::storage::disk_pack) fn save(
+        v2: &V2Home,
+        puts: bool,
+        main: bool,
+        deletes: &[HomeMutation],
+    ) -> StorageResult<()> {
+        if deletes.is_empty() {
+            return Ok(());
+        }
+        require_clear(v2)?;
+        let before = v2.current_root();
+        let (main_before, cas_before) = (before.main.frontier(), before.cas.frontier());
+        let intent = Intent {
+            version: 1,
+            main_home: v2.home.identity(),
+            cas_home: v2.cas.identity(),
+            main_before,
+            main_after: main_before
+                .checked_add(u64::from(main))
+                .ok_or_else(|| invalid("main frontier overflow"))?,
+            cas_before,
+            cas_after_add: cas_before
+                .checked_add(u64::from(puts))
+                .ok_or_else(|| invalid("CAS frontier overflow"))?,
+            keys: deletes.iter().map(|op| op.key.clone()).collect(),
+        };
+        let bytes =
+            serde_json::to_vec(&intent).map_err(|_| invalid("CAS deletion intent encoding"))?;
+        v2.home
+            .save_checkpoint(CheckpointKind::CasDelete, &bytes)
+            .map_err(map)
+    }
+
+    pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
+        v2.home
+            .load_checkpoint(CheckpointKind::CasDelete)
+            .map_err(map)?
+            .is_none()
+            .then_some(())
+            .ok_or_else(|| invalid("pending CAS deletion requires native recovery before backup"))
+    }
+
+    pub(in crate::storage::disk_pack) fn recover(
+        v2: &V2Home,
+    ) -> StorageResult<Option<CasDeleteRecovery>> {
+        let Some(b) = v2
+            .home
+            .load_checkpoint(CheckpointKind::CasDelete)
+            .map_err(map)?
+        else {
+            return Ok(None);
+        };
+        let i: Intent =
+            serde_json::from_slice(&b).map_err(|_| invalid("CAS deletion intent encoding"))?;
+        let cur = v2.current_root();
+        let (main, cas) = (cur.main.frontier(), cur.cas.frontier());
+        let deleted = i
+            .cas_after_add
+            .checked_add(1)
+            .ok_or_else(|| invalid("CAS frontier overflow"))?;
+        if i.version != 1
+            || (i.main_home, i.cas_home) != (v2.home.identity(), v2.cas.identity())
+            || i.keys.is_empty()
+            || i.keys.windows(2).any(|w| w[0] >= w[1])
+            || !matches!(i.main_after.checked_sub(i.main_before), Some(0 | 1))
+            || !matches!(i.cas_after_add.checked_sub(i.cas_before), Some(0 | 1))
+            || ![i.main_before, i.main_after].contains(&main)
+            || !(i.cas_before..=deleted).contains(&cas)
+            || (main != i.main_after && cas > i.cas_after_add)
+        {
+            return Err(invalid("CAS deletion intent identity or frontier mismatch"));
+        }
+        let (committed, intent_keys) = (
+            main == i.main_after && cas >= i.cas_after_add,
+            i.keys.len() as u64,
+        );
+        let outcome = if committed && cas != deleted {
+            let collection = CAS_COLLECTION.to_string();
+            let ops = i
+                .keys
+                .into_iter()
+                .map(|key| HomeMutation {
+                    collection: collection.clone(),
+                    key,
+                    body: None,
+                })
+                .collect();
+            v2.cas.commit(with_releases(ops)).map_err(map)?;
+            CasDeleteRecoveryOutcome::Completed
+        } else if committed {
+            CasDeleteRecoveryOutcome::AlreadyComplete
+        } else {
+            CasDeleteRecoveryOutcome::MainNotPublished
+        };
+        v2.home
+            .clear_checkpoint(CheckpointKind::CasDelete)
+            .map_err(map)?;
+        Ok(Some(CasDeleteRecovery {
+            outcome,
+            intent_keys,
+            main_frontier: main,
+            cas_frontier_before: cas,
+            cas_frontier_after: v2.cas.current_root().frontier(),
+            intent_released: true,
+        }))
+    }
+}
+
 pub(in crate::storage) async fn run_blocking<T, F>(work: F) -> StorageResult<T>
 where
     T: Send + 'static,
@@ -58,24 +228,22 @@ where
     }
 }
 
-/// Native v2 run homes and their complete published root.
 pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
     pub(in crate::storage) cleanup_job: Arc<CleanupJob>,
     pub(in crate::storage) mutation_log: mutation_log::MutationLog,
     pub(in crate::storage) accepted: Option<crate::storage::disk_backup::accepted::Log>,
-    view: Arc<RwLock<view::NativeReadView>>,
-    prepare_gate: Arc<tokio::sync::Mutex<()>>,
-    write_gate: Arc<tokio::sync::Mutex<()>>,
-    queue: Mutex<queue::WriteQueue>,
-    completed: tokio::sync::watch::Sender<u64>,
-    core: Arc<Mutex<CoreWarmSet>>,
+    pub(in crate::storage::disk_pack) view: Arc<RwLock<view::NativeReadView>>,
+    pub(in crate::storage::disk_pack) prepare_gate: Arc<tokio::sync::Mutex<()>>,
+    pub(in crate::storage::disk_pack) write_gate: Arc<tokio::sync::Mutex<()>>,
+    pub(in crate::storage::disk_pack) queue: Mutex<queue::WriteQueue>,
+    pub(in crate::storage::disk_pack) completed: tokio::sync::watch::Sender<u64>,
+    pub(in crate::storage::disk_pack) core: Arc<Mutex<CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
-    initializing: AtomicBool,
+    pub(in crate::storage::disk_pack) initializing: AtomicBool,
     pub(in crate::storage) serving: AtomicBool,
-    failed_write: Mutex<Option<SpaceReservation>>,
+    pub(in crate::storage::disk_pack) failed_write: Mutex<Option<SpaceReservation>>,
     pub(in crate::storage) space_policy: SpacePolicy,
-    last_root: Arc<view::LastRoot>,
 }
 
 impl PackRuntime {
@@ -114,36 +282,19 @@ impl PackRuntime {
             }
             if rt.fresh_initialization_pending() {
                 rt.mark_accepted_born(rt.physical.current_root().frontier())?;
-                run_node::complete_initialization(rt.physical.path())?;
+                let node = rt.physical.path().parent().ok_or_else(|| {
+                    StorageError::InvalidOperation("a format v2 run home has no node home".into())
+                })?;
+                match std::fs::remove_file(node.join(CREATION_INTENT)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+                    _ => {}
+                }
+                std::fs::File::open(node)?.sync_all()?;
                 rt.initializing.store(false, Ordering::Release);
             }
             Ok(())
         })
         .await
-    }
-
-    pub(in crate::storage::disk_pack) async fn ensure_namespace(
-        self: &Arc<Self>,
-        name: &str,
-    ) -> StorageResult<()> {
-        let key = format!("{NAMESPACES}{name}");
-        let ctx = read::ReadContext::current(self).await?;
-        let pending = transaction::PendingBatch::current(self);
-        let coord = [(REGISTRY.to_string(), key.clone())];
-        if self
-            .raw_many(&ctx, &coord, pending.as_ref())?
-            .pop()
-            .flatten()
-            .is_none()
-        {
-            self.mutate(vec![HomeMutation {
-                collection: REGISTRY.into(),
-                key,
-                body: Some(vec![1]),
-            }])
-            .await?;
-        }
-        Ok(())
     }
 
     pub(in crate::storage::disk_pack) async fn mutate(
@@ -166,30 +317,28 @@ pub(in crate::storage::disk_pack) fn creation_refusal(message: &str) -> StorageE
     StorageError::InvalidOperation(format!("native home creation refused: {message}"))
 }
 
-/// All namespaces on one native disk home.
 #[derive(Clone)]
 pub struct PackNamespacedStore {
-    runtime: Arc<PackRuntime>,
+    pub(in crate::storage) runtime: Arc<PackRuntime>,
 }
 
 #[derive(Clone)]
 pub(crate) struct PackKvStore {
-    runtime: Arc<PackRuntime>,
-    namespace: String,
+    pub(super) runtime: Arc<PackRuntime>,
+    pub(super) namespace: String,
 }
 
 pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {
+    use laststore::Error as E;
     match error {
-        laststore::Error::Io(io) if StorageError::is_storage_full_io(&io) => {
-            StorageError::StorageFull {
-                detail: io.to_string(),
-            }
-        }
-        laststore::Error::Io(io) => StorageError::IoError(io),
-        laststore::Error::ReadBudgetExceeded => StorageError::ReadResourceLimit {
+        E::Io(io) if StorageError::is_storage_full_io(&io) => StorageError::StorageFull {
+            detail: io.to_string(),
+        },
+        E::Io(io) => StorageError::IoError(io),
+        E::ReadBudgetExceeded => StorageError::ReadResourceLimit {
             detail: error.to_string(),
         },
-        laststore::Error::WriteCapacity(detail) => StorageError::WriteResourceLimit { detail },
+        E::WriteCapacity(detail) => StorageError::WriteResourceLimit { detail },
         _ => StorageError::BackendError(error.to_string()),
     }
 }
@@ -200,75 +349,5 @@ pub(in crate::storage) fn budget() -> ReadBudget {
         blocks: EAGER_BLOCKS,
         bytes: EAGER_WORK_BYTES,
         keys: 10000,
-    }
-}
-
-impl PackNamespacedStore {
-    pub fn open_keyed(
-        path: &Path,
-        node_key: Option<&[u8; 32]>,
-        capture_accepted: bool,
-    ) -> StorageResult<Self> {
-        if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
-            return Self::create_run(path, run_node::require_key(node_key)?, capture_accepted);
-        }
-        Self::open_run(path, node_key, capture_accepted)
-    }
-
-    fn assemble(
-        physical: physical::V2Home,
-        current: physical::V2Root,
-        initializing: bool,
-        space_policy: SpacePolicy,
-        capture_accepted: bool,
-    ) -> Self {
-        let last_root = Arc::new(view::LastRoot::new(&current));
-        let cleanup_job = Arc::new(CleanupJob::open(&physical));
-        let mutation_log = mutation_log::MutationLog::new(&physical);
-        let accepted = capture_accepted.then(|| {
-            crate::storage::disk_backup::accepted::Log::open(physical.path(), current.frontier())
-        });
-        Self {
-            runtime: Arc::new(PackRuntime {
-                physical,
-                cleanup_job,
-                mutation_log,
-                accepted,
-                view: Arc::new(RwLock::new(view::NativeReadView {
-                    current,
-                    revision: 0,
-                })),
-                prepare_gate: Arc::default(),
-                write_gate: Arc::default(),
-                queue: Mutex::new(queue::WriteQueue::default()),
-                completed: tokio::sync::watch::channel(0).0,
-                core: Arc::new(Mutex::new(CoreWarmSet::default())),
-                failed: AtomicBool::new(false),
-                serving: AtomicBool::new(false),
-                initializing: AtomicBool::new(initializing),
-                failed_write: Mutex::new(None),
-                space_policy,
-                last_root,
-            }),
-        }
-    }
-
-    pub(crate) async fn open_namespace(&self, name: &str) -> StorageResult<PackKvStore> {
-        if name.len() > 65531 || name == REGISTRY {
-            return Err(StorageError::InvalidOperation(
-                "namespace exceeds format limit or uses the reserved registry identity".into(),
-            ));
-        }
-        if read::ReadContext::captured(&self.runtime).is_none() {
-            self.runtime.ensure_namespace(name).await?;
-        }
-        Ok(PackKvStore {
-            runtime: Arc::clone(&self.runtime),
-            namespace: name.to_string(),
-        })
-    }
-
-    pub fn disk_pack_runtime(&self) -> Arc<PackRuntime> {
-        Arc::clone(&self.runtime)
     }
 }

@@ -1,12 +1,14 @@
-//! The physical home under one node store: the disk format v2 run homes.
+//! The physical home under one node store: the disk format v2 run homes and raw reads.
 
 use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunReadCosts, RunRoot};
+use std::collections::VecDeque;
 use std::sync::PoisonError;
 
 pub use crate::storage::format::CAS_COLLECTION;
 
-/// The v2 run homes (main and CAS) and their background merge thread.
+pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
+
 pub(in crate::storage) struct V2Home {
     pub(in crate::storage) home: Arc<RunHome>,
     pub(in crate::storage) cas: Arc<RunHome>,
@@ -51,13 +53,11 @@ impl V2Home {
     pub(in crate::storage) fn identity(&self) -> uuid::Uuid {
         self.home.identity()
     }
-
     pub(in crate::storage) fn path(&self) -> &Path {
         self.home.path()
     }
 }
 
-/// The published roots of the two v2 run homes.
 #[derive(Clone)]
 pub(in crate::storage) struct V2Root {
     pub(in crate::storage) main: RunRoot,
@@ -68,13 +68,11 @@ impl V2Root {
     pub(in crate::storage) fn generation(&self) -> u64 {
         self.main.generation() + self.cas.generation()
     }
-
     pub(in crate::storage) fn frontier(&self) -> u64 {
         self.main.frontier() + self.cas.frontier()
     }
 }
 
-/// One v2 read call: the main home and the CAS home at one held root.
 pub(in crate::storage) struct V2Read {
     pub(in crate::storage) main: RunRead,
     pub(in crate::storage) cas: RunRead,
@@ -89,7 +87,6 @@ impl V2Read {
         }
     }
 
-    /// Batch read across the record and file homes while preserving coordinate order.
     pub(in crate::storage) fn get_many(
         &mut self,
         coordinates: &[(String, String)],
@@ -97,19 +94,15 @@ impl V2Read {
         if !coordinates.iter().any(|(c, _)| c == CAS_COLLECTION) {
             return self.main.get_many(coordinates);
         }
-        let (mut records, mut files) = (Vec::new(), Vec::new());
-        for (slot, (col, _)) in coordinates.iter().enumerate() {
-            if col == CAS_COLLECTION {
-                files.push(slot);
-            } else {
-                records.push(slot);
-            }
-        }
-        let mut out: Vec<Option<laststore::Result<Option<Vec<u8>>>>> =
-            (0..coordinates.len()).map(|_| None).collect();
-        for (slots, read) in [(records, &mut self.main), (files, &mut self.cas)] {
-            if !slots.is_empty() {
-                let wanted: Vec<_> = slots.iter().map(|&s| coordinates[s].clone()).collect();
+        let mut out: Vec<Option<_>> = (0..coordinates.len()).map(|_| None).collect();
+        for (is_cas, read) in [(false, &mut self.main), (true, &mut self.cas)] {
+            let (slots, wanted): (Vec<_>, Vec<_>) = coordinates
+                .iter()
+                .enumerate()
+                .filter(|(_, (c, _))| (c == CAS_COLLECTION) == is_cas)
+                .map(|(i, coord)| (i, coord.clone()))
+                .unzip();
+            if !wanted.is_empty() {
                 for (slot, found) in slots.into_iter().zip(read.get_many(&wanted)?) {
                     out[slot] = Some(found);
                 }
@@ -121,7 +114,7 @@ impl V2Read {
         }
         Ok(out
             .into_iter()
-            .map(|found| found.expect("each slot is read once"))
+            .map(|f| f.expect("each slot is read once"))
             .collect())
     }
 
@@ -134,6 +127,18 @@ impl V2Read {
     }
 }
 
+fn require_page_limit(limit: usize) -> StorageResult<()> {
+    (limit <= 10000)
+        .then_some(())
+        .ok_or_else(|| StorageError::ReadResourceLimit {
+            detail: "native page exceeds 10000 records".into(),
+        })
+}
+
+fn with_ctx<T>(ctx: &read::ReadContext, f: impl FnOnce() -> StorageResult<T>) -> StorageResult<T> {
+    ctx.remembered(f())
+}
+
 impl PackRuntime {
     pub(crate) fn record_read_stage(&self, _stage: &'static str, _items: usize) {}
 
@@ -143,7 +148,7 @@ impl PackRuntime {
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        let result = (|| {
+        with_ctx(context, || {
             context.validate_owner(pending)?;
             let max = if context.owns_write(pending) {
                 40_000
@@ -162,8 +167,7 @@ impl PackRuntime {
                 out.extend(self.read_chunk(context, &mut call, chunk, pending)?);
             }
             Ok(out)
-        })();
-        context.remembered(result)
+        })
     }
 
     fn read_chunk(
@@ -175,10 +179,9 @@ impl PackRuntime {
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let (mut out, mut misses) = (vec![None; coordinates.len()], Vec::new());
         for (slot, coord) in coordinates.iter().enumerate() {
-            let (col, key) = coord;
-            if let Some(rec) = context.overlay_record(pending, col, key) {
+            if let Some(rec) = context.overlay_record(pending, &coord.0, &coord.1) {
                 let len = rec.body.as_ref().map_or(0, Vec::len);
-                context.account_memory_record(call, key.len(), len)?;
+                context.account_memory_record(call, coord.1.len(), len)?;
                 out[slot] = rec.body.clone();
             } else if let Some(val) = context.reuse_disk_value(call, coord)? {
                 out[slot] = val;
@@ -194,6 +197,99 @@ impl PackRuntime {
             out[slot] = val;
         }
         Ok(out)
+    }
+
+    pub(super) fn raw_rows(
+        &self,
+        context: &Arc<read::ReadContext>,
+        collection: &str,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+        pending: Option<&Arc<transaction::PendingBatch>>,
+    ) -> StorageResult<(NativeRows, bool)> {
+        with_ctx(context, || {
+            context.validate_owner(pending)?;
+            if limit == 0 {
+                return Ok((Vec::new(), start >= end));
+            }
+            require_page_limit(limit)?;
+            let mut overlay = context
+                .overlay_rows(pending, collection, start, end)
+                .into_iter()
+                .peekable();
+            let mut call = context.call.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut cur = call
+                .home_for(collection)
+                .administrative_range(collection, start, end)
+                .map_err(map)?;
+            let (mut disk, mut exhausted, mut out) = (VecDeque::new(), false, Vec::new());
+            while out.len() < limit {
+                if disk.is_empty() && !exhausted {
+                    let page = cur.next_page((limit - out.len()).min(128)).map_err(map)?;
+                    exhausted = page.exhausted;
+                    disk.extend(page.records);
+                }
+                if overlay
+                    .peek()
+                    .is_some_and(|m| disk.front().is_none_or(|(k, _)| m.key <= *k))
+                {
+                    let m = overlay.next().expect("selected pending record");
+                    cur.account_memory_record(m.key.len(), m.body.as_ref().map_or(0, Vec::len))
+                        .map_err(map)?;
+                    if disk.front().is_some_and(|(k, _)| *k == m.key) {
+                        disk.pop_front();
+                    }
+                    if let Some(body) = &m.body {
+                        out.push((m.key.clone(), body.clone()));
+                    }
+                } else if let Some(record) = disk.pop_front() {
+                    out.push(record);
+                } else if exhausted {
+                    break;
+                }
+            }
+            Ok((
+                out,
+                exhausted && disk.is_empty() && overlay.peek().is_none(),
+            ))
+        })
+    }
+
+    pub(super) fn raw_rows_yielding(
+        &self,
+        context: &Arc<read::ReadContext>,
+        collection: &str,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+        keys_per_row: usize,
+    ) -> StorageResult<(NativeRows, Option<String>)> {
+        with_ctx(context, || {
+            context.validate_owner(None)?;
+            require_page_limit(limit)?;
+            let mut call = context.call.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut cur = call
+                .home_for(collection)
+                .administrative_range(collection, start, end)
+                .map_err(map)?;
+            let mut out: NativeRows = Vec::new();
+            while out.len() < limit {
+                match cur.next_page_yielding((limit - out.len()).min(128), out.len(), keys_per_row)
+                {
+                    Ok(page) => {
+                        out.extend(page.records);
+                        if page.resume.is_some() || page.exhausted {
+                            return Ok((out, page.resume));
+                        }
+                    }
+                    Err(laststore::Error::ReadBudgetExceeded) if !out.is_empty() => break,
+                    Err(error) => return Err(map(error)),
+                }
+            }
+            let resume = out.last().map(|(k, _)| k.clone());
+            Ok((out, resume))
+        })
     }
 }
 

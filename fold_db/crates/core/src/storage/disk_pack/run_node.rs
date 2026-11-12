@@ -20,28 +20,22 @@ use std::os::unix::fs::OpenOptionsExt;
 
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 
-/// The backup profile version of a node marker. Only the current marker has one.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
 }
 
 fn policy_from_env() -> StorageResult<SpacePolicy> {
     let mut policy = SpacePolicy::default();
-    match std::env::var("LASTDB_DISK_CAP_BYTES") {
-        Ok(raw) => {
-            policy.disk_cap_bytes =
-                raw.parse::<u64>().ok().filter(|&n| n > 0).ok_or_else(|| {
-                    StorageError::ConfigurationError(
-                        "LASTDB_DISK_CAP_BYTES must be a positive integer byte count".into(),
-                    )
-                })?;
-        }
-        Err(std::env::VarError::NotPresent) => {}
-        Err(std::env::VarError::NotUnicode(_)) => {
-            return Err(StorageError::ConfigurationError(
-                "LASTDB_DISK_CAP_BYTES must contain a positive integer byte count".into(),
-            ));
-        }
+    if let Some(raw) = std::env::var_os("LASTDB_DISK_CAP_BYTES") {
+        policy.disk_cap_bytes = raw
+            .to_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&n| n > 0)
+            .ok_or_else(|| {
+                StorageError::InvalidOperation(
+                    "LASTDB_DISK_CAP_BYTES must be a positive integer byte count".into(),
+                )
+            })?;
     }
     Ok(policy)
 }
@@ -59,45 +53,40 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     crate::storage::retired::refuse_shared_home(root, &bytes)?;
     let version =
         profile(&bytes).ok_or_else(|| admission_invalid("the node range format is unsupported"))?;
-    let budget = ReadBudget {
+    let b = ReadBudget {
         pages: 16384,
         blocks: 65536,
         bytes: 8 << 20,
         keys: 64,
     };
-    let mut main =
-        RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), budget).map_err(map)?;
-    let _cas = RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), budget).map_err(map)?;
+    let mut main = RunRead::open_existing_bounded(&root.join(RUN_DIR), &home_key(key), b, 64 << 20)
+        .map_err(map)?;
+    RunRead::open_existing_bounded(&root.join(CAS_DIR), &cas_key(key), b, 64 << 20).map_err(map)?;
     verify_proofs(&mut main, key)?;
     crate::storage::retired::refuse_journal(&mut main)?;
     Ok(version)
 }
 
 fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
+    let enc = native_routing::encode;
     let coords = [
         (RECORDS_COLLECTION.into(), CURRENT_KEY_FORMAT_KEY.into()),
         (RECORDS_COLLECTION.into(), DELETE_REPLAY_CUTOFF_KEY.into()),
         (
             content_key_proof::NAMESPACE.into(),
-            native_routing::encode(content_key_proof::KEY),
+            enc(content_key_proof::KEY),
         ),
-        (
-            METADATA_NAMESPACE.into(),
-            native_routing::encode(LOCAL_AUTHOR_KEY.as_bytes()),
-        ),
+        (METADATA_NAMESPACE.into(), enc(LOCAL_AUTHOR_KEY.as_bytes())),
     ];
-    let values = main
+    let [fmt, floor, proof, author]: [Option<Vec<u8>>; 4] = main
         .get_many_bounded(&coords, 8192)
         .map_err(map)?
         .into_iter()
         .collect::<laststore::Result<Vec<_>>>()
-        .map_err(map)?;
-    if values.len() != coords.len() {
-        return Err(admission_invalid(
-            "the account/format proof batch is incomplete",
-        ));
-    }
-    let marker = values[0]
+        .map_err(map)?
+        .try_into()
+        .map_err(|_| admission_invalid("the account/format proof batch is incomplete"))?;
+    let marker = fmt
         .as_deref()
         .ok_or_else(|| admission_invalid("the logical format is absent"))?;
     if !current_key_format(marker) {
@@ -105,27 +94,27 @@ fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
             "the logical format differs from the node marker",
         ));
     }
-    validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
-    validate_local_author(values[3].as_deref())?;
-    let proof = values[2]
+    validate_frozen_replay_floor(Some(marker), floor.as_deref())?;
+    validate_local_author(author.as_deref())?;
+    let p = proof
         .as_deref()
         .ok_or_else(|| admission_invalid("the account proof is absent"))?;
-    content_key_proof::verify(key, proof)
+    content_key_proof::verify(key, p)
 }
 
 fn admission_invalid(text: &str) -> StorageError {
     StorageError::InvalidOperation(format!("node range admission: {text}"))
 }
 
-pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
+fn is_new_home(path: &Path) -> StorageResult<bool> {
     match fs::read_dir(path) {
-        Ok(mut entries) => Ok(entries.next().is_none()),
+        Ok(mut d) => Ok(d.next().is_none()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(true),
         Err(e) => Err(e.into()),
     }
 }
 
-pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
+fn creation_stopped(path: &Path) -> StorageResult<bool> {
     Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
 }
 
@@ -133,8 +122,7 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     let mut partial = Vec::new();
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let kind = entry.file_type()?;
-        let file_name = entry.file_name();
+        let (kind, file_name) = (entry.file_type()?, entry.file_name());
         let name = file_name.to_str().unwrap_or_default();
         if kind.is_file() && name == INTENT {
             continue;
@@ -148,19 +136,19 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
         });
         if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
             partial.push((entry.path(), kind.is_dir()));
-            continue;
-        }
-        return Err(StorageError::InvalidOperation(format!(
-            "a format v2 node home creation stopped beside the unexpected entry {}; the home \
-             holds no data, so move that entry away and start the node again",
-            file_name.to_string_lossy()
-        )));
-    }
-    for (entry, is_dir) in partial {
-        if is_dir {
-            fs::remove_dir_all(&entry)?;
         } else {
-            fs::remove_file(&entry)?;
+            return Err(StorageError::InvalidOperation(format!(
+                "a format v2 node home creation stopped beside the unexpected entry {}; the home \
+                 holds no data, so move that entry away and start the node again",
+                file_name.to_string_lossy()
+            )));
+        }
+    }
+    for (p, is_dir) in partial {
+        if is_dir {
+            fs::remove_dir_all(&p)?;
+        } else {
+            fs::remove_file(&p)?;
         }
     }
     Ok(())
@@ -182,7 +170,7 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
+fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
             "a format v2 node home needs the node encryption key; every new node home is v2".into(),
@@ -190,52 +178,101 @@ pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32
     })
 }
 
-fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'static [u8]> {
-    let row = |ns: &str, k: &[u8], body: Vec<u8>| {
+fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<()> {
+    let ops = [
+        (
+            MAIN_NAMESPACE,
+            CURRENT_KEY_FORMAT_KEY.as_bytes(),
+            CURRENT_KEY_FORMAT_VALUE.to_vec(),
+        ),
+        (
+            content_key_proof::NAMESPACE,
+            content_key_proof::KEY,
+            content_key_proof::create(node_key)?,
+        ),
+        (
+            METADATA_NAMESPACE,
+            LOCAL_AUTHOR_KEY.as_bytes(),
+            initial_local_author(home.identity())?,
+        ),
+        (
+            METADATA_NAMESPACE,
+            FILE_RETENTION_KEY.as_bytes(),
+            FILE_RETENTION_COMPLETE.to_vec(),
+        ),
+    ]
+    .into_iter()
+    .map(|(ns, k, body)| {
         let (collection, key) = kv::coordinate(ns, k);
         HomeMutation {
             collection,
             key,
             body: Some(body),
         }
-    };
-    home.commit(vec![
-        row(
-            MAIN_NAMESPACE,
-            CURRENT_KEY_FORMAT_KEY.as_bytes(),
-            CURRENT_KEY_FORMAT_VALUE.to_vec(),
-        ),
-        row(
-            content_key_proof::NAMESPACE,
-            content_key_proof::KEY,
-            content_key_proof::create(node_key)?,
-        ),
-        row(
-            METADATA_NAMESPACE,
-            LOCAL_AUTHOR_KEY.as_bytes(),
-            initial_local_author(home.identity())?,
-        ),
-        row(
-            METADATA_NAMESPACE,
-            FILE_RETENTION_KEY.as_bytes(),
-            FILE_RETENTION_COMPLETE.to_vec(),
-        ),
-    ])
-    .map_err(map)?;
-    Ok(RECORD_NODE_BYTES)
+    })
+    .collect();
+    home.commit(ops).map(|_| ()).map_err(map)
+}
+
+impl PackRuntime {
+    pub(in crate::storage::disk_pack) async fn ensure_namespace(
+        self: &Arc<Self>,
+        name: &str,
+    ) -> StorageResult<()> {
+        let key = format!("{NAMESPACES}{name}");
+        let ctx = read::ReadContext::current(self).await?;
+        let pending = transaction::PendingBatch::current(self);
+        let coords = [(REGISTRY.to_string(), key.clone())];
+        if self
+            .raw_many(&ctx, &coords, pending.as_ref())?
+            .pop()
+            .flatten()
+            .is_none()
+        {
+            self.mutate(vec![HomeMutation {
+                collection: REGISTRY.into(),
+                key,
+                body: Some(vec![1]),
+            }])
+            .await?;
+        }
+        Ok(())
+    }
 }
 
 impl PackNamespacedStore {
-    pub(super) fn create_run(
+    pub fn open_keyed(
         path: &Path,
-        node_key: &[u8; 32],
+        node_key: Option<&[u8; 32]>,
         capture_accepted: bool,
     ) -> StorageResult<Self> {
+        if is_new_home(path)? || creation_stopped(path)? {
+            return Self::create_run(path, require_key(node_key)?, capture_accepted);
+        }
+        Self::open_run(path, node_key, capture_accepted)
+    }
+
+    pub(crate) async fn open_namespace(&self, name: &str) -> StorageResult<PackKvStore> {
+        if name.len() > 65531 || name == REGISTRY {
+            return Err(StorageError::InvalidOperation(
+                "namespace exceeds format limit or uses the reserved registry identity".into(),
+            ));
+        }
+        if read::ReadContext::captured(&self.runtime).is_none() {
+            self.runtime.ensure_namespace(name).await?;
+        }
+        Ok(PackKvStore {
+            runtime: Arc::clone(&self.runtime),
+            namespace: name.to_string(),
+        })
+    }
+
+    fn create_run(path: &Path, node_key: &[u8; 32], capture_accepted: bool) -> StorageResult<Self> {
         fs::create_dir_all(path)?;
         let folder = File::open(path)?;
-        folder.try_lock().map_err(|error| {
+        folder.try_lock().map_err(|e| {
             StorageError::InvalidOperation(format!(
-                "another owner is creating this format v2 node home or its lock failed: {error}"
+                "another owner is creating this format v2 node home or its lock failed: {e}"
             ))
         })?;
         if !path.join(NODE_MARKER).try_exists()? {
@@ -250,14 +287,14 @@ impl PackNamespacedStore {
             folder.sync_all()?;
             let main = RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?;
             drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-            let marker = initialize_home(&main, node_key)?;
+            initialize_home(&main, node_key)?;
             drop(main);
             let staged = path.join(STAGED_MARKER);
             let mut file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
-            file.write_all(marker)?;
+            file.write_all(RECORD_NODE_BYTES)?;
             file.sync_all()?;
             fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;
@@ -267,7 +304,7 @@ impl PackNamespacedStore {
         store
     }
 
-    pub(super) fn open_run(
+    fn open_run(
         path: &Path,
         node_key: Option<&[u8; 32]>,
         capture_accepted: bool,
@@ -276,29 +313,35 @@ impl PackNamespacedStore {
         admit(path, node_key)?;
         let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let mut v2 = physical::V2Home::new(home, cas);
-        v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
-        let root = v2.current_root();
-        let store = Self::assemble(
-            v2,
-            root,
-            path.join(INTENT).try_exists()?,
-            policy_from_env()?,
-            capture_accepted,
-        );
-        store.runtime.resume_merges();
-        Ok(store)
+        let mut physical = physical::V2Home::new(home, cas);
+        physical.cas_delete_recovery = super::cas_delete::recover(&physical)?;
+        let current = physical.current_root();
+        let cleanup_job = Arc::new(CleanupJob::open(&physical));
+        let mutation_log = mutation_log::MutationLog::new(&physical);
+        let accepted = capture_accepted.then(|| {
+            crate::storage::disk_backup::accepted::Log::open(physical.path(), current.frontier())
+        });
+        let runtime = Arc::new(PackRuntime {
+            physical,
+            cleanup_job,
+            mutation_log,
+            accepted,
+            view: Arc::new(RwLock::new(view::NativeReadView {
+                current,
+                revision: 0,
+            })),
+            prepare_gate: Arc::default(),
+            write_gate: Arc::default(),
+            queue: Mutex::new(queue::WriteQueue::default()),
+            completed: tokio::sync::watch::channel(0).0,
+            core: Arc::new(Mutex::new(CoreWarmSet::default())),
+            failed: AtomicBool::new(false),
+            serving: AtomicBool::new(false),
+            initializing: AtomicBool::new(path.join(INTENT).try_exists()?),
+            failed_write: Mutex::new(None),
+            space_policy: policy_from_env()?,
+        });
+        runtime.resume_merges();
+        Ok(Self { runtime })
     }
-}
-
-pub(in crate::storage::disk_pack) fn complete_initialization(run_home: &Path) -> StorageResult<()> {
-    let node = run_home.parent().ok_or_else(|| {
-        StorageError::InvalidOperation("a format v2 run home has no node home".into())
-    })?;
-    match fs::remove_file(node.join(INTENT)) {
-        Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
-        _ => {}
-    }
-    File::open(node)?.sync_all()?;
-    Ok(())
 }

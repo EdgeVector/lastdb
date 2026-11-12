@@ -3,38 +3,37 @@
 mod capture;
 mod cleanup;
 mod commit;
-mod diagnostic;
 mod manifest;
 mod open;
-mod publication;
 mod range;
 mod read;
-mod stream;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
-pub use cleanup::{CheckpointKind, RunCleanupFiles, MAX_CAS_DELETE_CHECKPOINT_BYTES};
+pub use cleanup::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
 pub use commit::{HomeMutation, RunCommit};
-pub use diagnostic::{
-    CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
-    RunHomeDiagnostics, RunPartDiagnostics,
-};
 pub use manifest::{CURRENT, RUNS};
-pub use range::{RangeBounds, RunHashRange, RunRangePage};
+pub use range::{RunHashRange, RunRangePage};
 pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
-use super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
+use super::{
+    MergeIter, MergeSpace, PreparedRun, RunRange, RunReader, MAX_RUN_KEY_BYTES, RUN_SUFFIX,
+};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
 use open::build_empty;
+pub(super) use open::read_descriptor_file;
+use serde::Serialize;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
+use std::ops::Bound;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::time::Instant;
 use uuid::Uuid;
 
 /// File name of the exclusive owner lock (flock).
@@ -47,22 +46,29 @@ pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-pub(super) const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
-pub(super) const DESCRIPTOR_BYTES: usize = 64;
 
-/// Level and size facts of the published CURRENT.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RunHomeStatus {
-    /// CURRENT generation.
+pub(super) fn invalid(msg: &str) -> Error {
+    Error::Config(msg.into())
+}
+
+/// A complete newest-key inventory, or an explicitly partial prefix after an audit cap.
+#[derive(Debug, Serialize)]
+pub struct LogicalInventory {
+    /// True only after every selected run record enters the merge.
+    pub complete: bool,
+    /// Distinct newest keys counted, including live keys and tombstones.
+    pub merged_keys: u64,
+}
+
+/// Published root coordinates and optional logical key inventory for diagnostics.
+#[derive(Debug, Serialize)]
+pub struct RunHomeDiagnostics {
+    /// Generation of the captured published root.
     pub generation: u64,
-    /// Complete commits.
+    /// Complete-commit frontier of the captured published root.
     pub frontier: u64,
-    /// Runs in tiered levels.
-    pub tiered_runs: usize,
-    /// Runs in a base merge in progress.
-    pub merging_runs: usize,
-    /// File bytes of every published run.
-    pub file_bytes: u64,
+    /// Optional newest-key inventory.
+    pub inventory: Option<LogicalInventory>,
 }
 
 /// An open v2 home. One process owns it; reads and writes share it.
@@ -84,13 +90,13 @@ impl RunHome {
     /// Create a new empty home in `root`, which must be absent or empty.
     pub fn create(root: &Path, key: &[u8; 32]) -> Result<Self> {
         if root.try_exists()? && fs::read_dir(root)?.next().is_some() {
-            return Err(Error::Config(
-                "disk run home: create needs an absent or empty directory".into(),
+            return Err(invalid(
+                "disk run home: create needs an absent or empty directory",
             ));
         }
         let name = root
             .file_name()
-            .ok_or_else(|| Error::Config("disk run home: root has no name".into()))?;
+            .ok_or_else(|| invalid("disk run home: root has no name"))?;
         let parent = root
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -101,13 +107,10 @@ impl RunHome {
             Uuid::new_v4()
         ));
         fs::DirBuilder::new().mode(0o700).create(&staging)?;
-        if let Err(error) = build_empty(&staging, key).and_then(|()| {
-            fs::rename(&staging, root)?;
-            sync_directory(parent)
-        }) {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(error);
-        }
+        build_empty(&staging, key)
+            .and_then(|()| fs::rename(&staging, root).map_err(Error::from))
+            .and_then(|()| sync_directory(parent))
+            .inspect_err(|_| drop(fs::remove_dir_all(&staging)))?;
         Self::open(root, key)
     }
 
@@ -126,19 +129,17 @@ impl RunHome {
         self.poisoned.load(Ordering::Acquire)
     }
 
-    /// Level and size facts of the published CURRENT.
-    pub fn status(&self) -> RunHomeStatus {
-        let current = self.held();
-        RunHomeStatus {
-            generation: current.generation,
-            frontier: current.frontier,
-            tiered_runs: current.levels.iter().map(Vec::len).sum(),
-            merging_runs: current.merging.len(),
-            file_bytes: current.newest_first().map(|run| run.meta.file_bytes).sum(),
-        }
+    /// Tiered run count, merging run count, and total active run file bytes.
+    pub fn run_totals(&self) -> (usize, usize, u64) {
+        let held = self.held();
+        (
+            held.tiered().count(),
+            held.merging.len(),
+            held.newest_first().map(|r| r.meta.file_bytes).sum(),
+        )
     }
 
-    /// File bytes of the runs that merges replaced and that a held root or a read still keeps.
+    /// File bytes of replaced runs still held by an active root or read.
     pub fn retired_bytes(&self) -> u64 {
         let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
         retired.retain(|run| run.strong_count() > 0);
@@ -149,10 +150,77 @@ impl RunHome {
             .sum()
     }
 
-    fn retire_runs(&self, runs: &[Arc<RunFile>]) {
-        for run in runs {
-            run.retire();
+    /// Capture isolated storage diagnostics for the current published root.
+    pub fn diagnostics(
+        &self,
+        with_inventory: bool,
+        deadline: Instant,
+    ) -> Result<RunHomeDiagnostics> {
+        if !crate::diagnostics_enabled() {
+            return Err(invalid(
+                "storage diagnostics require an isolated timing capture",
+            ));
         }
+        let root = {
+            let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
+            let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
+            self.refuse_if_poisoned()?;
+            self.held()
+        };
+        Ok(RunHomeDiagnostics {
+            generation: root.generation,
+            frontier: root.frontier,
+            inventory: with_inventory.then(|| build_inventory(&self.key, &root, deadline)),
+        })
+    }
+
+    pub(super) fn install_merge(
+        &self,
+        next: Manifest,
+        space: &MergeSpace,
+    ) -> Result<Arc<Manifest>> {
+        let res = next
+            .stage(&self.root, &self.key, Some(space))
+            .and_then(|s| self.publish_staged(next, &s));
+        if res.is_ok() || self.is_poisoned() {
+            space.keep_outputs();
+        }
+        res
+    }
+
+    pub(super) fn install_prepared(
+        &self,
+        file: Arc<RunFile>,
+        run: PreparedRun,
+    ) -> Result<Arc<Manifest>> {
+        let slot = Mutex::new(Some(run));
+        let finish = || slot.lock().unwrap().take().unwrap().finish().map(|_| ());
+        std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("laststore-sync".into())
+                .spawn_scoped(scope, finish);
+            let guard = self.publish_lock();
+            let staged = guard.as_ref().ok().map(|_| self.stage_new_run(&file));
+            let synced = match worker {
+                Ok(h) => h
+                    .join()
+                    .unwrap_or_else(|_| Err(invalid("disk run: durability worker panicked"))),
+                Err(_) => finish(),
+            };
+            let (_g, staged) = (guard?, staged.unwrap());
+            match (staged, synced) {
+                (Ok((_, p)), Err(e)) => {
+                    let _ = fs::remove_file(p);
+                    Err(e)
+                }
+                (Err(e), _) | (_, Err(e)) => Err(e),
+                (Ok((next, p)), Ok(())) => self.publish_staged(next, &p),
+            }
+        })
+    }
+
+    fn retire_runs(&self, runs: &[Arc<RunFile>]) {
+        runs.iter().for_each(|r| r.retire());
         let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
         retired.retain(|run| run.strong_count() > 0);
         retired.extend(runs.iter().map(Arc::downgrade));
@@ -163,52 +231,85 @@ impl RunHome {
     }
 
     fn refuse_if_poisoned(&self) -> Result<()> {
-        if self.is_poisoned() {
-            return Err(Error::WriteCapacity(
+        (!self.is_poisoned()).then_some(()).ok_or_else(|| {
+            Error::WriteCapacity(
                 "disk run home: an earlier publish failed; restart the process to reopen the home"
                     .into(),
-            ));
+            )
+        })
+    }
+}
+
+fn build_inventory(key: &[u8; 32], root: &Manifest, deadline: Instant) -> LogicalInventory {
+    let mut merged_keys = 0u64;
+    let complete = (|| -> Result<()> {
+        let count = root.tiered().count() + root.merging.len() + usize::from(!root.base.is_empty());
+        if count == 0 {
+            return Ok(());
+        }
+        let retained = root.retained_bytes();
+        if count > 512 || retained > 56 << 20 {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let allowance = ((56 << 20) - retained) / count as u64;
+        let mut sources = Vec::with_capacity(count);
+        for run in root.tiered().chain(&root.merging) {
+            sources.push(Arc::new(RunReader::open_bounded(&run.path, key, allowance, 0)?).iter());
+        }
+        if !root.base.is_empty() {
+            let paths = root.base.iter().map(|r| r.path.clone()).collect();
+            let u = Bound::Unbounded;
+            sources.push(RunRange::sequence(paths, key, u, u));
+        }
+        for item in MergeIter::new(sources) {
+            if merged_keys >= 50_000_000 || Instant::now() >= deadline {
+                return Err(Error::ReadBudgetExceeded);
+            }
+            let (rk, _) = item?;
+            if rk
+                .get(..2)
+                .is_none_or(|p| rk.len() < 2 + u16::from_be_bytes([p[0], p[1]]) as usize)
+            {
+                return Err(Error::Corrupt("diagnostic prefix".into()));
+            }
+            merged_keys += 1;
         }
         Ok(())
+    })()
+    .is_ok();
+    LogicalInventory {
+        complete,
+        merged_keys,
     }
+}
+
+pub(super) fn open_nofollow(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .open(path)
 }
 
 pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
     let len = u16::try_from(collection.len())
-        .map_err(|_| Error::Config("disk run home: collection name too long".into()))?;
-    let total = 2 + collection.len() + key.len();
-    if total > MAX_RUN_KEY_BYTES {
-        return Err(Error::Config(
-            "disk run home: storage key exceeds the run key limit".into(),
+        .map_err(|_| invalid("disk run home: collection name too long"))?;
+    if 2 + collection.len() + key.len() > MAX_RUN_KEY_BYTES {
+        return Err(invalid(
+            "disk run home: storage key exceeds the run key limit",
         ));
     }
-    let mut out = Vec::with_capacity(total);
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(collection.as_bytes());
-    out.extend_from_slice(key);
-    Ok(out)
+    Ok([&len.to_be_bytes()[..], collection.as_bytes(), key].concat())
 }
 
-pub(super) fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
-    let mut end = prefix.to_vec();
-    while let Some(last) = end.pop() {
-        if last < 0xff {
-            end.push(last + 1);
-            return Some(end);
-        }
-    }
-    None
-}
-
-pub(super) fn storage_key(collection: &str, run_key: &[u8]) -> Result<String> {
+pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     let at = 2 + collection.len();
-    if run_key.len() < at
-        || run_key[..2] != (collection.len() as u16).to_be_bytes()
-        || &run_key[2..at] != collection.as_bytes()
+    if rk.len() < at
+        || rk[..2] != (collection.len() as u16).to_be_bytes()
+        || &rk[2..at] != collection.as_bytes()
     {
         return Err(corrupt("run key outside its collection"));
     }
-    String::from_utf8(run_key[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
+    String::from_utf8(rk[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
 }
 
 pub(super) fn is_removable_run(name: &str, keep: &HashSet<Uuid>) -> bool {
@@ -227,9 +328,7 @@ pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)
         .map_err(Error::from)
         .and_then(|()| sync_dirty_file(&file))
-        .inspect_err(|_| {
-            let _ = fs::remove_file(path);
-        })
+        .inspect_err(|_| drop(fs::remove_file(path)))
 }
 
 pub(super) fn verified_hard_link(
@@ -240,35 +339,12 @@ pub(super) fn verified_hard_link(
 ) -> Result<()> {
     let before = fs::symlink_metadata(source)?;
     if !before.is_file() || before.len() != bytes {
-        return Err(Error::Config(reason.into()));
+        return Err(invalid(reason));
     }
     fs::hard_link(source, target)?;
     let after = fs::symlink_metadata(target)?;
-    if !after.is_file()
-        || (before.dev(), before.ino(), bytes) != (after.dev(), after.ino(), after.len())
-    {
-        return Err(Error::Config(reason.into()));
-    }
-    Ok(())
-}
-
-pub(super) fn read_descriptor_file(path: &Path) -> Result<Uuid> {
-    let mut file = File::open(path)?;
-    if file.metadata()?.len() != DESCRIPTOR_BYTES as u64 {
-        return Err(corrupt("home descriptor length"));
-    }
-    let mut bytes = [0u8; DESCRIPTOR_BYTES];
-    file.read_exact(&mut bytes)?;
-    let crc = u32::from_le_bytes(bytes[60..].try_into().expect("4 bytes"));
-    if &bytes[..8] != DESCRIPTOR_MAGIC
-        || bytes[8..12] != 1u32.to_le_bytes()
-        || crc != crc32fast::hash(&bytes[..60])
-    {
-        return Err(corrupt("unsupported home descriptor"));
-    }
-    let identity = Uuid::from_slice(&bytes[16..32]).expect("16 bytes");
-    if identity.is_nil() {
-        return Err(corrupt("nil home identity"));
-    }
-    Ok(identity)
+    (after.is_file()
+        && (before.dev(), before.ino(), bytes) == (after.dev(), after.ino(), after.len()))
+        .then_some(())
+        .ok_or_else(|| invalid(reason))
 }

@@ -1,10 +1,12 @@
-//! Local state of personal record blobs for cloud backup.
+//! Local blob backup markers, upload/release queues, and cloud blob path mapping.
 
 use super::super::traits::KvMutation;
 use super::physical::CAS_COLLECTION;
 use super::*;
+use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
 use crate::storage::format::{
-    PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX, RELEASED_FILE_PREFIX,
+    METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
+    RELEASED_FILE_PREFIX,
 };
 use cloud_backup_protocol::{v2::blobs::BlobPath, Id};
 use std::collections::BTreeMap;
@@ -14,16 +16,18 @@ const FILE_PAGE: usize = 4;
 const MARKER_PAGE: usize = 256;
 const WRITE_CHUNK: usize = 512;
 
-/// One record file version and its cloud path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlobRow {
     pub key: String,
     pub path: BlobPath,
 }
 
-/// The cloud path of a record file version from any key of its families.
+fn invalid(message: &str) -> StorageError {
+    StorageError::InvalidOperation(message.into())
+}
+
 pub fn blob_path_of_key(database: &Id, key: &str) -> StorageResult<BlobPath> {
-    let invalid = || StorageError::InvalidOperation("record file key has no blob path".into());
+    let err = || invalid("record file key has no blob path");
     let suffix = [
         RECORD_FILE_PREFIX,
         RECORD_FILE_UPLOADED_PREFIX,
@@ -32,25 +36,32 @@ pub fn blob_path_of_key(database: &Id, key: &str) -> StorageResult<BlobPath> {
     ]
     .into_iter()
     .find_map(|p| key.strip_prefix(p))
-    .ok_or_else(invalid)?;
-    let mut parts = suffix.splitn(3, ':');
-    let (Some(space), Some(record), Some(write_id)) = (parts.next(), parts.next(), parts.next())
-    else {
-        return Err(invalid());
-    };
+    .ok_or_else(err)?;
+    let [space, record, write_id]: [&str; 3] = suffix
+        .splitn(3, ':')
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| err())?;
     let path = BlobPath {
         database: database.clone(),
-        space: space.to_owned().try_into().map_err(|_| invalid())?,
-        record: record.to_owned().try_into().map_err(|_| invalid())?,
-        write_id: write_id.to_owned().try_into().map_err(|_| invalid())?,
+        space: space.to_owned().try_into().map_err(|_| err())?,
+        record: record.to_owned().try_into().map_err(|_| err())?,
+        write_id: write_id.to_owned().try_into().map_err(|_| err())?,
     };
-    path.validate().map_err(|_| invalid())?;
+    path.validate().map_err(|_| err())?;
     Ok(path)
 }
 
-fn raw_suffix<'a>(op: &'a HomeMutation, decoded: &'a mut String) -> Option<&'a str> {
-    *decoded = String::from_utf8(native_routing::decode(&op.key).ok()?).ok()?;
-    decoded.strip_prefix(RECORD_FILE_PREFIX)
+fn blob_row(database: &Id, key: String) -> StorageResult<BlobRow> {
+    Ok(BlobRow {
+        path: blob_path_of_key(database, &key)?,
+        key,
+    })
+}
+
+fn raw_suffix(op: &HomeMutation) -> Option<String> {
+    let decoded = String::from_utf8(native_routing::decode(&op.key).ok()?).ok()?;
+    decoded.strip_prefix(RECORD_FILE_PREFIX).map(str::to_owned)
 }
 
 fn marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
@@ -61,39 +72,37 @@ fn marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
     }
 }
 
-/// Queue upload markers for new `fb:` rows that lack an `fu:` row in the same batch.
 pub(in crate::storage::disk_pack) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
-    let (mut queued, mut buf) = (Vec::new(), String::new());
-    for op in cas.values().filter(|op| op.body.is_some()) {
-        if let Some(suffix) = raw_suffix(op, &mut buf) {
-            let uploaded = marker(RECORD_FILE_UPLOADED_PREFIX, suffix, true);
-            if cas.get(&uploaded.key).is_none_or(|op| op.body.is_none()) {
-                queued.push(marker(PENDING_UPLOAD_PREFIX, suffix, true));
-            }
-        }
-    }
+    let queued: Vec<_> = cas
+        .values()
+        .filter(|op| op.body.is_some())
+        .filter_map(raw_suffix)
+        .filter(|s| {
+            let up = marker(RECORD_FILE_UPLOADED_PREFIX, s, true);
+            cas.get(&up.key).is_none_or(|op| op.body.is_none())
+        })
+        .map(|s| marker(PENDING_UPLOAD_PREFIX, &s, true))
+        .collect();
     for op in queued {
         cas.entry(op.key.clone()).or_insert(op);
     }
 }
 
-/// Each retired `fb:` row also loses its upload markers and queues a cloud release.
 pub(in crate::storage::disk_pack) fn with_releases(
     deletes: Vec<HomeMutation>,
 ) -> Vec<HomeMutation> {
-    let (mut out, mut derived, mut buf) = (BTreeMap::new(), Vec::new(), String::new());
+    let mut out = BTreeMap::new();
     for op in deletes {
-        if let Some(suffix) = raw_suffix(&op, &mut buf) {
-            derived.extend([
-                marker(RECORD_FILE_UPLOADED_PREFIX, suffix, false),
-                marker(PENDING_UPLOAD_PREFIX, suffix, false),
-                marker(RELEASED_FILE_PREFIX, suffix, true),
-            ]);
+        if let Some(s) = raw_suffix(&op) {
+            for d in [
+                marker(RECORD_FILE_UPLOADED_PREFIX, &s, false),
+                marker(PENDING_UPLOAD_PREFIX, &s, false),
+                marker(RELEASED_FILE_PREFIX, &s, true),
+            ] {
+                out.entry(d.key.clone()).or_insert(d);
+            }
         }
         out.insert(op.key.clone(), op);
-    }
-    for op in derived {
-        out.entry(op.key.clone()).or_insert(op);
     }
     out.into_values().collect()
 }
@@ -106,27 +115,47 @@ fn suffixes_of(rows: &[(Vec<u8>, Vec<u8>)], prefix: &str) -> Vec<String> {
 }
 
 impl PackRuntime {
+    pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
+        let meta = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: METADATA_NAMESPACE.into(),
+        };
+        let cas = self.cas_kv();
+        for (store, p) in [
+            (&meta, FILE_REFERENCE_PREFIX),
+            (&cas, PENDING_UPLOAD_PREFIX),
+            (&cas, RECORD_FILE_UPLOADED_PREFIX),
+            (&cas, RELEASED_FILE_PREFIX),
+            (&cas, RECORD_FILE_PREFIX),
+        ] {
+            if !store.prefix_rows(p.as_bytes(), 1, false).await?.is_empty() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub async fn queue_unuploaded_blobs(self: &Arc<Self>) -> StorageResult<u64> {
         let store = self.cas_kv();
         let (mut after, mut puts, mut queued) = (None, Vec::new(), 0u64);
+        let pair_prefixes = [RECORD_FILE_UPLOADED_PREFIX, PENDING_UPLOAD_PREFIX];
         loop {
             let rows = page(&store, RECORD_FILE_PREFIX, after.take(), FILE_PAGE).await?;
-            let done = rows.len() < FILE_PAGE;
-            let suffixes = suffixes_of(&rows, RECORD_FILE_PREFIX);
+            let (done, suffixes) = (
+                rows.len() < FILE_PAGE,
+                suffixes_of(&rows, RECORD_FILE_PREFIX),
+            );
             after = rows.last().map(|(k, _)| k.clone());
             drop(rows);
             let keys = suffixes
                 .iter()
-                .flat_map(|s| {
-                    [RECORD_FILE_UPLOADED_PREFIX, PENDING_UPLOAD_PREFIX]
-                        .map(|p| format!("{p}{s}").into_bytes())
-                })
+                .flat_map(|s| pair_prefixes.map(|p| format!("{p}{s}").into_bytes()))
                 .collect();
-            for (suffix, pair) in suffixes.iter().zip(store.get_many(keys).await?.chunks(2)) {
+            for (s, pair) in suffixes.iter().zip(store.get_many(keys).await?.chunks(2)) {
                 if pair.iter().all(Option::is_none) {
                     puts.push(KvMutation::put(
-                        format!("{PENDING_UPLOAD_PREFIX}{suffix}"),
-                        MARKER.to_vec(),
+                        format!("{PENDING_UPLOAD_PREFIX}{s}"),
+                        MARKER,
                     ));
                 }
             }
@@ -152,38 +181,32 @@ impl PackRuntime {
             .map(|k| {
                 k.strip_prefix(RECORD_FILE_PREFIX)
                     .map(|s| format!("{PENDING_UPLOAD_PREFIX}{s}").into_bytes())
-                    .ok_or_else(|| StorageError::InvalidOperation("upload cursor".into()))
+                    .ok_or_else(|| invalid("upload cursor"))
             })
             .transpose()?;
         while uploads.len() < limit {
             let rows = page(&store, PENDING_UPLOAD_PREFIX, after.take(), MARKER_PAGE).await?;
-            let done = rows.len() < MARKER_PAGE;
+            let (done, suffixes) = (
+                rows.len() < MARKER_PAGE,
+                suffixes_of(&rows, PENDING_UPLOAD_PREFIX),
+            );
             after = rows.last().map(|(k, _)| k.clone());
-            let suffixes = suffixes_of(&rows, PENDING_UPLOAD_PREFIX);
             let req = suffixes
                 .iter()
                 .map(|s| format!("{RECORD_FILE_UPLOADED_PREFIX}{s}").into_bytes())
                 .collect();
-            for (suffix, up) in suffixes.iter().zip(store.get_many(req).await?) {
+            for (s, up) in suffixes.iter().zip(store.get_many(req).await?) {
                 if up.is_some() {
-                    stale.push(KvMutation::delete(format!(
-                        "{PENDING_UPLOAD_PREFIX}{suffix}"
-                    )));
+                    stale.push(KvMutation::delete(format!("{PENDING_UPLOAD_PREFIX}{s}")));
                 } else if uploads.len() < limit {
-                    let key = format!("{RECORD_FILE_PREFIX}{suffix}");
-                    uploads.push(BlobRow {
-                        path: blob_path_of_key(database, &key)?,
-                        key,
-                    });
+                    uploads.push(blob_row(database, format!("{RECORD_FILE_PREFIX}{s}"))?);
                 }
             }
             if done || after.is_none() {
                 break;
             }
         }
-        for chunk in stale.chunks(WRITE_CHUNK) {
-            store.batch_mutate(chunk.to_vec()).await?;
-        }
+        mutate_chunks(&store, &stale).await?;
         Ok(uploads)
     }
 
@@ -193,34 +216,24 @@ impl PackRuntime {
         after: Option<&str>,
         limit: usize,
     ) -> StorageResult<Vec<BlobRow>> {
-        let store = self.cas_kv();
-        let after = after
-            .map(|k| {
-                k.starts_with(RELEASED_FILE_PREFIX)
-                    .then(|| k.as_bytes().to_vec())
-                    .ok_or_else(|| StorageError::InvalidOperation("release cursor".into()))
-            })
-            .transpose()?;
-        page(&store, RELEASED_FILE_PREFIX, after, limit)
+        let after = match after {
+            Some(k) if k.starts_with(RELEASED_FILE_PREFIX) => Some(k.as_bytes().to_vec()),
+            Some(_) => return Err(invalid("release cursor")),
+            None => None,
+        };
+        page(&self.cas_kv(), RELEASED_FILE_PREFIX, after, limit)
             .await?
             .into_iter()
             .map(|(k, _)| {
-                let key = String::from_utf8(k).map_err(|_| {
-                    StorageError::InvalidOperation("record file release key".into())
-                })?;
-                Ok(BlobRow {
-                    path: blob_path_of_key(database, &key)?,
-                    key,
-                })
+                let s = String::from_utf8(k).map_err(|_| invalid("record file release key"))?;
+                blob_row(database, s)
             })
             .collect()
     }
 
     pub async fn record_blob_bytes(self: &Arc<Self>, key: &str) -> StorageResult<Option<Vec<u8>>> {
         if !key.starts_with(RECORD_FILE_PREFIX) {
-            return Err(StorageError::InvalidOperation(
-                "a blob upload reads a record file key".into(),
-            ));
+            return Err(invalid("a blob upload reads a record file key"));
         }
         self.cas_kv().get(key.as_bytes()).await
     }
@@ -230,31 +243,31 @@ impl PackRuntime {
         uploaded: &[String],
         released: &[String],
     ) -> StorageResult<()> {
-        let store = self.cas_kv();
         let mut mutations = Vec::with_capacity(uploaded.len() * 2 + released.len());
         for key in uploaded {
-            let suffix = key
+            let s = key
                 .strip_prefix(RECORD_FILE_PREFIX)
-                .ok_or_else(|| StorageError::InvalidOperation("uploaded file key".into()))?;
-            mutations.push(KvMutation::put(
-                format!("{RECORD_FILE_UPLOADED_PREFIX}{suffix}"),
-                MARKER.to_vec(),
-            ));
-            mutations.push(KvMutation::delete(format!(
-                "{PENDING_UPLOAD_PREFIX}{suffix}"
-            )));
+                .ok_or_else(|| invalid("uploaded file key"))?;
+            mutations.extend([
+                KvMutation::put(format!("{RECORD_FILE_UPLOADED_PREFIX}{s}"), MARKER.to_vec()),
+                KvMutation::delete(format!("{PENDING_UPLOAD_PREFIX}{s}")),
+            ]);
         }
         for key in released {
             if !key.starts_with(RELEASED_FILE_PREFIX) {
-                return Err(StorageError::InvalidOperation("released file key".into()));
+                return Err(invalid("released file key"));
             }
             mutations.push(KvMutation::delete(key.as_bytes().to_vec()));
         }
-        for chunk in mutations.chunks(WRITE_CHUNK) {
-            store.batch_mutate(chunk.to_vec()).await?;
-        }
-        Ok(())
+        mutate_chunks(&self.cas_kv(), &mutations).await
     }
+}
+
+async fn mutate_chunks(store: &PackKvStore, mutations: &[KvMutation]) -> StorageResult<()> {
+    for chunk in mutations.chunks(WRITE_CHUNK) {
+        store.batch_mutate(chunk.to_vec()).await?;
+    }
+    Ok(())
 }
 
 async fn page(
@@ -264,7 +277,9 @@ async fn page(
     limit: usize,
 ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let mut end = prefix.as_bytes().to_vec();
-    *end.last_mut().expect("family separator") = b';';
+    if let Some(last) = end.last_mut() {
+        *last = b';';
+    }
     let start = after.map_or_else(|| prefix.as_bytes().to_vec(), |a| [a, vec![0]].concat());
     store.scan_range_paged(&start, &end, limit).await
 }

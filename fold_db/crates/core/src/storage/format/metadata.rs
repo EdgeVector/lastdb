@@ -3,8 +3,7 @@
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
-use crate::storage::error::StorageResult;
-use crate::storage::{KvMutation, StorageError};
+use crate::storage::{error::StorageResult, KvMutation, StorageError};
 use lastdb_model::hex::hex_lower;
 use lastdb_model::portable_mutation::{Position, Stamp, StreamId, StreamProgress};
 use serde::{Deserialize, Serialize};
@@ -18,7 +17,6 @@ pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
-type Staged = (String, Option<Vec<u8>>);
 
 #[derive(Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -66,11 +64,9 @@ impl LocalAuthor {
             .applied_through
             .checked_add(1)
             .ok_or_else(|| invalid_author("local stream sequence exhausted"))?;
-        let floor = self
-            .clock_floor_ms
-            .unwrap_or_default()
+        let authored_at_ms = now_ms
+            .max(self.clock_floor_ms.unwrap_or_default())
             .max(self.progress.applied_through_ms.unwrap_or_default());
-        let authored_at_ms = now_ms.max(floor);
         self.progress.applied_through = sequence;
         self.progress.applied_through_ms = Some(authored_at_ms);
         Ok(Stamp {
@@ -82,6 +78,8 @@ impl LocalAuthor {
         })
     }
 }
+
+type Staged = (String, Option<Vec<u8>>);
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
@@ -109,18 +107,17 @@ impl Metadata {
         writer: &str,
     ) -> Result<Option<MutationAuthorClockState>, SchemaError> {
         let key = super::mutation_author_clock_key(writer);
-        self.metadata_store
+        let raw = self
+            .metadata_store
             .get(key.as_bytes())
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))?
-            .map(|b| {
-                serde_json::from_slice(&b).map_err(|e| {
-                    SchemaError::InvalidData(format!(
-                        "metadata get {key}: Serialization error: {e}"
-                    ))
-                })
+            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))?;
+        raw.map(|b| {
+            serde_json::from_slice(&b).map_err(|e| {
+                SchemaError::InvalidData(format!("metadata get {key}: Serialization error: {e}"))
             })
-            .transpose()
+        })
+        .transpose()
     }
 
     pub(crate) async fn stage_author_clock(
@@ -134,7 +131,7 @@ impl Metadata {
         })?;
         self.stage(vec![(key.clone(), Some(bytes))])
             .await
-            .map_err(|error| match error {
+            .map_err(|e| match e {
                 StorageError::WriteResourceLimit { detail } => {
                     SchemaError::WriteResourceLimit { detail }
                 }
@@ -186,14 +183,14 @@ impl Metadata {
         }
         let (mut entries, mut retired) = (Vec::new(), Vec::new());
         for (((path, live), key), row) in changes.into_iter().zip(keys).zip(rows) {
-            let mut r: Reference = row
-                .as_deref()
-                .map(serde_json::from_slice)
-                .transpose()
-                .map_err(invalid_file_ref)?
-                .unwrap_or_default();
-            (r.live, r.pending_through) = (live, 0);
-            if r.live {
+            if let Some(b) = row.as_deref() {
+                let _: Reference = serde_json::from_slice(b).map_err(invalid_file_ref)?;
+            }
+            if live {
+                let r = Reference {
+                    live: true,
+                    pending_through: 0,
+                };
                 entries.push((key, Some(serde_json::to_vec(&r).map_err(invalid_file_ref)?)));
             } else {
                 if row.is_some() {
@@ -231,7 +228,8 @@ impl Metadata {
     }
 
     fn require_scope(&self) -> StorageResult<()> {
-        transaction::publication::active(&self.runtime)
+        transaction::PendingBatch::current(&self.runtime)
+            .is_some()
             .then_some(())
             .ok_or_else(|| {
                 StorageError::InvalidOperation(
@@ -246,11 +244,7 @@ impl Metadata {
             let mutations = entries
                 .into_iter()
                 .map(|(k, v)| {
-                    if let Some(b) = v {
-                        KvMutation::put(k, b)
-                    } else {
-                        KvMutation::delete(k)
-                    }
+                    v.map_or_else(|| KvMutation::delete(k.clone()), |b| KvMutation::put(k, b))
                 })
                 .collect();
             self.metadata_store.batch_mutate(mutations).await?;

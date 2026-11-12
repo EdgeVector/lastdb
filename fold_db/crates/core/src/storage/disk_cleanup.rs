@@ -9,15 +9,11 @@ use laststore::disk_run::home::CheckpointKind;
 use laststore::space::{reserve_space, SpacePolicy};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 use tracing::Instrument;
 use uuid::Uuid;
-
-const SCOPE: &str = "already_deleted_records_in_active_main_and_cas_stores";
-const STEP_PAUSE: Duration = Duration::from_millis(25);
-const HELD_PAUSE: Duration = Duration::from_millis(250);
-const RETRY_PAUSE: Duration = Duration::from_secs(30);
+use NativeCleanupPhase::*;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,12 +39,12 @@ pub struct NativeCleanupBoundary {
 
 impl NativeCleanupBoundary {
     fn capture(v2: &physical::V2Home) -> Self {
-        let (main, cas) = (v2.home.status(), v2.cas.status());
+        let (m, c) = (v2.home.current_root(), v2.cas.current_root());
         Self {
-            main_frontier: main.frontier,
-            cas_frontier: cas.frontier,
-            main_generation: main.generation,
-            cas_generation: cas.generation,
+            main_frontier: m.frontier(),
+            cas_frontier: c.frontier(),
+            main_generation: m.generation(),
+            cas_generation: c.generation(),
         }
     }
 
@@ -95,7 +91,7 @@ impl NativeCleanupStatus {
     fn idle(v2: &physical::V2Home) -> Self {
         Self {
             version: 1,
-            scope: SCOPE.into(),
+            scope: "already_deleted_records_in_active_main_and_cas_stores".into(),
             main_home: v2.home.identity().to_string(),
             cas_home: v2.cas.identity().to_string(),
             backup_copies_excluded: true,
@@ -104,12 +100,12 @@ impl NativeCleanupStatus {
     }
 
     fn needs_merge(&self) -> bool {
-        let (m, c) = (&self.main, &self.cas);
-        (m.tiered_runs | m.merging_runs | c.tiered_runs | c.merging_runs) != 0
+        [&self.main, &self.cas]
+            .into_iter()
+            .any(|h| h.tiered_runs != 0 || h.merging_runs != 0)
     }
 
     fn active(&self) -> bool {
-        use NativeCleanupPhase::{Complete, RecoveryRequired};
         self.request_id.is_some() && !matches!(self.phase, Complete | RecoveryRequired)
     }
 }
@@ -123,7 +119,7 @@ pub(super) struct CleanupJob {
 impl CleanupJob {
     pub(super) fn open(v2: &physical::V2Home) -> Self {
         let s = load(v2).unwrap_or_else(|e| NativeCleanupStatus {
-            phase: NativeCleanupPhase::RecoveryRequired,
+            phase: RecoveryRequired,
             last_error: Some(e.to_string().chars().take(1024).collect()),
             ..NativeCleanupStatus::idle(v2)
         });
@@ -137,15 +133,12 @@ impl CleanupJob {
     fn get(&self) -> NativeCleanupStatus {
         self.status
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
     fn set(&self, status: NativeCleanupStatus) {
-        *self
-            .status
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = status;
+        *self.status.lock().unwrap_or_else(PoisonError::into_inner) = status;
     }
 }
 
@@ -169,17 +162,15 @@ fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> {
     } else {
         s.completed_at.is_none() && s.completed_through.is_none()
     };
+    let req_ok = s
+        .request_id
+        .as_deref()
+        .is_some_and(|id| Uuid::parse_str(id).is_ok());
     let valid = (s.version, &s.scope, &s.main_home, &s.cas_home)
         == (idle.version, &idle.scope, &idle.main_home, &idle.cas_home)
-        && s.backup_copies_excluded
-        && !s.live_cas_orphan_repair_included
-        && done_ok
-        && s.request_id
-            .as_deref()
-            .is_some_and(|id| Uuid::parse_str(id).is_ok())
-        && s.complete == (s.phase == NativeCleanupPhase::Complete)
-        && s.phase != NativeCleanupPhase::Idle
-        && s.requested_at.is_some()
+        && (s.backup_copies_excluded && !s.live_cas_orphan_repair_included && done_ok && req_ok)
+        && (s.complete, s.phase != Idle, s.requested_at.is_some())
+            == (s.phase == Complete, true, true)
         && s.target.is_some_and(|t| cur.covers(t));
     valid
         .then_some(s)
@@ -217,7 +208,7 @@ impl PackRuntime {
                 request_id: Some(req.unwrap_or_else(|| Uuid::new_v4().to_string())),
                 requested_at: Some(unix_secs()),
                 target: Some(NativeCleanupBoundary::capture(&rt.physical)),
-                phase: NativeCleanupPhase::Pending,
+                phase: Pending,
                 ..NativeCleanupStatus::idle(&rt.physical)
             };
             rt.save_cleanup(&s)?;
@@ -243,50 +234,27 @@ impl PackRuntime {
         }
     }
 
-    fn cleanup_round(&self) -> StorageResult<NativeCleanupStatus> {
-        self.require_cleanup_safe()?;
-        let mut s = self.cleanup_job.get();
-        if !s.active() {
-            return Ok(s);
-        }
-        (s.phase, s.last_error) = (NativeCleanupPhase::Running, None);
-        self.cleanup_job.set(s.clone());
-        let (p, cas_pol) = (&self.physical, SpacePolicy::default());
-        for (h, pol) in [(&p.home, &self.space_policy), (&p.cas, &cas_pol)] {
-            self.adopt_merged_root()?;
-            if h.retired_bytes() > 0 {
-                s.phase = NativeCleanupPhase::WaitingForReads;
-            } else if h.cleanup_step_with_space(pol).map_err(map)? {
-                s.merge_steps_since_resume = s.merge_steps_since_resume.saturating_add(1);
-                self.cleanup_job.set(s.clone());
-                self.adopt_merged_root()?;
-            }
-        }
-        Ok(self.refresh(s, 0, 0))
-    }
-
     fn finish_cleanup(&self) -> StorageResult<NativeCleanupStatus> {
         self.require_cleanup_safe()?;
         cas_delete::require_clear(&self.physical)?;
         self.adopt_merged_root()?;
-        let s = self.refresh(self.cleanup_job.get(), 0, 0);
+        let mut s = self.cleanup_job.get();
+        self.refresh(&mut s, 0, 0);
         if s.needs_merge() {
             return Ok(s);
         }
-        let main = self.physical.home.cleanup_files().map_err(map)?;
-        let cas = self.physical.cas.cleanup_files().map_err(map)?;
+        let (m_held, m_rem) = self.physical.home.cleanup_files().map_err(map)?;
+        let (c_held, c_rem) = self.physical.cas.cleanup_files().map_err(map)?;
         self.adopt_merged_root()?;
-        let mut s = self.refresh(s, main.removed_files, cas.removed_files);
-        if (s.main.held_retired_bytes | s.cas.held_retired_bytes | main.held_bytes | cas.held_bytes)
-            != 0
-        {
-            s.phase = NativeCleanupPhase::WaitingForReads;
+        self.refresh(&mut s, m_rem, c_rem);
+        if (s.main.held_retired_bytes | s.cas.held_retired_bytes | m_held | c_held) != 0 {
+            s.phase = WaitingForReads;
         } else {
             let boundary = NativeCleanupBoundary::capture(&self.physical);
             if !s.target.is_some_and(|t| boundary.covers(t)) {
                 return Err(invalid("cleanup target missing or frontier went backwards"));
             }
-            (s.phase, s.complete) = (NativeCleanupPhase::Complete, true);
+            (s.phase, s.complete) = (Complete, true);
             (s.completed_at, s.completed_through) = (Some(unix_secs()), Some(boundary));
             self.save_cleanup(&s)?;
         }
@@ -294,19 +262,20 @@ impl PackRuntime {
         Ok(s)
     }
 
-    fn refresh(&self, mut s: NativeCleanupStatus, dm: u64, dc: u64) -> NativeCleanupStatus {
-        let p = &self.physical;
-        for (dst, home, add) in [(&mut s.main, &p.home, dm), (&mut s.cas, &p.cas, dc)] {
-            let h = home.status();
+    fn refresh(&self, s: &mut NativeCleanupStatus, dm: u64, dc: u64) {
+        for (dst, home, add) in [
+            (&mut s.main, &self.physical.home, dm),
+            (&mut s.cas, &self.physical.cas, dc),
+        ] {
+            let (tiered_runs, merging_runs, _) = home.run_totals();
             *dst = NativeCleanupHome {
-                tiered_runs: h.tiered_runs,
-                merging_runs: h.merging_runs,
+                tiered_runs,
+                merging_runs,
                 held_retired_bytes: home.retired_bytes(),
                 removed_files: dst.removed_files.saturating_add(add),
             };
         }
         self.cleanup_job.set(s.clone());
-        s
     }
 
     fn save_cleanup(&self, status: &NativeCleanupStatus) -> StorageResult<()> {
@@ -319,8 +288,9 @@ impl PackRuntime {
     }
 
     fn is_healthy(&self) -> bool {
-        let p = &self.physical;
-        !(self.requires_recovery() || p.home.is_poisoned() || p.cas.is_poisoned())
+        !(self.requires_recovery()
+            || self.physical.home.is_poisoned()
+            || self.physical.cas.is_poisoned())
     }
 
     fn require_cleanup_safe(&self) -> StorageResult<()> {
@@ -336,7 +306,29 @@ async fn worker_loop(weak: Weak<PackRuntime>, job: Arc<CleanupJob>) {
         let tick = async {
             let owner = Arc::clone(&rt.cleanup_job.gate).lock_owned().await;
             let r1 = Arc::clone(&rt);
-            let (s, owner) = run_blocking(move || Ok((r1.cleanup_round()?, owner))).await?;
+            let (s, owner) = run_blocking(move || {
+                r1.require_cleanup_safe()?;
+                let mut s = r1.cleanup_job.get();
+                if !s.active() {
+                    return Ok((s, owner));
+                }
+                (s.phase, s.last_error) = (Running, None);
+                r1.cleanup_job.set(s.clone());
+                let (p, c_pol) = (&r1.physical, SpacePolicy::default());
+                for (h, pol) in [(&p.home, &r1.space_policy), (&p.cas, &c_pol)] {
+                    r1.adopt_merged_root()?;
+                    if h.retired_bytes() > 0 {
+                        s.phase = WaitingForReads;
+                    } else if h.cleanup_step(pol, false).map_err(map)? {
+                        s.merge_steps_since_resume = s.merge_steps_since_resume.saturating_add(1);
+                        r1.cleanup_job.set(s.clone());
+                        r1.adopt_merged_root()?;
+                    }
+                }
+                r1.refresh(&mut s, 0, 0);
+                Ok((s, owner))
+            })
+            .await?;
             if !s.active() || s.needs_merge() {
                 return Ok(s);
             }
@@ -349,10 +341,9 @@ async fn worker_loop(weak: Weak<PackRuntime>, job: Arc<CleanupJob>) {
         };
         let delay = match tick.await {
             Ok(s) if !s.active() => break,
-            Ok(s) if s.phase == NativeCleanupPhase::WaitingForReads => HELD_PAUSE,
-            Ok(_) => STEP_PAUSE,
+            Ok(s) if s.phase == WaitingForReads => Duration::from_millis(250),
+            Ok(_) => Duration::from_millis(25),
             Err(e) => {
-                use NativeCleanupPhase::{RecoveryRequired, Retrying};
                 let (fatal, mut s) = (!rt.is_healthy(), job.get());
                 (s.complete, s.last_error) =
                     (false, Some(e.to_string().chars().take(1024).collect()));
@@ -361,7 +352,7 @@ async fn worker_loop(weak: Weak<PackRuntime>, job: Arc<CleanupJob>) {
                 if fatal {
                     break;
                 }
-                RETRY_PAUSE
+                Duration::from_secs(30)
             }
         };
         drop(rt);
