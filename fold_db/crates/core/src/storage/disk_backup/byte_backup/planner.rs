@@ -1,12 +1,12 @@
 //! Snapshot plan over frozen run files, source ownership, and client metadata.
-
 use super::{
-    codec, invalid, object_name, protocol, run_backup_destination, ClientPage, ClientPageReference,
-    ClientRoot, Inner, ObjectRecord, PackRuntime, RunBackupHome, RunBackupProfile, State,
-    StorageError, StorageResult, CODEC_PLAINTEXT_MAX_BYTES, HELD_NODE_FILE, MAX_OBJECTS,
+    codec, invalid, object_name, payload_name, protocol, run_backup_destination,
+    store::{sync_dir, Store},
+    ByteBackupCapture, ClientPage, ClientRoot, Inner, PackRuntime, RunBackupHome, RunBackupProfile,
+    State, StorageError, StorageResult, CODEC_PLAINTEXT_MAX_BYTES, HELD_NODE_FILE, MAX_OBJECTS,
 };
 use crate::storage::cloud_backup_plan::{
-    new_transfer_input, plan_files, ClientNativeFile, PlanError, PlanFile, PlanSegment,
+    plan_files, ClientNativeFile, PlanError, PlanFile, PlanSegment, PlannedRecord,
 };
 use crate::storage::disk_pack::{budget, map, run_node, NODE_MARKER, RUN_DIR};
 use cloud_backup_protocol::v2::Object;
@@ -91,10 +91,10 @@ impl RunSource {
         if path == Path::new(NODE_MARKER) {
             return open_nofollow(&self.root.join(HELD_NODE_FILE));
         }
-        let tail = path
+        let rel = path
             .strip_prefix(RUN_DIR)
             .map_err(|_| invalid("run backup unknown path"))?;
-        self.main.reader(tail).map_err(map)
+        self.main.reader(rel).map_err(map)
     }
 
     pub fn profile(&self) -> StorageResult<RunBackupProfile> {
@@ -144,19 +144,68 @@ impl RunSource {
 
     pub fn release_saved(root: &Path) -> StorageResult<()> {
         CapturedRunHome::release_saved(&root.join("main")).map_err(map)?;
-        let ignore_missing = |res: io::Result<()>| match res {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
+        let ignore = |r: io::Result<()>| match r {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
         };
         for name in [HELD_NODE_FILE, "pair-ready", "pair-ready.pending"] {
-            ignore_missing(fs::remove_file(root.join(name)))?;
+            ignore(fs::remove_file(root.join(name)))?;
         }
-        ignore_missing(fs::remove_dir(root))?;
+        ignore(fs::remove_dir(root))?;
         if let Some(p) = root.parent().filter(|p| p.exists()) {
-            File::open(p)?.sync_all()?;
+            sync_dir(p)?;
         }
         Ok(())
     }
+}
+
+pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
+    runtime
+        .physical
+        .path()
+        .join(laststore::disk_run::home::BACKUP_DIR)
+        .join("holds")
+        .join(id.to_string())
+}
+
+pub(super) fn clear_objects(store: &Store, last: u64) -> StorageResult<()> {
+    for index in 0..=last {
+        for name in [object_name(index), payload_name(index)] {
+            store.remove(&name)?;
+            store.remove(&format!("{name}.pending"))?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn finish(
+    inner: Inner,
+    key: &[u8; 32],
+    admit_export: bool,
+) -> StorageResult<ByteBackupCapture> {
+    let mut state = inner
+        .state
+        .lock()
+        .map_err(|_| invalid("byte source state lock"))?;
+    if let Some(run) = &inner.run {
+        let (files, bytes) = (run.files.len() as u64, run.total_bytes()?);
+        if state.native_files != 0 && (state.native_files, state.native_bytes) != (files, bytes) {
+            return Err(invalid("byte frozen source inventory changed"));
+        }
+        (state.native_files, state.native_bytes) = (files, bytes);
+    }
+    if state.is_active() && admit_export && inner.run.is_none() {
+        return Err(invalid("byte retained source unavailable"));
+    }
+    if !state.ready && state.is_active() && inner.run.is_some() {
+        build(&inner, &mut state, key)?;
+    }
+    inner.advance(&mut state)?;
+    drop(state);
+    let capture = ByteBackupCapture {
+        inner: Arc::new(inner),
+    };
+    capture.finish_terminal().map(|()| capture)
 }
 
 fn open_nofollow(path: &Path) -> StorageResult<File> {
@@ -172,7 +221,7 @@ fn sum_bytes(lens: impl IntoIterator<Item = u64>, msg: &'static str) -> StorageR
         .ok_or_else(|| invalid(msg))
 }
 
-pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> StorageResult<()> {
+fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> StorageResult<()> {
     let source = inner
         .run
         .as_ref()
@@ -182,34 +231,37 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
     (state.native_files, state.native_bytes) = (inv.len() as u64, source.total_bytes()?);
     (state.metadata_pack_objects, state.multi_file_pack_objects) = (0, 0);
     inner.store.write("job.json", state)?;
-    let mut files = Vec::with_capacity(inv.len());
-    for (id, f) in inv.iter().enumerate() {
-        let text = f
-            .path
-            .to_str()
-            .ok_or_else(|| invalid("byte native UTF8 path"))?;
-        let path = RelativePath::try_from(text.to_owned()).map_err(protocol)?;
-        files.push(PlanFile {
-            id,
-            path,
-            bytes: f.bytes,
-            destination: run_backup_destination(text)?,
-        });
-    }
-    let mut native_files = Vec::with_capacity(files.len());
-    let scope = state.begin.job.stream.scope.clone();
-    let totals = plan_files(
+    let files = inv
+        .iter()
+        .enumerate()
+        .map(|(id, f)| {
+            let text = f
+                .path
+                .to_str()
+                .ok_or_else(|| invalid("byte native UTF8 path"))?;
+            Ok(PlanFile {
+                id,
+                path: RelativePath::try_from(text.to_owned()).map_err(protocol)?,
+                bytes: f.bytes,
+                destination: run_backup_destination(text)?,
+            })
+        })
+        .collect::<StorageResult<Vec<_>>>()?;
+    let (mut native_files, scope) = (
+        Vec::with_capacity(files.len()),
+        state.begin.job.stream.scope.clone(),
+    );
+    let (objects, packs, multi) = plan_files(
         &files,
         &scope,
         |file| source.reader(&inv[file.id].path),
-        |index, p| {
-            native_files.extend(p.native_files);
-            save(inner, state, index, p.object, p.segments, None).map(|_| ())
+        |index, object, segments, nfiles| {
+            native_files.extend(nfiles);
+            save(inner, state, index, (object, segments, None)).map(|_| ())
         },
     )?;
-    (state.metadata_pack_objects, state.multi_file_pack_objects) =
-        (totals.packs, totals.multi_file_packs);
-    finish_metadata(inner, state, key, totals.objects, &native_files)?;
+    (state.metadata_pack_objects, state.multi_file_pack_objects) = (packs, multi);
+    finish_metadata(inner, state, key, objects, &native_files)?;
     state.ready = true;
     state.validate()?;
     inner.store.write("job.json", state)
@@ -219,101 +271,102 @@ fn save(
     inner: &Inner,
     state: &mut State,
     index: u64,
-    object: Object,
-    segments: Vec<PlanSegment>,
-    ciphertext: Option<String>,
-) -> StorageResult<ObjectRecord> {
+    spec: (Object, Vec<PlanSegment>, Option<String>),
+) -> StorageResult<PlannedRecord> {
     if index >= MAX_OBJECTS {
         return Err(invalid("byte source object count bound"));
     }
     let name = object_name(index);
-    let rec = if inner.store.exists(&name)? {
-        let prior: ObjectRecord = inner.store.read(&name)?;
-        prior.validate(state)?;
-        if prior.input.object != object
-            || prior.segments != segments
-            || prior.ciphertext != ciphertext
-        {
-            return Err(invalid("byte frozen object plan differs"));
-        }
-        prior
-    } else {
-        let input = new_transfer_input(state.begin.job.clone(), object, None).map_err(protocol)?;
-        ObjectRecord {
-            input,
-            segments,
-            ciphertext,
-            receipt: None,
-        }
-    };
-    rec.validate(state)?;
+    let rec = PlannedRecord::upsert(
+        inner.store.read_opt(&name)?,
+        &state.begin.job,
+        spec,
+        &payload_name(index),
+        |i| ((i as u64) < state.native_files).then_some(u64::MAX),
+    )?;
     inner.store.write(&name, &rec)?;
     state.objects = state.objects.max(index + 1);
     inner.store.write("job.json", state).map(|()| rec)
+}
+
+pub fn seal_pages<P: serde::Serialize, R: serde::Serialize, E>(
+    native_files: &[ClientNativeFile],
+    mut index: u64,
+    mut make_page: impl FnMut(u32, Vec<ClientNativeFile>) -> Result<P, E>,
+    make_root: impl FnOnce(Vec<super::ClientPageReference>) -> Result<R, E>,
+    mut seal_one: impl FnMut(u64, &[u8]) -> Result<PlannedRecord, E>,
+    map_err: impl Fn(StorageError) -> E,
+) -> Result<u64, E> {
+    let mut pages = Vec::new();
+    for (i, chunk) in native_files.chunks(codec::MAX_PAGE_FILES).enumerate() {
+        let plain =
+            codec::encode_metadata(&make_page(i as u32, chunk.to_vec())?).map_err(&map_err)?;
+        let obj = seal_one(index, &plain)?;
+        let pr = super::ClientPageReference::for_object(i as u32, &obj.input)
+            .map_err(|e| map_err(protocol(e)))?;
+        pages.push(pr);
+        index += 1;
+    }
+    let plain = codec::encode_metadata(&make_root(pages)?).map_err(&map_err)?;
+    seal_one(index, &plain).map(|_| index + 1)
 }
 
 fn finish_metadata(
     inner: &Inner,
     state: &mut State,
     key: &[u8; 32],
-    mut index: u64,
+    index: u64,
     native_files: &[ClientNativeFile],
 ) -> StorageResult<()> {
-    let bytes = native_files
-        .iter()
-        .try_fold(0u64, |n, f| n.checked_add(f.native_bytes.get()))
-        .ok_or_else(|| invalid("byte native size overflow"))?;
+    let bytes = sum_bytes(
+        native_files.iter().map(|f| f.native_bytes.get()),
+        "byte native size overflow",
+    )?;
     if native_files.len() as u64 != state.native_files || bytes != state.native_bytes {
         return Err(invalid("byte exact native inventory totals"));
     }
-    let mut pages = Vec::new();
-    for (i, chunk) in native_files.chunks(codec::MAX_PAGE_FILES).enumerate() {
-        let page = ClientPage::new(i as u32, &state.begin, chunk.to_vec())?;
-        let obj = freeze(inner, state, key, index, &codec::encode_metadata(&page)?)?;
-        pages.push(ClientPageReference::for_object(page.page_index, &obj.input).map_err(protocol)?);
-        index += 1;
-    }
-    let root = ClientRoot {
-        version: codec::CLIENT_VERSION,
-        begin_sha256: state.begin.input_sha256().map_err(protocol)?,
-        descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
-        native_root: state.native_root.clone(),
-        recovery: state.recovery.clone(),
-        native_file_count: state.native_files,
-        native_bytes: bytes,
-        pages,
-        run: state.run.clone(),
-    };
-    root.validate_for(&state.begin)?;
-    freeze(inner, state, key, index, &codec::encode_metadata(&root)?)?;
-    if state.objects != index + 1 {
-        return Err(invalid("byte frozen source object total differs"));
-    }
-    Ok(())
-}
-
-fn freeze(
-    inner: &Inner,
-    state: &mut State,
-    key: &[u8; 32],
-    index: u64,
-    plain: &[u8],
-) -> StorageResult<ObjectRecord> {
-    let name = format!("payload-{index:08}.enc");
-    let prev = inner
-        .store
-        .exists(&name)?
-        .then(|| {
-            inner
+    let (begin, native_root, recovery, run, file_count) = (
+        state.begin.clone(),
+        state.native_root.clone(),
+        state.recovery.clone(),
+        state.run.clone(),
+        state.native_files,
+    );
+    let total = seal_pages(
+        native_files,
+        index,
+        |i, chunk| ClientPage::new(i, &begin, chunk),
+        |pages| {
+            let (begin_sha256, descriptor_sha256) = codec::begin_digests(&begin)?;
+            let root = ClientRoot {
+                version: codec::CLIENT_VERSION,
+                begin_sha256,
+                descriptor_sha256,
+                native_root,
+                recovery,
+                native_file_count: file_count,
+                native_bytes: bytes,
+                pages,
+                run,
+            };
+            root.validate_for(&begin).map(|()| root)
+        },
+        |idx, plain| {
+            let name = payload_name(idx);
+            let prev = inner
                 .store
-                .read_bytes(&name, codec::CODEC_ENVELOPE_MAX_BYTES)
-        })
-        .transpose()?;
-    let (object, bytes, fresh) = codec::seal_envelope(key, plain, prev).map_err(invalid)?;
-    if fresh {
-        inner.store.write_raw(&name, &bytes)?;
-    }
-    save(inner, state, index, object, Vec::new(), Some(name))
+                .read_raw_opt(&name, codec::CODEC_ENVELOPE_MAX_BYTES)?;
+            let (obj, fresh) = codec::seal_stored_envelope(key, plain, prev).map_err(invalid)?;
+            if let Some(b) = fresh {
+                inner.store.write_raw(&name, &b)?;
+            }
+            save(inner, state, idx, (obj, Vec::new(), Some(name)))
+        },
+        |e| e,
+    )?;
+    (state.objects == total)
+        .then_some(())
+        .ok_or_else(|| invalid("byte frozen source object total differs"))
 }
 
 impl From<PlanError> for StorageError {

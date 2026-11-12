@@ -1,14 +1,16 @@
-//! Private, bounded V2 checkpoints.
-use super::{model::Saved, BackupError, Result};
-use crate::offline_home::{is_owned_dir, is_private_file};
+//! Private, bounded V2 checkpoints and automatic job retirement.
+use super::{source::Saved, BackupError, Result};
+use crate::cloud::{
+    is_owned_dir, is_private_file, open_private_path, read_private_path, PrivatePathError,
+};
 use cloud_backup_protocol::{
     limits::DURABLE_LOCAL_SPOOL_MAX_BYTES, v2::hash::canonical_bytes,
     v2::limits::CONTROL_JSON_MAX_BYTES, Id,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::fs::{self, File};
+use std::io::Write;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -18,6 +20,25 @@ use std::sync::{
 pub(crate) const AUTOMATIC_FILE: &str = "automatic.json";
 const MAX_JSON: u64 = CONTROL_JSON_MAX_BYTES;
 static WRITE: Mutex<()> = Mutex::new(());
+const EXACT: &[&str] = &[
+    "state",
+    "terminal",
+    "recovery",
+    "pause",
+    "log-plan",
+    "inventory-index",
+    "close",
+    "blobs",
+];
+const PREFIXES: &[&str] = &[
+    "log-object-",
+    "log-file-",
+    "log-payload-",
+    "inventory-page-",
+    "blob-upload-",
+    "blob-uploaded-",
+    "blob-release-",
+];
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,10 +48,28 @@ struct Active {
 
 #[derive(Clone)]
 pub(super) struct Store {
-    base: PathBuf,
-    root: PathBuf,
+    pub base: PathBuf,
+    pub root: PathBuf,
     id: Id,
     bytes: Arc<AtomicU64>,
+}
+
+fn map_priv(err: PrivatePathError) -> BackupError {
+    match err {
+        PrivatePathError::Io(e) => e.into(),
+        PrivatePathError::Invalid => BackupError::Invalid,
+        PrivatePathError::Limit => BackupError::Limit,
+    }
+}
+
+pub(super) fn reserved(id: &Id) -> bool {
+    id.as_str().starts_with("a17dbac2-")
+}
+
+pub(super) fn request_id() -> Result<Id> {
+    let mut bytes = *uuid::Uuid::new_v4().as_bytes();
+    bytes[..4].copy_from_slice(&[0xa1, 0x7d, 0xba, 0xc2]);
+    Ok(Id::try_from(uuid::Uuid::from_bytes(bytes).to_string())?)
 }
 
 impl Store {
@@ -40,21 +79,21 @@ impl Store {
     pub fn publication_base(home: &Path) -> PathBuf {
         home.join("data/cloud-share-backup-v2")
     }
-    pub fn write_configuration_at<T: Serialize>(base: &Path, name: &str, value: &T) -> Result<()> {
+    pub fn write_config<T: Serialize>(base: &Path, name: &str, value: &T) -> Result<()> {
         directory(base)?;
         let path = base.join(name);
         write(&path, value, &AtomicU64::new(pair_size(&path)?))
     }
-    pub fn active(home: &Path) -> Result<Option<Id>> {
-        Self::active_at(&Self::base(home))
-    }
-    pub fn active_at(base: &Path) -> Result<Option<Id>> {
+    pub fn active(base: &Path) -> Result<Option<Id>> {
         Ok(read::<Active>(&base.join("active.json"))?.map(|a| a.request_id))
     }
-    pub fn open(home: &Path, id: &Id) -> Result<Self> {
-        Self::open_at(&Self::base(home), id)
+    pub fn has_active(base: &Path) -> Result<bool> {
+        let Some(id) = Self::active(base)? else {
+            return Ok(false);
+        };
+        Ok(!state(base, &id)?.ok_or(BackupError::Invalid)?.terminal())
     }
-    pub fn open_at(base: &Path, id: &Id) -> Result<Self> {
+    pub fn open(base: &Path, id: &Id) -> Result<Self> {
         let jobs = base.join("jobs");
         let root = jobs.join(id.as_str());
         for dir in [base, jobs.as_path(), root.as_path()] {
@@ -67,37 +106,32 @@ impl Store {
             bytes: Arc::new(AtomicU64::new(count(base, 0, &mut 0)?)),
         })
     }
-    pub fn lock(home: &Path) -> Result<File> {
-        Self::lock_at(&Self::base(home))
-    }
-    pub fn lock_at(base: &Path) -> Result<File> {
+    pub fn lock(base: &Path) -> Result<File> {
         directory(base)?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(base.join("owner.lock"))?;
-        private_file(&file.metadata()?)?;
-        file.try_lock().map_err(|_| BackupError::Busy)?;
-        Ok(file)
+        let f =
+            open_private_path(&base.join("owner.lock"), true, false, false).map_err(map_priv)?;
+        f.try_lock().map(|()| f).map_err(|_| BackupError::Busy)
+    }
+    pub fn acquire_job(base: &Path, id: &Id) -> Result<(Self, File)> {
+        let permit = Self::lock(base)?;
+        if let Some(prev) = Self::active(base)?.filter(|p| p != id) {
+            if !state(base, &prev)?.ok_or(BackupError::Invalid)?.terminal() {
+                return Err(BackupError::Busy);
+            }
+        }
+        Ok((Self::open(base, id)?, permit))
     }
     pub fn reopen(&self) -> Result<Self> {
-        Self::open_at(&self.base, &self.id)
+        Self::open(&self.base, &self.id)
     }
     pub fn select(&self, id: &Id) -> Result<()> {
         (id == &self.id)
             .then_some(())
             .ok_or(BackupError::Identity)?;
-        write(
-            &self.base.join("active.json"),
-            &Active {
-                request_id: id.clone(),
-            },
-            &self.bytes,
-        )
+        let act = Active {
+            request_id: id.clone(),
+        };
+        write(&self.base.join("active.json"), &act, &self.bytes)
     }
     pub fn read<T: DeserializeOwned>(&self, name: &str) -> Result<Option<T>> {
         read(&self.root.join(name))
@@ -106,7 +140,7 @@ impl Store {
         write(&self.root.join(name), value, &self.bytes)
     }
     pub fn raw(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        read_raw(&self.root.join(name))
+        read_private_path(&self.root.join(name), MAX_JSON + 29).map_err(map_priv)
     }
     pub fn write_raw(&self, name: &str, bytes: &[u8]) -> Result<()> {
         write_bytes(&self.root.join(name), bytes, &self.bytes)
@@ -132,11 +166,7 @@ impl Store {
     }
 }
 
-pub(super) fn state(home: &Path, id: &Id) -> Result<Option<Saved>> {
-    state_at(&Store::base(home), id)
-}
-
-pub(super) fn state_at(base: &Path, id: &Id) -> Result<Option<Saved>> {
+pub(super) fn state(base: &Path, id: &Id) -> Result<Option<Saved>> {
     read_state_at(&base.join("jobs").join(id.as_str()).join("state.json"), id)
 }
 
@@ -151,37 +181,20 @@ fn read_state_at(path: &Path, id: &Id) -> Result<Option<Saved>> {
     Ok(value)
 }
 
-pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
+pub(super) fn close(base: &Path, id: &Id) -> Result<()> {
     let root = base.join("jobs").join(id.as_str());
-    owned_dir(&fs::symlink_metadata(&root)?)?;
+    is_owned_dir(&fs::symlink_metadata(&root)?)
+        .then_some(())
+        .ok_or(BackupError::Invalid)?;
     let path = root.join("close.json");
     write(&path, id, &AtomicU64::new(pair_size(&path)?))
 }
 
 pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    read_raw(path)?
+    read_private_path(path, MAX_JSON + 29)
+        .map_err(map_priv)?
         .map(|b| serde_json::from_slice(&b).map_err(|_| BackupError::Invalid))
         .transpose()
-}
-
-fn read_raw(path: &Path) -> Result<Option<Vec<u8>>> {
-    let len = size(path)?;
-    if len == 0 && !path.try_exists()? {
-        return Ok(None);
-    }
-    if len > MAX_JSON + 29 {
-        return Err(BackupError::Limit);
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
-    private_file(&file.metadata()?)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_JSON + 30).read_to_end(&mut bytes)?;
-    (bytes.len() as u64 <= MAX_JSON + 29)
-        .then_some(Some(bytes))
-        .ok_or(BackupError::Limit)
 }
 
 fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
@@ -194,9 +207,9 @@ fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
 
 fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
     let reserve = 2 * MAX_JSON + 65536;
-    (bytes.len() as u64 <= MAX_JSON + 29)
-        .then_some(())
-        .ok_or(BackupError::Limit)?;
+    if bytes.len() as u64 > MAX_JSON + 29 {
+        return Err(BackupError::Limit);
+    }
     let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
     if used
         .load(Ordering::Relaxed)
@@ -206,19 +219,11 @@ fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
         return Err(BackupError::Limit);
     }
     let parent = path.parent().ok_or(BackupError::Disk)?;
-    let pending = path.with_extension("pending");
-    let previous = pair_size(path)?;
+    let (pending, previous) = (path.with_extension("pending"), pair_size(path)?);
     let _space =
         laststore::space::reserve_space(parent, &laststore::space::SpacePolicy::default(), reserve)
             .map_err(|_| BackupError::Disk)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&pending)?;
-    private_file(&file.metadata()?)?;
+    let mut file = open_private_path(&pending, true, false, true).map_err(map_priv)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     fs::rename(&pending, path)?;
@@ -232,9 +237,10 @@ fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn size(path: &Path) -> Result<u64> {
+fn size(path: &Path) -> Result<u64> {
     match fs::symlink_metadata(path) {
-        Ok(info) => private_file(&info).map(|()| info.len()),
+        Ok(info) if is_private_file(&info) => Ok(info.len()),
+        Ok(_) => Err(BackupError::Invalid),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(e) => Err(e.into()),
     }
@@ -246,22 +252,11 @@ fn pair_size(path: &Path) -> Result<u64> {
         .ok_or(BackupError::Limit)
 }
 
-pub(super) fn remove_owned(path: &Path) -> Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(info) => private_file(&info).and_then(|()| Ok(fs::remove_file(path)?)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
+fn remove_owned(path: &Path) -> Result<()> {
+    if size(path)? > 0 || fs::symlink_metadata(path).is_ok() {
+        fs::remove_file(path)?;
     }
-}
-
-fn owned_dir(info: &fs::Metadata) -> Result<()> {
-    is_owned_dir(info).then_some(()).ok_or(BackupError::Invalid)
-}
-
-fn private_file(info: &fs::Metadata) -> Result<()> {
-    is_private_file(info)
-        .then_some(())
-        .ok_or(BackupError::Invalid)
+    Ok(())
 }
 
 fn directory(path: &Path) -> Result<()> {
@@ -270,7 +265,9 @@ fn directory(path: &Path) -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e.into()),
     }
-    owned_dir(&fs::symlink_metadata(path)?)
+    is_owned_dir(&fs::symlink_metadata(path)?)
+        .then_some(())
+        .ok_or(BackupError::Invalid)
 }
 
 fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
@@ -284,9 +281,14 @@ fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
         let p = entry?.path();
         let info = fs::symlink_metadata(&p)?;
         let extra = if info.is_dir() {
-            owned_dir(&info).and_then(|()| count(&p, depth + 1, entries))?
+            is_owned_dir(&info)
+                .then_some(())
+                .ok_or(BackupError::Invalid)?;
+            count(&p, depth + 1, entries)?
+        } else if is_private_file(&info) {
+            info.len()
         } else {
-            private_file(&info).map(|()| info.len())?
+            return Err(BackupError::Invalid);
         };
         bytes = bytes
             .checked_add(extra)
@@ -294,4 +296,76 @@ fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
             .ok_or(BackupError::Limit)?;
     }
     Ok(bytes)
+}
+
+fn allowed_job_file(name: &str) -> bool {
+    matches!(name.rsplit_once('.'), Some((s, "json" | "pending")) if EXACT.contains(&s))
+        || PREFIXES.iter().any(|p| {
+            name.strip_prefix(p)
+                .and_then(|t| t.split_once('.'))
+                .is_some_and(|(d, ext)| {
+                    (1..=8).contains(&d.len())
+                        && d.as_bytes().iter().all(u8::is_ascii_digit)
+                        && matches!(ext, "json" | "pending" | "enc")
+                })
+        })
+}
+
+pub(super) fn retire_cleanup(base: &Path, cleanup: &mut Option<Id>) -> Result<bool> {
+    let Some(id) = cleanup.clone() else {
+        return Ok(false);
+    };
+    if reserved(&id) && Store::active(base)?.as_ref() == Some(&id) {
+        return Ok(false);
+    }
+    if reserved(&id) {
+        retire_at(base, &id)?;
+    }
+    *cleanup = None;
+    Ok(true)
+}
+
+fn retire_at(base: &Path, id: &Id) -> Result<()> {
+    let root = base.join("jobs").join(id.as_str());
+    let (previous, active) = (state(base, id)?, Store::active(base)?);
+    let remove_root = || -> Result<()> {
+        if let Err(e) = fs::remove_dir(&root) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.into());
+            }
+        }
+        Ok(File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?)
+    };
+    if previous.is_none() && active.as_ref() != Some(id) {
+        return remove_root();
+    }
+    let saved = previous.ok_or(BackupError::Missing)?;
+    if saved.automatic_revision.is_none() || !saved.terminal() || active.as_ref() == Some(id) {
+        return Err(BackupError::Identity);
+    }
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .filter(|s| allowed_job_file(s))
+            .ok_or(BackupError::Invalid)?;
+        if files.len() >= 32768 {
+            return Err(BackupError::Limit);
+        }
+        size(&entry.path())?;
+        if !matches!(name, "state.json" | "terminal.json") {
+            files.push(entry.path());
+        }
+    }
+    for path in files {
+        remove_owned(&path)?;
+    }
+    for name in ["terminal.json", "state.json"] {
+        File::open(&root)?.sync_all()?;
+        remove_owned(&root.join(name))?;
+    }
+    File::open(&root)?.sync_all()?;
+    remove_root()
 }

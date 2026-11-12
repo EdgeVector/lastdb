@@ -15,8 +15,10 @@ pub type Result<T> = std::result::Result<T, BackupError>;
 
 const WAIT: &str = "native backup awaits cloud verification; resume this job";
 const FAILED: &str = "native backup cloud request failed; resume this job";
-const EDIT_WAIT: &str = "share publication is waiting for an unfinished edit";
+const COMPACT: &str = "native backup awaits snapshot compaction; resume this job";
+const EDIT: &str = "share publication is waiting for an unfinished edit";
 const QUOTA_MSG: &str = "native backup cloud quota reached; the saved job retains its source";
+const AUTH_MSG: &str = "native backup cloud authority changed; close or review this job";
 const REFUSED_MSG: &str =
     "native backup cloud request was refused; the saved job retains its source";
 
@@ -32,27 +34,19 @@ pub enum Phase {
     Closed,
 }
 
-#[derive(Clone, Debug)]
-pub struct Invocation {
-    pub request_id: Id,
-    pub token: u64,
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InvocationOutcome {
+pub(crate) enum InvocationOutcome {
     Complete,
     Paused(PauseState),
 }
-#[derive(Clone, Debug)]
-pub struct Completion {
-    pub invocation: Invocation,
-    pub outcome: InvocationOutcome,
-}
+
 #[derive(Clone, Debug, Default)]
-pub struct RuntimeSnapshot {
-    pub active: Option<Invocation>,
-    pub last_completion: Option<Completion>,
+pub(crate) struct RuntimeSnapshot {
+    pub active: Option<Id>,
+    pub last_completion: Option<(Id, u64, InvocationOutcome)>,
     pub shutting_down: bool,
 }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrainError {
     Timeout,
@@ -74,6 +68,14 @@ struct State {
     pause: Option<Arc<AtomicBool>>,
     thread: Option<JoinHandle<()>>,
     panicked: bool,
+}
+
+impl State {
+    fn join_prev(&mut self) {
+        if let Some(t) = self.thread.take() {
+            self.panicked |= t.join().is_err();
+        }
+    }
 }
 
 fn lock_unpoisoned<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -100,30 +102,15 @@ impl BackupRuntime {
             changed: watch::channel(RuntimeSnapshot::default()).0,
         }
     }
-
-    pub fn transition(&self) -> Result<MutexGuard<'_, ()>> {
+    pub(crate) fn transition(&self) -> Result<MutexGuard<'_, ()>> {
         self.transition.lock().map_err(|_| BackupError::WorkerPanic)
     }
-    pub fn snapshot(&self) -> RuntimeSnapshot {
+    pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
         self.changed.borrow().clone()
     }
-    pub fn subscribe(&self) -> watch::Receiver<RuntimeSnapshot> {
+    pub(crate) fn subscribe(&self) -> watch::Receiver<RuntimeSnapshot> {
         self.changed.subscribe()
     }
-    pub fn wake(&self) {
-        self.changed.send_modify(|_| {});
-    }
-    pub(crate) fn acknowledge_completion(&self, request: &Id) {
-        self.changed.send_modify(|s| {
-            if s.last_completion
-                .as_ref()
-                .is_some_and(|d| &d.invocation.request_id == request)
-            {
-                s.last_completion = None;
-            }
-        });
-    }
-
     pub(crate) fn check_admission(&self) -> Result<()> {
         (!self.changed.borrow().shutting_down)
             .then_some(())
@@ -142,27 +129,25 @@ impl BackupRuntime {
         }
         state.join_prev();
         state.next_token = state.next_token.checked_add(1).ok_or(BackupError::Limit)?;
-        let inv = Invocation {
-            request_id,
-            token: state.next_token,
-        };
-        let pause = Arc::new(AtomicBool::new(false));
-        let (rt, done_inv, wp) = (Arc::clone(self), inv.clone(), Arc::clone(&pause));
+        let (token, pause) = (state.next_token, Arc::new(AtomicBool::new(false)));
+        let (rt, done_id, wp) = (Arc::clone(self), request_id.clone(), Arc::clone(&pause));
         let thread = std::thread::Builder::new()
             .name("lastdb-native-backup".into())
             .spawn(move || {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(wp)))
-                    .unwrap_or(InvocationOutcome::Paused(BackupError::WorkerPanic.pause_state()));
+                    .unwrap_or_else(|_| InvocationOutcome::Paused(BackupError::WorkerPanic.pause_state()));
                 let mut st = lock_unpoisoned(&rt.state);
                 st.pause = None;
                 st.panicked |= matches!(outcome, InvocationOutcome::Paused(p) if p.reason == PauseReason::WorkerPanic);
                 rt.changed.send_modify(|s| {
-                    (s.active, s.last_completion) = (None, Some(Completion { invocation: done_inv, outcome }));
+                    s.active = None;
+                    s.last_completion = Some((done_id, token, outcome));
                 });
             })
             .map_err(|_| BackupError::Source)?;
-        (state.pause, state.thread) = (Some(pause), Some(thread));
-        self.changed.send_modify(|s| s.active = Some(inv));
+        state.pause = Some(pause);
+        state.thread = Some(thread);
+        self.changed.send_modify(|s| s.active = Some(request_id));
         Ok(())
     }
 
@@ -191,14 +176,6 @@ impl BackupRuntime {
         (!state.panicked)
             .then_some(())
             .ok_or(DrainError::WorkerPanic)
-    }
-}
-
-impl State {
-    fn join_prev(&mut self) {
-        if let Some(thread) = self.thread.take() {
-            self.panicked |= thread.join().is_err();
-        }
     }
 }
 
@@ -263,16 +240,16 @@ pub enum BackupError {
 impl BackupError {
     pub fn pause_state(&self) -> PauseState {
         let reason = classify(self).0;
-        let disposition = if matches!(
+        let retry = matches!(
             reason,
             PauseReason::Temporary | PauseReason::Busy | PauseReason::Shutdown
-        ) {
-            Disposition::Retry
-        } else {
-            Disposition::Attention
-        };
+        );
         PauseState {
-            disposition,
+            disposition: if retry {
+                Disposition::Retry
+            } else {
+                Disposition::Attention
+            },
             reason,
         }
     }
@@ -290,17 +267,14 @@ fn classify(err: &BackupError) -> (PauseReason, &'static str) {
         E::Source => (Source, "native backup source needs attention"),
         E::Limit => (ResourceLimit, "native backup resource limit reached"),
         E::Waiting => (Temporary, WAIT),
-        E::Compacting => (
-            Temporary,
-            "native backup awaits snapshot compaction; resume this job",
-        ),
+        E::Compacting => (Temporary, COMPACT),
         E::AdmissionPending => (Temporary, "automatic native backup awaits cloud admission"),
         E::Closing => (Closing, "native backup closure is requested"),
         E::Shutdown => (Shutdown, "native backup paused for daemon shutdown"),
         E::WorkerPanic => (WorkerPanic, "native backup worker needs attention"),
         E::Authority => (Authority, "native backup cloud authority needs attention"),
         E::PublicationFile => (Unsupported, "share publication supports inline files only"),
-        E::PublicationEditPending => (Temporary, EDIT_WAIT),
+        E::PublicationEditPending => (Temporary, EDIT),
         E::Cloud(e) => cloud_info(e),
     }
 }
@@ -324,10 +298,9 @@ fn cloud_info(e: &BackupTransportError) -> (PauseReason, &'static str) {
                 P::ResourceLimit,
                 "native backup cloud resource limit reached",
             ),
-            Unauthorized | GenerationConflict | StreamAuthorityConflict | PredecessorConflict => (
-                Authority,
-                "native backup cloud authority changed; close or review this job",
-            ),
+            Unauthorized | GenerationConflict | StreamAuthorityConflict | PredecessorConflict => {
+                (Authority, AUTH_MSG)
+            }
             IntegrityMismatch | IdentityConflict | RecoveryKeyMismatch => (
                 Identity,
                 "native backup cloud identity or byte proof differs",
@@ -345,16 +318,25 @@ impl std::fmt::Display for BackupError {
     }
 }
 impl std::error::Error for BackupError {}
-macro_rules! from_err {
-    ($($t:ty => $f:expr),+) => {
-        $(impl From<$t> for BackupError { fn from(v: $t) -> Self { ($f)(v) } })+
-    };
+impl From<BackupTransportError> for BackupError {
+    fn from(v: BackupTransportError) -> Self {
+        Self::Cloud(v)
+    }
 }
-from_err!(BackupTransportError => Self::Cloud, std::io::Error => |_| Self::Disk, ProtocolError => |_| Self::Invalid);
+impl From<std::io::Error> for BackupError {
+    fn from(_: std::io::Error) -> Self {
+        Self::Disk
+    }
+}
+impl From<ProtocolError> for BackupError {
+    fn from(_: ProtocolError) -> Self {
+        Self::Invalid
+    }
+}
 impl From<PlanError> for BackupError {
     fn from(e: PlanError) -> Self {
         match e {
-            PlanError::SourceLength => Self::Identity,
+            PlanError::SourceLength | PlanError::Conflict => Self::Identity,
             PlanError::ExtentBound => Self::Limit,
             PlanError::Invalid(_) | PlanError::Protocol(_) => Self::Invalid,
         }
@@ -364,16 +346,20 @@ impl From<StorageError> for BackupError {
     fn from(e: StorageError) -> Self {
         use {NativeProofCause as P, StorageError as S};
         match e {
-            S::NativeProof { cause, .. } => match cause {
-                P::ReadResource | P::WriteResource => Self::Limit,
-                P::Io { .. } | P::StorageFull => Self::Disk,
-                _ => Self::Source,
-            },
-            S::ReadResourceLimit { .. }
+            S::NativeProof {
+                cause: P::ReadResource | P::WriteResource,
+                ..
+            }
+            | S::ReadResourceLimit { .. }
             | S::WriteResourceLimit { .. }
             | S::RecordTooLarge { .. }
             | S::MutationLimit { .. } => Self::Limit,
-            S::StorageFull { .. } | S::IoError(_) => Self::Disk,
+            S::NativeProof {
+                cause: P::Io { .. } | P::StorageFull,
+                ..
+            }
+            | S::StorageFull { .. }
+            | S::IoError(_) => Self::Disk,
             S::SnapshotCompactionPending => Self::Compacting,
             S::PublicationEditPending => Self::PublicationEditPending,
             S::PublicationFile => Self::PublicationFile,

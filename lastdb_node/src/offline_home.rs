@@ -1,5 +1,6 @@
 //! Primary-home guard and descriptor-relative private home primitives.
 use crate::backup_runtime::{BackupError, Result as BackupResult};
+use crate::cloud::is_private_file;
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::fs::{File, Metadata};
 use std::io::{self, Read, Write};
@@ -28,27 +29,29 @@ pub fn refuse_primary(path: &Path) -> Result<(), String> {
 
 fn canonicalize_lenient(path: &Path) -> PathBuf {
     let (mut tail, mut cur) = (Vec::new(), path);
-    loop {
-        if let Ok(base) = std::fs::canonicalize(cur) {
-            return tail.iter().rev().fold(base, |acc, part| acc.join(part));
-        }
+    while std::fs::canonicalize(cur).is_err() {
         let (Some(parent), Some(name)) = (cur.parent(), cur.file_name()) else {
             return path.to_path_buf();
         };
         tail.push(name.to_os_string());
         cur = parent;
     }
+    let base = std::fs::canonicalize(cur).unwrap_or_else(|_| path.to_path_buf());
+    tail.iter().rev().fold(base, |acc, part| acc.join(part))
+}
+
+fn eq_fd(a: &File, b: &File) -> io::Result<bool> {
+    let (x, y) = (a.metadata()?, b.metadata()?);
+    Ok(x.dev() == y.dev() && x.ino() == y.ino())
 }
 
 pub fn require_absolute(path: &Path) -> Result<(), String> {
-    if !path.is_absolute()
-        || !path
+    (path.is_absolute()
+        && path
             .components()
-            .all(|p| matches!(p, Component::RootDir | Component::Normal(_)))
-    {
-        return Err("credential-home paths must be absolute without parent components".into());
-    }
-    Ok(())
+            .all(|p| matches!(p, Component::RootDir | Component::Normal(_))))
+    .then_some(())
+    .ok_or_else(|| "credential-home paths must be absolute without parent components".into())
 }
 
 pub fn open_directory(path: &Path) -> Result<File, String> {
@@ -58,19 +61,16 @@ pub fn open_directory(path: &Path) -> Result<File, String> {
 pub fn open_directory_excluding(path: &Path, excluded: Option<&File>) -> Result<File, String> {
     require_absolute(path)?;
     let check = |cur: &File| -> Result<(), String> {
-        let Some(ex) = excluded else { return Ok(()) };
-        let a = fs::fstat(cur).map_err(|_| "cannot inspect destination ancestor")?;
-        let b = fs::fstat(ex).map_err(|_| "cannot inspect source directory")?;
-        if a.st_dev == b.st_dev && a.st_ino == b.st_ino {
-            return Err(
-                "destination parent must not contain the source home or its aliases".into(),
-            );
+        match excluded.map(|ex| eq_fd(cur, ex)).transpose() {
+            Ok(Some(true)) => {
+                Err("destination parent must not contain the source home or its aliases".into())
+            }
+            Ok(_) => Ok(()),
+            Err(_) => Err("cannot inspect directory".into()),
         }
-        Ok(())
     };
-    let mut dir = File::from(
-        fs::open("/", DIR_FLAGS, Mode::empty()).map_err(|_| "cannot open directory root")?,
-    );
+    let root = fs::open("/", DIR_FLAGS, Mode::empty()).map_err(|_| "cannot open directory root")?;
+    let mut dir = File::from(root);
     check(&dir)?;
     for part in path.components() {
         if let Component::Normal(name) = part {
@@ -82,32 +82,22 @@ pub fn open_directory_excluding(path: &Path, excluded: Option<&File>) -> Result<
     Ok(dir)
 }
 
-pub(crate) fn is_owned_dir(meta: &Metadata) -> bool {
-    meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0
-}
-
-pub(crate) use crate::cloud::is_private_file;
-
 pub fn require_owned_directory(dir: &File) -> Result<(), String> {
-    let meta = dir.metadata().map_err(|_| "cannot inspect source home")?;
-    if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o022 != 0 {
-        return Err("source home must be owner-held and not writable by other users".into());
-    }
-    Ok(())
+    let m = dir.metadata().map_err(|_| "cannot inspect source home")?;
+    (m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o022 == 0)
+        .then_some(())
+        .ok_or_else(|| "source home must be owner-held and not writable by other users".into())
 }
 
 pub fn require_mode_0700_directory(dir: &File, error: &'static str) -> Result<(), String> {
-    let meta = dir.metadata().map_err(|_| error)?;
-    if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o777 != 0o700 {
-        return Err(error.to_owned());
-    }
-    Ok(())
+    let m = dir.metadata().map_err(|_| error)?;
+    (m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o777 == 0o700)
+        .then_some(())
+        .ok_or_else(|| error.to_owned())
 }
 
 fn is_private_0600(meta: &Metadata, limit: Option<u64>) -> bool {
-    is_private_file(meta)
-        && meta.mode() & 0o777 == 0o600
-        && limit.is_none_or(|max| meta.len() <= max)
+    is_private_file(meta) && meta.mode() & 0o777 == 0o600 && limit.is_none_or(|n| meta.len() <= n)
 }
 
 pub fn require_private_file(
@@ -115,10 +105,9 @@ pub fn require_private_file(
     limit: Option<u64>,
     error: &'static str,
 ) -> Result<(), String> {
-    if !is_private_0600(&file.metadata().map_err(|_| error)?, limit) {
-        return Err(error.to_owned());
-    }
-    Ok(())
+    is_private_0600(&file.metadata().map_err(|_| error)?, limit)
+        .then_some(())
+        .ok_or_else(|| error.to_owned())
 }
 
 pub fn entry_present(dir: &File, name: &str) -> Result<bool, String> {
@@ -167,25 +156,21 @@ pub fn read_private_file_bound(
     expected: Option<&File>,
 ) -> Result<Vec<u8>, String> {
     const ERR: &str = "credential file must be a bounded owner-only regular file";
-    let file = open_private_at(
-        dir,
-        name,
-        OFlags::RDONLY | OFlags::NONBLOCK,
-        Mode::empty(),
-        ERR,
-    )?;
-    if let Some(held) = expected {
-        let a = fs::fstat(&file).map_err(|_| "cannot inspect credential read-back")?;
-        let b = fs::fstat(held).map_err(|_| "cannot inspect held credential file")?;
-        if a.st_dev != b.st_dev || a.st_ino != b.st_ino {
-            return Err("recovery credential file changed during preparation".into());
-        }
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK;
+    let file = open_private_at(dir, name, flags, Mode::empty(), ERR)?;
+    if expected
+        .map(|h| eq_fd(&file, h))
+        .transpose()
+        .map_err(|_| "cannot inspect credential file")?
+        == Some(false)
+    {
+        return Err("recovery credential file changed during preparation".into());
     }
     require_private_file(&file, Some(limit), ERR)?;
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read protected credential file")?;
+        .map_err(|_| "cannot read credential file")?;
     (bytes.len() as u64 <= limit)
         .then_some(bytes)
         .ok_or_else(|| "credential file exceeds the supported size".into())
@@ -215,12 +200,6 @@ fn openat(
         .map_err(Into::into)
 }
 
-fn private_bound(info: &Metadata, max_bytes: u64) -> BackupResult<()> {
-    is_private_0600(info, Some(max_bytes))
-        .then_some(())
-        .ok_or(BackupError::Identity)
-}
-
 impl Directory {
     pub fn open(path: &Path) -> BackupResult<Self> {
         Self::open_with_limit(path, MAX_BYTES)
@@ -238,20 +217,22 @@ impl Directory {
     }
 
     pub fn check(&self) -> BackupResult<()> {
-        let (h, a) = (
-            self.file.metadata()?,
-            Self::open(&self.path)?.file.metadata()?,
-        );
-        (h.dev() == a.dev() && h.ino() == a.ino())
+        eq_fd(&self.file, &Self::open(&self.path)?.file)?
             .then_some(())
             .ok_or(BackupError::Identity)
     }
 
     pub(crate) fn open_lock(&self, name: &str) -> BackupResult<File> {
         self.check()?;
-        let flags = OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK | SAFE;
-        let file = openat(&self.file, name, flags, 0o600)?;
-        private_bound(&file.metadata()?, MAX_BYTES).map(|()| file)
+        let file = openat(
+            &self.file,
+            name,
+            OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK | SAFE,
+            0o600,
+        )?;
+        is_private_0600(&file.metadata()?, Some(MAX_BYTES))
+            .then_some(file)
+            .ok_or(BackupError::Identity)
     }
 
     pub(crate) fn remove_exact(&self, name: &str, expected: &[u8]) -> BackupResult<()> {
@@ -271,7 +252,9 @@ impl Directory {
             Err(e) => return Err(io::Error::from(e).into()),
         };
         let before = file.metadata()?;
-        private_bound(&before, self.max_bytes)?;
+        if !is_private_0600(&before, Some(self.max_bytes)) {
+            return Err(BackupError::Identity);
+        }
         let mut bytes = Zeroizing::new(Vec::new());
         (&mut file)
             .take(self.max_bytes.saturating_add(1))
@@ -280,7 +263,10 @@ impl Directory {
             file.metadata()?,
             openat(&self.file, name, flags, 0)?.metadata()?,
         );
-        if bytes.len() as u64 != before.len() || !same(&before, &after) || !same(&after, &cur) {
+        if bytes.len() as u64 != before.len()
+            || stamp(&before) != stamp(&after)
+            || stamp(&after) != stamp(&cur)
+        {
             return Err(BackupError::Identity);
         }
         self.check().map(|()| Some(bytes))
@@ -300,8 +286,12 @@ impl Directory {
         }
         self.check()?;
         let temp = format!(".byte-backup-connection-{}.pending", uuid::Uuid::new_v4());
-        let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | SAFE;
-        let mut file = openat(&self.file, temp.as_str(), flags, 0o600)?;
+        let mut file = openat(
+            &self.file,
+            temp.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | SAFE,
+            0o600,
+        )?;
         let res: BackupResult<()> = (|| {
             file.write_all(bytes)?;
             file.sync_all()?;
@@ -322,19 +312,13 @@ impl Directory {
     }
 }
 
-fn same(a: &Metadata, b: &Metadata) -> bool {
-    let key = |m: &Metadata| {
-        (
-            [m.dev(), m.ino(), m.len(), m.nlink()],
-            (
-                m.uid(),
-                m.mode(),
-                m.mtime(),
-                m.mtime_nsec(),
-                m.ctime(),
-                m.ctime_nsec(),
-            ),
-        )
-    };
-    key(a) == key(b)
+fn stamp(m: &Metadata) -> [i128; 6] {
+    [
+        m.dev() as i128,
+        m.ino() as i128,
+        m.len() as i128,
+        (i128::from(m.uid()) << 32) | i128::from(m.mode()) | ((m.nlink() as i128) << 64),
+        (i128::from(m.mtime()) << 32) ^ i128::from(m.mtime_nsec()),
+        (i128::from(m.ctime()) << 32) ^ i128::from(m.ctime_nsec()),
+    ]
 }
