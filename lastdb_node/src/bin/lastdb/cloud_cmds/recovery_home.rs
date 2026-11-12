@@ -117,7 +117,7 @@ pub(super) fn run_existing(
     let hdrs = super::super::socket_client::client_headers();
     let mut wire = Zeroizing::new(
         format!(
-            "POST /api/sync/byte-backup-v2/connect HTTP/1.1\r\nHost: localhost\r\n{hdrs}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "POST /api/cloud/connection HTTP/1.1\r\nHost: localhost\r\n{hdrs}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len(),
         )
         .into_bytes(),

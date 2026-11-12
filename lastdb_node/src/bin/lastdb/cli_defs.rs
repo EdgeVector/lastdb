@@ -39,12 +39,6 @@ pub(crate) enum AdminStorageCommand {
 pub(crate) enum AdminBackupCommand {
     /// Create one fresh DEV identity without starting a daemon.
     Init(BackupInitArgs),
-    /// Resume the exact saved backup job on the owner daemon.
-    Resume(BackupJsonArgs),
-    /// Fence the saved job while retaining uncertain cloud byte obligations.
-    Close(BackupJsonArgs),
-    /// Inspect the exact recovery dependency closure without deleting anything.
-    InspectDependencies(BackupDependenciesArgs),
     /// Register a credentials-only recovery device without opening a store.
     RecoverCredentialsHome {
         #[command(flatten)]
@@ -282,92 +276,18 @@ pub(crate) enum AppCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum BackupCommand {
-    /// Read backup policy, job state and last acceptance from the owner daemon.
-    Status(BackupJsonArgs),
     /// Connect a prepared account without enabling automatic backup.
     Connect(BackupConnectArgs),
-    /// Enable or disable automatic backup explicitly.
-    Policy(BackupPolicyArgs),
-    /// Start one manual backup on the owner daemon.
-    Start(BackupStartArgs),
-    /// List accepted stream heads. Prepare credentials with `admin backup` first.
-    List(BackupListArgs),
-    /// Restore an accepted cut into a fresh home, or resume a saved workspace.
-    Restore(BackupRestoreSelection),
+    /// Restore a signed owner database into a fresh home.
+    Restore(BackupRestoreArgs),
 }
 
 impl BackupCommand {
     pub(crate) fn into_cloud(self) -> Result<CloudCommand, String> {
         let action = match self {
-            Self::Status(a) => ByteBackupCommand::Status(a),
             Self::Connect(a) => ByteBackupCommand::Connect(a),
-            Self::Policy(a) => a.into_action()?,
-            Self::Start(a) => ByteBackupCommand::Start(a),
-            Self::List(a) => ByteBackupCommand::Discover(a),
-            Self::Restore(sel) => ByteBackupCommand::Restore(sel.validate()?),
+            Self::Restore(a) => ByteBackupCommand::Restore(a),
         };
         Ok(CloudCommand::BackupV2 { action })
-    }
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupRestoreSelection {
-    #[command(flatten)]
-    args: BackupRestoreArgs,
-    #[arg(long, conflicts_with_all = ["signed", "resume", "commit", "commit_sha256"])]
-    latest: bool,
-}
-
-impl BackupRestoreSelection {
-    fn validate(self) -> Result<BackupRestoreArgs, String> {
-        let a = self.args;
-        if !a.signed
-            && a.resume.is_none()
-            && !self.latest
-            && (a.generation.is_none() || a.commit.is_none() || a.commit_sha256.is_none())
-        {
-            return Err(
-                "select --generation, --commit and --commit-sha256, or use --latest".into(),
-            );
-        }
-        Ok(a)
-    }
-}
-
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
-enum PolicyMode {
-    On,
-    Off,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupPolicyArgs {
-    #[arg(value_enum)]
-    mode: PolicyMode,
-    #[arg(long)]
-    log_interval_seconds: Option<u64>,
-    #[arg(long)]
-    snapshot_interval_seconds: Option<u64>,
-    #[arg(long)]
-    json: bool,
-}
-
-impl BackupPolicyArgs {
-    fn into_action(self) -> Result<ByteBackupCommand, String> {
-        match self.mode {
-            PolicyMode::On => Ok(ByteBackupCommand::EnableAutomatic(BackupEnableArgs {
-                log_interval_seconds: self.log_interval_seconds.unwrap_or(60),
-                snapshot_interval_seconds: self.snapshot_interval_seconds.unwrap_or(86400),
-                json: self.json,
-            })),
-            PolicyMode::Off => {
-                if self.log_interval_seconds.is_some() || self.snapshot_interval_seconds.is_some() {
-                    return Err("interval options require backup policy on".into());
-                }
-                Ok(ByteBackupCommand::DisableAutomatic(BackupJsonArgs {
-                    json: self.json,
-                }))
-            }
-        }
     }
 }

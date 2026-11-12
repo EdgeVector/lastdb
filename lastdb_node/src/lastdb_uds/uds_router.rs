@@ -48,10 +48,8 @@ pub enum DataRoute {
     AutoIdentity,
     /// `GET /api/system/boot-identity`
     BootIdentity,
-    /// `POST /api/sync/byte-backup-v2`
-    SyncByteBackupV2,
-    /// `POST /api/sync/byte-backup-v2/connect`
-    SyncByteBackupV2Connect,
+    /// `POST /api/cloud/connection`
+    CloudConnection,
     /// `GET /api/db/schemas`
     DbSchemas,
     /// `POST /api/db/flush`
@@ -88,8 +86,7 @@ static EXACT_ROUTES: &[(&str, &str, DataRoute)] = &[
     ("/api/db/put-blob", "POST", DataRoute::DbPutBlob),
     ("/api/db/fetch-blob", "POST", DataRoute::DbFetchBlob),
     ("/api/db/delete-blob", "POST", DataRoute::DbDeleteBlob),
-    ("/api/sync/byte-backup-v2", "POST", DataRoute::SyncByteBackupV2),
-    ("/api/sync/byte-backup-v2/connect", "POST", DataRoute::SyncByteBackupV2Connect),
+    ("/api/cloud/connection", "POST", DataRoute::CloudConnection),
     ("/api/query", "POST", DataRoute::Query),
     ("/api/mutation", "POST", DataRoute::Mutation),
     ("/api/mutations/batch", "POST", DataRoute::MutationBatch),

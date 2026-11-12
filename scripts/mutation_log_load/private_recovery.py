@@ -33,7 +33,7 @@ def connect(programs, node, api_key):
 
 def restore(programs, credentials, destination, database, phrase, through):
     receipt = programs.command(credentials, [
-        "backup", "restore", "--signed", "--stream", database, "--recovery-phrase-stdin",
+        "backup", "restore", "--database", database, "--recovery-phrase-stdin",
         "--into", str(destination), "--json",
     ], input_bytes=phrase, timeout=100)
     require(receipt["database_id"] == database and receipt["through_delivery_seq"] == through,

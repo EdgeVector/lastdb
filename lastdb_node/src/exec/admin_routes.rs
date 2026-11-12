@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::reply::{envelope, error_response, json_ok, mapped_error_response};
 use super::wire::query_value;
-use crate::byte_cloud_backup::{self, ByteBackupRequest};
+use crate::byte_cloud_backup;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -314,26 +314,6 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             &ctx.user_id,
         )),
         Err(e) => error_response(400, &format!("schema retention failed: {e}"), ctx),
-    }
-}
-
-pub(in crate::exec) async fn execute_byte_backup(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    if !ctx.is_owner {
-        return error_response(403, "byte backup is owner-only", ctx);
-    }
-    if req.body.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
-        return error_response(413, "byte backup request exceeds its byte limit", ctx);
-    }
-    let Ok(request) = serde_json::from_slice::<ByteBackupRequest>(&req.body) else {
-        return error_response(400, "invalid byte backup request", ctx);
-    };
-    match byte_cloud_backup::request(host, request).await {
-        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
-        Err(error) => error_response(409, &error.to_string(), ctx),
     }
 }
 

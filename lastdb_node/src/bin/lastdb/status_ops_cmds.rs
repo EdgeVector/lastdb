@@ -204,14 +204,9 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
 }
 
 fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
-    use AdminBackupCommand::{
-        Close, Init, InspectDependencies, PrepareRecoveryHome, RecoverCredentialsHome, Resume,
-    };
+    use AdminBackupCommand::{Init, PrepareRecoveryHome, RecoverCredentialsHome};
     let action = match action {
         Init(a) => ByteBackupCommand::Init(a),
-        Resume(a) => ByteBackupCommand::Resume(a),
-        Close(a) => ByteBackupCommand::Close(a),
-        InspectDependencies(a) => ByteBackupCommand::InspectDependencies(a),
         RecoverCredentialsHome { args, existing_dev } => {
             if !existing_dev {
                 return Ok(CloudCommand::RecoverCredentialsHome(args));
