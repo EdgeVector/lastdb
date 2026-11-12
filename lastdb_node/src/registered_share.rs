@@ -116,6 +116,11 @@ pub(crate) fn accept_signed_log(
     if let Some(name) = name {
         require_name(name)?;
     }
+    if crate::host::owned::registry_claims(home, id.as_str(), name)
+        .map_err(|()| ShareCacheError::Unavailable)?
+    {
+        return Err(ShareCacheError::Invalid("database selector already in use"));
+    }
     ShareCache::open_managed(home, true)?
         .ok_or(ShareCacheError::Unavailable)?
         .register_signed_log(home, sealed, publisher, name, &id)

@@ -26,12 +26,11 @@ pub async fn seal_named_invitation(
     let id = Id::try_from(database_id.to_owned())
         .map_err(|_| "database is not registered on this node")?;
     let session = super::session::open(home).await?;
-    let key = owned::content_encryption_key(session.seed.as_ref(), id.as_str())?;
-    refuse_invitable(session.seed.as_ref(), key.as_ref())?;
+    let key = owned::content_encryption_key(&session.seed, id.as_str())?;
+    refuse_invitable(&session.seed, &key)?;
     let permission = read_permission(&session, id, lifetime_hours)?;
-    let sealed =
-        share_invitation::seal_invitation(contact, &permission, key.as_ref(), &session.signer)
-            .map_err(|error| error.to_string())?;
+    let sealed = share_invitation::seal_invitation(contact, &permission, &key, &session.signer)
+        .map_err(|error| error.to_string())?;
     if sealed.len() > share_invitation::MAX_SEALED_INVITATION_BYTES {
         return Err("sealed share invitation exceeds its size limit".into());
     }

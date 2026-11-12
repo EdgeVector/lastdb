@@ -116,7 +116,7 @@ fn origin(endpoint: &str) -> Result<Url, String> {
 
 fn read_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     let path = home.join(IDENTITY_KEY_FILE);
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(&path)
