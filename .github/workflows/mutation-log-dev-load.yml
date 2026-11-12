@@ -24,13 +24,31 @@ on:
         type: choice
         options: ["preliminary", "scale"]
         default: "preliminary"
+  workflow_call:
+    inputs:
+      confirm_deployed:
+        required: true
+        type: string
+      level:
+        required: true
+        type: string
+      duration:
+        required: true
+        type: string
+    secrets:
+      LASTDB_CLOUD_DEV_API_KEY:
+        required: false
+      LASTDB_CLOUD_DEV_RECOVERY_PHRASE:
+        required: false
+      LASTDB_CLOUD_DEV_BASELINE:
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   build-client:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.level == 'private'
+    if: github.ref == 'refs/heads/main' && inputs.level == 'private'
     permissions:
       contents: read
       actions: read
@@ -40,7 +58,6 @@ jobs:
     needs: build-client
     if: >-
       always() && !cancelled() && github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch' &&
       (inputs.level != 'private' || needs.build-client.result == 'success')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04

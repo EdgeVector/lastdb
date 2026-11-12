@@ -278,15 +278,16 @@ fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, App
             .checked_add(1)
             .expect("delivery sequence fits the batch");
         delivery_seqs.push(delivery);
-        next.head = Some(crate::Head {
-            delivery_seq: delivery,
-            stamp: entry.stamp(),
-        });
-        next.entries.push(StoredEntry {
+        let stored = StoredEntry {
             delivery_seq: delivery,
             accepted_at_ms: batch.accepted_at_ms,
             entry: entry.clone(),
+        };
+        next.head = Some(crate::Head {
+            delivery_seq: delivery,
+            stamp: stored.merge_stamp(),
         });
+        next.entries.push(stored);
         if let Some(from) = &entry.incorporated_from {
             next.incorporated
                 .insert((from.writer.clone(), from.writer_seq));

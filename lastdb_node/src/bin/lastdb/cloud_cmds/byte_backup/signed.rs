@@ -18,7 +18,7 @@ pub(super) async fn restore(
     args: BackupRestoreArgs,
 ) -> Result<(), String> {
     let destination = args.into;
-    let database = id(args.stream)?;
+    let database = id(args.database)?;
     let parent = destination.parent().ok_or("missing recovery parent")?;
     FreshHome::preflight_empty(&destination)?;
     let staged_path = parent.join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));

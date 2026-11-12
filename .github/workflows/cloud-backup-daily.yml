@@ -1,0 +1,41 @@
+name: Daily cloud recovery check
+
+on:
+  schedule:
+    - cron: '23 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cloud-backup-recovery-daily
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    name: Signed private backup and recovery in DEV
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/mutation-log-dev-load.yml
+    with:
+      confirm_deployed: 'yes'
+      level: private
+      duration: preliminary
+    secrets: inherit
+
+  notify:
+    name: Notify on failure
+    needs: recovery
+    if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: cloud-backup-daily.yml
+      job_results: ${{ needs.recovery.result }}

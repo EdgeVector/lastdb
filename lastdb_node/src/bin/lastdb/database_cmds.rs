@@ -3,8 +3,6 @@
 use super::*;
 use lastdb_node::lastdb_uds::database_path::{self, DATABASES_PATH};
 
-const RESERVED_SPEC_NAMES: &[&str] = &["social", "medical", "finance", "work"];
-
 pub(super) fn create_database(
     data_dir: Option<PathBuf>,
     name: &str,
@@ -75,9 +73,6 @@ fn create_spec(
     if !valid_database_name(name) {
         return Err("invalid database name".into());
     }
-    if name == "graph" {
-        return Err("database name is reserved and not provisioned".into());
-    }
     let spec = match (spec_name, spec_version) {
         (None, None) => None,
         (Some(spec_name), Some(version))
@@ -87,11 +82,6 @@ fn create_spec(
         }
         _ => return Err("invalid spec binding".into()),
     };
-    if RESERVED_SPEC_NAMES.contains(&name)
-        && spec.as_ref().and_then(|s| s["name"].as_str()) != Some(name)
-    {
-        return Err("reserved database name requires its spec".into());
-    }
     Ok(spec)
 }
 
