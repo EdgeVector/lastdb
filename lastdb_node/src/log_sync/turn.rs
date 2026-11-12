@@ -15,6 +15,7 @@ use super::cloud::CloudLog;
 use super::cutover::{self, Commit, Gate, ServiceView};
 use super::disk;
 use super::http;
+use super::members;
 use super::native;
 use super::received;
 use super::registry::{self, Database};
@@ -116,10 +117,7 @@ async fn prepare(host: &Arc<Host>, database: &Database) -> Prep {
             );
             Prep::Pause(Pause::Retry)
         }
-        Gate::Native => {
-            let revision = probe_revision(&host.home, &database.id, &database.kind);
-            Prep::Pause(open_native(host, database, revision, log, &device).await)
-        }
+        Gate::Native => Prep::Pause(open_native(host, database, log, &device).await),
         Gate::SignedOnly(commit) => open_signed(host, commit, log, &device).await,
     }
 }
@@ -143,19 +141,12 @@ async fn open_signed(host: &Arc<Host>, commit: Commit, log: CloudLog, device: &s
         );
         return Prep::Pause(Pause::Idle);
     }
-    let wanted = if commit.database_kind == "personal" {
-        0
-    } else {
-        commit.grant_revision
-    };
     finish_open(
         host,
         &commit.database_id,
         &commit.database_kind,
-        wanted,
         log,
         device,
-        ServiceView::Unavailable,
     )
     .await
 }
@@ -163,7 +154,6 @@ async fn open_signed(host: &Arc<Host>, commit: Commit, log: CloudLog, device: &s
 pub(super) async fn open_native(
     host: &Arc<Host>,
     database: &Database,
-    revision: u64,
     log: CloudLog,
     device: &str,
 ) -> Pause {
@@ -174,17 +164,7 @@ pub(super) async fn open_native(
         );
         return Pause::Idle;
     }
-    match finish_open(
-        host,
-        &database.id,
-        &database.kind,
-        revision,
-        log,
-        device,
-        ServiceView::Unavailable,
-    )
-    .await
-    {
+    match finish_open(host, &database.id, &database.kind, log, device).await {
         Prep::Pause(pause) => {
             if matches!(pause, Pause::Retry) {
                 cutover::observe_native(&database.id, cutover::NativeView::Unavailable);
@@ -199,20 +179,14 @@ async fn finish_open(
     host: &Arc<Host>,
     database_id: &str,
     kind: &str,
-    wanted: u64,
     mut log: CloudLog,
     device: &str,
-    unavailable: ServiceView,
 ) -> Prep {
-    if log.member_revision() != wanted {
-        log = match CloudLog::connect(host, database_id, device, wanted, kind != "personal").await {
-            Ok(log) => log,
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
-                cutover::observe(database_id, unavailable);
-                return Prep::Pause(Pause::Retry);
-            }
+    if kind != "personal" {
+        let Some(revision) = members::revision(&log).await else {
+            return Prep::Pause(Pause::Retry);
         };
+        log.member_revision = revision;
     }
     let state = match run::opened_state(database_id, kind, &log, device, &host.home) {
         Ok(state) => state,

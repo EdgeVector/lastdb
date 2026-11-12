@@ -29,7 +29,7 @@ pub(crate) struct CloudLog {
     database_id: Id,
     principal: PrincipalId,
     device: mutation_log::DeviceId,
-    member_revision: u64,
+    pub(super) member_revision: u64,
     named: bool,
     environment_label: &'static str,
 }
@@ -97,10 +97,6 @@ impl CloudLog {
 
     pub(super) fn database_id(&self) -> &str {
         self.database_id.as_str()
-    }
-
-    pub(crate) fn member_revision(&self) -> u64 {
-        self.member_revision
     }
 
     pub(crate) fn environment(&self) -> &'static str {

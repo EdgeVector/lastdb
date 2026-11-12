@@ -6,24 +6,19 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cloud_backup_protocol::canonical_bytes;
-use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, MemberListReadResponse, MemberListRevision,
-};
-use cloud_backup_protocol::v2::{Stream, Version};
 use mutation_log::{DatabaseId, DatabaseKind, DeviceId, PrincipalId};
 use mutation_log_sync::{SyncRole, SyncState};
 use serde::{Deserialize, Serialize};
 
 use crate::cloud_backup_client::byte_backup::ShareEnvironment;
 use crate::host::Host;
-use crate::node_read::CanonicalPost;
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use crate::registered_share::{self, RegisteredShare};
 
 use super::cloud::{CloudLog, LogOpen};
 use super::disk;
-use super::http::{Endpoint, Proof};
+use super::http::Endpoint;
+use super::members;
 use super::run::{self, Ready};
 use super::session;
 use super::turn::{self, Pause};
@@ -54,7 +49,7 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
             return Pause::Retry;
         }
     };
-    let Some(log) = refresh(host, share, log, &device, stored).await else {
+    let Some(log) = refresh(host, share, log).await else {
         return Pause::Retry;
     };
     let Some(state) = receiver_state(share, &log, &device, &host.home) else {
@@ -76,23 +71,18 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
     .await
 }
 
-async fn refresh(
-    host: &Arc<Host>,
-    share: &RegisteredShare,
-    log: CloudLog,
-    device: &str,
-    stored: u64,
-) -> Option<CloudLog> {
-    let Some(fresh) = read_revision(&log, share).await else {
+async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -> Option<CloudLog> {
+    let Some(fresh) = members::revision(&log).await else {
         return Some(log);
     };
-    if fresh <= stored {
+    if fresh <= log.member_revision {
         return Some(log);
     }
     if store_member(&host.home, share.id.as_str(), fresh).is_err() {
         return None;
     }
-    connect_received(host, share, device, fresh).ok()
+    log.member_revision = fresh;
+    Some(log)
 }
 
 /// Open the publisher stream from the verified invitation. No account context and no API key.
@@ -129,45 +119,6 @@ fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str
         ShareEnvironment::Prod => Environment::Prod,
     };
     (profile.as_str(), exemem_api_url_for(profile))
-}
-
-async fn read_revision(log: &CloudLog, share: &RegisteredShare) -> Option<u64> {
-    let stream = share.stream().clone();
-    if stream.scope != log.scope || stream.stream_id.as_str() != log.database_id() {
-        return None;
-    }
-    let request = MemberListReadRequest {
-        version: Version::V2,
-        stream,
-    };
-    request.validate().ok()?;
-    let body = canonical_bytes(&request).ok()?;
-    let (status, bytes) = log
-        .post_status(
-            CanonicalPost::MemberRead.path(),
-            body,
-            Proof::Canonical(CanonicalPost::MemberRead),
-        )
-        .await
-        .ok()?;
-    if !(200..300).contains(&status) {
-        return None;
-    }
-    revision_of(&bytes, &request.stream)
-}
-
-fn revision_of(bytes: &[u8], stream: &Stream) -> Option<u64> {
-    if let Ok(view) = serde_json::from_slice::<MemberListRevision>(bytes) {
-        if view.version != Version::V2 || view.database_id != stream.stream_id {
-            return None;
-        }
-        return Some(view.revision.get());
-    }
-    let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;
-    if view.version != Version::V2 || view.stream != *stream {
-        return None;
-    }
-    Some(view.revision.get())
 }
 
 fn receiver_state(
