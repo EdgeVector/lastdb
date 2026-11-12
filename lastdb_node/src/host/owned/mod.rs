@@ -264,7 +264,7 @@ impl Tables {
             .name
             .clone()
             .ok_or(OwnedError::Unavailable)?;
-        validate_binding(&name, spec.as_ref())?;
+        registry::validate_binding(&name, spec.as_ref())?;
         let previous = state.owned[index].spec.clone();
         state.owned[index].spec = spec;
         let file = snapshot(&state);
@@ -394,8 +394,4 @@ fn snapshot(state: &State) -> registry::RegistryFile {
         owner: state.registry_owner.clone(),
         owned: state.owned.clone(),
     }
-}
-
-fn validate_binding(name: &str, spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
-    registry::validate_binding(name, spec)
 }
