@@ -82,12 +82,25 @@ jobs:
           ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
         run: |
           set -euo pipefail
+          metadata=
+          for delay in 1 2 4 8 16; do
+            if metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+              --jq '[.id, .workflow_run.head_sha, .digest, .expired, .expires_at] | @tsv')"; then
+              break
+            fi
+            sleep "$delay"
+          done
+          IFS=$'\t' read -r artifact_id artifact_source artifact_digest expired expiration <<< "$metadata"
+          test "$artifact_id" = "$ARTIFACT_ID"
+          test "$artifact_source" = "$SOURCE_COMMIT"
+          test "${artifact_digest#sha256:}" = "${ARTIFACT_DIGEST#sha256:}"
+          test "$expired" = false
+          test -n "$expiration"
           {
             printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
             printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
             printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
             sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
-            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
-              --jq '"Artifact expires: " + .expires_at'
+            printf 'Artifact expires: %s\n' "$expiration"
             printf '\nThe build uses no cloud credentials and makes no PROD or primary change.\n'
           } >> "$GITHUB_STEP_SUMMARY"
