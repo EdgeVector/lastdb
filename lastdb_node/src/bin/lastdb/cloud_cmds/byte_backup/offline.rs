@@ -1,4 +1,6 @@
 use super::*;
+
+mod signed;
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest,
     discovery::StreamsListRequest,
@@ -146,6 +148,9 @@ fn run_offline(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
             }
             ByteBackupCommand::Discover(a) => {
                 discover(&client, &with_gen(&scope, a.generation), a.cursor, a.json).await
+            }
+            ByteBackupCommand::Restore(args) if args.signed => {
+                signed::restore(home, &scope, &phrase, args).await
             }
             ByteBackupCommand::Restore(args) => restore(&client, &scope, &phrase, args).await,
             _ => Err("invalid offline V2 command".into()),

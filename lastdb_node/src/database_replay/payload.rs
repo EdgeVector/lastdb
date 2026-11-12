@@ -169,7 +169,14 @@ pub fn parse_accepted(bytes: &[u8]) -> Result<AcceptedBody, RestoreError> {
     }
 }
 
-pub(super) fn classify(body: &AcceptedBody, database_id: &str) -> Result<Change, RestoreError> {
+pub(super) fn classify(
+    body: &AcceptedBody,
+    database_id: &str,
+    private: bool,
+) -> Result<Change, RestoreError> {
+    if !valid_schema(&body.schema, private) {
+        return Err(RestoreError::Entry("snapshot entry"));
+    }
     match body.kind.as_str() {
         "schema" => Ok(Change::Schema(Box::new(schema_change(body)?))),
         "record" | "file" | "inline" | "contribution" => Ok(Change::Record(Box::new(
@@ -195,7 +202,6 @@ fn schema_change(body: &AcceptedBody) -> Result<SchemaChange, RestoreError> {
         || body.inline_file.is_some()
         || body.contribution.is_some()
         || body.definition_id.is_some()
-        || !qualified(&body.schema)
     {
         return Err(RestoreError::Entry("snapshot entry"));
     }
@@ -247,9 +253,9 @@ fn schema_id(name: &str, tag: &str) -> String {
     id
 }
 
-pub(super) fn qualified(schema: &str) -> bool {
+fn valid_schema(schema: &str, private: bool) -> bool {
     match schema.split_once('/') {
         Some((namespace, name)) => !namespace.is_empty() && !name.is_empty(),
-        None => false,
+        None => private && !schema.is_empty(),
     }
 }

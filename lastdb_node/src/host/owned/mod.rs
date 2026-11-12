@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
+mod create;
 mod lookup;
 mod registry;
 mod store;
@@ -210,39 +211,11 @@ impl Tables {
         })
     }
 
-    pub(crate) async fn create(
-        &self,
-        home: &Path,
-        signer: Arc<Ed25519KeyPair>,
-        name: &str,
-        kind: Kind,
-        spec: Option<SpecBinding>,
-    ) -> Result<Entry, OwnedError> {
-        if kind == Kind::Personal && spec.is_some() {
-            return Err(OwnedError::InvalidSpec);
-        }
-        validate_create(name, spec.as_ref())?;
-        let id = self.allocate(name)?;
-        let store = store::open(home, &id, signer, true)
-            .await
-            .map_err(|_| OwnedError::Unavailable)?;
-        let entry = Entry {
-            id: id.clone(),
-            name: Some(name.to_owned()),
-            kind,
-            spec,
-        };
-        if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
-            if !error.renamed {
-                let _ = store.shutdown().await;
-                let _ = store::remove(home, &id);
-            }
-            return Err(error.kind);
-        }
-        self.changed.send_modify(|generation| {
-            *generation = generation.saturating_add(1);
-        });
-        Ok(entry)
+    pub(crate) fn is_private_id(&self, database_id: &str) -> Result<bool, OwnedError> {
+        let state = self.read()?;
+        Ok(std::iter::once(&state.registry_owner)
+            .chain(&state.owned)
+            .any(|entry| entry.id == database_id && entry.kind == Kind::Personal))
     }
 
     pub(crate) fn bind_spec(

@@ -145,6 +145,9 @@ pub(crate) struct BackupDependenciesArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupRestoreArgs {
+    /// Recover an owned database from the signed cloud log.
+    #[arg(long, conflicts_with_all = ["resume", "commit", "commit_sha256"])]
+    pub(crate) signed: bool,
     #[arg(long, required = true)]
     pub(crate) recovery_phrase_stdin: bool,
     #[arg(long, required_unless_present = "resume", conflicts_with = "resume")]

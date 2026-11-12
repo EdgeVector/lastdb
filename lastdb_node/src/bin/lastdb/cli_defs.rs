@@ -314,14 +314,15 @@ impl BackupCommand {
 pub(crate) struct BackupRestoreSelection {
     #[command(flatten)]
     args: BackupRestoreArgs,
-    #[arg(long, conflicts_with_all = ["resume", "commit", "commit_sha256"])]
+    #[arg(long, conflicts_with_all = ["signed", "resume", "commit", "commit_sha256"])]
     latest: bool,
 }
 
 impl BackupRestoreSelection {
     fn validate(self) -> Result<BackupRestoreArgs, String> {
         let a = self.args;
-        if a.resume.is_none()
+        if !a.signed
+            && a.resume.is_none()
             && !self.latest
             && (a.generation.is_none() || a.commit.is_none() || a.commit_sha256.is_none())
         {

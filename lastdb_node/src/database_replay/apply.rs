@@ -25,9 +25,8 @@ const HEX: &[u8; 16] = b"0123456789abcdef";
 
 pub(super) async fn replay(
     store: &FoldDB,
-    key: &crate::log_envelope::DatabaseContentKey,
+    decoder: decode::EntryDecoder<'_>,
     home: &Path,
-    database_id: &str,
     chain: &[Link],
     journal: &mut Journal,
     files: &mut (dyn super::SnapshotFileSource + Send),
@@ -37,7 +36,7 @@ pub(super) async fn replay(
         let link = &chain[index];
         pin_object(home, journal, link)?;
         if !object_closed(journal, link) {
-            drive_object(store, key, home, database_id, link, journal, files).await?;
+            drive_object(store, decoder, home, link, journal, files).await?;
         }
         journal
             .applied_refs
@@ -53,9 +52,8 @@ pub(super) async fn replay(
 
 async fn drive_object(
     store: &FoldDB,
-    key: &crate::log_envelope::DatabaseContentKey,
+    decoder: decode::EntryDecoder<'_>,
     home: &Path,
-    database_id: &str,
     link: &Link,
     journal: &mut Journal,
     files: &mut (dyn super::SnapshotFileSource + Send),
@@ -74,16 +72,7 @@ async fn drive_object(
             continue;
         }
         let entry = journal.next_entry as usize;
-        apply_one(
-            store,
-            key,
-            home,
-            database_id,
-            journal,
-            &entries[entry],
-            files,
-        )
-        .await?;
+        apply_one(store, decoder, home, journal, &entries[entry], files).await?;
         journal.next_entry += 1;
         journal.attempt = None;
         if journal.next_entry as usize == entries.len() {
@@ -95,14 +84,14 @@ async fn drive_object(
 
 async fn apply_one(
     store: &FoldDB,
-    key: &crate::log_envelope::DatabaseContentKey,
+    decoder: decode::EntryDecoder<'_>,
     home: &Path,
-    database_id: &str,
     journal: &mut Journal,
     entry: &SnapshotEntry,
     files: &mut (dyn super::SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    let prepared = decode::decode_entry(key, database_id, entry)?;
+    let database_id = decoder.database_id;
+    let prepared = decoder.open(entry)?;
     let hash = prepared.hash.clone();
     if let journal::Marker::Applied = journal::read_marker(home, database_id, &prepared.id, &hash)?
     {
@@ -120,7 +109,15 @@ async fn apply_one(
     match prepared.change {
         payload::Change::Schema(change) => apply_schema(store, *change).await?,
         payload::Change::Record(mut change) => {
-            stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
+            stage_file(
+                store,
+                decoder.key,
+                database_id,
+                entry,
+                change.as_mut(),
+                files,
+            )
+            .await?;
             if bind_expected(store, &mut change.mutation, resumed).await? {
                 record_outcome(store, home, journal, change.mutation, resumed).await?;
             }

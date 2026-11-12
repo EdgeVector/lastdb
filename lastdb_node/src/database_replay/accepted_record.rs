@@ -11,16 +11,14 @@ use fold_db::schema::types::mutation::ContributionAdmission;
 use fold_db::schema::types::{KeyValue, Mutation, MutationType};
 use serde_json::Value;
 
-use super::payload::{
-    self, AcceptedBody, FileFetch, FileObject, FileSection, RecordChange, RecordFile,
-};
+use super::payload::{AcceptedBody, FileFetch, FileObject, FileSection, RecordChange, RecordFile};
 use super::RestoreError;
 
 pub(super) fn record_change(
     body: &AcceptedBody,
     database_id: &str,
 ) -> Result<RecordChange, RestoreError> {
-    if body.definition.is_some() || !payload::qualified(&body.schema) {
+    if body.definition.is_some() {
         return Err(RestoreError::Entry("snapshot entry"));
     }
     let key = body

@@ -24,44 +24,45 @@ pub(super) struct Prepared {
     pub change: Change,
 }
 
-pub(super) fn check_chain(
-    key: &DatabaseContentKey,
-    database_id: &str,
-    links: &[Link],
-) -> Result<(), RestoreError> {
+#[derive(Clone, Copy)]
+pub(super) struct EntryDecoder<'a> {
+    pub key: &'a DatabaseContentKey,
+    pub database_id: &'a str,
+    pub private: bool,
+}
+
+pub(super) fn check_chain(decoder: EntryDecoder<'_>, links: &[Link]) -> Result<(), RestoreError> {
     let mut seen = HashMap::new();
     for link in links {
         for part in &link.parts {
             for entry in &part.entries {
-                note_entry(&mut seen, &decode_entry(key, database_id, entry)?)?;
+                note_entry(&mut seen, &decoder.open(entry)?)?;
             }
         }
     }
     Ok(())
 }
 
-pub(super) fn decode_entry(
-    key: &DatabaseContentKey,
-    database_id: &str,
-    entry: &SnapshotEntry,
-) -> Result<Prepared, RestoreError> {
-    let sealed = URL_SAFE_NO_PAD
-        .decode(entry.payload_b64.as_bytes())
-        .map_err(|_| RestoreError::Entry("snapshot entry"))?;
-    let opened = open_sealed(
-        key,
-        database_id,
-        entry,
-        &sealed,
-        RestoreError::Entry("snapshot entry"),
-    )?;
-    let body = payload::parse_accepted(&opened)?;
-    check_namespace(&body.schema, &entry.namespace)?;
-    Ok(Prepared {
-        id: body.mutation_id.clone(),
-        hash: bytes_sha256(&opened).as_str().to_owned(),
-        change: payload::classify(&body, database_id)?,
-    })
+impl EntryDecoder<'_> {
+    pub(super) fn open(self, entry: &SnapshotEntry) -> Result<Prepared, RestoreError> {
+        let sealed = URL_SAFE_NO_PAD
+            .decode(entry.payload_b64.as_bytes())
+            .map_err(|_| RestoreError::Entry("snapshot entry"))?;
+        let opened = open_sealed(
+            self.key,
+            self.database_id,
+            entry,
+            &sealed,
+            RestoreError::Entry("snapshot entry"),
+        )?;
+        let body = payload::parse_accepted(&opened)?;
+        check_namespace(&body.schema, &entry.namespace)?;
+        Ok(Prepared {
+            id: body.mutation_id.clone(),
+            hash: bytes_sha256(&opened).as_str().to_owned(),
+            change: payload::classify(&body, self.database_id, self.private)?,
+        })
+    }
 }
 
 /// Open one envelope. Plaintext and a bad binding are refused.
