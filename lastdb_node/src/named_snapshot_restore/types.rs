@@ -111,10 +111,14 @@ pub struct SnapshotFileRequest {
     pub path: BlobPath,
 }
 
-/// Reads one record blob. E implements this. The installer does not.
+/// Reads one uploaded file envelope. E implements this.
+///
+/// `read_blob` returns bytes only when `request.scope` is the publisher
+/// account on the upload receipt for `request.path`. A clear, an inline
+/// file, and a content hash with no object do not use this source.
 #[async_trait]
 pub trait SnapshotFileSource: Send {
-    /// Return the stored fragment bytes. They are an envelope, not plaintext.
+    /// Return the stored envelope. The bytes are not plaintext.
     async fn read_blob(&mut self, request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError>;
 }
 
@@ -137,13 +141,13 @@ pub enum RestoreError {
     Chain(&'static str),
     /// One entry's identity or record payload is not acceptable.
     Entry(&'static str),
-    /// Record file bytes are missing or do not match the payload.
+    /// Record file bytes are missing, were not uploaded, or do not match the marker.
     File(&'static str),
     /// Local journal or marker state disagrees with this chain.
     Conflict(&'static str),
     /// Local state could not be made durable. Nothing was acknowledged.
     Durable(&'static str),
-    /// The open store refused the record.
+    /// The open store refused the record, schema, or file seal.
     Apply(&'static str),
 }
 

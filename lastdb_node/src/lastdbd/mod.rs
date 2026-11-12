@@ -12,7 +12,7 @@ use clap::Parser;
 use lastdb_node::host::Host;
 use tokio::task::JoinHandle;
 use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
+use tracing::{Event, Instrument, Subscriber};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::layer::SubscriberExt;
@@ -188,6 +188,23 @@ pub(crate) fn spawn_background(
     } else {
         lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown))
     };
+    let sync_host = Arc::clone(host);
+    let sync_shutdown = Arc::clone(shutdown);
+    let backup = tokio::spawn(
+        async move {
+            let sync = lastdb_node::log_sync::spawn(sync_host, sync_shutdown);
+            let (backup_result, sync_result) = tokio::join!(backup, sync);
+            if sync_result.is_err() {
+                tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
+            }
+            if let Err(error) = backup_result {
+                if error.is_panic() {
+                    std::panic::resume_unwind(error.into_panic());
+                }
+            }
+        }
+        .in_current_span(),
+    );
     // A publication-home daemon is not the owner of saved queries. The owner
     // daemon follows source commits with the same durable-write watch.
     let saved_queries = lastdb_node::jobs::saved_query::spawn(

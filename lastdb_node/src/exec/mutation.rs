@@ -101,6 +101,8 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
     parsed.mutation.pub_key = host.public_key();
 
+    // The native commit is the durable capture. Named sync does not copy it
+    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.records().mutation_manager(), vec![parsed.mutation])
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
@@ -148,6 +150,8 @@ async fn execute_mutations_batch(
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();
+    // The native commit is the durable capture. Named sync does not copy it
+    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.records().mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;

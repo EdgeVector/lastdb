@@ -1,9 +1,11 @@
 //! `LastDBNode` authorization for one canonical POST.
 //!
 //! H verifies [`NodeReadToken::digest`] of the exact HTTP body. The token JSON
-//! includes `database_id`. E's data-route token omits that field, so H treats
-//! it as a legacy proof. Create, cutover, access, and the member-list read use
-//! this helper. Data routes do not. Dev and prod use the same helper.
+//! includes `database_id`. Create, cutover, access, and the member-list read
+//! use [`authorization`]. [`authorization_post`] is the same token for a POST
+//! path that enum does not name: a shareable data route, or a delivery fetch.
+//! Personal data routes stay on `log_sync::sign`. Dev and prod use this helper.
+//! The daemon does not post cutover.
 
 use base64::Engine as _;
 use cloud_backup_protocol::v2::share_access::{
@@ -19,7 +21,7 @@ use rand::RngCore;
 /// Canonical POST. The path is the shared constant for that route.
 ///
 /// Append, head, list, ack, snapshot, snapshot bytes, and trim are data
-/// routes. They stay on E's signer until that signer accepts this token.
+/// routes. A shareable database signs them with [`authorization_post`].
 /// The member-list update is not here: it signs [`cloud_backup_protocol::v2::share_access::MemberListUpdate`],
 /// not this header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,11 +55,11 @@ impl CanonicalPost {
 /// and the grant revision. Those values are not fields of this target.
 #[derive(Clone, Copy)]
 pub struct SignedPostTarget<'a> {
-    /// Account scope from the saved connection.
+    /// Scope that signs this post. A receiver uses the invitation stream scope.
     pub scope: &'a CloudScope,
     /// Database id. The token sets `stream.stream_id` to this same id.
     pub database_id: &'a Id,
-    /// Saved connection realm.
+    /// Realm of this signature. A receiver uses the invitation environment.
     pub environment: ShareEnvironment,
     /// Canonical route. [`CanonicalPost::path`] is the path in the token.
     pub route: CanonicalPost,
@@ -74,12 +76,63 @@ pub fn authorization(
     member_revision: u64,
     now_ms: u64,
 ) -> Result<String, String> {
-    let token = token(keypair, target, member_revision, now_ms)?;
+    let token = issued(
+        keypair,
+        target.scope,
+        target.database_id,
+        target.environment,
+        target.route.path(),
+        member_revision,
+        now_ms,
+    )?;
+    header(keypair, &token, body)
+}
+
+/// Account, database, realm, and raw path of one signed data POST.
+///
+/// [`authorization_post`] still takes the raw body, the clock, the signing key,
+/// and the grant revision. Those values are not fields of this target.
+#[derive(Clone, Copy)]
+pub struct PathPostTarget<'a> {
+    /// Scope that signs this post.
+    pub scope: &'a CloudScope,
+    /// Database id. The token sets `stream.stream_id` to this same id.
+    pub database_id: &'a Id,
+    /// Saved connection realm, or the invitation realm for a receiver.
+    pub environment: ShareEnvironment,
+    /// HTTP path. The token carries this path.
+    pub path: &'a str,
+}
+
+/// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
+///
+/// Shareable append, head, list, ack, snapshot, and `delivery/snapshot` or
+/// `delivery/object` use this. The path in the token is `target.path`.
+pub fn authorization_post(
+    keypair: &Ed25519KeyPair,
+    target: PathPostTarget<'_>,
+    body: &[u8],
+    member_revision: u64,
+    now_ms: u64,
+) -> Result<String, String> {
+    let token = issued(
+        keypair,
+        target.scope,
+        target.database_id,
+        target.environment,
+        target.path,
+        member_revision,
+        now_ms,
+    )?;
+    header(keypair, &token, body)
+}
+
+fn header(keypair: &Ed25519KeyPair, token: &NodeReadToken, body: &[u8]) -> Result<String, String> {
     let digest = token
         .digest(body)
         .map_err(|_| "node read digest was refused")?;
     let signature = keypair.sign(digest.as_str().as_bytes());
-    let token_json = serde_json::to_vec(&token).map_err(|_| "node read token was refused")?;
+    let token_json = serde_json::to_vec(token).map_err(|_| "node read token was refused")?;
     let encoded_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_json);
     let encoded_signature =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes());
@@ -88,9 +141,12 @@ pub fn authorization(
     ))
 }
 
-fn token(
+fn issued(
     keypair: &Ed25519KeyPair,
-    target: SignedPostTarget<'_>,
+    scope: &CloudScope,
+    database_id: &Id,
+    environment: ShareEnvironment,
+    path: &str,
     member_revision: u64,
     now_ms: u64,
 ) -> Result<NodeReadToken, String> {
@@ -103,15 +159,14 @@ fn token(
         .map_err(|_| "node key was refused")?;
     Ok(NodeReadToken {
         version: Version::V2,
-        environment: target.environment,
-        database_id: target.database_id.clone(),
+        environment,
+        database_id: database_id.clone(),
         stream: Stream {
-            scope: target.scope.clone(),
-            stream_id: target.database_id.clone(),
+            scope: scope.clone(),
+            stream_id: database_id.clone(),
         },
         method: ShareHttpMethod::Post,
-        path: Text::try_from(String::from(target.route.path()))
-            .map_err(|_| "node read path was refused")?,
+        path: Text::try_from(path.to_owned()).map_err(|_| "node read path was refused")?,
         issued_at_ms: DecimalU64::new(now_ms),
         nonce: Text::try_from(fold_db::hex::hex_lower(nonce_bytes))
             .map_err(|_| "node read nonce was refused")?,

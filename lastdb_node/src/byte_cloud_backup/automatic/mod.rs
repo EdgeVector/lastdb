@@ -49,6 +49,9 @@ pub fn spawn_automatic(
 fn tick(host: &crate::host::Host) -> Result<()> {
     let _transition = host.byte_backup.transition()?;
     host.byte_backup.check_admission()?;
+    if crate::log_sync::legacy_resume_forbidden(&host.home) {
+        return Ok(());
+    }
     let Some(mut policy) = policy::load(host)? else {
         return Ok(());
     };

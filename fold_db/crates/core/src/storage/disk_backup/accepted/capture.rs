@@ -18,6 +18,7 @@ struct External<'a> {
     marker: Option<&'a FileMarker>,
     sealed: Option<String>,
     bytes: Option<Vec<u8>>,
+    reference: Option<String>,
 }
 
 pub(crate) async fn stage_records(
@@ -84,6 +85,7 @@ async fn seal_mutation(
     let cleared = external.cleared;
     let present = external.present;
     let file_bytes = external.bytes;
+    let reference = external.reference;
     let inline_file = inline_section(mutation, has_file)?;
     let (receipt_sha, intent_sha) = contribution_hashes(mutation);
     let contribution = contribution_section(mutation, &receipt_sha, &intent_sha);
@@ -103,6 +105,7 @@ async fn seal_mutation(
     let canonical = body::record_body(mutation, &parts);
     let mut note = body::seal(content_key, &canonical)?;
     note.file = file_bytes;
+    note.reference = reference;
     Ok(note)
 }
 
@@ -121,9 +124,9 @@ async fn external_file<'a>(
         FileWrite::Clear => Ok(External::clear()),
         FileWrite::Put(_) => owned_row(content_key, mutation, write),
         FileWrite::LocalPath(_) => {
-            confirm_local(mutation, write, admit).await?;
             let marker = file_marker(mutation, write)?;
-            Ok(External::custody(marker))
+            let reference = confirm_local(marker, write, admit).await?;
+            Ok(External::custody(marker, reference))
         }
     }
 }
@@ -147,23 +150,35 @@ fn owned_row<'a>(
         marker: Some(marker),
         sealed: Some(sealed),
         bytes: Some(row),
+        reference: None,
     })
 }
 
 async fn confirm_local(
-    mutation: &Mutation,
+    marker: &FileMarker,
     write: &FileWrite,
     admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
-) -> StorageResult<()> {
+) -> StorageResult<String> {
     let reference = write
         .local_reference()
         .ok_or_else(|| invalid("accepted local file is missing"))?;
     let path = admit(reference)
         .ok_or_else(|| invalid("accepted local file was not issued for this database"))?;
-    let marker = file_marker(mutation, write)?;
+    let reference = path
+        .to_str()
+        .filter(|text| {
+            !text.is_empty()
+                && text.len() <= 4096
+                && !text
+                    .bytes()
+                    .any(|byte| byte == 0 || byte == b'\n' || byte == b'\r')
+        })
+        .ok_or_else(|| invalid("accepted local file path is not a durable reference"))?
+        .to_owned();
     let size = marker.size_bytes;
     let hash = marker.sha256.clone();
-    disk_pack::run_blocking(move || confirm_file(&path, size, &hash)).await
+    disk_pack::run_blocking(move || confirm_file(&path, size, &hash)).await?;
+    Ok(reference)
 }
 
 /// Hash the admitted file in a fixed buffer. The bytes stay in local-file custody.
@@ -262,6 +277,7 @@ impl<'a> External<'a> {
             marker: None,
             sealed: None,
             bytes: None,
+            reference: None,
         }
     }
 
@@ -272,16 +288,18 @@ impl<'a> External<'a> {
             marker: None,
             sealed: None,
             bytes: None,
+            reference: None,
         }
     }
 
-    fn custody(marker: &'a FileMarker) -> Self {
+    fn custody(marker: &'a FileMarker, reference: String) -> Self {
         Self {
             present: true,
             cleared: false,
             marker: Some(marker),
             sealed: None,
             bytes: None,
+            reference: Some(reference),
         }
     }
 }
