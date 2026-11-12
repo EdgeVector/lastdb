@@ -1,16 +1,18 @@
 //! Separately versioned opaque byte transport. No worker, route or activation.
-use super::backup_transport::{BackupTransport, StoredObject, TemporaryGrant};
+use super::backup_transport::BackupTransport;
 use super::AuthClient;
-use cloud_backup_protocol::v2::context::{ContextReadRequest, ContextReadResponse};
-use cloud_backup_protocol::v2::jobs::{JobBeginRequest, JobCloseRequest, JobResult};
-use cloud_backup_protocol::v2::transfer::{
-    TransferBatchResponse, TransferIdentityRequest, TransferInput, TransferItemResult,
-    TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
-    TransferStatusRequest,
+use cloud_backup_protocol::v2::{
+    context::{ContextReadRequest, ContextReadResponse},
+    jobs::{JobBeginRequest, JobCloseRequest, JobResult},
+    transfer::{
+        TransferBatchResponse, TransferIdentityRequest, TransferInput, TransferItemResult,
+        TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
+        TransferStatusRequest,
+    },
+    Version,
 };
-use cloud_backup_protocol::v2::{limits, Version};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use reqwest::header::HeaderMap;
+use serde::{de::DeserializeOwned, Serialize};
 use std::io::Read;
 
 mod contributions;
@@ -25,10 +27,32 @@ pub use guest_permission::{GuestAppendPermission, GuestReadPermission, ShareEnvi
 pub use reader::ByteBackupReader;
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
+macro_rules! validated_rpc {
+    ($fn:ident($req:ty) -> $resp:ty : $path:literal, $check:ident) => {
+        pub async fn $fn(&self, request: &$req) -> Result<$resp> {
+            request.validate()?;
+            let response: $resp = self.post($path, request).await?;
+            response.$check(request)?;
+            Ok(response)
+        }
+    };
+}
+
+macro_rules! identity_rpc {
+    ($fn:ident -> $resp:ty : $path:literal) => {
+        pub async fn $fn(&self, input: &TransferInput) -> Result<$resp> {
+            let response: $resp = self.post($path, &identity(input)?).await?;
+            response.validate_for(input)?;
+            Ok(response)
+        }
+    };
+}
+
 #[derive(Clone)]
 pub struct ByteBackupClient {
     transport: BackupTransport,
 }
+
 impl ByteBackupClient {
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         Ok(Self {
@@ -40,40 +64,19 @@ impl ByteBackupClient {
         self.transport.endpoint("cloud/backups/v2/")
     }
 
-    async fn post<Q: Serialize, R: DeserializeOwned>(
-        &self,
-        operation: &str,
-        request: &Q,
-    ) -> Result<R> {
-        self.transport
-            .post(
-                &format!("cloud/backups/v2/{operation}"),
-                request,
-                limits::CONTROL_JSON_MAX_BYTES,
-            )
-            .await
+    pub fn reader(&self) -> ByteBackupReader {
+        ByteBackupReader::from_transport(self.transport.clone())
     }
 
-    pub async fn context(&self, request: &ContextReadRequest) -> Result<ContextReadResponse> {
-        request.validate()?;
-        let response: ContextReadResponse = self.post("context/read", request).await?;
-        response.validate_for(request)?;
-        Ok(response)
+    async fn post<Q: Serialize, R: DeserializeOwned>(&self, op: &str, request: &Q) -> Result<R> {
+        self.transport.post_v2(op, request, HeaderMap::new()).await
     }
 
-    pub async fn begin(&self, request: &JobBeginRequest) -> Result<JobResult> {
-        request.validate()?;
-        let response: JobResult = self.post("jobs/begin", request).await?;
-        response.validate_for_begin(request)?;
-        Ok(response)
-    }
-
-    pub async fn close(&self, request: &JobCloseRequest) -> Result<JobResult> {
-        request.validate()?;
-        let response: JobResult = self.post("jobs/close", request).await?;
-        response.validate_for_close(request)?;
-        Ok(response)
-    }
+    validated_rpc!(context(ContextReadRequest) -> ContextReadResponse : "context/read", validate_for);
+    validated_rpc!(begin(JobBeginRequest) -> JobResult : "jobs/begin", validate_for_begin);
+    validated_rpc!(close(JobCloseRequest) -> JobResult : "jobs/close", validate_for_close);
+    identity_rpc!(resume -> TransferResumeResult : "transfers/resume");
+    identity_rpc!(complete -> TransferItemResult : "transfers/complete");
 
     pub async fn prepare(&self, request: &TransferPrepareRequest) -> Result<TransferBatchResponse> {
         request.validate()?;
@@ -93,20 +96,6 @@ impl ByteBackupClient {
         Ok(response)
     }
 
-    pub async fn resume(&self, input: &TransferInput) -> Result<TransferResumeResult> {
-        let request = identity(input)?;
-        let response: TransferResumeResult = self.post("transfers/resume", &request).await?;
-        response.validate_for(input)?;
-        Ok(response)
-    }
-
-    pub async fn complete(&self, input: &TransferInput) -> Result<TransferItemResult> {
-        let request = identity(input)?;
-        let response: TransferItemResult = self.post("transfers/complete", &request).await?;
-        response.validate_for(input)?;
-        Ok(response)
-    }
-
     pub async fn upload(
         &self,
         input: &TransferInput,
@@ -114,20 +103,16 @@ impl ByteBackupClient {
         source: Box<dyn Read + Send>,
     ) -> Result<UploadObservation> {
         response.validate_for(input)?;
-        let object = StoredObject {
-            sha256: &input.object.sha256,
-            bytes: input.object.bytes.get(),
-        };
-        let grant = TemporaryGrant {
-            url: response.grant.url.as_str(),
-            expires_ms: response.grant.expires_ms.get(),
-        };
+        let g = &response.grant;
+        let mp = g.transfer_mode == Some(TransferMode::MultipartPart);
         self.transport
             .upload(
-                object,
-                grant,
+                &input.object.sha256,
+                input.object.bytes.get(),
+                g.url.as_str(),
+                g.expires_ms.get(),
                 source,
-                response.grant.transfer_mode == Some(TransferMode::MultipartPart),
+                mp,
             )
             .await
     }

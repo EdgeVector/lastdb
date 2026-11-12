@@ -6,7 +6,7 @@ mod record;
 
 use super::byte_backup::RunBackupProfile;
 use crate::storage::disk_backup::mutation_log::{Frontiers, LogAnchor, LogEntry, LogPosition};
-use crate::storage::disk_pack::{run_node, NODE_MARKER, RUN_DIR};
+use crate::storage::disk_pack::{run_node, RUN_DIR};
 use crate::storage::error::{
     NativeProofCause, NativeProofStage as Stage, StorageError, StorageResult,
 };
@@ -20,46 +20,13 @@ pub use database::{SnapshotRecordPage, SnapshotSchema};
 pub use node::{validate_restored_node, RunNodeGuard};
 pub use record::{RunSnapshotReader, SnapshotAlternatePage, StagedRecord, StagedRecordQuery};
 
-pub struct RunRestoreFile {
-    pub path: String,
-    pub bytes: u64,
-}
+pub type RunRestoreGuard = RunNodeGuard;
 
-pub struct RunRestoreGuard {
-    native: RunNodeGuard,
-}
-
-fn sum_file_bytes(files: &[RunRestoreFile], msg: &'static str) -> StorageResult<u64> {
+pub(super) fn sum_file_bytes(files: &[(String, u64)], msg: &'static str) -> StorageResult<u64> {
     files
         .iter()
-        .try_fold(0u64, |sum, f| sum.checked_add(f.bytes))
+        .try_fold(0u64, |s, (_, b)| s.checked_add(*b))
         .ok_or_else(|| invalid(msg))
-}
-
-impl RunRestoreGuard {
-    pub fn native_root(&self) -> StorageResult<NativeRoot> {
-        self.native.profile.native_root()
-    }
-    pub fn files(&self) -> impl Iterator<Item = &RunRestoreFile> {
-        self.native.files.iter()
-    }
-    pub fn totals(&self) -> StorageResult<(u64, u64)> {
-        let count =
-            u64::try_from(self.native.files.len()).map_err(|_| invalid("run file count"))?;
-        sum_file_bytes(&self.native.files, "run file byte sum").map(|b| (count, b))
-    }
-    pub fn check_binding(&self) -> StorageResult<()> {
-        self.native.check_binding()
-    }
-    pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
-        if self.native.root != data_root {
-            return Err(invalid("run restore publication root differs"));
-        }
-        self.native
-            .profile
-            .validate_root(root)
-            .and_then(|()| self.check_binding())
-    }
 }
 
 pub fn verify(
@@ -69,14 +36,12 @@ pub fn verify(
     account_key: &[u8; 32],
 ) -> StorageResult<RunRestoreGuard> {
     phase(Stage::Profile, profile.validate_root(native_root))?;
-    let native = phase(
-        Stage::PhysicalRoot,
-        RunNodeGuard::open(data_root, account_key, false),
-    )?;
-    (native.profile == *profile)
-        .then_some(native)
-        .ok_or_else(|| invalid("run restore captured profile differs"))
-        .and_then(finish_restore_guard)
+    finish_restore_guard(
+        data_root,
+        account_key,
+        |n| &n.profile == profile,
+        "run restore captured profile differs",
+    )
 }
 
 pub fn verify_replayed(
@@ -88,20 +53,32 @@ pub fn verify_replayed(
     if through.epoch != anchor.epoch {
         return Err(invalid("mutation replay epoch"));
     }
-    let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(data, key, false))?;
-    if native.profile.main.home_id != anchor.main_home
-        || native.profile.main.frontier.get() != through.frontiers.main
-    {
-        return Err(invalid("mutation replay exact final frontier"));
-    }
-    finish_restore_guard(native)
+    finish_restore_guard(
+        data,
+        key,
+        |n| {
+            n.profile.main.home_id == anchor.main_home
+                && n.profile.main.frontier.get() == through.frontiers.main
+        },
+        "mutation replay exact final frontier",
+    )
 }
 
-fn finish_restore_guard(native: RunNodeGuard) -> StorageResult<RunRestoreGuard> {
+fn finish_restore_guard(
+    data_root: &Path,
+    key: &[u8; 32],
+    check: impl FnOnce(&RunNodeGuard) -> bool,
+    msg: &'static str,
+) -> StorageResult<RunRestoreGuard> {
+    let native = phase(
+        Stage::PhysicalRoot,
+        RunNodeGuard::open(data_root, key, false),
+    )?;
+    if !check(&native) {
+        return Err(invalid(msg));
+    }
     native.require_empty_local_cas()?;
-    let guard = RunRestoreGuard { native };
-    phase(Stage::FinalBinding, guard.check_binding())?;
-    Ok(guard)
+    phase(Stage::FinalBinding, native.check_binding()).map(|()| native)
 }
 
 pub(in crate::storage::disk_backup) fn verify_captured_account(
@@ -131,20 +108,11 @@ pub struct MutationReplay {
 
 impl MutationReplay {
     pub fn open(data: &Path, key: &[u8; 32], anchor: &LogAnchor) -> StorageResult<Self> {
-        node::directory(data)?;
-        node::require_root_members(data)?;
-        node::profile_version(data)?;
-        let marker = node::regular(&data.join(NODE_MARKER), true)?;
-        marker
-            .try_lock()
-            .map_err(|_| invalid("mutation replay node is owned"))?;
+        let (_, _node, _) = node::lock_node(data, false, "mutation replay node is owned")?;
         let main =
             RunHome::open(&data.join(run_node::RUN_DIR), &run_node::home_key(key)).map_err(map)?;
         (main.identity().to_string() == anchor.main_home.as_str())
-            .then_some(Self {
-                main,
-                _node: marker,
-            })
+            .then_some(Self { main, _node })
             .ok_or_else(|| invalid("mutation replay native home identity"))
     }
 
@@ -167,27 +135,21 @@ impl MutationReplay {
             .parts
             .get(part_index)
             .ok_or_else(|| invalid("mutation replay part number"))?;
-        let before_main = part_index
+        let prev = part_index
             .checked_sub(1)
             .and_then(|i| entry.parts.get(i))
             .map_or(entry.before.main, |p| p.frontier);
-        let (before, after) = (
-            Frontiers { main: before_main },
-            Frontiers {
-                main: part.frontier,
-            },
-        );
-        let current = self.frontiers();
-        if current != before && current != after {
+        let cur = self.frontiers().main;
+        if cur != prev && cur != part.frontier {
             return Err(invalid("mutation replay exact partial frontier"));
         }
         let applied = self
             .main
-            .replay_commit_file(source, before.main, part.frontier)
+            .replay_commit_file(source, prev, part.frontier)
             .map_err(map)?;
         (applied.run_id.to_string() == part.run_id.as_str()
             && applied.run_bytes == part.bytes
-            && self.frontiers() == after)
+            && self.frontiers().main == part.frontier)
             .then_some(())
             .ok_or_else(|| invalid("mutation replay original run identity or length"))
     }
@@ -210,23 +172,31 @@ impl RunSnapshotReader {
         native.check_binding()?;
         node::directory(destination)?;
         let bytes = sum_file_bytes(&native.files, "cached mutation replay bytes")?;
-        let _space = laststore::space::reserve_space(
-            destination,
-            &laststore::space::SpacePolicy::default(),
-            bytes,
-        )
-        .map_err(map)?;
-        let main = destination.join(RUN_DIR);
-        let runs = main.join(RUNS);
+        let pol = laststore::space::SpacePolicy::default();
+        let _space = laststore::space::reserve_space(destination, &pol, bytes).map_err(map)?;
+        let (main, runs) = (
+            destination.join(RUN_DIR),
+            destination.join(RUN_DIR).join(RUNS),
+        );
         for dir in [&main, &runs] {
             DirBuilder::new().mode(0o700).create(dir)?;
         }
-        for file in &native.files {
-            copy_replay_file(
-                &native.root.join(&file.path),
-                &destination.join(&file.path),
-                file.bytes,
+        for (rel, expected_bytes) in &native.files {
+            let mut out = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(destination.join(rel))?;
+            let n = node::stream_regular(
+                &native.root.join(rel),
+                &mut out,
+                "cached mutation replay file length",
             )?;
+            if n != *expected_bytes {
+                return Err(invalid("cached mutation replay file length"));
+            }
+            out.sync_all()?;
         }
         for dir in [runs.as_path(), main.as_path(), destination] {
             File::open(dir)?.sync_all()?;
@@ -235,20 +205,7 @@ impl RunSnapshotReader {
     }
 }
 
-fn copy_replay_file(source: &Path, destination: &Path, bytes: u64) -> StorageResult<()> {
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(destination)?;
-    if node::stream_regular(source, &mut output, "cached mutation replay file length")? != bytes {
-        return Err(invalid("cached mutation replay file length"));
-    }
-    Ok(output.sync_all()?)
-}
-
-fn invalid(message: &'static str) -> StorageError {
+pub(super) fn invalid(message: &'static str) -> StorageError {
     StorageError::NativeProof {
         stage: Stage::Validation,
         cause: NativeProofCause::Static(message),
@@ -259,13 +216,11 @@ fn phase<T>(stage: Stage, result: StorageResult<T>) -> StorageResult<T> {
     result.map_err(|error| error.at_native_proof(stage))
 }
 
-fn map(error: laststore::Error) -> StorageError {
+pub(super) fn map(error: laststore::Error) -> StorageError {
     let cause = match error {
         laststore::Error::Corrupt(_) => NativeProofCause::NativeFormat,
         laststore::Error::AeadAuthFail => NativeProofCause::Authentication,
-        laststore::Error::Config(msg)
-            if msg == "disk run snapshot: another owner holds the home" =>
-        {
+        laststore::Error::Config(m) if m == "disk run snapshot: another owner holds the home" => {
             NativeProofCause::Static("run restore owner lock busy")
         }
         laststore::Error::Config(_) => NativeProofCause::Configuration,
@@ -277,7 +232,7 @@ fn map(error: laststore::Error) -> StorageError {
     }
 }
 
-fn fork_bounded(read: &RunRead, bytes: u64, keys: u64) -> StorageResult<RunRead> {
+pub(super) fn fork_bounded(read: &RunRead, bytes: u64, keys: u64) -> StorageResult<RunRead> {
     read.fork_bounded(ReadBudget {
         bytes,
         keys,
@@ -286,7 +241,7 @@ fn fork_bounded(read: &RunRead, bytes: u64, keys: u64) -> StorageResult<RunRead>
     .map_err(map)
 }
 
-fn read_budget() -> ReadBudget {
+pub(super) fn read_budget() -> ReadBudget {
     use lastdb_model::storage_policy::backup_decode as b;
     ReadBudget {
         pages: b::RECORD_INVENTORY_PAGES,

@@ -1,17 +1,16 @@
-use super::*;
+//! Read-only owner and guest V2 backup transport reader.
+use super::{BackupTransport, BackupTransportError, GuestReadPermission, ObjectStream, Result};
 use crate::profile::endpoints::exemem_api_url_for;
-use cloud_backup_protocol::v2::access::{
-    ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadGrantResponse,
+use cloud_backup_protocol::v2::{
+    access::{ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadGrantResponse},
+    publication::{CommitResponse, CommitStatusRequest, HeadReadRequest, HeadReadResult},
+    AcceptedBackup, Stream, Version,
 };
-use cloud_backup_protocol::v2::publication::{
-    CommitResponse, CommitStatusRequest, HeadReadRequest, HeadReadResult,
-};
-use cloud_backup_protocol::v2::{AcceptedBackup, Stream, Version};
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use reqwest::header::{HeaderMap, HeaderValue};
+use serde::{de::DeserializeOwned, Serialize};
 use std::sync::OnceLock;
 
-/// Read accepted backups with owner or guest authority.
 pub struct ByteBackupReader {
     transport: BackupTransport,
     guest: Option<GuestAccess>,
@@ -24,17 +23,14 @@ struct GuestAccess {
     recovery: OnceLock<bool>,
 }
 
-impl ByteBackupClient {
-    pub fn reader(&self) -> ByteBackupReader {
-        ByteBackupReader {
-            transport: self.transport.clone(),
+impl ByteBackupReader {
+    pub(super) fn from_transport(transport: BackupTransport) -> Self {
+        Self {
+            transport,
             guest: None,
         }
     }
-}
 
-impl ByteBackupReader {
-    /// Follow the accepted recovery chain when the issuer supports Share logs.
     pub fn guest_recovery(permission: GuestReadPermission) -> Result<Self> {
         let env = permission.environment().registry();
         let mut header = HeaderValue::from_str(permission.authorization())
@@ -60,7 +56,6 @@ impl ByteBackupReader {
         self.guest.as_ref().map(|g| &g.stream)
     }
 
-    /// Resolve the accepted head for this permission and reader mode.
     pub async fn guest_head(&self) -> Result<HeadReadResult> {
         let access = self
             .guest
@@ -70,7 +65,6 @@ impl ByteBackupReader {
             version: Version::V2,
             stream: access.stream.clone(),
         };
-        req.validate()?;
         if let Some(&r) = access.recovery.get() {
             return self.read_guest_head(&req, r).await;
         }
@@ -90,16 +84,12 @@ impl ByteBackupReader {
         self.read_guest_head(&req, false).await
     }
 
-    async fn read_guest_head(
+    pub(super) async fn post_head(
         &self,
+        op: &str,
         req: &HeadReadRequest,
-        recovery: bool,
     ) -> Result<HeadReadResult> {
-        let op = if recovery {
-            "guest/recovery/head/read"
-        } else {
-            "guest/head/read"
-        };
+        req.validate()?;
         let res = match self.post(op, req).await {
             Ok(resp) => resp,
             Err(BackupTransportError::Protocol(error))
@@ -110,6 +100,20 @@ impl ByteBackupReader {
             Err(e) => return Err(e),
         };
         res.validate_for(req)?;
+        Ok(res)
+    }
+
+    async fn read_guest_head(
+        &self,
+        req: &HeadReadRequest,
+        recovery: bool,
+    ) -> Result<HeadReadResult> {
+        let op = if recovery {
+            "guest/recovery/head/read"
+        } else {
+            "guest/head/read"
+        };
+        let res = self.post_head(op, req).await?;
         if let HeadReadResult::Ok { response } = &res {
             if response.active_commit_id.is_some() {
                 return Err(BackupTransportError::InvalidResponse("guest active commit"));
@@ -144,12 +148,11 @@ impl ByteBackupReader {
         if recovery {
             let resp: CommitResponse = self.post("guest/recovery/commits/status", request).await?;
             resp.validate_for_status(request)?;
-            if !matches!(resp, CommitResponse::Accepted { .. }) {
-                return Err(BackupTransportError::InvalidResponse(
+            return matches!(resp, CommitResponse::Accepted { .. })
+                .then_some(resp)
+                .ok_or(BackupTransportError::InvalidResponse(
                     "guest accepted point",
                 ));
-            }
-            return Ok(resp);
         }
         let changed = || protocol(ErrorCode::RetryLater, "guest.head_changed");
         match self.guest_head().await? {
@@ -187,28 +190,24 @@ impl ByteBackupReader {
         let resp: ReadGrantResponse = self.post(op, request).await?;
         resp.validate_for(request, accepted)?;
         if let Some((access, _)) = guest {
-            let expired = resp.items.iter().any(|item| {
-                matches!(item, ReadGrantItemResult::Ok { grant, .. } if grant.expires_ms.get() > access.expires_ms)
-            });
-            if expired {
+            if resp.items.iter().any(|i| matches!(i, ReadGrantItemResult::Ok { grant, .. } if grant.expires_ms.get() > access.expires_ms)) {
                 return Err(BackupTransportError::InvalidResponse("guest grant expiry"));
             }
         }
         Ok(resp)
     }
 
-    /// Provider requests carry only the existing temporary URL.
     pub async fn open(&self, grant: &ReadGrant) -> Result<ObjectStream> {
         grant.validate()?;
-        let obj = StoredObject {
-            sha256: &grant.sha256,
-            bytes: grant.bytes.get(),
-        };
-        let url = TemporaryGrant {
-            url: grant.url.as_str(),
-            expires_ms: grant.expires_ms.get(),
-        };
-        self.transport.open(obj, url).await
+        let sha = Some(grant.sha256.clone());
+        self.transport
+            .open_bounded(
+                grant.bytes.get(),
+                sha,
+                grant.url.as_str(),
+                grant.expires_ms.get(),
+            )
+            .await
     }
 
     async fn post<Q: Serialize, R: DeserializeOwned>(&self, op: &str, request: &Q) -> Result<R> {
@@ -216,12 +215,7 @@ impl ByteBackupReader {
         if let Some(access) = &self.guest {
             headers.insert(reqwest::header::AUTHORIZATION, access.header.clone());
         }
-        let url = self
-            .transport
-            .api_endpoint(&format!("cloud/backups/v2/{op}"));
-        self.transport
-            .post_bounded_with_headers(url, request, limits::CONTROL_JSON_MAX_BYTES, headers)
-            .await
+        self.transport.post_v2(op, request, headers).await
     }
 }
 

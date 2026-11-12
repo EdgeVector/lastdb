@@ -1,59 +1,69 @@
 //! The Mini format and retained source of a byte backup of a disk format v2 home.
-
-mod capture;
 mod codec;
 mod planner;
 mod run_capture;
 mod store;
 
-use crate::storage::cloud_backup_plan::{expected_receipt, PlanSegment};
+use crate::storage::cloud_backup_plan::{PlanError, PlanSegment, PlannedRecord};
+use crate::storage::disk_backup::NativeCloudWorkGuard;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 use cloud_backup_protocol::v2::{
     jobs::{JobResult, JobStatus},
     limits::{MAX_PAGES, MAX_PAGE_ENTRIES},
-    transfer::{ObjectReceipt, TransferInput},
+    transfer::ObjectReceipt,
     Begin,
 };
-use cloud_backup_protocol::{Digest, NativeRoot, ProtocolError, RecoveryDescriptor};
+use cloud_backup_protocol::{bytes_sha256, Digest, NativeRoot, ProtocolError, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
-use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc, Mutex, MutexGuard};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{self, Read};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex, MutexGuard,
+};
 
 pub use codec::*;
+pub use planner::seal_pages;
 
 pub(super) const RUN_INTENT_FILE: &str = "run-intent.json";
 pub(super) const HELD_NODE_FILE: &str = "node";
 pub(super) const STATE_FORMAT: u16 = 6;
 pub(super) const MAX_OBJECTS: u64 = (MAX_PAGE_ENTRIES * MAX_PAGES) as u64;
+pub(super) type PublicationGate<'a> = &'a (dyn Fn() -> StorageResult<File> + Sync);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct State {
-    format: u16,
-    begin: Begin,
-    reference_id: uuid::Uuid,
-    native_root: NativeRoot,
-    key_sha256: Digest,
-    ready: bool,
-    objects: u64,
-    verified: u64,
-    native_files: u64,
-    native_bytes: u64,
-    metadata_pack_objects: u64,
-    multi_file_pack_objects: u64,
-    terminal: Option<JobResult>,
-    local_cancelled: bool,
-    released: bool,
-    recovery: RecoveryDescriptor,
-    run: RunBackupProfile,
+pub(super) struct State {
+    pub format: u16,
+    pub begin: Begin,
+    pub reference_id: uuid::Uuid,
+    pub native_root: NativeRoot,
+    pub key_sha256: Digest,
+    pub ready: bool,
+    pub objects: u64,
+    pub verified: u64,
+    pub native_files: u64,
+    pub native_bytes: u64,
+    pub metadata_pack_objects: u64,
+    pub multi_file_pack_objects: u64,
+    pub terminal: Option<JobResult>,
+    pub local_cancelled: bool,
+    pub released: bool,
+    pub recovery: RecoveryDescriptor,
+    pub run: RunBackupProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    journal_anchor: Option<super::mutation_log::LogAnchor>,
+    pub journal_anchor: Option<super::mutation_log::LogAnchor>,
 }
 
 impl State {
-    fn validate(&self) -> StorageResult<()> {
+    pub(super) fn validate(&self) -> StorageResult<()> {
         self.begin.validate().map_err(protocol)?;
         self.run.validate_root(&self.native_root)?;
+        self.recovery
+            .validate_for(&self.begin.job.stream.scope)
+            .map_err(protocol)?;
         if let Some(a) = &self.journal_anchor {
             a.position()?;
             if a.main_home != self.run.main.home_id
@@ -75,75 +85,30 @@ impl State {
         {
             return Err(invalid("byte source state bounds"));
         }
-        self.recovery
-            .validate_for(&self.begin.job.stream.scope)
-            .map_err(protocol)?;
         match &self.terminal {
             Some(res) => {
                 res.validate_for_begin(&self.begin).map_err(protocol)?;
-                if matches!(res.status, JobStatus::Active) {
-                    return Err(invalid("byte source terminal active"));
-                }
+                (!matches!(res.status, JobStatus::Active))
+                    .then_some(())
+                    .ok_or_else(|| invalid("byte source terminal active"))
             }
             None if self.released && !self.local_cancelled => {
-                return Err(invalid("byte source release without terminal"));
+                Err(invalid("byte source release without terminal"))
             }
-            None => {}
+            None => Ok(()),
         }
-        Ok(())
     }
 
-    fn is_active(&self) -> bool {
+    pub(super) fn is_active(&self) -> bool {
         self.terminal.is_none() && !self.local_cancelled && !self.released
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ObjectRecord {
-    input: TransferInput,
-    segments: Vec<PlanSegment>,
-    ciphertext: Option<String>,
-    receipt: Option<ObjectReceipt>,
-}
-
-impl ObjectRecord {
-    fn validate(&self, state: &State) -> StorageResult<()> {
-        self.input.validate().map_err(protocol)?;
-        if self.input.job != state.begin.job
-            || self.segments.is_empty() != self.ciphertext.is_some()
-        {
-            return Err(invalid("byte source object identity"));
-        }
-        let total = crate::storage::cloud_backup_plan::sum_segments(&self.segments, |i| {
-            ((i as u64) < state.native_files).then_some(u64::MAX)
-        })
-        .ok_or_else(|| invalid("byte source segment bounds"))?;
-        if !self.segments.is_empty() && total != self.input.object.bytes.get() {
-            return Err(invalid("byte source object exact bytes"));
-        }
-        self.receipt
-            .as_ref()
-            .map_or(Ok(()), |r| check_receipt(&self.input, r))
-    }
-}
-
-fn check_receipt(input: &TransferInput, receipt: &ObjectReceipt) -> StorageResult<()> {
-    receipt.validate().map_err(protocol)?;
-    if receipt.scope != input.job.stream.scope || receipt.object != input.object {
-        return Err(invalid("byte source verified receipt identity"));
-    }
-    Ok(())
-}
-
-fn object_name(index: u64) -> String {
+pub(super) fn object_name(index: u64) -> String {
     format!("object-{index:08}.json")
 }
-
-#[derive(Clone, Debug)]
-pub struct ByteBackupObject {
-    pub input: TransferInput,
-    pub receipt: Option<ObjectReceipt>,
+pub(super) fn payload_name(index: u64) -> String {
+    format!("payload-{index:08}.enc")
 }
 
 #[derive(Clone, Debug)]
@@ -166,7 +131,7 @@ struct Inner {
     state: Mutex<State>,
     run: Option<planner::RunSource>,
     readers: AtomicUsize,
-    _admission: super::NativeCloudWorkGuard,
+    _admission: NativeCloudWorkGuard,
 }
 
 impl ByteBackupCapture {
@@ -195,14 +160,10 @@ impl ByteBackupCapture {
             multi_file_pack_objects: s.multi_file_pack_objects,
         })
     }
-    pub fn object(&self, index: u64) -> StorageResult<ByteBackupObject> {
+    pub fn object(&self, index: u64) -> StorageResult<PlannedRecord> {
         let s = self.lock()?;
-        self.require_export(&s)?;
-        let obj = self.inner.object(&s, index)?;
-        Ok(ByteBackupObject {
-            input: obj.input,
-            receipt: obj.receipt,
-        })
+        self.require_export(&s)
+            .and_then(|()| self.inner.object(&s, index))
     }
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> StorageResult<()> {
         let mut s = self.lock()?;
@@ -211,11 +172,7 @@ impl ByteBackupCapture {
             return Err(invalid("byte source confirmation phase"));
         }
         let mut obj = self.inner.object(&s, index)?;
-        check_receipt(&obj.input, receipt)?;
-        if obj.receipt.as_ref().is_some_and(|prior| prior != receipt) {
-            return Err(invalid("byte source receipt changed"));
-        }
-        obj.receipt = Some(receipt.clone());
+        obj.confirm(receipt)?;
         self.inner.store.write(&object_name(index), &obj)?;
         self.inner.advance(&mut s)
     }
@@ -228,17 +185,73 @@ impl ByteBackupCapture {
         {
             return Ok(backup.root_receipt_id.clone());
         }
-        if !s.ready {
-            return Err(invalid("byte source is not ready"));
-        }
-        expected_receipt(&self.inner.object(&s, s.objects - 1)?.input)
-            .map(|r| r.receipt_id)
-            .map_err(protocol)
+        s.ready
+            .then_some(())
+            .ok_or_else(|| invalid("byte source is not ready"))
+            .and_then(|()| self.inner.expected_root_id(&s))
     }
     pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> StorageResult<()> {
         self.inner.store.coordinator(bytes)
     }
-    fn lock(&self) -> StorageResult<MutexGuard<'_, State>> {
+    pub fn terminal(&self, result: &JobResult) -> StorageResult<()> {
+        let mut state = self.lock()?;
+        self.inner.require_idle()?;
+        result.validate_for_begin(&state.begin).map_err(protocol)?;
+        if state.local_cancelled || matches!(result.status, JobStatus::Active) {
+            return Err(invalid("byte source terminal invalid"));
+        }
+        if let Some(prior) = &state.terminal {
+            if prior != result {
+                return Err(invalid("byte source terminal result changed"));
+            }
+        } else {
+            if let JobStatus::Published { backup } = &result.status {
+                self.inner.advance(&mut state)?;
+                if !state.ready
+                    || state.verified != state.objects
+                    || backup.root_receipt_id != self.inner.expected_root_id(&state)?
+                {
+                    return Err(invalid("byte accepted result does not cover source"));
+                }
+            }
+            state.terminal = Some(result.clone());
+            if let Err(e) = self.inner.store.write("job.json", &*state) {
+                state.terminal = None;
+                return Err(e);
+            }
+        }
+        drop(state);
+        self.finish_terminal()
+    }
+    pub(super) fn finish_terminal(&self) -> StorageResult<()> {
+        let mut state = self.lock()?;
+        if state.terminal.is_none() && !state.local_cancelled {
+            return Ok(());
+        }
+        self.inner.require_idle()?;
+        if !state.released {
+            if let (
+                Some(a),
+                Some(JobResult {
+                    status: JobStatus::Published { .. },
+                    ..
+                }),
+            ) = (&state.journal_anchor, &state.terminal)
+            {
+                self.inner.runtime.mutation_log.snapshot_accepted(a)?;
+            }
+            let held = planner::held_root(&self.inner.runtime, state.reference_id);
+            planner::RunSource::release_saved(&held)?;
+            self.inner.store.remove(RUN_INTENT_FILE)?;
+            state.released = true;
+            if let Err(e) = self.inner.store.write("job.json", &*state) {
+                state.released = false;
+                return Err(e);
+            }
+        }
+        planner::clear_objects(&self.inner.store, state.objects)
+    }
+    pub(super) fn lock(&self) -> StorageResult<MutexGuard<'_, State>> {
         self.inner
             .state
             .lock()
@@ -257,7 +270,7 @@ impl Inner {
         store: store::Store,
         state: State,
         run: Option<planner::RunSource>,
-        _admission: super::NativeCloudWorkGuard,
+        _admission: NativeCloudWorkGuard,
     ) -> Self {
         Self {
             runtime,
@@ -273,22 +286,23 @@ impl Inner {
             .then_some(())
             .ok_or_else(|| invalid("byte source readers are active"))
     }
-    fn object(&self, state: &State, index: u64) -> StorageResult<ObjectRecord> {
+    pub(super) fn expected_root_id(&self, state: &State) -> StorageResult<Digest> {
+        self.object(state, state.objects - 1)?
+            .expected_receipt_id()
+            .map_err(protocol)
+    }
+    pub(super) fn object(&self, state: &State, index: u64) -> StorageResult<PlannedRecord> {
         if index >= state.objects {
             return Err(invalid("byte source object index"));
         }
-        let obj: ObjectRecord = self.store.read(&object_name(index))?;
-        obj.validate(state)?;
-        if obj
-            .ciphertext
-            .as_ref()
-            .is_some_and(|n| *n != format!("payload-{index:08}.enc"))
-        {
-            return Err(invalid("byte source ciphertext coordinate"));
-        }
-        Ok(obj)
+        let obj: PlannedRecord = self.store.read(&object_name(index))?;
+        obj.validate(&state.begin.job, &payload_name(index), |i| {
+            ((i as u64) < state.native_files).then_some(u64::MAX)
+        })
+        .map(|()| obj)
+        .map_err(Into::into)
     }
-    fn advance(&self, state: &mut State) -> StorageResult<()> {
+    pub(super) fn advance(&self, state: &mut State) -> StorageResult<()> {
         if !state.released {
             while state.verified < state.objects
                 && self.object(state, state.verified)?.receipt.is_some()
@@ -302,10 +316,60 @@ impl Inner {
     }
 }
 
-fn invalid(reason: &str) -> StorageError {
-    StorageError::InvalidOperation(reason.into())
+pub fn open_planned_reader<R: Read + Send + 'static, E: From<PlanError>>(
+    record: PlannedRecord,
+    read_payload: impl FnOnce(&str, u64) -> Result<Vec<u8>, E>,
+    open_seg: impl FnMut(PlanSegment) -> io::Result<(R, u64)> + Send + 'static,
+) -> Result<Box<dyn Read + Send>, E> {
+    if let Some(name) = &record.payload {
+        let bytes = read_payload(name, record.input.object.bytes.get())?;
+        if bytes.len() as u64 != record.input.object.bytes.get()
+            || bytes_sha256(&bytes) != record.input.object.sha256
+        {
+            return Err(PlanError::Conflict.into());
+        }
+        return Ok(Box::new(io::Cursor::new(bytes)));
+    }
+    Ok(Box::new(SegmentReader(
+        record.segments.into(),
+        None,
+        open_seg,
+    )))
 }
 
-fn protocol(_error: ProtocolError) -> StorageError {
+struct SegmentReader<R, F>(VecDeque<PlanSegment>, Option<(R, u64)>, F);
+
+impl<R: Read, F: FnMut(PlanSegment) -> io::Result<(R, u64)>> Read for SegmentReader<R, F> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        while !buf.is_empty() {
+            if let Some((r, left)) = &mut self.1 {
+                if *left == 0 {
+                    self.1 = None;
+                    continue;
+                }
+                let max = (*left).min(buf.len() as u64) as usize;
+                let n = r.read(&mut buf[..max])?;
+                if n == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "byte native source truncated",
+                    ));
+                }
+                *left -= n as u64;
+                return Ok(n);
+            }
+            let Some(seg) = self.0.pop_front() else {
+                return Ok(0);
+            };
+            self.1 = Some((self.2)(seg)?);
+        }
+        Ok(0)
+    }
+}
+
+pub(super) fn invalid(reason: &str) -> StorageError {
+    StorageError::InvalidOperation(reason.into())
+}
+pub(super) fn protocol(_error: ProtocolError) -> StorageError {
     invalid("byte protocol validation")
 }

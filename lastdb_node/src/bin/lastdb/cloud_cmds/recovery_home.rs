@@ -236,15 +236,15 @@ fn register_into(
     expected: &str,
     target: &mut FreshHome,
 ) -> Result<(), usize> {
-    let reg = block_on_cloud(
+    let (api_key, user_hash) = block_on_cloud(
         "account registration",
         register_native_device(env, pair, device, invite),
     )
     .map_err(|_| 0usize)?;
-    if reg.user_hash != expected {
+    if user_hash != expected {
         return Err(1);
     }
-    let bytes = SavedCredentials::new(exemem_api_url_for(env), reg.api_key)
+    let bytes = SavedCredentials::new(exemem_api_url_for(env), api_key)
         .to_json()
         .map_err(|_| 2usize)?;
     target

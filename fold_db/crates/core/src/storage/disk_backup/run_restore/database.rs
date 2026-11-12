@@ -22,12 +22,10 @@ use lastdb_model::storage_policy::backup_decode::{
 use laststore::disk_run::home::RunRead;
 use std::collections::BTreeMap;
 
-/// Catalog entry in the verified copy.
 pub struct SnapshotSchema {
     pub entry: SchemaWithState,
 }
 
-/// One page in native record-key order.
 pub struct SnapshotRecordPage {
     pub record_space: String,
     pub records: Vec<StoredRecord>,
@@ -57,28 +55,27 @@ pub(super) fn scan_records_page(
         None => read.administrative_range(RECORDS_COLLECTION, start.as_bytes(), end.as_bytes()),
     }
     .map_err(map)?;
-    let page = range
+    let p = range
         .next_page_yielding_bounded(limit.saturating_add(1), 0, 0, MAX_RECORD_BYTES as u64)
         .map_err(map)?;
-    Ok(Some((page.records, page.exhausted, page.resume.is_some())))
+    Ok(Some((p.records, p.exhausted, p.resume.is_some())))
 }
 
 impl RunSnapshotReader {
-    /// Read the catalog at the held version without starting a database writer.
     pub fn schemas(&self) -> StorageResult<Vec<SnapshotSchema>> {
         const LIMIT: usize = 1024;
         let mut read = self.lookup(LIMIT * 2 + 8)?;
-        let page = read
+        let p = read
             .administrative_range(SCHEMAS_NAMESPACE, b"", &[0xff])
             .map_err(map)?
             .next_page_yielding_bounded(LIMIT + 1, 0, 0, RECORD_BODY_MAX_BYTES)
             .map_err(map)?;
-        if !page.exhausted || page.resume.is_some() {
+        if !p.exhausted || p.resume.is_some() {
             return Err(resource_limit(
                 "verified schema catalog exceeds its read allowance",
             ));
         }
-        page.records
+        p.records
             .into_iter()
             .map(|(name, bytes)| {
                 let schema = decode_schema(&bytes, &name)?;
@@ -95,7 +92,6 @@ impl RunSnapshotReader {
             .collect()
     }
 
-    /// Read a bounded group of exact primary addresses at one version.
     pub fn exact_records(
         &self,
         schema: &Schema,
@@ -108,8 +104,10 @@ impl RunSnapshotReader {
         if keys.len() > 1000 {
             return Err(bad_request("a Share exact read accepts at most 1000 keys"));
         }
-        let mut read = self.lookup(keys.len() + 2)?;
-        let codec = record_codec(schema, account_key)?;
+        let (mut read, codec) = (
+            self.lookup(keys.len() + 2)?,
+            record_codec(schema, account_key)?,
+        );
         let mut addresses = BTreeMap::new();
         for key in keys {
             let addr = checked_address(schema, &codec, key)?;
@@ -119,12 +117,12 @@ impl RunSnapshotReader {
             .keys()
             .map(|k| (RECORDS_COLLECTION.into(), k.clone()))
             .collect();
-        let values = read
+        let raw = read
             .get_many_bounded(&coords, MAX_RECORD_BYTES as u64)
             .map_err(map)?;
         addresses
             .values()
-            .zip(values)
+            .zip(raw)
             .filter_map(|(addr, val)| {
                 val.map_err(map)
                     .and_then(|opt| {
@@ -137,7 +135,6 @@ impl RunSnapshotReader {
             .collect()
     }
 
-    /// Read one ordered primary key page.
     pub fn record_page(
         &self,
         schema: &Schema,
@@ -146,13 +143,17 @@ impl RunSnapshotReader {
         limit: usize,
         account_key: &[u8; 32],
     ) -> StorageResult<SnapshotRecordPage> {
-        let mut read = self.lookup(10_000)?;
-        let codec = record_codec(schema, account_key)?;
+        let (mut read, codec) = (self.lookup(10_000)?, record_codec(schema, account_key)?);
         let space = record_space_uuid(&schema.name);
         let (start, end) = page_bounds(&space, &codec, filter)?;
-        let err = "cursor is outside the Share key selection";
-        let Some((rows, exhausted, _)) =
-            scan_records_page(&mut read, &start, &end, after, limit, err)?
+        let Some((rows, exhausted, _)) = scan_records_page(
+            &mut read,
+            &start,
+            &end,
+            after,
+            limit,
+            "cursor is outside the Share key selection",
+        )?
         else {
             return Ok(SnapshotRecordPage {
                 record_space: space,
@@ -178,7 +179,6 @@ impl RunSnapshotReader {
         })
     }
 
-    /// Read only the authenticated inline file belonging to the given record.
     pub fn inline_file(
         &self,
         schema: &Schema,
@@ -186,8 +186,7 @@ impl RunSnapshotReader {
         expected_revision: Option<&str>,
         account_key: &[u8; 32],
     ) -> Result<Option<(FileMarker, Vec<u8>)>, crate::error::FoldDbError> {
-        let mut read = self.lookup(4)?;
-        let codec = record_codec(schema, account_key)?;
+        let (mut read, codec) = (self.lookup(4)?, record_codec(schema, account_key)?);
         let address = checked_address(schema, &codec, key)?;
         let record = read_verified(&mut read, schema, &codec, &address)?;
         let live = record.as_ref().filter(|r| r.is_live());
@@ -203,9 +202,7 @@ impl RunSnapshotReader {
                 .into());
             }
         }
-        let Some(record) = live else {
-            return Ok(None);
-        };
+        let Some(record) = live else { return Ok(None) };
         read_inline(&mut read, &address, record)?
             .map(|f| {
                 f.bytes()

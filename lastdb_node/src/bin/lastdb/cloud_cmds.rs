@@ -16,11 +16,11 @@ use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use zeroize::Zeroizing;
 
-#[path = "cloud_cmds/byte_backup/offline.rs"]
+#[path = "cloud_cmds/offline.rs"]
 mod offline;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
-#[path = "cloud_cmds/byte_backup/setup/files.rs"]
+#[path = "cloud_cmds/setup.rs"]
 mod setup_files;
 
 const PHRASE_FILE: &str = "recovery-phrase.txt";
@@ -77,16 +77,16 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
         &device_id,
         invite.as_deref().map(String::as_str),
     );
-    let reg = block_on_cloud("native enrollment", fut).map_err(|e| {
+    let (api_key, user_hash) = block_on_cloud("native enrollment", fut).map_err(|e| {
         format!("{e}; registration may have committed; retry only by an explicit request")
     })?;
-    if reg.user_hash != account
+    if user_hash != account
         || dir.seed()?.as_ref() != seed.as_ref()
         || dir.device_id()? != device_id
     {
         return Err("native enrollment identity changed; registration may have committed".into());
     }
-    let creds = SavedCredentials::new(api_url, reg.api_key)
+    let creds = SavedCredentials::new(api_url, api_key)
         .key_json()
         .map_err(|_| "cannot encode paused native credentials")?;
     dir.save_credentials(&creds)
@@ -149,7 +149,7 @@ fn require_disjoint(source: &Path, destination: &Path) -> Result<(), String> {
         .ok_or_else(|| "source and recovery home paths must not overlap".into())
 }
 
-pub(crate) struct FreshHome {
+pub(super) struct FreshHome {
     parent: File,
     name: OsString,
     directory: Option<File>,
@@ -158,7 +158,7 @@ pub(crate) struct FreshHome {
 }
 
 impl FreshHome {
-    pub(crate) fn preflight_empty(destination: &Path) -> Result<Self, String> {
+    pub(super) fn preflight_empty(destination: &Path) -> Result<Self, String> {
         Self::preflight(destination, None)
     }
 
@@ -223,7 +223,7 @@ impl FreshHome {
         })
     }
 
-    pub(crate) fn create(mut self) -> Result<Self, String> {
+    pub(super) fn create(mut self) -> Result<Self, String> {
         fs::mkdirat(&self.parent, &self.name, Mode::from_raw_mode(0o700))
             .map_err(|_| "cannot exclusively create recovery home")?;
         let dir: File = fs::openat(&self.parent, &self.name, DIR_FLAGS, Mode::empty())
@@ -239,7 +239,7 @@ impl FreshHome {
         self.directory.as_ref().expect("created recovery home")
     }
 
-    pub(crate) fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
+    pub(super) fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
         let mut file = open_private_at(
             self.dir(),
             name,
@@ -261,7 +261,7 @@ impl FreshHome {
             .ok_or_else(|| "recovery credential read-back does not match".into())
     }
 
-    pub(crate) fn commit(&mut self) -> Result<(), String> {
+    pub(super) fn commit(&mut self) -> Result<(), String> {
         let dir = self.dir();
         if !same_inode(&self.parent, &self.name, dir) {
             return Err("recovery home changed during preparation".into());

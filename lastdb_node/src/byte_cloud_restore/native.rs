@@ -1,84 +1,67 @@
-//! Owned local restore session filesystem and native file installation primitives.
+//! Owned local restore session filesystem, checkpoint routing, and native file installation.
 use super::{
-    check_capacity, download, runs::Inventory, verify_file, ByteBackupReader, NativeFileProof,
-    RestoreError, RestoreSession, Result,
+    check_capacity, download, logs,
+    runs::{stage_pages, Inventory},
+    verify_file, ByteBackupReader, NativeFileProof, RecoveryDecryption, RestoreError,
+    RestoreSession, Result,
 };
-use crate::offline_home::{is_owned_dir, is_private_file};
-use cloud_backup_protocol::v2::limits::{CONTROL_JSON_MAX_BYTES, MAX_BATCH_ITEMS};
+use crate::byte_cloud_log::{MutationLogPage, MutationLogRoot, MAX_BATCH_ENTRIES};
+use crate::cloud::{is_owned_dir, open_private_path, read_private_path, PrivatePathError};
+use cloud_backup_protocol::v2::{
+    inventory::InventoryRoot,
+    limits::{CONTROL_JSON_MAX_BYTES, MAX_BATCH_ITEMS},
+    AcceptedBackup, Destination,
+};
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, Digest};
 use fold_db::cloud_backup_plan::ClientNativeFile;
-use serde::{de::DeserializeOwned, Serialize};
+use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore, CAS_DIR, RUN_DIR};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+
+fn private_err(err: PrivatePathError, limit: &'static str) -> RestoreError {
+    match err {
+        PrivatePathError::Io(e) => RestoreError::Io(e),
+        PrivatePathError::Invalid => RestoreError::Invalid("owned session file"),
+        PrivatePathError::Limit => RestoreError::Limit(limit),
+    }
+}
 
 pub(super) fn sync_dir(path: &Path) -> Result<()> {
     Ok(File::open(path)?.sync_all()?)
 }
 
 pub(super) fn directory(path: &Path) -> Result<()> {
-    let m = fs::symlink_metadata(path)?;
-    if !is_owned_dir(&m) || m.mode() & 0o077 != 0 {
-        return Err(RestoreError::Invalid("owned session directory"));
-    }
-    Ok(())
-}
-
-fn validate_file(file: &File) -> Result<()> {
-    if !is_private_file(&file.metadata()?) {
-        return Err(RestoreError::Invalid("owned session file"));
-    }
-    Ok(())
+    is_owned_dir(&fs::symlink_metadata(path)?)
+        .then_some(())
+        .ok_or(RestoreError::Invalid("owned session directory"))
 }
 
 pub(super) fn owner_file(path: &Path, new: bool) -> Result<File> {
-    let mut opts = OpenOptions::new();
-    opts.read(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW);
-    if new {
-        opts.create_new(true);
-    }
-    let file = opts.open(path)?;
-    validate_file(&file).map(|()| file)
+    open_private_path(path, new, new, false).map_err(|e| private_err(e, "metadata bytes"))
+}
+
+pub(super) fn writable_file(path: &Path) -> Result<File> {
+    open_private_path(path, true, false, true).map_err(|e| private_err(e, "metadata bytes"))
 }
 
 pub(super) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> Result<T> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
-    validate_file(&file)?;
-    let mut bytes = Vec::new();
-    file.take(maximum + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > maximum {
-        return Err(RestoreError::Limit("metadata bytes"));
-    }
+    let bytes = read_private_path(path, maximum)
+        .map_err(|e| private_err(e, "metadata bytes"))?
+        .ok_or_else(|| RestoreError::Io(io::Error::from(io::ErrorKind::NotFound)))?;
     serde_json::from_slice(&bytes).map_err(|_| RestoreError::Invalid("metadata JSON"))
 }
 
 pub(super) fn ensure_directory(path: &Path) -> Result<()> {
-    match fs::DirBuilder::new().mode(0o700).create(path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(e) => return Err(e.into()),
+    if let Err(e) = fs::DirBuilder::new().mode(0o700).create(path) {
+        if e.kind() != io::ErrorKind::AlreadyExists {
+            return Err(e.into());
+        }
     }
     directory(path)
-}
-
-pub(super) fn writable_file(path: &Path) -> Result<File> {
-    let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
-    validate_file(&file)?;
-    file.set_len(0)?;
-    Ok(file)
 }
 
 pub(super) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
@@ -97,8 +80,7 @@ pub(super) fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
     )
 }
 
-pub(super) fn prepare_native_ephemera(data: &Path) -> Result<()> {
-    use fold_db::storage::disk_pack::{CAS_DIR, RUN_DIR};
+pub(super) fn prepare_native_ephemera(data: &Path, key: &[u8; 32]) -> Result<()> {
     for name in [RUN_DIR, CAS_DIR] {
         let home = data.join(name);
         if name == CAS_DIR && !home.try_exists()? {
@@ -119,7 +101,7 @@ pub(super) fn prepare_native_ephemera(data: &Path) -> Result<()> {
         lock.sync_all()?;
         sync_dir(&home)?;
     }
-    Ok(())
+    run_restore::install_empty_cas_home(data, key).map_err(RestoreError::native_proof)
 }
 
 pub(super) fn path_key(path: &str) -> String {
@@ -168,8 +150,7 @@ fn prepare_file(session: &RestoreSession, root: &Path, entry: &ClientNativeFile)
     }
     let path = root.join(rel);
     if path.try_exists()? {
-        verify_file(&path, &entry.native_sha256, entry.native_bytes.get())?;
-        return Ok(false);
+        return verify_file(&path, &entry.native_sha256, entry.native_bytes.get()).map(|()| false);
     }
     check_capacity(&session.root, entry.native_bytes.get())?;
     writable_file(&pending_path(session, rel)).map(|_| true)
@@ -233,16 +214,146 @@ fn install_file(session: &RestoreSession, root: &Path, entry: &ClientNativeFile)
         sha256: entry.native_sha256.clone(),
         bytes: entry.native_bytes.get(),
     };
-    session.save_or_verify_spool_json(
-        &session.root.join("entries").join(path_key(rel)),
-        4096,
-        &proof,
-        "saved native proof",
-    )
+    let dst = session.root.join("entries").join(path_key(rel));
+    session.save_or_verify_spool_json(&dst, 4096, &proof, "saved native proof")
 }
 
 fn pending_path(session: &RestoreSession, path: &str) -> PathBuf {
     session
         .root
         .join(format!("native-{}.pending", path_key(path)))
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Routing {
+    version: u16,
+    link_index: u32,
+    commit_sha256: Digest,
+    root_receipt_id: Digest,
+    inventory_root: InventoryRoot,
+    from: LogPosition,
+    through: LogPosition,
+    entry_sha256s: Vec<Digest>,
+    native_files: u64,
+    native_bytes: u64,
+    objects: u64,
+    metadata_objects: u64,
+    main_files: u64,
+}
+
+fn init_routing(
+    accepted: &AcceptedBackup,
+    root: &MutationLogRoot,
+    objects: u64,
+    link_index: u32,
+) -> Result<Routing> {
+    let metadata_objects = u64::try_from(root.pages.len())
+        .ok()
+        .and_then(|c| c.checked_add(1))
+        .ok_or(RestoreError::Limit("mutation route metadata count"))?;
+    if !(1..=MAX_BATCH_ENTRIES).contains(&root.entries.len()) {
+        return Err(RestoreError::Invalid("mutation route entry bound"));
+    }
+    let (mut pos, mut entry_sha256s) = (root.from.clone(), Vec::with_capacity(root.entries.len()));
+    for entry in &root.entries {
+        pos = entry
+            .position_after(&pos)
+            .map_err(|_| RestoreError::Invalid("mutation route entry identity"))?;
+        entry_sha256s.push(pos.sha256.clone());
+    }
+    (pos == root.through)
+        .then_some(Routing {
+            version: 2,
+            link_index,
+            commit_sha256: accepted.commit_sha256.clone(),
+            root_receipt_id: accepted.root_receipt_id.clone(),
+            inventory_root: accepted.inventory_root.clone(),
+            from: root.from.clone(),
+            through: root.through.clone(),
+            entry_sha256s,
+            native_files: 0,
+            native_bytes: 0,
+            objects,
+            metadata_objects,
+            main_files: 0,
+        })
+        .ok_or(RestoreError::Invalid("mutation route complete position"))
+}
+
+fn decode_log_page(
+    routes: &mut Routing,
+    accepted: &AcceptedBackup,
+    root: &MutationLogRoot,
+    key: &[u8; 32],
+    index: u32,
+    bytes: &[u8],
+) -> Result<Vec<(ClientNativeFile, Destination)>> {
+    let page = MutationLogPage::decode(bytes, key, &accepted.begin)
+        .map_err(|_| RestoreError::Invalid("mutation file page"))?;
+    root.validate_page(&page)
+        .map_err(|_| RestoreError::Invalid("mutation file page context"))?;
+    if page.page_index != index {
+        return Err(RestoreError::Invalid("mutation page order"));
+    }
+    for file in &page.files {
+        if file.path.as_str().split('/').nth(3) != Some("main") {
+            return Err(RestoreError::Invalid("mutation route role"));
+        }
+        routes.native_files = routes
+            .native_files
+            .checked_add(1)
+            .ok_or(RestoreError::Limit("mutation route total"))?;
+        routes.main_files = routes.native_files;
+        routes.native_bytes = routes
+            .native_bytes
+            .checked_add(file.native_bytes.get())
+            .ok_or(RestoreError::Limit("mutation route total"))?;
+    }
+    if routes.native_files > root.native_file_count || routes.native_bytes > root.native_bytes {
+        return Err(RestoreError::Invalid("mutation file totals"));
+    }
+    page.files
+        .into_iter()
+        .map(|f| {
+            root.validate_file(&f)
+                .map(|d| (f, d))
+                .map_err(|_| RestoreError::Invalid("mutation native file identity"))
+        })
+        .collect()
+}
+
+pub(super) async fn download_checkpoint(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    decryption: &RecoveryDecryption,
+    root: &MutationLogRoot,
+    inventory: Inventory,
+    link_index: u32,
+) -> Result<()> {
+    let accepted = session.accepted();
+    let objects = u64::try_from(inventory.receipts.len())
+        .map_err(|_| RestoreError::Limit("mutation route object count"))?;
+    let mut routes = init_routing(accepted, root, objects, link_index)?;
+    let target = session.root.join("replay-files");
+    stage_pages(session, client, &root.pages, inventory, &target, |i, b| {
+        decode_log_page(&mut routes, accepted, root, &decryption.content, i, b)
+    })
+    .await?;
+    if routes.main_files != routes.native_files
+        || routes.native_files != root.native_file_count
+        || routes.native_bytes != root.native_bytes
+        || routes.objects != routes.inventory_root.object_count.get()
+        || routes.metadata_objects > routes.objects
+    {
+        return Err(RestoreError::Invalid("complete mutation route totals"));
+    }
+    if read_json::<AcceptedBackup>(&logs::link_path(session, link_index), 256 * 1024)? != *accepted
+    {
+        return Err(RestoreError::Invalid("mutation route accepted link"));
+    }
+    let dst = session
+        .root
+        .join(format!("chain/routes-{link_index:08}.json"));
+    session.save_or_verify_spool_json(&dst, logs::CHAIN_RESERVE, &routes, "saved route evidence")
 }
