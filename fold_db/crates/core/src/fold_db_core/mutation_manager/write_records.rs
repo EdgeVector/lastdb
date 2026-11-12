@@ -231,9 +231,7 @@ fn check_expectation(
     if matches!(
         mutation.mutation_type,
         MutationType::Delete | MutationType::Purge
-    ) && current
-        .filter(|r| r.is_live())
-        .is_some_and(|r| r.alternates != mutation.alternates)
+    ) && current.is_some_and(|r| r.is_live() && r.alternates != mutation.alternates)
     {
         let msg = "deletion must supply the record's complete current alternate keys".into();
         return Err(if mutation.contribution.is_some() {
@@ -264,9 +262,12 @@ fn require_contribution_author(
     ) {
         return Ok(());
     }
-    let (Some(adm), Some(live)) = (&mutation.contribution, record.filter(|r| r.is_live())) else {
+    let (Some(adm), Some(live)) = (&mutation.contribution, record) else {
         return Ok(());
     };
+    if !live.is_live() {
+        return Ok(());
+    }
     let author = live
         .meta
         .as_ref()

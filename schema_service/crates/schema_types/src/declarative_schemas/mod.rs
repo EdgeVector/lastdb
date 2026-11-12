@@ -57,8 +57,8 @@ fn compute_identity_hash_parts<'a>(
     hasher.update(b":");
     hasher.update(field_names.join(",").as_bytes());
     if let Some(key) = key {
-        let trim = |opt: &Option<String>| opt.as_deref().map_or("", str::trim);
-        let (hf, rf) = (trim(&key.hash_field), trim(&key.range_field));
+        let hf = key.hash_field.as_deref().map_or("", str::trim);
+        let rf = key.range_field.as_deref().map_or("", str::trim);
         if !hf.is_empty() || !rf.is_empty() {
             hasher.update(format!(":key:{hf}:{rf}").as_bytes());
         }
@@ -256,49 +256,26 @@ impl DeclarativeSchemaDefinition {
 
 impl PartialEq for DeclarativeSchemaDefinition {
     fn eq(&self, other: &Self) -> bool {
-        (
-            &self.name,
-            &self.descriptive_name,
-            &self.purpose_statement,
-            &self.schema_type,
-            &self.key,
-            &self.alternate_keys,
-            &self.record_keys,
-            self.file_required,
-            &self.fields,
-            &self.hash,
-            &self.field_classifications,
-            &self.field_descriptions,
-            &self.field_interest_categories,
-            &self.field_types,
-            &self.field_hashes,
-            &self.field_declarations,
-            &self.field_versions,
-            &self.identity_hash,
-            &self.superseded_by,
-            &self.owner_app_id,
-        ) == (
-            &other.name,
-            &other.descriptive_name,
-            &other.purpose_statement,
-            &other.schema_type,
-            &other.key,
-            &other.alternate_keys,
-            &other.record_keys,
-            other.file_required,
-            &other.fields,
-            &other.hash,
-            &other.field_classifications,
-            &other.field_descriptions,
-            &other.field_interest_categories,
-            &other.field_types,
-            &other.field_hashes,
-            &other.field_declarations,
-            &other.field_versions,
-            &other.identity_hash,
-            &other.superseded_by,
-            &other.owner_app_id,
-        )
+        self.name == other.name
+            && self.descriptive_name == other.descriptive_name
+            && self.purpose_statement == other.purpose_statement
+            && self.schema_type == other.schema_type
+            && self.key == other.key
+            && self.alternate_keys == other.alternate_keys
+            && self.record_keys == other.record_keys
+            && self.file_required == other.file_required
+            && self.fields == other.fields
+            && self.hash == other.hash
+            && self.field_classifications == other.field_classifications
+            && self.field_descriptions == other.field_descriptions
+            && self.field_interest_categories == other.field_interest_categories
+            && self.field_types == other.field_types
+            && self.field_hashes == other.field_hashes
+            && self.field_declarations == other.field_declarations
+            && self.field_versions == other.field_versions
+            && self.identity_hash == other.identity_hash
+            && self.superseded_by == other.superseded_by
+            && self.owner_app_id == other.owner_app_id
     }
 }
 

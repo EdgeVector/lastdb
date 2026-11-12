@@ -218,9 +218,10 @@ impl RecordStore {
                     .runtime
                     .warm_records(keys)
                     .map_err(|e| SchemaError::InvalidData(format!("read records: {e}")))?;
-                let mut out = warm
-                    .as_mut()
-                    .map_or_else(|| vec![None; keys.len()], |r| r.take_found());
+                let mut out = match &mut warm {
+                    Some(r) => r.take_found(),
+                    None => vec![None; keys.len()],
+                };
                 let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
                 let mut admitted = Vec::new();
                 for chunk in misses.chunks(READ_CHUNK) {

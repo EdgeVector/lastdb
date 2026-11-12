@@ -2,7 +2,6 @@
 
 use super::DeclarativeSchemaDefinition;
 use crate::{DeclarativeSchemaType, FieldValueType};
-use serde::Deserialize as _;
 use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +199,7 @@ fn normalize_fields(val: Value) -> Result<Option<Vec<String>>, String> {
             .collect::<Result<Vec<_>, _>>()
             .map(Some),
         Value::Object(obj) => {
-            let mut names: Vec<String> = obj.into_keys().collect();
+            let mut names: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
             names.sort();
             Ok(Some(names))
         }

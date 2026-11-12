@@ -37,17 +37,18 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
             action: ByteBackupCommand::InspectDependencies(a),
         },
         AdminBackupCommand::RecoverCredentialsHome { args, existing_dev } => {
-            if !existing_dev {
-                CloudCommand::RecoverCredentialsHome(args)
-            } else if args.env != "dev" {
-                return Err("--existing-dev requires --env dev".into());
-            } else {
+            if existing_dev {
+                if args.env != "dev" {
+                    return Err("--existing-dev requires --env dev".into());
+                }
                 CloudCommand::RecoverDevCredentialsHome {
                     into: args.into,
                     expected_user_hash: args.expected_user_hash,
                     identity_seed_stdin: args.identity_seed_stdin,
                     json: args.json,
                 }
+            } else {
+                CloudCommand::RecoverCredentialsHome(args)
             }
         }
         AdminBackupCommand::PrepareRecoveryHome(a) => CloudCommand::PrepareRecoveryHome(a),

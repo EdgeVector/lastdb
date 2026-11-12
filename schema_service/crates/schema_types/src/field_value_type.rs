@@ -171,7 +171,8 @@ fn datetime_shape(bytes: &[u8]) -> bool {
     if offset.first() == Some(&b'.') {
         let digits = offset[1..]
             .iter()
-            .take_while(|b| b.is_ascii_digit())
+            .copied()
+            .take_while(u8::is_ascii_digit)
             .count();
         if !(1..=9).contains(&digits) {
             return false;

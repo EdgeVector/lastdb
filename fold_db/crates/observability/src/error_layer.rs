@@ -87,7 +87,7 @@ where
         max_breadcrumbs: 0,
         auto_session_tracking: false,
         before_send: Some(Arc::new(|event| Some(sanitize_event(&event)))),
-        ..Default::default()
+        ..sentry::ClientOptions::default()
     };
     let client = sentry::init((dsn, options));
     let filter: FilterFn =
@@ -168,7 +168,9 @@ fn numeric_version(release: &str) -> Option<&str> {
 #[cfg(feature = "sentry")]
 fn sanitize_event(source: &Event<'_>) -> Event<'static> {
     let category = match source.tags.get("crash_kind").map(String::as_str) {
-        Some(k @ ("panic" | "startup_failed" | "unclean_exit")) => k,
+        Some("panic") => "panic",
+        Some("startup_failed") => "startup_failed",
+        Some("unclean_exit") => "unclean_exit",
         _ => "application_error",
     };
     Event {
@@ -195,6 +197,6 @@ fn sanitize_event(source: &Event<'_>) -> Event<'static> {
             ("fault_category".into(), category.into()),
             ("os".into(), env::consts::OS.into()),
         ]),
-        ..Default::default()
+        ..Event::default()
     }
 }

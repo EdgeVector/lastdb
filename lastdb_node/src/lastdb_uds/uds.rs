@@ -41,7 +41,7 @@ fn check_len(path: &Path) -> io::Result<()> {
 fn tmp_socket_path(path: &Path) -> PathBuf {
     let name = path
         .file_name()
-        .map_or_else(|| SOCKET_FILE_NAME.into(), |n| n.to_string_lossy());
+        .map_or_else(|| SOCKET_FILE_NAME.into(), std::ffi::OsStr::to_string_lossy);
     path.with_file_name(format!("{name}{SOCKET_TMP_SUFFIX}"))
 }
 

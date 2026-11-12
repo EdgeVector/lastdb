@@ -42,7 +42,7 @@ fn rotate_fd_if_needed(fd: RawFd, path: &Path, max_bytes: u64, keep: usize) -> i
     let rotated = |index: usize| {
         let name = path
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(std::ffi::OsStr::to_str)
             .unwrap_or("lastdbd.log");
         path.with_file_name(format!("{name}.{index}"))
     };

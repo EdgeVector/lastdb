@@ -282,10 +282,10 @@ impl<J> Dispatch<J> {
             let Some(slot) = s.idle.pop() else {
                 if resume_front {
                     s.queue.push_front(job);
-                } else if s.queue.len() >= s.capacity {
-                    return Err((job, SubmitError::QueueFull));
-                } else {
+                } else if s.queue.len() < s.capacity {
                     s.queue.push_back(job);
+                } else {
+                    return Err((job, SubmitError::QueueFull));
                 }
                 return Ok(());
             };

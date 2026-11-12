@@ -247,7 +247,7 @@ impl QueryExecutor {
                 rows.extend(
                     keys.into_iter()
                         .zip(records.read_records(&phys).await?)
-                        .filter_map(|(k, r)| r.filter(|r| r.is_live()).map(|r| (k, r))),
+                        .filter_map(|(k, r)| r.and_then(|r| r.is_live().then_some((k, r)))),
                 );
             }
             if (rows.len(), skip) == mark {
