@@ -1,40 +1,19 @@
-use crate::schema::types::SchemaError;
-use std::fmt;
-use std::io;
+//! Unified error type for FoldDB core operations.
 
-/// Unified error type for the entire application.
-///
-/// This error type centralizes all possible errors that can occur in the application,
-/// providing a consistent interface for error handling and propagation.
-///
-/// Each variant represents a specific category of errors, with associated context
-/// to help with debugging and error reporting.
+use crate::schema::types::SchemaError;
+use std::{fmt, io};
+
+/// Unified error type for FoldDB core operations.
 #[derive(Debug)]
 pub enum FoldDbError {
-    /// Errors related to schema operations
     Schema(SchemaError),
-
-    /// Errors related to database operations
     Database(String),
-
-    /// Errors related to configuration
     Config(String),
-
-    /// Errors related to IO operations
     Io(io::Error),
-
-    /// Errors related to serialization/deserialization
     Serialization(String),
-
-    /// Errors related to security operations
     SecurityError(String),
-
-    /// A bounded owner operation remains active and can be retried later.
-    /// Socket handlers map this class to HTTP 503 instead of ERROR-level 500.
+    /// A bounded owner operation remains active and can be retried later (HTTP 503).
     InProgress(String),
-
-    /// Other errors that don't fit into the above categories
-    Other(String),
 }
 
 impl fmt::Display for FoldDbError {
@@ -47,35 +26,30 @@ impl fmt::Display for FoldDbError {
             Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
             Self::SecurityError(msg) => write!(f, "Security error: {msg}"),
             Self::InProgress(msg) => write!(f, "operation in progress: {msg}"),
-            Self::Other(msg) => write!(f, "Error: {msg}"),
         }
     }
 }
 
 impl std::error::Error for FoldDbError {}
 
-/// Conversion from SchemaError to FoldDbError
 impl From<SchemaError> for FoldDbError {
     fn from(error: SchemaError) -> Self {
         Self::Schema(error)
     }
 }
 
-/// Conversion from io::Error to FoldDbError
 impl From<io::Error> for FoldDbError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }
 
-/// Conversion from serde_json::Error to FoldDbError
 impl From<serde_json::Error> for FoldDbError {
     fn from(error: serde_json::Error) -> Self {
         Self::Serialization(error.to_string())
     }
 }
 
-/// Conversion from storage::StorageError to FoldDbError
 impl From<crate::storage::StorageError> for FoldDbError {
     fn from(error: crate::storage::StorageError) -> Self {
         match error {
@@ -87,5 +61,5 @@ impl From<crate::storage::StorageError> for FoldDbError {
     }
 }
 
-/// Result type alias for operations that can result in a FoldDbError
+/// Result type alias for operations that can result in a [`FoldDbError`].
 pub type FoldDbResult<T> = Result<T, FoldDbError>;

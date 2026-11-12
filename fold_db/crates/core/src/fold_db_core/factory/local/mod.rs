@@ -15,9 +15,7 @@ use std::sync::Arc;
 pub struct FoldDbOptions {
     pub offline_maintenance: bool,
     pub search_outbox_inbox: Option<PathBuf>,
-    /// Accepted publication stream. The normal sender sets this for an owned
-    /// shareable named database, from creation and before cloud enrollment.
-    /// Personal, legacy, received, and replay opens leave it false.
+    /// Accepted publication stream for an owned shareable named database.
     pub capture_accepted: bool,
 }
 

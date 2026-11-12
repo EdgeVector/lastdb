@@ -14,22 +14,24 @@ pub enum SortOrder {
 
 impl Serialize for SortOrder {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Asc => serializer.serialize_str("asc"),
-            Self::Desc => serializer.serialize_str("desc"),
-        }
+        serializer.serialize_str(match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        })
     }
 }
 
 impl<'de> Deserialize<'de> for SortOrder {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        match s.to_lowercase().as_str() {
-            "asc" => Ok(Self::Asc),
-            "desc" => Ok(Self::Desc),
-            _ => Err(serde::de::Error::custom(format!(
+        if s.eq_ignore_ascii_case("asc") {
+            Ok(Self::Asc)
+        } else if s.eq_ignore_ascii_case("desc") {
+            Ok(Self::Desc)
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "unknown sort order '{s}', expected 'asc' or 'desc'"
-            ))),
+            )))
         }
     }
 }
@@ -50,11 +52,6 @@ pub struct Query {
 }
 
 impl Query {
-    #[must_use]
-    pub fn new(schema_name: String) -> Self {
-        Self::new_with_filter(schema_name, None)
-    }
-
     #[must_use]
     pub fn new_with_filter(schema_name: String, filter: Option<HashRangeFilter>) -> Self {
         Self {

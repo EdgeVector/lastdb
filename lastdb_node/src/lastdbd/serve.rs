@@ -15,6 +15,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
+const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
 
 #[derive(Clone)]
 struct BodyBudget(Arc<Semaphore>);
@@ -29,20 +30,16 @@ impl BodyBudget {
         Self(Arc::new(Semaphore::new(bytes)))
     }
 
-    fn parse_permits() -> u32 {
-        u32::try_from(MAX_PARSE_BYTES).expect("bounded HTTP parse size fits u32")
-    }
-
     fn try_reserve(&self) -> Option<BodyLease> {
         Arc::clone(&self.0)
-            .try_acquire_many_owned(Self::parse_permits())
+            .try_acquire_many_owned(PARSE_PERMITS)
             .ok()
             .map(BodyLease)
     }
 
     async fn reserve(&self) -> std::io::Result<BodyLease> {
         Arc::clone(&self.0)
-            .acquire_many_owned(Self::parse_permits())
+            .acquire_many_owned(PARSE_PERMITS)
             .await
             .map(BodyLease)
             .map_err(std::io::Error::other)
@@ -51,18 +48,16 @@ impl BodyBudget {
 
 impl BodyLease {
     fn retain_request(&mut self, request: &UdsRequest) -> bool {
-        let bytes = request.headers.iter().fold(
-            std::mem::size_of::<UdsRequest>()
-                + request.body.capacity()
-                + request.method.capacity()
-                + request.target.capacity()
-                + request.headers.capacity() * std::mem::size_of::<(String, String)>(),
-            |total, (name, value)| {
-                total
-                    .saturating_add(name.capacity())
-                    .saturating_add(value.capacity())
-            },
-        );
+        let base = std::mem::size_of::<UdsRequest>()
+            + request.body.capacity()
+            + request.method.capacity()
+            + request.target.capacity()
+            + request.headers.capacity() * std::mem::size_of::<(String, String)>();
+        let bytes = request.headers.iter().fold(base, |total, (k, v)| {
+            total
+                .saturating_add(k.capacity())
+                .saturating_add(v.capacity())
+        });
         if bytes > self.0.num_permits() {
             return false;
         }
@@ -86,11 +81,8 @@ fn route_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    if req.target == lastdb_node::lastdb_uds::database_path::DATABASES_PATH
-        || req
-            .target
-            .starts_with(lastdb_node::lastdb_uds::database_path::DATABASE_SCOPE_PREFIX)
-    {
+    use lastdb_node::lastdb_uds::database_path::{DATABASES_PATH, DATABASE_SCOPE_PREFIX};
+    if req.target == DATABASES_PATH || req.target.starts_with(DATABASE_SCOPE_PREFIX) {
         return exec::block_on_route(handle, ctx, exec::execute_database_request(req, ctx, host));
     }
     let path = req.target.split(['?', '#']).next();
@@ -167,34 +159,29 @@ fn serve_reserved(
         _ if exec::is_deferred_database_mutation(&request) => Some(MutationRoute::Scoped),
         _ => None,
     };
-    if let Some(route) = route {
-        if body.retain_request(&request) {
-            let host = Arc::clone(&server.host);
-            let replies = Arc::clone(&server.mutation_replies);
-            server.handle.spawn(async move {
-                let Ok(reply_slot) = replies.acquire_owned().await else {
-                    return;
-                };
-                let response = match route {
-                    MutationRoute::Default(route) => {
-                        exec::execute_deferred_mutation(route, &request, &context, &host).await
-                    }
-                    MutationRoute::Scoped => {
-                        exec::execute_deferred_database_mutation(&mut request, &context, &host)
-                            .await
-                    }
-                };
-                drop(request);
-                drop(body);
-                completion.resume(stream, move |mut stream, _completion| {
-                    let result = uds_http::finish_connection(&mut stream, &response);
-                    drop(response);
-                    drop(reply_slot);
-                    log_result(result);
-                });
+    if let Some(route) = route.filter(|_| body.retain_request(&request)) {
+        let host = Arc::clone(&server.host);
+        let replies = Arc::clone(&server.mutation_replies);
+        server.handle.spawn(async move {
+            let Ok(reply_slot) = replies.acquire_owned().await else {
+                return;
+            };
+            let response = match route {
+                MutationRoute::Default(route) => {
+                    exec::execute_deferred_mutation(route, &request, &context, &host).await
+                }
+                MutationRoute::Scoped => {
+                    exec::execute_deferred_database_mutation(&mut request, &context, &host).await
+                }
+            };
+            drop((request, body));
+            completion.resume(stream, move |mut stream, _completion| {
+                let result = uds_http::finish_connection(&mut stream, &response);
+                drop((response, reply_slot));
+                log_result(result);
             });
-            return Ok(());
-        }
+        });
+        return Ok(());
     }
     let response = route_request(&server.handle, &server.host, &mut request, &context);
     uds_http::finish_connection(&mut stream, &response)
@@ -212,14 +199,13 @@ impl Server {
         handle: tokio::runtime::Handle,
         worker_pool: UdsWorkerPool,
     ) -> Self {
-        let body_budget = BodyBudget::new(worker_pool.workers());
-        let mutation_replies = Arc::new(Semaphore::new(worker_pool.workers()));
+        let workers = worker_pool.workers();
         Self {
             host,
             handle,
             worker_pool,
-            body_budget,
-            mutation_replies,
+            body_budget: BodyBudget::new(workers),
+            mutation_replies: Arc::new(Semaphore::new(workers)),
         }
     }
 
@@ -231,20 +217,22 @@ impl Server {
     ) -> std::io::Result<()> {
         socket.serve(owner_uid, shutdown, |stream| {
             let server = self.clone();
-            let submitted =
-                self.worker_pool
-                    .try_submit_owned_connection(stream, move |stream, completion| {
-                        log_result(serve_connection(&server, stream, completion));
-                    });
-            match submitted {
+            match self
+                .worker_pool
+                .try_submit_owned_connection(stream, move |stream, completion| {
+                    log_result(serve_connection(&server, stream, completion));
+                }) {
                 Ok(()) => {}
-                Err(SubmitError::QueueFull) => tracing::warn!(
-                    workers = self.worker_pool.workers(),
-                    queue_capacity = self.worker_pool.queue_capacity(),
-                    in_flight = self.worker_pool.in_flight(),
-                    rejects = self.worker_pool.queue_full_rejects(),
-                    "uds worker queue full; rejecting peer with 503"
-                ),
+                Err(SubmitError::QueueFull) => {
+                    let s = self.worker_pool.snapshot();
+                    tracing::warn!(
+                        workers = s.workers,
+                        queue_capacity = s.queue_capacity,
+                        in_flight = s.in_flight,
+                        rejects = s.queue_full_rejects,
+                        "uds worker queue full; rejecting peer with 503"
+                    );
+                }
                 Err(SubmitError::ShutDown) => {
                     tracing::error!("uds worker pool shut down; rejecting peer");
                 }

@@ -1,12 +1,15 @@
-//! Signed registry interface lists, rollback-safe caching, and app resolution.
+//! Signed registry interface lists, rollback-safe caching, and node contract probing.
 
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
 use app_identity_crypto::{verifying_key_from_base64, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-mod install;
 pub mod managed;
 mod managed_manifest;
 pub mod managed_poll;
@@ -15,8 +18,8 @@ pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
     REGISTRY_LIST_PUBKEY_B64,
 };
-pub use install::{install_pinned, running_node, RECEIPT_FILE};
 
+pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 pub const DEFAULT_CHANNEL: &str = "stable";
 pub const DEFAULT_INDEX_BASE_URL: &str =
     crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
@@ -47,14 +50,12 @@ impl IndexLocation {
         api: u32,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
         validate_channel(channel)?;
-        let address = self.describe_interface(channel, api);
+        let addr = self.describe_interface(channel, api);
         match self {
-            Self::Dir(_) => {
-                let bytes = std::fs::read(&address).map_err(|e| format!("{address}: {e}"))?;
-                let sig = std::fs::read(format!("{address}.sig"))
-                    .map_err(|e| format!("{address}.sig: {e}"))?;
-                Ok((bytes, sig))
-            }
+            Self::Dir(_) => Ok((
+                std::fs::read(&addr).map_err(|e| format!("{addr}: {e}"))?,
+                std::fs::read(format!("{addr}.sig")).map_err(|e| format!("{addr}.sig: {e}"))?,
+            )),
             Self::Url(base) => {
                 if !base.starts_with("https://") {
                     return Err("registry list URL must use HTTPS".into());
@@ -66,9 +67,10 @@ impl IndexLocation {
                     .redirect(reqwest::redirect::Policy::none())
                     .build()
                     .map_err(|e| e.to_string())?;
-                let bytes = fetch_url(&client, &address).await?;
-                let sig = fetch_url(&client, &format!("{address}.sig")).await?;
-                Ok((bytes, sig))
+                Ok((
+                    fetch_url(&client, &addr).await?,
+                    fetch_url(&client, &format!("{addr}.sig")).await?,
+                ))
             }
         }
     }
@@ -79,16 +81,12 @@ impl IndexLocation {
             .or_else(|| std::env::var(INDEX_LOCATION_ENV).ok())
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_INDEX_BASE_URL.to_string());
-        Self::from_raw(&raw)
-    }
-
-    pub fn from_raw(raw: &str) -> Result<Self, String> {
         let raw = raw.trim().trim_end_matches('/');
         if raw.starts_with("lastsecrets://") {
             return Err("registry index location does not accept a lastsecrets locator".into());
         }
-        if let Some(path) = raw.strip_prefix("file://") {
-            return Ok(Self::Dir(PathBuf::from(path)));
+        if let Some(p) = raw.strip_prefix("file://") {
+            return Ok(Self::Dir(PathBuf::from(p)));
         }
         if raw.starts_with("http://") || raw.starts_with("https://") {
             return Ok(Self::Url(raw.to_string()));
@@ -99,20 +97,16 @@ impl IndexLocation {
 
 async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     // trace-egress: propagate (anonymous static index read; no credential)
-    let mut response = client
+    let mut resp = client
         .get(url)
         .send()
         .await
         .map_err(|e| format!("GET {url} failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("GET {url} returned {}", response.status().as_u16()));
+    if !resp.status().is_success() {
+        return Err(format!("GET {url} returned {}", resp.status().as_u16()));
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("GET {url}: {e}"))?
-    {
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("GET {url}: {e}"))? {
         if bytes.len().saturating_add(chunk.len()) > 2_097_152 {
             return Err(format!("GET {url}: registry object exceeds 2 MiB"));
         }
@@ -129,53 +123,39 @@ pub enum TrustSource {
 }
 
 pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, TrustSource), String> {
+    let parse = |raw: &str, what: &str| -> Result<VerifyingKey, String> {
+        let raw = raw.trim();
+        let text = if Path::new(raw).is_file() {
+            std::fs::read_to_string(raw)
+                .map_err(|e| format!("{what}: failed to read {raw}: {e}"))?
+        } else {
+            raw.to_string()
+        };
+        verifying_key_from_base64(text.trim())
+            .map_err(|e| format!("{what} is not a valid base64 Ed25519 public key: {e:?}"))
+    };
     if let Some(raw) = flag {
-        return Ok((parse_trust_key(raw, "--trust-key")?, TrustSource::Flag));
+        return Ok((parse(raw, "--trust-key")?, TrustSource::Flag));
     }
     if let Ok(raw) = std::env::var(TRUST_KEY_ENV) {
         if !raw.trim().is_empty() {
-            return Ok((parse_trust_key(&raw, TRUST_KEY_ENV)?, TrustSource::Env));
+            return Ok((parse(&raw, TRUST_KEY_ENV)?, TrustSource::Env));
         }
     }
     verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64)
-        .map(|key| (key, TrustSource::Pinned))
+        .map(|k| (k, TrustSource::Pinned))
         .map_err(|e| e.to_string())
-}
-
-fn parse_trust_key(raw: &str, what: &str) -> Result<VerifyingKey, String> {
-    let raw = raw.trim();
-    let text = if Path::new(raw).is_file() {
-        std::fs::read_to_string(raw).map_err(|e| format!("{what}: failed to read {raw}: {e}"))?
-    } else {
-        raw.to_string()
-    };
-    verifying_key_from_base64(text.trim())
-        .map_err(|e| format!("{what} is not a valid base64 Ed25519 public key: {e:?}"))
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ContractVersions {
     pub api_version: u32,
-    pub min_supported_api_version: u32,
     pub outbox_format_version: u32,
-    pub min_supported_outbox_format_version: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Resolution {
-    #[serde(skip)]
-    pub list_entry: Option<ListEntry>,
-    pub app_id: String,
-    pub channel: String,
-    pub source: String,
-    pub lastdb_version: String,
-    pub lastdb_version_source: String,
-    pub app_version: String,
-    pub sha: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact: Option<String>,
-    pub proved_at: String,
-    pub proof_run: String,
+    pub entry: ListEntry,
     pub index: String,
     pub trust: String,
 }
@@ -208,7 +188,6 @@ pub async fn fetch_list(
                 list,
             ))
         });
-
     let state = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
@@ -217,9 +196,8 @@ pub async fn fetch_list(
     let root = if matches!(location, IndexLocation::Url(base) if base == DEFAULT_INDEX_BASE_URL) {
         base_root
     } else {
-        base_root.join("sources").join(fold_db::hex::sha256_hex(
-            location.describe_interface(channel, api).as_bytes(),
-        ))
+        let hash = fold_db::hex::sha256_hex(location.describe_interface(channel, api).as_bytes());
+        base_root.join("sources").join(hash)
     };
     let path = root.join(channel).join("api").join(format!("{api}.json"));
     let parent = path.parent().ok_or("registry cache parent missing")?;
@@ -232,32 +210,26 @@ pub async fn fetch_list(
         .open(path.with_extension("lock"))
         .map_err(|e| e.to_string())?;
     lock.lock().map_err(|e| e.to_string())?;
-
     let cached = if path.exists() {
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        let value: StoredList =
-            serde_json::from_slice(&bytes).map_err(|e| format!("invalid registry cache: {e}"))?;
-        if value.payload_sha256 != fold_db::hex::sha256_hex(&value.bytes) {
+        let v: StoredList =
+            serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("invalid registry cache: {e}"))?;
+        if v.payload_sha256 != fold_db::hex::sha256_hex(&v.bytes) {
             return Err("registry cache digest mismatch".into());
         }
-        let list = InterfaceList::load(&value.bytes, &value.signature, trust, channel, api)?;
-        Some((value, list))
+        let list = InterfaceList::load(&v.bytes, &v.signature, trust, channel, api)?;
+        Some((v, list))
     } else {
         None
     };
-
     let accepted = accept_list(download, cached, &path, parent)?;
-    if let Ok(generated) = chrono::DateTime::parse_from_rfc3339(&accepted.generated_at) {
-        if chrono::Utc::now()
-            .signed_duration_since(generated)
-            .num_days()
-            >= 7
-        {
-            eprintln!(
-                "note: registry list was generated at {} (at least 7 days ago)",
-                accepted.generated_at
-            );
-        }
+    if chrono::DateTime::parse_from_rfc3339(&accepted.generated_at)
+        .is_ok_and(|g| chrono::Utc::now().signed_duration_since(g).num_days() >= 7)
+    {
+        eprintln!(
+            "note: registry list was generated at {} (at least 7 days ago)",
+            accepted.generated_at
+        );
     }
     Ok(accepted)
 }
@@ -269,31 +241,24 @@ fn accept_list(
     parent: &Path,
 ) -> Result<InterfaceList, String> {
     let (value, list) = match download {
-        Ok(value) => value,
+        Ok(v) => v,
         Err(error) => {
-            return cached.map_or_else(
-                || Err(error.clone()),
-                |(_, prior)| {
-                    eprintln!(
-                        "note: registry download rejected; using stored seq {}: {error}",
-                        prior.seq
-                    );
-                    Ok(prior)
-                },
+            let (_, prior) = cached.ok_or_else(|| error.clone())?;
+            eprintln!(
+                "note: registry download rejected; using stored seq {}: {error}",
+                prior.seq
             );
+            return Ok(prior);
         }
     };
     if let Some((prior, old)) = cached {
-        if list.seq < old.seq
-            || (list.seq == old.seq && value.payload_sha256 != prior.payload_sha256)
-        {
-            eprintln!(
-                "note: registry sequence rejected; retaining stored seq {}",
-                old.seq
-            );
-            return Ok(old);
-        }
-        if list.seq == old.seq {
+        if list.seq <= old.seq {
+            if list.seq < old.seq || value.payload_sha256 != prior.payload_sha256 {
+                eprintln!(
+                    "note: registry sequence rejected; retaining stored seq {}",
+                    old.seq
+                );
+            }
             return Ok(old);
         }
     }
@@ -311,4 +276,61 @@ fn accept_list(
         .and_then(|f| f.sync_all())
         .map_err(|e| e.to_string())?;
     Ok(list)
+}
+
+#[must_use]
+pub fn running_node(socket: &Path) -> (String, &'static str, ContractVersions) {
+    let mut versions = ContractVersions {
+        api_version: crate::version::CURRENT_API_VERSION,
+        outbox_format_version: crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
+    };
+    if let Some(v) = socket_version(socket) {
+        let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
+        if let (Some(build), Some(api), Some(outbox)) = (
+            v.get("build").and_then(Value::as_str),
+            u32_f("api_version"),
+            u32_f("current_outbox_format_version"),
+        ) {
+            versions.api_version = api;
+            versions.outbox_format_version = outbox;
+            return (build.to_string(), "socket", versions);
+        }
+    }
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("lastdbd")))
+        .into_iter()
+        .chain([PathBuf::from("lastdbd")])
+        .find_map(|c| {
+            let out = ProcessCommand::new(c)
+                .arg("--version")
+                .env("RUST_LOG", "off")
+                .output()
+                .ok()?;
+            out.status.success().then_some(())?;
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("lastdbd ").map(str::trim))
+                .filter(|b| !b.is_empty())
+                .map(str::to_string)
+        });
+    match sibling {
+        Some(build) => (build, "lastdbd", versions),
+        None => (crate::version::build_version().to_string(), "cli", versions),
+    }
+}
+
+fn socket_version(socket: &Path) -> Option<Value> {
+    let mut stream = UnixStream::connect(socket).ok()?;
+    let timeout = Some(Duration::from_secs(5));
+    stream.set_read_timeout(timeout).ok()?;
+    stream.set_write_timeout(timeout).ok()?;
+    stream
+        .write_all(b"GET /api/version HTTP/1.1\r\nHost: localhost\r\nX-LastDB-Client: lastdb\r\nConnection: close\r\n\r\n")
+        .ok()?;
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).ok()?;
+    (raw.split_whitespace().nth(1)?.parse::<u16>().ok()? == 200).then_some(())?;
+    let body = raw.split_once("\r\n\r\n")?.1.trim();
+    serde_json::from_str(&body[body.find('{')?..=body.rfind('}')?]).ok()
 }

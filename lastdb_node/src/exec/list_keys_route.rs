@@ -118,9 +118,11 @@ async fn alternate_keyed_page(
         .get_schema_metadata(canonical)
         .map_err(HostError::from)?
         .ok_or_else(|| HostError::new(404, "schema is absent"))?;
-    let mut query = Query::new(canonical.to_owned());
+    let mut query = Query::new_with_filter(
+        canonical.to_owned(),
+        Some(HashRangeFilter::HashKey(hash.to_owned())),
+    );
     query.key_name = Some(name.to_owned());
-    query.filter = Some(HashRangeFilter::HashKey(hash.to_owned()));
     let cursor = decode_alternate_cursor(request.cursor.as_deref())?;
     let page = execute_query(
         host,
@@ -138,12 +140,14 @@ pub(in crate::exec) fn decode_alternate_cursor(
     raw: Option<&str>,
 ) -> Result<Option<QueryCursor>, HostError> {
     raw.map(|encoded| {
-        let encoded = encoded
+        let bytes = encoded
             .strip_prefix("ak2_")
+            .and_then(|s| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(s)
+                    .ok()
+            })
             .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
-        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(encoded)
-            .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))?;
         serde_json::from_slice::<QueryCursor>(&bytes)
             .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
     })
@@ -164,6 +168,16 @@ pub(in crate::exec) fn alternate_list_report(
     let rows = page["results"]
         .as_array()
         .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
+    let record_key = |value: &Value| -> Result<SchemaRecordKey, HostError> {
+        let key: KeyValue = serde_json::from_value(value.clone())
+            .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
+        Ok(SchemaRecordKey {
+            hash: key
+                .hash
+                .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
+            range: key.range.unwrap_or_default(),
+        })
+    };
     let keys: Vec<_> = rows
         .iter()
         .map(|row| record_key(&row["matched_key"]))
@@ -172,17 +186,17 @@ pub(in crate::exec) fn alternate_list_report(
         .iter()
         .map(|row| record_key(&row["key"]))
         .collect::<Result<_, _>>()?;
-    let next = if page["next_cursor"].is_null() {
-        None
-    } else {
-        Some(format!(
-            "ak2_{}",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-                serde_json::to_vec(&page["next_cursor"])
-                    .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?
-            )
-        ))
-    };
+    let next = (!page["next_cursor"].is_null())
+        .then(|| {
+            serde_json::to_vec(&page["next_cursor"]).map(|bytes| {
+                format!(
+                    "ak2_{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+                )
+            })
+        })
+        .transpose()
+        .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?;
     Ok(serde_json::json!({
         "schema": request.requested,
         "schema_id": schema.name,
@@ -196,15 +210,4 @@ pub(in crate::exec) fn alternate_list_report(
         "truncated": page["has_more"],
         "next_cursor": next,
     }))
-}
-
-fn record_key(value: &Value) -> Result<SchemaRecordKey, HostError> {
-    let key: KeyValue = serde_json::from_value(value.clone())
-        .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
-    Ok(SchemaRecordKey {
-        hash: key
-            .hash
-            .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
-        range: key.range.unwrap_or_default(),
-    })
 }

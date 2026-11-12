@@ -1,6 +1,6 @@
 //! Captured query entry points: keyed reads, counts, and alternate key pages.
 
-use super::QueryRecords;
+use super::{QueryRecords, Record};
 use crate::alternate_keys::{self, AlternateEntry};
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
@@ -31,8 +31,19 @@ impl QueryExecutor {
         }
     }
 
+    async fn in_read_scope<T>(
+        &self,
+        fut: impl std::future::Future<Output = Result<T, SchemaError>>,
+    ) -> Result<T, SchemaError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(Box::pin(fut))
+            .await
+    }
+
     pub async fn query(&self, query: Query) -> Result<QueryRecords, SchemaError> {
-        self.query_internal(query, None).await
+        self.in_read_scope(self.query_current(query, None)).await
     }
 
     pub async fn query_window(
@@ -40,17 +51,7 @@ impl QueryExecutor {
         query: Query,
         window: KeyWindow,
     ) -> Result<QueryRecords, SchemaError> {
-        self.query_internal(query, Some(window)).await
-    }
-
-    async fn query_internal(
-        &self,
-        query: Query,
-        window: Option<KeyWindow>,
-    ) -> Result<QueryRecords, SchemaError> {
-        let scope = self.db_ops.read_scope().await?;
-        scope
-            .run_result(Box::pin(self.query_current(query, window)))
+        self.in_read_scope(self.query_current(query, Some(window)))
             .await
     }
 
@@ -64,14 +65,15 @@ impl QueryExecutor {
                 "use the named alternate page reader".into(),
             ));
         }
-        let Some(schema) = self.prepare_query_schema(&query).await? else {
-            return Err(SchemaError::InvalidData(format!(
-                "Schema '{}' not found",
-                query.schema_name
-            )));
-        };
-        self.query_with_filter(&schema, query.filter.take(), window)
-            .await
+        let schema = self.prepare_query_schema(&query).await?.ok_or_else(|| {
+            SchemaError::InvalidData(format!("Schema '{}' not found", query.schema_name))
+        })?;
+        Ok(self
+            .select_filtered(&schema, query.filter.take(), window)
+            .await?
+            .into_iter()
+            .map(|(k, r)| (k, Record::from_stored(&r)))
+            .collect())
     }
 
     async fn prepare_query_schema(&self, query: &Query) -> Result<Option<Schema>, SchemaError> {
@@ -92,74 +94,60 @@ impl QueryExecutor {
         if query.key_name.is_some() {
             return self.count_alternate_rows(query).await.map(Some);
         }
-        let scope = self.db_ops.read_scope().await?;
-        scope
-            .run_result(Box::pin(self.count_query_rows_scoped(query)))
-            .await
-    }
-
-    async fn count_query_rows_scoped(&self, query: &Query) -> Result<Option<usize>, SchemaError> {
-        let Some(schema) = self.prepare_query_schema(query).await? else {
-            return Ok(None);
-        };
-        if query.include_tombstones {
-            return Ok(None);
-        }
-        let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
-        Ok(Some(self.count_rows(&schema, count_filter).await?))
+        self.in_read_scope(async {
+            let Some(schema) = self.prepare_query_schema(query).await? else {
+                return Ok(None);
+            };
+            if query.include_tombstones {
+                return Ok(None);
+            }
+            Ok(Some(
+                self.select_filtered(&schema, query.filter.clone(), None)
+                    .await?
+                    .len(),
+            ))
+        })
+        .await
     }
 
     pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
-        let scope = self.db_ops.read_scope().await?;
-        scope
-            .run_result(Box::pin(self.count_alternate_scoped(query)))
-            .await
-    }
-
-    async fn count_alternate_scoped(&self, query: &Query) -> Result<usize, SchemaError> {
-        let schema = self.alternate_schema(query).await?;
-        let name = query
-            .key_name
-            .as_deref()
-            .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
-        if !schema.require_record_keys()?.alternates.contains_key(name) {
-            return Err(alternate_keys::invalid("alternate key is not declared"));
-        }
-        let filter = query
-            .filter
-            .as_ref()
-            .ok_or_else(|| alternate_keys::invalid("alternate count requires a key"))?;
-        let mut after = None;
-        let mut count = 0usize;
-        loop {
+        self.in_read_scope(async {
+            let (schema, name) = self.require_declared_alternate(query).await?;
+            let filter = query
+                .filter
+                .as_ref()
+                .ok_or_else(|| alternate_keys::invalid("alternate count requires a key"))?;
             let store = self.db_ops.records();
-            let entries = store
-                .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
-                .await?;
-            let addresses = entries
-                .iter()
-                .map(|entry| store.record_key(&schema, &entry.primary))
-                .collect::<Result<Vec<_>, _>>()?;
-            let records = store.read_records(&addresses).await?;
-            for (entry, record) in entries.iter().zip(records) {
-                if !record.as_ref().is_some_and(|record| {
-                    record.is_live()
-                        && record.alternates.get(name).and_then(Option::as_ref)
-                            == Some(&entry.matched)
-                }) {
-                    return Err(alternate_keys::invalid(
-                        "alternate count found an entry without its current primary record",
-                    ));
+            let (mut after, mut count) = (None, 0usize);
+            loop {
+                let entries = store
+                    .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
+                    .await?;
+                let addrs = entries
+                    .iter()
+                    .map(|e| store.record_key(&schema, &e.primary))
+                    .collect::<Result<Vec<_>, _>>()?;
+                for (entry, record) in entries.iter().zip(store.read_records(&addrs).await?) {
+                    if !record.is_some_and(|r| {
+                        r.is_live()
+                            && r.alternates.get(name).and_then(Option::as_ref)
+                                == Some(&entry.matched)
+                    }) {
+                        return Err(alternate_keys::invalid(
+                            "alternate count found an entry without its current primary record",
+                        ));
+                    }
                 }
+                count = count
+                    .checked_add(entries.len())
+                    .ok_or_else(|| alternate_keys::invalid("alternate count overflow"))?;
+                if entries.len() < 128 {
+                    return Ok(count);
+                }
+                after = entries.last().cloned();
             }
-            count = count
-                .checked_add(entries.len())
-                .ok_or_else(|| alternate_keys::invalid("alternate count overflow"))?;
-            if entries.len() < 128 {
-                return Ok(count);
-            }
-            after = entries.last().cloned();
-        }
+        })
+        .await
     }
 
     pub async fn query_alternate_page(
@@ -168,9 +156,7 @@ impl QueryExecutor {
         limit: usize,
         cursor: Option<QueryCursor>,
     ) -> Result<AlternatePage, SchemaError> {
-        let scope = self.db_ops.read_scope().await?;
-        scope
-            .run_result(Box::pin(self.read_alternate_page(query, limit, cursor)))
+        self.in_read_scope(self.read_alternate_page(query, limit, cursor))
             .await
     }
 
@@ -180,35 +166,41 @@ impl QueryExecutor {
         limit: usize,
         cursor: Option<QueryCursor>,
     ) -> Result<AlternatePage, SchemaError> {
-        let schema = self.alternate_schema(&query).await?;
-        let name = query
-            .key_name
-            .take()
-            .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
-        if !schema.require_record_keys()?.alternates.contains_key(&name) {
-            return Err(alternate_keys::invalid("alternate key is not declared"));
-        }
+        let (schema, name) = self.require_declared_alternate(&query).await?;
+        let name = name.to_owned();
+        query.key_name = None;
         let filter = query
             .filter
             .take()
             .ok_or_else(|| alternate_keys::invalid("alternate filter is absent"))?;
-        let comparison = comparison_binding(&schema, &name, &filter)?;
+        let spec = (
+            &schema.name,
+            schema.alternate_key_revision(),
+            &name,
+            &filter,
+        );
+        let comparison = format!(
+            "ak2:{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&spec)
+                    .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
+            )
+        );
         if cursor
             .as_ref()
-            .is_some_and(|cursor| cursor.comparison.as_deref() != Some(&comparison))
+            .is_some_and(|c| c.comparison.as_deref() != Some(&comparison))
         {
             return Err(alternate_keys::invalid(
                 "alternate cursor does not match this query",
             ));
         }
         let after = cursor
-            .map(|cursor| -> Result<AlternateEntry, SchemaError> {
-                let primary = cursor.alternate_primary.clone().ok_or_else(|| {
-                    alternate_keys::invalid("alternate cursor requires its primary tie-breaker")
-                })?;
-                Ok(AlternateEntry {
-                    primary,
-                    matched: cursor.into_key(),
+            .map(|c| {
+                Ok::<_, SchemaError>(AlternateEntry {
+                    primary: c.alternate_primary.clone().ok_or_else(|| {
+                        alternate_keys::invalid("alternate cursor requires its primary tie-breaker")
+                    })?,
+                    matched: c.into_key(),
                 })
             })
             .transpose()?;
@@ -225,23 +217,35 @@ impl QueryExecutor {
             .await?;
         let has_more = entries.len() > limit;
         entries.truncate(limit);
-        let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-        query.filter = Some(HashRangeFilter::HashRangeKeys(
-            keys.iter()
-                .map(|key| {
-                    (
-                        key.hash.clone().unwrap_or_default(),
-                        key.range.clone().unwrap_or_default(),
-                    )
-                })
-                .collect(),
-        ));
-        let values = if keys.is_empty() {
+        let values = if entries.is_empty() {
             QueryRecords::new()
         } else {
+            let pairs = entries
+                .iter()
+                .map(|e| {
+                    (
+                        e.primary.hash.clone().unwrap_or_default(),
+                        e.primary.range.clone().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            query.filter = Some(HashRangeFilter::HashRangeKeys(pairs));
             self.query_current(query, None).await?
         };
-        validate_entries(&name, &entries, &values)?;
+        for e in &entries {
+            let record = values.get(&e.primary).ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "alternate page is missing a primary record ({} entries, {} records)",
+                    entries.len(),
+                    values.len()
+                ))
+            })?;
+            if record.alternates.get(&name).and_then(Option::as_ref) != Some(&e.matched) {
+                return Err(alternate_keys::invalid(
+                    "alternate entry does not match its primary record",
+                ));
+            }
+        }
         Ok(AlternatePage {
             values,
             entries,
@@ -250,7 +254,10 @@ impl QueryExecutor {
         })
     }
 
-    async fn alternate_schema(&self, query: &Query) -> Result<Schema, SchemaError> {
+    async fn require_declared_alternate<'a>(
+        &self,
+        query: &'a Query,
+    ) -> Result<(Schema, &'a str), SchemaError> {
         let schema = self
             .prepare_query_schema(query)
             .await?
@@ -259,54 +266,22 @@ impl QueryExecutor {
             || query
                 .sort_order
                 .as_ref()
-                .is_some_and(|order| *order != SortOrder::Asc)
+                .is_some_and(|o| *o != SortOrder::Asc)
             || query.expected_total_count.is_some()
         {
             return Err(alternate_keys::invalid(
                 "unsupported alternate query controls",
             ));
         }
-        Ok(schema)
+        let name = query
+            .key_name
+            .as_deref()
+            .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
+        schema
+            .require_record_keys()?
+            .alternates
+            .contains_key(name)
+            .then_some((schema, name))
+            .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))
     }
-}
-
-fn comparison_binding(
-    schema: &Schema,
-    name: &str,
-    filter: &HashRangeFilter,
-) -> Result<String, SchemaError> {
-    Ok(format!(
-        "ak2:{:x}",
-        Sha256::digest(
-            serde_json::to_vec(&(
-                &schema.name,
-                schema.alternate_key_revision(),
-                &name,
-                &filter
-            ))
-            .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
-        )
-    ))
-}
-
-fn validate_entries(
-    name: &str,
-    entries: &[AlternateEntry],
-    values: &QueryRecords,
-) -> Result<(), SchemaError> {
-    for entry in entries {
-        let record = values.get(&entry.primary).ok_or_else(|| {
-            SchemaError::InvalidData(format!(
-                "alternate page is missing a primary record ({} entries, {} records)",
-                entries.len(),
-                values.len()
-            ))
-        })?;
-        if record.alternates.get(name).and_then(Option::as_ref) != Some(&entry.matched) {
-            return Err(alternate_keys::invalid(
-                "alternate entry does not match its primary record",
-            ));
-        }
-    }
-    Ok(())
 }

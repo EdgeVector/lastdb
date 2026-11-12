@@ -28,25 +28,17 @@ fn hex_nibble(byte: u8) -> Option<u8> {
     }
 }
 
-/// Decode hex text (either case) into bytes. `None` for an odd length or any
-/// character outside `[0-9a-fA-F]`; a sign such as `+f` is not a hex digit.
-pub fn hex_decode(text: &str) -> Option<Vec<u8>> {
-    let bytes = text.as_bytes();
-    if !bytes.len().is_multiple_of(2) {
-        return None;
-    }
-    bytes
-        .chunks_exact(2)
-        .map(|pair| Some((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
-        .collect()
-}
-
 /// Decode exactly `2 * N` hex characters (either case) into `N` bytes.
 pub fn hex_decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
-    if text.len() != N * 2 {
+    let bytes = text.as_bytes();
+    if bytes.len() != N * 2 {
         return None;
     }
-    hex_decode(text)?.try_into().ok()
+    let mut out = [0u8; N];
+    for (slot, pair) in out.iter_mut().zip(bytes.chunks_exact(2)) {
+        *slot = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+    }
+    Some(out)
 }
 
 /// Lowercase hex of the SHA-256 digest of `bytes` (64 characters).

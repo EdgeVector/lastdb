@@ -1,29 +1,32 @@
 use super::*;
 
 fn percent_encode_query(value: &str) -> String {
-    let mut out = String::new();
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
+    value
+        .bytes()
+        .fold(String::with_capacity(value.len()), |mut out, b| {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
             }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
+            out
+        })
+}
+
+fn require_reachable(socket: &Path) -> Result<(), String> {
+    probe_health(socket).map_err(|_| {
+        format!(
+            "lastdbd not reachable at {} — start the daemon first",
+            socket.display()
+        )
+    })
 }
 
 pub(crate) fn list_record_keys(
     target: &DatabaseTarget,
     args: &crate::cli_defs::RecordListArgs,
 ) -> Result<(), String> {
-    let socket = &target.socket;
-    if probe_health(socket).is_err() {
-        return Err(format!(
-            "lastdbd not reachable at {} — start the daemon first",
-            socket.display()
-        ));
-    }
+    require_reachable(&target.socket)?;
     let mut path = format!(
         "/api/list?schema={}&limit={}",
         percent_encode_query(&args.schema),
@@ -39,7 +42,7 @@ pub(crate) fn list_record_keys(
         }
     }
     let response = get_path(
-        socket,
+        &target.socket,
         &target.path(&path),
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
@@ -52,8 +55,7 @@ pub(crate) fn list_record_keys(
             return Err("node did not honor the requested alternate key; upgrade LastDB".into());
         }
         let keys = report["keys"].as_array();
-        let primary = report["primary_keys"].as_array();
-        if keys.is_none() || keys.map(Vec::len) != primary.map(Vec::len) {
+        if keys.is_none() || keys.map(Vec::len) != report["primary_keys"].as_array().map(Vec::len) {
             return Err("alternate list lost its primary mutation keys".into());
         }
     }
@@ -62,41 +64,26 @@ pub(crate) fn list_record_keys(
             "{}",
             serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
         );
-        return Ok(());
+    } else {
+        print_list_record_keys_human(&report);
     }
-    print_list_record_keys_human(&report);
     Ok(())
 }
 
 fn print_list_record_keys_human(report: &serde_json::Value) {
-    let keys = report
-        .get("keys")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let has_more = report
-        .get("has_more")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    let schema = report
-        .get("schema")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("?");
+    let empty = Vec::new();
+    let keys = report["keys"].as_array().unwrap_or(&empty);
+    let has_more = report["has_more"].as_bool().unwrap_or(false);
+    let schema = report["schema"].as_str().unwrap_or("?");
     let ranged = report
         .pointer("/key_definition/kind")
         .and_then(serde_json::Value::as_str)
         == Some("hash_range");
-    let hash_filter = report
-        .get("hash_filter")
-        .and_then(serde_json::Value::as_str);
-    let partition = hash_filter
-        .map(|h| format!(" --key-hash {h:?}"))
-        .unwrap_or_default();
-    let key_flag = report
-        .get("key_name")
-        .and_then(serde_json::Value::as_str)
-        .map(|name| format!(" --key-name {name}"))
-        .unwrap_or_default();
+    let hash_filter = report["hash_filter"].as_str();
+    let partition = hash_filter.map_or_else(String::new, |h| format!(" --key-hash {h:?}"));
+    let key_flag = report["key_name"]
+        .as_str()
+        .map_or_else(String::new, |n| format!(" --key-name {n}"));
     eprintln!(
         "lastdb get-keys {schema}{key_flag}{partition} — {} key{}{}{}",
         keys.len(),
@@ -108,31 +95,18 @@ fn print_list_record_keys_human(report: &serde_json::Value) {
         eprintln!("For writes, use primary_keys from --json.");
     }
     eprintln!("{}", if ranged { "hash\trange" } else { "hash" });
-    for key in &keys {
-        let hash = key
-            .get("hash")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let range = key
-            .get("range")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
+    for key in keys {
+        let hash = key["hash"].as_str().unwrap_or("");
+        let range = key["range"].as_str().unwrap_or("");
         if range.is_empty() {
             println!("{hash}");
         } else {
             println!("{hash}\t{range}");
         }
     }
-    if has_more {
-        if let Some(cursor) = report
-            .get("next_cursor")
-            .and_then(serde_json::Value::as_str)
-        {
-            let hash_flag = hash_filter
-                .map(|h| format!(" --key-hash '{h}'"))
-                .unwrap_or_default();
-            eprintln!("next: lastdb get-keys {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
-        }
+    if let Some(cursor) = report["next_cursor"].as_str().filter(|_| has_more) {
+        let hash_flag = hash_filter.map_or_else(String::new, |h| format!(" --key-hash '{h}'"));
+        eprintln!("next: lastdb get-keys {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
     }
 }
 
@@ -140,15 +114,9 @@ pub(crate) fn fetch_schema(
     target: &DatabaseTarget,
     name: &str,
 ) -> Result<serde_json::Value, String> {
-    let socket = &target.socket;
-    if probe_health(socket).is_err() {
-        return Err(format!(
-            "lastdbd not reachable at {} — start the daemon first",
-            socket.display()
-        ));
-    }
+    require_reachable(&target.socket)?;
     let path = format!("/api/schema/{}", percent_encode_query(name));
-    let response = get_path(socket, &target.path(&path), Duration::from_secs(10))?;
+    let response = get_path(&target.socket, &target.path(&path), Duration::from_secs(10))?;
     parse_json_response(&response, "schema")?
         .get("schema")
         .cloned()

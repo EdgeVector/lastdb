@@ -10,126 +10,83 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub fn is_zero_u8(value: &u8) -> bool {
-    *value == 0
-}
-
-pub fn is_zero_u64(value: &u64) -> bool {
-    *value == 0
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// Format instance authority to issue and admit sealed or local-path file data.
+#[derive(Default)]
 pub struct FileWriteIssuer {
     identity: Arc<()>,
 }
 
-impl Default for FileWriteIssuer {
-    fn default() -> Self {
-        Self {
-            identity: Arc::new(()),
-        }
+struct Issued<T> {
+    issuer: Arc<()>,
+    marker: FileMarker,
+    data: T,
+}
+
+impl<T: PartialEq> PartialEq for Issued<T> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.issuer, &other.issuer)
+            && self.marker == other.marker
+            && self.data == other.data
     }
 }
 
-struct Payload {
-    issuer: Arc<()>,
-    marker: FileMarker,
-    row: Vec<u8>,
-}
-
-#[derive(Clone)]
-pub struct SealedRecordFile {
-    payload: Arc<Payload>,
-}
+#[derive(Clone, PartialEq)]
+pub struct SealedRecordFile(Arc<Issued<Vec<u8>>>);
 
 impl SealedRecordFile {
     #[must_use]
     pub fn marker(&self) -> &FileMarker {
-        &self.payload.marker
+        &self.0.marker
     }
 }
 
-impl PartialEq for SealedRecordFile {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.payload, &other.payload)
-            || (Arc::ptr_eq(&self.payload.issuer, &other.payload.issuer)
-                && self.payload.marker == other.payload.marker
-                && self.payload.row == other.payload.row)
-    }
-}
-
-struct LocalPayload {
-    issuer: Arc<()>,
-    marker: FileMarker,
-    path: PathBuf,
-}
-
-#[derive(Clone)]
-pub struct LocalFileReference {
-    payload: Arc<LocalPayload>,
-}
+#[derive(Clone, PartialEq)]
+pub struct LocalFileReference(Arc<Issued<PathBuf>>);
 
 impl LocalFileReference {
     #[must_use]
     pub fn marker(&self) -> &FileMarker {
-        &self.payload.marker
+        &self.0.marker
     }
 
     #[must_use]
     pub fn path(&self) -> &Path {
-        &self.payload.path
-    }
-}
-
-impl PartialEq for LocalFileReference {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.payload, &other.payload)
-            || (Arc::ptr_eq(&self.payload.issuer, &other.payload.issuer)
-                && self.payload.marker == other.payload.marker
-                && self.payload.path == other.payload.path)
+        &self.0.data
     }
 }
 
 impl FileWriteIssuer {
     #[must_use]
-    pub fn issue(&self, marker: FileMarker, row: Vec<u8>) -> FileWrite {
-        FileWrite::Put(SealedRecordFile {
-            payload: Arc::new(Payload {
-                issuer: Arc::clone(&self.identity),
-                marker,
-                row,
-            }),
-        })
+    pub fn issue(&self, marker: FileMarker, data: Vec<u8>) -> FileWrite {
+        FileWrite::Put(SealedRecordFile(Arc::new(Issued {
+            issuer: Arc::clone(&self.identity),
+            marker,
+            data,
+        })))
     }
 
     #[must_use]
-    pub fn issue_local(&self, marker: FileMarker, path: PathBuf) -> FileWrite {
-        FileWrite::LocalPath(LocalFileReference {
-            payload: Arc::new(LocalPayload {
-                issuer: Arc::clone(&self.identity),
-                marker,
-                path,
-            }),
-        })
+    pub fn issue_local(&self, marker: FileMarker, data: PathBuf) -> FileWrite {
+        FileWrite::LocalPath(LocalFileReference(Arc::new(Issued {
+            issuer: Arc::clone(&self.identity),
+            marker,
+            data,
+        })))
     }
 
     #[must_use]
     pub fn admit(&self, file: SealedRecordFile) -> Option<Vec<u8>> {
-        if !Arc::ptr_eq(&self.identity, &file.payload.issuer) {
-            return None;
-        }
-        Some(
-            Arc::try_unwrap(file.payload)
-                .map_or_else(|payload| payload.row.clone(), |payload| payload.row),
-        )
+        Arc::ptr_eq(&self.identity, &file.0.issuer)
+            .then(|| Arc::try_unwrap(file.0).map_or_else(|p| p.data.clone(), |p| p.data))
     }
 
     #[must_use]
     pub fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
-        if !Arc::ptr_eq(&self.identity, &file.payload.issuer) {
-            return None;
-        }
-        Some(file.path())
+        Arc::ptr_eq(&self.identity, &file.0.issuer).then(|| file.path())
     }
 }
 
@@ -143,16 +100,13 @@ pub enum FileWrite {
 impl FileWrite {
     #[must_use]
     pub fn row_len(&self) -> usize {
-        match self {
-            Self::Put(file) => file.payload.row.len(),
-            Self::LocalPath(_) | Self::Clear => 0,
-        }
+        self.sealed_row().map_or(0, <[u8]>::len)
     }
 
     #[must_use]
     pub fn sealed_row(&self) -> Option<&[u8]> {
         match self {
-            Self::Put(file) => Some(file.payload.row.as_slice()),
+            Self::Put(file) => Some(&file.0.data),
             Self::LocalPath(_) | Self::Clear => None,
         }
     }
@@ -209,13 +163,13 @@ pub struct Mutation {
     pub metadata: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub logical_counter: u64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_writer_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_signature: String,
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub author_clock_signature_version: u8,
     pub expected: CasExpectation,
     #[serde(skip)]
@@ -269,18 +223,6 @@ impl Mutation {
         }
     }
 
-    #[must_use]
-    pub fn with_erase_caller(mut self, caller: &'static str) -> Self {
-        self.erase_caller = Some(caller);
-        self
-    }
-
-    #[must_use]
-    pub fn with_erase_written_before_nanos(mut self, nanos: u64) -> Self {
-        self.erase_written_before_nanos = Some(nanos);
-        self
-    }
-
     pub fn target(&self) -> RecordTarget {
         RecordTarget {
             schema: self.schema_name.clone(),
@@ -290,23 +232,24 @@ impl Mutation {
     }
 
     pub fn validate_record_intent(&self) -> Result<(), crate::schema::SchemaError> {
-        let invalid = |message: &str| crate::schema::SchemaError::InvalidData(message.into());
-        if self.uuid.is_empty() || self.uuid.len() > 128 {
+        let invalid = |msg: &str| crate::schema::SchemaError::InvalidData(msg.into());
+        if !(1..=128).contains(&self.uuid.len()) {
             return Err(invalid(
                 "a mutation requires a stable id of at most 128 bytes",
             ));
         }
-        match (&self.mutation_type, &self.expected) {
-            (MutationType::Create, CasExpectation::Absent) => (),
+        let valid_cas = match (&self.mutation_type, &self.expected) {
+            (MutationType::Create, CasExpectation::Absent) => true,
             (
                 MutationType::Replace | MutationType::Delete | MutationType::Purge,
                 CasExpectation::Revision { revision },
-            ) if !revision.is_empty() => (),
-            _ => {
-                return Err(invalid(
-                    "create requires absent; replace/delete/purge require a record revision",
-                ));
-            }
+            ) => !revision.is_empty(),
+            _ => false,
+        };
+        if !valid_cas {
+            return Err(invalid(
+                "create requires absent; replace/delete/purge require a record revision",
+            ));
         }
         if matches!(
             self.mutation_type,
@@ -347,7 +290,7 @@ impl Mutation {
         let metadata = self
             .metadata
             .as_ref()
-            .map(|metadata| metadata.iter().collect::<BTreeMap<_, _>>());
+            .map(|m| m.iter().collect::<BTreeMap<_, _>>());
         json_field(&mut digest, &metadata);
         json_field(&mut digest, &self.erase_written_before_nanos);
         json_field(&mut digest, &self.imported_written_at);
@@ -358,6 +301,8 @@ impl Mutation {
 }
 
 fn json_field<T: Serialize>(digest: &mut Sha256, value: &T) {
-    let bytes = serde_json::to_vec(value).expect("mutation content is serializable");
-    push_field(digest, &bytes);
+    push_field(
+        digest,
+        &serde_json::to_vec(value).expect("mutation content is serializable"),
+    );
 }

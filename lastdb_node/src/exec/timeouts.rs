@@ -7,21 +7,21 @@ const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
 const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
 pub const DEFAULT_CLI_UDS_TIMEOUT_SECS: u64 = 30;
 
+fn secs_override(var: &str) -> Option<Duration> {
+    fold_db::env_flag::var_parsed::<u64>(var)
+        .filter(|&n| n > 0)
+        .map(Duration::from_secs)
+}
+
 #[must_use]
 pub fn handler_timeout() -> Duration {
-    fold_db::env_flag::var_parsed::<u64>("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
-        .filter(|&n| n > 0)
-        .map_or(
-            Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS),
-            Duration::from_secs,
-        )
+    secs_override("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
+        .unwrap_or(Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS))
 }
 
 #[must_use]
 pub fn admin_handler_timeout_override() -> Option<Duration> {
-    fold_db::env_flag::var_parsed::<u64>("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
-        .filter(|&n| n > 0)
-        .map(Duration::from_secs)
+    secs_override("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
 }
 
 #[must_use]
@@ -115,21 +115,6 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::Status => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),
-        DataRoute::Query
-        | DataRoute::DbFlush
-        | DataRoute::DbCleanup
-        | DataRoute::DbNativeStatus
-        | DataRoute::Mutation
-        | DataRoute::MutationBatch
-        | DataRoute::QueryBatch
-        | DataRoute::ListSchemas
-        | DataRoute::ListRecordKeys
-        | DataRoute::GetSchema
-        | DataRoute::AutoIdentity
-        | DataRoute::SeedSystemSchema
-        | DataRoute::DbSchemaRetention
-        | DataRoute::DbPutBlob
-        | DataRoute::DbFetchBlob
-        | DataRoute::DbDeleteBlob => handler_timeout(),
+        _ => handler_timeout(),
     }
 }

@@ -12,7 +12,7 @@ pub fn min_manifest_ttl_seconds() -> u64 {
     std::env::var(MIN_MANIFEST_TTL_ENV)
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0)
+        .filter(|&s| s > 0)
         .unwrap_or(MIN_MANIFEST_TTL_SECONDS)
 }
 
@@ -34,23 +34,23 @@ impl ManifestRetention {
 
     pub fn ttl(&self) -> Result<u64, String> {
         let seconds = match (self.ttl_days, self.ttl_seconds) {
-            (Some(days), None) => days.checked_mul(SECONDS_PER_DAY),
-            (None, Some(seconds)) => Some(seconds),
-            (None, None) => return Err("retention needs ttl_days or ttl_seconds".to_string()),
+            (Some(d), None) => d.checked_mul(SECONDS_PER_DAY),
+            (None, Some(s)) => Some(s),
+            (None, None) => return Err("retention needs ttl_days or ttl_seconds".into()),
             (Some(_), Some(_)) => {
-                return Err("retention takes ttl_days or ttl_seconds, not both".to_string());
+                return Err("retention takes ttl_days or ttl_seconds, not both".into())
             }
         };
         let floor = min_manifest_ttl_seconds();
         match seconds {
-            Some(0) => Err("retention ttl must be greater than zero".to_string()),
-            Some(seconds) if seconds < floor => Err(format!(
-                "retention ttl of {seconds} seconds is below the floor of {floor} seconds. \
+            Some(0) => Err("retention ttl must be greater than zero".into()),
+            Some(s) if s < floor => Err(format!(
+                "retention ttl of {s} seconds is below the floor of {floor} seconds. \
                  A TTL deletes records for good, and a value this small is usually a unit \
                  slip (ttl_seconds: 90 meant as days). Use ttl_days, or set \
                  {MIN_MANIFEST_TTL_ENV} to lower the floor"
             )),
-            Some(seconds) if seconds <= MAX_MANIFEST_TTL_SECONDS => Ok(seconds),
+            Some(s) if s <= MAX_MANIFEST_TTL_SECONDS => Ok(s),
             _ => Err(format!(
                 "retention ttl is too large: the limit is {MAX_MANIFEST_TTL_SECONDS} seconds (3650 days)"
             )),

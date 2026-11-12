@@ -36,6 +36,12 @@ pub struct WriterWatch {
     quiet: Duration,
 }
 
+impl Default for WriterWatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WriterWatch {
     pub async fn measure<F: std::future::Future>(work: F) -> (F::Output, Duration, u64) {
         let (output, cost) = crate::storage::disk_pack::transaction::blocked::measure(work).await;
@@ -51,29 +57,18 @@ impl WriterWatch {
         }
     }
 
-    fn look(&mut self, own: u64) -> bool {
+    pub fn writer_present(&mut self, own: u64) -> bool {
         let now = write_scopes();
         let others = now.saturating_sub(self.mark).saturating_sub(own);
         self.mark = now;
         if others > 0 {
             self.last_other = Some(Instant::now());
         }
-        others > 0
-    }
-
-    pub fn writer_present(&mut self, own: u64) -> bool {
-        let seen = self.look(own);
-        seen || self.last_other.is_some_and(|at| at.elapsed() < self.quiet)
+        others > 0 || self.last_other.is_some_and(|at| at.elapsed() < self.quiet)
     }
 
     pub fn rest_may_end(&mut self) -> bool {
         !self.writer_present(0)
-    }
-}
-
-impl Default for WriterWatch {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -114,7 +109,7 @@ impl RecordSpan {
 #[derive(Clone)]
 pub struct RecordStore {
     main_store: ReadStore,
-    format: Arc<RecordFormat>,
+    pub(crate) format: Arc<RecordFormat>,
     runtime: Arc<PackRuntime>,
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     node_key: [u8; 32],
@@ -144,10 +139,9 @@ impl RecordStore {
             .primary
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
-        let space = record_space_uuid(&schema.name);
         Ok(FieldKeyCodec::from_node_key(
             &self.node_key,
-            &space,
+            &record_space_uuid(&schema.name),
             profile,
         ))
     }
@@ -201,8 +195,8 @@ impl RecordStore {
     }
 
     pub(crate) async fn minimum_replay_time(&self) -> StorageResult<u64> {
-        if let Some(cutoff) = self.serving_replay_cutoff.get() {
-            return Ok(*cutoff);
+        if let Some(&cutoff) = self.serving_replay_cutoff.get() {
+            return Ok(cutoff);
         }
         self.read_minimum_replay_time().await
     }
@@ -210,32 +204,28 @@ impl RecordStore {
     pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
         self.runtime.begin_serving();
         let cutoff = self.read_minimum_replay_time().await?;
-        if let Err(cutoff) = self.serving_replay_cutoff.set(cutoff) {
-            if self.serving_replay_cutoff.get() != Some(&cutoff) {
-                return Err(StorageError::InvalidOperation(
-                    "delete replay cutoff: serving replay floor changed after startup".into(),
-                ));
-            }
+        if self.serving_replay_cutoff.set(cutoff).is_err()
+            && self.serving_replay_cutoff.get() != Some(&cutoff)
+        {
+            return Err(StorageError::InvalidOperation(
+                "delete replay cutoff: serving replay floor changed after startup".into(),
+            ));
         }
         Ok(())
     }
 
     async fn read_minimum_replay_time(&self) -> StorageResult<u64> {
-        let values = self
-            .main_store
-            .get_many(vec![
-                crate::storage::format::CURRENT_KEY_FORMAT_KEY
-                    .as_bytes()
-                    .to_vec(),
-                CUTOFF_KEY.as_bytes().to_vec(),
-            ])
-            .await?;
-        if values.len() != 2 {
+        let keys = [crate::storage::format::CURRENT_KEY_FORMAT_KEY, CUTOFF_KEY]
+            .into_iter()
+            .map(|k| k.as_bytes().to_vec())
+            .collect();
+        let values = self.main_store.get_many(keys).await?;
+        let [first, second] = values.as_slice() else {
             return Err(StorageError::InvalidOperation(
                 "delete replay cutoff: incomplete fence read".into(),
             ));
-        }
-        validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
+        };
+        validate_frozen_replay_floor(first.as_deref(), second.as_deref())
     }
 
     pub(crate) fn record_span(
@@ -247,31 +237,27 @@ impl RecordStore {
     ) -> Result<Option<RecordSpan>, SchemaError> {
         let space = record_space_uuid(&schema.name);
         let codec = self.primary_codec(schema)?;
-        let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
-        let base = record_hash_prefix(&space, &storage_hash);
+        let base = record_hash_prefix(&space, &codec.storage_hash(&space, hash).map_err(invalid)?);
         let stored = |range: &str| {
             codec
                 .storage_range(&space, range)
-                .map(|range| format!("{base}{range}"))
-                .map_err(codec_error)
+                .map(|r| format!("{base}{r}"))
+                .map_err(invalid)
         };
         let (mut start, end) = match bound {
             RecordBound::All => (base.clone(), FilterUtils::create_prefix_end(&base)?),
             RecordBound::Prefix(prefix) => {
-                codec.require_text_range_prefix().map_err(codec_error)?;
+                codec.require_text_range_prefix().map_err(invalid)?;
                 let start = stored(prefix)?;
                 let end = FilterUtils::create_prefix_end(&start)?;
                 (start, end)
             }
             RecordBound::Between(start, end) => (stored(start)?, stored(end)?),
         };
-        if let Some(from) = from_range.and_then(|range| stored(range).ok()) {
+        if let Some(from) = from_range.and_then(|r| stored(r).ok()) {
             start = start.max(from);
         }
-        if start >= end {
-            return Ok(None);
-        }
-        Ok(Some(RecordSpan {
+        Ok((start < end).then(|| RecordSpan {
             hash: hash.to_owned(),
             codec,
             base,
@@ -286,27 +272,27 @@ impl RecordStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<SpanPage, SchemaError> {
-        let start = after.map_or_else(|| span.start.clone(), |cursor| format!("{cursor}\0"));
+        let start = after.map_or_else(|| span.start.clone(), |c| format!("{c}\0"));
         let page = self
             .main_store
             .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
             .await
-            .map_err(|error| SchemaError::InvalidData(format!("read record keys: {error}")))?;
-        let mut keys = Vec::with_capacity(page.rows.len());
-        for (physical, value) in page.rows {
-            let physical = text(physical)?;
-            let range = physical
-                .get(span.base.len()..)
-                .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?
-                .to_owned();
-            let api_range = span.codec.api_range(&range).map_err(codec_error)?;
-            keys.push(SpanKey {
-                range,
-                key: KeyValue::new(Some(span.hash.clone()), Some(api_range)),
-                physical,
-                record: reads::decode(&value)?,
-            });
-        }
+            .map_err(|e| SchemaError::InvalidData(format!("read record keys: {e}")))?;
+        let text =
+            |k: Vec<u8>| String::from_utf8(k).map_err(|_| invalid("a record key is not text"));
+        let keys = page
+            .rows
+            .into_iter()
+            .map(|(physical, value)| {
+                let physical = text(physical)?;
+                Ok(SpanKey {
+                    key: self.span_key(span, &physical)?,
+                    range: physical[span.base.len()..].to_owned(),
+                    physical,
+                    record: reads::decode(&value)?,
+                })
+            })
+            .collect::<Result<_, SchemaError>>()?;
         Ok(SpanPage {
             keys,
             next: page.resume.map(text).transpose()?,
@@ -320,16 +306,14 @@ impl RecordStore {
     ) -> Result<KeyValue, SchemaError> {
         let range = physical
             .get(span.base.len()..)
-            .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?;
-        let api_range = span.codec.api_range(range).map_err(codec_error)?;
-        Ok(KeyValue::new(Some(span.hash.clone()), Some(api_range)))
+            .ok_or_else(|| invalid("a record key has no range"))?;
+        Ok(KeyValue::new(
+            Some(span.hash.clone()),
+            Some(span.codec.api_range(range).map_err(invalid)?),
+        ))
     }
 }
 
-fn text(key: Vec<u8>) -> Result<String, SchemaError> {
-    String::from_utf8(key).map_err(|_| SchemaError::InvalidData("a record key is not text".into()))
-}
-
-fn codec_error(error: impl std::fmt::Display) -> SchemaError {
+fn invalid(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(error.to_string())
 }

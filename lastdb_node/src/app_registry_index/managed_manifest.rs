@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -54,15 +55,11 @@ pub struct InstallPlan {
 
 fn relative(path: &str) -> Result<PathBuf, String> {
     let p = Path::new(path);
-    if p.as_os_str().is_empty()
-        || p.is_absolute()
-        || p.components().any(|c| !matches!(c, Component::Normal(_)))
-    {
-        return Err(format!(
-            "install path must stay inside the source tree: {path}"
-        ));
-    }
-    Ok(p.to_path_buf())
+    (!p.as_os_str().is_empty()
+        && !p.is_absolute()
+        && p.components().all(|c| matches!(c, Component::Normal(_))))
+    .then(|| p.to_path_buf())
+    .ok_or_else(|| format!("install path must stay inside the source tree: {path}"))
 }
 
 impl InstallPlan {
@@ -92,14 +89,14 @@ impl InstallPlan {
         let mut commands = HashSet::new();
         for link in &self.links {
             relative(&link.source)?;
-            if link.command.is_empty()
-                || link.command.starts_with('-')
-                || !link
+            let ok = !link.command.is_empty()
+                && !link.command.starts_with('-')
+                && link
                     .command
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                || !commands.insert(&link.command)
-            {
+                && commands.insert(&link.command);
+            if !ok {
                 return Err("invalid or duplicate install command".into());
             }
         }
@@ -117,10 +114,11 @@ impl InstallPlan {
                 return Err("invalid install step or timeout (1..600 seconds)".into());
             }
         }
-        if self.requires.iter().any(|app| !super::valid_app_id(app)) {
-            return Err("invalid required app".into());
-        }
-        Ok(())
+        self.requires
+            .iter()
+            .all(|app| super::valid_app_id(app))
+            .then_some(())
+            .ok_or_else(|| "invalid required app".into())
     }
 
     pub fn consent_hash(&self) -> Result<String, String> {
@@ -134,6 +132,14 @@ fn bin_root() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(|p| PathBuf::from(p).join(".local/bin"))
         .ok_or_else(|| "HOME is required".into())
+}
+
+fn check_replaceable(path: &Path) -> Result<(), String> {
+    (!path
+        .symlink_metadata()
+        .is_ok_and(|m| !m.file_type().is_symlink()))
+    .then_some(())
+    .ok_or_else(|| format!("refusing to replace a regular file: {}", path.display()))
 }
 
 pub(crate) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), String> {
@@ -152,45 +158,38 @@ pub(crate) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), 
 }
 
 pub(crate) fn flip(link: &Path, target: &Path) -> Result<(), String> {
-    let temporary = link.with_extension(format!("new-{}", std::process::id()));
+    let tmp = link.with_extension(format!("new-{}", std::process::id()));
     #[cfg(unix)]
-    std::os::unix::fs::symlink(target, &temporary).map_err(|e| e.to_string())?;
+    std::os::unix::fs::symlink(target, &tmp).map_err(|e| e.to_string())?;
     #[cfg(not(unix))]
     return Err("managed app links require a Unix host".into());
-    fs::rename(&temporary, link).map_err(|e| {
-        let _ = fs::remove_file(&temporary);
+    fs::rename(&tmp, link).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
         e.to_string()
     })
 }
 
 pub(crate) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    let source_dir = root.join("current/source");
-    validate_sources(&source_dir, plan)?;
+    let src = root.join("current/source");
+    validate_sources(&src, plan)?;
     let bin = bin_root()?;
     fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
     for link in &plan.links {
         let target = bin.join(&link.command);
-        if target
-            .symlink_metadata()
-            .is_ok_and(|m| !m.file_type().is_symlink())
-        {
-            return Err(format!(
-                "refusing to replace a regular file: {}",
-                target.display()
-            ));
-        }
-        flip(&target, &source_dir.join(&link.source))?;
+        check_replaceable(&target)?;
+        flip(&target, &src.join(&link.source))?;
     }
     Ok(())
 }
 
 pub(crate) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    let source_dir = root.join("current/source");
-    validate_sources(&source_dir, plan)?;
+    let src = root.join("current/source");
+    validate_sources(&src, plan)?;
     let bin = bin_root()?;
     for link in &plan.links {
-        let actual = fs::read_link(bin.join(&link.command)).map_err(|e| e.to_string())?;
-        if actual != source_dir.join(&link.source) {
+        if fs::read_link(bin.join(&link.command)).map_err(|e| e.to_string())?
+            != src.join(&link.source)
+        {
             return Err(format!("command link drift: {}", link.command));
         }
     }
@@ -199,22 +198,14 @@ pub(crate) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
 
 pub(crate) fn snapshot(plan: &InstallPlan) -> Result<Vec<(PathBuf, Option<PathBuf>)>, String> {
     let bin = bin_root()?;
-    let mut result = Vec::with_capacity(plan.links.len());
-    for link in &plan.links {
-        let path = bin.join(&link.command);
-        if path
-            .symlink_metadata()
-            .is_ok_and(|m| !m.file_type().is_symlink())
-        {
-            return Err(format!(
-                "refusing to replace a regular file: {}",
-                path.display()
-            ));
-        }
-        let prior = fs::read_link(&path).ok();
-        result.push((path, prior));
-    }
-    Ok(result)
+    plan.links
+        .iter()
+        .map(|link| {
+            let path = bin.join(&link.command);
+            check_replaceable(&path)?;
+            Ok((path.clone(), fs::read_link(&path).ok()))
+        })
+        .collect()
 }
 
 pub(crate) fn restore(snapshot: &[(PathBuf, Option<PathBuf>)]) -> Result<(), String> {
@@ -228,25 +219,96 @@ pub(crate) fn restore(snapshot: &[(PathBuf, Option<PathBuf>)]) -> Result<(), Str
     Ok(())
 }
 
-pub(crate) fn authorized_transition(
-    prior: &ManagedReceipt,
-    resolution: &Resolution,
-    entry: &ListEntry,
-) -> bool {
+pub(crate) fn clone_source(checkout_path: &Path, entry: &ListEntry) -> Result<(), String> {
+    if entry.sha.len() != 40 || !entry.sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "compat row sha '{}' is not a git commit",
+            entry.sha
+        ));
+    }
+    if !git_ok(
+        None,
+        &["clone", "--quiet", "--no-checkout", &entry.source],
+        Some(checkout_path),
+    )
+    .map_err(|e| format!("failed to run git clone: {e}"))?
+    {
+        return Err(format!(
+            "git clone failed for app '{}' from {}",
+            entry.app_id, entry.source
+        ));
+    }
+    if !git_ok(
+        Some(checkout_path),
+        &["checkout", "--quiet", "--detach", &entry.sha],
+        None,
+    )
+    .map_err(|e| format!("failed to run git checkout: {e}"))?
+    {
+        return Err(format!(
+            "git checkout {} failed for app '{}': the proved commit is not in {}",
+            entry.sha, entry.app_id, entry.source
+        ));
+    }
+    let head = git_head(checkout_path).map_err(|e| format!("failed to run git rev-parse: {e}"))?;
+    (head == entry.sha).then_some(()).ok_or_else(|| {
+        format!(
+            "checkout HEAD is {head} but the proved commit is {}",
+            entry.sha
+        )
+    })
+}
+
+pub(crate) fn verify_git_source(source: &Path, expected_sha: &str) -> Result<(), String> {
+    if git_head(source).ok().as_deref() != Some(expected_sha) {
+        return Err("installed source commit drift".into());
+    }
+    git_ok(Some(source), &["diff", "--quiet", "HEAD", "--"], None)?
+        .then_some(())
+        .ok_or_else(|| "installed tracked source changed".into())
+}
+
+fn git_ok(cwd: Option<&Path>, args: &[&str], extra: Option<&Path>) -> Result<bool, String> {
+    let mut cmd = ProcessCommand::new("git");
+    if let Some(dir) = cwd {
+        cmd.arg("-C").arg(dir);
+    }
+    cmd.args(args);
+    if let Some(path) = extra {
+        cmd.arg(path);
+    }
+    cmd.status().map(|s| s.success()).map_err(|e| e.to_string())
+}
+
+fn git_head(source: &Path) -> Result<String, String> {
+    let out = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(source)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .ok_or_else(|| "git rev-parse HEAD failed".into())
+}
+
+pub(crate) fn authorized_transition(prior: &ManagedReceipt, resolution: &Resolution) -> bool {
+    let e = &resolution.entry;
     if !prior.trust.starts_with("pinned:")
         || !resolution.trust.starts_with("pinned:")
-        || prior.app_id != resolution.app_id
+        || prior.app_id != e.app_id
         || prior.publisher != prior.listing.publisher_key
-        || prior.listing.source != entry.source
+        || prior.listing.source != e.source
     {
         return false;
     }
     [Environment::Dev, Environment::Prod]
         .into_iter()
         .any(|env| {
-            let source = match (env, resolution.app_id.as_str()) {
+            let source = match (env, e.app_id.as_str()) {
                 (Environment::Prod, "brain" | "lastsecrets" | "search") => {
-                    format!("https://github.com/EdgeVector/{}.git", resolution.app_id)
+                    format!("https://github.com/EdgeVector/{}.git", e.app_id)
                 }
                 (Environment::Dev, "registry-daily-dev") => {
                     "https://github.com/EdgeVector/lastdb-app-registry.git".to_owned()
@@ -255,14 +317,13 @@ pub(crate) fn authorized_transition(
             };
             let base = registry_index_url_for(env);
             let (owner, delegate) = registry_ci_publisher_keys_for(env);
-            let allowed_keys = (prior.publisher == owner && entry.publisher_key == delegate)
-                || (prior.publisher == delegate && entry.publisher_key == owner);
+            let ok_keys = (prior.publisher == owner && e.publisher_key == delegate)
+                || (prior.publisher == delegate && e.publisher_key == owner);
             !delegate.is_empty()
                 && !owner.is_empty()
-                && allowed_keys
-                && entry.source == source
+                && ok_keys
+                && e.source == source
                 && prior.index == base
-                && resolution.index
-                    == format!("{base}/{}/api/{}.json", entry.channel, entry.api_version)
+                && resolution.index == format!("{base}/{}/api/{}.json", e.channel, e.api_version)
         })
 }

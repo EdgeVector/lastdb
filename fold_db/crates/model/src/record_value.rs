@@ -3,7 +3,7 @@
 use crate::portable_mutation::{Position, Stamp};
 use crate::record_replacement::RecordReplacement;
 use crate::schema::types::KeyValue;
-use base64::Engine as _;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use schema_types::PortableSchemaId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,9 +17,7 @@ pub const RECORD_VALUE_VERSION: u8 = 3;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const MAX_INLINE_FILE_BYTES: usize = 64 * 1024;
 pub const MAX_INLINE_LABEL_BYTES: usize = 255;
-const INLINE_MARKER_ALLOWANCE: usize = 1024;
-pub const MAX_INLINE_STORED_BYTES: usize =
-    MAX_INLINE_FILE_BYTES.div_ceil(3) * 4 + INLINE_MARKER_ALLOWANCE;
+pub const MAX_INLINE_STORED_BYTES: usize = MAX_INLINE_FILE_BYTES.div_ceil(3) * 4 + 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,20 +37,17 @@ impl FileMarker {
             && self
                 .sha256
                 .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     }
 
     #[must_use]
     pub fn fits_inline(&self) -> bool {
-        let label_fits = |label: &Option<String>| {
-            label
-                .as_ref()
-                .is_none_or(|label| label.len() <= MAX_INLINE_LABEL_BYTES)
-        };
+        let label_ok =
+            |s: &Option<String>| s.as_ref().is_none_or(|l| l.len() <= MAX_INLINE_LABEL_BYTES);
         self.has_valid_hash()
-            && label_fits(&self.name)
-            && label_fits(&self.media_type)
-            && usize::try_from(self.size_bytes).is_ok_and(|size| size <= MAX_INLINE_FILE_BYTES)
+            && label_ok(&self.name)
+            && label_ok(&self.media_type)
+            && usize::try_from(self.size_bytes).is_ok_and(|n| n <= MAX_INLINE_FILE_BYTES)
     }
 }
 
@@ -81,28 +76,23 @@ impl InlineFile {
                 name,
                 media_type,
                 size_bytes: bytes.len() as u64,
-                sha256: crate::hex::hex_lower(Sha256::digest(bytes)),
+                sha256: crate::hex::sha256_hex(bytes),
             },
-            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            data: STANDARD.encode(bytes),
         };
-        if !file.is_well_formed() {
-            return Err(format!(
-                "an inline file name or media type exceeds {MAX_INLINE_LABEL_BYTES} bytes"
-            ));
-        }
-        Ok(file)
+        file.is_well_formed().then_some(file).ok_or_else(|| {
+            format!("an inline file name or media type exceeds {MAX_INLINE_LABEL_BYTES} bytes")
+        })
     }
 
     pub fn bytes(&self) -> Result<Vec<u8>, String> {
-        let bytes = base64::engine::general_purpose::STANDARD
+        let bytes = STANDARD
             .decode(self.data.as_bytes())
-            .map_err(|error| format!("inline file data is invalid base64: {error}"))?;
-        if bytes.len() as u64 != self.marker.size_bytes
-            || crate::hex::hex_lower(Sha256::digest(&bytes)) != self.marker.sha256
-        {
-            return Err("inline file bytes differ from their marker".into());
-        }
-        Ok(bytes)
+            .map_err(|e| format!("inline file data is invalid base64: {e}"))?;
+        (bytes.len() as u64 == self.marker.size_bytes
+            && crate::hex::sha256_hex(&bytes) == self.marker.sha256)
+            .then_some(bytes)
+            .ok_or_else(|| "inline file bytes differ from their marker".into())
     }
 
     #[must_use]
@@ -113,18 +103,18 @@ impl InlineFile {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, String> {
-        if !self.is_well_formed() {
-            return Err("the inline file has an invalid marker, size or encoding".into());
-        }
-        serde_json::to_vec(self).map_err(|error| format!("encode inline file: {error}"))
+        self.is_well_formed()
+            .then_some(())
+            .ok_or_else(|| "the inline file has an invalid marker, size or encoding".to_string())?;
+        serde_json::to_vec(self).map_err(|e| format!("encode inline file: {e}"))
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() > MAX_INLINE_STORED_BYTES {
             return Err("an inline file row exceeds its bound".into());
         }
-        let file: Self = serde_json::from_slice(bytes)
-            .map_err(|error| format!("inline file row format: {error}"))?;
+        let file: Self =
+            serde_json::from_slice(bytes).map_err(|e| format!("inline file row format: {e}"))?;
         if !file.is_well_formed() {
             return Err("the inline file has an invalid marker, size or encoding".into());
         }
@@ -149,11 +139,6 @@ impl Stamp {
         hash.update(self.position.sequence.to_be_bytes());
         format!("{:x}", hash.finalize())
     }
-
-    #[must_use]
-    pub fn written_at_nanos(&self) -> u64 {
-        self.authored_at_ms.saturating_mul(1_000_000)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,10 +151,12 @@ impl std::fmt::Display for RecordValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Format(detail) => write!(f, "invalid record value: {detail}"),
-            Self::TooLarge { bytes } => write!(
-                f,
-                "record value is {bytes} bytes; maximum is {MAX_RECORD_BYTES}"
-            ),
+            Self::TooLarge { bytes } => {
+                write!(
+                    f,
+                    "record value is {bytes} bytes; maximum is {MAX_RECORD_BYTES}"
+                )
+            }
         }
     }
 }
@@ -209,8 +196,8 @@ impl StoredRecord {
     ) -> Self {
         let file_version = value.file.as_ref().map(|marker| {
             before
-                .filter(|record| record.file.as_ref() == Some(marker))
-                .and_then(|record| record.file_version.clone())
+                .filter(|r| r.file.as_ref() == Some(marker))
+                .and_then(|r| r.file_version.clone())
                 .unwrap_or_else(|| stamp.position.clone())
         });
         Self {
@@ -235,7 +222,8 @@ impl StoredRecord {
 
     #[must_use]
     pub fn written_at(&self) -> Option<u64> {
-        self.is_live().then(|| self.stamp.written_at_nanos())
+        self.is_live()
+            .then(|| self.stamp.authored_at_ms.saturating_mul(1_000_000))
     }
 
     pub fn erased(stamp: RecordStamp) -> Self {
@@ -256,20 +244,20 @@ impl StoredRecord {
 
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
         let bytes = self.encode_uncapped()?;
-        if bytes.len() > MAX_RECORD_BYTES {
-            return Err(RecordValueError::TooLarge { bytes: bytes.len() });
-        }
-        Ok(bytes)
+        let len = bytes.len();
+        (len <= MAX_RECORD_BYTES)
+            .then_some(bytes)
+            .ok_or(RecordValueError::TooLarge { bytes: len })
     }
 
     pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
         self.validate_structure()?;
-        serde_json::to_vec(self).map_err(|error| RecordValueError::Format(error.to_string()))
+        serde_json::to_vec(self).map_err(|e| RecordValueError::Format(e.to_string()))
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RecordValueError> {
-        let record: Self = serde_json::from_slice(bytes)
-            .map_err(|error| RecordValueError::Format(error.to_string()))?;
+        let record: Self =
+            serde_json::from_slice(bytes).map_err(|e| RecordValueError::Format(e.to_string()))?;
         record.validate_structure()?;
         Ok(record)
     }
@@ -285,25 +273,18 @@ impl StoredRecord {
             ));
         }
         if self.file.is_some() != self.file_version.is_some()
-            || self
-                .file
-                .as_ref()
-                .is_some_and(|file| !file.has_valid_hash())
-            || self.file_version.as_ref().is_some_and(|version| {
-                version.validate().is_err()
-                    || (version.source_stream == self.stamp.position.source_stream
-                        && version.sequence > self.stamp.position.sequence)
+            || self.file.as_ref().is_some_and(|f| !f.has_valid_hash())
+            || self.file_version.as_ref().is_some_and(|ver| {
+                ver.validate().is_err()
+                    || (ver.source_stream == self.stamp.position.source_stream
+                        && ver.sequence > self.stamp.position.sequence)
             })
         {
             return Err(RecordValueError::Format(
                 "the file marker has an invalid digest or version".into(),
             ));
         }
-        if self
-            .inline_file
-            .as_ref()
-            .is_some_and(|file| !file.fits_inline())
-        {
+        if self.inline_file.as_ref().is_some_and(|f| !f.fits_inline()) {
             return Err(RecordValueError::Format(
                 "the inline file marker has an invalid digest, label or size".into(),
             ));

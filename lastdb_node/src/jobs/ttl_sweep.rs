@@ -8,7 +8,7 @@ use fold_db::db_operations::{with_query_page_tally, PageResume};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::operations::Query;
 use fold_db::schema::types::schema::DeclarativeSchemaType;
-use fold_db::schema::types::{KeyValue, KeyValuePageOrder, Schema};
+use fold_db::schema::types::{KeyValue, KeyValuePageOrder};
 use fold_db::schema::SchemaRetentionPolicy;
 use tracing::Instrument;
 
@@ -22,18 +22,6 @@ const AGE_KEY_DIGITS: usize = 20;
 pub(super) struct EraseShape {
     pub(super) fields: usize,
     pub(super) alternates: usize,
-}
-
-impl EraseShape {
-    fn of(schema: &Schema) -> Self {
-        Self {
-            fields: schema.fields.as_ref().map_or(1, |f| f.len().max(1)),
-            alternates: schema
-                .record_keys
-                .as_ref()
-                .map_or(0, |k| k.alternates.len()),
-        }
-    }
 }
 
 fn ttl_sweep_enabled() -> bool {
@@ -51,12 +39,9 @@ pub fn spawn_periodic(
     host: std::sync::Arc<Host>,
     shutdown: std::sync::Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
-    let secs = std::env::var("LASTDB_TTL_SWEEP_INTERVAL_SECS")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .unwrap_or(60)
-        .max(1);
-    let interval = Duration::from_secs(secs);
+    let interval = Duration::from_secs(
+        fold_db::env_flag::var_or("LASTDB_TTL_SWEEP_INTERVAL_SECS", 60u64).max(1),
+    );
     tokio::spawn(
         async move {
             if ttl_sweep_enabled() {
@@ -67,8 +52,11 @@ pub fn spawn_periodic(
                     sweep_ttl(&host, &shutdown).await;
                 }
                 let until = tokio::time::Instant::now() + interval;
-                while !shutdown.load(Ordering::Acquire) && tokio::time::Instant::now() < until {
+                while !shutdown.load(Ordering::Acquire) {
                     let rem = until.saturating_duration_since(tokio::time::Instant::now());
+                    if rem.is_zero() {
+                        break;
+                    }
                     tokio::time::sleep(Duration::from_millis(250).min(rem)).await;
                 }
             }
@@ -86,8 +74,8 @@ async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
         .list_schema_retention_policies()
         .await
     {
-        Ok(policies) if policies.is_empty() => return,
-        Ok(policies) => policies,
+        Ok(p) if p.is_empty() => return,
+        Ok(p) => p,
         Err(error) => {
             tracing::warn!(
                 target: "lastdbd::ttl_sweep", error = %error,
@@ -157,27 +145,25 @@ async fn prepare_backlog(
     else {
         return Ok(None);
     };
-    let cutoff = now.saturating_sub(policy.ttl_seconds);
     let source = match &schema.schema_type {
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => Source::Ages { after: None },
-        DeclarativeSchemaType::Range => Source::Range {
-            hashes: vec![String::new()],
-            partition: 0,
-            after: None,
-            leading: true,
-        },
-        DeclarativeSchemaType::HashRange => {
-            let mut hashes = policy.hash_partitions;
-            hashes.extend(
-                host.db
-                    .db_ops()
-                    .schemas()
-                    .schema_retention_hash_partitions(schema_name)
-                    .await
-                    .map_err(|e| e.to_string())?,
-            );
-            hashes.sort();
-            hashes.dedup();
+        DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange => {
+            let hashes = if schema.schema_type == DeclarativeSchemaType::Range {
+                vec![String::new()]
+            } else {
+                let mut h = policy.hash_partitions;
+                h.extend(
+                    host.db
+                        .db_ops()
+                        .schemas()
+                        .schema_retention_hash_partitions(schema_name)
+                        .await
+                        .map_err(|e| e.to_string())?,
+                );
+                h.sort();
+                h.dedup();
+                h
+            };
             Source::Range {
                 hashes,
                 partition: 0,
@@ -189,9 +175,15 @@ async fn prepare_backlog(
     Ok(Some(Backlog {
         schema_name: schema_name.to_string(),
         schema_type: schema.schema_type.clone(),
-        shape: EraseShape::of(&schema),
+        shape: EraseShape {
+            fields: schema.fields.as_ref().map_or(1, |f| f.len().max(1)),
+            alternates: schema
+                .record_keys
+                .as_ref()
+                .map_or(0, |k| k.alternates.len()),
+        },
         batch_cap: usize::MAX,
-        cutoff,
+        cutoff: now.saturating_sub(policy.ttl_seconds),
         source,
         keys: Vec::new(),
         next: 0,
@@ -205,16 +197,18 @@ pub(super) fn key_is_expired(
     schema_type: &DeclarativeSchemaType,
     cutoff: u64,
 ) -> bool {
-    let Some(digits) = key.range.as_deref().and_then(|r| r.get(..AGE_KEY_DIGITS)) else {
-        return false;
-    };
-    digits.bytes().all(|b| b.is_ascii_digit())
-        && digits.parse::<u64>().is_ok_and(|t| t < cutoff)
-        && match schema_type {
-            DeclarativeSchemaType::Range => true,
-            DeclarativeSchemaType::HashRange => key.hash.is_some(),
-            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => false,
-        }
+    key.range
+        .as_deref()
+        .and_then(|r| r.get(..AGE_KEY_DIGITS))
+        .is_some_and(|digits| {
+            digits.bytes().all(|b| b.is_ascii_digit())
+                && digits.parse::<u64>().is_ok_and(|t| t < cutoff)
+                && match schema_type {
+                    DeclarativeSchemaType::Range => true,
+                    DeclarativeSchemaType::HashRange => key.hash.is_some(),
+                    DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => false,
+                }
+        })
 }
 
 pub(super) struct Backlog {
@@ -298,9 +292,10 @@ pub(super) async fn fill_page(
                 )
                 .await
                 .map_err(|e| e.to_string())?;
-            match next {
-                Some(next) => *after = Some(next),
-                None => backlog.source = Source::Done,
+            if let Some(next) = next {
+                *after = Some(next);
+            } else {
+                backlog.source = Source::Done;
             }
             keys
         }
@@ -310,11 +305,10 @@ pub(super) async fn fill_page(
             after,
             leading,
         } => {
-            if *partition >= hashes.len() {
+            let Some(hash) = hashes.get(*partition) else {
                 backlog.source = Source::Done;
                 return Ok(());
-            }
-            let hash = &hashes[*partition];
+            };
             let floors = host.db.db_ops().schemas().retention_floors();
             if after.is_none() {
                 *after = floors.start(&backlog.schema_name, hash);
@@ -325,27 +319,25 @@ pub(super) async fn fill_page(
                 start: "0".repeat(AGE_KEY_DIGITS),
                 end: format!("{:0AGE_KEY_DIGITS$}", backlog.cutoff),
             };
+            let window = after.clone().map_or_else(
+                || KeyWindow::offset(0, limit),
+                |c| KeyWindow::after(c, limit),
+            );
             let query = Query::new_with_filter(backlog.schema_name.clone(), Some(filter));
-            let window = match after.clone() {
-                Some(c) => KeyWindow::after(c, limit),
-                None => KeyWindow::offset(0, limit),
-            };
             let (rows, end) =
                 with_query_page_tally(host.db.query_executor().query_window(query, window)).await;
             let page_keys: Vec<KeyValue> = rows.map_err(|e| e.to_string())?.into_keys().collect();
-            let resume = end.resume.map(|PageResume::Key(key)| key);
-            if !page_keys.is_empty() {
-                *leading = false;
-            }
-            let next = page_keys
+            let resume = end.resume.map(|PageResume::Key(k)| k);
+            *leading &= page_keys.is_empty();
+            if let Some(next) = page_keys
                 .iter()
                 .chain(resume.as_ref())
                 .max_by(|a, b| a.cmp_page_order(b))
-                .cloned();
-            if let Some(next) = next {
+                .cloned()
+            {
                 if after
                     .as_ref()
-                    .is_some_and(|prev| !next.cmp_page_order(prev).is_gt())
+                    .is_some_and(|p| !next.cmp_page_order(p).is_gt())
                 {
                     return Err("TTL discovery cursor did not advance".into());
                 }
@@ -360,7 +352,7 @@ pub(super) async fn fill_page(
             }
             page_keys
                 .into_iter()
-                .filter(|key| key_is_expired(key, &backlog.schema_type, backlog.cutoff))
+                .filter(|k| key_is_expired(k, &backlog.schema_type, backlog.cutoff))
                 .collect()
         }
     };

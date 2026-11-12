@@ -29,7 +29,6 @@ impl Serialize for CanonicalValue<'_> {
 
 /// Sink that canonical framing can be written into (`Vec<u8>` or [`Sha256`]).
 pub trait ByteSink {
-    /// Append raw bytes to the sink.
     fn put(&mut self, bytes: &[u8]);
 }
 
@@ -68,7 +67,7 @@ pub struct CanonicalWriter {
 impl CanonicalWriter {
     #[must_use]
     pub fn new() -> Self {
-        Self { buf: Vec::new() }
+        Self::default()
     }
 
     #[must_use]

@@ -14,9 +14,8 @@ pub fn install() -> Result<(), String> {
     }
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is required")?);
     let agents = home.join("Library/LaunchAgents");
-    let state = home.join(".local/state/lastdb-app-registry");
     fs::create_dir_all(&agents).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&state).map_err(|e| e.to_string())?;
+    fs::create_dir_all(home.join(".local/state/lastdb-app-registry")).map_err(|e| e.to_string())?;
     let label = "com.edgevector.lastdb-app-registry";
     let plist = agents.join(format!("{label}.plist"));
     let user_home = home
@@ -54,15 +53,15 @@ pub fn install() -> Result<(), String> {
     let _ = Command::new("launchctl")
         .args(["bootout", &format!("{domain}/{label}")])
         .output();
-    let result = Command::new("launchctl")
+    let ok = Command::new("launchctl")
         .args(["bootstrap", &domain])
         .arg(&plist)
         .output()
-        .map_err(|e| e.to_string())?;
-    if !result.status.success() {
-        return Err("could not load registry app updater".into());
-    }
-    Ok(())
+        .map_err(|e| e.to_string())?
+        .status
+        .success();
+    ok.then_some(())
+        .ok_or_else(|| "could not load registry app updater".into())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -76,10 +75,8 @@ pub(crate) fn steps(
     app: &str,
     list: &[InstallStep],
 ) -> Result<(), String> {
-    for step in list {
-        run_step(source, home, app, step)?;
-    }
-    Ok(())
+    list.iter()
+        .try_for_each(|step| run_step(source, home, app, step))
 }
 
 fn run_step(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {

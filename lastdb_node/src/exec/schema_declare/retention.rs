@@ -1,17 +1,13 @@
 //! Manifest-declared retention: validation, assessment, precheck, apply, and preview.
 
-use fold_db::schema::types::FieldValueType;
+use fold_db::schema::types::{FieldValueType, SchemaType};
 use fold_db::schema::{
     ManifestRetention, ManifestRetentionPlan, ManifestRetentionStatus, RetentionSource,
     SchemaError, SchemaRetentionPolicy,
 };
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::*;
-
-const RANGE_KEY_RULE: &str = "records expire by the entry time at the front of the range key: unix seconds, zero-padded to 20 digits. A range key without that prefix never expires";
-const WRITE_TIME_RULE: &str =
-    "records expire by the time since the last write; a rewrite resets the age";
 
 pub(super) struct RetentionLayout {
     age_rule: &'static str,
@@ -55,7 +51,8 @@ pub(super) fn validate_declare_retention(
         return Ok(Some((
             ttl_seconds,
             RetentionLayout {
-                age_rule: WRITE_TIME_RULE,
+                age_rule:
+                    "records expire by the time since the last write; a rewrite resets the age",
                 warnings: Vec::new(),
                 range_keyed: false,
             },
@@ -73,15 +70,12 @@ pub(super) fn validate_declare_retention(
     {
         Vec::new()
     } else {
-        vec![
-            "retention uses 20 zero-padded unix-second digits at the start of an explicit String range key"
-                .into(),
-        ]
+        vec!["retention uses 20 zero-padded unix-second digits at the start of an explicit String range key".into()]
     };
     Ok(Some((
         ttl_seconds,
         RetentionLayout {
-            age_rule: RANGE_KEY_RULE,
+            age_rule: "records expire by the entry time at the front of the range key: unix seconds, zero-padded to 20 digits. A range key without that prefix never expires",
             warnings,
             range_keyed: true,
         },
@@ -96,29 +90,14 @@ fn can_hold_time_prefix(kind: &FieldValueType) -> bool {
     }
 }
 
-async fn read_policy(host: &Host, name: &str) -> Result<Option<SchemaRetentionPolicy>, String> {
-    match host
-        .records()
-        .db_ops()
-        .schemas()
-        .get_schema_retention_policy(name)
-        .await
-    {
-        Ok(policy) => Ok(policy),
-        Err(SchemaError::NotFound(_)) => Ok(None),
-        Err(e) => Err(format!("reading the retention policy of {name}: {e}")),
-    }
-}
-
 pub(super) async fn precheck_declare_retention(
     host: &Host,
     declare: &DirectDeclareProposal,
     anchor: &str,
 ) -> Result<(), String> {
-    let Some(retention) = declare.retention else {
-        return Ok(());
-    };
-    let Some((ttl_seconds, layout)) = validate_declare_retention(declare)? else {
+    let (Some(retention), Some((ttl_seconds, layout))) =
+        (declare.retention, validate_declare_retention(declare)?)
+    else {
         return Ok(());
     };
     assess(host, declare, anchor, ttl_seconds, layout)
@@ -132,16 +111,26 @@ async fn unmanaged_report(
     declare: &DirectDeclareProposal,
     anchor: &str,
 ) -> Result<Option<Value>, String> {
-    let binding = declare.local_schema_id.as_str();
-    let Some(manifest_ttl) = read_policy(host, anchor)
-        .await?
+    let policy = match host
+        .records()
+        .db_ops()
+        .schemas()
+        .get_schema_retention_policy(anchor)
+        .await
+    {
+        Ok(policy) => policy,
+        Err(SchemaError::NotFound(_)) => None,
+        Err(e) => return Err(format!("reading the retention policy of {anchor}: {e}")),
+    };
+    let Some(manifest_ttl) = policy
         .as_ref()
         .and_then(SchemaRetentionPolicy::manifest_ttl_seconds)
     else {
         return Ok(None);
     };
     let warning = format!(
-        "this manifest no longer declares a retention for {binding}, but a manifest TTL of {manifest_ttl}s is still running. Removing the key does not clear the policy. Run `lastdb admin retention clear --schema {anchor}` to remove it"
+        "this manifest no longer declares a retention for {}, but a manifest TTL of {manifest_ttl}s is still running. Removing the key does not clear the policy. Run `lastdb admin retention clear --schema {anchor}` to remove it",
+        declare.local_schema_id
     );
     Ok(Some(json!({
         "declared": false, "status": "manifest_policy_still_running",
@@ -162,8 +151,8 @@ pub(super) async fn finish_declare_retention(
     let (ttl_seconds, layout) =
         validate_declare_retention(declare)?.ok_or("the declare carries no retention")?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout).await?;
-    if let Some(reason) = assessment.refusal(declare, retention.confirmed()) {
+    let a = assess(host, declare, anchor, ttl_seconds, layout).await?;
+    if let Some(reason) = a.refusal(declare, retention.confirmed()) {
         return Err(reason);
     }
     let outcome = host
@@ -183,27 +172,52 @@ pub(super) async fn finish_declare_retention(
         schema = %binding, anchor = %outcome.anchor, ttl_seconds, status = ?outcome.status,
         "applied the manifest retention"
     );
-    let mut report = assessment.report(binding, anchor, retention.confirmed());
-    let ttl = assessment.ttl_seconds;
+    let plan = a.plan.as_ref().ok();
+    let prev_ttl = plan.and_then(|p| p.current.as_ref()?.manifest_ttl_seconds());
+    let shortened = plan.is_some_and(|p| p.shortened);
+    let change = match plan.map(|p| (p.status, p.current.as_ref())) {
+        None => "unknown",
+        Some((ManifestRetentionStatus::Unchanged, _)) => "unchanged",
+        Some((_, Some(c))) if c.source == RetentionSource::Manifest => {
+            if ttl_seconds < c.ttl_seconds {
+                "shortened"
+            } else {
+                "lengthened"
+            }
+        }
+        Some(_) => "new",
+    };
+    let mut warnings = a.layout.warnings;
+    if a.existing_records_may_expire {
+        warnings.push(existing_warning(binding, ttl_seconds));
+    }
     let notes = match outcome.status {
-        ManifestRetentionStatus::Applied => vec![format!("a new manifest TTL of {ttl}s is in force")],
+        ManifestRetentionStatus::Applied => vec![format!("a new manifest TTL of {ttl_seconds}s is in force")],
         ManifestRetentionStatus::Updated => vec![format!(
-            "the manifest TTL changed from {}s to {ttl}s ({})",
-            assessment.previous_ttl_seconds().unwrap_or(0),
-            assessment.change()
+            "the manifest TTL changed from {}s to {ttl_seconds}s ({change})",
+            prev_ttl.unwrap_or(0),
         )],
         ManifestRetentionStatus::Unchanged => Vec::new(),
         ManifestRetentionStatus::OperatorOverride => vec![format!(
-            "an operator policy of {}s is in force and wins; the manifest TTL of {ttl}s is kept beside it. Clearing the operator policy puts the manifest TTL in force: when it is shorter, that needs `--confirm-expire-existing`",
+            "an operator policy of {}s is in force and wins; the manifest TTL of {ttl_seconds}s is kept beside it. Clearing the operator policy puts the manifest TTL in force: when it is shorter, that needs `--confirm-expire-existing`",
             outcome.effective.ttl_seconds
         )],
     };
-    report.extend([
-        ("status".into(), json!(outcome.status)),
-        ("effective".into(), json!(outcome.effective)),
-        ("notes".into(), json!(notes)),
-    ]);
-    Ok(Some(Value::Object(report)))
+    Ok(Some(json!({
+        "ttl_seconds": ttl_seconds,
+        "source": RetentionSource::Manifest.as_str(),
+        "anchor": anchor,
+        "change": change,
+        "previous_ttl_seconds": prev_ttl,
+        "age_rule": a.layout.age_rule,
+        "warnings": warnings,
+        "existing_records_may_expire": a.existing_records_may_expire,
+        "shortened": shortened,
+        "confirmed_expire_existing": retention.confirmed(),
+        "status": outcome.status,
+        "effective": outcome.effective,
+        "notes": notes,
+    })))
 }
 
 struct Assessment {
@@ -212,6 +226,12 @@ struct Assessment {
     foreign_owner: Option<String>,
     plan: Result<ManifestRetentionPlan, String>,
     existing_records_may_expire: bool,
+}
+
+fn existing_warning(binding: &str, ttl_seconds: u64) -> String {
+    format!(
+        "existing_records_may_expire: {binding} already holds records. Every record whose range key is older than {ttl_seconds}s is deleted for good: at the next sweep for a Range schema, and in every HashRange partition that receives a later write"
+    )
 }
 
 async fn assess(
@@ -260,21 +280,6 @@ async fn assess(
 }
 
 impl Assessment {
-    fn shortened(&self) -> bool {
-        self.plan.as_ref().is_ok_and(|p| p.shortened)
-    }
-
-    fn needs_confirmation(&self) -> bool {
-        self.shortened() || self.existing_records_may_expire
-    }
-
-    fn existing_warning(&self, binding: &str) -> String {
-        format!(
-            "existing_records_may_expire: {binding} already holds records. Every record whose range key is older than {}s is deleted for good: at the next sweep for a Range schema, and in every HashRange partition that receives a later write",
-            self.ttl_seconds
-        )
-    }
-
     fn refusal(&self, declare: &DirectDeclareProposal, confirmed: bool) -> Option<String> {
         let binding = declare.local_schema_id.as_str();
         if let Some(owner) = &self.foreign_owner {
@@ -283,17 +288,18 @@ impl Assessment {
                 declare.namespace
             ));
         }
-        if let Err(error) = &self.plan {
-            return Some(error.clone());
-        }
-        if confirmed || !self.needs_confirmation() {
+        let shortened = match &self.plan {
+            Ok(plan) => plan.shortened,
+            Err(error) => return Some(error.clone()),
+        };
+        if confirmed || (!shortened && !self.existing_records_may_expire) {
             return None;
         }
         let mut why = Vec::new();
         if self.existing_records_may_expire {
-            why.push(self.existing_warning(binding));
+            why.push(existing_warning(binding, self.ttl_seconds));
         }
-        if self.shortened() {
+        if shortened {
             why.push(format!(
                 "the manifest TTL would be shortened to {}s, so records between the two TTLs expire",
                 self.ttl_seconds
@@ -303,53 +309,5 @@ impl Assessment {
             "a manifest TTL on {binding} needs confirmation. {}. Review what would expire, then run `lastdb app check --sync --confirm-expire-existing`",
             why.join(". ")
         ))
-    }
-
-    fn change(&self) -> &'static str {
-        let Ok(plan) = &self.plan else {
-            return "unknown";
-        };
-        match (plan.status, &plan.current) {
-            (ManifestRetentionStatus::Unchanged, _) => "unchanged",
-            (_, Some(c)) if c.source == RetentionSource::Manifest => {
-                if self.ttl_seconds < c.ttl_seconds {
-                    "shortened"
-                } else {
-                    "lengthened"
-                }
-            }
-            _ => "new",
-        }
-    }
-
-    fn previous_ttl_seconds(&self) -> Option<u64> {
-        self.plan
-            .as_ref()
-            .ok()?
-            .current
-            .as_ref()?
-            .manifest_ttl_seconds()
-    }
-
-    fn report(&self, binding: &str, anchor: &str, confirmed: bool) -> Map<String, Value> {
-        let mut warnings = self.layout.warnings.clone();
-        if self.existing_records_may_expire {
-            warnings.push(self.existing_warning(binding));
-        }
-        let Value::Object(map) = json!({
-            "ttl_seconds": self.ttl_seconds,
-            "source": RetentionSource::Manifest.as_str(),
-            "anchor": anchor,
-            "change": self.change(),
-            "previous_ttl_seconds": self.previous_ttl_seconds(),
-            "age_rule": self.layout.age_rule,
-            "warnings": warnings,
-            "existing_records_may_expire": self.existing_records_may_expire,
-            "shortened": self.shortened(),
-            "confirmed_expire_existing": confirmed,
-        }) else {
-            unreachable!()
-        };
-        map
     }
 }

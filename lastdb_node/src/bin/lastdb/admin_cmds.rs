@@ -23,14 +23,15 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(),
 }
 
 fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
+    use AdminBackupCommand::{
+        Close, Init, InspectDependencies, PrepareRecoveryHome, RecoverCredentialsHome, Resume,
+    };
     let action = match action {
-        AdminBackupCommand::Init(args) => ByteBackupCommand::Init(args),
-        AdminBackupCommand::Resume(args) => ByteBackupCommand::Resume(args),
-        AdminBackupCommand::Close(args) => ByteBackupCommand::Close(args),
-        AdminBackupCommand::InspectDependencies(args) => {
-            ByteBackupCommand::InspectDependencies(args)
-        }
-        AdminBackupCommand::RecoverCredentialsHome { args, existing_dev } => {
+        Init(a) => ByteBackupCommand::Init(a),
+        Resume(a) => ByteBackupCommand::Resume(a),
+        Close(a) => ByteBackupCommand::Close(a),
+        InspectDependencies(a) => ByteBackupCommand::InspectDependencies(a),
+        RecoverCredentialsHome { args, existing_dev } => {
             if !existing_dev {
                 return Ok(CloudCommand::RecoverCredentialsHome(args));
             }
@@ -44,9 +45,7 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
                 json: args.json,
             });
         }
-        AdminBackupCommand::PrepareRecoveryHome(args) => {
-            return Ok(CloudCommand::PrepareRecoveryHome(args));
-        }
+        PrepareRecoveryHome(a) => return Ok(CloudCommand::PrepareRecoveryHome(a)),
     };
     Ok(CloudCommand::BackupV2 { action })
 }
@@ -58,15 +57,16 @@ fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, Stri
         .ok_or("response missing cleanup")?;
     let status: NativeCleanupStatus =
         serde_json::from_value(report).map_err(|e| format!("invalid cleanup response: {e}"))?;
-    if status.complete != (status.phase == NativeCleanupPhase::Complete) {
-        return Err("cleanup response has inconsistent completion fields".into());
-    }
-    Ok(status)
+    (status.complete == (status.phase == NativeCleanupPhase::Complete))
+        .then_some(status)
+        .ok_or_else(|| "cleanup response has inconsistent completion fields".into())
 }
 
 fn read_cleanup_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
-    let response = get_path(socket, "/api/db/cleanup", timeout)?;
-    decode_cleanup(&parse_json_response(&response, "cleanup status")?)
+    decode_cleanup(&parse_json_response(
+        &get_path(socket, "/api/db/cleanup", timeout)?,
+        "cleanup status",
+    )?)
 }
 
 fn db_cleanup(
@@ -83,8 +83,7 @@ fn db_cleanup(
         decode_cleanup(&parse_json_response(&raw, "/api/db/cleanup")?)?
     };
     let id = status.request_id.clone();
-    let started = Instant::now();
-    let limit = Duration::from_secs(timeout);
+    let (started, limit) = (Instant::now(), Duration::from_secs(timeout));
     while wait && !status.complete {
         if status.phase == NativeCleanupPhase::RecoveryRequired || status.request_id.is_none() {
             print_cleanup_status(&status, json)?;
@@ -99,12 +98,11 @@ fn db_cleanup(
             );
         };
         std::thread::sleep(Duration::from_millis(250).min(left));
-        let Some(left) = limit.checked_sub(started.elapsed()) else {
-            continue;
-        };
-        status = read_cleanup_status(socket, Duration::from_secs(30).min(left))?;
-        if status.request_id != id {
-            return Err("the latest cleanup request changed while this client waited".into());
+        if let Some(left) = limit.checked_sub(started.elapsed()) {
+            status = read_cleanup_status(socket, Duration::from_secs(30).min(left))?;
+            if status.request_id != id {
+                return Err("the latest cleanup request changed while this client waited".into());
+            }
         }
     }
     print_cleanup_status(&status, json)
@@ -122,14 +120,12 @@ fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) -> Result<(), 
     if let Some(id) = &status.request_id {
         println!("  request: {id}");
     }
-    println!(
-        "  main: {} tiered, {} merge inputs, {} held bytes",
-        status.main.tiered_runs, status.main.merging_runs, status.main.held_retired_bytes
-    );
-    println!(
-        "  file blobs: {} tiered, {} merge inputs, {} held bytes",
-        status.cas.tiered_runs, status.cas.merging_runs, status.cas.held_retired_bytes
-    );
+    for (label, s) in [("main", &status.main), ("file blobs", &status.cas)] {
+        println!(
+            "  {label}: {} tiered, {} merge inputs, {} held bytes",
+            s.tiered_runs, s.merging_runs, s.held_retired_bytes
+        );
+    }
     if let Some(b) = status.completed_through {
         println!(
             "  completed through: main {}, file blobs {}",

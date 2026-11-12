@@ -38,11 +38,7 @@ pub struct RetentionFloors {
 impl RetentionFloors {
     pub fn start(&self, schema: &str, hash: &str) -> Option<KeyValue> {
         let mut schemas = self.lock();
-        let floor = schemas
-            .entry(schema.to_owned())
-            .or_default()
-            .entry(hash.to_owned())
-            .or_default();
+        let floor = Self::floor_mut(&mut schemas, schema, hash);
         floor.low = None;
         if floor.after.is_some() {
             floor.passes += 1;
@@ -55,32 +51,39 @@ impl RetentionFloors {
 
     pub fn keep(&self, schema: &str, hash: &str, after: &KeyValue) {
         let mut schemas = self.lock();
-        let floor = schemas
-            .entry(schema.to_owned())
-            .or_default()
-            .entry(hash.to_owned())
-            .or_default();
+        let floor = Self::floor_mut(&mut schemas, schema, hash);
         if floor
             .low
             .as_deref()
             .is_some_and(|low| low <= range_of(after))
         {
             floor.clear();
-            return;
+        } else {
+            floor.after = Some(after.clone());
         }
-        floor.after = Some(after.clone());
+    }
+
+    fn floor_mut<'a>(
+        schemas: &'a mut HashMap<String, HashMap<String, Floor>>,
+        schema: &str,
+        hash: &str,
+    ) -> &'a mut Floor {
+        schemas
+            .entry(schema.to_owned())
+            .or_default()
+            .entry(hash.to_owned())
+            .or_default()
     }
 
     pub fn end(&self, schema: &str, hash: &str) {
         let mut schemas = self.lock();
-        let Some(hashes) = schemas.get_mut(schema) else {
-            return;
-        };
-        if hashes.get(hash).is_some_and(|floor| floor.after.is_none()) {
-            hashes.remove(hash);
-        }
-        if hashes.is_empty() {
-            schemas.remove(schema);
+        if let Some(hashes) = schemas.get_mut(schema) {
+            if hashes.get(hash).is_some_and(|f| f.after.is_none()) {
+                hashes.remove(hash);
+            }
+            if hashes.is_empty() {
+                schemas.remove(schema);
+            }
         }
     }
 
@@ -132,13 +135,13 @@ impl SchemaStore {
             DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => return Ok(()),
         };
         let keys: Vec<(String, String)> = live
-            .map(|key| {
+            .map(|k| {
                 let hash = if partitioned {
-                    key.hash.clone().unwrap_or_default()
+                    k.hash.clone().unwrap_or_default()
                 } else {
                     String::new()
                 };
-                (hash, range_of(key).to_owned())
+                (hash, range_of(k).to_owned())
             })
             .collect();
         if keys.is_empty() {
@@ -149,8 +152,8 @@ impl SchemaStore {
         crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
             floors.note_written(&name, &keys);
             Ok(())
-        })?;
-        Ok(())
+        })
+        .map_err(SchemaError::from)
     }
 
     pub(in crate::db_operations) async fn require_retention_format(
@@ -172,17 +175,18 @@ impl SchemaStore {
             .primary
             .range_profile()
             .map_err(SchemaError::InvalidData)?;
-        if !matches!(
+        matches!(
             profile,
             FieldRangeProfile::TypedV1 {
                 scalar: RangeStorageProfile::StringUtf8V1
             }
-        ) {
-            return Err(SchemaError::InvalidData(
+        )
+        .then_some(())
+        .ok_or_else(|| {
+            SchemaError::InvalidData(
                 "range TTL requires a String range with the 20-digit timestamp prefix".into(),
-            ));
-        }
-        Ok(())
+            )
+        })
     }
 
     pub async fn expired_schema_retention_page(
@@ -193,12 +197,12 @@ impl SchemaStore {
         limit: usize,
     ) -> Result<(Vec<KeyValue>, Option<String>), SchemaError> {
         let prefix = retention_age_prefix(schema_name);
-        let first = format!("{prefix}{:020}", 0);
-        let end = format!("{prefix}{cutoff:020}");
+        let (first, end) = (
+            format!("{prefix}{:020}", 0),
+            format!("{prefix}{cutoff:020}"),
+        );
         let start = match after {
-            Some(cursor) if cursor >= first.as_str() && cursor < end.as_str() => {
-                format!("{cursor}\0")
-            }
+            Some(c) if c >= first.as_str() && c < end.as_str() => format!("{c}\0"),
             Some(_) => return Err(SchemaError::InvalidData("invalid TTL age cursor".into())),
             None => first,
         };
@@ -206,10 +210,10 @@ impl SchemaStore {
             .schema_states_store
             .scan_items_in_range_paged::<SchemaRetentionAgeEntry>(&start, &end, limit.clamp(1, 256))
             .await?;
-        let next = rows.last().map(|(key, _)| key.clone());
+        let next = rows.last().map(|(k, _)| k.clone());
         let latest_keys: Vec<_> = rows
             .iter()
-            .map(|(_, entry)| retention_age_latest_key(schema_name, &entry.key))
+            .map(|(_, e)| retention_age_latest_key(schema_name, &e.key))
             .collect();
         let latest = self
             .schema_states_store
@@ -218,9 +222,7 @@ impl SchemaStore {
         let keys = rows
             .into_iter()
             .zip(latest)
-            .filter_map(|((_, entry), current)| {
-                (current.as_ref() == Some(&entry)).then_some(entry.key)
-            })
+            .filter_map(|((_, e), cur)| (cur.as_ref() == Some(&e)).then_some(e.key))
             .collect();
         Ok((keys, next))
     }
@@ -231,44 +233,44 @@ impl SchemaStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<String>, Option<String>), SchemaError> {
+        let invalid = |e: &dyn std::fmt::Display| {
+            SchemaError::InvalidData(format!("retention partition page: {e}"))
+        };
         let (first, end) = exact_prefix_bounds(&retention_hash_partition_prefix(schema));
         let start = match cursor {
-            Some(cursor) => URL_SAFE_NO_PAD.decode(cursor).map_err(invalid_partition)?,
+            Some(c) => URL_SAFE_NO_PAD.decode(c).map_err(|e| invalid(&e))?,
             None => first.as_bytes().to_vec(),
         };
         if start.as_slice() < first.as_bytes() || start.as_slice() >= end.as_bytes() {
-            return Err(invalid_partition(
-                "partition cursor differs from its retention anchor",
+            return Err(invalid(
+                &"partition cursor differs from its retention anchor",
             ));
         }
         let mut walk = RangeWalk::new(&start, end.as_bytes(), limit.clamp(1, 256));
         while let Some((start, end, asked)) = walk.request() {
-            let result = self
+            match self
                 .schema_states_store
                 .scan_range_yielding(&start, &end, asked, 0)
-                .await;
-            match result.map_err(SchemaError::from) {
+                .await
+                .map_err(SchemaError::from)
+            {
                 Ok(scan) => {
                     walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
                     let hashes = scan
                         .rows
                         .into_iter()
-                        .map(|(_, bytes)| {
-                            serde_json::from_slice::<SchemaRetentionHashPartition>(&bytes)
-                                .map(|entry| entry.hash)
-                                .map_err(invalid_partition)
+                        .map(|(_, b)| {
+                            serde_json::from_slice::<SchemaRetentionHashPartition>(&b)
+                                .map(|e| e.hash)
+                                .map_err(|e| invalid(&e))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    let cursor = walk
-                        .request()
-                        .map(|(start, _, _)| URL_SAFE_NO_PAD.encode(start));
-                    return Ok((hashes, cursor));
+                    return Ok((
+                        hashes,
+                        walk.request().map(|(s, _, _)| URL_SAFE_NO_PAD.encode(s)),
+                    ));
                 }
-                Err(error @ SchemaError::ReadResourceLimit { .. }) => {
-                    if !walk.read_too_big() {
-                        return Err(error);
-                    }
-                }
+                Err(SchemaError::ReadResourceLimit { .. }) if walk.read_too_big() => {}
                 Err(error) => return Err(error),
             }
         }
@@ -279,8 +281,7 @@ impl SchemaStore {
         &self,
         schema: &str,
     ) -> Result<Vec<String>, SchemaError> {
-        let mut hashes = Vec::new();
-        let mut cursor = None;
+        let (mut hashes, mut cursor) = (Vec::new(), None);
         loop {
             let (page, next) = self
                 .schema_retention_hash_partitions_page(schema, cursor.as_deref(), 256)
@@ -307,7 +308,7 @@ impl SchemaStore {
         }
         let latest_keys: Vec<_> = keys
             .iter()
-            .map(|key| retention_age_latest_key(schema_name, key))
+            .map(|k| retention_age_latest_key(schema_name, k))
             .collect();
         let latest = self
             .schema_states_store
@@ -316,12 +317,7 @@ impl SchemaStore {
         Ok(keys
             .iter()
             .zip(latest)
-            .filter(|(_, entry)| entry.as_ref().is_some_and(|e| e.written_at < cutoff))
-            .map(|(key, _)| key.clone())
+            .filter_map(|(k, e)| e.is_some_and(|e| e.written_at < cutoff).then(|| k.clone()))
             .collect())
     }
-}
-
-fn invalid_partition(error: impl std::fmt::Display) -> SchemaError {
-    SchemaError::InvalidData(format!("retention partition page: {error}"))
 }

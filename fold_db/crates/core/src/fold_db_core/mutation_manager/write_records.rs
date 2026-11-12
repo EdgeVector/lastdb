@@ -1,25 +1,95 @@
-//! Complete record replacements and their nested effects share one native commit.
+//! Preconditions, field validation, and complete record replacements for native commits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::{InlineWrite, StoredRecord};
 
-use super::validation::{check_expectation, require_contribution_author, validate_field_value};
 use super::write_effects::ChangedRecord;
 use super::{AuthoredMutation, MutationManager};
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{FileWrite, Mutation, MutationType, Schema};
-use crate::schema::SchemaError;
+use crate::schema::types::{
+    cas::CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Schema,
+};
+use crate::schema::{SchemaError, SchemaState};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::records::RecordAddress;
 
 impl MutationManager {
-    /// One batch read supplies both preconditions and the old nested addresses.
-    /// Each key appears once in the request; staged effects publish only if all succeed.
+    pub(super) fn resolve_mutation_key_value(
+        schema: &Schema,
+        mutation: &Mutation,
+    ) -> Result<KeyValue, SchemaError> {
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        let record_keys = schema.require_record_keys()?;
+        mutation
+            .target()
+            .validate(record_keys)
+            .map_err(SchemaError::InvalidData)?;
+        let profile = record_keys
+            .primary
+            .range_profile()
+            .map_err(SchemaError::InvalidData)?;
+        let mut key = mutation.key_value.clone();
+        crate::schema::types::key_comparison::canonical_key(profile, &mut key)?;
+        Ok(key)
+    }
+
+    pub(super) fn validate_mutation_batch(
+        &self,
+        mutations: &[Mutation],
+    ) -> Result<(), SchemaError> {
+        let mut identities = HashSet::new();
+        let mut schemas = BTreeMap::new();
+        for mutation in mutations {
+            if !identities.insert(&mutation.uuid) {
+                return Err(SchemaError::InvalidData(format!(
+                    "mutation batch repeats identity '{}'",
+                    mutation.uuid
+                )));
+            }
+            for field in mutation.record_fields.keys() {
+                schema_types::DeclarativeSchemaDefinition::validate_field_name(field)
+                    .map_err(SchemaError::InvalidData)?;
+            }
+            let name = mutation.schema_name.as_str();
+            if !schemas.contains_key(name) {
+                let schema = self.schema_manager.require_schema_metadata(name)?;
+                crate::schema::require_logical_layout(&schema.schema_type)?;
+                schemas.insert(name, schema);
+            }
+            Self::resolve_mutation_key_value(&schemas[name], mutation)?;
+        }
+        Ok(())
+    }
+
+    async fn load_schema_for_delta(&self, schema_name: &str) -> Result<Schema, SchemaError> {
+        let (mut schema, mut state) = self.schema_manager.get_schema_and_state(schema_name)?;
+        if schema.is_none() && state != SchemaState::Blocked {
+            schema = self.db_ops.schemas().get_schema(schema_name).await?;
+            if schema.is_some() {
+                state = self
+                    .db_ops
+                    .schemas()
+                    .get_schema_state(schema_name)
+                    .await?
+                    .unwrap_or_default();
+            }
+        }
+        if state == SchemaState::Blocked {
+            return Err(SchemaError::Blocked(format!(
+                "Schema '{schema_name}' is blocked and cannot be mutated (a drop is running)"
+            )));
+        }
+        let schema = schema
+            .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        Ok(schema)
+    }
+
     pub(super) async fn stage_record_group(
         &self,
         schema_name: &str,
@@ -28,20 +98,20 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         self.schema_manager.require_queryable_schema(schema_name)?;
         let schema = self.load_schema_for_delta(schema_name).await?;
-        if let Some(admission) = mutations
+        if let Some(adm) = mutations
             .first()
-            .and_then(|item| item.mutation.contribution.as_ref())
+            .and_then(|m| m.mutation.contribution.as_ref())
         {
-            require_contribution_definition(&schema, &admission.definition_id)?;
+            require_contribution_definition(&schema, &adm.definition_id)?;
         }
         let records = self.db_ops.records();
         let mut keys = Vec::with_capacity(mutations.len());
         let mut addresses = Vec::with_capacity(mutations.len());
         for AuthoredMutation { mutation, .. } in &mut mutations {
-            let key = self.resolve_mutation_key_value(schema_name, &schema, mutation)?;
+            let key = Self::resolve_mutation_key_value(&schema, mutation)?;
             mutation.key_value = key.clone();
-            for (name, key) in &mut mutation.alternates {
-                if let Some(range) = key.as_mut().and_then(|key| key.range.as_mut()) {
+            for (name, alt_key) in &mut mutation.alternates {
+                if let Some(range) = alt_key.as_mut().and_then(|k| k.range.as_mut()) {
                     let profile = schema.require_record_keys()?.alternates[name]
                         .range_profile()
                         .map_err(SchemaError::InvalidData)?;
@@ -54,15 +124,21 @@ impl MutationManager {
         let stored = read_write_preimages(records, &addresses, &mutations).await?;
         let mut changes = Vec::with_capacity(mutations.len());
         let mut changed = Vec::with_capacity(mutations.len());
-        for (authored, (key, (address, before))) in mutations
+        for (AuthoredMutation { mutation, stamp }, (key, (address, before))) in mutations
             .iter_mut()
             .zip(keys.iter().zip(addresses.into_iter().zip(stored)))
         {
-            changes.push(prepare_record(&schema, authored, address, before)?);
-            changed.push(ChangedRecord {
-                mutation: &authored.mutation,
-                key,
+            check_expectation(mutation, before.as_deref())?;
+            require_contribution_author(mutation, before.as_deref())?;
+            let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
+            changes.push(RecordChange {
+                key: address,
+                before,
+                after,
+                file_write: mutation.file_write.take(),
+                inline_write: mutation.inline_write.take(),
             });
+            changed.push(ChangedRecord { mutation, key });
         }
         self.stage_records_with_effects(&schema, &changed, changes)
             .await?;
@@ -76,12 +152,13 @@ impl MutationManager {
         if let Some(batch) = Self::build_index_change_batch(
             schema_name,
             &schema,
-            mutations.iter().map(|authored| &authored.mutation),
+            mutations.iter().map(|a| &a.mutation),
             &keys,
         ) {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                Self::deliver_search_outbox(inbox, &batch)
+                crate::db_operations::search_index::deliver_outbox(inbox, &batch)
+                    .map_err(|e| crate::storage::StorageError::BackendError(e.to_string()))
             })?;
         }
         Ok(())
@@ -98,19 +175,17 @@ async fn read_write_preimages(
         .iter()
         .zip(&stored)
         .enumerate()
-        .filter(|(_, (mutation, record))| {
-            mutation.mutation.mutation_type == MutationType::Purge && record.is_none()
+        .filter_map(|(i, (m, r))| {
+            (m.mutation.mutation_type == MutationType::Purge && r.is_none()).then_some(i)
         })
-        .map(|(index, _)| index)
         .collect();
     if !purge_misses.is_empty() {
-        let addresses: Vec<_> = purge_misses
-            .iter()
-            .map(|&index| &addresses[index])
-            .collect();
-        let deletes = records.read_applied_deletes(&addresses).await?;
-        for (index, stamp) in purge_misses.into_iter().zip(deletes) {
-            stored[index] = stamp.map(|stamp| Arc::new(StoredRecord::erased(stamp)));
+        let miss_addrs: Vec<_> = purge_misses.iter().map(|&i| &addresses[i]).collect();
+        for (idx, stamp) in purge_misses
+            .into_iter()
+            .zip(records.format.applied_deletes(&miss_addrs).await?)
+        {
+            stored[idx] = stamp.map(|s| Arc::new(StoredRecord::erased(s)));
         }
     }
     Ok(stored)
@@ -118,35 +193,93 @@ async fn read_write_preimages(
 
 fn require_contribution_definition(schema: &Schema, expected: &str) -> Result<(), SchemaError> {
     let wire = schema.to_wire();
-    let id = wire.identity_hash.clone();
-    let definition_id = id
+    wire.identity_hash
+        .clone()
         .ok_or_else(|| "schema has no catalog identity".to_owned())
-        .and_then(|id| schema_types::PortableSchemaId::from_catalog(&id, wire));
-    if definition_id.is_ok_and(|id| id.as_str() == expected) {
-        return Ok(());
-    }
-    Err(SchemaError::InvalidField(
-        "share contribution requires the exact installed schema definition".into(),
-    ))
+        .and_then(|id| schema_types::PortableSchemaId::from_catalog(&id, wire))
+        .ok()
+        .filter(|id| id.as_str() == expected)
+        .map(|_| ())
+        .ok_or_else(|| {
+            SchemaError::InvalidField(
+                "share contribution requires the exact installed schema definition".into(),
+            )
+        })
 }
 
-fn prepare_record(
-    schema: &Schema,
-    authored: &mut AuthoredMutation,
-    address: RecordAddress,
-    before: Option<Arc<StoredRecord>>,
-) -> Result<RecordChange, SchemaError> {
-    let AuthoredMutation { mutation, stamp } = authored;
-    check_expectation(mutation, before.as_deref())?;
-    require_contribution_author(mutation, before.as_deref())?;
-    let after = replace_record(schema, mutation, stamp.clone(), before.as_deref())?;
-    Ok(RecordChange {
-        key: address,
-        before,
-        after,
-        file_write: mutation.file_write.take(),
-        inline_write: mutation.inline_write.take(),
-    })
+fn check_expectation(
+    mutation: &Mutation,
+    record: Option<&StoredRecord>,
+) -> Result<(), SchemaError> {
+    let current = record.filter(|r| r.is_live() || mutation.mutation_type == MutationType::Purge);
+    let actual = current.map(|r| r.stamp.revision());
+    let matches = match &mutation.expected {
+        CasExpectation::Absent => !record.is_some_and(StoredRecord::is_live),
+        CasExpectation::Revision { revision } => actual.as_ref() == Some(revision),
+    };
+    if !matches {
+        return Err(SchemaError::CasConflict {
+            schema: mutation.schema_name.clone(),
+            key: mutation.key_value.to_storage_key(),
+            expected: match &mutation.expected {
+                CasExpectation::Absent => "<absent>".into(),
+                CasExpectation::Revision { revision } => revision.clone(),
+            },
+            actual,
+        });
+    }
+    if matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    ) && current.is_some_and(|r| r.is_live() && r.alternates != mutation.alternates)
+    {
+        let msg = "deletion must supply the record's complete current alternate keys".into();
+        return Err(if mutation.contribution.is_some() {
+            SchemaError::InvalidField(msg)
+        } else {
+            SchemaError::InvalidData(msg)
+        });
+    }
+    if mutation.erase_written_before_nanos.is_some_and(|cutoff| {
+        record
+            .and_then(StoredRecord::written_at)
+            .is_some_and(|w| w >= cutoff)
+    }) {
+        return Err(SchemaError::InvalidData(
+            "record is newer than the erasure cutoff".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn require_contribution_author(
+    mutation: &Mutation,
+    record: Option<&StoredRecord>,
+) -> Result<(), SchemaError> {
+    if !matches!(
+        mutation.mutation_type,
+        MutationType::Replace | MutationType::Delete
+    ) {
+        return Ok(());
+    }
+    let (Some(adm), Some(live)) = (&mutation.contribution, record) else {
+        return Ok(());
+    };
+    if !live.is_live() {
+        return Ok(());
+    }
+    let author = live
+        .meta
+        .as_ref()
+        .and_then(|m| m.metadata.get("share_author"))
+        .map(String::as_str);
+    (author == Some(adm.writer.as_str()))
+        .then_some(())
+        .ok_or_else(|| {
+            SchemaError::InvalidField(
+                "share contribution can change only a record its writer created".into(),
+            )
+        })
 }
 
 fn replace_record(
@@ -161,32 +294,37 @@ fn replace_record(
     ) {
         return Ok(StoredRecord::erased(stamp));
     }
-    let fields: BTreeMap<String, serde_json::Value> = mutation
-        .record_fields
-        .iter()
-        .map(|(field, value)| (field.clone(), value.clone()))
-        .collect();
-    for (field, value) in &fields {
-        validate_field_value(&schema.name, schema, field, value)?;
+    let mut fields = BTreeMap::new();
+    for (field, value) in &mutation.record_fields {
+        if !schema.has_field(field) {
+            return Err(SchemaError::InvalidData(format!(
+                "field '{field}' is not declared in schema '{}'",
+                schema.name
+            )));
+        }
+        let field_type = schema.get_field_type(field);
+        if let Err(type_err) = field_type.validate(value) {
+            return Err(SchemaError::InvalidData(format!(
+                "Type error in field '{field}' of schema '{}': {type_err}. Expected {field_type}, got {}",
+                schema.name,
+                serde_json::to_string(value).unwrap_or_else(|_| "?".into())
+            )));
+        }
+        fields.insert(field.clone(), value.clone());
     }
     let file = mutation.file.clone().or_else(|| {
-        if matches!(&mutation.file_write, Some(FileWrite::Clear)) {
-            None
-        } else {
-            before.and_then(|record| record.file.clone())
-        }
+        (!matches!(&mutation.file_write, Some(FileWrite::Clear)))
+            .then(|| before.and_then(|r| r.file.clone()))
+            .flatten()
     });
     let inline_file = match &mutation.inline_write {
-        Some(InlineWrite::Put(file)) => Some(file.marker.clone()),
+        Some(InlineWrite::Put(f)) => Some(f.marker.clone()),
         Some(InlineWrite::Clear) => None,
-        None => before.and_then(|record| record.inline_file.clone()),
+        None => before.and_then(|r| r.inline_file.clone()),
     };
-    let replacement = RecordReplacement {
-        target: mutation.target(),
-        expected: mutation.expected.clone(),
-        fields,
-        metadata: if mutation.source_file_name.is_some() || mutation.metadata.is_some() {
-            Some(RecordMetadata {
+    let metadata =
+        (mutation.source_file_name.is_some() || mutation.metadata.is_some()).then(|| {
+            RecordMetadata {
                 source_file_name: mutation.source_file_name.clone(),
                 metadata: mutation
                     .metadata
@@ -194,10 +332,13 @@ fn replace_record(
                     .unwrap_or_default()
                     .into_iter()
                     .collect(),
-            })
-        } else {
-            None
-        },
+            }
+        });
+    let replacement = RecordReplacement {
+        target: mutation.target(),
+        expected: mutation.expected.clone(),
+        fields,
+        metadata,
         file,
         inline_file,
     };

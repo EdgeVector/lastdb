@@ -1,4 +1,3 @@
-//! Managed installs use the same signed interface list as resolve.
 use super::*;
 use lastdb_node::app_registry_index::{self as registry, managed as host};
 use serde_json::json;
@@ -7,7 +6,7 @@ fn installed(app: &str) -> Result<host::ManagedReceipt, String> {
     host::receipt(&host::app_root(app)?.join("current"))
 }
 
-fn app_ids() -> Result<Vec<String>, String> {
+fn installed_app_ids() -> Result<Vec<String>, String> {
     let root = host::apps_root()?;
     if !root.exists() {
         return Ok(Vec::new());
@@ -36,8 +35,6 @@ fn resolutions(
         return Err("managed installs require the pinned registry key".into());
     }
     let list = public_list(home, Some(channel), source.index.as_deref(), None)?;
-    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
-    let (build, _, _) = registry::running_node(&socket);
     let (trust, _) = registry::resolve_list_trust_key(None)?;
     let index = registry::IndexLocation::resolve(source.index.as_deref())?
         .describe_interface(channel, list.api_version);
@@ -46,133 +43,127 @@ fn resolutions(
         .apps
         .into_iter()
         .map(|entry| registry::Resolution {
-            app_id: entry.app_id.clone(),
-            channel: entry.channel.clone(),
-            source: entry.source.clone(),
-            lastdb_version: build.clone(),
-            lastdb_version_source: "running node".into(),
-            app_version: entry.app_version.clone(),
-            sha: entry.sha.clone(),
-            artifact: None,
-            proved_at: entry.published_at.clone(),
-            proof_run: String::new(),
+            entry,
             index: index.clone(),
             trust: trust_str.clone(),
-            list_entry: Some(entry),
         })
         .collect())
 }
 
-pub(super) fn install(home: &Path, input: &AppInstall) -> Result<(), String> {
-    let channel = input
-        .source
+pub(super) fn install(
+    home: &Path,
+    accept_install: bool,
+    inactive: bool,
+    app_ids: &[String],
+    source: &RegistrySource,
+) -> Result<(), String> {
+    let ch = source
         .channel
         .as_deref()
         .unwrap_or(registry::DEFAULT_CHANNEL);
-    let rows = resolutions(home, &input.source, channel)?;
-    let mut results = Vec::new();
-    for app in &input.app_ids {
-        let row = rows
-            .iter()
-            .find(|r| &r.app_id == app)
-            .ok_or_else(|| format!("no app '{app}' was proved with lastdb on this interface"))?;
-        results.push(host::install(
-            row,
-            home,
-            host::ActivationOptions {
-                accept_install: input.accept_install,
-                inactive: input.inactive,
-            },
-        )?);
-    }
+    let rows = resolutions(home, source, ch)?;
+    let opts = host::ActivationOptions {
+        accept_install,
+        inactive,
+    };
+    let results: Vec<_> = app_ids
+        .iter()
+        .map(|app| {
+            let row = rows
+                .iter()
+                .find(|r| &r.entry.app_id == app)
+                .ok_or_else(|| {
+                    format!("no app '{app}' was proved with lastdb on this interface")
+                })?;
+            host::install(row, home, opts)
+        })
+        .collect::<Result<_, _>>()?;
     print_pretty_json(&results);
     registry::managed_poll::install()
 }
 
-struct UpgradePass<'a> {
-    home: &'a Path,
-    input: &'a AppUpgrade,
+fn upgrade_one(
+    home: &Path,
+    accept_install: bool,
+    base_source: &RegistrySource,
     polling: bool,
-    lists: std::collections::HashMap<(String, String), Result<Vec<registry::Resolution>, String>>,
-}
-
-impl UpgradePass<'_> {
-    fn upgrade_app(&mut self, app: &str) -> Result<Option<serde_json::Value>, String> {
-        let current = installed(app)?;
-        let mut source = self.input.source.clone();
-        if source.index.is_none() && current.index.trim().starts_with("lastsecrets://") {
-            let error = "saved private registry index is no longer supported";
-            return if self.polling {
-                Ok(Some(json!({
-                    "app": app, "state": "blocked", "reason": "unsupported_saved_index",
-                    "error": error, "installed_release": current.sha
-                })))
-            } else {
-                Err(error.into())
-            };
-        }
-        let channel = source.channel.as_deref().unwrap_or(&current.channel);
-        let root = host::app_root(app)?;
-        let stamp = root.join("last-checked");
-        if self.polling
-            && channel == "stable"
-            && std::fs::metadata(&stamp)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_some_and(|d| d.as_secs() < 3600)
-        {
-            let _lock = host::lock(&root)?;
-            host::verify_or_restore(&root, self.home, &installed(app)?)?;
-            return Ok(None);
-        }
-        source.index = source.index.or_else(|| Some(current.index.clone()));
-        let key = (
-            source.index.as_deref().unwrap_or_default().to_owned(),
-            channel.to_owned(),
-        );
-        let rows = self
-            .lists
-            .entry(key)
-            .or_insert_with(|| resolutions(self.home, &source, channel))
-            .as_ref()
-            .map_err(Clone::clone)?;
-        std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
-        let Some(row) = rows.iter().find(|r| r.app_id == app) else {
-            return Ok((!self.polling).then(
-                || json!({"app": app, "state": "no_row", "installed_release": current.sha}),
-            ));
+    lists: &mut std::collections::HashMap<
+        (String, String),
+        Result<Vec<registry::Resolution>, String>,
+    >,
+    app: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let current = installed(app)?;
+    let mut source = base_source.clone();
+    if source.index.is_none() && current.index.trim().starts_with("lastsecrets://") {
+        let error = "saved private registry index is no longer supported";
+        return if polling {
+            Ok(Some(json!({
+                "app": app, "state": "blocked", "reason": "unsupported_saved_index",
+                "error": error, "installed_release": current.sha
+            })))
+        } else {
+            Err(error.into())
         };
-        let receipt = host::install(
-            row,
-            self.home,
-            host::ActivationOptions {
-                accept_install: self.input.accept_install,
-                inactive: current.inactive,
-            },
-        )?;
-        Ok((!self.polling || receipt.sha != current.sha)
-            .then(|| json!({"app": app, "state": "current", "receipt": receipt})))
     }
+    let channel = source.channel.as_deref().unwrap_or(&current.channel);
+    let root = host::app_root(app)?;
+    let stamp = root.join("last-checked");
+    if polling
+        && channel == "stable"
+        && std::fs::metadata(&stamp)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|d| d.as_secs() < 3600)
+    {
+        let _lock = host::lock(&root)?;
+        host::verify_or_restore(&root, home, &installed(app)?)?;
+        return Ok(None);
+    }
+    if source.index.is_none() {
+        source.index = Some(current.index);
+    }
+    let key = (
+        source.index.as_deref().unwrap_or_default().to_owned(),
+        channel.to_owned(),
+    );
+    let rows = lists
+        .entry(key)
+        .or_insert_with(|| resolutions(home, &source, channel))
+        .as_ref()
+        .map_err(Clone::clone)?;
+    std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
+    let Some(row) = rows.iter().find(|r| r.entry.app_id == app) else {
+        return Ok((!polling)
+            .then(|| json!({"app": app, "state": "no_row", "installed_release": current.sha})));
+    };
+    let receipt = host::install(
+        row,
+        home,
+        host::ActivationOptions {
+            accept_install,
+            inactive: current.inactive,
+        },
+    )?;
+    Ok((!polling || receipt.sha != current.sha)
+        .then(|| json!({"app": app, "state": "current", "receipt": receipt})))
 }
 
-pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
-    let names = if input.all {
-        app_ids()?
-    } else {
-        input.app_ids.clone()
-    };
-    let mut pass = UpgradePass {
-        home,
-        input,
-        polling: std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1"),
-        lists: std::collections::HashMap::new(),
-    };
-    let mut results = Vec::new();
-    let mut failed = false;
+pub(super) fn upgrade(
+    home: &Path,
+    all: bool,
+    accept_install: bool,
+    ids: Vec<String>,
+    source: &RegistrySource,
+) -> Result<(), String> {
+    let names = if all { installed_app_ids()? } else { ids };
+    let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1");
+    let (mut lists, mut results, mut failed) =
+        (std::collections::HashMap::new(), Vec::new(), false);
     for app in names {
-        match pass.upgrade_app(&app) {
-            Ok(Some(result)) => results.push(result),
+        match upgrade_one(home, accept_install, source, polling, &mut lists, &app) {
+            Ok(Some(res)) => results.push(res),
             Ok(None) => {}
             Err(error) => {
                 failed = true;
@@ -180,14 +171,12 @@ pub(super) fn upgrade(home: &Path, input: &AppUpgrade) -> Result<(), String> {
             }
         }
     }
-    if !pass.polling || !results.is_empty() {
+    if !polling || !results.is_empty() {
         print_pretty_json(&results);
     }
-    if failed {
-        Err("one or more app upgrades failed; prior versions retained".into())
-    } else {
-        Ok(())
-    }
+    (!failed)
+        .then_some(())
+        .ok_or_else(|| "one or more app upgrades failed; prior versions retained".into())
 }
 
 pub(super) fn command(home: &Path, command: AppManagedCommand) -> Result<(), String> {
@@ -201,9 +190,8 @@ pub(super) fn command(home: &Path, command: AppManagedCommand) -> Result<(), Str
             check,
             json: _,
         } => {
-            let names = app_id.map_or_else(app_ids, |app| Ok(vec![app]))?;
-            let mut rows = Vec::new();
-            let mut failed = false;
+            let names = app_id.map_or_else(installed_app_ids, |app| Ok(vec![app]))?;
+            let (mut rows, mut failed) = (Vec::new(), false);
             for app in names {
                 let root = host::app_root(&app)?;
                 match installed(&app) {
@@ -235,11 +223,9 @@ pub(super) fn command(home: &Path, command: AppManagedCommand) -> Result<(), Str
                 }
             }
             print_pretty_json(&rows);
-            if failed {
-                Err("one or more apps are unhealthy".into())
-            } else {
-                Ok(())
-            }
+            (!failed)
+                .then_some(())
+                .ok_or_else(|| "one or more apps are unhealthy".into())
         }
     }
 }

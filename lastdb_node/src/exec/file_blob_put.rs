@@ -127,8 +127,17 @@ pub(super) async fn execute_db_put_blob_route(
         return error_response(403, "file put is owner-only", ctx);
     }
     let put = async {
-        let (plaintext, mut body) = parse_put_blob(req)?;
-        let parsed = ParsedMutation::from_operation(body.mutation, None);
+        let (plaintext, body) = parse_put_blob(req)?;
+        let PutBlobBody {
+            mutation: op,
+            bytes_b64: _,
+            name,
+            media_type,
+            placement,
+            thumbnail,
+            local_path,
+        } = body;
+        let mut parsed = ParsedMutation::from_operation(op, None);
         if !matches!(
             parsed.mutation.mutation_type,
             MutationType::Create | MutationType::Replace
@@ -138,42 +147,67 @@ pub(super) async fn execute_db_put_blob_route(
                 "put-blob requires create or complete replacement",
             ));
         }
-        if body.local_path.is_some() && body.placement == Placement::Inline {
-            return Err(HostError::new(
-                400,
-                "an inline file stores its bytes; it has no local path",
-            ));
-        }
-        if let Some(path) = body.local_path.take() {
+        if let Some(path) = local_path {
+            if placement == Placement::Inline {
+                return Err(HostError::new(
+                    400,
+                    "an inline file stores its bytes; it has no local path",
+                ));
+            }
             return put_local_reference(
                 host,
                 parsed,
-                (&path, plaintext),
-                (body.name, body.media_type, body.placement, body.thumbnail),
+                &path,
+                (name, media_type, placement, thumbnail),
             )
             .await;
         }
-        if body.placement == Placement::Inline {
-            if body.thumbnail.is_some() {
+        if placement == Placement::Inline {
+            if thumbnail.is_some() {
                 return Err(HostError::new(
                     400,
                     "an inline put takes no thumbnail; the bytes are the inline file",
                 ));
             }
-            return put_inline_file(host, parsed, &plaintext, body.name, body.media_type).await;
+            let file = inline_file(&plaintext, name, media_type)?;
+            let marker = file.marker.clone();
+            parsed.mutation.inline_write = Some(InlineWrite::Put(file));
+            let value = mutation::commit_parsed_mutation(host, parsed).await?;
+            return Ok(serde_json::json!({
+                "file": marker,
+                "placement": Placement::Inline,
+                "mutation_id": value.get("mutation_id"),
+                "record_revision": value.get("record_revision"),
+            }));
         }
-        put_blob_file(
-            host,
-            parsed,
-            &plaintext,
-            (body.name, body.media_type, body.placement, body.thumbnail),
-        )
-        .await
+        let file_write = host
+            .records()
+            .db_ops()
+            .records()
+            .seal_record_file(&plaintext, name, media_type)
+            .map_err(HostError::from)?;
+        let FileWrite::Put(file) = &file_write else {
+            return Err(HostError::new(500, "a sealed file is a put"));
+        };
+        let marker = file.marker().clone();
+        let thumbnail = attach_blob_and_thumbnail(
+            &mut parsed,
+            &marker,
+            file_write,
+            thumbnail,
+            "file marker does not match the supplied bytes",
+        )?;
+        let value = mutation::commit_parsed_mutation(host, parsed).await?;
+        Ok(serde_json::json!({
+            "file": marker,
+            "placement": placement,
+            "thumbnail": thumbnail,
+            "mutation_id": value.get("mutation_id"),
+            "record_revision": value.get("record_revision"),
+        }))
     };
     render(put.await, ctx)
 }
-
-type BlobMeta = (Option<String>, Option<String>, Placement, Option<Thumbnail>);
 
 fn attach_blob_and_thumbnail(
     parsed: &mut ParsedMutation,
@@ -203,16 +237,14 @@ fn attach_blob_and_thumbnail(
 async fn put_local_reference(
     host: &Host,
     mut parsed: ParsedMutation,
-    (path, plaintext): (&str, Cow<'_, [u8]>),
-    (name, media_type, placement, thumbnail): BlobMeta,
+    path: &str,
+    (name, media_type, placement, thumbnail): (
+        Option<String>,
+        Option<String>,
+        Placement,
+        Option<Thumbnail>,
+    ),
 ) -> Result<serde_json::Value, HostError> {
-    if !plaintext.is_empty() {
-        return Err(HostError::new(
-            400,
-            "a local file reference has an empty body",
-        ));
-    }
-    drop(plaintext);
     let file_write = host
         .records()
         .db_ops()
@@ -228,9 +260,11 @@ async fn put_local_reference(
     };
     let marker = local.marker().clone();
     let source = local.path().to_path_buf();
-    let schema = parsed.mutation.schema_name.clone();
-    let key = parsed.mutation.key_value.clone();
-    let thumbnail_marker = attach_blob_and_thumbnail(
+    let (schema, key) = (
+        parsed.mutation.schema_name.clone(),
+        parsed.mutation.key_value.clone(),
+    );
+    let thumbnail = attach_blob_and_thumbnail(
         &mut parsed,
         &marker,
         file_write,
@@ -246,59 +280,7 @@ async fn put_local_reference(
         "file": marker,
         "placement": placement,
         "local": true,
-        "thumbnail": thumbnail_marker,
-        "mutation_id": value.get("mutation_id"),
-        "record_revision": value.get("record_revision"),
-    }))
-}
-
-async fn put_inline_file(
-    host: &Host,
-    mut parsed: ParsedMutation,
-    plaintext: &[u8],
-    name: Option<String>,
-    media_type: Option<String>,
-) -> Result<serde_json::Value, HostError> {
-    let file = inline_file(plaintext, name, media_type)?;
-    let marker = file.marker.clone();
-    parsed.mutation.inline_write = Some(InlineWrite::Put(file));
-    let value = mutation::commit_parsed_mutation(host, parsed).await?;
-    Ok(serde_json::json!({
-        "file": marker,
-        "placement": Placement::Inline,
-        "mutation_id": value.get("mutation_id"),
-        "record_revision": value.get("record_revision"),
-    }))
-}
-
-async fn put_blob_file(
-    host: &Host,
-    mut parsed: ParsedMutation,
-    plaintext: &[u8],
-    (name, media_type, placement, thumbnail): BlobMeta,
-) -> Result<serde_json::Value, HostError> {
-    let file_write = host
-        .records()
-        .db_ops()
-        .records()
-        .seal_record_file(plaintext, name, media_type)
-        .map_err(HostError::from)?;
-    let FileWrite::Put(file) = &file_write else {
-        return Err(HostError::new(500, "a sealed file is a put"));
-    };
-    let marker = file.marker().clone();
-    let thumbnail_marker = attach_blob_and_thumbnail(
-        &mut parsed,
-        &marker,
-        file_write,
-        thumbnail,
-        "file marker does not match the supplied bytes",
-    )?;
-    let value = mutation::commit_parsed_mutation(host, parsed).await?;
-    Ok(serde_json::json!({
-        "file": marker,
-        "placement": placement,
-        "thumbnail": thumbnail_marker,
+        "thumbnail": thumbnail,
         "mutation_id": value.get("mutation_id"),
         "record_revision": value.get("record_revision"),
     }))

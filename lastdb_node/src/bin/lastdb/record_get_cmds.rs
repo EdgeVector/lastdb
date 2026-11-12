@@ -31,18 +31,14 @@ pub(super) fn record_command(target: &DatabaseTarget, command: Command) -> Resul
 }
 
 fn schema_is_hash_range(schema: &serde_json::Value) -> bool {
-    schema
-        .get("schema_type")
-        .and_then(serde_json::Value::as_str)
-        == Some("HashRange")
-        || (schema
-            .pointer("/key/range_field")
+    let has = |p| {
+        schema
+            .pointer(p)
             .and_then(serde_json::Value::as_str)
             .is_some_and(|s| !s.is_empty())
-            && schema
-                .pointer("/key/hash_field")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| !s.is_empty()))
+    };
+    schema["schema_type"].as_str() == Some("HashRange")
+        || (has("/key/range_field") && has("/key/hash_field"))
 }
 
 pub(crate) fn get_query_body(
@@ -83,15 +79,8 @@ fn get_record(
     )?;
     let mut value = parse_json_response(&response, "query")?;
     if let Some(out) = hydrate {
-        let required = schema["file_required"].as_bool().unwrap_or(false);
-        hydrate_record_file(
-            target,
-            schema_name,
-            &mut value,
-            out,
-            required,
-            Placement::Blob,
-        )?;
+        let req = schema["file_required"].as_bool().unwrap_or(false);
+        hydrate_record_file(target, schema_name, &mut value, out, req, Placement::Blob)?;
     }
     if let Some(out) = hydrate_inline {
         hydrate_record_file(
@@ -115,15 +104,10 @@ fn get_record(
 }
 
 fn print_get_human(value: &serde_json::Value) {
-    let results = value
-        .get("results")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if results.is_empty() {
+    let Some(results) = value["results"].as_array().filter(|r| !r.is_empty()) else {
         eprintln!("lastdb get: no row");
         return;
-    }
+    };
     for (i, row) in results.iter().enumerate() {
         if results.len() > 1 {
             eprintln!("--- row {} ---", i + 1);
@@ -147,19 +131,18 @@ fn print_get_human(value: &serde_json::Value) {
             }
             _ => {}
         }
-        if let Some(fields) = row.get("fields").and_then(serde_json::Value::as_object) {
-            let mut names: Vec<&String> = fields.keys().collect();
+        if let Some(fields) = row["fields"].as_object() {
+            let mut names: Vec<_> = fields.keys().collect();
             names.sort();
             for name in names {
-                let rendered = match fields.get(name) {
-                    Some(serde_json::Value::String(s)) => s.clone(),
-                    Some(other) => other.to_string(),
-                    None => String::new(),
-                };
-                println!("{name} {rendered}");
+                let val = &fields[name];
+                println!(
+                    "{name} {}",
+                    val.as_str().map_or_else(|| val.to_string(), str::to_owned)
+                );
             }
         }
-        for (hydrated_key, meta_ptr, prefix) in [
+        for (hydrated, meta_ptr, prefix) in [
             ("hydrated_file", "/metadata/file", "file"),
             (
                 "hydrated_inline_file",
@@ -167,7 +150,7 @@ fn print_get_human(value: &serde_json::Value) {
                 "inline_file",
             ),
         ] {
-            if let Some(path) = row.get(hydrated_key).and_then(serde_json::Value::as_str) {
+            if let Some(path) = row.get(hydrated).and_then(serde_json::Value::as_str) {
                 println!("{prefix} {path}");
             } else if let Some(file) = row.pointer(meta_ptr) {
                 println!("{prefix} {file}");
@@ -228,16 +211,16 @@ fn hydrate_record_file(
         "schema": schema, "key": record["key"], "expected_revision": revision, "placement": name,
     }))
     .map_err(|e| format!("encode hydrate request: {e}"))?;
-    let mut request = format!(
+    let mut req = format!(
         "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nAccept: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         target.path("/api/db/fetch-blob"),
         client_headers(),
         body.len(),
     )
     .into_bytes();
-    request.extend_from_slice(&body);
+    req.extend_from_slice(&body);
     let timeout = admin_scan_client_timeout();
-    let response = request_with_timeout_raw_bytes(&target.socket, &request, timeout)
+    let response = request_with_timeout_raw_bytes(&target.socket, &req, timeout)
         .map_err(|(op, err, _)| format_socket_io_error(op, &err, timeout))?;
     let bytes = parse_binary_response(&response, "record hydration")?;
     if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {

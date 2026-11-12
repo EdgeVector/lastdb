@@ -10,6 +10,16 @@ use serde_json::{Map, Value};
 use super::query::QueryResponseFormat;
 use super::reply::content_free;
 
+const MUTATION_BODY_EXAMPLE: &str = r#"{"type":"mutation","schema":"<Schema>","record":{"<field>":"<value>"},"key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#;
+const SCHEMA_REMEDIATION: &str = r#"{"schema_name":"<Schema>","filter":{"HashKey":"<key>"}}"#;
+const LIMIT_REMEDIATION: &str =
+    r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#;
+const CURSOR_REMEDIATION: &str =
+    r#""cursor": {"hash":"<hash>","range":"<range>"}   # echo next_cursor verbatim"#;
+const EXPECTED_COUNT_REMEDIATION: &str =
+    r#""expected_total_count": 3    # non-negative keyed COUNT assertion"#;
+const FORMAT_REMEDIATION: &str = r#""response_format": "full"    # full, values, count"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::exec) enum RejectKind {
     MalformedBody,
@@ -39,65 +49,9 @@ impl RejectKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::exec) enum WireKey {
-    SchemaName,
-    Limit,
-    Offset,
-    Cursor,
-    ExpectedTotalCount,
-    ResponseFormat,
-    OperationType,
-    Schema,
-    Record,
-    Alternates,
-    Expected,
-    KeyValue,
-    MutationType,
-}
-
-const MUTATION_BODY_EXAMPLE: &str = r#"{"type":"mutation","schema":"<Schema>","record":{"<field>":"<value>"},"key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#;
-
-impl WireKey {
-    pub(in crate::exec) const fn as_str(self) -> &'static str {
-        match self {
-            Self::SchemaName => "schema_name",
-            Self::Limit => "limit",
-            Self::Offset => "offset",
-            Self::Cursor => "cursor",
-            Self::ExpectedTotalCount => "expected_total_count",
-            Self::ResponseFormat => "response_format",
-            Self::OperationType => "type",
-            Self::Schema => "schema",
-            Self::Record => "record",
-            Self::Alternates => "alternates",
-            Self::Expected => "expected",
-            Self::KeyValue => "key_value",
-            Self::MutationType => "mutation_type",
-        }
-    }
-
-    const fn remediation(self) -> &'static str {
-        match self {
-            Self::SchemaName => r#"{"schema_name":"<Schema>","filter":{"HashKey":"<key>"}}"#,
-            Self::Limit | Self::Offset => {
-                r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#
-            }
-            Self::Cursor => {
-                r#""cursor": {"hash":"<hash>","range":"<range>"}   # echo next_cursor verbatim"#
-            }
-            Self::ExpectedTotalCount => {
-                r#""expected_total_count": 3    # non-negative keyed COUNT assertion"#
-            }
-            Self::ResponseFormat => r#""response_format": "full"    # full, values, count"#,
-            _ => MUTATION_BODY_EXAMPLE,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reject {
     kind: RejectKind,
-    key: Option<WireKey>,
+    key: Option<(&'static str, &'static str)>,
 }
 
 impl Reject {
@@ -108,21 +62,24 @@ impl Reject {
         }
     }
 
-    pub(in crate::exec) const fn missing(key: WireKey) -> Self {
+    const fn missing(name: &'static str, remediation: &'static str) -> Self {
         Self {
             kind: RejectKind::MissingRequiredKey,
-            key: Some(key),
+            key: Some((name, remediation)),
         }
     }
 
-    pub(in crate::exec) const fn invalid(key: WireKey) -> Self {
+    const fn invalid(name: &'static str, remediation: &'static str) -> Self {
         Self {
             kind: RejectKind::InvalidValue,
-            key: Some(key),
+            key: Some((name, remediation)),
         }
     }
 
-    pub(in crate::exec) fn from_serde_error(err: &serde_json::Error, key: Option<WireKey>) -> Self {
+    pub(in crate::exec) fn from_serde_error(
+        err: &serde_json::Error,
+        key: Option<(&'static str, &'static str)>,
+    ) -> Self {
         if err.classify() == serde_json::error::Category::Data
             && err.to_string().starts_with("unknown field")
         {
@@ -144,13 +101,11 @@ impl Reject {
 
     pub(in crate::exec) fn response(&self) -> UdsResponse {
         let mut map = serde_json::json!({
-            "ok": false,
-            "kind": self.kind.as_str(),
-            "error": self.kind.message(),
+            "ok": false, "kind": self.kind.as_str(), "error": self.kind.message(),
         });
-        if let Some(key) = self.key {
-            map["key"] = Value::String(key.as_str().into());
-            map["try"] = serde_json::json!([key.remediation()]);
+        if let Some((key, rem)) = self.key {
+            map["key"] = Value::String(key.into());
+            map["try"] = serde_json::json!([rem]);
         } else if self.kind == RejectKind::UnknownKey {
             map["try"] = serde_json::json!([
                 "curl -s --unix-socket ~/.lastdb/data/folddb.sock http://localhost/api/version"
@@ -191,26 +146,25 @@ impl ParsedMutation {
             durability,
             definition_id,
         } = op;
-        let target = RecordTarget {
-            schema,
-            key: key_value,
-            alternates,
-        };
-        let mut mutation = Mutation::with_uuid(
+        let mut m = Mutation::with_uuid(
             String::new(),
-            target,
+            RecordTarget {
+                schema,
+                key: key_value,
+                alternates,
+            },
             record_fields,
             String::new(),
             mutation_type,
             expected,
         );
-        mutation.source_file_name = source_file_name;
-        mutation.metadata = metadata;
-        mutation.file = file;
-        mutation.definition_id = definition_id;
-        mutation.synchronous = Some(durability.unwrap_or_default().waits_for_persist());
+        m.source_file_name = source_file_name;
+        m.metadata = metadata;
+        m.file = file;
+        m.definition_id = definition_id;
+        m.synchronous = Some(durability.unwrap_or_default().waits_for_persist());
         Self {
-            mutation,
+            mutation: m,
             convergence: convergence.or(default_convergence).unwrap_or_default(),
         }
     }
@@ -220,21 +174,21 @@ pub fn parse_mutation_body(body: &[u8]) -> Result<ParsedMutation, Reject> {
     let Ok(Value::Object(obj)) = serde_json::from_slice::<Value>(body) else {
         return Err(Reject::malformed_body());
     };
-    const REQUIRED: &[WireKey] = &[
-        WireKey::OperationType,
-        WireKey::Schema,
-        WireKey::Record,
-        WireKey::KeyValue,
-        WireKey::MutationType,
-        WireKey::Alternates,
-        WireKey::Expected,
+    const REQ: &[&str] = &[
+        "type",
+        "schema",
+        "record",
+        "key_value",
+        "mutation_type",
+        "alternates",
+        "expected",
     ];
-    if let Some(&key) = REQUIRED.iter().find(|k| !obj.contains_key(k.as_str())) {
-        return Err(Reject::missing(key));
+    if let Some(&key) = REQ.iter().find(|&&k| !obj.contains_key(k)) {
+        return Err(Reject::missing(key, MUTATION_BODY_EXAMPLE));
     }
-    let operation = serde_json::from_value::<Operation>(Value::Object(obj))
-        .map_err(|error| Reject::from_serde_error(&error, None))?;
-    Ok(ParsedMutation::from_operation(operation, None))
+    serde_json::from_value::<Operation>(Value::Object(obj))
+        .map(|op| ParsedMutation::from_operation(op, None))
+        .map_err(|e| Reject::from_serde_error(&e, None))
 }
 
 pub(in crate::exec) fn body_object(req: &UdsRequest) -> Result<Map<String, Value>, UdsResponse> {
@@ -255,33 +209,35 @@ pub(in crate::exec) struct QueryRequest {
 pub(in crate::exec) fn parse_query_body(
     mut obj: Map<String, Value>,
 ) -> Result<QueryRequest, UdsResponse> {
-    let take_num = |map: &mut Map<String, Value>, field: WireKey| match map.remove(field.as_str()) {
+    let take_num = |m: &mut Map<String, Value>, n: &'static str, r: &'static str| match m.remove(n)
+    {
         None | Some(Value::Null) => Ok(None),
-        Some(raw) => raw
+        Some(v) => v
             .as_u64()
             .map(|n| Some(n as usize))
-            .ok_or_else(|| Reject::invalid(field).response()),
+            .ok_or_else(|| Reject::invalid(n, r).response()),
     };
-    let limit = take_num(&mut obj, WireKey::Limit)?;
-    let offset = take_num(&mut obj, WireKey::Offset)?;
-    let cursor = match obj.remove(WireKey::Cursor.as_str()) {
+    let limit = take_num(&mut obj, "limit", LIMIT_REMEDIATION)?;
+    let offset = take_num(&mut obj, "offset", LIMIT_REMEDIATION)?;
+    let cursor = match obj.remove("cursor") {
         None | Some(Value::Null) => None,
         Some(raw) => serde_json::from_value::<QueryCursor>(raw)
             .map(Some)
-            .map_err(|_| Reject::invalid(WireKey::Cursor).response())?,
+            .map_err(|_| Reject::invalid("cursor", CURSOR_REMEDIATION).response())?,
     };
-    let expected_total_count = take_num(&mut obj, WireKey::ExpectedTotalCount)?;
+    let expected_total_count =
+        take_num(&mut obj, "expected_total_count", EXPECTED_COUNT_REMEDIATION)?;
     let response_format = obj
         .remove("response_format")
         .map(serde_json::from_value::<QueryResponseFormat>)
         .transpose()
-        .map_err(|_| Reject::invalid(WireKey::ResponseFormat).response())?
+        .map_err(|_| Reject::invalid("response_format", FORMAT_REMEDIATION).response())?
         .unwrap_or_default();
-    if !obj.contains_key(WireKey::SchemaName.as_str()) {
-        return Err(Reject::missing(WireKey::SchemaName).response());
+    if !obj.contains_key("schema_name") {
+        return Err(Reject::missing("schema_name", SCHEMA_REMEDIATION).response());
     }
     let mut query: Query = serde_json::from_value(Value::Object(obj))
-        .map_err(|error| Reject::from_serde_error(&error, None).response())?;
+        .map_err(|e| Reject::from_serde_error(&e, None).response())?;
     query.expected_total_count = expected_total_count;
     Ok(QueryRequest {
         query,
@@ -329,36 +285,29 @@ pub(in crate::exec) fn parse_batch_mutation_body(
 }
 
 pub(in crate::exec) fn query_flag(target: &str, key: &str) -> bool {
-    target.split_once('?').is_some_and(|(_, qs)| {
-        qs.split('&').any(|pair| {
-            let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-            k == key && fold_db::env_flag::truthy(v)
-        })
-    })
+    query_value(target, key).is_some_and(|v| fold_db::env_flag::truthy(&v))
 }
 
 pub(in crate::exec) fn query_value(target: &str, key: &str) -> Option<String> {
-    let (_, qs) = target.split_once('?')?;
-    qs.split('&').find_map(|pair| {
+    target.split_once('?')?.1.split('&').find_map(|pair| {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         (k == key).then(|| percent_decode(v))
     })
 }
 
 pub(in crate::exec) fn percent_decode(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
+    let b = raw.as_bytes();
+    let (mut out, mut i) = (Vec::with_capacity(b.len()), 0);
+    while i < b.len() {
+        match b[i] {
             b'+' => {
                 out.push(b' ');
                 i += 1;
             }
-            b'%' if i + 2 < bytes.len() => {
+            b'%' if i + 2 < b.len() => {
                 if let (Some(h), Some(l)) = (
-                    (bytes[i + 1] as char).to_digit(16),
-                    (bytes[i + 2] as char).to_digit(16),
+                    (b[i + 1] as char).to_digit(16),
+                    (b[i + 2] as char).to_digit(16),
                 ) {
                     out.push((h * 16 + l) as u8);
                     i += 3;
@@ -367,8 +316,8 @@ pub(in crate::exec) fn percent_decode(raw: &str) -> String {
                     i += 1;
                 }
             }
-            b => {
-                out.push(b);
+            ch => {
+                out.push(ch);
                 i += 1;
             }
         }

@@ -4,13 +4,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const CONFIG_ENV: &str = "LASTDBD_SERVICE_HOME_CONFIG";
-const MACOS_CONFIG_REL: &[&str] = &[
-    "Library",
-    "Application Support",
-    "LastDB",
-    "lastdbd-service-home",
-];
-const UNIX_CONFIG_REL: &[&str] = &[".config", "lastdb", "lastdbd-service-home"];
 
 pub fn explicit_home_override_present() -> bool {
     std::env::var_os(crate::profile::paths::LASTDB_HOME_ENV).is_some()
@@ -23,12 +16,11 @@ fn config_path() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or("Cannot locate lastdb admin service-home config: HOME is not set")?;
-    let rel = if cfg!(target_os = "macos") {
-        MACOS_CONFIG_REL
+    Ok(if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/LastDB/lastdbd-service-home")
     } else {
-        UNIX_CONFIG_REL
-    };
-    Ok(rel.iter().fold(home, |path, part| path.join(part)))
+        home.join(".config/lastdb/lastdbd-service-home")
+    })
 }
 
 pub fn configured_home() -> Result<Option<PathBuf>, String> {
@@ -52,17 +44,16 @@ fn validate_service_home(raw: impl AsRef<Path>) -> Result<PathBuf, String> {
             home.display()
         ));
     }
-    if let Some(user_home) = std::env::var_os("HOME").map(PathBuf::from) {
-        let primary = user_home.join(crate::profile::paths::LASTDB_DIR);
-        if primary.is_dir() {
-            let canon_primary = fs::canonicalize(&primary).unwrap_or(primary);
-            let canon_home = fs::canonicalize(&home).unwrap_or_else(|_| home.clone());
-            if canon_home == canon_primary {
-                return Err(format!(
-                    "Refusing to configure lastdbd service home as the primary live database home {}. Choose a separate directory for a second node.",
-                    canon_primary.display()
-                ));
-            }
+    if let Some(primary) = std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(crate::profile::paths::LASTDB_DIR))
+        .filter(|p| p.is_dir())
+    {
+        let canon_primary = fs::canonicalize(&primary).unwrap_or(primary);
+        if fs::canonicalize(&home).unwrap_or_else(|_| home.clone()) == canon_primary {
+            return Err(format!(
+                "Refusing to configure lastdbd service home as the primary live database home {}. Choose a separate directory for a second node.",
+                canon_primary.display()
+            ));
         }
     }
     Ok(home)

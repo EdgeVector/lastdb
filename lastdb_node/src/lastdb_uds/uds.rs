@@ -26,24 +26,22 @@ pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)
 }
 
-fn validate_socket_path_len(path: &Path) -> io::Result<()> {
+fn check_len(path: &Path) -> io::Result<()> {
     let len = path.as_os_str().len();
-    if len > MAX_SOCKET_PATH_LEN {
-        return Err(io::Error::new(
+    (len <= MAX_SOCKET_PATH_LEN).then_some(()).ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
                 "socket path is {len} bytes, exceeds the {MAX_SOCKET_PATH_LEN}-byte sockaddr_un limit"
             ),
-        ));
-    }
-    Ok(())
+        )
+    })
 }
 
 fn tmp_socket_path(path: &Path) -> PathBuf {
-    let name = path.file_name().map_or_else(
-        || SOCKET_FILE_NAME.to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+    let name = path
+        .file_name()
+        .map_or_else(|| SOCKET_FILE_NAME.into(), std::ffi::OsStr::to_string_lossy);
     path.with_file_name(format!("{name}{SOCKET_TMP_SUFFIX}"))
 }
 
@@ -53,14 +51,14 @@ pub fn preflight_data_dir(data_dir: &Path) -> io::Result<()> {
     if tmp_socket_path(&worst).as_os_str().len() <= MAX_SOCKET_PATH_LEN {
         return Ok(());
     }
-    let max_data_dir =
+    let max_dir =
         MAX_SOCKET_PATH_LEN.saturating_sub(SOCKET_FILE_NAME.len() + SOCKET_TMP_SUFFIX.len() + 1);
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,
         format!(
             "data dir {} is too deep to host a Unix control socket: its socket path {} is {} bytes, \
              and binding needs {} more for the atomic temp sibling, over the {MAX_SOCKET_PATH_LEN}-byte \
-             sockaddr_un limit. Use a data dir at most {max_data_dir} bytes long.",
+             sockaddr_un limit. Use a data dir at most {max_dir} bytes long.",
             data_dir.display(),
             worst.display(),
             worst.as_os_str().len(),
@@ -95,9 +93,9 @@ impl UdsSocket {
     /// Bind a control socket at `path` via an owner-only temp sibling and atomic rename.
     pub fn bind_at(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
-        validate_socket_path_len(&path)?;
         let tmp_path = tmp_socket_path(&path);
-        validate_socket_path_len(&tmp_path)?;
+        check_len(&path)?;
+        check_len(&tmp_path)?;
         if UnixStream::connect(&path).is_ok() {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
@@ -127,15 +125,12 @@ impl UdsSocket {
 
     /// Run the control-socket accept loop until `shutdown` is set.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn serve<F>(
+    pub fn serve<F: FnMut(UnixStream)>(
         &self,
         owner_uid: u32,
         shutdown: &AtomicBool,
         mut on_accept: F,
-    ) -> io::Result<()>
-    where
-        F: FnMut(UnixStream),
-    {
+    ) -> io::Result<()> {
         self.listener.set_nonblocking(true)?;
         let mut fd_episode = FdExhaustionEpisode::default();
         while !shutdown.load(Ordering::Relaxed) {
@@ -148,14 +143,8 @@ impl UdsSocket {
                     wait_for_pending_connection(self.listener.as_raw_fd(), ACCEPT_POLL_INTERVAL);
                     continue;
                 }
-                Err(e)
-                    if matches!(
-                        e.raw_os_error(),
-                        Some(code) if code == libc::EMFILE || code == libc::ENFILE
-                    ) =>
-                {
-                    let backoff = fd_episode.on_failure(&e, Instant::now());
-                    std::thread::sleep(backoff);
+                Err(e) if matches!(e.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) => {
+                    std::thread::sleep(fd_episode.on_failure(&e, Instant::now()));
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -169,16 +158,13 @@ impl UdsSocket {
                 Ok(PeerCredVerdict::ForeignUser {
                     peer_uid,
                     owner_uid,
-                }) => {
-                    tracing::warn!(
-                        peer_uid,
-                        owner_uid,
-                        "dropping control-socket connection from a foreign OS user"
-                    );
-                }
+                }) => tracing::warn!(
+                    peer_uid,
+                    owner_uid,
+                    "dropping control-socket connection from a foreign OS user"
+                ),
                 Err(e) => tracing::warn!(
-                    error = %e,
-                    "dropping control-socket connection: peer-credential read failed"
+                    error = %e, "dropping control-socket connection: peer-credential read failed"
                 ),
             }
         }
@@ -215,20 +201,18 @@ struct FdExhaustionEpisode {
 impl FdExhaustionEpisode {
     fn on_failure(&mut self, error: &io::Error, now: Instant) -> Duration {
         self.attempts = self.attempts.saturating_add(1);
-        let started_at = *self.started_at.get_or_insert(now);
-        let doublings = u32::try_from(self.attempts.saturating_sub(1))
+        let started = *self.started_at.get_or_insert(now);
+        let shift = u32::try_from(self.attempts - 1)
             .unwrap_or(u32::MAX)
             .min(u32::BITS - 1);
         let backoff = ACCEPT_POLL_INTERVAL
-            .saturating_mul(1_u32 << doublings)
+            .saturating_mul(1_u32 << shift)
             .min(FD_EXHAUSTION_MAX_BACKOFF);
         let backoff_ms = u64::try_from(backoff.as_millis()).unwrap_or(u64::MAX);
-
         if self.attempts == 1 {
             self.last_reported_at = Some(now);
             tracing::error!(
-                error = %error,
-                backoff_ms,
+                error = %error, backoff_ms,
                 "control-socket accept hit fd exhaustion; backing off and keeping listener alive"
             );
         } else if self
@@ -237,24 +221,22 @@ impl FdExhaustionEpisode {
         {
             self.last_reported_at = Some(now);
             tracing::warn!(
-                error = %error,
-                failed_accepts = self.attempts,
-                elapsed_ms = u64::try_from(now.duration_since(started_at).as_millis()).unwrap_or(u64::MAX),
-                backoff_ms,
-                "control-socket accept still out of file descriptors; listener alive"
+                error = %error, failed_accepts = self.attempts,
+                elapsed_ms = u64::try_from(now.duration_since(started).as_millis()).unwrap_or(u64::MAX),
+                backoff_ms, "control-socket accept still out of file descriptors; listener alive"
             );
         }
         backoff
     }
 
     fn on_recovered(&mut self, now: Instant) {
-        if let Some(started_at) = self.started_at.take() {
+        if let Some(started) = self.started_at.take() {
             let attempts = std::mem::take(&mut self.attempts);
             self.last_reported_at = None;
             tracing::warn!(
                 failed_accepts = attempts,
                 elapsed_ms =
-                    u64::try_from(now.duration_since(started_at).as_millis()).unwrap_or(u64::MAX),
+                    u64::try_from(now.duration_since(started).as_millis()).unwrap_or(u64::MAX),
                 "control-socket accept succeeded again after fd exhaustion"
             );
         }

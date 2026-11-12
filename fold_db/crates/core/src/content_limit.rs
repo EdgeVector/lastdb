@@ -4,15 +4,6 @@
 //! the usize to [`set_max_field_value_bytes`]. This module does not read the
 //! environment. The status reports the installed limit. No write path reads
 //! it. A local write uses the record cap.
-//!
-//! ## Configuration
-//!
-//! | | |
-//! |--|--|
-//! | Env | `LASTDB_MAX_FIELD_VALUE_BYTES` (read once by the shell) |
-//! | Default | [`DEFAULT_MAX_FIELD_VALUE_BYTES`] (256 KiB) |
-//! | Absolute max | [`ABSOLUTE_MAX_FIELD_VALUE_BYTES`] (1 MiB) — cannot raise higher via env |
-//! | Status | `GET /api/status` → `limits.max_field_value_bytes` |
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -25,9 +16,6 @@ pub use lastdb_model::content_limit::{
 static EFFECTIVE_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_MAX_FIELD_VALUE_BYTES);
 
 /// Install the limit the shell parsed from [`MAX_FIELD_VALUE_BYTES_ENV`].
-///
-/// Pass the result of [`parse_max_field_value_bytes`]. The same variable name
-/// and default apply. A later install of a different value replaces it.
 pub fn set_max_field_value_bytes(limit: usize) {
     let previous = EFFECTIVE_LIMIT.swap(limit, Ordering::AcqRel);
     if previous == limit || limit == DEFAULT_MAX_FIELD_VALUE_BYTES {
@@ -44,19 +32,12 @@ pub fn set_max_field_value_bytes(limit: usize) {
 }
 
 /// Effective field value size limit for this process (bytes).
-///
-/// [`DEFAULT_MAX_FIELD_VALUE_BYTES`] until the shell calls
-/// [`set_max_field_value_bytes`]. The shell's value is already clamped to
-/// \[`MIN_MAX_FIELD_VALUE_BYTES`, `ABSOLUTE_MAX_FIELD_VALUE_BYTES`\].
 #[must_use]
 pub fn max_field_value_bytes() -> usize {
     EFFECTIVE_LIMIT.load(Ordering::Acquire)
 }
 
 /// Parse env value → clamped limit. `None` / empty / unparseable → default.
-///
-/// Accepts plain decimal bytes (`262144`) or a trailing unit:
-/// `k`/`kb`/`kib`, `m`/`mb`/`mib` (case-insensitive).
 #[must_use]
 pub fn parse_max_field_value_bytes(raw: Option<String>) -> usize {
     let Some(raw) = raw else {
@@ -66,37 +47,33 @@ pub fn parse_max_field_value_bytes(raw: Option<String>) -> usize {
     if s.is_empty() {
         return DEFAULT_MAX_FIELD_VALUE_BYTES;
     }
-    let parsed = parse_byte_size(s).unwrap_or_else(|| {
+    let Some(parsed) = parse_byte_size(s) else {
         tracing::warn!(
             raw = %s,
             env = MAX_FIELD_VALUE_BYTES_ENV,
             "invalid LASTDB_MAX_FIELD_VALUE_BYTES; using default {}",
             DEFAULT_MAX_FIELD_VALUE_BYTES
         );
-        DEFAULT_MAX_FIELD_VALUE_BYTES
-    });
+        return DEFAULT_MAX_FIELD_VALUE_BYTES;
+    };
     clamp_field_value_limit(parsed)
 }
 
 fn parse_byte_size(s: &str) -> Option<usize> {
+    const UNITS: [(&str, usize); 6] = [
+        ("kib", 1024),
+        ("mib", 1024 * 1024),
+        ("kb", 1024),
+        ("mb", 1024 * 1024),
+        ("k", 1024),
+        ("m", 1024 * 1024),
+    ];
     let lower = s.to_ascii_lowercase();
-    let (num, mult) = if let Some(rest) = lower.strip_suffix("kib") {
-        (rest.trim(), 1024usize)
-    } else if let Some(rest) = lower.strip_suffix("mib") {
-        (rest.trim(), 1024 * 1024)
-    } else if let Some(rest) = lower.strip_suffix("kb") {
-        (rest.trim(), 1024)
-    } else if let Some(rest) = lower.strip_suffix("mb") {
-        (rest.trim(), 1024 * 1024)
-    } else if let Some(rest) = lower.strip_suffix('k') {
-        (rest.trim(), 1024)
-    } else if let Some(rest) = lower.strip_suffix('m') {
-        (rest.trim(), 1024 * 1024)
-    } else {
-        (lower.as_str(), 1)
-    };
-    let n: usize = num.trim().parse().ok()?;
-    n.checked_mul(mult)
+    let (num, mult) = UNITS
+        .iter()
+        .find_map(|(unit, mult)| lower.strip_suffix(unit).map(|rest| (rest, *mult)))
+        .unwrap_or((lower.as_str(), 1));
+    num.trim().parse::<usize>().ok()?.checked_mul(mult)
 }
 
 fn clamp_field_value_limit(n: usize) -> usize {

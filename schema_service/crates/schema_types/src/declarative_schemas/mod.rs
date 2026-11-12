@@ -1,13 +1,14 @@
 use crate::{DeclarativeSchemaType, FieldValueType, KeyConfig};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    fmt,
+    str::FromStr,
+};
 
 mod owned;
-mod portable;
-
 pub use owned::OwnedDeclaration;
-pub use portable::PortableSchemaId;
 
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
 const RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION: u32 = 3;
@@ -29,67 +30,52 @@ pub fn refuses_identity_downgrade(
     })
 }
 
-#[must_use]
-pub fn compute_identity_hash_parts<'a, I>(
+fn compute_identity_hash_parts<'a>(
     owner_app_id: Option<&str>,
     descriptive_name: Option<&str>,
     name: &str,
-    fields: I,
+    fields: impl IntoIterator<Item = &'a str>,
     key: Option<&KeyConfig>,
-) -> String
-where
-    I: IntoIterator<Item = &'a str>,
-{
-    let mut field_names: Vec<&str> = fields.into_iter().collect();
-    field_names.sort_unstable();
-    field_names.dedup();
-    let combined = field_names.join(",");
+) -> String {
+    let field_names: Vec<&str> = fields
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let mut hasher = Sha256::new();
-
     if let Some(app_id) = owner_app_id.filter(|s| !s.is_empty()) {
         hasher.update(b"app:");
         hasher.update(app_id.as_bytes());
         hasher.update(b":");
     }
-
-    let readable_name = descriptive_name.filter(|s| !s.is_empty()).unwrap_or(name);
-    hasher.update(readable_name.as_bytes());
+    hasher.update(
+        descriptive_name
+            .filter(|s| !s.is_empty())
+            .unwrap_or(name)
+            .as_bytes(),
+    );
     hasher.update(b":");
-    hasher.update(combined.as_bytes());
-
+    hasher.update(field_names.join(",").as_bytes());
     if let Some(key) = key {
-        let hf = key
-            .hash_field
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_default();
-        let rf = key
-            .range_field
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_default();
+        let hf = key.hash_field.as_deref().map_or("", str::trim);
+        let rf = key.range_field.as_deref().map_or("", str::trim);
         if !hf.is_empty() || !rf.is_empty() {
-            hasher.update(b":key:");
-            hasher.update(hf.as_bytes());
-            hasher.update(b":");
-            hasher.update(rf.as_bytes());
+            hasher.update(format!(":key:{hf}:{rf}").as_bytes());
         }
     }
-
     format!("{:x}", hasher.finalize())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub struct DeclarativeSchemaDefinition {
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub descriptive_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose_statement: Option<String>,
     pub schema_type: DeclarativeSchemaType,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub alternate_keys: BTreeMap<String, crate::AlternateKey>,
@@ -97,8 +83,9 @@ pub struct DeclarativeSchemaDefinition {
     pub record_keys: Option<crate::record_keys::RecordKeys>,
     #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
     pub file_required: bool,
+    #[serde(default)]
     pub fields: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_classifications: HashMap<String, Vec<String>>,
@@ -114,45 +101,42 @@ pub struct DeclarativeSchemaDefinition {
     pub field_versions: HashMap<String, u32>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_declarations: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_hash_algo_version: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub superseded_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_app_id: Option<String>,
 }
 
 impl DeclarativeSchemaDefinition {
     #[must_use]
     pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
-        static ANY: FieldValueType = FieldValueType::Any;
-        self.field_types.get(field_name).unwrap_or(&ANY)
+        self.field_types
+            .get(field_name)
+            .unwrap_or(&FieldValueType::Any)
     }
 
     pub fn ensure_field_hashes(&mut self) {
+        let mut seen = HashSet::new();
         let names: Vec<String> = self
             .fields
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .chain(self.field_types.keys().cloned())
-            .chain(self.field_descriptions.keys().cloned())
+            .iter()
+            .flatten()
+            .chain(self.field_types.keys())
+            .chain(self.field_descriptions.keys())
+            .filter(|n| !self.field_hashes.contains_key(*n) && seen.insert((*n).clone()))
+            .cloned()
             .collect();
-        let mut seen = HashSet::new();
         for name in names {
-            if !seen.insert(name.clone()) || self.field_hashes.contains_key(&name) {
-                continue;
-            }
-            let description = self
+            let desc = self
                 .field_descriptions
                 .get(&name)
-                .cloned()
-                .unwrap_or_default();
-            let field_type = self.get_field_type(&name).clone();
+                .map_or("", String::as_str);
             let version = *self.field_versions.get(&name).unwrap_or(&1);
-            let hash = crate::compute_field_hash(&name, &description, &field_type, version);
+            let hash = crate::compute_field_hash(&name, desc, self.get_field_type(&name), version);
             self.field_versions.entry(name.clone()).or_insert(version);
             self.field_hashes.insert(name, hash);
         }
@@ -164,7 +148,10 @@ impl DeclarativeSchemaDefinition {
         }
         self.validate_field_names()?;
         self.validate_key_field_types()?;
-        self.validate_alternate_keys()
+        if !self.alternate_keys.is_empty() || self.record_keys.is_some() {
+            self.validate_owned_schema()?;
+        }
+        Ok(())
     }
 
     pub fn validate_field_name(name: &str) -> Result<(), String> {
@@ -174,11 +161,9 @@ impl DeclarativeSchemaDefinition {
             ));
         }
         if name.is_empty()
-            || name.chars().any(|character| {
-                character.is_whitespace()
-                    || character.is_control()
-                    || matches!(character, ',' | ':')
-            })
+            || name
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ',' | ':'))
         {
             return Err(format!(
                 "field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"
@@ -188,21 +173,27 @@ impl DeclarativeSchemaDefinition {
     }
 
     pub fn validate_field_names(&self) -> Result<(), String> {
-        let mut names = self
-            .fields
+        let keys = [
+            self.field_classifications.keys().collect::<Vec<_>>(),
+            self.field_descriptions.keys().collect(),
+            self.field_interest_categories.keys().collect(),
+            self.field_types.keys().collect(),
+            self.field_hashes.keys().collect(),
+            self.field_declarations.keys().collect(),
+            self.field_versions.keys().collect(),
+        ];
+        self.fields
             .iter()
             .flatten()
+            .chain(keys.into_iter().flatten())
             .map(String::as_str)
-            .chain(self.field_classifications.keys().map(String::as_str))
-            .chain(self.field_descriptions.keys().map(String::as_str))
-            .chain(self.field_interest_categories.keys().map(String::as_str))
-            .chain(self.field_types.keys().map(String::as_str))
-            .chain(self.field_hashes.keys().map(String::as_str))
-            .chain(self.field_declarations.keys().map(String::as_str))
-            .chain(self.field_versions.keys().map(String::as_str))
-            .chain(self.key.iter().filter_map(|key| key.hash_field.as_deref()))
-            .chain(self.key.iter().filter_map(|key| key.range_field.as_deref()));
-        names.try_for_each(Self::validate_field_name)
+            .chain(
+                self.key
+                    .iter()
+                    .flat_map(|k| [k.hash_field.as_deref(), k.range_field.as_deref()])
+                    .flatten(),
+            )
+            .try_for_each(Self::validate_field_name)
     }
 
     pub fn compute_identity_hash(&mut self) {
@@ -210,11 +201,7 @@ impl DeclarativeSchemaDefinition {
             self.owner_app_id.as_deref(),
             self.descriptive_name.as_deref(),
             &self.name,
-            self.fields
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(String::as_str),
+            self.fields.iter().flatten().map(String::as_str),
             self.key.as_ref(),
         );
         if let Some(keys) = &self.record_keys {
@@ -290,4 +277,78 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.superseded_by == other.superseded_by
             && self.owner_app_id == other.owner_app_id
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
+pub struct PortableSchemaId(String);
+
+impl PortableSchemaId {
+    pub fn from_catalog(
+        catalog_id: &str,
+        mut definition: DeclarativeSchemaDefinition,
+    ) -> Result<Self, String> {
+        if !is_digest(catalog_id) {
+            return Err("schema catalog ID must be a lowercase SHA-256".into());
+        }
+        if definition.identity_hash.as_deref() != Some(catalog_id) {
+            return Err("definition lacks the exact supported catalog identity".into());
+        }
+        if definition.record_keys.is_none() {
+            return Err("portable schemas require explicit record keys".into());
+        }
+        definition.validate_definition()?;
+        definition.require_typed_fields()?;
+        let identity_version = definition.identity_hash_algo_version;
+        definition.compute_identity_hash();
+        if definition.identity_hash.as_deref() != Some(catalog_id)
+            || definition.identity_hash_algo_version != identity_version
+        {
+            return Err("schema catalog identity does not match its declaration".into());
+        }
+        definition.normalize_wire();
+        definition.ensure_field_hashes();
+        let value = serde_json::to_value(&definition)
+            .map_err(|_| "cannot encode portable schema definition".to_string())?;
+        let bytes = app_identity_crypto::canonicalize(&value)
+            .map_err(|_| "cannot canonicalize portable schema definition".to_string())?;
+        let mut digest = Sha256::new();
+        digest.update(b"lastdb:portable-schema-definition:v1\0");
+        digest.update(bytes);
+        Ok(Self(app_identity_crypto::hex_lower(&digest.finalize())))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PortableSchemaId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl FromStr for PortableSchemaId {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::try_from(value.to_owned())
+    }
+}
+
+impl TryFrom<String> for PortableSchemaId {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        is_digest(&value)
+            .then_some(Self(value))
+            .ok_or_else(|| "portable schema ID must be a lowercase SHA-256".into())
+    }
+}
+
+fn is_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

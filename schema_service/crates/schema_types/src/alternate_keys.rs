@@ -81,48 +81,44 @@ fn validate_parts(key: &AlternateKey, schema: &DeclarativeSchemaDefinition) -> R
     if key
         .hash_literal
         .as_ref()
-        .is_some_and(|value| value.is_empty() || value.len() > 1024)
+        .is_some_and(|v| !(1..=1024).contains(&v.len()))
     {
         return Err("an alternate hash literal must contain 1 to 1024 bytes".into());
     }
     if key.range_parts.is_empty() {
-        if key.range_separator.is_some() {
-            return Err("a range separator requires compound range parts".into());
-        }
-        return Ok(());
+        return key
+            .range_separator
+            .is_none()
+            .then_some(())
+            .ok_or_else(|| "a range separator requires compound range parts".into());
     }
     if key.range_field.is_some() || !(2..=8).contains(&key.range_parts.len()) {
         return Err("a compound range needs 2 to 8 parts and no range field".into());
     }
-    let separator = key
-        .range_separator
-        .as_deref()
-        .ok_or("a compound range needs a separator")?;
-    if separator.len() != 1 || !separator.as_bytes()[0].is_ascii_punctuation() {
-        return Err("a compound separator must be one ASCII punctuation byte".into());
+    match key.range_separator.as_deref() {
+        Some(sep) if sep.len() == 1 && sep.as_bytes()[0].is_ascii_punctuation() => {}
+        None => return Err("a compound range needs a separator".into()),
+        Some(_) => return Err("a compound separator must be one ASCII punctuation byte".into()),
     }
     for part in &key.range_parts {
         let kind = schema.key_field_type(&part.field);
-        match part.format {
-            PartFormat::Text if kind == FieldValueType::String => {}
-            PartFormat::PaddedText { width }
-                if (1..=64).contains(&width) && kind == FieldValueType::String => {}
-            PartFormat::ReverseTimeMillis
-                if matches!(kind, FieldValueType::String | FieldValueType::DateTime) => {}
-            _ => return Err("compound range format does not match its field type".into()),
+        let valid = match part.format {
+            PartFormat::Text => kind == FieldValueType::String,
+            PartFormat::PaddedText { width } => {
+                (1..=64).contains(&width) && kind == FieldValueType::String
+            }
+            PartFormat::ReverseTimeMillis => {
+                matches!(kind, FieldValueType::String | FieldValueType::DateTime)
+            }
+        };
+        if !valid {
+            return Err("compound range format does not match its field type".into());
         }
     }
     Ok(())
 }
 
 impl DeclarativeSchemaDefinition {
-    pub fn validate_alternate_keys(&self) -> Result<(), String> {
-        if self.alternate_keys.is_empty() && self.record_keys.is_none() {
-            return Ok(());
-        }
-        self.validate_owned_schema()
-    }
-
     pub fn validate_owned_schema(&self) -> Result<(), String> {
         if let Some(keys) = &self.record_keys {
             keys.validate()?;
@@ -147,25 +143,18 @@ impl DeclarativeSchemaDefinition {
         ) {
             return Err("an owned schema must be a Hash or HashRange schema".into());
         }
+        let fields = self.fields.as_deref().unwrap_or_default();
         let primary = self.key.as_ref().and_then(|key| key.hash_field.as_deref());
         if primary.is_none()
             && self.alternate_keys.is_empty()
             && self.schema_type == DeclarativeSchemaType::Hash
-            && self
-                .key
-                .as_ref()
-                .is_none_or(|key| key.range_field.is_none())
+            && self.key.as_ref().is_none_or(|k| k.range_field.is_none())
         {
-            if self.fields.as_deref().unwrap_or_default().len() != 1 {
-                return Err(
-                    "an owned Hash without a primary hash field must declare exactly one field"
-                        .into(),
-                );
-            }
-            return Ok(());
+            return (fields.len() == 1).then_some(()).ok_or_else(|| {
+                "an owned Hash without a primary hash field must declare exactly one field".into()
+            });
         }
         let primary = primary.ok_or("alternate keys require a declared primary hash field")?;
-        let fields = self.fields.as_deref().unwrap_or_default();
         if !fields.iter().any(|name| name == primary) {
             return Err("the primary key must name a declared field".into());
         }
@@ -183,7 +172,7 @@ impl DeclarativeSchemaDefinition {
                 || key
                     .range_parts
                     .iter()
-                    .any(|part| part.field == primary && part.format == PartFormat::Text);
+                    .any(|p| p.field == primary && p.format == PartFormat::Text);
             if !exact_primary {
                 return Err(
                     "each alternate key must retain the exact primary key field without formatting"
@@ -191,7 +180,7 @@ impl DeclarativeSchemaDefinition {
                 );
             }
             for field in key.fields() {
-                if !fields.iter().any(|name| name == field) {
+                if !fields.iter().any(|f| f == field) {
                     return Err("an alternate key names an undeclared field".into());
                 }
                 FieldRangeProfile::for_field_type(Some(&self.key_field_type(field)))?;
@@ -201,12 +190,11 @@ impl DeclarativeSchemaDefinition {
     }
 
     pub fn alternate_key_revision(&self) -> String {
-        if let Some(keys) = &self.record_keys {
-            let bytes = serde_json::to_vec(keys).expect("record key declarations serialize");
-            return format!("{:x}", Sha256::digest(bytes));
-        }
-        let bytes = serde_json::to_vec(&(true, &self.alternate_keys))
-            .expect("alternate key declarations serialize");
+        let bytes = match &self.record_keys {
+            Some(keys) => serde_json::to_vec(keys).expect("record key declarations serialize"),
+            None => serde_json::to_vec(&(true, &self.alternate_keys))
+                .expect("alternate key declarations serialize"),
+        };
         format!("{:x}", Sha256::digest(bytes))
     }
 }

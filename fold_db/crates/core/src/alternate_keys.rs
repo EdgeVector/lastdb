@@ -9,28 +9,6 @@ use crate::storage::format::records::{alternate_bounds, AlternateAddress};
 pub use crate::storage::format::records::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
 pub use lastdb_model::field_key_id::alternate_field_key_id as field_key;
 
-pub(crate) fn storage_key(
-    records: &RecordStore,
-    schema: &Schema,
-    name: &str,
-    key: &KeyValue,
-    primary: &KeyValue,
-) -> Result<String, SchemaError> {
-    storage_address(records, schema, name, key, primary).map(AlternateAddress::into_string)
-}
-
-pub(crate) fn storage_address(
-    records: &RecordStore,
-    schema: &Schema,
-    name: &str,
-    key: &KeyValue,
-    primary: &KeyValue,
-) -> Result<AlternateAddress, SchemaError> {
-    let id = field_key(schema, name);
-    let target = records.record_address(schema, primary)?;
-    AlternateAddress::new(&records.alternate_codec(schema, name)?, &id, key, &target)
-}
-
 pub(crate) fn invalid(message: &str) -> SchemaError {
     SchemaError::InvalidData(message.into())
 }
@@ -47,11 +25,15 @@ impl RecordStore {
         if limit > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate page exceeds 4096 entries"));
         }
-        let field_key = field_key(schema, name);
+        let id = field_key(schema, name);
         let codec = self.alternate_codec(schema, name)?;
-        let (mut start, end) = alternate_bounds(&codec, &field_key, filter)?;
+        let storage_key = |key: &KeyValue, primary: &KeyValue| -> Result<String, SchemaError> {
+            AlternateAddress::new(&codec, &id, key, &self.record_address(schema, primary)?)
+                .map(AlternateAddress::into_string)
+        };
+        let (mut start, end) = alternate_bounds(&codec, &id, filter)?;
         if let Some(after) = after {
-            let cursor = storage_key(self, schema, name, &after.matched, &after.primary)?;
+            let cursor = storage_key(&after.matched, &after.primary)?;
             if cursor < start || cursor >= end {
                 return Err(invalid(
                     "alternate cursor is outside the requested key range",
@@ -59,21 +41,19 @@ impl RecordStore {
             }
             start = format!("{cursor}\0");
         }
-        let rows = self
-            .reader()
+        self.reader()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
-            .await?;
-        let mut entries = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            let entry: AlternateEntry =
-                serde_json::from_slice(&value).map_err(|_| invalid("invalid alternate entry"))?;
-            if storage_key(self, schema, name, &entry.matched, &entry.primary)?.as_bytes() != key {
-                return Err(invalid(
-                    "alternate entry coordinates differ from their storage key",
-                ));
-            }
-            entries.push(entry);
-        }
-        Ok(entries)
+            .await?
+            .into_iter()
+            .map(|(key, value)| {
+                let entry: AlternateEntry = serde_json::from_slice(&value)
+                    .map_err(|_| invalid("invalid alternate entry"))?;
+                (storage_key(&entry.matched, &entry.primary)?.as_bytes() == key)
+                    .then_some(entry)
+                    .ok_or_else(|| {
+                        invalid("alternate entry coordinates differ from their storage key")
+                    })
+            })
+            .collect()
     }
 }

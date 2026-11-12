@@ -97,6 +97,7 @@ impl SchemaWithState {
         Self { schema, state }
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.schema.name
     }
@@ -123,17 +124,17 @@ pub struct SchemaListEntry {
 }
 
 impl SchemaListEntry {
-    pub fn from_schema(schema: &DeclarativeSchemaDefinition, state: SchemaState) -> Self {
+    pub fn from_schema(s: &DeclarativeSchemaDefinition, state: SchemaState) -> Self {
         Self {
-            name: schema.name.clone(),
-            descriptive_name: schema.descriptive_name.clone(),
-            purpose_statement: schema.purpose_statement.clone(),
-            schema_type: schema.schema_type.clone(),
-            record_keys: schema.record_keys.clone(),
-            fields: schema.fields.clone(),
-            hash: schema.hash.clone(),
-            identity_hash: schema.identity_hash.clone(),
-            owner_app_id: schema.owner_app_id.clone(),
+            name: s.name.clone(),
+            descriptive_name: s.descriptive_name.clone(),
+            purpose_statement: s.purpose_statement.clone(),
+            schema_type: s.schema_type.clone(),
+            record_keys: s.record_keys.clone(),
+            fields: s.fields.clone(),
+            hash: s.hash.clone(),
+            identity_hash: s.identity_hash.clone(),
+            owner_app_id: s.owner_app_id.clone(),
             state,
         }
     }
