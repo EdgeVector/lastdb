@@ -111,7 +111,11 @@ pub struct SnapshotFileRequest {
     pub path: BlobPath,
 }
 
-/// Reads one record blob. E implements this. The installer does not.
+/// Reads one record blob. E implements this.
+///
+/// The accepted body does not carry a sealed file row or a blob path. Install
+/// refuses that entry. A clear, a local marker, and an inline file do not use
+/// this source.
 #[async_trait]
 pub trait SnapshotFileSource: Send {
     /// Return the stored fragment bytes. They are an envelope, not plaintext.

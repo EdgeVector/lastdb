@@ -1,33 +1,40 @@
 //! Apply oldest snapshot first. The journal attempt is durable before the write.
+//!
+//! Schema put and drop use the open store's schema manager. A record replace,
+//! delete, or purge uses the revision already stored by the preceding entry.
 
 use std::path::Path;
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
-
-use crate::log_envelope::DatabaseContentKey;
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::{
+    CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query, SchemaError,
+};
 
 use super::chain::Link;
-use super::decode::{self, FileSource, PreparedFile};
+use super::decode;
 use super::journal::{self, Journal};
-use super::types::{SnapshotEntry, SnapshotFileSource};
+use super::payload::{self, RecordFile, SchemaChange};
+use super::types::SnapshotEntry;
 use super::RestoreError;
 
 pub(super) async fn replay(
     store: &FoldDB,
-    key: &DatabaseContentKey,
+    key: &crate::log_envelope::DatabaseContentKey,
     home: &Path,
     database_id: &str,
     chain: &[Link],
     journal: &mut Journal,
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut (dyn super::SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
+    // The accepted body does not name a sealed-row blob. E still passes this source.
+    let _ = files;
     while journal.applied_refs.len() < chain.len() {
         let index = journal.applied_refs.len();
         let link = &chain[index];
         pin_object(home, journal, link)?;
         if !object_closed(journal, link) {
-            drive_object(store, key, home, database_id, link, journal, files).await?;
+            drive_object(store, key, home, database_id, link, journal).await?;
         }
         journal
             .applied_refs
@@ -43,12 +50,11 @@ pub(super) async fn replay(
 
 async fn drive_object(
     store: &FoldDB,
-    key: &DatabaseContentKey,
+    key: &crate::log_envelope::DatabaseContentKey,
     home: &Path,
     database_id: &str,
     link: &Link,
     journal: &mut Journal,
-    files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
     loop {
         if object_closed(journal, link) {
@@ -64,16 +70,7 @@ async fn drive_object(
             continue;
         }
         let entry = journal.next_entry as usize;
-        apply_one(
-            store,
-            key,
-            home,
-            database_id,
-            journal,
-            &entries[entry],
-            files,
-        )
-        .await?;
+        apply_one(store, key, home, database_id, journal, &entries[entry]).await?;
         journal.next_entry += 1;
         journal.attempt = None;
         if journal.next_entry as usize == entries.len() {
@@ -85,17 +82,15 @@ async fn drive_object(
 
 async fn apply_one(
     store: &FoldDB,
-    key: &DatabaseContentKey,
+    key: &crate::log_envelope::DatabaseContentKey,
     home: &Path,
     database_id: &str,
     journal: &mut Journal,
     entry: &SnapshotEntry,
-    files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    let mut prepared = decode::decode_entry(key, database_id, entry)?;
+    let prepared = decode::decode_entry(key, database_id, entry)?;
     let hash = prepared.hash.clone();
-    let mutation_id = prepared.mutation.uuid.clone();
-    if let journal::Marker::Applied = journal::read_marker(home, database_id, &mutation_id, &hash)?
+    if let journal::Marker::Applied = journal::read_marker(home, database_id, &prepared.id, &hash)?
     {
         return Ok(());
     }
@@ -108,20 +103,107 @@ async fn apply_one(
         });
         journal::save(home, journal)?;
     }
-    if let Some(file) = prepared.file.take() {
-        seal_into(
-            store,
-            key,
-            database_id,
-            entry,
-            &mut prepared.mutation,
-            file,
-            files,
-        )
-        .await?;
+    match prepared.change {
+        payload::Change::Schema(change) => apply_schema(store, change).await?,
+        payload::Change::Record(mut change) => {
+            attach(&mut change.mutation, change.file, change.inline);
+            if bind_expected(store, &mut change.mutation, resumed).await? {
+                write_record(store, home, journal, change.mutation, resumed).await?;
+            }
+        }
     }
-    write_record(store, home, journal, prepared.mutation, resumed).await?;
-    journal::write_marker(home, database_id, &mutation_id, &hash)
+    journal::write_marker(home, database_id, &prepared.id, &hash)
+}
+
+async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), RestoreError> {
+    let schemas = store.schema_manager();
+    match change.definition {
+        Some(definition) => schemas
+            .load_schema_internal(definition)
+            .await
+            .map_err(|_| RestoreError::Apply("snapshot schema")),
+        None => schemas
+            .drop_schema(&change.name)
+            .await
+            .map(|_| ())
+            .map_err(|_| RestoreError::Apply("snapshot schema")),
+    }
+}
+
+fn attach(
+    mutation: &mut Mutation,
+    file: RecordFile,
+    inline: Option<fold_db::record_value::InlineWrite>,
+) {
+    match file {
+        RecordFile::Keep => {}
+        RecordFile::Clear => mutation.file_write = Some(FileWrite::Clear),
+        RecordFile::Marker(marker) => mutation.file = Some(marker),
+    }
+    mutation.inline_write = inline;
+}
+
+async fn bind_expected(
+    store: &FoldDB,
+    mutation: &mut Mutation,
+    resumed: bool,
+) -> Result<bool, RestoreError> {
+    if mutation.mutation_type == MutationType::Create {
+        mutation.expected = CasExpectation::Absent;
+        return Ok(true);
+    }
+    match live_revision(store, mutation).await? {
+        Some(revision) => {
+            mutation.expected = CasExpectation::Revision { revision };
+            Ok(true)
+        }
+        None if resumed
+            && matches!(
+                mutation.mutation_type,
+                MutationType::Delete | MutationType::Purge
+            ) =>
+        {
+            Ok(false)
+        }
+        None => Err(RestoreError::Conflict("snapshot record")),
+    }
+}
+
+async fn live_revision(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<Option<String>, RestoreError> {
+    let mut query = Query::new_with_filter(
+        mutation.schema_name.clone(),
+        Some(key_filter(&mutation.key_value)?),
+    );
+    if mutation.mutation_type == MutationType::Purge {
+        query.include_tombstones = true;
+    }
+    let records = store
+        .query_executor()
+        .query(query)
+        .await
+        .map_err(|_| RestoreError::Apply("snapshot record"))?;
+    if records.len() > 1 {
+        return Err(RestoreError::Conflict("snapshot record"));
+    }
+    Ok(records.into_values().next().map(|record| record.revision))
+}
+
+fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, RestoreError> {
+    let hash = key
+        .hash
+        .clone()
+        .filter(|hash| !hash.is_empty())
+        .ok_or(RestoreError::Entry("snapshot entry"))?;
+    match &key.range {
+        Some(range) if !range.is_empty() => Ok(HashRangeFilter::HashRangeKey {
+            hash,
+            range: range.clone(),
+        }),
+        _ => Ok(HashRangeFilter::HashKey(hash)),
+    }
 }
 
 async fn write_record(
@@ -161,78 +243,6 @@ fn resumed(journal: &Journal, hash: &str) -> Result<bool, RestoreError> {
             Ok(true)
         }
         Some(_) => Err(RestoreError::Conflict("snapshot journal")),
-    }
-}
-
-async fn seal_into(
-    store: &FoldDB,
-    key: &DatabaseContentKey,
-    database_id: &str,
-    entry: &SnapshotEntry,
-    mutation: &mut Mutation,
-    file: PreparedFile,
-    files: &mut (dyn SnapshotFileSource + Send),
-) -> Result<(), RestoreError> {
-    let PreparedFile {
-        name,
-        media_type,
-        size_bytes,
-        sha256,
-        source,
-    } = file;
-    let plain = file_bytes(key, database_id, entry, source, size_bytes, &sha256, files).await?;
-    let sealed = store
-        .db_ops()
-        .records()
-        .seal_record_file(&plain, name, media_type)
-        .map_err(|_| RestoreError::File("file was not sealed"))?;
-    let owned = sealed_marker(&sealed, &sha256, size_bytes)?;
-    mutation.file = Some(owned);
-    mutation.file_write = Some(sealed);
-    Ok(())
-}
-
-fn sealed_marker(
-    sealed: &FileWrite,
-    sha256: &str,
-    size_bytes: u64,
-) -> Result<fold_db::record_value::FileMarker, RestoreError> {
-    let FileWrite::Put(record) = sealed else {
-        return Err(RestoreError::File("file was not sealed"));
-    };
-    let marker = record.marker();
-    if marker.sha256 != sha256 || marker.size_bytes != size_bytes {
-        return Err(RestoreError::File("file was not sealed"));
-    }
-    Ok(marker.clone())
-}
-
-async fn file_bytes(
-    key: &DatabaseContentKey,
-    database_id: &str,
-    entry: &SnapshotEntry,
-    source: FileSource,
-    size_bytes: u64,
-    sha256: &str,
-    files: &mut (dyn SnapshotFileSource + Send),
-) -> Result<Vec<u8>, RestoreError> {
-    let plain = match source {
-        FileSource::Inline(bytes) => bytes,
-        FileSource::Object(request) => {
-            let sealed = files.read_blob(&request).await?;
-            decode::open_sealed(
-                key,
-                database_id,
-                entry,
-                &sealed,
-                RestoreError::File("snapshot file"),
-            )?
-        }
-    };
-    if decode::plain_matches(&plain, size_bytes, sha256) {
-        Ok(plain)
-    } else {
-        Err(RestoreError::File("snapshot file"))
     }
 }
 
