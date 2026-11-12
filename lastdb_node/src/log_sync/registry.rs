@@ -73,11 +73,6 @@ pub(crate) fn databases(home: &Path) -> Vec<Database> {
     rows
 }
 
-/// Owner database. Byte backup still follows this store only.
-pub(crate) fn owner(home: &Path) -> Option<Database> {
-    databases(home).into_iter().find(|row| !row.native)
-}
-
 fn read_registry(home: &Path) -> Option<RegistryFile> {
     let path = home.join("databases").join("registry.json");
     let bytes = disk::read_limited(&path, REGISTRY_LIMIT).ok()??;

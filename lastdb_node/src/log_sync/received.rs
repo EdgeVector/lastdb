@@ -62,7 +62,6 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
         host.as_ref(),
         Ready {
             database_id: database_id.to_owned(),
-            shareable: true,
             publisher: Some(share.publisher.as_str().to_owned()),
             log,
             state,
@@ -108,7 +107,6 @@ fn connect_received(
         database_id: stream.stream_id.clone(),
         device,
         member_revision: revision,
-        named: true,
         environment_label: label,
     })
 }

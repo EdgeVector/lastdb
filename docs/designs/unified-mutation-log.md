@@ -261,11 +261,21 @@ The server cutover, in exemem-infra, drops `CLOUD_MUTATION_LOG_ENABLED`,
 creates the PROD table, and imports a mandatory fresh full snapshot per
 database with a receipt.
 
-The client cutover then makes the log the only path and deletes the legacy
-V2 mutation-log chain and the per-writer share sync. There is no flag.
-`lastdbd` sends and catches up a named database through `log_sync`. Backup
-V2 and the contributor inboxes stay until a database is cut over.
-`MAX_WRITERS = 12` is still live.
+The signed client resolves the database id to a store and its existing
+content key. It uses the same envelope, file upload, and snapshot replay for
+private and shareable databases. Publication and grants determine who may
+see the contents. The name is a local selector.
+
+Existing owner homes keep byte backup. Turning it off requires a live
+cutover receipt and a local accepted stream with verified coverage of the
+pre-migration frontier. Receiving a log page or installing a cloud snapshot
+alone does not establish coverage of local writes.
+
+ExeMem currently serves the signed path for shareable databases. Private
+database admission, recovery of the registered id on another device, and
+ordered owner replay alongside independent local writes still need
+end-to-end verification before a private database can cut over. The old
+contributor inbox still has `MAX_WRITERS = 12`.
 
 Old server rows stay until a second device acks and keyed reads match.
 

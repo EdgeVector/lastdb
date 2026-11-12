@@ -1,6 +1,6 @@
 //! Pull, apply, and ack for one database that is already open.
 //!
-//! An owned shareable database publishes one accepted page first. The cloud
+//! An owned database publishes one accepted page first. The cloud
 //! cursor moves only after that pull is applied.
 
 use std::path::Path;
@@ -21,7 +21,6 @@ static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 
 pub(super) struct Ready {
     pub(super) database_id: String,
-    pub(super) shareable: bool,
     /// Publisher of a received log. An owned database leaves this empty.
     pub(super) publisher: Option<String>,
     pub(super) log: CloudLog,
@@ -29,7 +28,7 @@ pub(super) struct Ready {
 }
 
 pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
-    if ready.shareable {
+    if ready.publisher.is_none() {
         accepted::publish_owned(host, &ready.log).await;
     }
     pull_and_ack(host, &mut ready).await
@@ -56,15 +55,7 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
         }
     };
     ready.state = next;
-    let plan = match apply::apply_page(
-        host,
-        &ready.log,
-        &outcome,
-        &ready.database_id,
-        ready.shareable,
-        ready.publisher.as_deref(),
-    )
-    .await
+    let plan = match apply::apply_page(host, &ready.log, &outcome, ready.publisher.as_deref()).await
     {
         Ok(plan) => plan,
         Err(error) => {
@@ -73,7 +64,6 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
         }
     };
     match plan {
-        PagePlan::SnapshotHeld => Pause::Snapshot,
         PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => {
             finish_ack(host, &ready.log, &ready.database_id, seq).await
         }

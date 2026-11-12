@@ -1,10 +1,8 @@
-//! Node account and canonical JSON for one cloud log connection.
+//! Node account for one cloud log connection.
 
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::Version;
-use cloud_backup_protocol::{canonical_bytes, AccountId, CloudScope};
-use mutation_log::LogError;
-use serde::Serialize;
+use cloud_backup_protocol::{AccountId, CloudScope};
 
 use crate::host::Host;
 
@@ -30,10 +28,6 @@ pub(super) async fn publisher_scope(
         return Err("cloud account does not match this node key".into());
     }
     Ok((context.scope, endpoint, selected.label))
-}
-
-pub(super) fn json_body<T: Serialize>(value: &T) -> Result<Vec<u8>, LogError> {
-    canonical_bytes(value).map_err(|_| LogError::InvalidEntry)
 }
 
 pub(super) fn node_key(host: &Host) -> String {

@@ -1,4 +1,4 @@
-//! Ordered logical stream of accepted named-database writes.
+//! Ordered logical stream of accepted database writes.
 //!
 //! The byte-backup mutation journal retains encrypted run files and can
 //! acknowledge a commit that never entered it. This stream records one
@@ -96,8 +96,19 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
 }
 
 impl PackRuntime {
-    pub(in crate::storage) fn captures_accepted(&self) -> bool {
+    /// Whether this store records accepted writes for cloud sync.
+    pub fn captures_accepted(&self) -> bool {
         self.accepted.is_some()
+    }
+
+    /// Apply already-published mutations to this store without recapturing them.
+    pub async fn replay_accepted<T>(
+        self: &std::sync::Arc<Self>,
+        replay: impl std::future::Future<Output = T>,
+    ) -> T {
+        capture::REPLAY_STORE
+            .scope(std::sync::Arc::clone(self), replay)
+            .await
     }
 
     /// Cursor of this home. A home without capture has an empty cursor and does not block writes.

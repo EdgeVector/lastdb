@@ -1,12 +1,8 @@
-//! Fetch one signed snapshot chain and install it.
+//! Fetch and install one signed snapshot chain by database id.
 //!
-//! `delivery/snapshot` returns one manifest. The tip request omits
-//! `snapshot_ref`. Each ancestor is its own request. A part request sends
-//! `snapshot_ref` and `part`. `delivery/object` returns standard-base64
-//! ciphertext ranges. `named_snapshot_restore::install` writes the sibling
-//! store and does not acknowledge the cloud cursor. After that install, an
-//! owned database records snapshot coverage. A personal database does not
-//! call these routes. This module does not edit `registry.json`.
+//! The tip request omits `snapshot_ref`. Each ancestor and each part has
+//! its own request. File objects are fetched as authenticated ciphertext.
+//! The sync loop acknowledges the cursor after the installed prefix is durable.
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -15,9 +11,7 @@ use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
 use mutation_log::{LogError, MutationLog, Recovery};
 use serde::{Deserialize, Serialize};
 
-use crate::accepted_writes;
-use crate::host::owned::Resolved;
-use crate::named_snapshot_restore::{
+use crate::database_replay::{
     self, RestoreError, SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest,
     SnapshotObject, SnapshotPart,
 };
@@ -26,13 +20,10 @@ use super::cloud::CloudLog;
 use super::paths;
 
 const OBJECT_RANGE: u64 = 180 * 1024;
-/// Same bound as `named_snapshot_restore` chain order.
+/// Same bound as `database_replay` chain order.
 const CHAIN_LIMIT: usize = 1024;
 
 pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<Recovery, LogError> {
-    if !log.named() {
-        return Err(LogError::SnapshotRequired);
-    }
     if log.principal() != &reader.key || log.device() != &reader.device {
         return Err(LogError::Unauthorized);
     }
@@ -61,28 +52,10 @@ async fn install(log: CloudLog) -> Result<u64, LogError> {
         objects: objects(&log, &chain).await?,
     };
     let mut files = Files { log: log.clone() };
-    match named_snapshot_restore::install(log.host(), &request, &mut files).await {
-        Ok(prefix) => {
-            note_owned(&log).await;
-            Ok(prefix.through_delivery_seq)
-        }
+    match database_replay::install(log.host(), &request, &mut files).await {
+        Ok(through) => Ok(through),
         Err(RestoreError::Scope(_)) => Err(LogError::SnapshotRequired),
         Err(_) => Err(LogError::UnexpectedOutcome),
-    }
-}
-
-async fn note_owned(log: &CloudLog) {
-    let Ok((Resolved::Owned, Some(store))) = log.host().owned.resolve(log.database_id()) else {
-        return;
-    };
-    let runtime = store.db_ops().native_runtime();
-    let noted = tokio::task::spawn_blocking(move || {
-        let status = accepted_writes::status(&runtime);
-        accepted_writes::note_snapshot(&runtime, status.opened_frontier)
-    })
-    .await;
-    if !matches!(noted, Ok(Ok(()))) {
-        tracing::warn!(target: "lastdbd::log_sync", "accepted snapshot coverage was not recorded");
     }
 }
 
@@ -119,11 +92,11 @@ async fn one_manifest(
     })
     .map_err(|_| LogError::UnexpectedOutcome)?;
     let raw = log
-        .post_named(paths::DELIVERY_SNAPSHOT, body)
+        .post(paths::DELIVERY_SNAPSHOT, body)
         .await
         .map_err(|_| LogError::UnexpectedOutcome)?;
-    let manifest = named_snapshot_restore::manifest_from_json(&raw)
-        .map_err(|_| LogError::UnexpectedOutcome)?;
+    let manifest =
+        database_replay::manifest_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
     if snapshot_ref.is_some_and(|wanted| manifest.snapshot_ref != wanted) {
         return Err(LogError::UnexpectedOutcome);
     }
@@ -164,11 +137,10 @@ async fn part(
     })
     .map_err(|_| LogError::UnexpectedOutcome)?;
     let raw = log
-        .post_named(paths::DELIVERY_SNAPSHOT, body)
+        .post(paths::DELIVERY_SNAPSHOT, body)
         .await
         .map_err(|_| LogError::UnexpectedOutcome)?;
-    let part =
-        named_snapshot_restore::part_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
+    let part = database_replay::part_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
     if part.database_id != log.database_id()
         || part.snapshot_ref != manifest.snapshot_ref
         || part.index != index
@@ -230,7 +202,7 @@ async fn one_range(
     let body =
         object_body(request, offset, length).map_err(|_| RestoreError::File("snapshot file"))?;
     let raw = log
-        .post_named(paths::DELIVERY_OBJECT, body)
+        .post(paths::DELIVERY_OBJECT, body)
         .await
         .map_err(|_| RestoreError::File("snapshot file"))?;
     decode_range(&raw, &request.database_id)

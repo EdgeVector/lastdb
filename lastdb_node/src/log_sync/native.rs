@@ -40,7 +40,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
         }
     };
     let revision = turn::probe_revision(&host.home, &database.id, &database.kind);
-    let log = match CloudLog::connect(host, &database.id, &device, revision, true).await {
+    let log = match CloudLog::connect(host, &database.id, &device, revision).await {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");

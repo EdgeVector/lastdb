@@ -21,9 +21,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::byte_cloud_backup;
 use crate::cloud_backup_client::byte_backup::{ByteBackupClient, ExactUpload};
+use crate::database_replay::{self, FileObject};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
-use crate::named_snapshot_restore::{self, FileObject};
 
 use super::cloud::CloudLog;
 use super::disk;
@@ -51,6 +51,7 @@ pub(super) struct FileSource<'a> {
 pub(super) async fn cloud_body(
     host: &Host,
     log: &CloudLog,
+    key: &DatabaseContentKey,
     mutation_id: &str,
     source: FileSource<'_>,
     proposed: Seal,
@@ -63,7 +64,7 @@ pub(super) async fn cloud_body(
         Some(saved) if same_saved(&saved, log, &path, &proposed) => saved,
         Some(_) => return None,
         None => {
-            let envelope = seal_file(host, log, &source, &marker, &proposed)?;
+            let envelope = seal_file(key, log, &source, &marker, &proposed)?;
             retry::store_file(&host.home, log.database_id(), mutation_id, &envelope).ok()?;
             let saved = fresh(log, &path, &envelope, proposed)?;
             store(&host.home, log.database_id(), mutation_id, &saved)?;
@@ -186,14 +187,14 @@ async fn close_job(client: &ByteBackupClient, saved: &FileJob) -> Option<()> {
     Some(())
 }
 
-fn file_body(canonical: &[u8]) -> Option<named_snapshot_restore::AcceptedBody> {
+fn file_body(canonical: &[u8]) -> Option<database_replay::AcceptedBody> {
     let mut value: serde_json::Value = serde_json::from_slice(canonical).ok()?;
     let file = value.get_mut("file")?.as_object_mut()?;
     file.remove("sealed_sha256");
     serde_json::from_value(value).ok()
 }
 
-fn file_marker(section: &named_snapshot_restore::FileSection) -> Option<FileMarker> {
+fn file_marker(section: &database_replay::FileSection) -> Option<FileMarker> {
     let marker = FileMarker {
         name: section.name.clone(),
         media_type: section.media_type.clone(),
@@ -211,14 +212,12 @@ fn file_marker(section: &named_snapshot_restore::FileSection) -> Option<FileMark
 }
 
 fn seal_file(
-    host: &Host,
+    key: &DatabaseContentKey,
     log: &CloudLog,
     source: &FileSource<'_>,
     marker: &FileMarker,
     seal: &Seal,
 ) -> Option<Vec<u8>> {
-    let key =
-        DatabaseContentKey::owned(&host.keypair.secret_key_bytes(), log.database_id()).ok()?;
     let plain = match source.row {
         Some(row) => fold_db::storage::disk_backup::accepted::open_file_row(
             key.encryption_bytes(),
@@ -237,7 +236,7 @@ fn seal_file(
         namespace: &seal.namespace,
         incorporated_from: None,
     };
-    log_envelope::seal_blob(&key, &binding, &plain).ok()
+    log_envelope::seal_blob(key, &binding, &plain).ok()
 }
 
 fn read_reference(path: &str, marker: &FileMarker) -> Option<Vec<u8>> {

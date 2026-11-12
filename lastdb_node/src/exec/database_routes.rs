@@ -260,8 +260,7 @@ fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
 fn database(home: &std::path::Path, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
     let ready = (!share.signed_log && share.snapshot.is_some())
-        || (share.signed_log
-            && crate::named_snapshot_restore::prefix_durable(home, share.id.as_str()));
+        || (share.signed_log && crate::database_replay::prefix_durable(home, share.id.as_str()));
     value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!(if share.signed_log {
         "reader"

@@ -80,7 +80,9 @@ async fn receipt_turn(host: &Arc<Host>, database: &Database) -> Pause {
 }
 
 async fn prepare(host: &Arc<Host>, database: &Database) -> Prep {
-    note_ready(&host.home, database);
+    if cutover::local_baseline_ready(host, &database.id) {
+        note_ready(&host.home, database);
+    }
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
         Err(error) => {
@@ -90,15 +92,7 @@ async fn prepare(host: &Arc<Host>, database: &Database) -> Prep {
         }
     };
     let wanted = probe_revision(&host.home, &database.id, &database.kind);
-    let log = match CloudLog::connect(
-        host,
-        &database.id,
-        &device,
-        wanted,
-        database.kind != "personal",
-    )
-    .await
-    {
+    let log = match CloudLog::connect(host, &database.id, &device, wanted).await {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
@@ -140,6 +134,9 @@ async fn open_signed(host: &Arc<Host>, commit: Commit, log: CloudLog, device: &s
             "shareable cutover publisher is not this node and sync stays closed",
         );
         return Prep::Pause(Pause::Idle);
+    }
+    if !cutover::local_baseline_ready(host, &commit.database_id) {
+        return Prep::Pause(Pause::Snapshot);
     }
     finish_open(
         host,
@@ -198,7 +195,6 @@ async fn finish_open(
     match resume_state(&log, state).await {
         Ok(state) => Prep::Ready(Box::new(run::Ready {
             database_id: database_id.to_owned(),
-            shareable: kind != "personal",
             publisher: None,
             log,
             state,

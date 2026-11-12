@@ -1,4 +1,4 @@
-//! Authenticated envelope for one named-database mutation-log payload.
+//! Authenticated envelope for one database mutation-log payload.
 //!
 //! The plaintext is the canonical record bytes. The ciphertext uses the
 //! database content key and binds the log metadata as associated data.
@@ -6,16 +6,19 @@
 //! domain binds them to the same log entry.
 
 use std::ops::Deref;
+use std::sync::Arc;
 
 use fold_db::canonical::CanonicalWriter;
 use fold_db::crypto::envelope::{
     decrypt_envelope_with_aad, encrypt_envelope_with_aad, ENVELOPE_VERSION,
 };
 use fold_db::crypto::E2eKeys;
+use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use zeroize::Zeroizing;
 
 use crate::cloud_backup_client::byte_backup::GuestReadPermission;
+use crate::host::{owned::Resolved, Host};
 use crate::share_invitation::{seal_invitation, OpenedShareInvitation, ShareContact};
 
 /// Domain mixed into the associated data. It is not stored in the ciphertext.
@@ -93,7 +96,31 @@ impl std::fmt::Debug for DatabaseContentKey {
 }
 
 impl DatabaseContentKey {
-    /// Personal owner store. The key is not shareable.
+    /// Resolve an owned store and its existing content key by stable database id.
+    pub(crate) fn local_store(
+        host: &Host,
+        database_id: &str,
+    ) -> Result<Option<(Arc<FoldDB>, Self)>, LogEnvelopeError> {
+        let selection = host
+            .owned
+            .registered_store(database_id)
+            .map_err(|_| LogEnvelopeError::Key)?;
+        let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+        match selection {
+            (Resolved::Owner, None) => {
+                let key = Self::personal(&seed, database_id)?;
+                Ok(Some((Arc::clone(&host.db), key)))
+            }
+            (Resolved::Owned, Some(store)) => {
+                let key = Self::owned(&seed, database_id)?;
+                Ok(Some((store, key)))
+            }
+            (Resolved::Absent, None) => Ok(None),
+            _ => Err(LogEnvelopeError::Key),
+        }
+    }
+
+    /// Legacy root store key. Existing backups use this derivation.
     pub fn personal(node_seed: &[u8; 32], database_id: &str) -> Result<Self, LogEnvelopeError> {
         let database_id = canonical_id(database_id)?;
         let keys = E2eKeys::from_ed25519_seed(node_seed).map_err(|_| LogEnvelopeError::Key)?;

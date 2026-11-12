@@ -47,15 +47,15 @@ pub(super) async fn replay(
 ) -> Result<(), RestoreError> {
     authorize(host, database_id, publisher)?;
     check_page(database_id, publisher, delivered)?;
-    let named = super::open_named(host, database_id)?;
-    if !matches!(&named.place, super::Place::Received) {
+    let target = super::resolve_target(host, database_id)?;
+    if !matches!(&target.place, super::Place::Received) {
         return Err(RestoreError::Scope("database store"));
     }
-    let store = super::open_store(host, database_id, &named, true).await?;
+    let store = super::open_store(host, database_id, &target, true).await?;
     for item in delivered {
         apply_item(
             store.as_ref(),
-            &named.key,
+            &target.key,
             &host.home,
             database_id,
             item,

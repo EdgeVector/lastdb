@@ -17,6 +17,8 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
 
+use crate::host::Host;
+
 use super::disk;
 use super::registry::{self, Database};
 use super::session;
@@ -178,15 +180,31 @@ pub(crate) fn gate_for(database_id: &str) -> Gate {
     }
 }
 
-/// True when the owner store's own service status has left the legacy path.
-///
-/// Automatic byte backup follows that store only. A sibling's status does not
-/// stop it.
-pub fn legacy_resume_forbidden(home: &Path) -> bool {
-    let Some(owner) = registry::owner(home) else {
+/// The legacy backup remains active until the owner's verified cutover and
+/// its local accepted stream cover the pre-migration data.
+pub(crate) fn legacy_resume_forbidden(host: &Host) -> bool {
+    let Ok(owner) = host.owned.owner() else {
         return false;
     };
-    !matches!(gate_for(&owner.id), Gate::Legacy)
+    let confirmed = matches!(
+        gate_for(&owner.id),
+        Gate::SignedOnly(_) | Gate::Closed(Hold::Receipt(_))
+    );
+    confirmed && local_baseline_ready(host, &owner.id)
+}
+
+pub(super) fn local_baseline_ready(host: &Host, database_id: &str) -> bool {
+    let Ok(Some((store, _))) =
+        crate::log_envelope::DatabaseContentKey::local_store(host, database_id)
+    else {
+        return false;
+    };
+    let runtime = store.db_ops().native_runtime();
+    if !runtime.captures_accepted() {
+        return false;
+    }
+    let status = runtime.accepted_status();
+    !status.snapshot_required && !status.gap
 }
 
 /// Receipt revision remembered for this database, including while the reply is missing.
