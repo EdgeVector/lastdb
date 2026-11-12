@@ -4,16 +4,18 @@
 //! part use JSON numbers, and `payload` is unpadded URL-safe base64 of the
 //! envelope.
 
-use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
+use cloud_backup_protocol::v2::limits::{
+    CONTROL_JSON_MAX_BYTES, MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES,
+};
 use cloud_backup_protocol::DecimalU64;
 use serde::Deserialize;
 
 use super::types::{IncorporatedFrom, SnapshotEntry, SnapshotManifest, SnapshotPart};
 use super::RestoreError;
 
-/// Parse one manifest body. The input is capped at I's control JSON limit.
+/// Parse one manifest body within the control JSON limit.
 pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError> {
-    let body: ManifestBody = decode(bytes)?;
+    let body: ManifestBody = decode(bytes, CONTROL_JSON_MAX_BYTES)?;
     let parts =
         u32::try_from(body.parts.get()).map_err(|_| RestoreError::Chain("snapshot part"))?;
     Ok(SnapshotManifest {
@@ -28,10 +30,7 @@ pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError
 
 /// Parse one part body, including the entry array stored in `part`.
 pub fn part_from_json(bytes: &[u8]) -> Result<SnapshotPart, RestoreError> {
-    let body: PartBody = decode(bytes)?;
-    if body.part.len() as u64 > CONTROL_JSON_MAX_BYTES {
-        return Err(RestoreError::Chain("snapshot json"));
-    }
+    let body: PartBody = decode(bytes, MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES)?;
     let docs: Vec<EntryDoc> =
         serde_json::from_str(&body.part).map_err(|_| RestoreError::Chain("snapshot json"))?;
     let index =
@@ -44,8 +43,8 @@ pub fn part_from_json(bytes: &[u8]) -> Result<SnapshotPart, RestoreError> {
     })
 }
 
-fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, RestoreError> {
-    if bytes.len() as u64 > CONTROL_JSON_MAX_BYTES {
+fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8], maximum: u64) -> Result<T, RestoreError> {
+    if bytes.len() as u64 > maximum {
         return Err(RestoreError::Chain("snapshot json"));
     }
     serde_json::from_slice(bytes).map_err(|_| RestoreError::Chain("snapshot json"))

@@ -16,9 +16,11 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
+mod lookup;
 mod registry;
 mod store;
 
+pub(crate) use lookup::{find_shareable, registry_claims};
 pub(crate) use registry::validate_create;
 
 /// AES content key for one owned sibling. Callers must not treat this as a

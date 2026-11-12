@@ -45,6 +45,7 @@ mod database_mutation;
 mod database_owned;
 mod database_read;
 mod database_routes;
+mod database_signed;
 mod file_blob;
 mod file_blob_put;
 mod list_keys_route;

@@ -1,8 +1,10 @@
-//! Install one named-database snapshot chain into the open sibling store.
+//! Install one named-database snapshot chain into its registered store.
 //!
-//! E fetches `delivery/snapshot` and calls [`install`]. This module does not
-//! send HTTP and does not acknowledge the cloud log. E acknowledges only
-//! after `install` returns and any still-stored suffix is durable.
+//! An owned database uses its sibling store. A received database uses
+//! `registered_share::receiver_store` after the stored invitation is
+//! verified. E fetches `delivery/snapshot` and calls [`install`]. This module
+//! does not send HTTP and does not acknowledge the cloud log. E acknowledges
+//! only after `install` returns and any still-stored suffix is durable.
 //!
 //! Record payloads and file fragments are `log_envelope` ciphertexts. The
 //! content key is the owned sibling key, or the key from the verified
@@ -36,7 +38,6 @@ use crate::log_envelope::DatabaseContentKey;
 use crate::Host;
 
 use journal::Resume;
-use types::SnapshotInstall;
 
 /// Apply one verified snapshot chain to the named database `request` selects.
 ///
@@ -46,7 +47,7 @@ pub async fn install(
     request: &SnapshotInstall,
     files: &mut (dyn SnapshotFileSource + Send),
 ) -> Result<InstalledPrefix, RestoreError> {
-    let target = open_named(host, &request.database_id)?;
+    let target = open_named(host, &request.database_id).await?;
     let chain = chain::order(
         &request.database_id,
         &request.snapshot_ref,
@@ -88,12 +89,20 @@ struct Target {
     key: DatabaseContentKey,
 }
 
-fn open_named(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
+async fn open_named(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
     require_id(database_id)?;
     if owned_claim(host, database_id)? {
         owned_target(host, database_id)
     } else {
-        received_target(host, database_id)
+        received_target(host, database_id).await
+    }
+}
+
+/// True only after [`install`] flushed the store and saved a complete prefix.
+pub(crate) fn prefix_durable(home: &std::path::Path, database_id: &str) -> bool {
+    match journal::load(home, database_id) {
+        Ok(Some(journal)) => journal.complete && journal.database_id == database_id,
+        _ => false,
     }
 }
 
@@ -133,12 +142,11 @@ fn owned_target(host: &Host, database_id: &str) -> Result<Target, RestoreError> 
     Ok(Target { store, key })
 }
 
-/// The invitation is verified. No FoldDB is open under that key.
+/// Open the managed share store after the stored invitation checks out.
 ///
-/// `registered_share::accept` keeps the stream id and the publication key.
-/// It does not create `databases/<id>/data`. The personal store is not a
-/// substitute, and this function does not create one.
-fn received_target(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
+/// A publication registration has no signed log, so it does not get this
+/// store. The personal store and `databases/<id>/data` are not substitutes.
+async fn received_target(host: &Host, database_id: &str) -> Result<Target, RestoreError> {
     let id =
         Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
     let share = crate::registered_share::resolve(&host.home, database_id)
@@ -147,6 +155,9 @@ fn received_target(host: &Host, database_id: &str) -> Result<Target, RestoreErro
     if share.id.as_str() != database_id || share.stream().stream_id.as_str() != database_id {
         return Err(RestoreError::Scope("database id"));
     }
+    if !share.signed_log {
+        return Err(RestoreError::Scope("database store"));
+    }
     let opened = crate::registered_share::verified_invitation(&host.home, &id)
         .map_err(|_| RestoreError::Scope("named database"))?;
     let key = DatabaseContentKey::from_invitation(&opened)
@@ -154,7 +165,10 @@ fn received_target(host: &Host, database_id: &str) -> Result<Target, RestoreErro
     if key.database_id() != database_id {
         return Err(RestoreError::Scope("database id"));
     }
-    Err(RestoreError::Scope("database store"))
+    let store = crate::registered_share::receiver_store(host, &id)
+        .await
+        .map_err(|_| RestoreError::Scope("database store"))?;
+    Ok(Target { store, key })
 }
 
 fn store_marker(host: &Host, database_id: &str) -> bool {

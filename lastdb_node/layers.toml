@@ -58,6 +58,7 @@ modules = [
   "byte_cloud_backup",
   "byte_cloud_restore",
   "log_envelope",
+  "named_grant",
   "log_sync",
   "named_snapshot_restore",
   "offline_home",

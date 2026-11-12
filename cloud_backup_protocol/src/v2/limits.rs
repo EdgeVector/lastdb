@@ -4,6 +4,8 @@ use serde::Serialize;
 
 /// Maximum canonical JSON bytes of a V2 control message.
 pub const CONTROL_JSON_MAX_BYTES: u64 = 256 * 1024;
+/// Maximum JSON bytes of one signed mutation-log snapshot part response.
+pub const MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES: u64 = 1024 * 1024;
 /// Maximum canonical JSON bytes of one inventory page or index.
 pub const INVENTORY_JSON_MAX_BYTES: u64 = 256 * 1024;
 /// Maximum items in one V2 batch.
