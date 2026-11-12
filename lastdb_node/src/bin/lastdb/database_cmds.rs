@@ -36,21 +36,31 @@ pub(super) fn select_database(
     selector: &str,
     json: bool,
 ) -> Result<(), String> {
+    let target = DatabaseTarget::open(data_dir, None)?;
+    print_database(&registered_database(&target.socket, selector)?, json)
+}
+
+pub(super) fn registered_database(
+    socket: &Path,
+    selector: &str,
+) -> Result<serde_json::Value, String> {
     if !database_path::valid_selector(selector) {
         return Err("invalid database selector".into());
     }
-    let target = DatabaseTarget::open(data_dir, None)?;
-    let raw = get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?;
-    let response = parse_json_response(&raw, "database list")?;
-    let list = response["databases"]
-        .as_array()
+    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
+    let mut body = parse_json_response(&raw, "database list")?;
+    let list = body["databases"]
+        .as_array_mut()
         .ok_or("missing database list")?;
-    let database = list
+    let index = list
         .iter()
-        .find(|db| db["id"].as_str() == Some(selector))
-        .or_else(|| list.iter().find(|db| db["name"].as_str() == Some(selector)))
+        .position(|db| db["id"].as_str() == Some(selector))
+        .or_else(|| {
+            list.iter()
+                .position(|db| db["name"].as_str() == Some(selector))
+        })
         .ok_or("database is not registered")?;
-    print_database(database, json)
+    Ok(list.swap_remove(index))
 }
 
 fn create_spec(

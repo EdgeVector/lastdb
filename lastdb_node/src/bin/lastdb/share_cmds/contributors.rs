@@ -9,39 +9,23 @@ pub(super) fn run(
 ) -> Result<(), String> {
     match action {
         ShareContributorCommand::Grant {
-            home,
             recipient,
             recipient_key,
-            rules,
-            operation_id,
-            expected_version,
             out,
             regrant,
             expires_in_hours,
-        } => named::grant(named::GrantOptions {
+        } => named::grant(named::InviteOptions {
             identity_home,
             db,
-            home: home.as_deref(),
             recipient: &recipient,
             recipient_key,
-            rules: rules.as_deref(),
-            operation_id,
-            expected_version,
             out: &out,
             regrant,
-            expires_in_hours,
+            expires_in_hours: expires_in_hours.unwrap_or(24),
         }),
-        ShareContributorCommand::Revoke {
-            home,
-            recipient_key,
-            expected_version,
-        } => named::revoke(
-            identity_home,
-            db,
-            home.as_deref(),
-            recipient_key,
-            expected_version,
-        ),
+        ShareContributorCommand::Revoke { recipient_key } => {
+            named::revoke(identity_home, db, recipient_key)
+        }
         ShareContributorCommand::Accept { .. } => {
             unreachable!("grant attachment is routed to the node")
         }

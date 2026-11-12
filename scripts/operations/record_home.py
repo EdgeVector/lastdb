@@ -423,7 +423,7 @@ def main():
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
         record_named_databases.check(node, args.cli.resolve(strict=True), output)
-        record_share_files.exercise(args.cli.resolve(strict=True), node, root)
+        record_share_files.exercise(args.cli.resolve(strict=True), node)
     finally:
         node.close()
 

@@ -96,7 +96,7 @@ impl ShareCache {
         publisher: &Digest,
         name: Option<&str>,
     ) -> Result<RegisteredShare> {
-        self.register(home, invitation, publisher, name, None)
+        self.register(home, invitation, publisher, name, None, false)
     }
 
     /// Same sealed registration as [`Self::register_managed`], marked as a signed log.
@@ -109,9 +109,9 @@ impl ShareCache {
         invitation: &[u8],
         publisher: &Digest,
         name: Option<&str>,
-        expected: &Id,
+        expected: Option<&Id>,
     ) -> Result<RegisteredShare> {
-        self.register(home, invitation, publisher, name, Some(expected))
+        self.register(home, invitation, publisher, name, expected, true)
     }
 
     fn register(
@@ -121,6 +121,7 @@ impl ShareCache {
         publisher: &Digest,
         name: Option<&str>,
         expected: Option<&Id>,
+        signed_log: bool,
     ) -> Result<RegisteredShare> {
         let opened = self.recipient.open(invitation, publisher)?;
         let id = &opened.permission.stream().stream_id;
@@ -137,6 +138,12 @@ impl ShareCache {
             .open_lock(REGISTRY_LOCK)
             .map_err(|_| ShareCacheError::Invalid("registry lock"))?;
         lock.try_lock().map_err(|_| ShareCacheError::Busy)?;
+        if signed_log
+            && crate::host::owned::registry_claims(home, id.as_str(), name)
+                .map_err(|()| ShareCacheError::Unavailable)?
+        {
+            return Err(ShareCacheError::Invalid("database selector already in use"));
+        }
         self.admit_name(home, id, name)?;
         let entry = self.entry(id, true)?;
         let _writer = entry.lock(Lock::Writer, true)?;
@@ -158,7 +165,7 @@ impl ShareCache {
             state.name = Some(name.to_owned());
         }
         state.expires_ms = opened.permission.expires_ms();
-        state.signed_log |= expected.is_some();
+        state.signed_log |= signed_log;
         if state.signed_log {
             state.grant = None;
             state.grant_version = None;

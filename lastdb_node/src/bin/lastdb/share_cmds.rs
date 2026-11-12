@@ -1,10 +1,9 @@
 use super::{
-    cloud_cmds::FreshHome, parse_json_response, post_json_with_timeout, DatabaseTarget,
-    ShareCommand, ShareContributorCommand, ShareFilesCommand,
+    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand,
+    ShareContributorCommand, ShareFilesCommand,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
-use lastdb_node::cloud_backup_client::byte_backup::ShareEnvironment;
 use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
 use lastdb_node::share_publication;
 use std::fs::{File, OpenOptions};
@@ -32,15 +31,13 @@ pub(super) fn run(
             invitation,
             publisher,
             name,
-        } => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
-        ShareCommand::Files(ShareFilesCommand::Receive {
+        }
+        | ShareCommand::Files(ShareFilesCommand::Receive {
             invitation,
             publisher,
             name,
-            cache: None,
-            ..
-        }) => accept(data_dir, None, &invitation, &publisher, name.as_deref()),
-        ShareCommand::Files(action) if db.is_some() => files::run_selected(data_dir, db, action),
+        }) => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
+        ShareCommand::Files(action) => files::run(data_dir, db, action),
         ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
             let sealed = read_file(&grant, 64 * 1024)?;
             let body = serde_json::json!({
@@ -101,30 +98,8 @@ fn run_offline(
         .canonicalize()
         .map_err(|_| "share identity home must exist")?;
     match action {
-        ShareCommand::Create {
-            into,
-            env,
-            write_mode,
-            spec,
-            spec_version,
-        } => {
-            let write_mode = match write_mode.as_str() {
-                "publisher-only" => share_publication::WriteMode::PublisherOnly,
-                "publisher-validated" => share_publication::WriteMode::PublisherValidated,
-                _ => return Err("invalid share write mode".into()),
-            };
-            create(
-                &identity_home,
-                &into,
-                &env,
-                write_mode,
-                spec.as_deref(),
-                spec_version,
-            )
-        }
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::Invite {
-            home,
             recipient,
             recipient_key,
             out,
@@ -133,7 +108,6 @@ fn run_offline(
         } => named::invite(named::InviteOptions {
             db,
             identity_home: &identity_home,
-            home: home.as_deref(),
             recipient: &recipient,
             recipient_key,
             out: &out,
@@ -142,7 +116,7 @@ fn run_offline(
         }),
         ShareCommand::Accept { .. } => unreachable!("accept is routed to the node"),
         ShareCommand::Contributors(action) => contributors::run(&identity_home, db, action),
-        ShareCommand::Files(action) => files::run(&identity_home, action),
+        ShareCommand::Files(_) => unreachable!("Files commands are routed to the node"),
         ShareCommand::Queries(_) => unreachable!("queries are routed to the node"),
     }
 }
@@ -156,47 +130,6 @@ fn read_contact(path: &Path, recipient_key: String) -> Result<ShareContact, Stri
         return Err("contact does not match the trusted recipient".into());
     }
     Ok(contact)
-}
-
-fn create(
-    owner: &Path,
-    into: &Path,
-    env: &str,
-    write_mode: share_publication::WriteMode,
-    spec_name: Option<&str>,
-    spec_version: Option<u32>,
-) -> Result<(), String> {
-    lastdb_node::offline_home::refuse_primary(into)?;
-    if into.starts_with(owner) {
-        return Err("publication home must be separate from the identity home".into());
-    }
-    let target = FreshHome::preflight_empty(into)?;
-    let environment = match env {
-        "dev" => ShareEnvironment::Dev,
-        "prod" => ShareEnvironment::Prod,
-        _ => return Err("invalid share environment".into()),
-    };
-    let prepared =
-        share_publication::prepare(owner, environment, write_mode, spec_name, spec_version)?;
-    let marker =
-        serde_json::to_vec(&prepared.marker).map_err(|_| "cannot encode publication marker")?;
-    let mut target = target.create()?;
-    target.write(
-        lastdb_node::identity::IDENTITY_KEY_FILE,
-        prepared.seed.as_ref(),
-    )?;
-    target.write(share_publication::MARKER_FILE, &marker)?;
-    target.commit()?;
-    let mut printed = serde_json::json!({
-        "home": into, "publication_id": prepared.marker.id, "publisher_public_key": prepared.marker.publisher,
-        "environment": prepared.marker.environment, "write_mode": prepared.marker.write_mode,
-    });
-    if let Some(spec) = &prepared.marker.spec {
-        printed["spec"] =
-            serde_json::to_value(spec).map_err(|_| "cannot encode publication spec")?;
-    }
-    println!("{printed}");
-    Ok(())
 }
 
 fn contact(home: &Path, out: &Path) -> Result<(), String> {

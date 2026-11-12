@@ -51,7 +51,6 @@ fn serve_node(
     runtime: tokio::runtime::Runtime,
     home: &std::path::Path,
     socket_path: Option<PathBuf>,
-    share: Option<lastdb_node::share_publication::AutomaticPublication>,
 ) -> Result<(), String> {
     let data_dir = home.join("data");
     let pid = std::process::id();
@@ -77,7 +76,7 @@ fn serve_node(
         worker_pool.clone(),
     );
 
-    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, share, socket.path())?;
+    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown_flag, socket.path());
     let accept_result = server.serve(&socket, owner_uid, &shutdown_flag);
     shutdown_flag.store(true, Ordering::Release);
 
@@ -133,11 +132,6 @@ fn run() -> Result<(), String> {
     }
 
     let home = host::resolve_home(cli.data_dir)?;
-    let share = cli
-        .share_owner_home
-        .as_deref()
-        .map(|owner| lastdb_node::share_publication::prepare_automatic(&home, owner))
-        .transpose()?;
     let warm_bytes = fold_db::resident::init_core_warm_bytes_from_env()?;
     if warm_bytes != fold_db::resident::DEFAULT_CORE_WARM_BYTES {
         eprintln!(
@@ -152,7 +146,7 @@ fn run() -> Result<(), String> {
     }
     let runtime = lastdbd::build_runtime()?;
     cloud::pin_schema_service_environment_from_home(&home);
-    serve_node(runtime, &home, cli.socket_path, share)
+    serve_node(runtime, &home, cli.socket_path)
 }
 
 fn main() -> std::process::ExitCode {

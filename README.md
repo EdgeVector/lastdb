@@ -126,7 +126,7 @@ Use `lastdb --help` to see the commands in the installed release.
 | `mutate` | Submit a conditional write and supply the record’s file when needed. |
 | `app` | Browse the signed registry and manage apps. |
 | `backup` | Configure backup and restore an accepted recovery point. |
-| `share` | Create a publication, invite readers, and optionally grant restricted contributor writes. |
+| `share` | Invite readers and share files from a named database. |
 | `db` | List the local database and accepted shares. |
 | `admin` | Diagnose or maintain a home. |
 
@@ -140,30 +140,25 @@ bare record replacement keeps the existing file. A replacement with
 
 ### Share files
 
-LastDB Files shares a separate encrypted database with read-only recipients.
-Use absolute paths for `OWNER`, `PUBLICATION`, and `RECIPIENT`.
-`OWNER` is an existing home with saved Exemem credentials for the selected
-environment. Create the publication at a new path with an existing parent
-outside that home using `lastdb --data-dir OWNER share create --into
-PUBLICATION --env dev`. Run
-`lastdbd --data-dir PUBLICATION --share-owner-home OWNER` to publish
-automatically. Stopping that daemon pauses publication.
+Create a named database with the Files spec. Use an existing publisher home
+connected to ExeMem and run its normal LastDB daemon.
 
-In another terminal, add a file with `lastdb --data-dir PUBLICATION share files
-add FILE`. The app accepts regular files of any type, up to 128 files and
-256 MiB total per share, with a 32 KiB file catalog.
+```sh
+lastdb --data-dir OWNER db create trip --spec-name lastdb-files --spec-version 1
+lastdb --data-dir OWNER --db trip share files add FILE
+```
 
-The recipient needs only a local LastDB identity. In DEV, create one at a new path
-with an existing parent using `lastdb admin backup init --into RECIPIENT
---recovery-phrase-out RECIPIENT/recovery-phrase.txt`. The recipient exports a
-public contact with `lastdb --data-dir RECIPIENT share contact --out CONTACT`.
-Verify the returned recipient key through a trusted channel and issue an
-invitation with
-`lastdb --data-dir OWNER share invite --home PUBLICATION --recipient CONTACT
---recipient-key RECIPIENT_KEY --out INVITATION`. If the daemon is still
-publishing its first backup, wait and retry. The recipient verifies the
-publisher key from `share create` through a trusted channel. Run
-`lastdbd --data-dir RECIPIENT` and accept the invitation into that node.
+The recipient exports a public contact from their own LastDB home. Verify the
+recipient key through a trusted channel before issuing the invitation.
+
+```sh
+lastdb --data-dir RECIPIENT share contact --out CONTACT
+lastdb --data-dir OWNER --db trip share invite --recipient CONTACT \
+  --recipient-key RECIPIENT_KEY --out INVITATION
+```
+
+The recipient verifies the publisher key and runs their own LastDB daemon.
+They can accept the invitation without a separate ExeMem account.
 
 ```sh
 lastdb --data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY --name trip
@@ -172,92 +167,10 @@ lastdb --data-dir RECIPIENT --db trip share files list
 lastdb --data-dir RECIPIENT --db trip share files save --file FILE_ID --out PATH
 ```
 
-The daemon follows the publication automatically. Once `db list` shows it
-as ready, use its local name or the database ID returned by `receive`.
-`share accept` registers the same database. List and save use the latest
-verified data while offline, including after the invitation expires.
-
-Invitations authorize downloads for 24 hours by default. Set `share invite
---expires-in-hours` to 1–168 hours when issuing one. To resume updates after
-expiry, accept a fresh invitation for the same publication on the same node.
-Existing app-managed caches still support their explicit `--cache` and
-`--handle` workflow. Reaccept the invitation to register one for `--db`.
-
-### Share with restricted contributors
-
-The app decides which records go into the publication and which recipients can
-contribute to each schema. Create the publication with
-`share create --write-mode publisher-validated` and run the same automatic
-publisher as above. The default mode, `publisher-only`, gives the publisher
-exclusive write access.
-
-Read invitations and write grants are separate. To let a verified recipient
-add comments or remove their own reactions, give `share contributors grant`
-a JSON rules file like this one, using the installed schema's exact definition
-ID. A rule action is `create`, `replace`, or `delete`. `purge` is never granted.
-
-```json
-[
-  {
-    "schema": "photos/Comments",
-    "definition_id": "<64-character schema definition ID>",
-    "action": "create"
-  }
-]
-```
-
-### Address a shared database
-
-Run the recipient's daemon and accept the invitation into that node. The
-node registers the database immediately and marks it ready once it has
-verified the first recovery point. It follows updates automatically while
-running. Accept a replacement invitation on the same node to renew access.
-Readers can use the last verified copy offline. A received database serves
-primary and named alternate keys, ascending ranges under one hash, and
-revision-checked inline files. The replica refuses scans, descending queries,
-and queries that filter records after key lookup.
-
-```sh
-lastdb share accept INVITATION --publisher PUBLISHER_KEY --name trip
-lastdb db list
-lastdb --db trip get photos/Comments --key-hash photo-42 --key-range comment-7
-lastdb --db trip get-keys photos/Comments --key-hash photo-42
-```
-
-`--data-dir` selects the daemon home. `--db` selects its database by ID or
-local name. Omitting it keeps the daemon's ordinary default. The publisher
-continues to run the publication daemon for its separate home and can use
-the publication ID there. An unknown database selector fails the request.
-Accept the invitation again to register an existing Files share. If the
-invitation has expired, use a fresh one from the publisher.
-
-Attach a write grant once with `lastdb share contributors accept trip --grant
-GRANT`, then use `lastdb --db trip mutate --request-file MUTATION`. Supply the
-schema definition ID in the ordinary mutation JSON. The contributor grant
-allows an absent create, or a replace or delete of a record that writer
-created, at the record's expected revision. A `submitted` receipt confirms
-upload to the publisher's private inbox. The publisher must accept the
-optional revision field before a writer sends it. To retry
-the same request after a transport failure, pass the same `--mutation-id`.
-The publisher checks the current grant and commits allowed writes to its own
-mutation journal, retaining the verified contributor key. `share contributors
-revoke` stops future acceptance under that grant. Read invitations and issued
-upload permissions expire independently.
-
-Exemem serves encrypted Backup V2 recovery points and restricts stream
-access. LastDB owns encryption and write validation. The publisher uses
-snapshots to establish or replace a recovery base.
-
-Required CI exercises local publication setup in both write modes, ordinary
-database selection, and importing, listing and saving a multi-chunk file
-with the built CLI and daemon. Separate
-DEV operations verified automatic Files updates and three-node recovery of
-accepted writes with private contribution streams.
-[Files DEV proof](https://github.com/EdgeVector/lastdb/pull/1416) ·
-[Accepted journal DEV proof](https://github.com/EdgeVector/lastdb/pull/1437)
-
-Immediate read revocation, interrupted import recovery, and Org sharing remain
-separate work.
+The recipient follows the signed mutation log. After the files appear in the
+local catalog, list and save also work offline. An import publishes its catalog
+entry after all of the file's chunks are written. LastDB verifies the file
+digest before saving it to the requested path.
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —

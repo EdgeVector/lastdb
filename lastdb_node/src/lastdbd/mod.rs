@@ -32,10 +32,6 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) data_dir: Option<PathBuf>,
 
-    /// Publish changes in this share home using the existing owner home.
-    #[arg(long, requires = "data_dir")]
-    pub(crate) share_owner_home: Option<PathBuf>,
-
     /// Worker socket path. The default is `<home>/data/folddb.sock`.
     #[arg(long)]
     pub(crate) socket_path: Option<PathBuf>,
@@ -177,17 +173,12 @@ pub(crate) fn spawn_background(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     shutdown: &Arc<AtomicBool>,
-    share: Option<lastdb_node::share_publication::AutomaticPublication>,
     socket: &Path,
-) -> Result<BackgroundTasks, String> {
+) -> BackgroundTasks {
     let _runtime_guard = runtime.enter();
     lastdb_node::byte_cloud_backup::register_blob_source(host);
-    let follow_saved_queries = share.is_none();
-    let backup = if let Some(share) = share {
-        share.spawn(Arc::clone(host), Arc::clone(shutdown))?
-    } else {
-        lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown))
-    };
+    let backup =
+        lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown));
     let sync_host = Arc::clone(host);
     let sync_shutdown = Arc::clone(shutdown);
     let backup = tokio::spawn(
@@ -205,20 +196,18 @@ pub(crate) fn spawn_background(
         }
         .in_current_span(),
     );
-    // A publication-home daemon is not the owner of saved queries. The owner
-    // daemon follows source commits with the same durable-write watch.
     let saved_queries = lastdb_node::jobs::saved_query::spawn(
         Arc::clone(host),
         socket.to_path_buf(),
         Arc::clone(shutdown),
-        follow_saved_queries,
+        true,
     );
-    Ok((
+    (
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
         backup,
         lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
         saved_queries,
-    ))
+    )
 }
 
 pub(crate) fn drain_background(

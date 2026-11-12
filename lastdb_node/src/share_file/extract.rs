@@ -26,11 +26,8 @@ pub fn list_files_by_key(
     let [entries] = records.as_slice() else {
         return Err("file share catalog read returned the wrong number of records".into());
     };
-    let catalog = Catalog::read(entries.as_deref())?;
-    if catalog.pending.is_some() {
-        return Err("file share snapshot contains an incomplete import".into());
-    }
-    Ok(catalog.files)
+    // The catalog lists a new file only after its last chunk is durable.
+    Ok(Catalog::read(entries.as_deref())?.files)
 }
 
 /// Verify and install a whole file at a new path. The callback reads each
