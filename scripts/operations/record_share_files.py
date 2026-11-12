@@ -82,8 +82,7 @@ def check_addressing(command, cli, owner, publication_id, missing_id):
     original = command(cli, "--db", "personal", "get", "RecordById", "--key-hash", "one", "--json")
     require(original.returncode == 0 and json.loads(original.stdout)["results"][0]["fields"]["value"] == "v3",
             "explicit personal selection did not read the original record: " + original.stderr)
-    wrong = command(cli, "--db", missing_id, "get", "RecordById", "--key-hash", "one", "--json",
-                    node=owner)
+    wrong = command(cli, "--db", missing_id, "get", "RecordById", "--key-hash", "one", "--json")
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must never read the node's personal records: " + wrong.stderr)
     wrong = command(cli, "--db", missing_id, "mutate", "--request-file", request)
