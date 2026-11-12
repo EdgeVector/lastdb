@@ -61,7 +61,9 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger):
     restored = base64.urlsafe_b64decode(downloaded + "=" * (-len(downloaded) % 4))
     if aead.decrypt(restored[:12], restored[12:], database.encode()) != payload:
         raise LoadError("private snapshot content differs")
-    call("ack", {"device_id": "private-restore", "through": "1"})
+    ack = call("ack", {"device_id": "private-restore", "through": "1"})
+    if decimal(ack["through"]) != decimal(manifest["through_delivery_seq"]):
+        raise LoadError("private recovery acknowledgement did not reach the snapshot")
 
     other = NodeKey.generate()
     for operation, fields in (
