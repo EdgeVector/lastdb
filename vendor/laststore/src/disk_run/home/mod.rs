@@ -149,7 +149,7 @@ impl RunHome {
             .sum()
     }
 
-    pub(super) fn retire_runs(&self, runs: &[Arc<RunFile>]) {
+    fn retire_runs(&self, runs: &[Arc<RunFile>]) {
         for run in runs {
             run.retire();
         }

@@ -198,8 +198,9 @@ impl PendingBatch {
                     })
                 })?;
         }
+        let add = count - data.operations.len();
         data.operations
-            .try_reserve(count - data.operations.len())
+            .try_reserve(add)
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
         for op in operations {
             let at = data.operations.len();

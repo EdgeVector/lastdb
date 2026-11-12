@@ -245,7 +245,13 @@ impl Metadata {
         if !entries.is_empty() {
             let mutations = entries
                 .into_iter()
-                .map(|(k, v)| v.map_or_else(|| KvMutation::delete(k), |b| KvMutation::put(k, b)))
+                .map(|(k, v)| {
+                    if let Some(b) = v {
+                        KvMutation::put(k, b)
+                    } else {
+                        KvMutation::delete(k)
+                    }
+                })
                 .collect();
             self.metadata_store.batch_mutate(mutations).await?;
         }

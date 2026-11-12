@@ -223,12 +223,12 @@ impl PackRuntime {
         let (prepared, hidden, requests) = {
             let mut q = self.queue.lock().expect("native accepted queue");
             q.sealed = true;
-            let hidden = q
+            let hidden: Vec<_> = q
                 .requests
                 .iter()
                 .flat_map(|r| r.pending.changed_coordinates())
                 .collect();
-            let requests = q.requests.iter().map(|r| Arc::clone(&r.pending)).collect();
+            let requests: Vec<_> = q.requests.iter().map(|r| Arc::clone(&r.pending)).collect();
             (q.prepared.take(), hidden, requests)
         };
         if let Some(prepared) = prepared {

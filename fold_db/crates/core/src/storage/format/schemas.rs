@@ -324,7 +324,13 @@ impl SchemaFormat {
             self.require_tracking_writable(owners).await?;
             let mutations = entries
                 .into_iter()
-                .map(|(k, v)| v.map_or_else(|| KvMutation::delete(k), |b| KvMutation::put(k, b)))
+                .map(|(k, v)| {
+                    if let Some(b) = v {
+                        KvMutation::put(k, b)
+                    } else {
+                        KvMutation::delete(k)
+                    }
+                })
                 .collect();
             let store = if schemas {
                 &self.schemas_store
