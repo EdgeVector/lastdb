@@ -124,9 +124,8 @@ async fn external_file<'a>(
         FileWrite::Clear => Ok(External::clear()),
         FileWrite::Put(_) => owned_row(content_key, mutation, write),
         FileWrite::LocalPath(_) => {
-            confirm_local(mutation, write, admit).await?;
             let marker = file_marker(mutation, write)?;
-            let reference = admitted_reference(write, admit)?;
+            let reference = confirm_local(marker, write, admit).await?;
             Ok(External::custody(marker, reference))
         }
     }
@@ -156,19 +155,30 @@ fn owned_row<'a>(
 }
 
 async fn confirm_local(
-    mutation: &Mutation,
+    marker: &FileMarker,
     write: &FileWrite,
     admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
-) -> StorageResult<()> {
+) -> StorageResult<String> {
     let reference = write
         .local_reference()
         .ok_or_else(|| invalid("accepted local file is missing"))?;
     let path = admit(reference)
         .ok_or_else(|| invalid("accepted local file was not issued for this database"))?;
-    let marker = file_marker(mutation, write)?;
+    let reference = path
+        .to_str()
+        .filter(|text| {
+            !text.is_empty()
+                && text.len() <= 4096
+                && !text
+                    .bytes()
+                    .any(|byte| byte == 0 || byte == b'\n' || byte == b'\r')
+        })
+        .ok_or_else(|| invalid("accepted local file path is not a durable reference"))?
+        .to_owned();
     let size = marker.size_bytes;
     let hash = marker.sha256.clone();
-    disk_pack::run_blocking(move || confirm_file(&path, size, &hash)).await
+    disk_pack::run_blocking(move || confirm_file(&path, size, &hash)).await?;
+    Ok(reference)
 }
 
 /// Hash the admitted file in a fixed buffer. The bytes stay in local-file custody.
@@ -199,27 +209,6 @@ fn confirm_file(path: &Path, size: u64, hash: &str) -> StorageResult<()> {
         return Err(invalid("accepted local file does not match its marker"));
     }
     Ok(())
-}
-
-fn admitted_reference(
-    write: &FileWrite,
-    admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
-) -> StorageResult<String> {
-    let reference = write
-        .local_reference()
-        .and_then(|file| admit(file))
-        .ok_or_else(|| invalid("accepted local file was not issued for this database"))?;
-    let text = reference
-        .to_str()
-        .filter(|text| {
-            !text.is_empty()
-                && text.len() <= 4096
-                && !text
-                    .bytes()
-                    .any(|byte| byte == 0 || byte == b'\n' || byte == b'\r')
-        })
-        .ok_or_else(|| invalid("accepted local file path is not a durable reference"))?;
-    Ok(text.to_owned())
 }
 
 fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResult<&'a FileMarker> {
