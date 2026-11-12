@@ -22,6 +22,8 @@ static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 pub(super) struct Ready {
     pub(super) database_id: String,
     pub(super) shareable: bool,
+    /// Publisher of a received log. An owned database leaves this empty.
+    pub(super) publisher: Option<String>,
     pub(super) log: CloudLog,
     pub(super) state: SyncState,
 }
@@ -60,6 +62,7 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
         &outcome,
         &ready.database_id,
         ready.shareable,
+        ready.publisher.as_deref(),
     )
     .await
     {

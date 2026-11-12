@@ -68,6 +68,7 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
         Ready {
             database_id: database_id.to_owned(),
             shareable: true,
+            publisher: Some(share.publisher.as_str().to_owned()),
             log,
             state,
         },

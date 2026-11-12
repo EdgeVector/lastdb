@@ -4,7 +4,9 @@
 //! Each owned database has its own reply. A local file does not start sync or
 //! stop byte backup. This module does not change backup policy. A named
 //! database installs a snapshot with `named_snapshot_restore` after
-//! `delivery/snapshot`. That install does not acknowledge. Local capture
+//! `delivery/snapshot`. That install does not acknowledge. A received page
+//! replays through `replay_delivered` and flushes before the existing ack.
+//! Local capture
 //! is read with `accepted_writes` and published from `accepted`.
 //! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
 //! file set and is not the named installer. This module does not edit

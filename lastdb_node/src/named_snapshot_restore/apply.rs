@@ -122,14 +122,14 @@ async fn apply_one(
         payload::Change::Record(mut change) => {
             stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
             if bind_expected(store, &mut change.mutation, resumed).await? {
-                write_record(store, home, journal, change.mutation, resumed).await?;
+                record_outcome(store, home, journal, change.mutation, resumed).await?;
             }
         }
     }
     journal::write_marker(home, database_id, &prepared.id, &hash)
 }
 
-async fn stage_file(
+pub(super) async fn stage_file(
     store: &FoldDB,
     key: &crate::log_envelope::DatabaseContentKey,
     database_id: &str,
@@ -212,7 +212,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex
 }
 
-async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), RestoreError> {
+pub(super) async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), RestoreError> {
     let schemas = store.schema_manager();
     match change.definition {
         Some(definition) => schemas
@@ -227,7 +227,7 @@ async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), Restor
     }
 }
 
-async fn bind_expected(
+pub(super) async fn bind_expected(
     store: &FoldDB,
     mutation: &mut Mutation,
     resumed: bool,
@@ -290,10 +290,8 @@ fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, RestoreError> {
     }
 }
 
-async fn write_record(
+pub(super) async fn write_record(
     store: &FoldDB,
-    home: &Path,
-    journal: &mut Journal,
     mutation: Mutation,
     resumed: bool,
 ) -> Result<(), RestoreError> {
@@ -304,15 +302,28 @@ async fn write_record(
     {
         Ok(_) => Ok(()),
         // A resumed create can conflict because the first attempt landed and
-        // the author clock changed. Clear a first-attempt conflict so a later
-        // retry does not treat that conflict as success.
+        // the author clock changed. The caller clears only a first attempt.
         Err(SchemaError::CasConflict { .. }) if resumed => Ok(()),
-        Err(SchemaError::CasConflict { .. }) => {
+        Err(SchemaError::CasConflict { .. }) => Err(RestoreError::Conflict("snapshot record")),
+        Err(_) => Err(RestoreError::Apply("snapshot record")),
+    }
+}
+
+async fn record_outcome(
+    store: &FoldDB,
+    home: &Path,
+    journal: &mut Journal,
+    mutation: Mutation,
+    resumed: bool,
+) -> Result<(), RestoreError> {
+    match write_record(store, mutation, resumed).await {
+        Ok(()) => Ok(()),
+        Err(RestoreError::Conflict(_)) if !resumed => {
             journal.attempt = None;
             journal::save(home, journal)?;
             Err(RestoreError::Conflict("snapshot record"))
         }
-        Err(_) => Err(RestoreError::Apply("snapshot record")),
+        Err(error) => Err(error),
     }
 }
 

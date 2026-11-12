@@ -263,7 +263,7 @@ fn marker_path(home: &Path, database_id: &str, mutation_id: &str) -> Result<Path
         .join(mutation_id))
 }
 
-fn database_dir(home: &Path, database_id: &str) -> Result<PathBuf, RestoreError> {
+pub(super) fn database_dir(home: &Path, database_id: &str) -> Result<PathBuf, RestoreError> {
     let id =
         Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
     if id.as_str() != database_id {
@@ -272,7 +272,7 @@ fn database_dir(home: &Path, database_id: &str) -> Result<PathBuf, RestoreError>
     Ok(home.join("log-sync").join(database_id))
 }
 
-fn read_bytes(
+pub(super) fn read_bytes(
     path: &Path,
     limit: usize,
     detail: &'static str,
@@ -311,7 +311,11 @@ fn class_for(detail: &'static str) -> RestoreError {
     }
 }
 
-fn write_private(path: &Path, bytes: &[u8], detail: &'static str) -> Result<(), RestoreError> {
+pub(super) fn write_private(
+    path: &Path,
+    bytes: &[u8],
+    detail: &'static str,
+) -> Result<(), RestoreError> {
     let parent = path.parent().ok_or(RestoreError::Durable(detail))?;
     fs::create_dir_all(parent).map_err(|_| RestoreError::Durable(detail))?;
     let temporary = path.with_extension("tmp");
@@ -335,4 +339,16 @@ fn write_private(path: &Path, bytes: &[u8], detail: &'static str) -> Result<(), 
         .and_then(|directory| directory.sync_all())
         .map_err(|_| RestoreError::Durable(detail))?;
     Ok(())
+}
+
+pub(super) fn remove_private(path: &Path, detail: &'static str) -> Result<(), RestoreError> {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(RestoreError::Durable(detail)),
+    }
+    let parent = path.parent().ok_or(RestoreError::Durable(detail))?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| RestoreError::Durable(detail))
 }

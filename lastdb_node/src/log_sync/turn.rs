@@ -225,6 +225,7 @@ async fn finish_open(
         Ok(state) => Prep::Ready(Box::new(run::Ready {
             database_id: database_id.to_owned(),
             shareable: kind != "personal",
+            publisher: None,
             log,
             state,
         })),

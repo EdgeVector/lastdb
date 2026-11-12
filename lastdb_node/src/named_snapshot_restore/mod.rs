@@ -7,6 +7,10 @@
 //! acknowledge the cloud log. E acknowledges only after `install` returns
 //! and any still-stored suffix is durable.
 //!
+//! A received log page calls [`replay_delivered`]. It uses this same decode
+//! and apply path, flushes the receiver store, and does not rewrite a
+//! snapshot journal. The caller acknowledges only after that flush.
+//!
 //! Each entry is a `log_envelope` around one accepted body. That body is a
 //! schema put, a schema drop, a record, a file, an inline file, or a
 //! contribution. An external file is the uploaded envelope named by
@@ -23,6 +27,7 @@ mod apply;
 mod chain;
 mod decode;
 mod journal;
+mod page;
 mod payload;
 mod types;
 mod wire;
@@ -36,6 +41,8 @@ pub use types::{
     SnapshotPart,
 };
 pub use wire::{manifest_from_json, part_from_json};
+
+pub(crate) use page::DeliveredEntry;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -96,6 +103,19 @@ pub async fn install(
         return finish(store.as_ref(), &host.home, request, &chain, &mut journal).await;
     }
     prefix(request, &chain)
+}
+
+/// Apply one received log page into the registered receiver store.
+///
+/// The page is durable when this returns. A snapshot journal is left as it is.
+pub(crate) async fn replay_delivered(
+    host: &Host,
+    database_id: &str,
+    publisher: &str,
+    delivered: &[DeliveredEntry],
+    files: &mut (dyn SnapshotFileSource + Send),
+) -> Result<(), RestoreError> {
+    page::replay(host, database_id, publisher, delivered, files).await
 }
 
 struct Named {

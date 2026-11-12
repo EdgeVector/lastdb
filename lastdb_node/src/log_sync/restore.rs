@@ -178,8 +178,12 @@ async fn part(
     Ok(part)
 }
 
-struct Files {
+pub(super) struct Files {
     log: CloudLog,
+}
+
+pub(super) fn file_source(log: CloudLog) -> Files {
+    Files { log }
 }
 
 #[async_trait]
