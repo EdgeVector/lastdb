@@ -217,6 +217,10 @@ impl MutationManager {
                 for (mutation, stamp) in mutations.iter().zip(&stamps) {
                     record_revisions.insert(mutation.uuid.clone(), stamp.revision());
                 }
+                self.db_ops
+                    .records()
+                    .stage_accepted_mutations(&mutations)
+                    .await?;
                 let mutation_ids = mutations.iter().map(|m| m.uuid.clone()).collect();
                 let authored = mutations
                     .into_iter()

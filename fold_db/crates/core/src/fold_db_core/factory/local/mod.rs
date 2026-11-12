@@ -15,6 +15,10 @@ use std::sync::Arc;
 pub struct FoldDbOptions {
     pub offline_maintenance: bool,
     pub search_outbox_inbox: Option<PathBuf>,
+    /// Accepted publication stream. The normal sender sets this for an owned
+    /// shareable named database, from creation and before cloud enrollment.
+    /// Personal, legacy, received, and replay opens leave it false.
+    pub capture_accepted: bool,
 }
 
 /// Creates a fully initialized FoldDB instance based on the database configuration.
@@ -25,7 +29,8 @@ pub async fn create_fold_db_with_options(
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
     let key = e2e_keys.encryption_key();
-    let store = PackNamespacedStore::open_keyed(&config.path, Some(&key))?;
+    let store =
+        PackNamespacedStore::open_keyed(&config.path, Some(&key), options.capture_accepted)?;
     let db_ops = DbOperations::from_namespaced_store_with_content_and_field_keys(store, key)
         .await
         .map_err(|e| FoldDbError::Config(e.to_string()))?;

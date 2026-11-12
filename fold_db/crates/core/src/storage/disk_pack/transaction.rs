@@ -4,7 +4,9 @@ use super::record_warm::WrittenRecord;
 use super::*;
 use std::collections::BTreeMap;
 
+mod accepted_slot;
 pub(crate) mod publication;
+pub(in crate::storage) use accepted_slot::{has_accepted, stage_accepted, take_accepted_notes};
 pub(in crate::storage) use publication::batch_bytes;
 pub(crate) use publication::blocked;
 
@@ -36,6 +38,7 @@ pub(in crate::storage) struct PendingBatch {
     identity: uuid::Uuid,
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
+    accepted: Mutex<Vec<crate::storage::disk_backup::accepted::Note>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
@@ -54,6 +57,7 @@ impl PendingBatch {
             identity: runtime.home_identity(),
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
+            accepted: Mutex::new(Vec::new()),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
@@ -81,7 +85,8 @@ impl PendingBatch {
                 .after_commit
                 .lock()
                 .expect("native post-commit work")
-                .is_empty();
+                .is_empty()
+            && self.accepted.lock().expect("accepted notes").is_empty();
         Ok(unchanged && self.publications.is_empty()?)
     }
 

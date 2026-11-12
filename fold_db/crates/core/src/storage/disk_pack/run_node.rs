@@ -208,7 +208,11 @@ fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'stati
 }
 
 impl PackNamespacedStore {
-    pub fn create_run(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+    pub fn create_run(
+        path: &Path,
+        node_key: &[u8; 32],
+        capture_accepted: bool,
+    ) -> StorageResult<Self> {
         std::fs::create_dir_all(path)?;
         let folder = std::fs::File::open(path)?;
         folder.try_lock().map_err(|error| {
@@ -240,7 +244,7 @@ impl PackNamespacedStore {
             std::fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;
         }
-        let store = Self::open_run(path, Some(node_key));
+        let store = Self::open_run(path, Some(node_key), capture_accepted);
         drop(folder);
         store
     }
@@ -248,6 +252,7 @@ impl PackNamespacedStore {
     pub(in crate::storage::disk_pack) fn open_run(
         path: &Path,
         node_key: Option<&[u8; 32]>,
+        capture_accepted: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         admit(path, node_key)?;
@@ -257,7 +262,13 @@ impl PackNamespacedStore {
         v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         let policy = space::policy_from_env()?;
         let root = v2.current_root();
-        let store = Self::assemble(v2, root, path.join(INTENT).try_exists()?, policy);
+        let store = Self::assemble(
+            v2,
+            root,
+            path.join(INTENT).try_exists()?,
+            policy,
+            capture_accepted,
+        );
         store.runtime.resume_merges();
         Ok(store)
     }

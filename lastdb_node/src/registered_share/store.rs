@@ -78,6 +78,7 @@ async fn open_receiver(host: &Host, id: &Id) -> Result<Arc<FoldDB>> {
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox),
+            capture_accepted: false,
         },
     )
     .await

@@ -1,6 +1,7 @@
 //! Byte backup, mutation log, restore proof, and the native cloud work guard.
 //! Backup V2 is a separate module. The disk home opens format v2 run files.
 
+pub mod accepted;
 pub mod byte_backup;
 pub mod mutation_log;
 pub mod run_restore;
