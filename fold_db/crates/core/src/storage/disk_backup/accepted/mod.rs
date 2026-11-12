@@ -94,24 +94,47 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
 }
 
 impl PackRuntime {
-    /// Cursor of this home. An empty new home has head 0 and no snapshot flag.
+    pub(in crate::storage) fn captures_accepted(&self) -> bool {
+        self.accepted.is_some()
+    }
+
+    /// Cursor of this home. A home without capture has an empty cursor and does not block writes.
     pub fn accepted_status(&self) -> Status {
-        self.accepted.status()
+        self.accepted.as_ref().map(Log::status).unwrap_or(Status {
+            head: 0,
+            acked: 0,
+            opened_frontier: 0,
+            snapshot_required: false,
+            gap: false,
+        })
     }
 
     /// Sealed entries with sequence greater than `after`, at most `limit`.
     pub fn accepted_prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
-        self.accepted.prefix(after, limit)
+        let Some(log) = &self.accepted else {
+            return idle_prefix(after, limit);
+        };
+        log.prefix(after, limit)
     }
 
     /// Record that the consumer published every entry through `through`.
     pub fn acknowledge_accepted(&self, through: u64) -> Result<(), Error> {
-        self.accepted.acknowledge(through)
+        let Some(log) = &self.accepted else {
+            return if through == 0 {
+                Ok(())
+            } else {
+                Err(Error::Ahead)
+            };
+        };
+        log.acknowledge(through)
     }
 
     /// Record that a snapshot covers the native frontier from before the stream.
     pub fn note_accepted_snapshot(&self, covered_frontier: u64) -> Result<(), Error> {
-        self.accepted.note_snapshot(covered_frontier)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.note_snapshot(covered_frontier)
     }
 
     pub(in crate::storage) fn prepare_accepted(
@@ -119,9 +142,10 @@ impl PackRuntime {
         frontier_before: u64,
         notes: &[disk::Note],
     ) -> StorageResult<()> {
-        self.accepted
-            .prepare(frontier_before, notes)
-            .map_err(storage)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.prepare(frontier_before, notes).map_err(storage)
     }
 
     pub(in crate::storage) fn publish_accepted(
@@ -129,34 +153,60 @@ impl PackRuntime {
         frontier_before: u64,
         frontier_after: u64,
     ) -> StorageResult<()> {
-        self.accepted
-            .publish(frontier_before, frontier_after)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.publish(frontier_before, frontier_after)
             .map_err(storage)
     }
 
     pub(in crate::storage) fn fail_accepted(&self, frontier_before: u64) {
+        let Some(log) = &self.accepted else {
+            return;
+        };
         let frontier = self.physical.current_root().frontier();
         if frontier == frontier_before {
-            let _ = self.accepted.abort();
+            let _ = log.abort();
         } else {
-            let _ = self.accepted.force_gap();
+            let _ = log.force_gap();
         }
     }
 
     pub(in crate::storage) fn mark_accepted_born(&self, frontier: u64) -> StorageResult<()> {
-        self.accepted.mark_born(frontier).map_err(storage)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.mark_born(frontier).map_err(storage)
     }
 
     pub(in crate::storage) fn arm_accepted_split(&self) -> StorageResult<()> {
-        self.accepted.arm_split().map_err(storage)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.arm_split().map_err(storage)
     }
 
     pub(in crate::storage) fn note_accepted_split(
         &self,
         frontier_before: u64,
     ) -> StorageResult<()> {
-        self.accepted
-            .note_split_committed(frontier_before)
-            .map_err(storage)
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        log.note_split_committed(frontier_before).map_err(storage)
     }
+}
+
+fn idle_prefix(after: u64, limit: u32) -> Result<Page, Error> {
+    if limit == 0 || limit > disk::MAX_PAGE {
+        return Err(Error::Limit);
+    }
+    if after > 0 {
+        return Err(Error::Ahead);
+    }
+    Ok(Page {
+        through: after,
+        snapshot_required: false,
+        items: Vec::new(),
+    })
 }

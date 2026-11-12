@@ -107,6 +107,41 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
     }
 }
 
+/// Read a page, stopping before the next entry would pass one in-memory file cap.
+pub(super) fn read_page(
+    root: &Path,
+    inner: &mut Inner,
+    after: u64,
+    last: u64,
+) -> Result<(u64, Vec<Entry>), Error> {
+    let mut items = Vec::new();
+    let mut held = 0u64;
+    for sequence in (after + 1)..=last {
+        let weight = match files::entry_weight(root, sequence) {
+            Ok(weight) => weight,
+            Err(_) => {
+                let _ = files::gap(root, inner);
+                return Err(Error::Gap);
+            }
+        };
+        if !items.is_empty() && held.saturating_add(weight) > files::page_budget() {
+            break;
+        }
+        match load_entry(root, sequence) {
+            Ok(entry) => {
+                held = held.saturating_add(weight);
+                items.push(entry);
+            }
+            Err(_) => {
+                let _ = files::gap(root, inner);
+                return Err(Error::Gap);
+            }
+        }
+    }
+    let through = items.last().map(|entry| entry.sequence).unwrap_or(after);
+    Ok((through, items))
+}
+
 pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
     let dir = root.join("entries").join(files::seq_name(sequence));
     let meta = files::read_meta(&dir)?;

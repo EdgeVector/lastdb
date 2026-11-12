@@ -94,7 +94,8 @@ pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
     pub(in crate::storage) cleanup_job: Arc<crate::storage::disk_cleanup::CleanupJob>,
     pub(in crate::storage) mutation_log: mutation_log::MutationLog,
-    pub(in crate::storage) accepted: crate::storage::disk_backup::accepted::Log,
+    /// Present only for an owned shareable database opened by the normal sender.
+    pub(in crate::storage) accepted: Option<crate::storage::disk_backup::accepted::Log>,
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
@@ -255,11 +256,15 @@ pub(in crate::storage) fn budget() -> ReadBudget {
 }
 
 impl PackNamespacedStore {
-    pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
+    pub fn open_keyed(
+        path: &Path,
+        node_key: Option<&[u8; 32]>,
+        capture_accepted: bool,
+    ) -> StorageResult<Self> {
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
-            return Self::create_run(path, run_node::require_key(node_key)?);
+            return Self::create_run(path, run_node::require_key(node_key)?, capture_accepted);
         }
-        Self::open_run(path, node_key)
+        Self::open_run(path, node_key, capture_accepted)
     }
 
     fn assemble(
@@ -267,14 +272,17 @@ impl PackNamespacedStore {
         current: physical::V2Root,
         initializing: bool,
         space_policy: laststore::space::SpacePolicy,
+        capture_accepted: bool,
     ) -> Self {
         let last_root = Arc::new(view::LastRoot::new(&current));
         let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
-        let accepted = crate::storage::disk_backup::accepted::Log::open(
-            physical.path(),
-            physical.current_root().frontier(),
-        );
+        let accepted = capture_accepted.then(|| {
+            crate::storage::disk_backup::accepted::Log::open(
+                physical.path(),
+                physical.current_root().frontier(),
+            )
+        });
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,

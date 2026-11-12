@@ -78,6 +78,20 @@ pub(super) fn file_max() -> u64 {
     lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES.saturating_add(64)
 }
 
+pub(super) fn page_budget() -> u64 {
+    lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+}
+
+pub(super) fn entry_weight(root: &Path, sequence: u64) -> Result<u64, Error> {
+    let meta = read_meta(&root.join("entries").join(seq_name(sequence)))?;
+    if meta.sequence != sequence {
+        return Err(Error::Gap);
+    }
+    meta.envelope_bytes
+        .checked_add(meta.file_bytes)
+        .ok_or(Error::Gap)
+}
+
 pub(super) fn seq_name(sequence: u64) -> String {
     format!("{sequence:020}")
 }

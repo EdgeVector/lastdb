@@ -12,7 +12,11 @@ impl RecordStore {
         crate::storage::disk_backup::accepted::stage_records(
             &self.runtime,
             format.content_key(),
-            |reference| format.admit_local(reference),
+            |reference| {
+                format
+                    .admit_local(reference)
+                    .map(std::path::Path::to_path_buf)
+            },
             mutations,
         )
         .await?;

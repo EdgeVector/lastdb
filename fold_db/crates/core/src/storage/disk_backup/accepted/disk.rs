@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 pub(in crate::storage) const DIR: &str = "accepted-v1";
-const MAX_PAGE: u32 = 90;
+pub(super) const MAX_PAGE: u32 = 90;
 
 #[derive(Clone)]
 pub(in crate::storage) struct Note {
@@ -212,18 +212,9 @@ impl Inner {
             return Err(Error::Behind);
         }
         let last = after.saturating_add(u64::from(limit)).min(view.head);
-        let mut items = Vec::new();
-        for sequence in (after + 1)..=last {
-            match recover::load_entry(root, sequence) {
-                Ok(entry) => items.push(entry),
-                Err(_) => {
-                    self.block(root, Error::Gap);
-                    return Err(Error::Gap);
-                }
-            }
-        }
+        let (through, items) = recover::read_page(root, self, after, last)?;
         Ok(Page {
-            through: last,
+            through,
             snapshot_required: view.snapshot_required,
             items,
         })

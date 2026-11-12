@@ -9,7 +9,8 @@ use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::{FileMarker, InlineWrite};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 struct External<'a> {
     present: bool,
@@ -22,10 +23,10 @@ struct External<'a> {
 pub(crate) async fn stage_records(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
-    admit: impl Fn(&LocalFileReference) -> Option<&Path>,
+    admit: impl Fn(&LocalFileReference) -> Option<PathBuf>,
     mutations: &[Mutation],
 ) -> StorageResult<()> {
-    if runtime.fresh_initialization_pending() {
+    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
         return Ok(());
     }
     let mut seen = BTreeSet::new();
@@ -45,7 +46,7 @@ pub(crate) fn stage_schema_put(
     name: &str,
     schema: &Schema,
 ) -> StorageResult<()> {
-    if runtime.fresh_initialization_pending() {
+    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
         return Ok(());
     }
     let wire = schema.to_wire();
@@ -66,7 +67,7 @@ pub(crate) fn stage_schema_drop(
     content_key: &[u8; 32],
     name: &str,
 ) -> StorageResult<()> {
-    if runtime.fresh_initialization_pending() {
+    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
         return Ok(());
     }
     let mutation_id = body::schema_id(name, "drop");
@@ -77,10 +78,10 @@ pub(crate) fn stage_schema_drop(
 async fn seal_mutation(
     content_key: &[u8; 32],
     mutation: &Mutation,
-    admit: &impl Fn(&LocalFileReference) -> Option<&Path>,
+    admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
 ) -> StorageResult<Note> {
     let external = external_file(content_key, mutation, admit).await?;
-    let has_file = external.bytes.is_some();
+    let has_file = external.bytes.is_some() || external.marker.is_some();
     let sealed = external.sealed.clone();
     let marker = external.marker;
     let cleared = external.cleared;
@@ -111,7 +112,7 @@ async fn seal_mutation(
 async fn external_file<'a>(
     content_key: &[u8; 32],
     mutation: &'a Mutation,
-    admit: &impl Fn(&LocalFileReference) -> Option<&Path>,
+    admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
 ) -> StorageResult<External<'a>> {
     let Some(write) = mutation.file_write.as_ref() else {
         return Ok(External::absent());
@@ -121,10 +122,11 @@ async fn external_file<'a>(
             Err(invalid("accepted file clear still carries a marker"))
         }
         FileWrite::Clear => Ok(External::clear()),
-        FileWrite::Put(_) => owned_row(content_key, mutation, write, None),
+        FileWrite::Put(_) => owned_row(content_key, mutation, write),
         FileWrite::LocalPath(_) => {
-            let plaintext = read_admitted(mutation, write, admit).await?;
-            owned_row(content_key, mutation, write, Some(plaintext))
+            confirm_local(mutation, write, admit).await?;
+            let marker = file_marker(mutation, write)?;
+            Ok(External::custody(marker))
         }
     }
 }
@@ -133,22 +135,14 @@ fn owned_row<'a>(
     content_key: &[u8; 32],
     mutation: &'a Mutation,
     write: &'a FileWrite,
-    plaintext: Option<Vec<u8>>,
 ) -> StorageResult<External<'a>> {
     let marker = file_marker(mutation, write)?;
-    let row = match (write.sealed_row(), plaintext) {
-        (Some(row), None) => {
-            crate::storage::format::records::require_row(content_key, marker, row)
-                .map_err(|_| invalid("accepted file row does not match its marker"))?;
-            row.to_vec()
-        }
-        (None, Some(plaintext)) => {
-            let (row, _) = crate::storage::format::records::seal_file_row(content_key, &plaintext)
-                .map_err(|_| StorageError::EncryptionError("accepted file seal failed".into()))?;
-            row
-        }
-        _ => return Err(invalid("accepted file row is missing")),
+    let Some(row) = write.sealed_row() else {
+        return Err(invalid("accepted file row is missing"));
     };
+    crate::storage::format::records::require_row(content_key, marker, row)
+        .map_err(|_| invalid("accepted file row does not match its marker"))?;
+    let row = row.to_vec();
     let sealed = body::sha256_hex(&row);
     Ok(External {
         present: true,
@@ -159,21 +153,50 @@ fn owned_row<'a>(
     })
 }
 
-async fn read_admitted(
+async fn confirm_local(
     mutation: &Mutation,
     write: &FileWrite,
-    admit: &impl Fn(&LocalFileReference) -> Option<&Path>,
-) -> StorageResult<Vec<u8>> {
+    admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
+) -> StorageResult<()> {
     let reference = write
         .local_reference()
         .ok_or_else(|| invalid("accepted local file is missing"))?;
     let path = admit(reference)
         .ok_or_else(|| invalid("accepted local file was not issued for this database"))?;
     let marker = file_marker(mutation, write)?;
-    let owned = path.to_path_buf();
     let size = marker.size_bytes;
     let hash = marker.sha256.clone();
-    disk_pack::run_blocking(move || read_local(&owned, size, &hash)).await
+    disk_pack::run_blocking(move || confirm_file(&path, size, &hash)).await
+}
+
+/// Hash the admitted file in a fixed buffer. The bytes stay in local-file custody.
+fn confirm_file(path: &Path, size: u64, hash: &str) -> StorageResult<()> {
+    let info =
+        std::fs::metadata(path).map_err(|_| invalid("accepted local file is not available"))?;
+    if !info.is_file() || info.len() != size {
+        return Err(invalid("accepted local file does not match its marker"));
+    }
+    let mut file =
+        std::fs::File::open(path).map_err(|_| invalid("accepted local file is not available"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut seen = 0u64;
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| invalid("accepted local file is not available"))?;
+        if count == 0 {
+            break;
+        }
+        seen = seen
+            .checked_add(count as u64)
+            .ok_or_else(|| invalid("accepted local file does not match its marker"))?;
+        hasher.update(&buffer[..count]);
+    }
+    if seen != size || hex_lower(hasher.finalize()) != hash {
+        return Err(invalid("accepted local file does not match its marker"));
+    }
+    Ok(())
 }
 
 fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResult<&'a FileMarker> {
@@ -230,30 +253,11 @@ fn contribution_section<'a>(
     ))
 }
 
-fn read_local(path: &Path, size: u64, hash: &str) -> StorageResult<Vec<u8>> {
-    let cap = lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
-    if size > cap {
-        return Err(StorageError::WriteResourceLimit {
-            detail: "accepted local file exceeds the in-memory file cap".into(),
-        });
-    }
-    let info =
-        std::fs::metadata(path).map_err(|_| invalid("accepted local file is not available"))?;
-    if !info.is_file() || info.len() != size {
-        return Err(invalid("accepted local file does not match its marker"));
-    }
-    let bytes = std::fs::read(path).map_err(|_| invalid("accepted local file is not available"))?;
-    if bytes.len() as u64 != size || hex_lower(Sha256::digest(&bytes)) != hash {
-        return Err(invalid("accepted local file does not match its marker"));
-    }
-    Ok(bytes)
-}
-
 fn invalid(detail: &str) -> StorageError {
     StorageError::InvalidOperation(detail.into())
 }
 
-impl External<'_> {
+impl<'a> External<'a> {
     fn absent() -> Self {
         Self {
             present: false,
@@ -269,6 +273,16 @@ impl External<'_> {
             present: true,
             cleared: true,
             marker: None,
+            sealed: None,
+            bytes: None,
+        }
+    }
+
+    fn custody(marker: &'a FileMarker) -> Self {
+        Self {
+            present: true,
+            cleared: false,
+            marker: Some(marker),
             sealed: None,
             bytes: None,
         }
