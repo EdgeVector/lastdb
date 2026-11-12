@@ -1,5 +1,4 @@
 //! Local publication ownership.
-use crate::cloud::CLOUD_CREDENTIALS_FILE;
 use crate::cloud_backup_client::byte_backup::{
     BackupTransportError, ByteBackupClient, ByteBackupReader, GuestReadPermission, ShareEnvironment,
 };
@@ -184,6 +183,7 @@ fn publication_client(
         endpoint.to_owned(),
         credentials.api_key.as_str().to_owned(),
     ))
+    .map_err(|error| error.to_string())
 }
 
 /// Mint a short-lived invitation only after Backup V2 has accepted this publication.
