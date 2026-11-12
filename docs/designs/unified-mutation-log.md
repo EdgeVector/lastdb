@@ -94,8 +94,12 @@ submission it names is dropped. A persistent adapter stores the sets
 alongside the log.
 
 There is no ULID idempotency row. Merge order is the stamp
-`(authored_at_ms, writer, sequence)`. An append is one transaction of
-at most 90 entries, and each writer has at most one append in flight.
+`(ordering time, writer, sequence)`. The ordering time is the older of
+the author time and the time the server accepted the entry. A later
+author time counts as the acceptance time. The author time sealed in
+the entry stays, because opening the payload uses that number. An
+append is one transaction of at most 90 entries, and each writer has
+at most one append in flight.
 
 The operations are append, head, list, ack, grant, revoke, and snapshot.
 Every cursor and every ack is a delivery sequence. An ack is stored per

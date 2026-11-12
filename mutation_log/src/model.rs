@@ -11,15 +11,24 @@ pub struct Writer {
 
 /// Merge key. Global delivery order is not this order.
 ///
-/// The tuple is `(authored_at_ms, writer, sequence)`.
+/// The tuple is `(ordering time, writer, sequence)`. The ordering time is
+/// the older of the author time and the acceptance time.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Stamp {
-    /// When the author composed the entry. The shell supplies the clock reading.
+    /// Older of the author time and the acceptance time.
     pub authored_at_ms: u64,
     /// Writer (node key, device) that composed the entry.
     pub writer: Writer,
     /// Writer sequence for that writer. Gap-free per writer, not global.
     pub sequence: u64,
+}
+
+impl Stamp {
+    /// Ordering time. A sent time later than acceptance uses the acceptance time.
+    #[must_use]
+    pub fn ordering_millis(authored_at_ms: u64, accepted_at_ms: u64) -> u64 {
+        authored_at_ms.min(accepted_at_ms)
+    }
 }
 
 /// Where a publisher re-append came from.
@@ -43,7 +52,8 @@ pub struct Entry {
     pub writer: Writer,
     /// Gap-free sequence for `writer`. Zero is rejected.
     pub writer_seq: u64,
-    /// Authoring time, supplied by the shell.
+    /// Authoring time, supplied by the shell. Opening the payload uses this
+    /// number. Merge order uses the older of this time and the acceptance time.
     pub authored_at_ms: u64,
     /// Namespace of the schema, without the schema name.
     pub namespace: Namespace,
@@ -54,11 +64,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// Stamp used for merge order.
+    /// Merge stamp. `authored_at_ms` on this entry stays as the writer sealed it.
     #[must_use]
-    pub fn stamp(&self) -> Stamp {
+    pub fn merge_stamp(&self, accepted_at_ms: u64) -> Stamp {
         Stamp {
-            authored_at_ms: self.authored_at_ms,
+            authored_at_ms: Stamp::ordering_millis(self.authored_at_ms, accepted_at_ms),
             writer: self.writer.clone(),
             sequence: self.writer_seq,
         }
@@ -70,7 +80,7 @@ impl Entry {
 pub struct Head {
     /// Last delivery sequence in the log. The first accepted entry is 1.
     pub delivery_seq: u64,
-    /// Stamp of the entry stored at `delivery_seq`.
+    /// Ordering stamp of the entry stored at `delivery_seq`.
     pub stamp: Stamp,
 }
 
@@ -81,8 +91,16 @@ pub struct StoredEntry {
     pub delivery_seq: u64,
     /// Time the shell accepted the batch. Retention uses this, not `authored_at_ms`.
     pub accepted_at_ms: u64,
-    /// The accepted entry.
+    /// The accepted entry. Its author time stays as sealed.
     pub entry: Entry,
+}
+
+impl StoredEntry {
+    /// Merge stamp. A future author time uses [`Self::accepted_at_ms`].
+    #[must_use]
+    pub fn merge_stamp(&self) -> Stamp {
+        self.entry.merge_stamp(self.accepted_at_ms)
+    }
 }
 
 /// A database is personal or shareable. It is never both.

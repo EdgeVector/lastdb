@@ -77,9 +77,8 @@ pub fn filter_readable<'a>(
 pub fn merge_order(entries: &[StoredEntry]) -> Vec<&StoredEntry> {
     let mut ordered: Vec<&StoredEntry> = entries.iter().collect();
     ordered.sort_by(|left, right| {
-        left.entry
-            .stamp()
-            .cmp(&right.entry.stamp())
+        left.merge_stamp()
+            .cmp(&right.merge_stamp())
             .then(left.delivery_seq.cmp(&right.delivery_seq))
     });
     ordered
@@ -189,7 +188,7 @@ fn scoped_head(
     let mut stamp = None;
     for stored in &state.entries {
         if entry_visible(state, stored, reader, policy) {
-            stamp = Some(stored.entry.stamp());
+            stamp = Some(stored.merge_stamp());
         }
     }
     Some(ScopedHead { cursor, stamp })
