@@ -3,10 +3,12 @@ use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Destination};
 use cloud_backup_protocol::{Digest, RecoveryDescriptor};
 use fold_db::cloud_backup_plan::ClientNativeFile;
 use fold_db::storage::disk_pack::byte_backup::{
-    decode_metadata, encode_metadata, validate_metadata_context, ClientPageReference,
-    CODEC_ENVELOPE_MAX_BYTES, MAX_CLIENT_PAGES, MAX_PAGE_FILES,
+    decode_metadata, encode_metadata, valid_page_refs, validate_metadata_context,
+    validate_page_files, ClientPageReference, MAX_CLIENT_PAGES,
 };
-use fold_db::storage::disk_pack::mutation_log::{log_path, LogAnchor, LogEntry, LogPosition};
+use fold_db::storage::disk_pack::mutation_log::{
+    log_path, FrozenLogCapture, LogAnchor, LogEntry, LogPosition,
+};
 use serde::{Deserialize, Serialize};
 
 /// Version 5 logs main-home runs only; record blobs upload by path.
@@ -15,15 +17,12 @@ pub const MAX_BATCH_ENTRIES: usize = 128;
 
 #[derive(Debug)]
 pub struct LogCodecError(&'static str);
-
 impl std::fmt::Display for LogCodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0)
     }
 }
-
 impl std::error::Error for LogCodecError {}
-
 pub type Result<T> = std::result::Result<T, LogCodecError>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +42,18 @@ pub struct MutationLogPage {
 }
 
 impl MutationLogPage {
+    pub fn new(page_index: u32, begin: &Begin, files: Vec<ClientNativeFile>) -> Result<Self> {
+        let (begin_sha256, descriptor_sha256) = begin_digests(begin)?;
+        let page = Self {
+            version: VERSION,
+            page_index,
+            begin_sha256,
+            descriptor_sha256,
+            files,
+        };
+        page.validate_for(begin).map(|()| page)
+    }
+
     pub fn validate_for(&self, begin: &Begin) -> Result<()> {
         context(
             self.version,
@@ -50,31 +61,13 @@ impl MutationLogPage {
             &self.descriptor_sha256,
             begin,
         )?;
-        if self.page_index as usize >= MAX_CLIENT_PAGES
-            || self.files.is_empty()
-            || self.files.len() > MAX_PAGE_FILES
-        {
-            return Err(LogCodecError("mutation log page resource bound"));
-        }
-        let mut previous = None;
-        for file in &self.files {
-            file.validate()
-                .map_err(|_| LogCodecError("mutation log file extents"))?;
-            if previous.is_some_and(|old| old >= file.path.as_str()) {
-                return Err(LogCodecError("mutation log page path order"));
-            }
-            previous = Some(file.path.as_str());
-        }
-        encode_metadata(self)
-            .map(|_| ())
-            .map_err(|_| LogCodecError("mutation log metadata size"))
+        validate_page_files(self.page_index, &self.files)
+            .map_err(|_| LogCodecError("mutation log page files"))?;
+        check_encoded(self)
     }
 
     pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> Result<Self> {
-        let value: Self =
-            decode_metadata(bytes, key).map_err(|_| LogCodecError("mutation log metadata"))?;
-        value.validate_for(begin)?;
-        Ok(value)
+        decode_checked(bytes, key, |v: &Self| v.validate_for(begin))
     }
 }
 
@@ -98,6 +91,33 @@ pub struct MutationLogRoot {
 }
 
 impl MutationLogRoot {
+    pub fn from_frozen(
+        frozen: &FrozenLogCapture,
+        recovery: RecoveryDescriptor,
+        base: AcceptedBackup,
+        previous: AcceptedBackup,
+        pages: Vec<ClientPageReference>,
+    ) -> Result<Self> {
+        let (begin_sha256, descriptor_sha256) = begin_digests(&frozen.begin)?;
+        let root = Self {
+            version: VERSION,
+            kind: LogKind::NativeMutationLog,
+            begin_sha256,
+            descriptor_sha256,
+            recovery,
+            base,
+            previous,
+            anchor: frozen.anchor.clone(),
+            from: frozen.from.clone(),
+            through: frozen.through.clone(),
+            entries: frozen.entries.clone(),
+            native_file_count: frozen.files.len() as u64,
+            native_bytes: frozen.native_bytes,
+            pages,
+        };
+        root.validate_for(&frozen.begin).map(|()| root)
+    }
+
     pub fn validate_for(&self, begin: &Begin) -> Result<()> {
         let mut expected = vec![self.base.head()];
         if self.previous != self.base {
@@ -125,12 +145,10 @@ impl MutationLogRoot {
             || self.previous.job().stream != begin.job.stream
             || begin.predecessor.as_ref() != Some(&self.previous.head())
             || self.base.ordinal.get() > self.previous.ordinal.get()
-            || self.entries.is_empty()
-            || self.entries.len() > MAX_BATCH_ENTRIES
+            || !(1..=MAX_BATCH_ENTRIES).contains(&self.entries.len())
             || self.from.epoch != self.anchor.epoch
             || self.through.epoch != self.anchor.epoch
-            || self.pages.is_empty()
-            || self.pages.len() > MAX_CLIENT_PAGES
+            || !(1..=MAX_CLIENT_PAGES).contains(&self.pages.len())
         {
             return Err(LogCodecError(
                 "mutation log root selection or resource bound",
@@ -143,53 +161,41 @@ impl MutationLogRoot {
         if (self.from.sequence == 0 || self.previous == self.base) && self.from != anchor {
             return Err(LogCodecError("mutation log snapshot boundary"));
         }
-        let mut position = self.from.clone();
-        let mut files = 0u64;
-        let mut bytes = 0u64;
+        let (mut pos, mut files, mut bytes) = (self.from.clone(), 0u64, 0u64);
         for entry in &self.entries {
-            position = entry
-                .position_after(&position)
+            pos = entry
+                .position_after(&pos)
                 .map_err(|_| LogCodecError("mutation log sequence or hash"))?;
             files = files
                 .checked_add(entry.parts.len() as u64)
                 .ok_or(LogCodecError("mutation log file count"))?;
+            let eb = entry
+                .bytes()
+                .map_err(|_| LogCodecError("mutation log entry size"))?;
             bytes = bytes
-                .checked_add(
-                    entry
-                        .bytes()
-                        .map_err(|_| LogCodecError("mutation log entry size"))?,
-                )
+                .checked_add(eb)
                 .ok_or(LogCodecError("mutation log byte count"))?;
         }
-        if position != self.through || files != self.native_file_count || bytes != self.native_bytes
+        if pos != self.through
+            || files != self.native_file_count
+            || bytes != self.native_bytes
+            || !valid_page_refs(&self.pages)
         {
             return Err(LogCodecError("mutation log complete range totals"));
         }
-        for (index, page) in self.pages.iter().enumerate() {
-            if page.page_index as usize != index
-                || page.bytes.get() <= 29
-                || page.bytes.get() > CODEC_ENVELOPE_MAX_BYTES
-            {
-                return Err(LogCodecError("mutation log page identity or length"));
-            }
-        }
-        encode_metadata(self)
-            .map(|_| ())
-            .map_err(|_| LogCodecError("mutation log metadata size"))
+        check_encoded(self)
     }
 
     pub fn validate_page(&self, page: &MutationLogPage) -> Result<()> {
-        if page.version != self.version
-            || page.begin_sha256 != self.begin_sha256
-            || page.descriptor_sha256 != self.descriptor_sha256
+        if (page.version, &page.begin_sha256, &page.descriptor_sha256)
+            != (self.version, &self.begin_sha256, &self.descriptor_sha256)
             || self.pages.get(page.page_index as usize).is_none()
         {
             return Err(LogCodecError("mutation log page context"));
         }
-        for file in &page.files {
-            self.validate_file(file)?;
-        }
-        Ok(())
+        page.files
+            .iter()
+            .try_for_each(|f| self.validate_file(f).map(|_| ()))
     }
 
     pub fn validate_file(&self, file: &ClientNativeFile) -> Result<Destination> {
@@ -200,39 +206,56 @@ impl MutationLogRoot {
                 if file.path.as_str()
                     == log_path(&self.anchor.epoch, entry.sequence, part.role, &part.run_id)
                 {
-                    if file.native_bytes.get() != part.bytes {
-                        return Err(LogCodecError("mutation log original file length"));
-                    }
-                    return Ok(Destination::R2);
+                    return (file.native_bytes.get() == part.bytes)
+                        .then_some(Destination::R2)
+                        .ok_or(LogCodecError("mutation log original file length"));
                 }
             }
         }
         Err(LogCodecError("mutation log unexpected native path"))
     }
 
-    pub fn validate_previous(&self, previous: &Self) -> Result<()> {
-        if self.base != previous.base
-            || self.anchor != previous.anchor
-            || self.from != previous.through
-        {
-            return Err(LogCodecError("mutation log predecessor prefix differs"));
-        }
-        Ok(())
+    pub fn validate_previous(&self, prev: &Self) -> Result<()> {
+        (self.base == prev.base && self.anchor == prev.anchor && self.from == prev.through)
+            .then_some(())
+            .ok_or(LogCodecError("mutation log predecessor prefix differs"))
     }
 
     pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> Result<Self> {
-        let value: Self =
-            decode_metadata(bytes, key).map_err(|_| LogCodecError("mutation log metadata"))?;
-        value.validate_for(begin)?;
-        Ok(value)
+        decode_checked(bytes, key, |v: &Self| v.validate_for(begin))
     }
+}
+
+fn decode_checked<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    key: &[u8; 32],
+    check: impl FnOnce(&T) -> Result<()>,
+) -> Result<T> {
+    let v: T = decode_metadata(bytes, key).map_err(|_| LogCodecError("mutation log metadata"))?;
+    check(&v).map(|()| v)
+}
+
+fn begin_digests(begin: &Begin) -> Result<(Digest, Digest)> {
+    let a = begin
+        .input_sha256()
+        .map_err(|_| LogCodecError("mutation log begin"))?;
+    let b = begin
+        .descriptor
+        .commitment()
+        .map_err(|_| LogCodecError("mutation log descriptor"))?;
+    Ok((a, b))
+}
+
+fn check_encoded(value: &impl Serialize) -> Result<()> {
+    encode_metadata(value)
+        .map(|_| ())
+        .map_err(|_| LogCodecError("mutation log metadata size"))
 }
 
 fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> Result<()> {
     validate_metadata_context(version, VERSION, digest, descriptor, begin)
         .map_err(|_| LogCodecError("mutation log metadata frozen context"))?;
-    if begin.required_destinations != [Destination::R2, Destination::B2] {
-        return Err(LogCodecError("mutation log metadata frozen context"));
-    }
-    Ok(())
+    (begin.required_destinations == [Destination::R2, Destination::B2])
+        .then_some(())
+        .ok_or(LogCodecError("mutation log metadata frozen context"))
 }

@@ -1,7 +1,7 @@
 //! Exact record and alternate lookups from the same inactive native root as the restore proof.
 
-use super::database::{bad_request, checked_address, resource_limit};
-use super::{fork_bounded, invalid, map, RunNodeGuard, StorageResult};
+use super::database::{bad_request, checked_address, resource_limit, scan_records_page};
+use super::{invalid, map, RunNodeGuard, StorageResult};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
@@ -14,9 +14,7 @@ use lastdb_model::field_key_id::alternate_field_key_id;
 use lastdb_model::record_value::{
     InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
 };
-use lastdb_model::storage_policy::backup_decode::{
-    NATIVE_STREAM_LOOKUP_READ_BYTES, RECORD_BODY_MAX_BYTES,
-};
+use lastdb_model::storage_policy::backup_decode::RECORD_BODY_MAX_BYTES;
 use lastdb_model::{field_key_codec::FieldKeyCodec, record_space::record_space_uuid};
 use laststore::disk_run::{home::RunRead, MAX_RUN_KEY_BYTES};
 use serde::Serialize;
@@ -40,16 +38,13 @@ pub struct StagedRecordQuery<'a> {
 impl<'a> StagedRecordQuery<'a> {
     /// Bound the coordinates before starting any restore work.
     pub fn new(schema: &'a str, key: KeyValue, include_inline: bool) -> StorageResult<Self> {
-        if schema.is_empty()
-            || schema.len() > MAX_RUN_KEY_BYTES
-            || key
-                .hash
-                .as_ref()
-                .is_none_or(|hash| hash.is_empty() || hash.len() > MAX_RUN_KEY_BYTES)
+        let valid_nonempty = |s: &str| (1..=MAX_RUN_KEY_BYTES).contains(&s.len());
+        if !valid_nonempty(schema)
+            || !key.hash.as_deref().is_some_and(valid_nonempty)
             || key
                 .range
                 .as_ref()
-                .is_some_and(|range| range.len() > MAX_RUN_KEY_BYTES)
+                .is_some_and(|r| r.len() > MAX_RUN_KEY_BYTES)
         {
             return Err(invalid("staged record coordinates"));
         }
@@ -72,14 +67,13 @@ pub struct StagedRecord {
 }
 
 impl StagedRecord {
-    /// The authenticated fields of this exact primary record.
     pub fn fields(&self) -> &BTreeMap<String, Value> {
         &self.fields
     }
 }
 
 /// A read-only native root that matches the caller's authenticated stage proof.
-pub struct RunSnapshotReader(pub(in crate::storage::disk_backup::run_restore) RunNodeGuard);
+pub struct RunSnapshotReader(pub(super) RunNodeGuard);
 
 impl RunSnapshotReader {
     pub fn open(
@@ -87,7 +81,7 @@ impl RunSnapshotReader {
         account_key: &[u8; 32],
         verified_root: &cloud_backup_protocol::NativeRoot,
     ) -> StorageResult<Self> {
-        let native = RunNodeGuard::open_snapshot(path, account_key)?;
+        let native = RunNodeGuard::open(path, account_key, true)?;
         native.profile.validate_root(verified_root)?;
         native.require_empty_local_cas()?;
         Ok(Self(native))
@@ -98,30 +92,35 @@ impl RunSnapshotReader {
         query: &StagedRecordQuery<'_>,
         account_key: &[u8; 32],
     ) -> StorageResult<Option<StagedRecord>> {
-        let mut read = fork_bounded(&self.0.main, NATIVE_STREAM_LOOKUP_READ_BYTES, 3)?;
-        let schema = schema(&mut read, query.schema)?;
+        let mut read = self.lookup(3)?;
+        let key = native_routing::encode(query.schema.as_bytes());
+        let bytes = read
+            .get_bounded(SCHEMAS_NAMESPACE, &key, RECORD_BODY_MAX_BYTES)
+            .map_err(map)?
+            .ok_or_else(|| invalid("staged schema is absent"))?;
+        let schema = decode_schema(&bytes, &key)?;
         let codec = record_codec(&schema, account_key)?;
         let address = record_address(&schema, &codec, &query.key)?;
-        let Some(record) = read_record(&mut read, &address)? else {
+        let Some(record) = read_verified(&mut read, &schema, &codec, &address)? else {
             return Ok(None);
         };
-        check_record_address(&schema, &codec, &record, address.as_str())?;
         if !record.is_live() {
             return Err(invalid("staged record payload differs from its key"));
         }
-        let inline_file = if query.include_inline {
-            read_inline(&mut read, &address, &record)?
-        } else {
-            None
-        };
+        let inline_file = query
+            .include_inline
+            .then(|| read_inline(&mut read, &address, &record))
+            .transpose()?
+            .flatten();
+        let share_author = record
+            .meta
+            .and_then(|mut m| m.metadata.remove("share_author"))
+            .and_then(|a| Digest::try_from(a).ok());
         Ok(Some(StagedRecord {
             key: record.key,
             fields: record.fields,
             inline_file,
-            share_author: record
-                .meta
-                .and_then(|mut metadata| metadata.metadata.remove("share_author"))
-                .and_then(|author| Digest::try_from(author).ok()),
+            share_author,
         }))
     }
 
@@ -140,12 +139,12 @@ impl RunSnapshotReader {
                 "verified alternate page exceeds its read allowance",
             ));
         }
-        let definition = schema
+        let def = schema
             .require_record_keys()
             .ok()
             .and_then(|keys| keys.alternates.get(name))
             .ok_or_else(|| bad_request("alternate key is not declared"))?;
-        let profile = definition
+        let profile = def
             .range_profile()
             .map_err(|_| invalid("staged alternate key range profile"))?;
         let field = alternate_field_key_id(schema, name);
@@ -156,43 +155,47 @@ impl RunSnapshotReader {
             bad_request("alternate reads require a valid key or range under one hash")
         })?;
         let encode = |entry: &AlternateEntry| {
-            definition
-                .validate_coordinates(
-                    entry.matched.hash.as_deref(),
-                    entry.matched.range.as_deref(),
-                )
-                .map_err(|_| bad_request("alternate key differs from its schema"))?;
+            def.validate_coordinates(
+                entry.matched.hash.as_deref(),
+                entry.matched.range.as_deref(),
+            )
+            .map_err(|_| bad_request("alternate key differs from its schema"))?;
             let address = checked_address(schema, &primary, &entry.primary)?;
             AlternateAddress::new(&alternate, &field, &entry.matched, &address)
                 .map(AlternateAddress::into_string)
                 .map_err(|_| bad_request("alternate cursor coordinates are invalid"))
         };
         let (entries, has_more) = read_entries(&mut read, &start, &end, after, limit, encode)?;
-        let keys = entries
-            .iter()
-            .map(|entry| entry.primary.clone())
-            .collect::<Vec<_>>();
-        let mut records = self
+        let keys: Vec<_> = entries.iter().map(|e| e.primary.clone()).collect();
+        let mut records: HashMap<_, _> = self
             .exact_records(schema, &keys, account_key)?
             .into_iter()
-            .map(|record| (record.key.clone(), record))
-            .collect::<HashMap<_, _>>();
+            .map(|r| (r.key.clone(), r))
+            .collect();
         let rows = entries
             .into_iter()
             .map(|entry| {
-                let record = records
+                records
                     .remove(&entry.primary)
-                    .filter(|record| {
-                        record.alternates.get(name).and_then(Option::as_ref) == Some(&entry.matched)
+                    .filter(|r| {
+                        r.alternates.get(name).and_then(Option::as_ref) == Some(&entry.matched)
                     })
+                    .map(|r| (entry, r))
                     .ok_or_else(|| {
                         invalid("staged alternate entry differs from its primary record")
-                    })?;
-                Ok((entry, record))
+                    })
             })
             .collect::<StorageResult<_>>()?;
         Ok(SnapshotAlternatePage { rows, has_more })
     }
+}
+
+pub(super) fn decode_schema(bytes: &[u8], expected_encoded_key: &str) -> StorageResult<Schema> {
+    let schema: Schema =
+        serde_json::from_slice(bytes).map_err(|_| invalid("staged schema record"))?;
+    (native_routing::encode(schema.name.as_bytes()) == expected_encoded_key)
+        .then_some(schema)
+        .ok_or_else(|| invalid("staged schema name differs from its key"))
 }
 
 fn read_entries(
@@ -204,60 +207,41 @@ fn read_entries(
     encode: impl Fn(&AlternateEntry) -> StorageResult<String>,
 ) -> StorageResult<(Vec<AlternateEntry>, bool)> {
     let after = after.map(&encode).transpose()?;
-    if after
-        .as_ref()
-        .is_some_and(|cursor| cursor.as_str() < start || cursor.as_str() >= end)
-    {
-        return Err(bad_request(
-            "alternate cursor is outside the requested key range",
-        ));
-    }
-    if start >= end {
+    let err = "alternate cursor is outside the requested key range";
+    let Some((rows, _, resumed)) =
+        scan_records_page(read, start, end, after.as_deref(), limit, err)?
+    else {
         return Ok((Vec::new(), false));
-    }
-    let mut range = match after {
-        Some(cursor) => {
-            read.administrative_range_after(RECORDS_COLLECTION, cursor.as_bytes(), end.as_bytes())
-        }
-        None => read.administrative_range(RECORDS_COLLECTION, start.as_bytes(), end.as_bytes()),
-    }
-    .map_err(map)?;
-    let page = range
-        .next_page_yielding_bounded(limit + 1, 0, 0, MAX_RECORD_BYTES as u64)
-        .map_err(map)?;
-    if page.resume.is_some() {
+    };
+    if resumed {
         return Err(resource_limit(
             "verified alternate page exceeds its read allowance",
         ));
     }
-    let has_more = page.records.len() > limit;
-    let entries = page
-        .records
+    let has_more = rows.len() > limit;
+    let entries = rows
         .into_iter()
         .take(limit)
         .map(|(key, bytes)| {
             let entry: AlternateEntry = serde_json::from_slice(&bytes)
                 .map_err(|_| invalid("staged alternate entry format"))?;
-            if encode(&entry).ok().as_deref() != Some(key.as_str()) {
-                return Err(invalid(
-                    "staged alternate entry differs from its storage key",
-                ));
-            }
-            Ok(entry)
+            (encode(&entry).ok().as_deref() == Some(key.as_str()))
+                .then_some(entry)
+                .ok_or_else(|| invalid("staged alternate entry differs from its storage key"))
         })
-        .collect::<StorageResult<Vec<_>>>()?;
+        .collect::<StorageResult<_>>()?;
     Ok((entries, has_more))
 }
 
-pub(in crate::storage::disk_backup::run_restore) fn record_codec(
+pub(super) fn record_codec(
     schema: &Schema,
     account_key: &[u8; 32],
 ) -> StorageResult<FieldKeyCodec> {
-    let primary = &schema
+    let keys = schema
         .require_record_keys()
-        .map_err(|_| invalid("staged schema has no record keys"))?
-        .primary;
-    let profile = primary
+        .map_err(|_| invalid("staged schema has no record keys"))?;
+    let profile = keys
+        .primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
     Ok(FieldKeyCodec::from_node_key(
@@ -267,59 +251,52 @@ pub(in crate::storage::disk_backup::run_restore) fn record_codec(
     ))
 }
 
-pub(in crate::storage::disk_backup::run_restore) fn record_address(
+pub(super) fn record_address(
     schema: &Schema,
     codec: &FieldKeyCodec,
     key: &KeyValue,
 ) -> StorageResult<RecordAddress> {
-    schema
+    let keys = schema
         .require_record_keys()
-        .map_err(|_| invalid("staged schema has no record keys"))?
-        .primary
+        .map_err(|_| invalid("staged schema has no record keys"))?;
+    keys.primary
         .validate_coordinates(key.hash.as_deref(), key.range.as_deref())
         .map_err(|_| invalid("staged record key differs from its schema"))?;
     RecordAddress::new(codec, &record_space_uuid(&schema.name), key)
         .map_err(|_| invalid("staged record address"))
 }
 
-pub(in crate::storage::disk_backup::run_restore) fn check_record_address(
+pub(super) fn decode_verified(
     schema: &Schema,
     codec: &FieldKeyCodec,
-    record: &StoredRecord,
     stored: &str,
-) -> StorageResult<()> {
-    if record_address(schema, codec, &record.key)?.as_str() != stored {
-        return Err(invalid("staged record payload differs from its key"));
+    bytes: &[u8],
+    live_only: bool,
+) -> StorageResult<Option<StoredRecord>> {
+    let record = StoredRecord::decode(bytes).map_err(|_| invalid("staged record value"))?;
+    if live_only && !record.is_live() {
+        return Ok(None);
     }
-    Ok(())
+    (record_address(schema, codec, &record.key)?.as_str() == stored)
+        .then_some(Some(record))
+        .ok_or_else(|| invalid("staged record payload differs from its key"))
 }
 
-fn schema(read: &mut RunRead, name: &str) -> StorageResult<Schema> {
-    let key = native_routing::encode(name.as_bytes());
-    let bytes = read
-        .get_bounded(SCHEMAS_NAMESPACE, &key, RECORD_BODY_MAX_BYTES)
-        .map_err(map)?
-        .ok_or_else(|| invalid("staged schema is absent"))?;
-    let schema: Schema =
-        serde_json::from_slice(&bytes).map_err(|_| invalid("staged schema record"))?;
-    if schema.name != name {
-        return Err(invalid("staged schema name differs from its key"));
-    }
-    Ok(schema)
-}
-
-pub(in crate::storage::disk_backup::run_restore) fn read_record(
+pub(super) fn read_verified(
     read: &mut RunRead,
+    schema: &Schema,
+    codec: &FieldKeyCodec,
     address: &RecordAddress,
 ) -> StorageResult<Option<StoredRecord>> {
     let key = native_routing::encode(address.as_str().as_bytes());
     read.get_bounded(RECORDS_COLLECTION, &key, MAX_RECORD_BYTES as u64)
         .map_err(map)?
-        .map(|bytes| StoredRecord::decode(&bytes).map_err(|_| invalid("staged record value")))
+        .map(|b| decode_verified(schema, codec, address.as_str(), &b, false))
         .transpose()
+        .map(Option::flatten)
 }
 
-pub(in crate::storage::disk_backup::run_restore) fn read_inline(
+pub(super) fn read_inline(
     read: &mut RunRead,
     address: &RecordAddress,
     record: &StoredRecord,
@@ -332,7 +309,7 @@ pub(in crate::storage::disk_backup::run_restore) fn read_inline(
         .get_bounded(RECORDS_COLLECTION, &key, MAX_INLINE_STORED_BYTES as u64)
         .map_err(map)?
         .ok_or_else(|| invalid("staged inline file is absent"))?;
-    let file = inline_files::decode_for(&bytes, marker)
-        .map_err(|_| invalid("staged inline file differs from its record"))?;
-    Ok(Some(file))
+    inline_files::decode_for(&bytes, marker)
+        .map(Some)
+        .map_err(|_| invalid("staged inline file differs from its record"))
 }

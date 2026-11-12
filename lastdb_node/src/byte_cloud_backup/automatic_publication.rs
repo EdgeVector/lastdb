@@ -1,20 +1,17 @@
 //! Backup V2 recovery points for one running publication home.
-mod tail;
-
 use super::{
-    automatic, control, invocation,
-    model::{Saved, StreamRecord},
+    automatic, control, execute,
+    model::Saved,
+    publication,
     source::{PublicationSource, Source},
     store::{self, Store},
     work::{LogContext, Work},
     worker, BackupError, Result,
 };
-use crate::backup_runtime::{InvocationOutcome, RunOrigin};
+use crate::backup_runtime::InvocationOutcome;
 use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use crate::host::Host;
-use cloud_backup_protocol::v2::{
-    context::ContextReadRequest, jobs::JobResult, Destination, Stream, Version,
-};
+use cloud_backup_protocol::v2::{jobs::JobResult, Stream};
 use cloud_backup_protocol::Id;
 use fold_db::storage::disk_pack::mutation_log::Frontiers;
 use serde::{Deserialize, Serialize};
@@ -29,7 +26,6 @@ use tracing::Instrument;
 
 const POLICY: &str = "share-automatic.json";
 const REVISION: u64 = 1;
-const CAPABILITY_TTL: Duration = Duration::from_secs(15);
 type Client = dyn Fn() -> std::result::Result<ByteBackupClient, String> + Send + Sync;
 
 #[derive(Serialize, Deserialize)]
@@ -53,14 +49,37 @@ struct Pending {
 
 impl Pending {
     fn work(&self) -> Work {
-        if let Some(context) = &self.log {
-            Work::MutationLog {
-                context: context.clone(),
-            }
-        } else {
-            Work::Snapshot {
+        match &self.log {
+            Some(ctx) => Work::MutationLog {
+                context: ctx.clone(),
+            },
+            None => Work::Snapshot {
                 minimum: Some(self.minimum),
-            }
+            },
+        }
+    }
+}
+
+#[derive(Default)]
+struct Retry {
+    until: Option<Instant>,
+    attempts: u32,
+}
+
+impl Retry {
+    fn schedule(&mut self, error: impl std::fmt::Display) {
+        if self.attempts == 0 {
+            tracing::warn!(target: "lastdbd::share", %error, "share publication will retry");
+        }
+        let secs = (5u64 << self.attempts.min(4)).min(60);
+        self.until = Some(Instant::now() + Duration::from_secs(secs));
+        self.attempts = self.attempts.saturating_add(1);
+    }
+
+    async fn wait(&self) {
+        match self.until {
+            Some(at) => tokio::time::sleep_until(at).await,
+            None => std::future::pending::<()>().await,
         }
     }
 }
@@ -69,13 +88,12 @@ struct Publisher {
     host: Arc<Host>,
     source: Source,
     base: PathBuf,
+    stream_id: Id,
 }
 
 pub(crate) fn preflight(home: &Path) -> Result<()> {
-    if Store::active(home)?.is_some()
-        || store::read::<serde_json::Value>(&Store::base(home).join(store::AUTOMATIC_FILE))?
-            .is_some()
-    {
+    let auto = store::read::<serde_json::Value>(&Store::base(home).join(store::AUTOMATIC_FILE))?;
+    if auto.is_some() || Store::active(home)?.is_some() {
         return Err(BackupError::Identity);
     }
     Ok(())
@@ -87,143 +105,97 @@ pub(crate) fn spawn(
     identity: PublicationSource,
     client: impl Fn() -> std::result::Result<ByteBackupClient, String> + Send + Sync + 'static,
 ) -> Result<tokio::task::JoinHandle<()>> {
+    let stream_id = identity.id.clone();
     let source = Source::from_publication(&host.home, host.db.db_ops().native_runtime(), identity)?;
     let publisher = Publisher {
         base: Store::publication_base(&host.home),
         host,
         source,
+        stream_id,
     };
     publisher.policy()?;
-    if !publisher.source.runtime().mutation_log_status()?.enabled {
-        publisher.source.runtime().configure_mutation_log(true)?;
+    if !publisher.source.runtime.mutation_log_status()?.enabled {
+        publisher.source.runtime.configure_mutation_log(true)?;
     }
     Ok(tokio::spawn(
-        async move {
-            publisher.run(&shutdown, &client).await;
-        }
-        .in_current_span(),
+        async move { publisher.run(&shutdown, &client).await }.in_current_span(),
     ))
 }
 
 impl Publisher {
     async fn run(&self, shutdown: &AtomicBool, client: &Client) {
         let mut jobs = self.host.byte_backup.subscribe();
-        let mut writes = self.source.runtime().subscribe_durable_writes();
-        let mut retry = tail::Retry::default();
-        let mut cached_limit: Option<(Stream, String, Option<u8>, Instant)> = None;
-        let mut last_completion = 0;
+        let mut writes = self.source.runtime.subscribe_durable_writes();
+        let (mut retry, mut cached, mut last_token) = (Retry::default(), None, 0);
         loop {
             let current = jobs.borrow_and_update().clone();
             if shutdown.load(Ordering::Acquire) || current.shutting_down {
                 break;
             }
-            if let Some(completion) = current.last_completion {
-                if completion.invocation.token > last_completion {
-                    last_completion = completion.invocation.token;
-                    match completion.outcome {
-                        InvocationOutcome::Complete => retry = tail::Retry::default(),
-                        InvocationOutcome::Paused(state) => {
-                            retry.schedule(format_args!("{:?}", state.reason));
-                        }
-                    }
+            if let Some(done) = current
+                .last_completion
+                .filter(|d| d.invocation.token > last_token)
+            {
+                last_token = done.invocation.token;
+                match done.outcome {
+                    InvocationOutcome::Complete => retry = Retry::default(),
+                    InvocationOutcome::Paused(s) => retry.schedule(format_args!("{:?}", s.reason)),
                 }
             }
-            if retry.ready() {
+            if retry.until.is_none_or(|at| at <= Instant::now()) {
                 retry.until = None;
                 if current.active.is_none() {
-                    let result = self
-                        .capability_limit(&mut cached_limit, client)
+                    match self
+                        .limit(&mut cached, client)
                         .await
-                        .and_then(|limit| self.tick(client, limit));
-                    match result {
+                        .and_then(|l| self.tick(client, l))
+                    {
                         Ok(true) => continue,
                         Ok(false) => {}
-                        Err(error) => retry.schedule(error),
+                        Err(e) => retry.schedule(e),
                     }
                 }
             }
             tokio::select! {
-                result = jobs.changed() => { if result.is_err() { break; } }
-                result = writes.changed(), if retry.until.is_none() => {
-                    if result.is_err() { break; }
-                }
+                r = jobs.changed() => if r.is_err() { break; },
+                r = writes.changed(), if retry.until.is_none() => if r.is_err() { break; },
                 _ = retry.wait() => {}
             }
         }
     }
 
-    async fn capability_limit(
+    async fn limit(
         &self,
         cached: &mut Option<(Stream, String, Option<u8>, Instant)>,
         client: &Client,
     ) -> Result<Option<u8>> {
-        if !self.needs_limit()? {
+        let need = if let Some(p) = self.policy()?.pending {
+            p.log.is_some()
+                && store::state_at(&self.base, &p.id)?
+                    .is_none_or(|s| !s.begin_submitted && s.local_action.is_none() && !s.terminal())
+        } else if let Some(id) = Store::active_at(&self.base)? {
+            store::state_at(&self.base, &id)?
+                .ok_or(BackupError::Missing)?
+                .terminal()
+        } else {
+            true
+        };
+        if !need {
             return Ok(None);
         }
-        let client = client().map_err(|_| BackupError::Authority)?;
-        let endpoint = client.canonical_endpoint();
-        let stream = self.stream(&client).await?;
-        if let Some((saved_stream, saved_endpoint, limit, expires)) = cached.as_ref() {
-            if *saved_stream == stream && *saved_endpoint == endpoint && Instant::now() < *expires {
-                return Ok(*limit);
-            }
-        }
-        let limit = client.share_recovery_limit(&stream).await?;
-        *cached = Some((stream, endpoint, limit, Instant::now() + CAPABILITY_TTL));
-        Ok(limit)
-    }
-
-    fn needs_limit(&self) -> Result<bool> {
-        if let Some(pending) = self.policy()?.pending {
-            return Ok(pending.log.is_some()
-                && store::state_at(&self.base, &pending.id)?.is_none_or(|saved| {
-                    !saved.begin_submitted && saved.local_action.is_none() && !saved.terminal()
-                }));
-        }
-        if let Some(id) = Store::active_at(&self.base)? {
-            return Ok(store::state_at(&self.base, &id)?
-                .ok_or(BackupError::Missing)?
-                .terminal());
-        }
-        Ok(true)
-    }
-
-    async fn stream(&self, client: &ByteBackupClient) -> Result<Stream> {
-        let stream_id = self.stream_id()?;
-        let stream =
-            if let Some(record) = store::read::<StreamRecord>(&self.base.join("stream.json"))? {
-                if record.source_home != self.source.source_home {
-                    return Err(BackupError::Identity);
-                }
-                record.stream
-            } else {
-                let context = client
-                    .context(&ContextReadRequest {
-                        version: Version::V2,
-                        account_id: self.source.account.clone(),
-                        required_destinations: vec![Destination::R2, Destination::B2],
-                    })
-                    .await?;
-                Stream {
-                    scope: context.scope,
-                    stream_id: stream_id.clone(),
-                }
-            };
-        stream.validate()?;
-        if &stream.stream_id != stream_id || stream.scope.account_id != self.source.account {
-            return Err(BackupError::Identity);
-        }
-        Ok(stream)
+        let c = client().map_err(|_| BackupError::Authority)?;
+        publication::share_capability_limit(&self.base, &self.source, &self.stream_id, cached, &c)
+            .await
     }
 
     fn tick(&self, client: &Client, limit: Option<u8>) -> Result<bool> {
-        let runtime = &self.host.byte_backup;
-        let _transition = runtime.transition()?;
-        runtime.check_admission()?;
-        if runtime.snapshot().active.is_some() {
+        let rt = &self.host.byte_backup;
+        let _transition = rt.transition()?;
+        rt.check_admission()?;
+        if rt.snapshot().active.is_some() {
             return Ok(false);
         }
-        if self.source.runtime().requires_recovery() {
+        if self.source.runtime.requires_recovery() {
             return Err(BackupError::Source);
         }
         let mut policy = self.policy()?;
@@ -235,7 +207,7 @@ impl Publisher {
         {
             automatic::retire_at(&self.base, old)?;
             policy.cleanup = None;
-            self.save(&policy)?;
+            Store::write_configuration_at(&self.base, POLICY, &policy)?;
         }
         if policy.pending.is_some() {
             return self.advance(&mut policy, active.as_ref(), client, limit);
@@ -247,13 +219,39 @@ impl Publisher {
                 return self.close_legacy(saved, client);
             }
         }
-        let Some(pending) = self.next_pending(limit)? else {
+        let Some((minimum, log)) =
+            publication::next_share_work(&self.base, &self.source, &self.stream_id, limit)?
+        else {
             return Ok(false);
         };
-        policy.pending = Some(pending);
+        policy.pending = Some(Pending {
+            id: automatic::request_id()?,
+            minimum,
+            log,
+        });
         policy.cleanup = active.filter(automatic::reserved);
-        self.save(&policy)?;
-        Ok(true)
+        Store::write_configuration_at(&self.base, POLICY, &policy).map(|()| true)
+    }
+
+    fn start_worker(
+        &self,
+        store: Store,
+        saved: Saved,
+        client: Option<ByteBackupClient>,
+        permit: std::fs::File,
+        select: bool,
+    ) -> Result<bool> {
+        let id = saved.request_id.clone();
+        if select {
+            store.select(&id)?;
+        }
+        let source = self.source.clone();
+        self.host
+            .byte_backup
+            .start(id, move |pause| {
+                execute(&source, &store, saved, client.as_ref(), permit, &pause)
+            })
+            .map(|()| false)
     }
 
     fn close_legacy(&self, saved: Saved, client: &Client) -> Result<bool> {
@@ -263,27 +261,16 @@ impl Publisher {
         }
         let permit = Store::lock_at(&self.base)?;
         let store = Store::open_at(&self.base, &id)?;
-        let source = self.source.clone();
-        if let Some(terminal) = store.read::<JobResult>("terminal.json")? {
-            worker::validate_terminal(&saved, &terminal)?;
-            self.host
-                .byte_backup
-                .start(id, RunOrigin::Manual, move |pause| {
-                    invocation::execute(source, store, saved, None, permit, pause)
-                })?;
+        let client = if let Some(term) = store.read::<JobResult>("terminal.json")? {
+            worker::validate_terminal(&saved, &term).map(|()| None)?
         } else {
-            let client = client().map_err(|_| BackupError::Authority)?;
-            if saved.endpoint != client.canonical_endpoint() {
+            let c = client().map_err(|_| BackupError::Authority)?;
+            if saved.endpoint != c.canonical_endpoint() {
                 return Err(BackupError::Identity);
             }
-            store::close_at(&self.base, &id)?;
-            self.host
-                .byte_backup
-                .start(id, RunOrigin::Manual, move |pause| {
-                    invocation::execute(source, store, saved, Some(client), permit, pause)
-                })?;
-        }
-        Ok(false)
+            store::close_at(&self.base, &id).map(|()| Some(c))?
+        };
+        self.start_worker(store, saved, client, permit, false)
     }
 
     fn advance(
@@ -294,71 +281,75 @@ impl Publisher {
         limit: Option<u8>,
     ) -> Result<bool> {
         let pending = policy.pending.as_ref().ok_or(BackupError::Missing)?;
-        let id = &pending.id;
+        let (id, minimum, work) = (pending.id.clone(), pending.minimum, pending.work());
         let permit = Store::lock_at(&self.base)?;
-        control::ensure_previous_at(&self.base, id)?;
-        let store = Store::open_at(&self.base, id)?;
+        control::ensure_previous_at(&self.base, &id)?;
+        let store = Store::open_at(&self.base, &id)?;
         let mut existing = store.state()?;
-        let work = pending.work();
         if let Some(saved) = &existing {
             self.source.validate(saved)?;
             if saved.automatic_revision != Some(REVISION) || saved.work != work {
                 return Err(BackupError::Identity);
             }
             if saved.terminal() {
-                if active != Some(id) {
+                if active != Some(&id) {
                     return Err(BackupError::Identity);
                 }
-                let published = self.verify_terminal(saved, &store, pending.minimum)?;
+                let published = publication::verify_publication_terminal(
+                    saved,
+                    &store,
+                    &self.base,
+                    &self.stream_id,
+                    &self.source.account,
+                    minimum,
+                )?;
                 policy.pending = None;
-                self.save(policy)?;
-                return if published {
-                    Ok(true)
-                } else {
-                    Err(BackupError::Waiting)
-                };
+                Store::write_configuration_at(&self.base, POLICY, policy)?;
+                return published.then_some(true).ok_or(BackupError::Waiting);
             }
         }
-        let id = id.clone();
-        let origin = RunOrigin::Auto {
-            consent_revision: REVISION,
-        };
-        let source = self.source.clone();
-        if let Some(terminal) = store.read::<JobResult>("terminal.json")? {
+        if let Some(term) = store.read::<JobResult>("terminal.json")? {
             let saved = existing.ok_or(BackupError::Missing)?;
-            worker::validate_terminal(&saved, &terminal)?;
-            store.select(&id)?;
-            self.host.byte_backup.start(id, origin, move |pause| {
-                invocation::execute(source, store, saved, None, permit, pause)
-            })?;
-            return Ok(false);
+            worker::validate_terminal(&saved, &term)?;
+            return self.start_worker(store, saved, None, permit, true);
         }
-        if let Some(saved) = existing
-            .as_mut()
-            .filter(|saved| saved.local_action.is_some())
-        {
-            return self.replace_unmaterialized(&store, saved, None);
+        if let Some(saved) = existing.as_mut().filter(|s| s.local_action.is_some()) {
+            return publication::replace_unmaterialized(&self.source, &store, saved, None);
         }
         let client = client().map_err(|_| BackupError::Authority)?;
-        let endpoint = client.canonical_endpoint();
+        let ep = client.canonical_endpoint();
         let mut saved = existing.unwrap_or_else(|| {
-            let mut saved = source.saved(id.clone(), endpoint.clone());
-            saved.work = work;
-            saved.automatic_revision = Some(REVISION);
-            saved
+            let mut s = self.source.saved(id, ep.clone());
+            (s.work, s.automatic_revision) = (work, Some(REVISION));
+            s
         });
-        if saved.endpoint != endpoint {
+        if saved.endpoint != ep {
             return Err(BackupError::Identity);
         }
-        if self.replace_unmaterialized(&store, &mut saved, limit)? {
+        if publication::replace_unmaterialized(&self.source, &store, &mut saved, limit)? {
             return Ok(true);
         }
         saved.blocked_reason = None;
         store.save(&saved)?;
-        store.select(&id)?;
-        self.host.byte_backup.start(id, origin, move |pause| {
-            invocation::execute(source, store, saved, Some(client), permit, pause)
-        })?;
-        Ok(false)
+        self.start_worker(store, saved, Some(client), permit, true)
+    }
+
+    fn policy(&self) -> Result<Policy> {
+        let p: Policy = store::read(&self.base.join(POLICY))?.unwrap_or_else(|| Policy {
+            version: 1,
+            source_home: self.source.source_home.clone(),
+            stream_id: self.stream_id.clone(),
+            pending: None,
+            cleanup: None,
+        });
+        (p.version == 1
+            && p.source_home == self.source.source_home
+            && p.stream_id == self.stream_id
+            && p.pending
+                .as_ref()
+                .is_none_or(|x| automatic::reserved(&x.id))
+            && p.cleanup.as_ref().is_none_or(automatic::reserved))
+        .then_some(p)
+        .ok_or(BackupError::Identity)
     }
 }

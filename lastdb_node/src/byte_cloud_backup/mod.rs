@@ -3,7 +3,6 @@ mod automatic;
 pub(crate) mod automatic_publication;
 mod blobs;
 pub(crate) mod connection;
-mod control;
 mod log_capture;
 mod publication;
 mod source;
@@ -12,340 +11,304 @@ mod transfer;
 mod work;
 mod worker;
 
-pub mod share_write_gate {
-    use super::connection::files::Directory;
-    use rustix::fs::{flock, FlockOperation};
-    use std::{fs::File, io, path::Path};
+pub use crate::backup_runtime::{BackupError, BackupRuntime};
+pub use automatic::{spawn_automatic, AutomaticBackupStatus};
+pub use connection::{
+    connect_existing, share_write_gate, ManualConnectionStatus, SensitiveConnectionRequest,
+};
+pub use control::request;
+pub(crate) use control::status;
+pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
+pub use source::model;
+pub(crate) use source::PublicationSource;
+pub use transfer::register_blob_source;
+pub(crate) use work::recovery;
+pub type Result<T> = std::result::Result<T, BackupError>;
 
-    const LOCK: &str = "share-edit.lock";
-    const HOLD: &str = "share-edit.pending";
-    const MARKER: &[u8] = b"1\n";
-
-    pub struct ShareEdit {
-        directory: Directory,
-        _lock: File,
-    }
-
-    pub fn begin_edit(home: &Path) -> Result<ShareEdit, String> {
-        let directory = Directory::open(home).map_err(|e| e.to_string())?;
-        let lock = directory.open_lock(LOCK).map_err(|e| e.to_string())?;
-        flock(&lock, FlockOperation::NonBlockingLockExclusive)
-            .map_err(|_| "a share edit or snapshot capture is active; retry the file import")?;
-        match directory.read(HOLD).map_err(|e| e.to_string())? {
-            Some(current) if current.as_slice() == MARKER => {}
-            Some(_) => return Err("invalid pending share edit".into()),
-            None => directory
-                .publish(HOLD, None, MARKER)
-                .map_err(|e| e.to_string())?,
-        }
-        Ok(ShareEdit {
-            directory,
-            _lock: lock,
-        })
-    }
-
-    impl ShareEdit {
-        pub fn finish(self) -> Result<(), String> {
-            let result = self
-                .directory
-                .remove_exact(HOLD, MARKER)
-                .map_err(|e| e.to_string());
-            drop(self);
-            result
-        }
-    }
-
-    pub(crate) fn try_capture(home: &Path) -> Result<Option<File>, String> {
-        let directory = Directory::open(home).map_err(|e| e.to_string())?;
-        let lock = directory.open_lock(LOCK).map_err(|e| e.to_string())?;
-        match flock(&lock, FlockOperation::NonBlockingLockShared) {
-            Err(error) if io::Error::from(error).kind() == io::ErrorKind::WouldBlock => {
-                return Ok(None)
-            }
-            Err(_) => return Err("cannot lock share publication capture".into()),
-            Ok(()) => {}
-        }
-        if directory.read(HOLD).map_err(|e| e.to_string())?.is_some() {
-            return Ok(None);
-        }
-        Ok(Some(lock))
-    }
-}
+pub const PUBLICATION_MARKER: &str = "share-publication.json";
 
 /// Read saved recovery credentials without enrolling or enabling backup.
 pub fn client_from_home(
     home: &std::path::Path,
 ) -> std::result::Result<crate::cloud_backup_client::byte_backup::ByteBackupClient, String> {
-    let auth = crate::cloud::auth_for_recovery(home)?;
-    crate::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(auth)
-        .map_err(|error| error.to_string())
+    crate::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(
+        crate::cloud::auth_for_recovery(home)?,
+    )
+    .map_err(|e| e.to_string())
 }
-
-mod invocation {
-    use crate::backup_runtime::{BackupError, InvocationOutcome};
-    use crate::byte_cloud_backup::{model::Saved, source::Source, store::Store, transfer, worker};
-    use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-    use std::fs::File;
-    use std::sync::{atomic::AtomicBool, Arc};
-
-    pub(in crate::byte_cloud_backup) fn execute(
-        source: Source,
-        store: Store,
-        mut saved: Saved,
-        client: Option<ByteBackupClient>,
-        permit: File,
-        pause: Arc<AtomicBool>,
-    ) -> InvocationOutcome {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|_| BackupError::Source)?;
-            if let Some(client) = &client {
-                runtime.block_on(worker::run(&source, &store, &mut saved, client, &pause))
-            } else {
-                transfer::check_pause(&pause)?;
-                runtime.block_on(worker::reconcile(&source, &store, &mut saved))
-            }
-        }))
-        .unwrap_or(Err(BackupError::WorkerPanic));
-        let outcome = match result {
-            Ok(()) => InvocationOutcome::Complete,
-            Err(error) => {
-                let pause_state = error.pause_state();
-                saved.blocked_reason = Some(error.to_string());
-                match store.reopen().and_then(|fresh| {
-                    fresh.write("pause.json", &pause_state)?;
-                    fresh.save(&saved)
-                }) {
-                    Ok(()) => InvocationOutcome::Paused(pause_state),
-                    Err(checkpoint) => InvocationOutcome::Paused(checkpoint.pause_state()),
-                }
-            }
-        };
-        drop(client);
-        drop(store);
-        drop(source);
-        drop(permit);
-        drop(pause);
-        outcome
-    }
-}
-
-pub mod model {
-    use crate::backup_runtime::BackupError;
-    pub use crate::backup_runtime::Phase;
-    use crate::byte_cloud_backup::{
-        work::Work, AutomaticBackupStatus, ManualConnectionStatus, Result,
-    };
-    use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Commit};
-    use cloud_backup_protocol::{AccountId, Id};
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Clone, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub(in crate::byte_cloud_backup) struct StreamRecord {
-        pub source_home: Id,
-        pub stream: cloud_backup_protocol::v2::Stream,
-    }
-
-    #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-    pub enum ByteBackupRequest {
-        Start {
-            request_id: Id,
-        },
-        Resume,
-        Status,
-        Close,
-        EnableAutomatic {
-            log_interval_seconds: u64,
-            snapshot_interval_seconds: u64,
-        },
-        DisableAutomatic,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub(in crate::byte_cloud_backup) enum LocalAction {
-        ReplaceWithSnapshot,
-    }
-
-    #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub(in crate::byte_cloud_backup) struct Saved {
-        pub format: u32,
-        pub request_id: Id,
-        #[serde(default, skip_serializing_if = "Work::is_default")]
-        pub work: Work,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub automatic_revision: Option<u64>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub local_action: Option<LocalAction>,
-        pub account: AccountId,
-        pub source_home: Id,
-        pub endpoint: String,
-        pub begin: Option<Begin>,
-        pub begin_submitted: bool,
-        pub commit: Option<Commit>,
-        pub accepted: Option<AcceptedBackup>,
-        pub phase: Phase,
-        pub objects_verified: u64,
-        pub metadata_pack_objects: u64,
-        pub multi_file_pack_objects: u64,
-        pub native_files: u64,
-        pub native_bytes: u64,
-        pub retained_source_bytes: Option<u64>,
-        pub blocked_reason: Option<String>,
-    }
-
-    impl Saved {
-        pub fn validate(&self) -> Result<()> {
-            self.work.validate(self.begin.as_ref())?;
-            if self.local_action.is_some()
-                && (self.begin_submitted
-                    || self.commit.is_some()
-                    || self.accepted.is_some()
-                    || self.phase == Phase::Published
-                    || self.automatic_revision.is_none()
-                    || !matches!(self.work, Work::MutationLog { .. }))
-            {
-                return Err(BackupError::Invalid);
-            }
-            if self.format != 2 || self.account.as_str().len() != 32 || self.endpoint.len() > 4096 {
-                return Err(BackupError::Invalid);
-            }
-            if (self.begin_submitted && self.begin.is_none())
-                || (self.commit.is_some() && !self.begin_submitted)
-            {
-                return Err(BackupError::Invalid);
-            }
-            if self.multi_file_pack_objects > self.metadata_pack_objects {
-                return Err(BackupError::Invalid);
-            }
-            if let Some(begin) = &self.begin {
-                begin.validate()?;
-                if begin.job.commit_id != self.request_id
-                    || begin.job.stream.scope.account_id != self.account
-                {
-                    return Err(BackupError::Identity);
-                }
-            }
-            if let Some(commit) = &self.commit {
-                commit.validate_for(self.begin.as_ref().ok_or(BackupError::Invalid)?)?;
-            }
-            if let Some(accepted) = &self.accepted {
-                accepted.validate_for(
-                    self.begin.as_ref().ok_or(BackupError::Invalid)?,
-                    self.commit.as_ref().ok_or(BackupError::Invalid)?,
-                )?;
-            }
-            if self.phase == Phase::Published && self.accepted.is_none() {
-                return Err(BackupError::Invalid);
-            }
-            Ok(())
-        }
-        pub fn terminal(&self) -> bool {
-            matches!(self.phase, Phase::Published | Phase::Closed)
-                && self.retained_source_bytes == Some(0)
-        }
-    }
-
-    #[derive(Clone, Debug, Serialize)]
-    pub struct ByteBackupStatus {
-        pub backup_kind: &'static str,
-        pub enabled: bool,
-        pub automatic_backup_enabled: bool,
-        pub automatic_backup: Option<AutomaticBackupStatus>,
-        pub mutation_log: fold_db::storage::disk_pack::mutation_log::MutationLogStatus,
-        pub manual_connection: Option<ManualConnectionStatus>,
-        pub running: bool,
-        pub request_id: Option<Id>,
-        pub phase: Option<Phase>,
-        pub objects_verified: u64,
-        pub metadata_pack_objects: u64,
-        pub multi_file_pack_objects: u64,
-        pub native_files: u64,
-        pub native_bytes: u64,
-        pub retained_source_bytes: Option<u64>,
-        pub blocked_reason: Option<String>,
-        pub last_accepted_backup: Option<AcceptedBackup>,
-    }
-}
-
-pub(crate) mod recovery {
-    use crate::backup_runtime::BackupError;
-    use crate::byte_cloud_backup::{work::LogContext, Result};
-    use cloud_backup_protocol::v2::AcceptedBackup;
-    use fold_db::storage::disk_pack::mutation_log::{Frontiers, LogAnchor, LogPosition};
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub(in crate::byte_cloud_backup) struct RecoveryPoint {
-        pub accepted: AcceptedBackup,
-        pub base: AcceptedBackup,
-        pub anchor: Option<LogAnchor>,
-        pub through: Option<LogPosition>,
-        pub frontiers: Frontiers,
-    }
-    impl RecoveryPoint {
-        pub fn validate(&self) -> Result<()> {
-            self.accepted.validate()?;
-            self.base.validate()?;
-            if self.base.job().stream != self.accepted.job().stream
-                || self.base.ordinal.get() > self.accepted.ordinal.get()
-                || self.anchor.is_some() != self.through.is_some()
-            {
-                return Err(BackupError::Identity);
-            }
-            if let (Some(anchor), Some(through)) = (&self.anchor, &self.through) {
-                let start = anchor.position()?;
-                if through.epoch != start.epoch
-                    || through.frontiers != self.frontiers
-                    || (self.accepted == self.base && *through != start)
-                {
-                    return Err(BackupError::Identity);
-                }
-            }
-            Ok(())
-        }
-        pub fn log_context(&self) -> Result<LogContext> {
-            self.validate()?;
-            Ok(LogContext {
-                base: self.base.clone(),
-                previous: self.accepted.clone(),
-                anchor: self.anchor.clone().ok_or(BackupError::Source)?,
-                from: self.through.clone().ok_or(BackupError::Source)?,
-            })
-        }
-    }
-}
-
-pub use crate::backup_runtime::{BackupError, BackupRuntime};
-pub use automatic::{spawn_automatic, AutomaticBackupStatus};
-pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
-pub use control::request;
-pub(crate) use control::status;
-pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
-pub(crate) use source::PublicationSource;
-pub use transfer::register_blob_source;
-pub type Result<T> = std::result::Result<T, BackupError>;
-
-pub const PUBLICATION_MARKER: &str = "share-publication.json";
 
 pub(crate) fn is_publication_home(home: &std::path::Path) -> std::io::Result<bool> {
     match std::fs::symlink_metadata(home.join(PUBLICATION_MARKER)) {
         Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
 pub fn require_enabled() -> Result<()> {
-    if fold_db::env_flag::var_truthy("LASTDB_BYTE_BACKUP_V2_ENABLED") {
-        Ok(())
-    } else {
-        Err(BackupError::Disabled)
+    fold_db::env_flag::var_truthy("LASTDB_BYTE_BACKUP_V2_ENABLED")
+        .then_some(())
+        .ok_or(BackupError::Disabled)
+}
+
+fn execute(
+    source: &source::Source,
+    store: &store::Store,
+    mut saved: model::Saved,
+    client: Option<&crate::cloud_backup_client::byte_backup::ByteBackupClient>,
+    _permit: std::fs::File,
+    pause: &std::sync::atomic::AtomicBool,
+) -> crate::backup_runtime::InvocationOutcome {
+    use crate::backup_runtime::InvocationOutcome;
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| BackupError::Source)?;
+        if let Some(c) = client {
+            rt.block_on(worker::run(source, store, &mut saved, c, pause))
+        } else {
+            transfer::check_pause(pause)?;
+            rt.block_on(worker::reconcile(source, store, &mut saved))
+        }
+    }))
+    .unwrap_or(Err(BackupError::WorkerPanic));
+    let Err(error) = res else {
+        return InvocationOutcome::Complete;
+    };
+    let pause_state = error.pause_state();
+    saved.blocked_reason = Some(error.to_string());
+    let persisted = store.reopen().and_then(|fresh| {
+        fresh.write("pause.json", &pause_state)?;
+        fresh.save(&saved)
+    });
+    InvocationOutcome::Paused(
+        persisted.map_or_else(|e| BackupError::pause_state(&e), |()| pause_state),
+    )
+}
+
+mod control {
+    use crate::backup_runtime::{BackupError, PauseState};
+    use crate::byte_cloud_backup::{
+        automatic, client_from_home, connection, execute, is_publication_home,
+        model::{ByteBackupRequest, ByteBackupStatus, Saved},
+        require_enabled,
+        source::Source,
+        store::{self, Store},
+        work::Work,
+        worker, Result,
+    };
+    use cloud_backup_protocol::v2::{jobs::JobResult, AcceptedBackup};
+    use cloud_backup_protocol::Id;
+
+    pub async fn request(
+        host: &crate::host::Host,
+        action: ByteBackupRequest,
+    ) -> Result<ByteBackupStatus> {
+        std::future::ready(request_now(host, &action)).await
+    }
+
+    fn request_now(
+        host: &crate::host::Host,
+        action: &ByteBackupRequest,
+    ) -> Result<ByteBackupStatus> {
+        if matches!(action, ByteBackupRequest::Status) {
+            return status(host);
+        }
+        if is_publication_home(&host.home)? {
+            return Err(BackupError::Identity);
+        }
+        let _transition = host.byte_backup.transition()?;
+        host.byte_backup.check_admission()?;
+        match action {
+            ByteBackupRequest::EnableAutomatic {
+                log_interval_seconds: log,
+                snapshot_interval_seconds: snap,
+            } => automatic::configure(host, true, *log, *snap).and_then(|()| status(host)),
+            ByteBackupRequest::DisableAutomatic => {
+                automatic::configure(host, false, 0, 0).and_then(|()| status(host))
+            }
+            _ => request_locked(host, action, None),
+        }
+    }
+
+    pub(crate) fn request_automatic(
+        host: &crate::host::Host,
+        request_id: Id,
+        consent_revision: u64,
+        work: &Work,
+    ) -> Result<ByteBackupStatus> {
+        request_locked(
+            host,
+            &ByteBackupRequest::Start { request_id },
+            Some((consent_revision, work)),
+        )
+    }
+
+    fn request_locked(
+        host: &crate::host::Host,
+        action: &ByteBackupRequest,
+        auto: Option<(u64, &Work)>,
+    ) -> Result<ByteBackupStatus> {
+        let rt = &host.byte_backup;
+        rt.check_admission()?;
+        let base = Store::base(&host.home);
+        let id = match action {
+            ByteBackupRequest::Start { request_id } => request_id.clone(),
+            ByteBackupRequest::Resume | ByteBackupRequest::Close => {
+                Store::active_at(&base)?.ok_or(BackupError::Missing)?
+            }
+            _ => return Err(BackupError::Invalid),
+        };
+        let prev = store::state_at(&base, &id)?;
+        if automatic::reserved(&id) && prev.is_none() && auto.is_none() {
+            return Err(BackupError::Missing);
+        }
+        if prev.as_ref().is_some_and(Saved::terminal) {
+            return status_for(host, Some(id));
+        }
+        let known_term =
+            store::read::<JobResult>(&base.join("jobs").join(id.as_str()).join("terminal.json"))?;
+        let closing = matches!(action, ByteBackupRequest::Close);
+        if let Some(res) = &known_term {
+            worker::validate_terminal(prev.as_ref().ok_or(BackupError::Invalid)?, res)?;
+        } else if !closing {
+            connection::require_admission(host)?;
+        }
+        let source = Source::from_host(host)?;
+        if closing {
+            source.validate(prev.as_ref().ok_or(BackupError::Missing)?)?;
+            store::close_at(&base, &id)?;
+        }
+        if let Some(active) = rt.snapshot().active {
+            return if active.request_id == id {
+                status(host)
+            } else {
+                Err(BackupError::Busy)
+            };
+        }
+        let permit = Store::lock_at(&base)?;
+        ensure_previous_at(&base, &id)?;
+        let store = Store::open_at(&base, &id)?;
+        let (saved, client) = prepare_saved(host, closing, &id, auto, &source, &store, known_term)?;
+        store.select(&id)?;
+        rt.start(id, move |pause| {
+            execute(&source, &store, saved, client.as_ref(), permit, &pause)
+        })?;
+        status(host)
+    }
+
+    fn prepare_saved(
+        host: &crate::host::Host,
+        closing: bool,
+        id: &Id,
+        auto: Option<(u64, &Work)>,
+        source: &Source,
+        store: &Store,
+        known_term: Option<JobResult>,
+    ) -> Result<(
+        Saved,
+        Option<crate::cloud_backup_client::byte_backup::ByteBackupClient>,
+    )> {
+        if let Some(expected) = known_term {
+            let saved = store.state()?.ok_or(BackupError::Invalid)?;
+            source.validate(&saved)?;
+            let res: JobResult = store.read("terminal.json")?.ok_or(BackupError::Invalid)?;
+            if res != expected {
+                return Err(BackupError::Identity);
+            }
+            return worker::validate_terminal(&saved, &res).map(|()| (saved, None));
+        }
+        let client = if closing {
+            client_from_home(&host.home).map_err(|_| BackupError::Identity)?
+        } else {
+            connection::client_for_host(host)?
+        };
+        let existing = store.state()?;
+        let mut saved = existing
+            .clone()
+            .unwrap_or_else(|| source.saved(id.clone(), client.canonical_endpoint()));
+        if let Some((rev, work)) = auto {
+            if saved
+                .automatic_revision
+                .is_some_and(|r| r != rev || saved.work != *work)
+                || (saved.automatic_revision.is_none() && existing.is_some())
+            {
+                return Err(BackupError::Identity);
+            }
+            (saved.automatic_revision, saved.work) = (Some(rev), work.clone());
+        }
+        source.validate(&saved)?;
+        if saved.endpoint != client.canonical_endpoint() {
+            return Err(BackupError::Identity);
+        }
+        saved.blocked_reason = None;
+        store.write("pause.json", &Option::<PauseState>::None)?;
+        store.save(&saved).map(|()| (saved, Some(client)))
+    }
+
+    pub(crate) fn ensure_previous_at(base: &std::path::Path, id: &Id) -> Result<()> {
+        let Some(prev) = Store::active_at(base)? else {
+            return Ok(());
+        };
+        (&prev == id
+            || store::state_at(base, &prev)?
+                .ok_or(BackupError::Invalid)?
+                .terminal())
+        .then_some(())
+        .ok_or(BackupError::Busy)
+    }
+
+    pub(crate) fn status(host: &crate::host::Host) -> Result<ByteBackupStatus> {
+        status_for(host, Store::active(&host.home)?)
+    }
+
+    fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStatus> {
+        let saved = id
+            .as_ref()
+            .map(|id| store::state(&host.home, id))
+            .transpose()?
+            .flatten();
+        let (account, source_home) = connection::identity(host)?;
+        if saved
+            .as_ref()
+            .is_some_and(|s| s.account != account || s.source_home != source_home)
+        {
+            return Err(BackupError::Identity);
+        }
+        let accepted: Option<AcceptedBackup> =
+            store::read(&Store::base(&host.home).join("accepted.json"))?;
+        if let Some(acc) = &accepted {
+            acc.validate()?;
+            (acc.job().stream.scope.account_id == account)
+                .then_some(())
+                .ok_or(BackupError::Identity)?;
+        }
+        let running = host
+            .byte_backup
+            .snapshot()
+            .active
+            .is_some_and(|a| Some(a.request_id) == id);
+        let (connection, automatic) = (connection::status(host)?, automatic::status(host)?);
+        let s = saved.as_ref();
+        Ok(ByteBackupStatus {
+            backup_kind: s.map_or("snapshot", |s| s.work.label()),
+            enabled: require_enabled().is_ok() || connection.is_some(),
+            automatic_backup_enabled: automatic.as_ref().is_some_and(|a| a.enabled),
+            automatic_backup: automatic,
+            mutation_log: host.db.db_ops().native_runtime().mutation_log_status()?,
+            manual_connection: connection,
+            running,
+            request_id: id,
+            phase: s.map(|s| s.phase),
+            objects_verified: s.map_or(0, |s| s.objects_verified),
+            metadata_pack_objects: s.map_or(0, |s| s.metadata_pack_objects),
+            multi_file_pack_objects: s.map_or(0, |s| s.multi_file_pack_objects),
+            native_files: s.map_or(0, |s| s.native_files),
+            native_bytes: s.map_or(0, |s| s.native_bytes),
+            retained_source_bytes: s.and_then(|s| s.retained_source_bytes),
+            blocked_reason: saved.and_then(|s| s.blocked_reason),
+            last_accepted_backup: accepted,
+        })
     }
 }

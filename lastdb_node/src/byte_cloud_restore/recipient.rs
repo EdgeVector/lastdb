@@ -1,21 +1,64 @@
-//! Guest staging and verified restored-home publication.
-use super::session::{acquire_native_work, RestoreMode};
+//! Guest staging, recovery keys, and verified restored-home publication.
 use super::{
-    load_closure, local, logs, reader_error, runs, snapshot_closure, ByteBackupReader,
-    RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result, RESTORE_RECEIPT_NAME,
-    RESTORE_RECEIPT_VERSION,
+    acquire_native_work, load_closure, local, logs, reader_error, runs, snapshot_closure,
+    ByteBackupReader, RestoreError, RestoreMode, RestoreReport, RestoreSession, Result,
+    RESTORE_RECEIPT_NAME, RESTORE_RECEIPT_VERSION,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::publication::{Head, HeadReadResult};
 use cloud_backup_protocol::v2::AcceptedBackup;
-use cloud_backup_protocol::{Digest, Id, NativeRoot, RecoveryDescriptor};
+use cloud_backup_protocol::{AccountId, Digest, Id, NativeRoot, RecoveryDescriptor};
+use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore::RunRestoreGuard};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
+
+/// The caller supplies the phrase again after restart; the session stores no secret.
+pub struct RecoveryKeys {
+    pub(super) seed: Zeroizing<[u8; 32]>,
+    pub(super) decryption: RecoveryDecryption,
+}
+
+/// Key material used to verify and decrypt a backup.
+pub(super) struct RecoveryDecryption {
+    pub(super) content: Zeroizing<[u8; 32]>,
+    pub(super) account_public_key: String,
+}
+
+impl RecoveryKeys {
+    pub fn from_scope_phrase(phrase: &str, account_id: &AccountId) -> Result<Self> {
+        let seed = Zeroizing::new(
+            crate::cloud::seed_from_phrase(phrase)
+                .map_err(|_| RestoreError::Invalid("recovery phrase"))?,
+        );
+        let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
+            .map_err(|_| RestoreError::Invalid("recovery key"))?;
+        let keys = E2eKeys::from_ed25519_seed(&seed)
+            .map_err(|_| RestoreError::Invalid("recovery derivation"))?;
+        if crate::cloud::account_from_phrase(phrase).ok().as_ref() != Some(account_id) {
+            return Err(RestoreError::Invalid("recovery account"));
+        }
+        Ok(Self {
+            seed,
+            decryption: RecoveryDecryption {
+                content: Zeroizing::new(keys.encryption_key()),
+                account_public_key: fold_db::hex::hex_lower(pair.public_key_bytes()),
+            },
+        })
+    }
+}
+
+impl RecoveryDecryption {
+    pub(super) fn validate_account(&self, pubkey: &Digest) -> Result<()> {
+        (self.account_public_key == pubkey.as_str())
+            .then_some(())
+            .ok_or(RestoreError::Invalid("recovery public key"))
+    }
+}
 
 /// Read-only previous state while the cache holds its slot lock.
 pub(crate) struct GuestReplayCache<'a> {
@@ -25,8 +68,6 @@ pub(crate) struct GuestReplayCache<'a> {
     pub(crate) through: Option<&'a LogPosition>,
 }
 
-type RecipientStage<T> = (PathBuf, T, Option<LogPosition>);
-
 impl RestoreSession {
     pub(crate) async fn guest_accepted(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
         let stream = reader
@@ -35,17 +76,16 @@ impl RestoreSession {
         let accepted = match reader
             .guest_head()
             .await
-            .map_err(|error| reader_error(reader, &error))?
+            .map_err(|e| reader_error(reader, &e))?
         {
             HeadReadResult::Ok { response } => response
                 .accepted
                 .ok_or(RestoreError::Source("share has no published backup"))?,
             HeadReadResult::Error { error } => return Err(reader_error(reader, &error.into())),
         };
-        if &accepted.job().stream != stream {
-            return Err(RestoreError::Invalid("guest stream"));
-        }
-        Ok(accepted)
+        (&accepted.job().stream == stream)
+            .then_some(accepted)
+            .ok_or(RestoreError::Invalid("guest stream"))
     }
 
     pub(crate) fn begin_guest_at(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
@@ -56,21 +96,18 @@ impl RestoreSession {
         let invalid = || RestoreError::Invalid("managed guest slot");
         let entry = slot.parent().ok_or_else(invalid)?;
         let registry = entry.parent().ok_or_else(invalid)?;
-        if !matches!(
-            slot.file_name().and_then(|name| name.to_str()),
-            Some("snapshot-0" | "snapshot-1")
-        ) || entry
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_none_or(|name| Id::try_from(name.to_owned()).is_err())
-            || registry.file_name().and_then(|name| name.to_str())
-                != Some(super::MANAGED_SHARE_DIRECTORY)
+        fn name_of(p: &Path) -> Option<&str> {
+            p.file_name().and_then(std::ffi::OsStr::to_str)
+        }
+        if !matches!(name_of(slot), Some("snapshot-0" | "snapshot-1"))
+            || name_of(entry).is_none_or(|n| Id::try_from(n.to_owned()).is_err())
+            || name_of(registry) != Some(super::MANAGED_SHARE_DIRECTORY)
             || slot.canonicalize()? != slot
         {
             return Err(invalid());
         }
-        for path in [registry, entry, slot] {
-            local::directory(path)?;
+        for dir in [registry, entry, slot] {
+            local::directory(dir)?;
         }
         Self::begin_in(
             &slot.join("unactivated"),
@@ -86,7 +123,7 @@ impl RestoreSession {
         content_key: Zeroizing<[u8; 32]>,
         publisher_public_key: Digest,
         cache: Option<&GuestReplayCache<'_>>,
-    ) -> Result<RecipientStage<NativeRoot>> {
+    ) -> Result<(PathBuf, NativeRoot, Option<LogPosition>)> {
         let accepted = self.accepted();
         if self.selection.mode != RestoreMode::Recipient
             || reader.guest_stream() != Some(&accepted.job().stream)
@@ -98,36 +135,33 @@ impl RestoreSession {
             account_public_key: publisher_public_key,
         };
         recovery.validate_for(&accepted.job().stream.scope)?;
-        let decryption =
-            RecoveryDecryption::for_publication(content_key, &recovery.account_public_key);
+        let dec = RecoveryDecryption {
+            content: content_key,
+            account_public_key: recovery.account_public_key.as_str().to_owned(),
+        };
         let _admission = acquire_native_work()?;
         self.require_unactivated()?;
         self.authorize_read(reader).await?;
         let (inventory, bytes) = load_closure(self, reader).await?;
-        let data = self.root.join("home/data");
         let (proof, through) = if self.accepted().begin.dependencies().is_empty() {
-            let root = snapshot_closure(self, &decryption, &bytes)?;
-            let total = runs::stage(self, reader, &decryption, &root, inventory).await?;
-            let proof = runs::verify_stage(self, &decryption, &root)?;
-            proof
-                .validate_context(&data, &root.native_root)
-                .map_err(RestoreError::native_proof)?;
-            if proof.totals().map_err(RestoreError::native_proof)? != total {
-                return Err(RestoreError::Invalid("verified recipient inventory"));
-            }
-            (proof, None)
+            let root = snapshot_closure(self, &dec, &bytes)?;
+            (
+                runs::stage_and_verify(self, reader, &dec, &root, inventory).await?,
+                None,
+            )
         } else {
-            let root =
-                MutationLogRoot::decode(&bytes, decryption.content_key(), &self.accepted().begin)
-                    .map_err(|_| RestoreError::Invalid("recipient mutation log root"))?;
+            let root = MutationLogRoot::decode(&bytes, &dec.content, &self.accepted().begin)
+                .map_err(|_| RestoreError::Invalid("recipient mutation log root"))?;
             drop(inventory);
-            let (proof, through) =
-                logs::stage_guest(self, reader, &decryption, root, cache).await?;
-            (proof, Some(through))
+            let (p, t) = logs::stage_guest(self, reader, &dec, root, cache).await?;
+            (p, Some(t))
         };
         self.require_unactivated()?;
-        let native_root = proof.native_root().map_err(RestoreError::native_proof)?;
-        Ok((data, native_root, through))
+        Ok((
+            self.root.join("home/data"),
+            proof.native_root().map_err(RestoreError::native_proof)?,
+            through,
+        ))
     }
 
     fn require_unactivated(&self) -> Result<()> {
@@ -138,8 +172,8 @@ impl RestoreSession {
             crate::cloud::cloud_credentials_path(&home),
         ] {
             match fs::symlink_metadata(path) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
                 Ok(_) => return Err(RestoreError::Invalid("recipient stage already activated")),
             }
         }
@@ -156,14 +190,14 @@ struct Receipt {
 }
 
 pub fn verify_restore_receipt(bytes: &[u8], destination: &Path) -> Result<()> {
-    let receipt: Receipt =
+    let r: Receipt =
         serde_json::from_slice(bytes).map_err(|_| RestoreError::Invalid("restore receipt"))?;
-    if receipt.version != RESTORE_RECEIPT_VERSION
-        || receipt.session_id.is_nil()
-        || receipt.report.destination != destination
-        || receipt.report.native_files == 0
-        || receipt.report.native_bytes == 0
-        || Digest::try_from(receipt.report.commit_sha256).is_err()
+    if r.version != RESTORE_RECEIPT_VERSION
+        || r.session_id.is_nil()
+        || r.report.destination != destination
+        || r.report.native_files == 0
+        || r.report.native_bytes == 0
+        || Digest::try_from(r.report.commit_sha256).is_err()
     {
         return Err(RestoreError::Invalid("restore provenance"));
     }
@@ -171,91 +205,77 @@ pub fn verify_restore_receipt(bytes: &[u8], destination: &Path) -> Result<()> {
 }
 
 pub(super) fn published(session: &RestoreSession) -> Result<Option<RestoreReport>> {
-    let destination = &session.selection.destination;
-    match fs::symlink_metadata(destination) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-        Ok(meta) if !meta.is_dir() => return Err(RestoreError::Invalid("published destination")),
+    let dest = &session.selection.destination;
+    match fs::symlink_metadata(dest) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+        Ok(m) if !m.is_dir() => return Err(RestoreError::Invalid("published destination")),
         Ok(_) => {}
     }
-    let receipt: Receipt = local::read_json(&destination.join(RESTORE_RECEIPT_NAME), 64 * 1024)?;
-    if receipt.version != RESTORE_RECEIPT_VERSION
-        || receipt.session_id != session.selection.session_id
-        || receipt.report.commit_sha256 != session.accepted().commit_sha256.as_str()
-        || receipt.report.destination != *destination
+    let r: Receipt = local::read_json(&dest.join(RESTORE_RECEIPT_NAME), 64 * 1024)?;
+    if r.version != RESTORE_RECEIPT_VERSION
+        || r.session_id != session.selection.session_id
+        || r.report.commit_sha256 != session.accepted().commit_sha256.as_str()
+        || r.report.destination != *dest
     {
         return Err(RestoreError::Invalid("published receipt"));
     }
-    sync_publish_parents(&session.root, destination)?;
-    local::atomic_json(&session.root.join("result.json"), &receipt.report)?;
-    Ok(Some(receipt.report))
+    record_published(session, dest, r.report).map(Some)
 }
 
 pub(super) fn finish_run(
     session: &RestoreSession,
     native_root: &NativeRoot,
     identity_seed: &[u8; 32],
-    (native_files, native_bytes): (u64, u64),
     proof: &RunRestoreGuard,
 ) -> Result<RestoreReport> {
-    proof
-        .validate_context(&session.root.join("home/data"), native_root)
-        .map_err(|_| RestoreError::Invalid("verified run publication"))?;
-    let totals = proof
-        .totals()
-        .map_err(|_| RestoreError::Invalid("verified run totals"))?;
-    if totals != (native_files, native_bytes) {
-        return Err(RestoreError::Invalid("verified run inventory"));
-    }
     let home = session.root.join("home");
+    proof
+        .validate_context(&home.join("data"), native_root)
+        .map_err(|_| RestoreError::Invalid("verified run publication"))?;
+    let (native_files, native_bytes) = proof.totals().map_err(RestoreError::native_proof)?;
     install_identity(&home, identity_seed)?;
     if crate::cloud::cloud_credentials_path(&home).try_exists()? {
         return Err(RestoreError::Invalid("restore cloud configuration"));
     }
-    let destination = &session.selection.destination;
+    let dest = &session.selection.destination;
     let report = RestoreReport {
         commit_sha256: session.accepted().commit_sha256.as_str().into(),
         native_files,
         native_bytes,
         verified_records: 0,
-        destination: destination.clone(),
+        destination: dest.clone(),
     };
-    local::atomic_json(
-        &home.join(RESTORE_RECEIPT_NAME),
-        &Receipt {
-            version: RESTORE_RECEIPT_VERSION,
-            session_id: session.selection.session_id,
-            report: report.clone(),
-        },
-    )?;
-    activate_owned_home(&session.root, destination)?;
-    local::atomic_json(&session.root.join("result.json"), &report)?;
-    Ok(report)
-}
-
-pub(crate) fn activate_owned_home(root: &Path, destination: &Path) -> Result<()> {
-    let home = root.join("home");
+    let receipt = Receipt {
+        version: RESTORE_RECEIPT_VERSION,
+        session_id: session.selection.session_id,
+        report: report.clone(),
+    };
+    local::atomic_json(&home.join(RESTORE_RECEIPT_NAME), &receipt)?;
     sync_owned_tree(&home, 0)?;
     rustix::fs::renameat_with(
         rustix::fs::CWD,
         &home,
         rustix::fs::CWD,
-        destination,
+        dest,
         rustix::fs::RenameFlags::NOREPLACE,
     )
     .map_err(std::io::Error::from)?;
-    sync_publish_parents(root, destination)
+    record_published(session, dest, report)
 }
 
-pub(crate) fn sync_publish_parents(root: &Path, destination: &Path) -> Result<()> {
-    File::open(root)?.sync_all()?;
-    File::open(
+fn record_published(
+    session: &RestoreSession,
+    destination: &Path,
+    report: RestoreReport,
+) -> Result<RestoreReport> {
+    local::sync_dir(&session.root)?;
+    local::sync_dir(
         destination
             .parent()
             .ok_or(RestoreError::Invalid("destination parent"))?,
-    )?
-    .sync_all()?;
-    Ok(())
+    )?;
+    local::atomic_json(&session.root.join("result.json"), &report).map(|()| report)
 }
 
 fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
@@ -275,12 +295,11 @@ fn install_identity(home: &Path, identity_seed: &[u8; 32]) -> Result<()> {
         crate::identity::write_seed(home, identity_seed)
             .map_err(|_| RestoreError::Invalid("restore identity flush"))?;
     }
-    File::open(path)?.sync_all()?;
-    File::open(home)?.sync_all()?;
-    Ok(())
+    std::fs::File::open(&path)?.sync_all()?;
+    local::sync_dir(home)
 }
 
-pub(crate) fn sync_owned_tree(root: &Path, depth: usize) -> Result<()> {
+fn sync_owned_tree(root: &Path, depth: usize) -> Result<()> {
     if depth > 12 {
         return Err(RestoreError::Limit("destination depth"));
     }
@@ -293,6 +312,5 @@ pub(crate) fn sync_owned_tree(root: &Path, depth: usize) -> Result<()> {
             return Err(RestoreError::Invalid("destination member type"));
         }
     }
-    File::open(root)?.sync_all()?;
-    Ok(())
+    local::sync_dir(root)
 }

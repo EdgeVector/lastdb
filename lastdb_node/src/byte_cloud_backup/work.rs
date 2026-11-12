@@ -1,26 +1,76 @@
 //! Backup work selection, capture dispatch, bounded retries, and pending-poll state.
 use super::{
-    log_capture::LogCapture, model::Saved, publication, recovery::RecoveryPoint, source::Source,
-    store::Store, transfer, BackupError, Result,
+    log_capture::LogCapture, model::Saved, publication, source::Source, store::Store, transfer,
+    BackupError, Result,
 };
 use crate::cloud_backup_client::byte_backup::BackupTransportError;
 use cloud_backup_protocol::v2::{
-    jobs::JobResult,
-    transfer::{ObjectReceipt, TransferInput, UploadGrant},
-    AcceptedBackup, Begin, Commit, CoveredLog, Head,
+    jobs::JobResult, transfer::ObjectReceipt, AcceptedBackup, Begin, Commit, CoveredLog, Head,
 };
-use cloud_backup_protocol::{Digest, ErrorCode, Id, ProtocolError};
+use cloud_backup_protocol::{Digest, ErrorCode, Id};
 use fold_db::storage::disk_pack::byte_backup::{
     ByteBackupCapture, ByteBackupCaptureStatus, ByteBackupObject,
 };
 use fold_db::storage::disk_pack::mutation_log::{Frontiers, LogAnchor, LogPosition};
 use futures::future::{ready, Either};
+use recovery::RecoveryPoint;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
+
+pub(crate) mod recovery {
+    use crate::backup_runtime::BackupError;
+    use crate::byte_cloud_backup::{work::LogContext, Result};
+    use cloud_backup_protocol::v2::AcceptedBackup;
+    use fold_db::storage::disk_pack::mutation_log::{Frontiers, LogAnchor, LogPosition};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(in crate::byte_cloud_backup) struct RecoveryPoint {
+        pub accepted: AcceptedBackup,
+        pub base: AcceptedBackup,
+        pub anchor: Option<LogAnchor>,
+        pub through: Option<LogPosition>,
+        pub frontiers: Frontiers,
+    }
+
+    impl RecoveryPoint {
+        pub fn validate(&self) -> Result<()> {
+            self.accepted.validate()?;
+            self.base.validate()?;
+            if self.base.job().stream != self.accepted.job().stream
+                || self.base.ordinal.get() > self.accepted.ordinal.get()
+                || self.anchor.is_some() != self.through.is_some()
+            {
+                return Err(BackupError::Identity);
+            }
+            if let (Some(anchor), Some(through)) = (&self.anchor, &self.through) {
+                let start = anchor.position()?;
+                if through.epoch != start.epoch
+                    || through.frontiers != self.frontiers
+                    || (self.accepted == self.base && *through != start)
+                {
+                    return Err(BackupError::Identity);
+                }
+            }
+            Ok(())
+        }
+
+        pub fn log_context(&self) -> Result<LogContext> {
+            self.validate()?;
+            Ok(LogContext {
+                base: self.base.clone(),
+                previous: self.accepted.clone(),
+                anchor: self.anchor.clone().ok_or(BackupError::Source)?,
+                from: self.through.clone().ok_or(BackupError::Source)?,
+            })
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,22 +87,25 @@ pub(super) enum Work {
     Snapshot { minimum: Option<Frontiers> },
     MutationLog { context: Box<LogContext> },
 }
+
 impl Default for Work {
     fn default() -> Self {
         Self::Snapshot { minimum: None }
     }
 }
+
 impl Work {
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Snapshot { minimum: None })
     }
+
     pub fn label(&self) -> &'static str {
         match self {
             Self::Snapshot { .. } => "snapshot",
             Self::MutationLog { .. } => "mutation_log",
         }
     }
-    /// The accepted points a restore of this work needs, in ordinal order.
+
     pub fn recovery_dependencies(&self) -> Vec<Head> {
         match self {
             Self::Snapshot { .. } => Vec::new(),
@@ -65,6 +118,7 @@ impl Work {
             }
         }
     }
+
     pub fn covered_logs(
         &self,
         source: &Source,
@@ -83,6 +137,7 @@ impl Work {
             _ => Vec::new(),
         }
     }
+
     pub fn validate(&self, begin: Option<&Begin>) -> Result<()> {
         if let Self::MutationLog { context } = self {
             context.base.validate()?;
@@ -93,12 +148,11 @@ impl Work {
             {
                 return Err(BackupError::Identity);
             }
-            if let Some(begin) = begin {
-                if context.previous.job().stream != begin.job.stream
-                    || begin.predecessor.as_ref() != Some(&context.previous.head())
-                {
-                    return Err(BackupError::Authority);
-                }
+            if begin.is_some_and(|b| {
+                context.previous.job().stream != b.job.stream
+                    || b.predecessor.as_ref() != Some(&context.previous.head())
+            }) {
+                return Err(BackupError::Authority);
             }
         }
         Ok(())
@@ -109,77 +163,45 @@ pub(super) enum Capture {
     Snapshot(ByteBackupCapture),
     Log(Box<LogCapture>),
 }
+
+macro_rules! delegate_capture {
+    ($(pub fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> Result<$ret:ty>;)+) => {
+        $(pub fn $name(&self $(, $arg: $ty)*) -> Result<$ret> {
+            match self {
+                Self::Snapshot(c) => Ok(c.$name($($arg),*)?),
+                Self::Log(c) => c.$name($($arg),*),
+            }
+        })+
+    };
+}
+
 impl Capture {
-    pub fn begin(&self) -> Result<Begin> {
-        match self {
-            Self::Snapshot(c) => Ok(c.begin()?),
-            Self::Log(c) => Ok(c.begin().clone()),
-        }
+    delegate_capture! {
+        pub fn begin(&self) -> Result<Begin>;
+        pub fn object_count(&self) -> Result<u64>;
+        pub fn object(&self, index: u64) -> Result<ByteBackupObject>;
+        pub fn reader(&self, index: u64) -> Result<Box<dyn Read + Send>>;
+        pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> Result<()>;
+        pub fn root_receipt_id(&self) -> Result<Digest>;
+        pub fn status(&self) -> Result<ByteBackupCaptureStatus>;
+        pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> Result<()>;
+        pub fn terminal(&self, result: &JobResult) -> Result<()>;
     }
-    pub fn object_count(&self) -> Result<u64> {
-        match self {
-            Self::Snapshot(c) => Ok(c.object_count()?),
-            Self::Log(c) => Ok(c.object_count()),
-        }
-    }
-    pub fn object(&self, index: u64) -> Result<ByteBackupObject> {
-        match self {
-            Self::Snapshot(c) => Ok(c.object(index)?),
-            Self::Log(c) => c.object(index),
-        }
-    }
-    pub fn reader(&self, index: u64) -> Result<Box<dyn Read + Send>> {
-        match self {
-            Self::Snapshot(c) => Ok(Box::new(c.reader(index)?)),
-            Self::Log(c) => c.reader(index),
-        }
-    }
-    pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> Result<()> {
-        match self {
-            Self::Snapshot(c) => Ok(c.confirm(index, receipt)?),
-            Self::Log(c) => c.confirm(index, receipt),
-        }
-    }
-    pub fn root_receipt_id(&self) -> Result<Digest> {
-        match self {
-            Self::Snapshot(c) => Ok(c.root_receipt_id()?),
-            Self::Log(c) => c.root_receipt_id(),
-        }
-    }
-    pub fn status(&self) -> Result<ByteBackupCaptureStatus> {
-        match self {
-            Self::Snapshot(c) => Ok(c.status()?),
-            Self::Log(c) => c.status(),
-        }
-    }
-    pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> Result<()> {
-        match self {
-            Self::Snapshot(c) => Ok(c.set_coordinator_spool_bytes(bytes)?),
-            Self::Log(c) => c.budget(bytes),
-        }
-    }
+
     pub fn seal_commit(&self, commit: &Commit) -> Result<()> {
         match self {
-            Self::Snapshot(c) => {
-                if c.root_receipt_id()? != commit.root_receipt_id {
-                    return Err(BackupError::Identity);
-                }
-                Ok(())
-            }
+            Self::Snapshot(c) => (c.root_receipt_id()? == commit.root_receipt_id)
+                .then_some(())
+                .ok_or(BackupError::Identity),
             Self::Log(c) => c.seal_commit(commit),
         }
     }
-    pub fn terminal(&self, result: &JobResult) -> Result<()> {
-        match self {
-            Self::Snapshot(c) => Ok(c.terminal(result)?),
-            Self::Log(c) => c.terminal(result),
-        }
-    }
+
     pub fn recovery_point(&self, accepted: &AcceptedBackup) -> Result<RecoveryPoint> {
         let point = match self {
-            Self::Snapshot(capture) => {
-                let profile = capture.run_profile()?;
-                let anchor = capture.mutation_log_anchor()?;
+            Self::Snapshot(c) => {
+                let profile = c.run_profile()?;
+                let anchor = c.mutation_log_anchor()?;
                 let through = anchor.as_ref().map(LogAnchor::position).transpose()?;
                 RecoveryPoint {
                     accepted: accepted.clone(),
@@ -191,22 +213,18 @@ impl Capture {
                     },
                 }
             }
-            Self::Log(capture) => capture.recovery_point(accepted),
+            Self::Log(c) => c.recovery_point(accepted),
         };
-        point.validate()?;
-        Ok(point)
+        point.validate().map(|()| point)
     }
 }
 
-fn temporary_protocol(error: &ProtocolError) -> bool {
-    matches!(
-        error.code,
-        ErrorCode::ProviderPending | ErrorCode::RetryLater | ErrorCode::OutcomeUnknown
-    )
-}
-
 pub(super) fn temporary(error: &BackupError) -> bool {
-    matches!(error, BackupError::Cloud(BackupTransportError::Protocol(error)) if temporary_protocol(error))
+    matches!(
+        error,
+        BackupError::Cloud(BackupTransportError::Protocol(e))
+            if matches!(e.code, ErrorCode::ProviderPending | ErrorCode::RetryLater | ErrorCode::OutcomeUnknown)
+    )
 }
 
 pub(super) async fn control<T, F, Fut>(
@@ -233,8 +251,7 @@ where
             Err(_) => break,
         }
         if attempt < 5 {
-            let ceiling = 100u64 << attempt;
-            let delay = Duration::from_millis(1 + rand::random::<u64>() % ceiling);
+            let delay = Duration::from_millis(1 + rand::random::<u64>() % (100u64 << attempt));
             tokio::time::sleep_until(deadline.min(Instant::now() + delay)).await;
             transfer::check_pause(pause)?;
         }
@@ -248,10 +265,10 @@ where
 }
 
 pub(super) struct Context<'a> {
-    store: &'a Store,
-    saved: &'a Saved,
+    pub store: &'a Store,
+    pub saved: &'a Saved,
     pub pause: &'a AtomicBool,
-    stopped: AtomicBool,
+    pub stopped: AtomicBool,
 }
 
 impl<'a> Context<'a> {
@@ -266,25 +283,9 @@ impl<'a> Context<'a> {
 
     pub fn check(&self) -> Result<()> {
         publication::check_work(self.store, self.saved, self.pause)?;
-        if self.stopped.load(Ordering::Acquire) {
-            Err(BackupError::Waiting)
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn check_upload(&self, input: &TransferInput, grant: &UploadGrant) -> Result<()> {
-        let begin = self.saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-        if begin.job != input.job || grant.transfer_mode.is_some() {
-            return Err(BackupError::Identity);
-        }
-        Ok(())
-    }
-
-    pub fn note_result<T>(&self, result: &Result<T>) {
-        if result.is_err() {
-            self.stopped.store(true, Ordering::Release);
-        }
+        (!self.stopped.load(Ordering::Acquire))
+            .then_some(())
+            .ok_or(BackupError::Waiting)
     }
 
     async fn delay(&self, duration: Duration) -> Result<()> {
@@ -312,38 +313,18 @@ where
     let mut delay = Duration::from_secs(1);
     loop {
         context.check()?;
-        let result = control(operation, context.pause, || match context.check() {
+        let res = control(operation, context.pause, || match context.check() {
             Ok(()) => Either::Right(request()),
-            Err(error) => Either::Left(ready(Err(error))),
+            Err(e) => Either::Left(ready(Err(e))),
         })
         .await;
-        match result {
+        match res {
             Ok(Some(value)) => return Ok(value),
             Ok(None) => {}
-            Err(error) if matches!(error, BackupError::Waiting) || temporary(&error) => {}
-            Err(error) => return Err(error),
+            Err(e) if matches!(e, BackupError::Waiting) || temporary(&e) => {}
+            Err(e) => return Err(e),
         }
         context.delay(delay).await?;
         delay = (delay * 2).min(Duration::from_secs(30));
-    }
-}
-
-/// A local sibling stop must not hide the original non-continuable refusal.
-pub(super) fn record_error(previous: &mut Option<BackupError>, error: BackupError) {
-    if previous
-        .as_ref()
-        .is_none_or(|old| priority(&error) > priority(old))
-    {
-        *previous = Some(error);
-    }
-}
-
-fn priority(error: &BackupError) -> u8 {
-    if matches!(error, BackupError::Waiting) {
-        0
-    } else if temporary(error) {
-        1
-    } else {
-        2
     }
 }

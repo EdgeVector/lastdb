@@ -1,19 +1,31 @@
-use super::model::{Saved, StreamRecord};
-use super::work::{self, Capture};
-use super::{source::Source, store::Store, transfer, BackupError, Phase, Result};
-use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-use cloud_backup_protocol::v2::access::{
-    InventoryMetadata, InventoryPutRequest, InventoryPutResult,
+use super::model::Saved;
+use super::recovery::RecoveryPoint;
+use super::work::{self, Capture, LogContext, Work};
+use super::{
+    connection,
+    source::Source,
+    store::{self, Store},
+    transfer, worker, BackupError, Phase, Result,
 };
-use cloud_backup_protocol::v2::inventory::{InventoryIndex, InventoryPage, InventoryVerifier};
-use cloud_backup_protocol::v2::jobs::{CloseReason, JobResult, JobStatus};
-use cloud_backup_protocol::v2::publication::{CommitResponse, CommitStatusRequest};
-use cloud_backup_protocol::v2::{AcceptedBackup, Commit, Stream, Version};
-use cloud_backup_protocol::{CloudScope, Id};
+use crate::cloud_backup_client::byte_backup::ByteBackupClient;
+use cloud_backup_protocol::v2::{
+    access::{InventoryMetadata, InventoryPutRequest, InventoryPutResult},
+    inventory::{InventoryIndex, InventoryPage, InventoryVerifier},
+    jobs::JobResult,
+    limits::MAX_PAGE_ENTRIES,
+    publication::{CommitResponse, CommitStatusRequest},
+    AcceptedBackup, Commit, Job, Stream, Version,
+};
+use cloud_backup_protocol::{AccountId, Id};
+use fold_db::storage::disk_pack::mutation_log::Frontiers;
+use fold_db::storage_policy::{backup_decode, BACKUP_RESOURCES};
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
+use tokio::time::Instant;
 
-const CI_ACCOUNT: &str = "2a81c95623f2445854a794b5b48471d6";
+const CAPABILITY_TTL: Duration = Duration::from_secs(15);
 
 pub(super) async fn publish(
     capture: &Capture,
@@ -46,60 +58,66 @@ pub(super) async fn publish(
     saved.phase = Phase::Inventory;
     budget(capture, store)?;
     store.save(saved)?;
+    let ctx = work::Context::new(store, saved, pause);
     for page in pages {
-        check_work(store, saved, pause)?;
-        budget(capture, store)?;
-        store.write(
-            &format!("inventory-page-{:04}.json", page.page_index),
-            &page,
-        )?;
-        budget(capture, store)?;
-        put(client, &begin.job, InventoryMetadata::Page { page }, pause).await?;
+        let name = format!("inventory-page-{:04}.json", page.page_index);
+        put_inventory(
+            capture,
+            &ctx,
+            client,
+            &begin.job,
+            &name,
+            InventoryMetadata::Page { page },
+        )
+        .await?;
     }
-    check_work(store, saved, pause)?;
-    budget(capture, store)?;
-    store.write("inventory-index.json", &index)?;
-    budget(capture, store)?;
-    put(
+    let idx_meta = InventoryMetadata::Index { index };
+    put_inventory(
+        capture,
+        &ctx,
         client,
         &begin.job,
-        InventoryMetadata::Index { index },
-        pause,
+        "inventory-index.json",
+        idx_meta,
     )
     .await?;
     saved.phase = Phase::Committing;
     store.save(saved)?;
     budget(capture, store)?;
-    let response = work::control("commit_prepare", pause, || async {
+    let resp = work::control("commit_prepare", pause, || async {
         Ok(client.commit(&begin, &commit, &proof).await?)
     })
     .await?;
-    accepted(client, store, saved, response, pause).await
+    accepted(client, store, saved, resp, pause).await
 }
 
-fn budget(capture: &Capture, store: &Store) -> Result<()> {
+pub(super) fn budget(capture: &Capture, store: &Store) -> Result<()> {
     let quote = store
         .bytes()
-        .checked_add(fold_db::storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES)
-        .ok_or(BackupError::Limit)?;
-    capture.set_coordinator_spool_bytes(quote)?;
-    Ok(())
+        .checked_add(backup_decode::JSON_PAGE_RESERVE_BYTES);
+    capture.set_coordinator_spool_bytes(quote.ok_or(BackupError::Limit)?)
 }
 
 fn inventory(capture: &Capture, saved: &Saved) -> Result<(InventoryIndex, Vec<InventoryPage>)> {
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    let scope = &saved
+        .begin
+        .as_ref()
+        .ok_or(BackupError::Invalid)?
+        .job
+        .stream
+        .scope;
     let mut receipts = BTreeMap::new();
-    for index in 0..capture.object_count()? {
-        let object = capture.object(index)?;
-        let receipt = object.receipt.ok_or(BackupError::Invalid)?;
+    for i in 0..capture.object_count()? {
+        let obj = capture.object(i)?;
+        let receipt = obj.receipt.ok_or(BackupError::Invalid)?;
         receipt.validate()?;
-        if receipt.scope != begin.job.stream.scope || receipt.object != object.input.object {
+        if &receipt.scope != scope || receipt.object != obj.input.object {
             return Err(BackupError::Identity);
         }
-        let quote = (receipts.len() as u64 + 1)
-            .checked_mul(fold_db::storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)
-            .ok_or(BackupError::Limit)?;
-        if quote > fold_db::storage_policy::BACKUP_RESOURCES.decoded_values_bytes / 2 {
+        if (receipts.len() as u64 + 1)
+            .checked_mul(backup_decode::RECEIPT_MEMORY_BYTES)
+            .is_none_or(|q| q > BACKUP_RESOURCES.decoded_values_bytes / 2)
+        {
             return Err(BackupError::Limit);
         }
         if receipts
@@ -109,46 +127,56 @@ fn inventory(capture: &Capture, saved: &Saved) -> Result<(InventoryIndex, Vec<In
             return Err(BackupError::Identity);
         }
     }
-    let mut pages = Vec::new();
-    let mut values = receipts.into_values().peekable();
-    while values.peek().is_some() {
-        let page = InventoryPage {
-            version: Version::V2,
-            scope: begin.job.stream.scope.clone(),
-            page_index: u32::try_from(pages.len()).map_err(|_| BackupError::Limit)?,
-            objects: values
-                .by_ref()
-                .take(cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES)
-                .collect(),
-        };
-        page.validate()?;
-        pages.push(page);
-    }
+    let values: Vec<_> = receipts.into_values().collect();
+    let pages: Vec<_> = values
+        .chunks(MAX_PAGE_ENTRIES)
+        .enumerate()
+        .map(|(idx, chunk)| {
+            let page = InventoryPage {
+                version: Version::V2,
+                scope: scope.clone(),
+                page_index: u32::try_from(idx).map_err(|_| BackupError::Limit)?,
+                objects: chunk.to_vec(),
+            };
+            page.validate().map(|()| page).map_err(BackupError::from)
+        })
+        .collect::<Result<_>>()?;
     let index = InventoryIndex {
         version: Version::V2,
-        scope: begin.job.stream.scope.clone(),
+        scope: scope.clone(),
         pages: pages
             .iter()
             .map(InventoryPage::descriptor)
             .collect::<std::result::Result<_, _>>()?,
     };
-    index.validate()?;
-    Ok((index, pages))
+    index
+        .validate()
+        .map(|()| (index, pages))
+        .map_err(Into::into)
 }
 
-async fn put(
+async fn put_inventory(
+    capture: &Capture,
+    ctx: &work::Context<'_>,
     client: &ByteBackupClient,
-    job: &cloud_backup_protocol::v2::Job,
+    job: &Job,
+    name: &str,
     metadata: InventoryMetadata,
-    pause: &AtomicBool,
 ) -> Result<()> {
-    let request = InventoryPutRequest {
+    ctx.check()?;
+    budget(capture, ctx.store)?;
+    match &metadata {
+        InventoryMetadata::Page { page } => ctx.store.write(name, page)?,
+        InventoryMetadata::Index { index } => ctx.store.write(name, index)?,
+    }
+    budget(capture, ctx.store)?;
+    let req = InventoryPutRequest {
         version: Version::V2,
         job: job.clone(),
         metadata,
     };
-    work::control("inventory_put", pause, || async {
-        match client.put_inventory(&request).await? {
+    work::control("inventory_put", ctx.pause, || async {
+        match client.put_inventory(&req).await? {
             InventoryPutResult::Ok { .. } => Ok(()),
             InventoryPutResult::Error { error } => Err(transfer::cloud_error(error)),
         }
@@ -165,149 +193,180 @@ async fn accepted(
 ) -> Result<AcceptedBackup> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let commit = saved.commit.as_ref().ok_or(BackupError::Invalid)?;
-    let request = CommitStatusRequest {
-        version: Version::V2,
-        job: begin.job.clone(),
-    };
-    response.validate_for(begin, commit)?;
-    match response {
-        CommitResponse::Accepted { backup } => return Ok(*backup),
-        CommitResponse::Rejected { .. } => return Err(BackupError::Source),
-        CommitResponse::Pending { .. } => {}
-    }
-    let context = work::Context::new(store, saved, pause);
-    work::poll(&context, "commit_status", || async {
-        let response = client.commit_status(&request).await?;
-        response.validate_for(begin, commit)?;
-        match response {
+    let decode = |resp: CommitResponse| -> Result<Option<AcceptedBackup>> {
+        resp.validate_for(begin, commit)?;
+        match resp {
             CommitResponse::Accepted { backup } => Ok(Some(*backup)),
             CommitResponse::Rejected { .. } => Err(BackupError::Source),
             CommitResponse::Pending { .. } => Ok(None),
         }
+    };
+    if let Some(backup) = decode(response)? {
+        return Ok(backup);
+    }
+    let req = CommitStatusRequest {
+        version: Version::V2,
+        job: begin.job.clone(),
+    };
+    let ctx = work::Context::new(store, saved, pause);
+    work::poll(&ctx, "commit_status", || async {
+        decode(client.commit_status(&req).await?)
     })
     .await
 }
 
 pub(super) fn check_work(store: &Store, saved: &Saved, pause: &AtomicBool) -> Result<()> {
     transfer::check_pause(pause)?;
-    if let Some(id) = store.read::<Id>("close.json")? {
-        if id != saved.request_id {
+    match store.read::<Id>("close.json")? {
+        Some(id) if id == saved.request_id => Err(BackupError::Closing),
+        Some(_) => Err(BackupError::Identity),
+        None => Ok(()),
+    }
+}
+
+pub(super) async fn share_capability_limit(
+    base: &Path,
+    source: &Source,
+    stream_id: &Id,
+    cached: &mut Option<(Stream, String, Option<u8>, Instant)>,
+    client: &ByteBackupClient,
+) -> Result<Option<u8>> {
+    let ep = client.canonical_endpoint();
+    let stream = connection::publication_stream(base, source, stream_id, client).await?;
+    if let Some((s, cached_ep, limit, exp)) = cached.as_ref() {
+        if *s == stream && *cached_ep == ep && Instant::now() < *exp {
+            return Ok(*limit);
+        }
+    }
+    let limit = client.share_recovery_limit(&stream).await?;
+    *cached = Some((stream, ep, limit, Instant::now() + CAPABILITY_TTL));
+    Ok(limit)
+}
+
+pub(super) fn read_publication_point(
+    base: &Path,
+    stream_id: &Id,
+    account: &AccountId,
+) -> Result<Option<RecoveryPoint>> {
+    let point: Option<RecoveryPoint> = store::read(&base.join("recovery.json"))?;
+    if let Some(p) = &point {
+        p.validate()?;
+        let (stream, deps) = (
+            &p.accepted.job().stream,
+            &p.accepted.begin.recovery_dependencies,
+        );
+        let bad_chain = p.base != p.accepted
+            && (p.anchor.is_none()
+                || deps.first() != Some(&p.base.head())
+                || deps.last() != p.accepted.begin.predecessor.as_ref());
+        if stream.stream_id != *stream_id
+            || stream.scope.account_id != *account
+            || !p.base.begin.recovery_dependencies.is_empty()
+            || bad_chain
+        {
             return Err(BackupError::Identity);
         }
-        return Err(BackupError::Closing);
     }
-    Ok(())
+    Ok(point)
 }
 
-fn expected_stream(source: &Source) -> Result<Option<Id>> {
-    if let Some(id) = &source.publication_stream {
-        return Ok(Some(id.clone()));
-    }
-    match std::env::var("LASTDB_CLOUD_CI_STREAM_ID") {
-        Ok(value) if source.account.as_str() == CI_ACCOUNT => Id::try_from(value)
-            .map(Some)
-            .map_err(|_| BackupError::Identity),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        _ => Err(BackupError::Identity),
-    }
-}
-
-pub(super) fn validate_saved_stream(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
-    let Some(expected) = expected_stream(source)? else {
-        return Ok(());
-    };
-    let record: StreamRecord = store
-        .read_base("stream.json")?
-        .ok_or(BackupError::Identity)?;
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-    if record.source_home != source.source_home
-        || record.stream != begin.job.stream
-        || record.stream.stream_id != expected
-        || record.stream.scope.account_id != source.account
-    {
-        return Err(BackupError::Identity);
-    }
-    Ok(())
-}
-
-pub(super) fn select_stream(source: &Source, store: &Store, scope: CloudScope) -> Result<Stream> {
-    let expected = expected_stream(source)?;
-    let stream = match store.read_base::<StreamRecord>("stream.json")? {
-        Some(record)
-            if record.source_home == source.source_home && record.stream.scope == scope =>
-        {
-            if expected
-                .as_ref()
-                .is_some_and(|id| *id != record.stream.stream_id)
-            {
+pub(super) fn verify_publication_terminal(
+    saved: &Saved,
+    store: &Store,
+    base: &Path,
+    stream_id: &Id,
+    account: &AccountId,
+    minimum: Frontiers,
+) -> Result<bool> {
+    match saved.phase {
+        Phase::Published => {
+            let pt =
+                read_publication_point(base, stream_id, account)?.ok_or(BackupError::Missing)?;
+            if saved.accepted.as_ref() != Some(&pt.accepted) || pt.frontiers.main < minimum.main {
                 return Err(BackupError::Identity);
             }
-            record.stream
+            Ok(true)
         }
-        Some(_) if expected.is_some() => return Err(BackupError::Identity),
-        _ => Stream {
-            scope,
-            stream_id: if let Some(id) = expected {
-                id
-            } else {
-                Id::try_from(uuid::Uuid::new_v4().to_string())?
-            },
-        },
-    };
-    stream.validate()?;
-    store.write_base(
-        "stream.json",
-        &StreamRecord {
-            source_home: source.source_home.clone(),
-            stream: stream.clone(),
-        },
-    )?;
-    Ok(stream)
+        Phase::Closed if saved.local_action.is_some() => Ok(true),
+        Phase::Closed => {
+            let term: JobResult = store.read("terminal.json")?.ok_or(BackupError::Missing)?;
+            worker::validate_terminal(saved, &term)?;
+            if !worker::source_unavailable(&term) || store.read::<Id>("close.json")?.is_some() {
+                return Err(BackupError::Authority);
+            }
+            Ok(false)
+        }
+        _ => Err(BackupError::Invalid),
+    }
 }
 
-pub(super) fn same_scope(source: &Source, store: &Store, scope: &CloudScope) -> Result<bool> {
-    let Some(record) = store.read_base::<StreamRecord>("stream.json")? else {
+pub(super) fn replace_unmaterialized(
+    source: &Source,
+    store: &Store,
+    saved: &mut Saved,
+    limit: Option<u8>,
+) -> Result<bool> {
+    let Work::MutationLog { context } = &saved.work else {
         return Ok(false);
     };
-    record.stream.validate()?;
-    Ok(record.source_home == source.source_home
-        && record.stream.scope == *scope
-        && expected_stream(source)?.is_none_or(|id| id == record.stream.stream_id))
+    if saved.begin_submitted {
+        return Ok(false);
+    }
+    let replacing = saved.local_action.is_some();
+    if !replacing && limit.is_some() {
+        let j = source.runtime.mutation_log_status()?;
+        if !j.snapshot_required && j.anchor.as_ref() == Some(&context.anchor) {
+            return Ok(false);
+        }
+    }
+    if source
+        .runtime
+        .mutation_log_capture_materialized(&saved.request_id)?
+    {
+        return match (replacing, limit.is_some()) {
+            (true, _) => Err(BackupError::Identity),
+            (false, true) => Ok(false),
+            (false, false) => Err(BackupError::AdmissionPending),
+        };
+    }
+    source.replace_with_snapshot(store, saved).map(|()| true)
 }
 
-pub(super) fn source_unavailable(result: &JobResult) -> bool {
-    matches!(
-        result.status,
-        JobStatus::Closed {
-            reason: CloseReason::SourceUnavailable,
-        }
-    )
-}
-
-pub(super) fn validate_terminal(saved: &Saved, result: &JobResult) -> Result<()> {
-    saved.validate()?;
-    if !saved.begin_submitted {
-        return Err(BackupError::Invalid);
+pub(super) fn next_share_work(
+    base: &Path,
+    source: &Source,
+    stream_id: &Id,
+    limit: Option<u8>,
+) -> Result<Option<(Frontiers, Option<Box<LogContext>>)>> {
+    let rt = &source.runtime;
+    let frontier = rt.durable_main_frontier();
+    let point = read_publication_point(base, stream_id, &source.account)?;
+    if point.as_ref().is_some_and(|p| p.frontiers.main > frontier) {
+        return Err(BackupError::Identity);
     }
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-    result.validate_for_begin(begin)?;
-    match &result.status {
-        JobStatus::Published { backup } => {
-            backup.validate_for(begin, saved.commit.as_ref().ok_or(BackupError::Invalid)?)?;
-            if saved
-                .accepted
-                .as_ref()
-                .is_some_and(|old| old != backup.as_ref())
-            {
-                return Err(BackupError::Identity);
+    let (mut minimum, mut log) = (Frontiers { main: frontier }, None);
+    let journal = rt.mutation_log_status()?;
+    if !journal.enabled {
+        rt.configure_mutation_log(true)?;
+    }
+    let anchored = point.as_ref().filter(|p| {
+        journal.enabled
+            && !journal.snapshot_required
+            && p.anchor.is_some()
+            && journal.anchor == p.anchor
+    });
+    if let (Some(limit), Some(p)) = (limit, anchored) {
+        if p.frontiers.main == frontier {
+            return Ok(None);
+        }
+        if p.accepted.ordinal.get() - p.base.ordinal.get() < u64::from(limit) {
+            let ctx = p.log_context()?;
+            if journal.head.is_some_and(|h| h.sequence > ctx.from.sequence) {
+                (minimum.main, log) = (p.frontiers.main + 1, Some(Box::new(ctx)));
             }
         }
-        JobStatus::Closed { .. } => {
-            if saved.accepted.is_some() || saved.phase == Phase::Published {
-                return Err(BackupError::Identity);
-            }
-        }
-        JobStatus::Active => return Err(BackupError::Invalid),
+    } else if anchored.is_some_and(|p| p.base == p.accepted && p.frontiers.main == frontier) {
+        return Ok(None);
     }
-    Ok(())
+    Ok(Some((minimum, log)))
 }

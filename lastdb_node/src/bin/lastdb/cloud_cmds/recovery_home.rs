@@ -1,33 +1,38 @@
 //! Protected credential homes: offline transfer or explicit source-free registration.
+use super::{
+    admin_scan_client_timeout, block_on_cloud, parse_json_response, print_backup,
+    read_stdin_no_control, read_stdin_secret, require_disjoint, CloudCommand, FreshHome,
+    PrepareRecoveryArgs, RecoverCredentialsArgs,
+};
+use base64::Engine as _;
+use cloud_backup_protocol::AccountId;
+use fold_db::security::Ed25519KeyPair;
+use lastdb_node::byte_cloud_backup::SensitiveConnectionRequest;
+use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
+use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
+use lastdb_node::offline_home::{
+    entry_present, open_directory, read_private_file, require_owned_directory, require_private_file,
+};
+use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
-
-use base64::Engine as _;
-use fold_db::security::Ed25519KeyPair;
-use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
-use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
-use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use zeroize::Zeroizing;
 
-#[path = "recovery_home/files.rs"]
-pub(super) mod files;
-use super::{CloudCommand, PrepareRecoveryArgs, RecoverCredentialsArgs};
-use files::{open_directory, read_private_file, FreshHome};
-
-const API_KEY_LIMIT: usize = 4096;
-const SEED_INPUT_LIMIT: usize = 128;
 const INTENT: &str = ".native_backup_registration.json";
-
-pub(super) fn handles(action: &CloudCommand) -> bool {
-    matches!(
-        action,
-        CloudCommand::PrepareRecoveryHome(_)
-            | CloudCommand::RecoverDevCredentialsHome { .. }
-            | CloudCommand::RecoverCredentialsHome(_)
-    )
-}
+const RECOVERY_ERRS: [&str; 4] = [
+    "registration result is uncertain; retain this credentials home and its device intent; do not retry automatically",
+    "registered account differs; retain the device intent",
+    "cannot encode paused credentials; retain the device intent",
+    "cannot commit paused credentials; retain the device intent",
+];
+const DEV_ERRS: [&str; 4] = [
+    "dev_registration_result_uncertain",
+    "registered_account_mismatch",
+    "cannot_encode_protected_credentials",
+    "cannot_commit_protected_credentials",
+];
 
 pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(), String> {
     match action {
@@ -50,15 +55,84 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
             expected_user_hash,
             identity_seed_stdin,
             json,
-        } => seed_registration_command(
-            source,
-            &into,
-            &expected_user_hash,
-            identity_seed_stdin,
-            json,
-        ),
-        _ => unreachable!("recovery-home command dispatch"),
+        } => {
+            let result = recover_dev_seed(source, &into, &expected_user_hash, identity_seed_stdin);
+            if json {
+                let receipt = match &result {
+                    Ok(id) => serde_json::json!({
+                        "schema": "lastdb.dev-credentials-recovery.v1", "ok": true, "environment": "dev",
+                        "user_hash_matches_expected": true, "fresh_device_id": id,
+                        "credentials_only": true, "cloud_sync_off": true,
+                        "data_directory_created": false, "files": 2, "home_mode": "0700", "file_mode": "0600",
+                        "identity_seed_output": false, "api_key_output": false, "local_store_opened": false,
+                        "cloud_data_published": false, "device_registered": true,
+                        "remote_key_rotation_policy_verified": false, "credentials_home_committed": true,
+                    }),
+                    Err((code, committed, id)) => serde_json::json!({
+                        "schema": "lastdb.dev-credentials-recovery.v1", "ok": false, "environment": "dev",
+                        "code": code, "registration_may_have_committed": committed,
+                        "fresh_device_id": id, "identity_seed_output": false, "api_key_output": false,
+                        "local_store_opened": false, "cloud_data_published": false, "credentials_home_committed": false,
+                    }),
+                };
+                emit_receipt(true, &receipt, "")?;
+            } else if result.is_ok() {
+                println!("Prepared DEV credentials-only home; one fresh device registered; Cloud Sync stays Off.");
+            }
+            result.map(|_| ()).map_err(|(code, committed, _)| {
+                if committed {
+                    format!("{code}; remote registration may have committed; do not retry automatically")
+                } else {
+                    code.to_owned()
+                }
+            })
+        }
+        CloudCommand::BackupV2 { .. } => unreachable!("handled by byte backup dispatch"),
     }
+}
+
+pub(super) fn run_existing(
+    home: &Path,
+    env: &str,
+    expected: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
+    if !home.is_absolute() || !matches!(env, "dev" | "prod") {
+        return Err(
+            "existing connection requires an absolute home and dev or prod environment".into(),
+        );
+    }
+    let expected_user_hash = expected
+        .map(|v| AccountId::try_from(v.to_owned()).map_err(|_| "invalid expected account identity"))
+        .transpose()?;
+    let api_key = read_stdin_no_control(4096, "existing account API key")?;
+    let req = SensitiveConnectionRequest {
+        environment: env.to_owned(),
+        expected_user_hash,
+        api_key: api_key.as_str().to_owned(),
+    };
+    let body = Zeroizing::new(
+        serde_json::to_vec(&req).map_err(|_| "cannot encode protected connection request")?,
+    );
+    let hdrs = super::super::socket_client::client_headers();
+    let mut wire = Zeroizing::new(
+        format!(
+            "POST /api/sync/byte-backup-v2/connect HTTP/1.1\r\nHost: localhost\r\n{hdrs}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len(),
+        )
+        .into_bytes(),
+    );
+    wire.extend_from_slice(&body);
+    let sock = home.join("data/folddb.sock");
+    let resp = super::super::socket_client::request_with_timeout(
+        &sock,
+        &wire,
+        admin_scan_client_timeout(),
+    )?;
+    print_backup(
+        &parse_json_response(&resp, "V2 existing account connection")?,
+        json,
+    )
 }
 
 fn emit_receipt(json: bool, receipt: &serde_json::Value, text: &str) -> Result<(), String> {
@@ -74,34 +148,29 @@ fn emit_receipt(json: bool, receipt: &serde_json::Value, text: &str) -> Result<(
 
 fn prepare_recovery_home(source: Option<&Path>, args: &PrepareRecoveryArgs) -> Result<(), String> {
     let source = source.ok_or("prepare-recovery-home requires an explicit --data-dir")?;
-    let environment = Environment::try_from_str(&args.env)
+    let env = Environment::try_from_str(&args.env)
         .map_err(|_| "recovery environment must be dev or prod")?;
-    let source_dir = open_directory(source)?;
-    files::require_owned_directory(&source_dir)?;
-    files::require_disjoint(source, &args.into)?;
-    let target = FreshHome::preflight(&args.into, &source_dir)?;
-    let seed = read_private_file(&source_dir, IDENTITY_KEY_FILE, 32)?;
+    let src_dir = open_directory(source)?;
+    require_owned_directory(&src_dir)?;
+    require_disjoint(source, &args.into)?;
+    let target = FreshHome::preflight(&args.into, Some(&src_dir))?;
+    let seed = read_private_file(&src_dir, IDENTITY_KEY_FILE, 32)?;
     if seed.len() != 32 {
         return Err("source identity must contain exactly 32 bytes".into());
     }
-    if !files::entry_present(&source_dir, CLOUD_CREDENTIALS_FILE)? {
+    if !entry_present(&src_dir, CLOUD_CREDENTIALS_FILE)? {
         return Err("source requires saved paused cloud credentials".into());
     }
-    let raw = Zeroizing::new(read_private_file(
-        &source_dir,
-        CLOUD_CREDENTIALS_FILE,
-        65_536,
-    )?);
-    let credentials =
-        SavedCredentials::parse(&raw).map_err(|_| "invalid source cloud credentials")?;
-    if credentials.api_url != exemem_api_url_for(environment) {
+    let cred_bytes = Zeroizing::new(read_private_file(&src_dir, CLOUD_CREDENTIALS_FILE, 65_536)?);
+    let creds =
+        SavedCredentials::parse(&cred_bytes).map_err(|_| "invalid source cloud credentials")?;
+    if creds.api_url != exemem_api_url_for(env) {
         return Err("saved cloud URL does not match the selected compiled environment".into());
     }
-    let api_key = super::read_stdin_secret(API_KEY_LIMIT, "API key")?;
-    if api_key.as_str() != credentials.api_key.as_str() {
+    if read_stdin_secret(4096, "API key")?.as_str() != creds.api_key.as_str() {
         return Err("stdin API key does not match the source cloud credentials".into());
     }
-    let bytes = credentials
+    let bytes = creds
         .key_json()
         .map_err(|_| "cannot encode recovery credentials")?;
     let mut target = target.create()?;
@@ -111,7 +180,7 @@ fn prepare_recovery_home(source: Option<&Path>, args: &PrepareRecoveryArgs) -> R
     emit_receipt(
         args.json,
         &serde_json::json!({
-            "schema": "lastdb.recovery-home.v1", "ok": true, "environment": environment.as_str(),
+            "schema": "lastdb.recovery-home.v1", "ok": true, "environment": env.as_str(),
             "credentials_only": true, "source_opened_read_only": true,
             "identity_matches_source": true, "api_key_matches_source": true,
             "saved_url_matches_environment": true, "cloud_sync_off": true,
@@ -122,10 +191,10 @@ fn prepare_recovery_home(source: Option<&Path>, args: &PrepareRecoveryArgs) -> R
 }
 
 fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> {
-    let environment = Environment::try_from_str(&args.env)
+    let env = Environment::try_from_str(&args.env)
         .map_err(|_| "credential environment must be dev or prod")?;
-    let account = cloud_backup_protocol::AccountId::try_from(args.expected_user_hash)
-        .map_err(|_| "invalid expected account")?;
+    let account =
+        AccountId::try_from(args.expected_user_hash).map_err(|_| "invalid expected account")?;
     let (seed, pair) = verified_seed_pair(account.as_str())?;
     let invite = args
         .invite_code_file
@@ -135,35 +204,28 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     let mut target = FreshHome::preflight_empty_parent(&args.into)?.create()?;
     let device = uuid::Uuid::new_v4().to_string();
     let intent = serde_json::to_vec(&serde_json::json!({
-        "version": 1, "account_id": account, "environment": environment.as_str(),
+        "version": 1, "account_id": account, "environment": env.as_str(),
         "device_id": device, "registration_attempted": true,
     }))
     .map_err(|_| "cannot encode registration intent")?;
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(INTENT, &intent)?;
     target.commit()?;
-    let registered = super::block_on_cloud(
-        "account registration",
-        register_native_device(environment, &pair, &device, invite.as_deref().map(String::as_str)),
+    let invite_str = invite.as_deref().map(String::as_str);
+    register_into(
+        env,
+        &pair,
+        &device,
+        invite_str,
+        account.as_str(),
+        &mut target,
     )
-    .map_err(|_| {
-        "registration result is uncertain; retain this credentials home and its device intent; do not retry automatically"
-    })?;
-    if registered.user_hash != account.as_str() {
-        return Err("registered account differs; retain the device intent".into());
-    }
-    let bytes = SavedCredentials::new(exemem_api_url_for(environment), registered.api_key)
-        .to_json()
-        .map_err(|_| "cannot encode paused credentials; retain the device intent")?;
-    target
-        .write(CLOUD_CREDENTIALS_FILE, &bytes)
-        .and_then(|()| target.commit())
-        .map_err(|_| "cannot commit paused credentials; retain the device intent")?;
+    .map_err(|i| RECOVERY_ERRS[i])?;
     emit_receipt(
         args.json,
         &serde_json::json!({
             "schema": "lastdb.credentials-recovery.v1", "ok": true,
-            "environment": environment.as_str(), "account_id": account, "device_id": device,
+            "environment": env.as_str(), "account_id": account, "device_id": device,
             "credentials_only": true, "cloud_sync_off": true,
             "data_directory_created": false, "local_store_opened": false,
             "api_key_output": false, "identity_seed_output": false,
@@ -172,40 +234,57 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     )
 }
 
+fn register_into(
+    env: Environment,
+    pair: &Ed25519KeyPair,
+    device: &str,
+    invite: Option<&str>,
+    expected: &str,
+    target: &mut FreshHome,
+) -> Result<(), usize> {
+    let reg = block_on_cloud(
+        "account registration",
+        register_native_device(env, pair, device, invite),
+    )
+    .map_err(|_| 0usize)?;
+    if reg.user_hash != expected {
+        return Err(1);
+    }
+    let bytes = SavedCredentials::new(exemem_api_url_for(env), reg.api_key)
+        .to_json()
+        .map_err(|_| 2usize)?;
+    target
+        .write(CLOUD_CREDENTIALS_FILE, &bytes)
+        .and_then(|()| target.commit())
+        .map_err(|_| 3usize)
+}
+
 fn verified_seed_pair(
     expected: &str,
 ) -> Result<(Zeroizing<[u8; 32]>, Ed25519KeyPair), &'static str> {
-    let seed = read_seed_stdin()?;
-    let pair =
-        Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid_identity_seed")?;
-    let user_hash = user_hash_from_pubkey(&pair.public_key_base64())
-        .map_err(|_| "cannot_derive_account_hash")?;
-    if user_hash != expected {
-        return Err("identity_account_mismatch");
-    }
-    Ok((seed, pair))
-}
-
-fn read_seed_stdin() -> Result<Zeroizing<[u8; 32]>, &'static str> {
-    let mut bytes = Zeroizing::new(Vec::new());
+    let mut seed_buf = Zeroizing::new(Vec::new());
     std::io::stdin()
-        .take((SEED_INPUT_LIMIT + 1) as u64)
-        .read_to_end(&mut bytes)
+        .take(129)
+        .read_to_end(&mut seed_buf)
         .map_err(|_| "cannot_read_seed_stdin")?;
-    if bytes.len() > SEED_INPUT_LIMIT {
+    if seed_buf.len() > 128 {
         return Err("seed_stdin_exceeds_supported_size");
     }
-    let text = std::str::from_utf8(&bytes).map_err(|_| "invalid_seed_encoding")?;
-    let decoded = Zeroizing::new(
+    let text = std::str::from_utf8(&seed_buf).map_err(|_| "invalid_seed_encoding")?;
+    let raw = Zeroizing::new(
         base64::engine::general_purpose::STANDARD
             .decode(text.trim())
             .map_err(|_| "invalid_seed_encoding")?,
     );
-    let value: [u8; 32] = decoded
-        .as_slice()
-        .try_into()
-        .map_err(|_| "invalid_seed_size")?;
-    Ok(Zeroizing::new(value))
+    let arr: [u8; 32] = raw.as_slice().try_into().map_err(|_| "invalid_seed_size")?;
+    let seed = Zeroizing::new(arr);
+    let pair =
+        Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid_identity_seed")?;
+    let hash = user_hash_from_pubkey(&pair.public_key_base64())
+        .map_err(|_| "cannot_derive_account_hash")?;
+    (hash == expected)
+        .then_some((seed, pair))
+        .ok_or("identity_account_mismatch")
 }
 
 fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
@@ -217,93 +296,41 @@ fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| "cannot open protected invite file")?;
-    let before = file.metadata().map_err(|_| "cannot inspect invite file")?;
-    if !before.is_file()
-        || before.uid() != unsafe { libc::geteuid() }
-        || before.mode() & 0o777 != 0o600
-        || before.nlink() != 1
-        || before.len() > 1024
-    {
-        return Err("invite must be a bounded private owner file".into());
-    }
+    require_private_file(
+        &file,
+        Some(1024),
+        "invite must be a bounded private owner file",
+    )?;
+    let stamp = |f: &fs::File| f.metadata().map(|m| (m.len(), m.mtime(), m.mtime_nsec()));
+    let before = stamp(&file).map_err(|_| "cannot inspect invite file")?;
     let mut bytes = Zeroizing::new(Vec::new());
     (&file)
         .take(1025)
         .read_to_end(&mut bytes)
         .map_err(|_| "cannot read invite file")?;
-    let after = file.metadata().map_err(|_| "cannot inspect invite file")?;
-    if bytes.len() > 1024
-        || (before.len(), before.mtime(), before.mtime_nsec())
-            != (after.len(), after.mtime(), after.mtime_nsec())
-    {
+    if bytes.len() > 1024 || Ok(before) != stamp(&file).map_err(|_| ()) {
         return Err("invite file changed or exceeds its limit".into());
     }
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| "invalid invite encoding")?
         .trim();
-    if text.is_empty() || !text.is_ascii() || text.as_bytes().iter().any(u8::is_ascii_control) {
-        return Err("invalid invite text".into());
-    }
-    Ok(Zeroizing::new(text.to_owned()))
-}
-
-type SeedFailure = (&'static str, bool, Option<String>);
-
-fn seed_registration_command(
-    source: Option<&Path>,
-    destination: &Path,
-    expected_user_hash: &str,
-    seed_stdin: bool,
-    json: bool,
-) -> Result<(), String> {
-    let result = recover_dev_seed(source, destination, expected_user_hash, seed_stdin);
-    if json {
-        let receipt = match &result {
-            Ok(device_id) => serde_json::json!({
-                "schema": "lastdb.dev-credentials-recovery.v1", "ok": true, "environment": "dev",
-                "user_hash_matches_expected": true, "fresh_device_id": device_id,
-                "credentials_only": true, "cloud_sync_off": true,
-                "data_directory_created": false, "files": 2, "home_mode": "0700", "file_mode": "0600",
-                "identity_seed_output": false, "api_key_output": false, "local_store_opened": false,
-                "cloud_data_published": false, "device_registered": true,
-                "remote_key_rotation_policy_verified": false, "credentials_home_committed": true,
-            }),
-            Err((code, committed, device_id)) => serde_json::json!({
-                "schema": "lastdb.dev-credentials-recovery.v1", "ok": false, "environment": "dev",
-                "code": code, "registration_may_have_committed": committed,
-                "fresh_device_id": device_id, "identity_seed_output": false, "api_key_output": false,
-                "local_store_opened": false, "cloud_data_published": false, "credentials_home_committed": false,
-            }),
-        };
-        emit_receipt(true, &receipt, "")?;
-    } else if result.is_ok() {
-        println!(
-            "Prepared DEV credentials-only home; one fresh device registered; Cloud Sync stays Off."
-        );
-    }
-    result.map(|_| ()).map_err(|(code, committed, _)| {
-        if committed {
-            format!("{code}; remote registration may have committed; do not retry automatically")
-        } else {
-            code.to_owned()
-        }
-    })
+    (!text.is_empty() && text.is_ascii() && !text.as_bytes().iter().any(u8::is_ascii_control))
+        .then(|| Zeroizing::new(text.to_owned()))
+        .ok_or_else(|| "invalid invite text".into())
 }
 
 fn recover_dev_seed(
     source: Option<&Path>,
     destination: &Path,
-    expected_user_hash: &str,
+    expected: &str,
     seed_stdin: bool,
-) -> Result<String, SeedFailure> {
+) -> Result<String, (&'static str, bool, Option<String>)> {
     let fail = |code| (code, false, None);
     if source.is_some() || !seed_stdin {
         return Err(fail("explicit_seed_stdin_without_data_dir_required"));
     }
-    if cloud_backup_protocol::AccountId::try_from(expected_user_hash.to_owned()).is_err() {
-        return Err(fail("invalid_expected_user_hash"));
-    }
-    let (seed, keypair) = verified_seed_pair(expected_user_hash).map_err(fail)?;
+    AccountId::try_from(expected.to_owned()).map_err(|_| fail("invalid_expected_user_hash"))?;
+    let (seed, pair) = verified_seed_pair(expected).map_err(fail)?;
     let mut target = FreshHome::preflight_source_free_dev(destination)
         .map_err(|_| fail("invalid_fresh_private_destination"))?
         .create()
@@ -311,22 +338,8 @@ fn recover_dev_seed(
     target
         .write(IDENTITY_KEY_FILE, seed.as_ref())
         .map_err(|_| fail("cannot_write_protected_identity"))?;
-    let device_id = uuid::Uuid::new_v4().to_string();
-    let after = |code| (code, true, Some(device_id.clone()));
-    let registered = super::block_on_cloud(
-        "account registration",
-        register_native_device(Environment::Dev, &keypair, &device_id, None),
-    )
-    .map_err(|_| after("dev_registration_result_uncertain"))?;
-    if registered.user_hash != expected_user_hash {
-        return Err(after("registered_account_mismatch"));
-    }
-    let bytes = SavedCredentials::new(exemem_api_url_for(Environment::Dev), registered.api_key)
-        .to_json()
-        .map_err(|_| after("cannot_encode_protected_credentials"))?;
-    target
-        .write(CLOUD_CREDENTIALS_FILE, &bytes)
-        .and_then(|()| target.commit())
-        .map_err(|_| after("cannot_commit_protected_credentials"))?;
-    Ok(device_id)
+    let id = uuid::Uuid::new_v4().to_string();
+    register_into(Environment::Dev, &pair, &id, None, expected, &mut target)
+        .map(|()| id.clone())
+        .map_err(|i| (DEV_ERRS[i], true, Some(id)))
 }

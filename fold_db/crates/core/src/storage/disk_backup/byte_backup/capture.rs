@@ -1,13 +1,15 @@
-//! Capture entry points, terminal settlement, local cancel, and legacy-capture retirement.
+//! Capture entry points, terminal settlement, local cancel, and legacy retirement.
 
 use super::{
-    invalid, object_name, protocol,
+    invalid, object_name,
+    planner::RunSource,
+    protocol,
     run_capture::{self, held_root, Intent},
-    run_source::RunSource,
     store::Store,
     ByteBackupCapture, Inner, PackRuntime, State, StorageResult, MAX_OBJECTS, RUN_INTENT_FILE,
     STATE_FORMAT,
 };
+use crate::storage::cloud_backup_plan::expected_receipt;
 use crate::storage::disk_backup::NativeCloudWorkGuard;
 use crate::storage::disk_pack::run_blocking;
 use cloud_backup_protocol::bytes_sha256;
@@ -20,17 +22,28 @@ use std::fs::File;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub(in crate::storage::disk_backup::byte_backup) type PublicationGate<'a> =
-    &'a (dyn Fn() -> StorageResult<File> + Sync);
+pub(super) type PublicationGate<'a> = &'a (dyn Fn() -> StorageResult<File> + Sync);
 
 impl PackRuntime {
-    pub async fn prepare_record_backup_capture(
+    pub async fn prepare_byte_backup_capture(
         self: &Arc<Self>,
         begin: Begin,
         key: &[u8; 32],
         recovery: cloud_backup_protocol::RecoveryDescriptor,
         renew_unmaterialized: bool,
+        publication_gate: Option<&(dyn Fn() -> StorageResult<File> + Sync)>,
     ) -> StorageResult<ByteBackupCapture> {
+        if publication_gate.is_some() {
+            return run_capture::prepare(
+                self,
+                begin,
+                key,
+                recovery,
+                renew_unmaterialized,
+                publication_gate,
+            )
+            .await;
+        }
         let sealed = crate::storage::local_file_ref::materialize(self, key).await?;
         let prepared =
             run_capture::prepare(self, begin, key, recovery, renew_unmaterialized, None).await;
@@ -38,25 +51,6 @@ impl PackRuntime {
             tracing::error!(%error, "local file reference release after backup capture");
         }
         prepared
-    }
-
-    pub async fn prepare_publication_backup_capture(
-        self: &Arc<Self>,
-        begin: Begin,
-        key: &[u8; 32],
-        recovery: cloud_backup_protocol::RecoveryDescriptor,
-        renew_unmaterialized: bool,
-        acquire_gate: impl Fn() -> StorageResult<File> + Sync,
-    ) -> StorageResult<ByteBackupCapture> {
-        run_capture::prepare(
-            self,
-            begin,
-            key,
-            recovery,
-            renew_unmaterialized,
-            Some(&acquire_gate),
-        )
-        .await
     }
 
     pub async fn resume_byte_backup_capture(
@@ -80,9 +74,7 @@ impl PackRuntime {
     ) -> StorageResult<()> {
         begin.validate().map_err(protocol)?;
         let admission = NativeCloudWorkGuard::acquire()?;
-        let runtime = Arc::clone(self);
-        let begin = begin.clone();
-        let key = Zeroizing::new(*key);
+        let (runtime, begin, key) = (Arc::clone(self), begin.clone(), Zeroizing::new(*key));
         run_blocking(move || {
             let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             if !store.exists("job.json")? {
@@ -110,12 +102,20 @@ impl PackRuntime {
     }
 }
 
+fn release_ref(runtime: &PackRuntime, id: uuid::Uuid) -> StorageResult<()> {
+    let root = held_root(runtime, id);
+    if !id.is_nil() && root.try_exists()? {
+        RunSource::release_saved(&root)?;
+    }
+    Ok(())
+}
+
 fn cancel_intent(
     runtime: &PackRuntime,
     store: &Store,
     begin: &Begin,
     key: &[u8; 32],
-    previous_reference: Option<uuid::Uuid>,
+    prev_ref: Option<uuid::Uuid>,
 ) -> StorageResult<()> {
     if !store.exists(RUN_INTENT_FILE)? {
         return Ok(());
@@ -124,7 +124,7 @@ fn cancel_intent(
     if intent.begin != *begin
         || intent.key_sha256 != bytes_sha256(key)
         || intent.reference_id.is_nil()
-        || previous_reference == Some(intent.reference_id)
+        || prev_ref == Some(intent.reference_id)
     {
         return Err(invalid("run cancel intent"));
     }
@@ -132,7 +132,7 @@ fn cancel_intent(
     store.remove(RUN_INTENT_FILE)
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn finish(
+pub(super) fn finish(
     inner: Inner,
     key: &[u8; 32],
     admit_export: bool,
@@ -141,27 +141,17 @@ pub(in crate::storage::disk_backup::byte_backup) fn finish(
         .state
         .lock()
         .map_err(|_| invalid("byte source state lock"))?;
-    if inner.available() {
-        let files = inner.files()?;
-        let bytes = files
-            .iter()
-            .try_fold(0u64, |n, f| n.checked_add(f.bytes))
-            .ok_or_else(|| invalid("byte source file size overflow"))?;
-        if state.native_files != 0
-            && (state.native_files != files.len() as u64 || state.native_bytes != bytes)
-        {
+    if let Some(run) = &inner.run {
+        let (files, bytes) = (run.files.len() as u64, run.total_bytes()?);
+        if state.native_files != 0 && (state.native_files, state.native_bytes) != (files, bytes) {
             return Err(invalid("byte frozen source inventory changed"));
         }
-        state.native_files = files.len() as u64;
-        state.native_bytes = bytes;
-        inner.store.write("job.json", &*state)?;
+        (state.native_files, state.native_bytes) = (files, bytes);
     }
-    let active = state.terminal.is_none() && !state.local_cancelled && !state.released;
-    if active && admit_export {
-        inner.require_available()?;
+    if state.is_active() && admit_export && inner.run.is_none() {
+        return Err(invalid("byte retained source unavailable"));
     }
-    if !state.ready && active && inner.available() {
-        super::run_source::certify(&inner, key)?;
+    if !state.ready && state.is_active() && inner.run.is_some() {
         super::planner::build(&inner, &mut state, key)?;
     }
     inner.advance(&mut state)?;
@@ -169,14 +159,10 @@ pub(in crate::storage::disk_backup::byte_backup) fn finish(
     let capture = ByteBackupCapture {
         inner: Arc::new(inner),
     };
-    capture.finish_terminal()?;
-    Ok(capture)
+    capture.finish_terminal().map(|()| capture)
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn clear_objects(
-    store: &Store,
-    last: u64,
-) -> StorageResult<()> {
+pub(super) fn clear_objects(store: &Store, last: u64) -> StorageResult<()> {
     for index in 0..=last {
         for name in [object_name(index), format!("payload-{index:08}.enc")] {
             store.remove(&name)?;
@@ -209,90 +195,76 @@ impl ByteBackupCapture {
                 if !state.ready
                     || state.verified != state.objects
                     || backup.root_receipt_id
-                        != crate::storage::cloud_backup_plan::expected_receipt(
-                            &self.inner.object(&state, state.objects - 1)?.input,
-                        )
-                        .map_err(protocol)?
-                        .receipt_id
+                        != expected_receipt(&self.inner.object(&state, state.objects - 1)?.input)
+                            .map_err(protocol)?
+                            .receipt_id
                 {
                     return Err(invalid("byte accepted result does not cover source"));
                 }
             }
-            let mut confirmed = state.clone();
-            confirmed.terminal = Some(result.clone());
-            self.inner.store.write("job.json", &confirmed)?;
-            *state = confirmed;
+            state.terminal = Some(result.clone());
+            if let Err(e) = self.inner.store.write("job.json", &*state) {
+                state.terminal = None;
+                return Err(e);
+            }
         }
         drop(state);
         self.finish_terminal()
     }
 
-    pub(in crate::storage::disk_backup::byte_backup) fn finish_terminal(
-        &self,
-    ) -> StorageResult<()> {
+    fn finish_terminal(&self) -> StorageResult<()> {
         let mut state = self.lock()?;
         if state.terminal.is_none() && !state.local_cancelled {
             return Ok(());
         }
         self.inner.require_idle()?;
         if !state.released {
-            if let Some(anchor) = &state.journal_anchor {
-                if state
-                    .terminal
-                    .as_ref()
-                    .is_some_and(|result| matches!(result.status, JobStatus::Published { .. }))
-                {
-                    self.inner.runtime.mutation_log.snapshot_accepted(anchor)?;
-                }
+            if let (
+                Some(anchor),
+                Some(JobResult {
+                    status: JobStatus::Published { .. },
+                    ..
+                }),
+            ) = (&state.journal_anchor, &state.terminal)
+            {
+                self.inner.runtime.mutation_log.snapshot_accepted(anchor)?;
             }
             RunSource::release_saved(&held_root(&self.inner.runtime, state.reference_id))?;
             self.inner.store.remove(RUN_INTENT_FILE)?;
-            let mut released = state.clone();
-            released.released = true;
-            self.inner.store.write("job.json", &released)?;
-            *state = released;
+            state.released = true;
+            if let Err(e) = self.inner.store.write("job.json", &*state) {
+                state.released = false;
+                return Err(e);
+            }
         }
         clear_objects(&self.inner.store, state.objects)
     }
 }
 
-#[derive(Deserialize)]
-struct Located {
-    format: u16,
-    reference_id: uuid::Uuid,
-    objects: u64,
-}
-
-#[derive(Deserialize)]
-struct LocatedIntent {
-    reference_id: uuid::Uuid,
-}
-
-pub(in crate::storage::disk_backup::byte_backup) fn retire_previous_format(
-    runtime: &PackRuntime,
-    store: &Store,
-) -> StorageResult<()> {
-    if !store.exists("job.json")? {
-        return Ok(());
+pub(super) fn retire_previous_format(runtime: &PackRuntime, store: &Store) -> StorageResult<()> {
+    #[derive(Deserialize)]
+    struct Ref {
+        #[serde(default)]
+        format: u16,
+        reference_id: uuid::Uuid,
+        #[serde(default)]
+        objects: u64,
     }
-    let job: Located = store.read("job.json")?;
+    let read_opt = |name: &str| {
+        store
+            .exists(name)?
+            .then(|| store.read::<Ref>(name))
+            .transpose()
+    };
+    let Some(job) = read_opt("job.json")? else {
+        return Ok(());
+    };
     if job.format >= STATE_FORMAT {
         return Ok(());
     }
-    let intent_ref = store
-        .exists(RUN_INTENT_FILE)?
-        .then(|| store.read::<LocatedIntent>(RUN_INTENT_FILE))
-        .transpose()?
-        .map(|intent| intent.reference_id);
-    for reference in [Some(job.reference_id), intent_ref]
-        .into_iter()
-        .flatten()
-        .filter(|id| !id.is_nil())
-    {
-        let root = held_root(runtime, reference);
-        if root.try_exists()? {
-            RunSource::release_saved(&root)?;
-        }
+    release_ref(runtime, job.reference_id)?;
+    if let Some(intent) = read_opt(RUN_INTENT_FILE)? {
+        release_ref(runtime, intent.reference_id)?;
     }
     clear_objects(store, job.objects.min(MAX_OBJECTS))?;
     store.remove(RUN_INTENT_FILE)?;

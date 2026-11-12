@@ -2,21 +2,22 @@
 mod plan;
 
 use super::{
-    inventory::Inventory,
-    local, native,
-    recipient::{self, GuestReplayCache},
-    ByteBackupReader, RecoveryDecryption, RestoreError, RestoreReport, RestoreSession, Result,
+    local,
+    recipient::{self, GuestReplayCache, RecoveryDecryption},
+    runs::Inventory,
+    ByteBackupReader, RestoreError, RestoreReport, RestoreSession, Result,
 };
 use crate::byte_cloud_log::MutationLogRoot;
 use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::Digest;
 use fold_db::storage::disk_pack::{
-    byte_backup::ClientRoot, mutation_log::LogPosition, run_restore,
+    byte_backup::ClientRoot,
+    mutation_log::{log_path, LogPosition},
+    run_restore,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs::{self, File};
-use std::path::PathBuf;
+use std::fs;
 
 pub(super) const MAX_CHAIN: u32 = 32768;
 
@@ -32,12 +33,6 @@ struct Cursor {
     part: usize,
 }
 
-struct BaseSnapshot {
-    session: RestoreSession,
-    root: ClientRoot,
-    inventory: Inventory,
-}
-
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupReader,
@@ -47,20 +42,23 @@ pub(super) async fn restore(
 ) -> Result<RestoreReport> {
     decryption.validate_account(&latest.recovery.account_public_key)?;
     let plan = plan::prepare(session, client, decryption, &latest, None).await?;
-    let base = load_base(session, client, decryption, &latest).await?;
+    let (base, root, inv) = load_base(session, client, decryption, &latest).await?;
     if let Some(report) = recipient::published(session)? {
         return Ok(report);
     }
-    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
-        cursor
+    let cursor = if let Some(c) = load_cursor(session, &plan)? {
+        c
     } else {
-        stage_base(base, client, decryption).await?;
+        super::runs::stage_and_verify(&base, client, decryption, &root, inv).await?;
         start_cursor(session, &plan, &latest)?
     };
     let proof = replay(session, client, decryption, &latest, cursor).await?;
-    let root = proof.native_root().map_err(RestoreError::native_proof)?;
-    let totals = proof.totals().map_err(RestoreError::native_proof)?;
-    recipient::finish_run(session, &root, identity_seed, totals, &proof)
+    recipient::finish_run(
+        session,
+        &proof.native_root().map_err(RestoreError::native_proof)?,
+        identity_seed,
+        &proof,
+    )
 }
 
 pub(super) async fn stage_guest(
@@ -72,38 +70,27 @@ pub(super) async fn stage_guest(
 ) -> Result<(run_restore::RunRestoreGuard, LogPosition)> {
     decryption.validate_account(&latest.recovery.account_public_key)?;
     let plan = plan::prepare(session, client, decryption, &latest, cache).await?;
-    let cursor = if let Some(cursor) = load_cursor(session, &plan)? {
-        cursor
+    let cursor = if let Some(c) = load_cursor(session, &plan)? {
+        c
     } else {
         if let Some(start) = &plan.cached {
-            let cache = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
-            seed_from_cache(session, decryption, &latest, cache, &start.position)?;
+            let c = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
+            let (data, key) = (session.root.join("home/data"), &decryption.content);
+            run_restore::RunSnapshotReader::open(c.data, key, c.native_root)
+                .and_then(|r| r.seed_replay(&data, &latest.anchor, &start.position))
+                .map_err(RestoreError::native_proof)?;
+            local::prepare_native_ephemera(&data)?;
+            run_restore::install_empty_cas_home(&data, key).map_err(RestoreError::native_proof)?;
         } else {
-            let base = load_base(session, client, decryption, &latest).await?;
-            stage_base(base, client, decryption).await?;
+            let (base, root, inv) = load_base(session, client, decryption, &latest).await?;
+            super::runs::stage_and_verify(&base, client, decryption, &root, inv).await?;
         }
         start_cursor(session, &plan, &latest)?
     };
-    let proof = replay(session, client, decryption, &latest, cursor).await?;
-    Ok((proof, latest.through))
-}
-
-fn seed_from_cache(
-    session: &RestoreSession,
-    decryption: &RecoveryDecryption,
-    latest: &MutationLogRoot,
-    cache: &GuestReplayCache<'_>,
-    position: &LogPosition,
-) -> Result<()> {
-    let data = session.root.join("home/data");
-    let key = decryption.content_key();
-    let reader = run_restore::RunSnapshotReader::open(cache.data, key, cache.native_root)
-        .map_err(RestoreError::native_proof)?;
-    reader
-        .seed_replay(&data, &latest.anchor, position)
-        .map_err(RestoreError::native_proof)?;
-    local::prepare_native_ephemera(&data)?;
-    run_restore::install_empty_cas_home(&data, key).map_err(RestoreError::native_proof)
+    Ok((
+        replay(session, client, decryption, &latest, cursor).await?,
+        latest.through,
+    ))
 }
 
 async fn load_base(
@@ -111,59 +98,33 @@ async fn load_base(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
-) -> Result<BaseSnapshot> {
+) -> Result<(RestoreSession, ClientRoot, Inventory)> {
     let base = session.ancestor(latest.base.clone())?;
     let (inventory, bytes) = super::load_closure(&base, client).await?;
     let root = super::snapshot_closure(&base, decryption, &bytes)?;
-    let profile = &root.run;
     if root.recovery != latest.recovery
-        || profile.main.home_id != latest.anchor.main_home
-        || profile.main.frontier.get() != latest.anchor.frontiers.main
+        || root.run.main.home_id != latest.anchor.main_home
+        || root.run.main.frontier.get() != latest.anchor.frontiers.main
         || !base.accepted().begin.dependencies().is_empty()
     {
         return Err(RestoreError::Invalid("mutation exact snapshot boundary"));
     }
-    Ok(BaseSnapshot {
-        session: base,
-        root,
-        inventory,
-    })
+    Ok((base, root, inventory))
 }
 
-async fn stage_base(
-    base: BaseSnapshot,
-    client: &ByteBackupReader,
-    decryption: &RecoveryDecryption,
-) -> Result<()> {
-    let total = super::runs::stage(
-        &base.session,
-        client,
-        decryption,
-        &base.root,
-        base.inventory,
-    )
-    .await?;
-    let proof = super::runs::verify_stage(&base.session, decryption, &base.root)?;
-    if proof.totals().map_err(RestoreError::native_proof)? != total {
-        return Err(RestoreError::Invalid("mutation snapshot proof"));
-    }
-    Ok(())
-}
-
-fn cursor_path(session: &RestoreSession) -> PathBuf {
-    session.root.join("chain/cursor.json")
+fn save_cursor(session: &RestoreSession, cursor: &Cursor) -> Result<()> {
+    session.write_spool_json(&session.root.join("chain/cursor.json"), 512 * 1024, cursor)
 }
 
 fn load_cursor(session: &RestoreSession, plan: &plan::Plan) -> Result<Option<Cursor>> {
-    let path = cursor_path(session);
+    let path = session.root.join("chain/cursor.json");
     if !path.try_exists()? {
         return Ok(None);
     }
-    let cursor: Cursor = local::read_json(&path, 256 * 1024)?;
-    if cursor.version != 2 || cursor.head != plan.head || cursor.remaining > plan.links {
-        return Err(RestoreError::Invalid("mutation replay cursor"));
-    }
-    Ok(Some(cursor))
+    let c: Cursor = local::read_json(&path, 256 * 1024)?;
+    (c.version == 2 && c.head == plan.head && c.remaining <= plan.links)
+        .then_some(Some(c))
+        .ok_or(RestoreError::Invalid("mutation replay cursor"))
 }
 
 fn start_cursor(
@@ -172,7 +133,7 @@ fn start_cursor(
     latest: &MutationLogRoot,
 ) -> Result<Cursor> {
     let (previous, position) = match &plan.cached {
-        Some(start) => (start.accepted.clone(), start.position.clone()),
+        Some(s) => (s.accepted.clone(), s.position.clone()),
         None => (
             plan.base.clone(),
             latest
@@ -190,8 +151,7 @@ fn start_cursor(
         entry: 0,
         part: 0,
     };
-    session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, &cursor)?;
-    Ok(cursor)
+    save_cursor(session, &cursor).map(|()| cursor)
 }
 
 async fn replay(
@@ -202,39 +162,20 @@ async fn replay(
     mut cursor: Cursor,
 ) -> Result<run_restore::RunRestoreGuard> {
     local::ensure_directory(&session.root.join("replay-files"))?;
-    File::open(&session.root)?.sync_all()?;
+    local::sync_dir(&session.root)?;
     while cursor.remaining > 0 {
         replay_checkpoint(session, client, decryption, latest, &mut cursor).await?;
     }
-    verify_complete(session, decryption, latest, &cursor)
-}
-
-fn verify_complete(
-    session: &RestoreSession,
-    decryption: &RecoveryDecryption,
-    latest: &MutationLogRoot,
-    cursor: &Cursor,
-) -> Result<run_restore::RunRestoreGuard> {
     if cursor.previous != *session.accepted() || cursor.position != latest.through {
         return Err(RestoreError::Invalid("mutation complete selected prefix"));
     }
-    let replay = run_restore::MutationReplay::open(
-        &session.root.join("home/data"),
-        decryption.content_key(),
-        &latest.anchor,
-    )
-    .map_err(|_| RestoreError::Invalid("final native replay admission"))?;
-    replay
+    let (data, key) = (session.root.join("home/data"), &decryption.content);
+    run_restore::MutationReplay::open(&data, key, &latest.anchor)
+        .map_err(|_| RestoreError::Invalid("final native replay admission"))?
         .settle()
         .map_err(|_| RestoreError::Invalid("final native replay compaction"))?;
-    drop(replay);
-    run_restore::verify_replayed(
-        &session.root.join("home/data"),
-        &latest.anchor,
-        &latest.through,
-        decryption.content_key(),
-    )
-    .map_err(RestoreError::native_proof)
+    run_restore::verify_replayed(&data, &latest.anchor, &latest.through, key)
+        .map_err(RestoreError::native_proof)
 }
 
 async fn replay_checkpoint(
@@ -244,11 +185,12 @@ async fn replay_checkpoint(
     latest: &MutationLogRoot,
     cursor: &mut Cursor,
 ) -> Result<()> {
-    let accepted: AcceptedBackup =
-        local::read_json(&plan::link_path(session, cursor.remaining - 1), 256 * 1024)?;
+    let idx = cursor.remaining - 1;
+    let accepted: AcceptedBackup = local::read_json(&plan::link_path(session, idx), 256 * 1024)?;
     let ancestor = session.ancestor(accepted.clone())?;
     let (inventory, bytes) = super::load_closure(&ancestor, client).await?;
-    let root = MutationLogRoot::decode(&bytes, decryption.content_key(), &accepted.begin)
+    let key = &decryption.content;
+    let root = MutationLogRoot::decode(&bytes, key, &accepted.begin)
         .map_err(|_| RestoreError::Invalid("replayed checkpoint root"))?;
     if root.base != latest.base
         || root.anchor != latest.anchor
@@ -258,30 +200,17 @@ async fn replay_checkpoint(
     {
         return Err(RestoreError::Invalid("replayed checkpoint predecessor"));
     }
-    let mut position = root.from.clone();
-    for entry in &root.entries[..cursor.entry] {
-        position = entry
-            .position_after(&position)
-            .map_err(|_| RestoreError::Invalid("saved complete replay position"))?;
-    }
-    if cursor.position != position {
+    let pos = root.entries[..cursor.entry]
+        .iter()
+        .try_fold(root.from.clone(), |p, e| e.position_after(&p))
+        .map_err(|_| RestoreError::Invalid("saved complete replay position"))?;
+    if cursor.position != pos {
         return Err(RestoreError::Invalid("saved complete replay position"));
     }
-    plan::download_checkpoint(
-        &ancestor,
-        client,
-        decryption,
-        &root,
-        inventory,
-        cursor.remaining - 1,
-    )
-    .await?;
-    let replay = run_restore::MutationReplay::open(
-        &session.root.join("home/data"),
-        decryption.content_key(),
-        &root.anchor,
-    )
-    .map_err(|_| RestoreError::Invalid("private native replay admission"))?;
+    plan::download_checkpoint(&ancestor, client, decryption, &root, inventory, idx).await?;
+    let replay =
+        run_restore::MutationReplay::open(&session.root.join("home/data"), key, &root.anchor)
+            .map_err(|_| RestoreError::Invalid("private native replay admission"))?;
     while cursor.entry < root.entries.len() {
         let entry = &root.entries[cursor.entry];
         if cursor.part > entry.parts.len() {
@@ -289,72 +218,56 @@ async fn replay_checkpoint(
         }
         while cursor.part < entry.parts.len() {
             let part = &entry.parts[cursor.part];
-            let path = session.root.join("replay-files").join(
-                fold_db::storage::disk_pack::mutation_log::log_path(
-                    &root.anchor.epoch,
-                    entry.sequence,
-                    part.role,
-                    &part.run_id,
-                ),
-            );
+            let rel = log_path(&root.anchor.epoch, entry.sequence, part.role, &part.run_id);
+            let src = session.root.join("replay-files").join(rel);
             replay
-                .part(entry, cursor.part, &path)
+                .part(entry, cursor.part, &src)
                 .map_err(|_| RestoreError::Invalid("original native mutation part replay"))?;
             cursor.part += 1;
-            session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
+            save_cursor(session, cursor)?;
         }
         cursor.position = entry
             .position_after(&cursor.position)
             .map_err(|_| RestoreError::Invalid("complete replay batch"))?;
-        cursor.entry += 1;
-        cursor.part = 0;
-        session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
+        (cursor.entry, cursor.part) = (cursor.entry + 1, 0);
+        save_cursor(session, cursor)?;
     }
     if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
     }
     release_checkpoint(session, &root)?;
-    cursor.remaining -= 1;
-    cursor.previous = accepted;
-    cursor.entry = 0;
-    cursor.part = 0;
-    session.write_spool_json(&cursor_path(session), 2 * 256 * 1024, cursor)?;
+    (cursor.remaining, cursor.previous, cursor.entry, cursor.part) = (idx, accepted, 0, 0);
+    save_cursor(session, cursor)?;
     replay
         .settle()
-        .map_err(|_| RestoreError::Invalid("complete checkpoint native compaction"))?;
-    Ok(())
+        .map_err(|_| RestoreError::Invalid("complete checkpoint native compaction"))
 }
 
 fn release_checkpoint(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
-    let mut parents = BTreeSet::new();
+    let mut dirs = BTreeSet::from([
+        session.root.join("entries"),
+        session.root.join("replay-files"),
+    ]);
     for entry in &root.entries {
         for part in &entry.parts {
-            let name = fold_db::storage::disk_pack::mutation_log::log_path(
-                &root.anchor.epoch,
-                entry.sequence,
-                part.role,
-                &part.run_id,
-            );
+            let name = log_path(&root.anchor.epoch, entry.sequence, part.role, &part.run_id);
             let path = session.root.join("replay-files").join(&name);
             match fs::symlink_metadata(&path) {
-                Ok(meta) if meta.is_file() && meta.len() == part.bytes => fs::remove_file(&path)?,
+                Ok(m) if m.is_file() && m.len() == part.bytes => fs::remove_file(&path)?,
                 Ok(_) => return Err(RestoreError::Invalid("mutation source release identity")),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
             }
-            parents.insert(
-                path.parent()
-                    .ok_or(RestoreError::Invalid("mutation source parent"))?
-                    .to_path_buf(),
-            );
+            let parent = path
+                .parent()
+                .ok_or(RestoreError::Invalid("mutation source parent"))?;
+            dirs.insert(parent.to_path_buf());
             session
-                .remove_spool_file(&session.root.join("entries").join(native::path_key(&name)))?;
+                .remove_spool_file(&session.root.join("entries").join(local::path_key(&name)))?;
         }
     }
-    for parent in parents {
-        File::open(parent)?.sync_all()?;
+    for dir in dirs {
+        local::sync_dir(&dir)?;
     }
-    File::open(session.root.join("entries"))?.sync_all()?;
-    File::open(session.root.join("replay-files"))?.sync_all()?;
     plan::clear_cache(session)
 }

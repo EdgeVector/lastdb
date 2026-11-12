@@ -6,9 +6,9 @@ use std::fs::{self, File};
 use std::path::Path;
 
 const MAX_INTERVAL: u64 = 7 * 86400;
-pub(in crate::byte_cloud_backup) const VERSION: u32 = 3;
+const VERSION: u32 = 3;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AutomaticBackupStatus {
     pub enabled: bool,
@@ -53,25 +53,26 @@ pub(super) struct Policy {
 impl Policy {
     pub fn save(&self, host: &crate::host::Host) -> Result<()> {
         self.validate(host)?;
-        Store::write_configuration(&host.home, FILE, self)
+        Store::write_configuration_at(&Store::base(&host.home), FILE, self)
     }
 
     fn validate(&self, host: &crate::host::Host) -> Result<()> {
         let runtime = native(host)?;
+        let st = &self.state;
         if self.version != VERSION
             || self.account.as_str() != host.user_hash
             || self.source_home.as_str() != runtime.native_home_id().to_string()
             || self.endpoint.len() > 4096
-            || self.state.revision == 0
-            || !(60..=MAX_INTERVAL).contains(&self.state.log_interval_seconds)
-            || !(60..=MAX_INTERVAL).contains(&self.state.snapshot_interval_seconds)
-            || self.pending.as_ref().map(|p| &p.id) != self.state.pending_request_id.as_ref()
+            || st.revision == 0
+            || !(60..=MAX_INTERVAL).contains(&st.log_interval_seconds)
+            || !(60..=MAX_INTERVAL).contains(&st.snapshot_interval_seconds)
+            || self.pending.as_ref().map(|p| &p.id) != st.pending_request_id.as_ref()
         {
             return Err(BackupError::Identity);
         }
-        if let Some(pending) = &self.pending {
-            pending.work.validate(None)?;
-            if pending.revision == 0 || pending.revision > self.state.revision {
+        if let Some(p) = &self.pending {
+            p.work.validate(None)?;
+            if p.revision == 0 || p.revision > st.revision {
                 return Err(BackupError::Identity);
             }
         }
@@ -79,39 +80,34 @@ impl Policy {
     }
 
     pub fn require_connection(&self, host: &crate::host::Host) -> Result<()> {
-        let binding = super::super::connection::automatic_binding(host)?;
-        if binding
-            != (
-                self.account.clone(),
-                self.source_home.clone(),
-                self.endpoint.clone(),
-                self.credential_sha256.clone(),
-            )
-        {
-            return Err(BackupError::Identity);
-        }
-        Ok(())
+        let (acc, src, ep, dig) = super::super::connection::automatic_binding(host)?;
+        let expected = (
+            &self.account,
+            &self.source_home,
+            &self.endpoint,
+            &self.credential_sha256,
+        );
+        (expected == (&acc, &src, &ep, &dig))
+            .then_some(())
+            .ok_or(BackupError::Identity)
     }
 
     pub fn validate_job(&self, saved: &Saved) -> Result<()> {
-        let pending = self.pending.as_ref().ok_or(BackupError::Invalid)?;
-        if saved.account != self.account
-            || saved.source_home != self.source_home
-            || saved.endpoint != self.endpoint
-            || saved.request_id != pending.id
-            || saved.automatic_revision != Some(pending.revision)
-            || saved.work != pending.work
-        {
-            return Err(BackupError::Identity);
-        }
-        Ok(())
+        let p = self.pending.as_ref().ok_or(BackupError::Invalid)?;
+        let ok = saved.account == self.account
+            && saved.source_home == self.source_home
+            && saved.endpoint == self.endpoint
+            && saved.request_id == p.id
+            && saved.automatic_revision == Some(p.revision)
+            && saved.work == p.work;
+        ok.then_some(()).ok_or(BackupError::Identity)
     }
 }
 
 pub(super) fn load(host: &crate::host::Host) -> Result<Option<Policy>> {
     let policy: Option<Policy> = store::read(&Store::base(&host.home).join(FILE))?;
-    if let Some(policy) = &policy {
-        policy.validate(host)?;
+    if let Some(p) = &policy {
+        p.validate(host)?;
     }
     Ok(policy)
 }
@@ -119,7 +115,7 @@ pub(super) fn load(host: &crate::host::Host) -> Result<Option<Policy>> {
 pub(in crate::byte_cloud_backup) fn status(
     host: &crate::host::Host,
 ) -> Result<Option<AutomaticBackupStatus>> {
-    Ok(load(host)?.map(|policy| policy.state))
+    Ok(load(host)?.map(|p| p.state))
 }
 
 pub(in crate::byte_cloud_backup) fn configure(
@@ -130,14 +126,10 @@ pub(in crate::byte_cloud_backup) fn configure(
 ) -> Result<()> {
     let old = load(host)?;
     if !enabled {
-        if let Some(mut policy) = old {
-            policy.state.enabled = false;
-            policy.state.revision = policy
-                .state
-                .revision
-                .checked_add(1)
-                .ok_or(BackupError::Limit)?;
-            policy.save(host)?;
+        if let Some(mut p) = old {
+            p.state.enabled = false;
+            p.state.revision = p.state.revision.checked_add(1).ok_or(BackupError::Limit)?;
+            p.save(host)?;
             native(host)?.configure_mutation_log(false)?;
         }
         host.byte_backup.wake();
@@ -151,56 +143,31 @@ pub(in crate::byte_cloud_backup) fn configure(
     if let Some(existing) = old.as_ref().filter(|p| p.pending.is_some()) {
         existing.require_connection(host)?;
     }
-    let mut policy = old.unwrap_or_else(|| Policy {
-        version: VERSION,
-        account: account.clone(),
-        source_home: source_home.clone(),
-        endpoint: endpoint.clone(),
-        credential_sha256: credential_sha256.clone(),
-        state: AutomaticBackupStatus {
-            enabled: false,
-            revision: 0,
-            log_interval_seconds: log,
-            snapshot_interval_seconds: snapshot,
-            next_log_at: 0,
-            next_snapshot_at: 0,
-            pending_request_id: None,
-            attempts: 0,
-            retry_at: 0,
-            last_completed_request_id: None,
-            last_completed_at: None,
-            last_snapshot_at: None,
-            last_log_at: None,
-            last_backed_up_frontiers: None,
-            snapshot_reason: None,
-            paused: None,
-        },
-        pending: None,
-        cleanup: None,
-    });
-    policy.account = account;
-    policy.source_home = source_home;
-    policy.endpoint = endpoint;
-    policy.credential_sha256 = credential_sha256;
-    policy.state.enabled = true;
-    policy.state.revision = policy
-        .state
-        .revision
-        .checked_add(1)
-        .ok_or(BackupError::Limit)?;
-    policy.state.log_interval_seconds = log;
-    policy.state.snapshot_interval_seconds = snapshot;
-    policy.state.next_log_at = fold_db::clock::unix_secs();
-    policy.state.retry_at = 0;
-    policy.state.next_snapshot_at = policy
-        .state
+    let (mut state, pending, cleanup) = match old {
+        Some(p) => (p.state, p.pending, p.cleanup),
+        None => (AutomaticBackupStatus::default(), None, None),
+    };
+    state.enabled = true;
+    state.revision = state.revision.checked_add(1).ok_or(BackupError::Limit)?;
+    (state.log_interval_seconds, state.snapshot_interval_seconds) = (log, snapshot);
+    (state.next_log_at, state.retry_at, state.paused) = (fold_db::clock::unix_secs(), 0, None);
+    state.next_snapshot_at = state
         .last_snapshot_at
         .map_or(0, |at| at.saturating_add(snapshot));
-    policy.state.paused = None;
+    let policy = Policy {
+        version: VERSION,
+        account,
+        source_home,
+        endpoint,
+        credential_sha256,
+        state,
+        pending,
+        cleanup,
+    };
     policy.save(host)?;
-    if let Some(pending) = &policy.pending {
-        Store::open(&host.home, &pending.id)?.write("pause.json", &Option::<PauseState>::None)?;
-        host.byte_backup.acknowledge_completion(&pending.id);
+    if let Some(p) = &policy.pending {
+        Store::open(&host.home, &p.id)?.write("pause.json", &Option::<PauseState>::None)?;
+        host.byte_backup.acknowledge_completion(&p.id);
     }
     native(host)?.configure_mutation_log(true)?;
     host.byte_backup.wake();
@@ -212,8 +179,7 @@ pub(in crate::byte_cloud_backup) fn retire_at(base: &Path, id: &Id) -> Result<()
         return Err(BackupError::Identity);
     }
     let root = base.join("jobs").join(id.as_str());
-    let previous = store::state_at(base, id)?;
-    let active = Store::active_at(base)?;
+    let (previous, active) = (store::state_at(base, id)?, Store::active_at(base)?);
     if previous.is_none() && active.as_ref() != Some(id) {
         return remove_directory(&root);
     }
@@ -221,8 +187,6 @@ pub(in crate::byte_cloud_backup) fn retire_at(base: &Path, id: &Id) -> Result<()
     if saved.automatic_revision.is_none() || !saved.terminal() || active.as_ref() == Some(id) {
         return Err(BackupError::Identity);
     }
-    super::super::blobs::remove_plan(&root)?;
-    File::open(&root)?.sync_all()?;
     let mut files = Vec::new();
     for entry in fs::read_dir(&root)? {
         let entry = entry?;
@@ -231,70 +195,63 @@ pub(in crate::byte_cloud_backup) fn retire_at(base: &Path, id: &Id) -> Result<()
         }
         let name = entry.file_name();
         let name = name.to_str().ok_or(BackupError::Invalid)?;
-        if !allowed(name) {
-            return Err(BackupError::Invalid);
+        allowed(name).then_some(()).ok_or(BackupError::Invalid)?;
+        store::size(&entry.path())?;
+        if !matches!(name, "state.json" | "terminal.json") {
+            files.push(entry.path());
         }
-        super::super::store::size(&entry.path())?;
-        if ["state.json", "terminal.json"].contains(&name) {
-            continue;
-        }
-        files.push(entry.path());
     }
     for path in files {
-        super::super::store::remove_owned(&path)?;
+        store::remove_owned(&path)?;
     }
     File::open(&root)?.sync_all()?;
-    store::remove_owned(&root.join("terminal.json"))?;
-    File::open(&root)?.sync_all()?;
-    store::remove_owned(&root.join("state.json"))?;
-    File::open(&root)?.sync_all()?;
+    for name in ["terminal.json", "state.json"] {
+        store::remove_owned(&root.join(name))?;
+        File::open(&root)?.sync_all()?;
+    }
     remove_directory(&root)
 }
 
 fn remove_directory(root: &Path) -> Result<()> {
-    match fs::remove_dir(root) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
-    Ok(())
-}
-
-fn allowed(name: &str) -> bool {
-    let fixed = [
-        "state",
-        "terminal",
-        "recovery",
-        "pause",
-        "log-plan",
-        "inventory-index",
-        "close",
-        "blobs",
-    ];
-    if let Some((stem, "json" | "pending")) = name.rsplit_once('.') {
-        if fixed.contains(&stem) {
-            return true;
+    if let Err(e) = fs::remove_dir(root) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.into());
         }
     }
-    [
-        "log-object-",
-        "log-file-",
-        "log-payload-",
-        "inventory-page-",
-        "blob-upload-",
-        "blob-uploaded-",
-        "blob-release-",
-    ]
-    .into_iter()
-    .any(|prefix| {
-        name.strip_prefix(prefix)
-            .and_then(|tail| tail.split_once('.'))
-            .is_some_and(|(digits, extension)| {
-                !digits.is_empty()
-                    && digits.len() <= 8
-                    && digits.bytes().all(|b| b.is_ascii_digit())
-                    && ["json", "pending", "enc"].contains(&extension)
+    Ok(File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?)
+}
+
+const EXACT_FILES: &[&str] = &[
+    "state",
+    "terminal",
+    "recovery",
+    "pause",
+    "log-plan",
+    "inventory-index",
+    "close",
+    "blobs",
+];
+const NUMBERED_PREFIXES: &[&str] = &[
+    "log-object-",
+    "log-file-",
+    "log-payload-",
+    "inventory-page-",
+    "blob-upload-",
+    "blob-uploaded-",
+    "blob-release-",
+];
+
+fn allowed(name: &str) -> bool {
+    if matches!(name.rsplit_once('.'), Some((s, "json" | "pending")) if EXACT_FILES.contains(&s)) {
+        return true;
+    }
+    NUMBERED_PREFIXES.iter().any(|p| {
+        name.strip_prefix(p)
+            .and_then(|t| t.split_once('.'))
+            .is_some_and(|(d, ext)| {
+                (1..=8).contains(&d.len())
+                    && d.bytes().all(|b| b.is_ascii_digit())
+                    && matches!(ext, "json" | "pending" | "enc")
             })
     })
 }

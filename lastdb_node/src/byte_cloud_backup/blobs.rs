@@ -8,16 +8,19 @@ use super::{
     BackupError, Phase, Result,
 };
 use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReleaseRequest, MAX_BLOB_BATCH};
-use cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS;
-use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
-use cloud_backup_protocol::v2::{Destination, Object, Version};
-use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id};
-use serde::{Deserialize, Serialize};
+use cloud_backup_protocol::v2::{
+    blobs::{BlobPath, BlobReleaseRequest, MAX_BLOB_BATCH},
+    limits::MAX_BATCH_ITEMS,
+    transfer::TransferInput,
+    Destination, Object, Version,
+};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64};
+use fold_db::cloud_backup_plan::new_transfer_input;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 
 const INDEX: &str = "blobs.json";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,22 +40,27 @@ struct Index {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Release {
-    key: String,
-    path: BlobPath,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Upload {
     key: String,
     path: BlobPath,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     input: Option<TransferInput>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    receipt: Option<ObjectReceipt>,
+    #[serde(default)]
+    done: bool,
     #[serde(default)]
     vanished: bool,
+}
+
+impl Upload {
+    fn pending(key: String, path: BlobPath) -> Self {
+        Self {
+            key,
+            path,
+            input: None,
+            done: false,
+            vanished: false,
+        }
+    }
 }
 
 fn page_name(kind: &str, index: u32) -> String {
@@ -60,30 +68,27 @@ fn page_name(kind: &str, index: u32) -> String {
 }
 
 fn load(store: &Store) -> Result<Index> {
-    let index = store.read::<Index>(INDEX)?.unwrap_or(Index {
+    let idx = store.read::<Index>(INDEX)?.unwrap_or(Index {
         version: VERSION,
         ..Index::default()
     });
-    if index.version != VERSION
-        || index.uploads_done > index.upload_pages
-        || index.releases_sent > index.release_pages
-        || (index.upload_pages > 0) != index.upload_cursor.is_some()
-        || (index.release_pages > 0) != index.release_cursor.is_some()
-    {
-        return Err(BackupError::Invalid);
-    }
-    Ok(index)
+    let ok = idx.version == VERSION
+        && idx.uploads_done <= idx.upload_pages
+        && idx.releases_sent <= idx.release_pages
+        && (idx.upload_pages > 0) == idx.upload_cursor.is_some()
+        && (idx.release_pages > 0) == idx.release_cursor.is_some();
+    ok.then_some(idx).ok_or(BackupError::Invalid)
 }
 
-fn read_page<T: serde::de::DeserializeOwned>(store: &Store, name: &str) -> Result<Vec<T>> {
-    let page: Vec<T> = store.read(name)?.ok_or(BackupError::Missing)?;
-    if page.len() > MAX_BLOB_BATCH {
-        return Err(BackupError::Invalid);
-    }
-    Ok(page)
+fn read_page<T: DeserializeOwned>(store: &Store, kind: &str, page: u32) -> Result<Vec<T>> {
+    let entries: Vec<T> = store
+        .read(&page_name(kind, page))?
+        .ok_or(BackupError::Missing)?;
+    (entries.len() <= MAX_BLOB_BATCH)
+        .then_some(entries)
+        .ok_or(BackupError::Invalid)
 }
 
-/// Plan once, before the job's first capture: every queued release, in pages of 64.
 pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
     let mut index = load(store)?;
     if index.releases_planned {
@@ -91,26 +96,15 @@ pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved)
     }
     if !saved.begin_submitted {
         loop {
+            let cur = index.release_cursor.as_deref();
             let rows = source
-                .runtime()
-                .pending_blob_releases(
-                    &source.source_home,
-                    index.release_cursor.as_deref(),
-                    MAX_BLOB_BATCH,
-                )
+                .runtime
+                .pending_blob_releases(&source.source_home, cur, MAX_BLOB_BATCH)
                 .await?;
-            let Some(last) = rows.last() else {
-                break;
-            };
+            let Some(last) = rows.last() else { break };
             let full = rows.len() == MAX_BLOB_BATCH;
             index.release_cursor = Some(last.key.clone());
-            let entries: Vec<Release> = rows
-                .into_iter()
-                .map(|row| Release {
-                    key: row.key,
-                    path: row.path,
-                })
-                .collect();
+            let entries: Vec<_> = rows.into_iter().map(|r| (r.key, r.path)).collect();
             store.write(&page_name("release", index.release_pages), &entries)?;
             index.release_pages += 1;
             store.write(INDEX, &index)?;
@@ -123,7 +117,6 @@ pub(super) async fn plan_releases(source: &Source, store: &Store, saved: &Saved)
     store.write(INDEX, &index)
 }
 
-/// Plan and upload every queued version, page by page, after capture is prepared.
 pub(super) async fn upload(
     source: &Source,
     store: &Store,
@@ -134,44 +127,32 @@ pub(super) async fn upload(
     let mut index = load(store)?;
     if !index.queued {
         if matches!(saved.work, Work::Snapshot { .. }) {
-            source.runtime().queue_unuploaded_blobs().await?;
+            source.runtime.queue_unuploaded_blobs().await?;
         }
         index.queued = true;
         store.write(INDEX, &index)?;
     }
     loop {
         if index.uploads_done < index.upload_pages {
-            let page = index.uploads_done;
-            upload_one_page(source, store, saved, client, pause, page).await?;
-            store.write(&page_name("uploaded", page), &uploaded_keys(store, page)?)?;
+            upload_one_page(source, store, saved, client, pause, index.uploads_done).await?;
             index.uploads_done += 1;
             store.write(INDEX, &index)?;
-            store.remove(&page_name("upload", page))?;
             continue;
         }
         if index.uploads_planned {
             return Ok(());
         }
+        let cur = index.upload_cursor.as_deref();
         let rows = source
-            .runtime()
-            .pending_blob_uploads(
-                &source.source_home,
-                index.upload_cursor.as_deref(),
-                MAX_BLOB_BATCH,
-            )
+            .runtime
+            .pending_blob_uploads(&source.source_home, cur, MAX_BLOB_BATCH)
             .await?;
         let full = rows.len() == MAX_BLOB_BATCH;
         if let Some(last) = rows.last() {
             index.upload_cursor = Some(last.key.clone());
-            let entries: Vec<Upload> = rows
+            let entries: Vec<_> = rows
                 .into_iter()
-                .map(|row| Upload {
-                    key: row.key,
-                    path: row.path,
-                    input: None,
-                    receipt: None,
-                    vanished: false,
-                })
+                .map(|r| Upload::pending(r.key, r.path))
                 .collect();
             store.write(&page_name("upload", index.upload_pages), &entries)?;
             index.upload_pages += 1;
@@ -190,9 +171,9 @@ async fn upload_one_page(
     page: u32,
 ) -> Result<()> {
     let name = page_name("upload", page);
-    let mut entries: Vec<Upload> = read_page(store, &name)?;
+    let mut entries: Vec<Upload> = read_page(store, "upload", page)?;
     let open: Vec<usize> = (0..entries.len())
-        .filter(|&i| entries[i].receipt.is_none() && !entries[i].vanished)
+        .filter(|&i| !entries[i].done && !entries[i].vanished)
         .collect();
     for chunk in open.chunks(MAX_BATCH_ITEMS) {
         transfer::check_pause(pause)?;
@@ -208,8 +189,9 @@ async fn upload_one_page(
             &inputs,
             &context,
             |pos| Ok(Box::new(std::io::Cursor::new(batch[pos].2.clone()))),
-            |pos, receipt| {
-                entries[batch[pos].0].receipt = Some(receipt);
+            |pos, _| {
+                let entry = &mut entries[batch[pos].0];
+                (entry.done, entry.input) = (true, None);
                 Ok(())
             },
         )
@@ -228,21 +210,27 @@ async fn freeze_batch(
     entries: &mut [Upload],
     chunk: &[usize],
 ) -> Result<Vec<(usize, TransferInput, Vec<u8>)>> {
+    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let mut batch = Vec::new();
     for &i in chunk {
         let entry = &mut entries[i];
-        let Some(bytes) = source.runtime().record_blob_bytes(&entry.key).await? else {
+        let Some(bytes) = source.runtime.record_blob_bytes(&entry.key).await? else {
             if entry.input.is_some() {
                 return Err(BackupError::Source);
             }
             entry.vanished = true;
             continue;
         };
+        let obj = Object {
+            sha256: bytes_sha256(&bytes),
+            bytes: DecimalU64::new(bytes.len() as u64),
+            destination: Destination::B2,
+        };
         let input = match &entry.input {
             Some(input) => input.clone(),
-            None => freeze(saved, &entry.path, &bytes)?,
+            None => new_transfer_input(begin.job.clone(), obj.clone(), Some(entry.path.clone()))?,
         };
-        if input.object != object(&bytes) {
+        if input.object != obj {
             return Err(BackupError::Identity);
         }
         entry.input = Some(input.clone());
@@ -251,45 +239,23 @@ async fn freeze_batch(
     Ok(batch)
 }
 
-fn object(bytes: &[u8]) -> Object {
-    Object {
-        sha256: bytes_sha256(bytes),
-        bytes: DecimalU64::new(bytes.len() as u64),
-        destination: Destination::B2,
-    }
-}
-
-fn freeze(saved: &Saved, path: &BlobPath, bytes: &[u8]) -> Result<TransferInput> {
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-    let input = TransferInput {
-        version: Version::V2,
-        request_id: Id::try_from(uuid::Uuid::new_v4().to_string())?,
-        job: begin.job.clone(),
-        object: object(bytes),
-        blob: Some(path.clone()),
-    };
-    input.validate()?;
-    Ok(input)
-}
-
-/// Record the planned releases on the open job before it publishes.
 pub(super) async fn release(
     store: &Store,
     saved: &Saved,
     client: &ByteBackupClient,
     pause: &AtomicBool,
 ) -> Result<()> {
-    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    let job = &saved.begin.as_ref().ok_or(BackupError::Invalid)?.job;
     let mut index = load(store)?;
     while index.releases_sent < index.release_pages {
-        let entries: Vec<Release> = read_page(store, &page_name("release", index.releases_sent))?;
-        let request = BlobReleaseRequest {
+        let entries: Vec<(String, BlobPath)> = read_page(store, "release", index.releases_sent)?;
+        let req = BlobReleaseRequest {
             version: Version::V2,
-            job: begin.job.clone(),
-            paths: entries.into_iter().map(|entry| entry.path).collect(),
+            job: job.clone(),
+            paths: entries.into_iter().map(|(_, path)| path).collect(),
         };
         work::control("blob_release", pause, || async {
-            Ok(client.release_blobs(&request).await?)
+            Ok(client.release_blobs(&req).await?)
         })
         .await?;
         index.releases_sent += 1;
@@ -298,59 +264,26 @@ pub(super) async fn release(
     Ok(())
 }
 
-/// Mark uploaded versions and drop released `fr:` rows after job acceptance.
 pub(super) async fn accepted(source: &Source, store: &Store, saved: &Saved) -> Result<()> {
-    if saved.phase != Phase::Published {
-        return Ok(());
-    }
     let mut index = load(store)?;
-    if index.marked {
+    if saved.phase != Phase::Published || index.marked {
         return Ok(());
     }
     for page in 0..index.upload_pages {
-        let uploaded: Vec<String> = if page < index.uploads_done {
-            read_page(store, &page_name("uploaded", page))?
-        } else {
-            uploaded_keys(store, page)?
-        };
-        source.runtime().blobs_accepted(&uploaded, &[]).await?;
+        let uploaded: Vec<_> = read_page::<Upload>(store, "upload", page)?
+            .into_iter()
+            .filter(|e| e.done)
+            .map(|e| e.key)
+            .collect();
+        source.runtime.blobs_accepted(&uploaded, &[]).await?;
     }
     for page in 0..index.releases_sent {
-        let entries: Vec<Release> = read_page(store, &page_name("release", page))?;
-        let released: Vec<String> = entries.into_iter().map(|entry| entry.key).collect();
-        source.runtime().blobs_accepted(&[], &released).await?;
+        let released: Vec<_> = read_page::<(String, BlobPath)>(store, "release", page)?
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        source.runtime.blobs_accepted(&[], &released).await?;
     }
     index.marked = true;
     store.write(INDEX, &index)
-}
-
-fn uploaded_keys(store: &Store, page: u32) -> Result<Vec<String>> {
-    let entries: Vec<Upload> = read_page(store, &page_name("upload", page))?;
-    Ok(entries
-        .into_iter()
-        .filter(|entry| entry.receipt.is_some())
-        .map(|entry| entry.key)
-        .collect())
-}
-
-#[derive(Deserialize)]
-struct Pages {
-    #[serde(default)]
-    upload_pages: u32,
-    #[serde(default)]
-    release_pages: u32,
-}
-
-pub(super) fn remove_plan(root: &std::path::Path) -> Result<()> {
-    let Some(pages) = super::store::read::<Pages>(&root.join(INDEX))? else {
-        return Ok(());
-    };
-    let names = (0..=pages.upload_pages)
-        .flat_map(|p| [page_name("upload", p), page_name("uploaded", p)])
-        .chain((0..=pages.release_pages).map(|p| page_name("release", p)))
-        .chain(std::iter::once(INDEX.to_owned()));
-    for name in names {
-        super::store::remove_pair(&root.join(&name))?;
-    }
-    Ok(())
 }
