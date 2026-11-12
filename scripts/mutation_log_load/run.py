@@ -30,7 +30,6 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
                    load_partitions, refuse_prod_environment, unprocessed_ids)
 from plan import PRELIMINARY_LABEL, SCALE_LABEL, phases
-from private_recovery import recover as recover_private
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
@@ -228,6 +227,7 @@ def main(argv):
         return 0
     key, api_key, account_generation = load_ci_key()
     if args.level == "private":
+        from private_recovery import recover as recover_private
         try:
             recover_private(post, endpoint, database_id, key, api_key, account_generation, ledger)
         finally:

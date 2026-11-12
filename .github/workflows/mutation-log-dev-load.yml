@@ -4,8 +4,8 @@ name: Mutation log DEV load
 # #778 is deployed to DEV. The OIDC role is the DEV role from
 # exemem-infra #772, ref main, and the cloud-backup-dev environment. This
 # workflow does not create or change an IAM role. The job runs only on
-# main because that role trusts ref main. The signer is in process. It uses
-# the existing DEV CI account secrets and does not build node_read_token.
+# main because that role trusts ref main. The signer is in process and uses
+# the existing DEV CI account secrets. Private recovery builds the exact client.
 
 on:
   workflow_dispatch:
@@ -29,8 +29,19 @@ permissions:
   contents: read
 
 jobs:
+  build-client:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.level == 'private'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cloud-backup-build.yml
+
   load:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs: build-client
+    if: >-
+      always() && !cancelled() && github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.level != 'private' || needs.build-client.result == 'success')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -42,6 +53,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - uses: actions/download-artifact@v8
+        if: inputs.level == 'private'
+        with:
+          name: ${{ needs.build-client.outputs.artifact }}
+          path: ${{ runner.temp }}/cloud-backup-client
+      - name: Unpack the exact client for private recovery
+        if: inputs.level == 'private'
+        run: |
+          set -euo pipefail
+          client_bin_dir="$RUNNER_TEMP/cloud-backup-bin"
+          mkdir -m 700 "$client_bin_dir"
+          tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
+            -C "$client_bin_dir" lastdb lastdbd
+          printf 'CLIENT_BIN_DIR=%s\n' "$client_bin_dir" >> "$GITHUB_ENV"
       - name: Refuse a role outside the DEV account before assuming it
         env:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
@@ -62,6 +87,7 @@ jobs:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
           LOAD_LEVEL: ${{ inputs.level }}
           LOAD_DURATION: ${{ inputs.duration }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
