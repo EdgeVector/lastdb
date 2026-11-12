@@ -39,8 +39,8 @@ impl Inventory {
         let accepted = session.accepted();
         let sha256 = accepted.inventory_root.sha256.clone();
         let grant = download::one(session, client, ReadSelector::InventoryIndex { sha256 }).await?;
-        let path = download::fetch(session, client, &grant, true).await?;
-        let index: InventoryIndex = local::read_json(&path, INVENTORY_JSON_MAX_BYTES)?;
+        let idx_path = download::fetch(session, client, &grant, true).await?;
+        let index: InventoryIndex = local::read_json(&idx_path, INVENTORY_JSON_MAX_BYTES)?;
         if index.scope != accepted.job().stream.scope || index.root()? != accepted.inventory_root {
             return Err(RestoreError::Invalid("inventory root"));
         }
@@ -53,13 +53,15 @@ impl Inventory {
                     sha256: p.sha256.clone(),
                 })
                 .collect();
-            let grants = download::grants(session, client, sels).await?;
-            for (desc, grant) in batch.iter().zip(grants) {
+            for (desc, grant) in batch
+                .iter()
+                .zip(download::grants(session, client, sels).await?)
+            {
                 if (grant.sha256.as_str(), grant.bytes) != (desc.sha256.as_str(), desc.bytes) {
                     return Err(RestoreError::Invalid("inventory page grant"));
                 }
-                let path = download::fetch(session, client, &grant, true).await?;
-                let page: InventoryPage = local::read_json(&path, INVENTORY_JSON_MAX_BYTES)?;
+                let ppath = download::fetch(session, client, &grant, true).await?;
+                let page: InventoryPage = local::read_json(&ppath, INVENTORY_JSON_MAX_BYTES)?;
                 verifier.push(&page)?;
                 for receipt in page.objects {
                     inv.charge(RECEIPT_MEMORY_BYTES)?;
@@ -119,6 +121,42 @@ impl Inventory {
     }
 }
 
+pub(super) fn snapshot_closure(
+    session: &RestoreSession,
+    decryption: &RecoveryDecryption,
+    bytes: &[u8],
+) -> Result<ClientRoot> {
+    let accepted = session.accepted();
+    let root = ClientRoot::decode(bytes, &decryption.content, &accepted.begin)
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    root.recovery.validate_for(&accepted.job().stream.scope)?;
+    decryption
+        .validate_account(&root.recovery.account_public_key)
+        .map(|()| root)
+}
+
+pub(super) async fn load_closure(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+) -> Result<(Inventory, Vec<u8>)> {
+    let id = &session.accepted().root_receipt_id;
+    let inventory = Inventory::load(session, client).await?;
+    let receipt = inventory.receipt(id)?;
+    let sel = ReadSelector::Receipt {
+        receipt_id: id.clone(),
+    };
+    let grant = download::one(session, client, sel).await?;
+    grant.validate_for_receipt(receipt)?;
+    if grant.bytes.get() > CODEC_ENVELOPE_MAX_BYTES {
+        return Err(RestoreError::Limit("client root metadata"));
+    }
+    let path = download::fetch(session, client, &grant, true).await?;
+    (receipt.object.destination == Destination::R2)
+        .then_some(())
+        .ok_or(RestoreError::Invalid("client root destination"))?;
+    Ok((inventory, bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?))
+}
+
 pub(super) fn digest_bytes(id: &Digest) -> Result<[u8; 32]> {
     hex::decode(id.as_str())
         .ok()
@@ -163,9 +201,9 @@ pub(super) async fn stage_and_verify(
             page.native_files
                 .into_iter()
                 .map(|f| {
-                    let d = run_backup_destination(f.path.as_str())
-                        .map_err(|_| RestoreError::Invalid("run native path"))?;
-                    Ok((f, d))
+                    run_backup_destination(f.path.as_str())
+                        .map(|d| (f, d))
+                        .map_err(|_| RestoreError::Invalid("run native path"))
                 })
                 .collect()
         },
@@ -175,28 +213,23 @@ pub(super) async fn stage_and_verify(
     if totals != (root.native_file_count, root.native_bytes) {
         return Err(RestoreError::Invalid("complete run native totals"));
     }
-    local::prepare_native_ephemera(&data)?;
-    run_restore::install_empty_cas_home(&data, key).map_err(RestoreError::native_proof)?;
+    local::prepare_native_ephemera(&data, key)?;
     let proof = run_restore::verify(&data, &root.run, &root.native_root, key)
         .map_err(RestoreError::native_proof)?;
     proof
         .validate_context(&data, &root.native_root)
         .map_err(RestoreError::native_proof)?;
-    for file in proof.files() {
-        let path = session
-            .root
-            .join("entries")
-            .join(local::path_key(&file.path));
-        let entry: NativeFileProof = local::read_json(&path, 256 * 1024)?;
-        if entry.path != file.path || entry.bytes != file.bytes {
+    for (path, file_bytes) in proof.files() {
+        let epath = session.root.join("entries").join(local::path_key(path));
+        let entry: NativeFileProof = local::read_json(&epath, 256 * 1024)?;
+        if entry.path != *path || entry.bytes != *file_bytes {
             return Err(RestoreError::Invalid("run exact native inventory"));
         }
-        verify_file(&data.join(&file.path), &entry.sha256, file.bytes)?;
+        verify_file(&data.join(path), &entry.sha256, *file_bytes)?;
     }
-    if proof.totals().map_err(RestoreError::native_proof)? != totals {
-        return Err(RestoreError::Invalid("verified run inventory"));
-    }
-    Ok(proof)
+    (proof.totals().map_err(RestoreError::native_proof)? == totals)
+        .then_some(proof)
+        .ok_or(RestoreError::Invalid("verified run inventory"))
 }
 
 pub(super) async fn stage_pages(
@@ -207,17 +240,15 @@ pub(super) async fn stage_pages(
     target: &Path,
     mut decode: impl FnMut(u32, &[u8]) -> Result<Vec<(ClientNativeFile, Destination)>>,
 ) -> Result<()> {
-    let mut coverage = Coverage::new_pages(pages, session, &mut inventory)?;
+    let mut coverage = Coverage::new(pages, session, &mut inventory)?;
     for batch in pages.chunks(MAX_BATCH_ITEMS) {
         let ids: Vec<_> = batch.iter().map(|p| p.receipt_id.clone()).collect();
         let grants = download::receipt_grants(session, client, &inventory, &ids).await?;
         for (expected, grant) in batch.iter().zip(grants) {
             inventory.use_receipt(&expected.receipt_id)?;
             let path = download::fetch(session, client, &grant, true).await?;
-            let typed = decode(
-                expected.page_index,
-                &bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-            )?;
+            let raw = bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?;
+            let typed = decode(expected.page_index, &raw)?;
             coverage.add_page(&typed, &mut inventory)?;
             let files: Vec<_> = typed.into_iter().map(|(f, _)| f).collect();
             local::restore_at(session, client, &mut inventory, &files, target).await?;
@@ -234,7 +265,7 @@ struct Coverage {
 }
 
 impl Coverage {
-    fn new_pages(
+    fn new(
         pages: &[ClientPageReference],
         session: &RestoreSession,
         inventory: &mut Inventory,
@@ -256,10 +287,10 @@ impl Coverage {
             return Err(RestoreError::Invalid("run metadata destination"));
         }
         inventory.charge(IDENTITY_MEMORY_BYTES)?;
-        if !self.metadata.insert(digest_bytes(id)?) {
-            return Err(RestoreError::Invalid("duplicate run metadata receipt"));
-        }
-        Ok(())
+        self.metadata
+            .insert(digest_bytes(id)?)
+            .then_some(())
+            .ok_or(RestoreError::Invalid("duplicate run metadata receipt"))
     }
 
     fn add_page(

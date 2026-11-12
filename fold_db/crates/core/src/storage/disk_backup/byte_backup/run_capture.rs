@@ -1,23 +1,23 @@
 //! Owner capture of the main home, clean-cut compaction, and hold markers.
 use super::{
-    capture::{self, PublicationGate},
     invalid,
-    planner::RunSource,
+    planner::{clear_objects, finish, held_root, RunSource},
     protocol,
-    store::{private, private_directory, Store},
-    ByteBackupCapture, Inner, PackRuntime, State, StorageResult, HELD_NODE_FILE, RUN_INTENT_FILE,
-    STATE_FORMAT,
+    store::{private, private_directory, retire_previous_format, sync_dir, Store},
+    ByteBackupCapture, Inner, PackRuntime, PublicationGate, State, StorageResult, HELD_NODE_FILE,
+    RUN_INTENT_FILE, STATE_FORMAT,
 };
+use crate::storage::disk_backup::NativeCloudWorkGuard;
 use crate::storage::disk_pack::{
     map, run_blocking, run_node, transaction::PendingBatch, WriteGuard, NODE_MARKER,
 };
 use crate::storage::error::StorageError;
 use cloud_backup_protocol::{bytes_sha256, v2::Begin, Digest, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
 use std::time::{Duration, Instant};
 
@@ -35,45 +35,78 @@ pub(super) struct Intent {
     pub journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
 
-pub(super) async fn prepare(
-    runtime: &Arc<PackRuntime>,
-    begin: Begin,
-    key: &[u8; 32],
-    recovery: RecoveryDescriptor,
-    renew_unmaterialized: bool,
-    publication_gate: Option<PublicationGate<'_>>,
-) -> StorageResult<ByteBackupCapture> {
-    begin.validate().map_err(protocol)?;
-    recovery
-        .validate_for(&begin.job.stream.scope)
-        .map_err(protocol)?;
-    if !begin.descriptor.as_value().is_null() || PendingBatch::current(runtime).is_some() {
-        return Err(invalid("run capture admission"));
+impl PackRuntime {
+    pub async fn prepare_byte_backup_capture(
+        self: &Arc<Self>,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: RecoveryDescriptor,
+        renew: bool,
+        publication_gate: Option<PublicationGate<'_>>,
+    ) -> StorageResult<ByteBackupCapture> {
+        let sealed = match publication_gate {
+            None => Some(crate::storage::local_file_ref::materialize(self, key).await?),
+            Some(_) => None,
+        };
+        let res = async {
+            begin.validate().map_err(protocol)?;
+            recovery
+                .validate_for(&begin.job.stream.scope)
+                .map_err(protocol)?;
+            if !begin.descriptor.as_value().is_null() || PendingBatch::current(self).is_some() {
+                return Err(invalid("run capture admission"));
+            }
+            self.flush_native().await?;
+            let admission = NativeCloudWorkGuard::acquire()?;
+            let (src, req, ksha) = (Arc::clone(self), begin.clone(), bytes_sha256(key));
+            let (store, prev, saved_intent, held) =
+                run_blocking(move || saved_cut(&src, &req, &ksha)).await?;
+            let edit = publication_gate
+                .filter(|_| !held)
+                .map(|f| f())
+                .transpose()?;
+            let gate = if renew && !held && self.serving.load(Ordering::Acquire) {
+                enter_clean_cut(self).await?
+            } else {
+                self.enter_write().await
+            };
+            if edit.is_some() && self.has_external_backup_files().await? {
+                return Err(StorageError::PublicationFile);
+            }
+            let (rt, key) = (Arc::clone(self), zeroize::Zeroizing::new(*key));
+            let (cut, guards) = ((store, prev, saved_intent), (admission, (gate, edit)));
+            run_blocking(move || materialize_cut(rt, cut, begin, &key, recovery, renew, guards))
+                .await
+        }
+        .await;
+        if let Some(sealed) = &sealed {
+            if let Err(error) = crate::storage::local_file_ref::release(self, sealed).await {
+                tracing::error!(%error, "local file reference release after backup capture");
+            }
+        }
+        res
     }
-    runtime.flush_native().await?;
-    let admission = super::super::NativeCloudWorkGuard::acquire()?;
-    let (source, requested, key_sha256) = (Arc::clone(runtime), begin.clone(), bytes_sha256(key));
-    let (store, previous, saved_intent, held) =
-        run_blocking(move || saved_cut(&source, &requested, &key_sha256)).await?;
-    let edit = publication_gate
-        .filter(|_| !held)
-        .map(|acquire| acquire())
-        .transpose()?;
-    let gate = if renew_unmaterialized && !held && runtime.serving.load(Ordering::Acquire) {
-        enter_clean_cut(runtime).await?
-    } else {
-        runtime.enter_write().await
-    };
-    if edit.is_some() && runtime.has_external_backup_files().await? {
-        return Err(StorageError::PublicationFile);
+
+    pub async fn resume_byte_backup_capture(
+        self: &Arc<Self>,
+        key: &[u8; 32],
+        release_local_files: bool,
+    ) -> StorageResult<ByteBackupCapture> {
+        let admission = NativeCloudWorkGuard::acquire()?;
+        let (runtime, key) = (Arc::clone(self), zeroize::Zeroizing::new(*key));
+        let capture = run_blocking(move || {
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
+            let state = store.read("job.json")?;
+            reopen(runtime, store, state, &key, admission, false)
+        })
+        .await?;
+        if release_local_files {
+            if let Err(error) = crate::storage::local_file_ref::release_catalog(self).await {
+                tracing::error!(%error, "local file reference release after backup resume");
+            }
+        }
+        Ok(capture)
     }
-    let (rt, key) = (Arc::clone(runtime), zeroize::Zeroizing::new(*key));
-    let cut = (store, previous, saved_intent);
-    let guards = (admission, (gate, edit));
-    run_blocking(move || {
-        materialize_cut(rt, cut, begin, &key, recovery, renew_unmaterialized, guards)
-    })
-    .await
 }
 
 fn materialize_cut<G>(
@@ -83,19 +116,16 @@ fn materialize_cut<G>(
     key: &[u8; 32],
     recovery: RecoveryDescriptor,
     renew_unmaterialized: bool,
-    (admission, gate): (super::super::NativeCloudWorkGuard, G),
+    (admission, gate): (NativeCloudWorkGuard, G),
 ) -> StorageResult<ByteBackupCapture> {
-    runtime.require_initialized()?;
+    require_healthy(&runtime)?;
     crate::storage::disk_pack::cas_delete::require_clear(&runtime.physical)?;
-    if runtime.failed.load(Ordering::Acquire) {
-        return Err(invalid("run capture writer recovery"));
-    }
     if let Some(old) = previous {
         if old.begin == begin {
             drop(gate);
             return reopen(runtime, store, old, key, admission, true);
         }
-        capture::clear_objects(&store, old.objects)?;
+        clear_objects(&store, old.objects)?;
     }
     let mut intent = if let Some(saved) = saved_intent {
         saved
@@ -142,11 +172,18 @@ fn materialize_cut<G>(
     };
     state.validate()?;
     store.write("job.json", &state)?;
-    capture::finish(
+    finish(
         Inner::new(runtime, store, state, Some(run), admission),
         key,
         true,
     )
+}
+
+fn require_healthy(runtime: &PackRuntime) -> StorageResult<()> {
+    runtime.require_initialized()?;
+    (!runtime.failed.load(Ordering::Acquire))
+        .then_some(())
+        .ok_or_else(|| invalid("run capture writer recovery"))
 }
 
 fn saved_cut(
@@ -154,16 +191,10 @@ fn saved_cut(
     begin: &Begin,
     key_sha256: &Digest,
 ) -> StorageResult<(Store, Option<State>, Option<Intent>, bool)> {
-    runtime.require_initialized()?;
-    if runtime.failed.load(Ordering::Acquire) {
-        return Err(invalid("run capture writer recovery"));
-    }
+    require_healthy(runtime)?;
     let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
-    capture::retire_previous_format(runtime, &store)?;
-    let previous = store
-        .exists("job.json")?
-        .then(|| store.read::<State>("job.json"))
-        .transpose()?;
+    retire_previous_format(runtime, &store)?;
+    let previous = store.read_opt::<State>("job.json")?;
     if let Some(old) = &previous {
         old.validate()?;
         if old.begin == *begin {
@@ -173,10 +204,9 @@ fn saved_cut(
             return Err(invalid("run saved source needs exact recovery"));
         }
     }
-    if !store.exists(RUN_INTENT_FILE)? {
+    let Some(saved) = store.read_opt::<Intent>(RUN_INTENT_FILE)? else {
         return Ok((store, previous, None, false));
-    }
-    let saved: Intent = store.read(RUN_INTENT_FILE)?;
+    };
     if saved.begin != *begin || saved.key_sha256 != *key_sha256 || saved.reference_id.is_nil() {
         return Err(invalid("run capture intent differs"));
     }
@@ -223,7 +253,6 @@ fn capture_main(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         .home
         .capture_files(&root.join("main"))
         .map_err(map)?;
-    // physical.path() is the disk-run home. The node marker is its parent.
     let node = runtime
         .physical
         .path()
@@ -235,7 +264,7 @@ fn capture_main(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         return Err(invalid("run source node marker"));
     }
     fs::hard_link(&node, root.join(HELD_NODE_FILE))?;
-    File::open(root)?.sync_all()?;
+    sync_dir(root)?;
     let pending = root.join("pair-ready.pending");
     let mut marker = fs::OpenOptions::new()
         .write(true)
@@ -246,8 +275,7 @@ fn capture_main(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     marker.write_all(READY)?;
     marker.sync_all()?;
     fs::rename(pending, root.join("pair-ready"))?;
-    File::open(root)?.sync_all()?;
-    Ok(File::open(holds)?.sync_all()?)
+    sync_dir(root).and_then(|()| sync_dir(holds))
 }
 
 async fn enter_clean_cut(runtime: &Arc<PackRuntime>) -> StorageResult<WriteGuard> {
@@ -267,13 +295,13 @@ async fn enter_clean_cut(runtime: &Arc<PackRuntime>) -> StorageResult<WriteGuard
         }
         let rt = Arc::clone(runtime);
         run_blocking(move || {
-            let cas_policy = laststore::space::SpacePolicy::default();
-            for (home, pol) in [
+            let cas_pol = laststore::space::SpacePolicy::default();
+            for (h, p) in [
                 (&rt.physical.home, &rt.space_policy),
-                (&rt.physical.cas, &cas_policy),
+                (&rt.physical.cas, &cas_pol),
             ] {
-                if !home.snapshot_has_clean_runs()
-                    && home.snapshot_cleanup_step_with_space(pol).map_err(map)?
+                if !h.snapshot_has_clean_runs()
+                    && h.snapshot_cleanup_step_with_space(p).map_err(map)?
                 {
                     rt.adopt_merged_root()?;
                 }
@@ -286,15 +314,6 @@ async fn enter_clean_cut(runtime: &Arc<PackRuntime>) -> StorageResult<WriteGuard
     Err(StorageError::SnapshotCompactionPending)
 }
 
-pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
-    runtime
-        .physical
-        .path()
-        .join(laststore::disk_run::home::BACKUP_DIR)
-        .join("holds")
-        .join(id.to_string())
-}
-
 fn hold_complete(root: &Path) -> StorageResult<bool> {
     let mut file = match fs::OpenOptions::new()
         .read(true)
@@ -305,16 +324,13 @@ fn hold_complete(root: &Path) -> StorageResult<bool> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
-    let meta = file.metadata()?;
-    let mut bytes = [0u8; 9];
-    if private(&meta).is_err()
-        || meta.len() != READY.len() as u64
-        || file.read_exact(&mut bytes).is_err()
-        || bytes.as_slice() != READY
-    {
-        return Err(invalid("run paired completion marker"));
-    }
-    Ok(true)
+    let (meta, mut bytes) = (file.metadata()?, [0u8; 9]);
+    (private(&meta).is_ok()
+        && meta.len() == READY.len() as u64
+        && file.read_exact(&mut bytes).is_ok()
+        && bytes.as_slice() == READY)
+        .then_some(true)
+        .ok_or_else(|| invalid("run paired completion marker"))
 }
 
 fn reopen(
@@ -322,7 +338,7 @@ fn reopen(
     store: Store,
     state: State,
     key: &[u8; 32],
-    admission: super::super::NativeCloudWorkGuard,
+    admission: NativeCloudWorkGuard,
     admit: bool,
 ) -> StorageResult<ByteBackupCapture> {
     state.validate()?;
@@ -334,34 +350,21 @@ fn reopen(
     let run = state
         .is_active()
         .then(|| {
-            let root = held_root(&runtime, state.reference_id);
-            let src = RunSource::open(Arc::clone(&runtime), root, key)?;
-            if src.profile()? != state.run
-                || src.files.len() as u64 != state.native_files
-                || src.total_bytes()? != state.native_bytes
-            {
-                return Err(invalid("run capture saved cut differs"));
-            }
-            Ok(src)
+            let src = RunSource::open(
+                Arc::clone(&runtime),
+                held_root(&runtime, state.reference_id),
+                key,
+            )?;
+            (src.profile()? == state.run
+                && src.files.len() as u64 == state.native_files
+                && src.total_bytes()? == state.native_bytes)
+                .then_some(src)
+                .ok_or_else(|| invalid("run capture saved cut differs"))
         })
         .transpose()?;
-    capture::finish(
+    finish(
         Inner::new(runtime, store, state, run, admission),
         key,
         admit,
     )
-}
-
-pub(super) async fn resume(
-    runtime: &Arc<PackRuntime>,
-    key: &[u8; 32],
-) -> StorageResult<ByteBackupCapture> {
-    let admission = super::super::NativeCloudWorkGuard::acquire()?;
-    let (runtime, key) = (Arc::clone(runtime), zeroize::Zeroizing::new(*key));
-    run_blocking(move || {
-        let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
-        let state = store.read("job.json")?;
-        reopen(runtime, store, state, &key, admission, false)
-    })
-    .await
 }

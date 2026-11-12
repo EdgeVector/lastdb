@@ -11,11 +11,11 @@ use cloud_backup_protocol::v2::{
     Version,
 };
 use cloud_backup_protocol::Digest;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt;
@@ -92,8 +92,7 @@ pub(super) async fn fetch(
     };
     let path = session.root.join("cache").join(name);
     if cache && path.try_exists()? {
-        verify_file(&path, &grant.sha256, grant.bytes.get())?;
-        return Ok(path);
+        return verify_file(&path, &grant.sha256, grant.bytes.get()).map(|()| path);
     }
     let tmp = session.root.join("cache/download.pending");
     session.remove_spool_file(&tmp)?;
@@ -103,12 +102,7 @@ pub(super) async fn fetch(
     let len = grant.bytes.get();
     session.reserve_spool(len)?;
     check_capacity(&session.root, len)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&tmp)?;
+    let mut file = local::owner_file(&tmp, true)?;
     if let Err(error) = stream_to(client, grant, &mut file).await {
         file.sync_all()?;
         session.add_spool_file(&tmp)?;
@@ -128,8 +122,8 @@ async fn stream_to(client: &ByteBackupReader, grant: &ReadGrant, file: &mut File
     let mut buf = vec![0u8; STREAM_BUFFER_MAX_BYTES as usize];
     let (mut left, mut digest) = (grant.bytes.get(), Sha256::new());
     while left > 0 {
-        let cap = left.min(buf.len() as u64) as usize;
-        let count = stream.read(&mut buf[..cap]).await?;
+        let max = left.min(buf.len() as u64) as usize;
+        let count = stream.read(&mut buf[..max]).await?;
         if count == 0 {
             return Err(RestoreError::Invalid("short object"));
         }
@@ -140,10 +134,9 @@ async fn stream_to(client: &ByteBackupReader, grant: &ReadGrant, file: &mut File
     if stream.read(&mut buf[..1]).await? != 0 {
         return Err(RestoreError::Invalid("long object"));
     }
-    if hex::encode(digest.finalize()) != grant.sha256.as_str() {
-        return Err(RestoreError::Invalid("object digest"));
-    }
-    Ok(())
+    (hex::encode(digest.finalize()) == grant.sha256.as_str())
+        .then_some(())
+        .ok_or(RestoreError::Invalid("object digest"))
 }
 
 impl RestoreSession {
@@ -174,9 +167,7 @@ impl RestoreSession {
     pub(super) fn remove_spool_file(&self, path: &Path) -> Result<()> {
         if let Some(bytes) = allocated_if_present(path)? {
             fs::remove_file(path)?;
-            let prev = self.spool_bytes.load(Ordering::Relaxed);
-            self.spool_bytes
-                .store(prev.saturating_sub(bytes), Ordering::Relaxed);
+            self.spool_bytes.fetch_sub(bytes, Ordering::Relaxed);
         }
         Ok(())
     }
@@ -211,10 +202,35 @@ impl RestoreSession {
         if !path.try_exists()? {
             return self.write_spool_json(path, reserve, value);
         }
-        if local::read_json::<T>(path, 256 * 1024)? != *value {
-            return Err(RestoreError::Invalid(invalid));
+        (local::read_json::<T>(path, 256 * 1024)? == *value)
+            .then_some(())
+            .ok_or(RestoreError::Invalid(invalid))
+    }
+
+    pub(super) fn clear_cache(&self) -> Result<()> {
+        let root = self.root.join("cache");
+        local::directory(&root)?;
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&root)? {
+            if files.len() > 2 * MAX_PAGES + 8 {
+                return Err(RestoreError::Limit("mutation metadata cache files"));
+            }
+            let entry = entry?;
+            let fname = entry.file_name();
+            let name = fname
+                .to_str()
+                .ok_or(RestoreError::Invalid("mutation cache name"))?;
+            let is_obj = name
+                .strip_suffix(".object")
+                .is_some_and(|id| Digest::try_from(id.to_owned()).is_ok());
+            if !is_obj && name != "payload.object" {
+                return Err(RestoreError::Invalid("mutation cache entry"));
+            }
+            local::owner_file(&entry.path(), false)?;
+            files.push(entry.path());
         }
-        Ok(())
+        files.iter().try_for_each(|p| self.remove_spool_file(p))?;
+        local::sync_dir(&root)
     }
 
     pub(super) fn check_spool(&self) -> Result<()> {
@@ -258,7 +274,7 @@ fn route_entry(folder: &str, path: &Path) -> Result<bool> {
     };
     name.strip_suffix(".json")
         .or_else(|| name.strip_suffix(".pending"))
-        .filter(|s| s.len() == 8 && s.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|s| s.len() == 8 && s.as_bytes().iter().all(u8::is_ascii_digit))
         .and_then(|s| s.parse::<u32>().ok())
         .filter(|&i| i < super::logs::MAX_CHAIN)
         .map(|_| true)
@@ -312,4 +328,36 @@ pub(super) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
         .filter(|&(a, r)| a >= r)
         .map(|_| ())
         .ok_or(RestoreError::Limit("disk capacity"))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Receipt {
+    version: u8,
+    session_id: uuid::Uuid,
+    report: ReceiptReport,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptReport {
+    commit_sha256: String,
+    native_files: u64,
+    native_bytes: u64,
+    #[serde(rename = "verified_records")]
+    _verified_records: u64,
+    destination: PathBuf,
+}
+
+pub fn verify_restore_receipt(bytes: &[u8], destination: &Path) -> Result<()> {
+    let r: Receipt =
+        serde_json::from_slice(bytes).map_err(|_| RestoreError::Invalid("restore receipt"))?;
+    (r.version == 2
+        && !r.session_id.is_nil()
+        && r.report.destination == destination
+        && r.report.native_files > 0
+        && r.report.native_bytes > 0
+        && Digest::try_from(r.report.commit_sha256).is_ok())
+    .then_some(())
+    .ok_or(RestoreError::Invalid("restore provenance"))
 }

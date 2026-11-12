@@ -1,26 +1,26 @@
 //! Stream, plan, encrypt, and validate frozen mutation-log transfer objects.
-use super::{recovery::RecoveryPoint, store::Store, work::LogContext, BackupError, Result};
+use super::{
+    store::Store,
+    work::{LogContext, RecoveryPoint},
+    BackupError, Result,
+};
 use crate::byte_cloud_log::{MutationLogPage, MutationLogRoot};
 use cloud_backup_protocol::v2::{
     hash::canonical_bytes,
     jobs::{JobResult, JobStatus},
-    transfer::{ObjectReceipt, TransferInput},
+    transfer::ObjectReceipt,
     AcceptedBackup, Begin, Commit, Destination, Object,
 };
 use cloud_backup_protocol::{
     bytes_sha256, limits::DURABLE_LOCAL_SPOOL_MAX_BYTES, Digest, RecoveryDescriptor,
 };
-use fold_db::cloud_backup_plan::{
-    expected_receipt, new_transfer_input, plan_files, PlanFile, PlanSegment,
-};
+use fold_db::cloud_backup_plan::{plan_files, PlanFile, PlanSegment, PlannedRecord};
 use fold_db::storage::disk_pack::byte_backup::{
-    encode_metadata, seal_envelope, ByteBackupCaptureStatus, ByteBackupObject, ClientPageReference,
-    SegmentReader, CODEC_ENVELOPE_MAX_BYTES, MAX_PAGE_FILES,
+    open_planned_reader, seal_pages, seal_stored_envelope, ByteBackupCaptureStatus,
 };
 use fold_db::storage::disk_pack::mutation_log::{FrozenLogCapture, MutationLogCapture};
-use fold_db::storage_policy::backup_transport::MAX_PACK_MEMBERS;
 use serde::{Deserialize, Serialize};
-use std::io::{self, Cursor, Read};
+use std::io::{self, Read};
 use std::sync::Arc;
 
 const MAX_OBJECTS: u64 = 8192;
@@ -30,15 +30,6 @@ fn obj_file(index: u64) -> String {
 }
 fn payload_file(index: u64) -> String {
     format!("log-payload-{index:08}.enc")
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ObjectRecord {
-    input: TransferInput,
-    segments: Vec<PlanSegment>,
-    payload: Option<String>,
-    receipt: Option<ObjectReceipt>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -55,38 +46,13 @@ struct Plan {
     ready: bool,
 }
 
-impl ObjectRecord {
-    fn validate(&self, frozen: &FrozenLogCapture, index: u64) -> Result<()> {
-        self.input.validate()?;
-        let expected = self.input.object.bytes.get();
-        if index >= MAX_OBJECTS
-            || self.input.job != frozen.begin.job
-            || self.input.object.destination != Destination::R2
-            || self
-                .payload
-                .as_deref()
-                .is_some_and(|n| n != payload_file(index))
-            || self.segments.len() > MAX_PACK_MEMBERS
-            || self.segments.iter().any(|s| s.file >= frozen.files.len())
-            || self.segments.is_empty() != self.payload.is_some()
-            || (self.payload.is_some() && expected > CODEC_ENVELOPE_MAX_BYTES)
-        {
-            return Err(BackupError::Invalid);
-        }
-        if self.payload.is_none()
-            && fold_db::cloud_backup_plan::sum_segments(&self.segments, |i| {
-                Some(frozen.files[i].bytes)
-            }) != Some(expected)
-        {
-            return Err(BackupError::Identity);
-        }
-        (!self
-            .receipt
-            .as_ref()
-            .is_some_and(|r| Ok(r) != expected_receipt(&self.input).as_ref()))
-        .then_some(())
-        .ok_or(BackupError::Identity)
+fn check_record(r: &PlannedRecord, frozen: &FrozenLogCapture, index: u64) -> Result<()> {
+    if index >= MAX_OBJECTS || r.input.object.destination != Destination::R2 {
+        return Err(BackupError::Invalid);
     }
+    Ok(r.validate(&frozen.begin.job, &payload_file(index), |i| {
+        frozen.files.get(i).map(|f| f.bytes)
+    })?)
 }
 
 pub(in crate::byte_cloud_backup) struct LogCapture {
@@ -176,85 +142,81 @@ impl LogCapture {
             self.frozen.begin.job.stream.scope.clone(),
         );
         let mut native_files = Vec::with_capacity(files.len());
-        let totals = plan_files(
+        let (index, packs, multi) = plan_files(
             &files,
             &scope,
             |f| core.reader(f.id, 0, f.bytes).map_err(BackupError::from),
-            |idx, p| {
-                native_files.extend(p.native_files);
-                self.save_object(idx, p.object, p.segments, None)
-                    .map(|_| ())
+            |idx, obj, segs, nfiles| {
+                native_files.extend(nfiles);
+                self.save_object(idx, (obj, segs, None)).map(|_| ())
             },
         )?;
-        (self.plan.packs, self.plan.multi_file_packs) = (totals.packs, totals.multi_file_packs);
-        let (mut index, mut pages) = (totals.objects, Vec::new());
-        for (i, chunk) in native_files.chunks(MAX_PAGE_FILES).enumerate() {
-            let page = MutationLogPage::new(i as u32, &self.frozen.begin, chunk.to_vec())
-                .map_err(|_| BackupError::Invalid)?;
-            let obj = self.freeze(key, index, &page)?;
-            pages.push(ClientPageReference::for_object(
-                page.page_index,
-                &obj.input,
-            )?);
-            index += 1;
-        }
-        let ctx = &self.plan.context;
-        let root = MutationLogRoot::from_frozen(
-            &self.frozen,
-            recovery.clone(),
-            ctx.base.clone(),
-            ctx.previous.clone(),
-            pages,
-        )
-        .map_err(|_| BackupError::Invalid)?;
-        self.freeze(key, index, &root)?;
-        if self.plan.objects != index + 1 {
-            return Err(BackupError::Identity);
-        }
+        self.plan.packs = packs;
+        self.plan.multi_file_packs = multi;
+        let (frozen, ctx) = (self.frozen.clone(), self.plan.context.clone());
+        let total = seal_pages(
+            &native_files,
+            index,
+            |i, chunk| {
+                MutationLogPage::new(i, &frozen.begin, chunk).map_err(|_| BackupError::Invalid)
+            },
+            |pages| {
+                MutationLogRoot::from_frozen(
+                    &frozen,
+                    recovery.clone(),
+                    ctx.base,
+                    ctx.previous,
+                    pages,
+                )
+                .map_err(|_| BackupError::Invalid)
+            },
+            |idx, plain| {
+                let name = payload_file(idx);
+                let (obj, fresh) = seal_stored_envelope(key, plain, self.store.raw(&name)?)
+                    .map_err(|e| {
+                        if e == "byte metadata encryption" {
+                            BackupError::Invalid
+                        } else {
+                            BackupError::Identity
+                        }
+                    })?;
+                if let Some(b) = fresh {
+                    self.store.write_raw(&name, &b)?;
+                }
+                self.save_object(idx, (obj, Vec::new(), Some(name)))
+            },
+            |e| {
+                if e.to_string().contains("protocol") {
+                    BackupError::Invalid
+                } else {
+                    BackupError::Limit
+                }
+            },
+        )?;
+        (self.plan.objects == total)
+            .then_some(())
+            .ok_or(BackupError::Identity)?;
         self.plan.ready = true;
         self.store.write("log-plan.json", &self.plan)
-    }
-
-    fn freeze(&mut self, key: &[u8; 32], index: u64, val: &impl Serialize) -> Result<ObjectRecord> {
-        let name = payload_file(index);
-        let plain = encode_metadata(val).map_err(|_| BackupError::Limit)?;
-        let (obj, bytes, fresh) =
-            seal_envelope(key, &plain, self.store.raw(&name)?).map_err(|e| match e {
-                "byte metadata encryption" => BackupError::Invalid,
-                _ => BackupError::Identity,
-            })?;
-        if fresh {
-            self.store.write_raw(&name, &bytes)?;
-        }
-        self.save_object(index, obj, Vec::new(), Some(name))
     }
 
     fn save_object(
         &mut self,
         index: u64,
-        object: Object,
-        segments: Vec<PlanSegment>,
-        payload: Option<String>,
-    ) -> Result<ObjectRecord> {
+        spec: (Object, Vec<PlanSegment>, Option<String>),
+    ) -> Result<PlannedRecord> {
         if index >= MAX_OBJECTS {
             return Err(BackupError::Limit);
         }
         let name = obj_file(index);
-        let record = if let Some(p) = self.store.read::<ObjectRecord>(&name)? {
-            p.validate(&self.frozen, index)?;
-            if (p.input.object != object) || (p.segments != segments) || (p.payload != payload) {
-                return Err(BackupError::Identity);
-            }
-            p
-        } else {
-            ObjectRecord {
-                input: new_transfer_input(self.frozen.begin.job.clone(), object, None)?,
-                segments,
-                payload,
-                receipt: None,
-            }
-        };
-        record.validate(&self.frozen, index)?;
+        let record = PlannedRecord::upsert(
+            self.store.read::<PlannedRecord>(&name)?,
+            &self.frozen.begin.job,
+            spec,
+            &payload_file(index),
+            |i| self.frozen.files.get(i).map(|f| f.bytes),
+        )?;
+        check_record(&record, &self.frozen, index)?;
         self.store.write(&name, &record)?;
         self.plan.objects = self.plan.objects.max(index + 1);
         self.set_coordinator_spool_bytes(self.store.bytes())?;
@@ -270,53 +232,33 @@ impl LogCapture {
         Ok(self.plan.objects)
     }
 
-    fn record(&self, index: u64) -> Result<ObjectRecord> {
-        if index >= self.plan.objects {
-            return Err(BackupError::Invalid);
-        }
-        let r: ObjectRecord = self
+    pub fn object(&self, index: u64) -> Result<PlannedRecord> {
+        (index < self.plan.objects)
+            .then_some(())
+            .ok_or(BackupError::Invalid)?;
+        let r: PlannedRecord = self
             .store
             .read(&obj_file(index))?
             .ok_or(BackupError::Missing)?;
-        r.validate(&self.frozen, index).map(|()| r)
-    }
-
-    pub fn object(&self, index: u64) -> Result<ByteBackupObject> {
-        let r = self.record(index)?;
-        Ok(ByteBackupObject {
-            input: r.input,
-            receipt: r.receipt,
-        })
+        check_record(&r, &self.frozen, index).map(|()| r)
     }
 
     pub fn reader(&self, index: u64) -> Result<Box<dyn Read + Send>> {
-        let r = self.record(index)?;
-        if let Some(name) = r.payload {
-            let b = self.store.raw(&name)?.ok_or(BackupError::Missing)?;
-            if b.len() as u64 != r.input.object.bytes.get()
-                || bytes_sha256(&b) != r.input.object.sha256
-            {
-                return Err(BackupError::Identity);
-            }
-            return Ok(Box::new(Cursor::new(b)));
-        }
         let core = Arc::clone(&self.core);
-        Ok(Box::new(SegmentReader::new(
-            r.segments,
+        open_planned_reader(
+            self.object(index)?,
+            |name, _| self.store.raw(name)?.ok_or(BackupError::Missing),
             move |seg: PlanSegment| {
                 core.reader(seg.file, seg.offset, seg.bytes)
                     .map(|rd| (rd, seg.bytes))
                     .map_err(|_| io::Error::other("frozen mutation source unavailable"))
             },
-        )))
+        )
     }
 
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> Result<()> {
-        let mut r = self.record(index)?;
-        if expected_receipt(&r.input)? != *receipt {
-            return Err(BackupError::Identity);
-        }
-        r.receipt = Some(receipt.clone());
+        let mut r = self.object(index)?;
+        r.confirm(receipt)?;
         self.store.write(&obj_file(index), &r)
     }
 
@@ -326,12 +268,12 @@ impl LogCapture {
             .objects
             .checked_sub(1)
             .ok_or(BackupError::Invalid)?;
-        Ok(expected_receipt(&self.record(last)?.input)?.receipt_id)
+        Ok(self.object(last)?.expected_receipt_id()?)
     }
 
     pub fn status(&self) -> Result<ByteBackupCaptureStatus> {
         let verified_objects = (0..self.plan.objects).try_fold(0u64, |n, i| {
-            Ok::<_, BackupError>(n + u64::from(self.record(i)?.receipt.is_some()))
+            Ok::<_, BackupError>(n + u64::from(self.object(i)?.receipt.is_some()))
         })?;
         Ok(ByteBackupCaptureStatus {
             native_files: self.plan.files,

@@ -1,8 +1,8 @@
 //! Read-only physical and account proof for an inactive native node.
 
 use super::{
-    fork_bounded, invalid, map, phase, read_budget, RunBackupProfile, RunRestoreFile, Stage,
-    StorageResult,
+    fork_bounded, invalid, map, phase, read_budget, sum_file_bytes, RunBackupProfile, Stage,
+    StorageError, StorageResult,
 };
 use crate::storage::content_key_proof::{self, KEY as CKP_KEY, NAMESPACE as CKP_NS};
 use crate::storage::disk_backup::byte_backup::RunBackupHome;
@@ -12,7 +12,7 @@ use crate::storage::format::control::{
 };
 use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
 use crate::storage::format::{METADATA_NAMESPACE, RECORDS_COLLECTION, RECORD_PROFILE};
-use cloud_backup_protocol::{DecimalU64, Digest, Id};
+use cloud_backup_protocol::{DecimalU64, Digest, Id, NativeRoot};
 use lastdb_model::storage_policy::{backup_decode as budget, BACKUP_RESOURCES};
 use laststore::disk_run::home::{RunRead, CURRENT, LOCK, RUNS, RUN_HOME_MARKER};
 use sha2::{Digest as _, Sha256};
@@ -32,10 +32,27 @@ pub struct RunNodeGuard {
     pub(super) main: RunRead,
     cas: RunRead,
     pub(super) profile: RunBackupProfile,
-    pub(super) files: Vec<RunRestoreFile>,
+    pub(super) files: Vec<(String, u64)>,
 }
 
 impl RunNodeGuard {
+    pub fn native_root(&self) -> StorageResult<NativeRoot> {
+        self.profile.native_root()
+    }
+    pub fn files(&self) -> impl Iterator<Item = &(String, u64)> {
+        self.files.iter()
+    }
+    pub fn totals(&self) -> StorageResult<(u64, u64)> {
+        let count = u64::try_from(self.files.len()).map_err(|_| invalid("run file count"))?;
+        sum_file_bytes(&self.files, "run file byte sum").map(|b| (count, b))
+    }
+    pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
+        (self.root == data_root)
+            .then_some(())
+            .ok_or_else(|| invalid("run restore publication root differs"))
+            .and_then(|()| self.profile.validate_root(root))
+            .and_then(|()| self.check_binding())
+    }
     pub(super) fn require_empty_local_cas(&self) -> StorageResult<()> {
         self.cas
             .referenced_runs()
@@ -44,7 +61,6 @@ impl RunNodeGuard {
             .then_some(())
             .ok_or_else(|| invalid("restored personal CAS home is not empty"))
     }
-
     pub fn check_binding(&self) -> StorageResult<()> {
         same_entry(&self.directory, &self.root)?;
         same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
@@ -61,24 +77,14 @@ impl RunNodeGuard {
             same_entry(runs, &p.join(RUNS))?;
             same_entry(lock, &p.join(LOCK))?;
         }
-        let (current, _) = scan_main_home(&self.root, self.profile.version, &self.main)?;
-        if current != self.profile {
-            return Err(invalid("run restore captured home differs"));
-        }
-        require_root_members(&self.root)
+        (scan_main_home(&self.root, self.profile.version, &self.main)?.0 == self.profile)
+            .then_some(())
+            .ok_or_else(|| invalid("run restore captured home differs"))
+            .and_then(|()| require_root_members(&self.root))
     }
 
     pub(super) fn open(root: &Path, key: &[u8; 32], shared: bool) -> StorageResult<Self> {
-        let directory = directory(root)?;
-        let marker = regular(&root.join(NODE_MARKER), !shared)?;
-        let locked = if shared {
-            marker.try_lock_shared()
-        } else {
-            marker.try_lock()
-        };
-        locked.map_err(|_| invalid("run restore node is owned"))?;
-        let version = profile_version(root)?;
-        require_root_members(root)?;
+        let (directory, marker, version) = lock_node(root, shared, "run restore node is owned")?;
         let homes = [
             prepare_home(root, run_node::RUN_DIR)?,
             prepare_home(root, run_node::CAS_DIR)?,
@@ -89,35 +95,33 @@ impl RunNodeGuard {
             RunRead::open_existing_bounded
         };
         let max_mem = BACKUP_RESOURCES.working_memory_bytes;
-        let (main_dir, cas_dir) = (root.join(run_node::RUN_DIR), root.join(run_node::CAS_DIR));
-        let (hk, ck) = (run_node::home_key(key), run_node::cas_key(key));
-        let mut main = open_fn(&main_dir, &hk, read_budget(), max_mem).map_err(map)?;
+        let mut main = open_fn(
+            &root.join(run_node::RUN_DIR),
+            &run_node::home_key(key),
+            read_budget(),
+            max_mem,
+        )
+        .map_err(map)?;
         let rem = max_mem
             .checked_sub(main.retained_bytes())
             .ok_or_else(|| invalid("paired run metadata exceeds memory admission"))?;
-        let mut cas = open_fn(&cas_dir, &ck, read_budget(), rem).map_err(map)?;
-        let run_count = main
-            .referenced_runs()
-            .count()
-            .checked_add(cas.referenced_runs().count())
-            .and_then(|c| c.checked_add(5))
-            .ok_or_else(|| invalid("paired run file count overflow"))?;
-        let retained = (run_count as u64)
+        let mut cas = open_fn(
+            &root.join(run_node::CAS_DIR),
+            &run_node::cas_key(key),
+            read_budget(),
+            rem,
+        )
+        .map_err(map)?;
+        let runs = (main.referenced_runs().count() + cas.referenced_runs().count() + 5) as u64;
+        let retained = runs
             .checked_mul(4 * budget::IDENTITY_MEMORY_BYTES)
-            .and_then(|b| b.checked_add(main.retained_bytes()))
-            .and_then(|b| b.checked_add(cas.retained_bytes()))
+            .and_then(|b| b.checked_add(main.retained_bytes() + cas.retained_bytes()))
             .and_then(|b| b.checked_add(BACKUP_RESOURCES.stream_buffer_bytes))
             .ok_or_else(|| invalid("paired run memory overflow"))?;
         main.reserve_metadata(retained).map_err(map)?;
         cas.reserve_metadata(retained).map_err(map)?;
         let (profile, mut files) = scan_main_home(root, version, &main)?;
-        files.insert(
-            0,
-            RunRestoreFile {
-                path: NODE_MARKER.into(),
-                bytes: profile.node_marker()?.len() as u64,
-            },
-        );
+        files.insert(0, (NODE_MARKER.into(), profile.node_marker()?.len() as u64));
         phase(Stage::Account, verify_account(&main, key, version))?;
         let guard = Self {
             root: root.to_path_buf(),
@@ -135,6 +139,22 @@ impl RunNodeGuard {
 
 pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunNodeGuard> {
     RunNodeGuard::open(root, key, false)
+}
+
+pub(super) fn lock_node(
+    root: &Path,
+    shared: bool,
+    lock_err: &'static str,
+) -> StorageResult<(File, File, u16)> {
+    let (dir, marker) = (directory(root)?, regular(&root.join(NODE_MARKER), !shared)?);
+    if shared {
+        marker.try_lock_shared()
+    } else {
+        marker.try_lock()
+    }
+    .map_err(|_| invalid(lock_err))?;
+    let version = profile_version(root)?;
+    require_root_members(root).map(|()| (dir, marker, version))
 }
 
 pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
@@ -179,51 +199,57 @@ pub(super) fn directory(path: &Path) -> StorageResult<File> {
     if !path.is_absolute() || path.canonicalize()? != path {
         return Err(invalid("run restore directory alias"));
     }
-    let file = OpenOptions::new()
+    let f = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
         .open(path)?;
-    if !file.metadata()?.is_dir() || !is_owned_private(&file.metadata()?) {
-        return Err(invalid("run restore private directory"));
-    }
-    same_entry(&file, path).map(|()| file)
+    let m = f.metadata()?;
+    (m.is_dir() && is_owned_private(&m))
+        .then_some(())
+        .ok_or_else(|| invalid("run restore private directory"))
+        .and_then(|()| same_entry(&f, path))
+        .map(|()| f)
 }
 
 pub(super) fn regular(path: &Path, write: bool) -> StorageResult<File> {
-    let file = OpenOptions::new()
+    let f = OpenOptions::new()
         .read(true)
         .write(write)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
-    let m = file.metadata()?;
-    if !m.is_file() || !is_owned_private(&m) || m.nlink() != 1 {
-        return Err(invalid("run restore private file"));
-    }
-    same_entry(&file, path).map(|()| file)
+    let m = f.metadata()?;
+    (m.is_file() && is_owned_private(&m) && m.nlink() == 1)
+        .then_some(())
+        .ok_or_else(|| invalid("run restore private file"))
+        .and_then(|()| same_entry(&f, path))
+        .map(|()| f)
 }
 
-pub(super) fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
+fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
     let (h, c) = (file.metadata()?, fs::symlink_metadata(path)?);
     ((h.dev(), h.ino(), h.uid(), h.mode()) == (c.dev(), c.ino(), c.uid(), c.mode()))
         .then_some(())
         .ok_or_else(|| invalid("run restore entry changed"))
 }
 
-pub(super) fn profile_version(root: &Path) -> StorageResult<u16> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(root.join(NODE_MARKER))?;
-    if !file.metadata()?.is_file() {
+fn profile_version(root: &Path) -> StorageResult<u16> {
+    let f = regular(&root.join(NODE_MARKER), false).or_else(|_| {
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(root.join(NODE_MARKER))
+            .map_err(StorageError::from)
+    })?;
+    if !f.metadata()?.is_file() {
         return Err(invalid("restored node marker type"));
     }
     let mut bytes = Vec::new();
-    Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
+    (&f).take(129).read_to_end(&mut bytes)?;
     crate::storage::retired::refuse_shared_home(root, &bytes)?;
     run_node::profile(&bytes).ok_or_else(|| invalid("run restore node marker differs"))
 }
 
-pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
+fn require_root_members(root: &Path) -> StorageResult<()> {
     exact_members(
         root,
         &[NODE_MARKER, run_node::RUN_DIR, run_node::CAS_DIR],
@@ -264,15 +290,15 @@ fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding> {
         &p,
         &[RUN_HOME_MARKER, CURRENT, LOCK, RUNS],
         "run restore home closure",
-    )?;
-    Ok(binding)
+    )
+    .map(|()| binding)
 }
 
 fn scan_main_home(
     root: &Path,
     version: u16,
     reader: &RunRead,
-) -> StorageResult<(RunBackupProfile, Vec<RunRestoreFile>)> {
+) -> StorageResult<(RunBackupProfile, Vec<(String, u64)>)> {
     let name = run_node::RUN_DIR;
     let path = root.join(name);
     prepare_home(root, name)?;
@@ -281,12 +307,11 @@ fn scan_main_home(
         return Err(invalid("run restore file digest differs"));
     }
     let (current_sha256, c_bytes) = inspect(&path.join(CURRENT))?;
-    let item = |path: String, bytes| RunRestoreFile { path, bytes };
     let mut entries = vec![
-        item(format!("{name}/{RUN_HOME_MARKER}"), d_bytes),
-        item(format!("{name}/{CURRENT}"), c_bytes),
+        (format!("{name}/{RUN_HOME_MARKER}"), d_bytes),
+        (format!("{name}/{CURRENT}"), c_bytes),
     ];
-    let expected_runs: BTreeMap<_, _> = reader.referenced_runs().collect();
+    let expected: BTreeMap<_, _> = reader.referenced_runs().collect();
     let mut seen = BTreeSet::new();
     for entry in fs::read_dir(path.join(RUNS))? {
         let entry = entry?;
@@ -294,11 +319,11 @@ fn scan_main_home(
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore file name"))?;
-        let raw = fname
+        let id = fname
             .strip_suffix(".ldrun")
-            .ok_or_else(|| invalid("run restore file suffix"))?;
-        let id = uuid::Uuid::parse_str(raw).map_err(|_| invalid("run restore file identity"))?;
-        let bytes = *expected_runs
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .ok_or_else(|| invalid("run restore file identity"))?;
+        let bytes = *expected
             .get(&id)
             .ok_or_else(|| invalid("run restore unreferenced file"))?;
         if fname != format!("{id}.ldrun")
@@ -307,17 +332,18 @@ fn scan_main_home(
         {
             return Err(invalid("run restore file closure"));
         }
-        entries.push(item(format!("{name}/{RUNS}/{fname}"), bytes));
+        entries.push((format!("{name}/{RUNS}/{fname}"), bytes));
     }
-    if seen.len() != expected_runs.len() {
+    if seen.len() != expected.len() {
         return Err(invalid("run restore missing file"));
     }
-    let bytes = super::sum_file_bytes(&entries, "run restore byte sum")?;
+    let bytes = sum_file_bytes(&entries, "run restore byte sum")?;
+    let home_id = Id::try_from(reader.home_id().to_string())
+        .map_err(|_| invalid("run restore home identity"))?;
     let profile = RunBackupProfile {
         version,
         main: RunBackupHome {
-            home_id: Id::try_from(reader.home_id().to_string())
-                .map_err(|_| invalid("run restore home identity"))?,
+            home_id,
             generation: DecimalU64::new(reader.generation()),
             frontier: DecimalU64::new(reader.frontier()),
             descriptor_sha256,
@@ -334,17 +360,14 @@ pub(super) fn stream_regular(
     sink: &mut impl std::io::Write,
     err: &'static str,
 ) -> StorageResult<u64> {
-    let mut file = regular(path, false)?;
+    let file = regular(path, false)?;
     let b = file.metadata()?;
-    let count = std::io::copy(&mut (&mut file).take(b.len().saturating_add(1)), sink)?;
+    let count = std::io::copy(&mut (&file).take(b.len().saturating_add(1)), sink)?;
     let a = file.metadata()?;
     same_entry(&file, path)?;
-    if count != b.len()
-        || (b.len(), b.mtime(), b.mtime_nsec()) != (a.len(), a.mtime(), a.mtime_nsec())
-    {
-        return Err(invalid(err));
-    }
-    Ok(count)
+    ((count, b.len(), b.mtime(), b.mtime_nsec()) == (b.len(), a.len(), a.mtime(), a.mtime_nsec()))
+        .then_some(count)
+        .ok_or_else(|| invalid(err))
 }
 
 fn inspect(path: &Path) -> StorageResult<(Digest, u64)> {

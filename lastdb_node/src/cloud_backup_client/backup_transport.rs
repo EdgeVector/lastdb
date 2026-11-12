@@ -1,7 +1,10 @@
 //! Format-neutral bounded byte transport.
-use super::wire::{abort, bounded, https, signed_headers, start_feeder, upload_url, Result};
-pub use super::wire::{BackupTransportError, UploadObservation};
-use super::{AuthClient, DEFAULT_AUTH_REQUEST_TIMEOUT};
+use super::{
+    abort, bounded, https, signed_headers, start_feeder, upload_url, AuthClient, TransportResult,
+    DEFAULT_AUTH_REQUEST_TIMEOUT,
+};
+pub use super::{BackupTransportError, UploadObservation};
+use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::{Digest, ProtocolError};
 use futures::StreamExt;
 use reqwest::{header::HeaderMap, Client, Url};
@@ -18,18 +21,6 @@ use tokio::sync::OwnedSemaphorePermit;
 
 pub type ObjectStream = Pin<Box<dyn AsyncRead + Send>>;
 
-#[derive(Clone, Copy)]
-pub(super) struct StoredObject<'a> {
-    pub sha256: &'a Digest,
-    pub bytes: u64,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct TemporaryGrant<'a> {
-    pub url: &'a str,
-    pub expires_ms: u64,
-}
-
 #[derive(Deserialize)]
 struct ErrorTag<'a> {
     result: Option<&'a str>,
@@ -45,15 +36,15 @@ pub(super) struct BackupTransport {
 }
 
 impl BackupTransport {
-    pub fn from_auth(auth: AuthClient) -> Result<Self> {
+    pub fn from_auth(auth: AuthClient) -> TransportResult<Self> {
         Self::new(https(&auth.base_url)?, Some(auth))
     }
 
-    pub(crate) fn for_guest(base_url: &str) -> Result<Self> {
+    pub(crate) fn for_guest(base_url: &str) -> TransportResult<Self> {
         Self::new(https(base_url)?, None)
     }
 
-    fn new(base: Url, auth: Option<AuthClient>) -> Result<Self> {
+    fn new(base: Url, auth: Option<AuthClient>) -> TransportResult<Self> {
         if base.query().is_some() {
             return Err(BackupTransportError::Configuration("endpoint"));
         }
@@ -91,19 +82,15 @@ impl BackupTransport {
         url
     }
 
-    pub async fn post<Q: Serialize, R: DeserializeOwned>(
+    pub(super) async fn post_v2<Q: Serialize, R: DeserializeOwned>(
         &self,
-        operation: &str,
+        op: &str,
         request: &Q,
-        maximum: u64,
-    ) -> Result<R> {
-        self.post_bounded_with_headers(
-            self.api_endpoint(operation),
-            request,
-            maximum,
-            HeaderMap::new(),
-        )
-        .await
+        headers: HeaderMap,
+    ) -> TransportResult<R> {
+        let url = self.api_endpoint(&format!("cloud/backups/v2/{op}"));
+        self.post_bounded_with_headers(url, request, CONTROL_JSON_MAX_BYTES, headers)
+            .await
     }
 
     pub(crate) async fn post_bounded_with_headers<Q: Serialize, R: DeserializeOwned>(
@@ -112,7 +99,7 @@ impl BackupTransport {
         request: &Q,
         maximum: u64,
         headers: HeaderMap,
-    ) -> Result<R> {
+    ) -> TransportResult<R> {
         let bytes = cloud_backup_protocol::canonical_bytes(request)?;
         if bytes.len() as u64 > maximum {
             return Err(BackupTransportError::Configuration("request bytes"));
@@ -128,7 +115,7 @@ impl BackupTransport {
         bytes: Vec<u8>,
         maximum: u64,
         headers: HeaderMap,
-    ) -> Result<R> {
+    ) -> TransportResult<R> {
         let mut req = self
             .http
             .post(url.clone())
@@ -161,19 +148,20 @@ impl BackupTransport {
 
     pub(crate) async fn upload(
         &self,
-        object: StoredObject<'_>,
-        grant: TemporaryGrant<'_>,
+        sha256: &Digest,
+        bytes: u64,
+        grant_url: &str,
+        expires_ms: u64,
         source: Box<dyn Read + Send>,
         multipart_part: bool,
-    ) -> Result<UploadObservation> {
-        let (url, if_none_match) = upload_url(grant.url, multipart_part)?;
-        let (deadline, permit) = self.acquire(object.bytes, grant.expires_ms).await?;
-        let (body, mut feeder, cancel) =
-            start_feeder(source, object.bytes, object.sha256.clone(), permit);
+    ) -> TransportResult<UploadObservation> {
+        let (url, if_none_match) = upload_url(grant_url, multipart_part)?;
+        let (deadline, permit) = self.acquire(bytes, expires_ms).await?;
+        let (body, mut feeder, cancel) = start_feeder(source, bytes, sha256.clone(), permit);
         let mut req = self
             .http
             .put(url)
-            .header(reqwest::header::CONTENT_LENGTH, object.bytes);
+            .header(reqwest::header::CONTENT_LENGTH, bytes);
         if if_none_match {
             req = req.header(reqwest::header::IF_NONE_MATCH, "*");
         }
@@ -201,7 +189,7 @@ impl BackupTransport {
         &self,
         bytes: u64,
         expires_ms: u64,
-    ) -> Result<(tokio::time::Instant, OwnedSemaphorePermit)> {
+    ) -> TransportResult<(tokio::time::Instant, OwnedSemaphorePermit)> {
         let deadline = tokio::time::Instant::now() + self.transfer_timeout(bytes, expires_ms)?;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
             .await
@@ -210,7 +198,7 @@ impl BackupTransport {
         Ok((deadline, permit))
     }
 
-    fn transfer_timeout(&self, bytes: u64, expires_ms: u64) -> Result<Duration> {
+    fn transfer_timeout(&self, bytes: u64, expires_ms: u64) -> TransportResult<Duration> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| BackupTransportError::Configuration("clock"))?
@@ -222,11 +210,11 @@ impl BackupTransport {
             .ok_or(BackupTransportError::Timeout)?;
         let size = usize::try_from(bytes)
             .map_err(|_| BackupTransportError::Configuration("platform size"))?;
-        let secs = (size as u64).div_ceil(256 * 1024);
+        let extra = Duration::from_secs((size as u64).div_ceil(256 * 1024));
         let timeout = self
             .timeout
             .saturating_mul(10)
-            .max(self.timeout.saturating_add(Duration::from_secs(secs)));
+            .max(self.timeout.saturating_add(extra));
         let exp = Duration::from_secs(rem);
         let max = exp.saturating_sub(Duration::from_secs(30));
         Ok(timeout.min(if max.is_zero() {
@@ -236,35 +224,18 @@ impl BackupTransport {
         }))
     }
 
-    pub(crate) async fn open(
-        &self,
-        object: StoredObject<'_>,
-        grant: TemporaryGrant<'_>,
-    ) -> Result<ObjectStream> {
-        self.open_bounded(object.bytes, Some(object.sha256.clone()), grant)
-            .await
-    }
-
-    /// Read exactly `bytes` bytes with no stored SHA-256 (record blob objects).
-    pub(crate) async fn open_exact_length(
-        &self,
-        bytes: u64,
-        grant: TemporaryGrant<'_>,
-    ) -> Result<ObjectStream> {
-        self.open_bounded(bytes, None, grant).await
-    }
-
-    async fn open_bounded(
+    pub(crate) async fn open_bounded(
         &self,
         bytes: u64,
         expected: Option<Digest>,
-        grant: TemporaryGrant<'_>,
-    ) -> Result<ObjectStream> {
-        let url = https(grant.url)?;
+        grant_url: &str,
+        expires_ms: u64,
+    ) -> TransportResult<ObjectStream> {
+        let url = https(grant_url)?;
         if signed_headers(&url)? != "host" {
             return Err(BackupTransportError::InvalidResponse("signed headers"));
         }
-        let (deadline, permit) = self.acquire(bytes, grant.expires_ms).await?;
+        let (deadline, permit) = self.acquire(bytes, expires_ms).await?;
         let resp = tokio::time::timeout_at(deadline, self.http.get(url).send())
             .await
             .map_err(|_| BackupTransportError::Timeout)?
@@ -314,31 +285,29 @@ impl AsyncRead for Bounded {
             this.finished = true;
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "native object deadline",
+                "object deadline",
             )));
         }
         if this.left == 0 {
             let mut extra = [0u8; 1];
             let mut buf = ReadBuf::new(&mut extra);
-            return if let Poll::Ready(res) = this.input.as_mut().poll_read(cx, &mut buf) {
-                this.finished = true;
-                let bad = this.expected.as_ref().is_some_and(|exp| {
-                    fold_db::hex::hex_lower(this.hash.clone().finalize()) != exp.as_str()
-                });
-                if res.is_err() || !buf.filled().is_empty() || bad {
-                    Poll::Ready(Err(io::Error::other("native object bytes differ")))
-                } else {
-                    Poll::Ready(Ok(()))
+            return match this.input.as_mut().poll_read(cx, &mut buf) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(res) => {
+                    this.finished = true;
+                    let bad = this.expected.as_ref().is_some_and(|exp| {
+                        fold_db::hex::hex_lower(this.hash.clone().finalize()) != exp.as_str()
+                    });
+                    if res.is_err() || !buf.filled().is_empty() || bad {
+                        Poll::Ready(Err(io::Error::other("native object bytes differ")))
+                    } else {
+                        Poll::Ready(Ok(()))
+                    }
                 }
-            } else {
-                Poll::Pending
             };
         }
-        let max = this
-            .left
-            .min(output.remaining() as u64)
-            .min(fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
-            as usize;
+        let sbuf = fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes;
+        let max = this.left.min(output.remaining() as u64).min(sbuf) as usize;
         let mut buf = ReadBuf::new(output.initialize_unfilled_to(max));
         match this.input.as_mut().poll_read(cx, &mut buf) {
             Poll::Pending => return Poll::Pending,
@@ -354,7 +323,7 @@ impl AsyncRead for Bounded {
             this.finished = true;
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "native object truncated",
+                "truncated",
             )));
         }
         this.left -= count as u64;

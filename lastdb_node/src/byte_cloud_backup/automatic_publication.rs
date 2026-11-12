@@ -1,20 +1,18 @@
 //! Backup V2 recovery points for one running publication home.
 use super::{
-    automatic, control, execute,
-    model::Saved,
-    publication,
-    source::{PublicationSource, Source},
-    store::{self, Store},
-    work::{LogContext, Work},
-    worker, BackupError, Result,
+    connection,
+    source::{PublicationSource, Saved, Source},
+    store::{self, request_id, reserved, retire_cleanup, Store},
+    work::{LogContext, RecoveryPoint, Work},
+    worker, BackupError, Phase, Result,
 };
 use crate::backup_runtime::InvocationOutcome;
 use crate::cloud_backup_client::byte_backup::ByteBackupClient;
 use crate::host::Host;
-use cloud_backup_protocol::v2::{jobs::JobResult, Stream};
-use cloud_backup_protocol::Id;
+use cloud_backup_protocol::{v2::Stream, Id};
 use fold_db::storage::disk_pack::mutation_log::Frontiers;
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -26,6 +24,7 @@ use tracing::Instrument;
 
 const POLICY: &str = "share-automatic.json";
 const REVISION: u64 = 1;
+const CAPABILITY_TTL: Duration = Duration::from_secs(15);
 type Client = dyn Fn() -> std::result::Result<ByteBackupClient, String> + Send + Sync;
 
 #[derive(Serialize, Deserialize)]
@@ -60,30 +59,6 @@ impl Pending {
     }
 }
 
-#[derive(Default)]
-struct Retry {
-    until: Option<Instant>,
-    attempts: u32,
-}
-
-impl Retry {
-    fn schedule(&mut self, error: impl std::fmt::Display) {
-        if self.attempts == 0 {
-            tracing::warn!(target: "lastdbd::share", %error, "share publication will retry");
-        }
-        let secs = (5u64 << self.attempts.min(4)).min(60);
-        self.until = Some(Instant::now() + Duration::from_secs(secs));
-        self.attempts = self.attempts.saturating_add(1);
-    }
-
-    async fn wait(&self) {
-        match self.until {
-            Some(at) => tokio::time::sleep_until(at).await,
-            None => std::future::pending::<()>().await,
-        }
-    }
-}
-
 struct Publisher {
     host: Arc<Host>,
     source: Source,
@@ -92,11 +67,11 @@ struct Publisher {
 }
 
 pub(crate) fn preflight(home: &Path) -> Result<()> {
-    let auto = store::read::<serde_json::Value>(&Store::base(home).join(store::AUTOMATIC_FILE))?;
-    if auto.is_some() || Store::active(home)?.is_some() {
-        return Err(BackupError::Identity);
-    }
-    Ok(())
+    let base = Store::base(home);
+    let auto = store::read::<serde_json::Value>(&base.join(store::AUTOMATIC_FILE))?;
+    (auto.is_none() && Store::active(&base)?.is_none())
+        .then_some(())
+        .ok_or(BackupError::Identity)
 }
 
 pub(crate) fn spawn(
@@ -123,27 +98,45 @@ pub(crate) fn spawn(
 }
 
 impl Publisher {
+    fn start(
+        &self,
+        (store, permit): (Store, File),
+        saved: Saved,
+        client: Option<ByteBackupClient>,
+        select: bool,
+    ) -> Result<bool> {
+        let src = self.source.clone();
+        super::spawn_job(&self.host, src, store, saved, client, permit, select).map(|()| false)
+    }
+
     async fn run(&self, shutdown: &AtomicBool, client: &Client) {
         let mut jobs = self.host.byte_backup.subscribe();
         let mut writes = self.source.runtime.subscribe_durable_writes();
-        let (mut retry, mut cached, mut last_token) = (Retry::default(), None, 0);
+        let (mut until, mut attempts, mut cached, mut last_token) = (None, 0u32, None, 0);
+        let retry = |until: &mut Option<Instant>, n: &mut u32, err: &dyn std::fmt::Display| {
+            if *n == 0 {
+                tracing::warn!(target: "lastdbd::share", error = %err, "share publication will retry");
+            }
+            *until = Some(Instant::now() + Duration::from_secs((5u64 << (*n).min(4)).min(60)));
+            *n = n.saturating_add(1);
+        };
         loop {
             let current = jobs.borrow_and_update().clone();
             if shutdown.load(Ordering::Acquire) || current.shutting_down {
                 break;
             }
-            if let Some(done) = current
-                .last_completion
-                .filter(|d| d.invocation.token > last_token)
+            if let Some((_, tok, out)) = current.last_completion.filter(|(_, t, _)| *t > last_token)
             {
-                last_token = done.invocation.token;
-                match done.outcome {
-                    InvocationOutcome::Complete => retry = Retry::default(),
-                    InvocationOutcome::Paused(s) => retry.schedule(format_args!("{:?}", s.reason)),
+                last_token = tok;
+                match out {
+                    InvocationOutcome::Complete => (until, attempts) = (None, 0),
+                    InvocationOutcome::Paused(s) => {
+                        retry(&mut until, &mut attempts, &format_args!("{:?}", s.reason));
+                    }
                 }
             }
-            if retry.until.is_none_or(|at| at <= Instant::now()) {
-                retry.until = None;
+            if until.is_none_or(|at| at <= Instant::now()) {
+                until = None;
                 if current.active.is_none() {
                     match self
                         .limit(&mut cached, client)
@@ -152,14 +145,14 @@ impl Publisher {
                     {
                         Ok(true) => continue,
                         Ok(false) => {}
-                        Err(e) => retry.schedule(e),
+                        Err(e) => retry(&mut until, &mut attempts, &e),
                     }
                 }
             }
             tokio::select! {
                 r = jobs.changed() => if r.is_err() { break; },
-                r = writes.changed(), if retry.until.is_none() => if r.is_err() { break; },
-                _ = retry.wait() => {}
+                r = writes.changed(), if until.is_none() => if r.is_err() { break; },
+                () = tokio::time::sleep_until(until.unwrap_or_else(Instant::now)), if until.is_some() => {}
             }
         }
     }
@@ -169,23 +162,30 @@ impl Publisher {
         cached: &mut Option<(Stream, String, Option<u8>, Instant)>,
         client: &Client,
     ) -> Result<Option<u8>> {
-        let need = if let Some(p) = self.policy()?.pending {
-            p.log.is_some()
-                && store::state_at(&self.base, &p.id)?
-                    .is_none_or(|s| !s.begin_submitted && s.local_action.is_none() && !s.terminal())
-        } else if let Some(id) = Store::active_at(&self.base)? {
-            store::state_at(&self.base, &id)?
-                .ok_or(BackupError::Missing)?
-                .terminal()
-        } else {
-            true
+        let need = match self.policy()?.pending {
+            Some(p) => {
+                p.log.is_some()
+                    && store::state(&self.base, &p.id)?.is_none_or(|s| {
+                        !s.begin_submitted && s.local_action.is_none() && !s.terminal()
+                    })
+            }
+            None => !Store::has_active(&self.base)?,
         };
         if !need {
             return Ok(None);
         }
         let c = client().map_err(|_| BackupError::Authority)?;
-        publication::share_capability_limit(&self.base, &self.source, &self.stream_id, cached, &c)
-            .await
+        let ep = c.canonical_endpoint();
+        let stream =
+            connection::publication_stream(&self.base, &self.source, &self.stream_id, &c).await?;
+        if let Some((s, cached_ep, lim, exp)) = cached.as_ref() {
+            if *s == stream && *cached_ep == ep && Instant::now() < *exp {
+                return Ok(*lim);
+            }
+        }
+        let lim = c.share_recovery_limit(&stream).await?;
+        *cached = Some((stream, ep, lim, Instant::now() + CAPABILITY_TTL));
+        Ok(lim)
     }
 
     fn tick(&self, client: &Client, limit: Option<u8>) -> Result<bool> {
@@ -199,78 +199,49 @@ impl Publisher {
             return Err(BackupError::Source);
         }
         let mut policy = self.policy()?;
-        let active = Store::active_at(&self.base)?;
-        if let Some(old) = policy
-            .cleanup
-            .as_ref()
-            .filter(|old| Some(*old) != active.as_ref())
-        {
-            automatic::retire_at(&self.base, old)?;
-            policy.cleanup = None;
-            Store::write_configuration_at(&self.base, POLICY, &policy)?;
+        if retire_cleanup(&self.base, &mut policy.cleanup)? {
+            Store::write_config(&self.base, POLICY, &policy)?;
         }
+        let active = Store::active(&self.base)?;
         if policy.pending.is_some() {
             return self.advance(&mut policy, active.as_ref(), client, limit);
         }
         if let Some(id) = &active {
-            let saved = store::state_at(&self.base, id)?.ok_or(BackupError::Missing)?;
+            let saved = store::state(&self.base, id)?.ok_or(BackupError::Missing)?;
             self.source.validate(&saved)?;
             if !saved.terminal() {
                 return self.close_legacy(saved, client);
             }
         }
-        let Some((minimum, log)) =
-            publication::next_share_work(&self.base, &self.source, &self.stream_id, limit)?
-        else {
+        let Some((minimum, log)) = self.next_work(limit)? else {
             return Ok(false);
         };
         policy.pending = Some(Pending {
-            id: automatic::request_id()?,
+            id: request_id()?,
             minimum,
             log,
         });
-        policy.cleanup = active.filter(automatic::reserved);
-        Store::write_configuration_at(&self.base, POLICY, &policy).map(|()| true)
-    }
-
-    fn start_worker(
-        &self,
-        store: Store,
-        saved: Saved,
-        client: Option<ByteBackupClient>,
-        permit: std::fs::File,
-        select: bool,
-    ) -> Result<bool> {
-        let id = saved.request_id.clone();
-        if select {
-            store.select(&id)?;
-        }
-        let source = self.source.clone();
-        self.host
-            .byte_backup
-            .start(id, move |pause| {
-                execute(&source, &store, saved, client.as_ref(), permit, &pause)
-            })
-            .map(|()| false)
+        policy.cleanup = active.filter(reserved);
+        Store::write_config(&self.base, POLICY, &policy).map(|()| true)
     }
 
     fn close_legacy(&self, saved: Saved, client: &Client) -> Result<bool> {
         let id = saved.request_id.clone();
-        if automatic::reserved(&id) || saved.automatic_revision.is_some() {
+        if reserved(&id) || saved.automatic_revision.is_some() {
             return Err(BackupError::Busy);
         }
-        let permit = Store::lock_at(&self.base)?;
-        let store = Store::open_at(&self.base, &id)?;
-        let client = if let Some(term) = store.read::<JobResult>("terminal.json")? {
-            worker::validate_terminal(&saved, &term).map(|()| None)?
+        let permit = Store::lock(&self.base)?;
+        let store = Store::open(&self.base, &id)?;
+        let client = if worker::reconcilable(&self.source, &store)?.is_some() {
+            None
         } else {
             let c = client().map_err(|_| BackupError::Authority)?;
             if saved.endpoint != c.canonical_endpoint() {
                 return Err(BackupError::Identity);
             }
-            store::close_at(&self.base, &id).map(|()| Some(c))?
+            store::close(&self.base, &id).map(|()| Some(c))?
         };
-        self.start_worker(store, saved, client, permit, false)
+        self.start((store, permit), saved, client, false)
     }
 
     fn advance(
@@ -280,12 +251,10 @@ impl Publisher {
         client: &Client,
         limit: Option<u8>,
     ) -> Result<bool> {
-        let pending = policy.pending.as_ref().ok_or(BackupError::Missing)?;
-        let (id, minimum, work) = (pending.id.clone(), pending.minimum, pending.work());
-        let permit = Store::lock_at(&self.base)?;
-        control::ensure_previous_at(&self.base, &id)?;
-        let store = Store::open_at(&self.base, &id)?;
-        let mut existing = store.state()?;
+        let p = policy.pending.as_ref().ok_or(BackupError::Missing)?;
+        let (id, minimum, work) = (p.id.clone(), p.minimum, p.work());
+        let job = Store::acquire_job(&self.base, &id)?;
+        let mut existing = job.0.state()?;
         if let Some(saved) = &existing {
             self.source.validate(saved)?;
             if saved.automatic_revision != Some(REVISION) || saved.work != work {
@@ -295,43 +264,87 @@ impl Publisher {
                 if active != Some(&id) {
                     return Err(BackupError::Identity);
                 }
-                let published = publication::verify_publication_terminal(
-                    saved,
-                    &store,
-                    &self.base,
-                    &self.stream_id,
-                    &self.source.account,
-                    minimum,
-                )?;
+                let ok = self.verify_terminal(saved, &job.0, minimum)?;
                 policy.pending = None;
-                Store::write_configuration_at(&self.base, POLICY, policy)?;
-                return published.then_some(true).ok_or(BackupError::Waiting);
+                Store::write_config(&self.base, POLICY, policy)?;
+                return ok.then_some(true).ok_or(BackupError::Waiting);
             }
         }
-        if let Some(term) = store.read::<JobResult>("terminal.json")? {
-            let saved = existing.ok_or(BackupError::Missing)?;
-            worker::validate_terminal(&saved, &term)?;
-            return self.start_worker(store, saved, None, permit, true);
+        if let Some(saved) = worker::reconcilable(&self.source, &job.0)? {
+            return self.start(job, saved, None, true);
         }
         if let Some(saved) = existing.as_mut().filter(|s| s.local_action.is_some()) {
-            return publication::replace_unmaterialized(&self.source, &store, saved, None);
+            return self.source.replace_unmaterialized(&job.0, saved, None);
         }
-        let client = client().map_err(|_| BackupError::Authority)?;
-        let ep = client.canonical_endpoint();
-        let mut saved = existing.unwrap_or_else(|| {
-            let mut s = self.source.saved(id, ep.clone());
-            (s.work, s.automatic_revision) = (work, Some(REVISION));
-            s
-        });
-        if saved.endpoint != ep {
-            return Err(BackupError::Identity);
-        }
-        if publication::replace_unmaterialized(&self.source, &store, &mut saved, limit)? {
+        let c = client().map_err(|_| BackupError::Authority)?;
+        let ep = c.canonical_endpoint();
+        let mut saved = self
+            .source
+            .init_or_validate(existing, id, &ep, Some((REVISION, &work)))?;
+        if self
+            .source
+            .replace_unmaterialized(&job.0, &mut saved, limit)?
+        {
             return Ok(true);
         }
         saved.blocked_reason = None;
-        store.save(&saved)?;
-        self.start_worker(store, saved, Some(client), permit, true)
+        job.0.save(&saved)?;
+        self.start(job, saved, Some(c), true)
+    }
+
+    fn verify_terminal(&self, saved: &Saved, store: &Store, minimum: Frontiers) -> Result<bool> {
+        match saved.phase {
+            Phase::Published => {
+                let scope = (&self.stream_id, &self.source.account);
+                let pt =
+                    RecoveryPoint::read_at(&self.base, Some(scope))?.ok_or(BackupError::Missing)?;
+                (saved.accepted.as_ref() == Some(&pt.accepted) && pt.frontiers.main >= minimum.main)
+                    .then_some(true)
+                    .ok_or(BackupError::Identity)
+            }
+            Phase::Closed if saved.local_action.is_some() => Ok(true),
+            Phase::Closed => worker::unclosed_source_unavailable(store, saved)?
+                .ok_or(BackupError::Missing)?
+                .then_some(false)
+                .ok_or(BackupError::Authority),
+            _ => Err(BackupError::Invalid),
+        }
+    }
+
+    fn next_work(&self, limit: Option<u8>) -> Result<Option<(Frontiers, Option<Box<LogContext>>)>> {
+        let rt = &self.source.runtime;
+        let scope = (&self.stream_id, &self.source.account);
+        let point = RecoveryPoint::read_at(&self.base, Some(scope))?;
+        let frontier = rt.durable_main_frontier();
+        if point.as_ref().is_some_and(|p| p.frontiers.main > frontier) {
+            return Err(BackupError::Identity);
+        }
+        let (mut minimum, mut log) = (Frontiers { main: frontier }, None);
+        let journal = rt.mutation_log_status()?;
+        if !journal.enabled {
+            rt.configure_mutation_log(true)?;
+        }
+        let anchored = point.as_ref().filter(|p| {
+            journal.enabled
+                && !journal.snapshot_required
+                && p.anchor.is_some()
+                && journal.anchor == p.anchor
+        });
+        if let (Some(limit), Some(p)) = (limit, anchored) {
+            if p.frontiers.main == frontier {
+                return Ok(None);
+            }
+            if p.accepted.ordinal.get() - p.base.ordinal.get() < u64::from(limit) {
+                let ctx = p.log_context()?;
+                if journal.head.is_some_and(|h| h.sequence > ctx.from.sequence) {
+                    minimum.main = p.frontiers.main + 1;
+                    log = Some(Box::new(ctx));
+                }
+            }
+        } else if anchored.is_some_and(|p| p.base == p.accepted && p.frontiers.main == frontier) {
+            return Ok(None);
+        }
+        Ok(Some((minimum, log)))
     }
 
     fn policy(&self) -> Result<Policy> {
@@ -345,10 +358,8 @@ impl Publisher {
         (p.version == 1
             && p.source_home == self.source.source_home
             && p.stream_id == self.stream_id
-            && p.pending
-                .as_ref()
-                .is_none_or(|x| automatic::reserved(&x.id))
-            && p.cleanup.as_ref().is_none_or(automatic::reserved))
+            && p.pending.as_ref().is_none_or(|x| reserved(&x.id))
+            && p.cleanup.as_ref().is_none_or(reserved))
         .then_some(p)
         .ok_or(BackupError::Identity)
     }
