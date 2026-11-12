@@ -1869,6 +1869,8 @@ dependencies = [
  "hkdf",
  "laststore",
  "libc",
+ "mutation_log",
+ "mutation_log_sync",
  "observability",
  "rand 0.8.8",
  "reqwest 0.12.28",
