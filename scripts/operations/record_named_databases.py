@@ -1,6 +1,6 @@
 """Owned named databases on a fresh generated home.
 
-Creates shareable siblings beside personal, refuses reserved names, and checks
+Creates private and shareable siblings, refuses reserved names, and checks
 that the same key stays isolated. After the daemon restarts, the same database
 ids still return those values through the socket and the lastdb CLI.
 """
@@ -22,7 +22,12 @@ def prepare(node, cli, output):
     require(read_value(node, None) == "v3", "personal key one changed before named databases")
     refuse(node, {"name": "graph"}, "reserved and not provisioned")
     refuse(node, {"name": "personal"}, "invalid database name")
-    refuse(node, {"name": "notes", "kind": "personal"}, "reserved and not provisioned")
+    refuse(node, {"name": "notes", "kind": "personal",
+                  "spec": {"name": "notes", "version": 1}}, "invalid spec binding")
+    notes = create(node, "notes", None, kind="personal")
+    refuse_call(lambda: node.call("/api/databases/spec", {
+        "id": notes["id"], "spec": {"name": "notes", "version": 1},
+    }), "invalid spec binding")
     refuse(node, {"name": "work"}, "requires its spec")
     refuse(node, {"name": "notes", "spec": {"name": "notes", "version": 0}}, "invalid spec binding")
     family = create(node, "social-family", {"name": "social", "version": 1})
@@ -37,13 +42,16 @@ def prepare(node, cli, output):
     alpha = bind(node, alpha["id"], {"name": "notes", "version": 1})
     refuse_call(lambda: node.call("/api/databases/spec", {"id": work["id"], "spec": None}),
                 "requires its spec")
+    install(node, notes["id"])
     install(node, family["id"])
     install(node, alpha["id"])
     install(node, work["id"])
+    write_value(node, notes["id"], "owner-only")
     write_value(node, family["id"], "family")
     write_value(node, alpha["id"], "alpha")
     write_value(node, work["id"], "work")
     require(read_value(node, None) == "v3", "a sibling write changed personal")
+    require(read_value(node, "notes") == "owner-only", "notes did not keep its value")
     require(read_value(node, family["id"]) == "family", "social-family did not keep its value")
     require(read_value(node, "social-family") == "family", "the owned name did not select its store")
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
@@ -52,6 +60,7 @@ def prepare(node, cli, output):
     refuse_call(lambda: read_value(node, missing), "database is not registered")
     saved = {
         "personal_id": personal_id,
+        "notes_id": notes["id"],
         "family_id": family["id"],
         "alpha_id": alpha["id"],
         "work_id": work["id"],
@@ -66,6 +75,7 @@ def prepare(node, cli, output):
 def check(node, cli, output):
     saved = json.loads((output / "named-databases.json").read_text())
     require(read_value(node, None) == "v3", "personal changed across restart")
+    require(read_value(node, saved["notes_id"]) == "owner-only", "notes changed across restart")
     require(read_value(node, saved["family_id"]) == "family", "social-family changed across restart")
     require(read_value(node, saved["alpha_id"]) == "alpha", "alpha changed across restart")
     require(read_value(node, saved["work_id"]) == "work", "work changed across restart")
@@ -74,16 +84,19 @@ def check(node, cli, output):
     cli_read(node, cli, saved["family_id"], "family")
     cli_read(node, cli, "social-family", "family")
     cli_read(node, cli, "personal", "v3")
+    cli_read(node, cli, "notes", "owner-only")
     wrong = run_cli(node, cli, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector read personal data: " + wrong.stderr)
     print("Named databases survived restart with the same ids and isolated values", flush=True)
 
 
-def create(node, name, spec):
-    body = {"name": name} if spec is None else {"name": name, "spec": spec}
+def create(node, name, spec, kind="shareable"):
+    body = {"name": name, "kind": kind}
+    if spec is not None:
+        body["spec"] = spec
     database = node.call("/api/databases", body)[0]["database"]
-    require(database["name"] == name and database["kind"] == "shareable", "create returned the wrong row")
+    require(database["name"] == name and database["kind"] == kind, "create returned the wrong row")
     require(database["access"] == "owner" and database["state"] == "ready", "create was not ready")
     require(database["spec"] == spec, "create did not store the spec binding")
     require(uuid.UUID(database["id"]).version == 4, "create did not return a stable id")
@@ -141,6 +154,9 @@ def check_list(node, saved, alpha_spec):
     rows = node.call("/api/databases")[0]["databases"]
     by_name = {row["name"]: row for row in rows}
     require(by_name["personal"]["id"] == saved["personal_id"], "personal id changed")
+    notes = by_name["notes"]
+    require(notes["id"] == saved["notes_id"] and notes["kind"] == "personal"
+            and notes["spec"] is None, "notes lost its owner-only registration")
     require(by_name["social-family"]["id"] == saved["family_id"], "social-family id changed")
     require(by_name["social-family"]["spec"] == {"name": "social", "version": 1},
             "social-family lost its spec")
@@ -148,8 +164,8 @@ def check_list(node, saved, alpha_spec):
     require(by_name["alpha"]["spec"] == alpha_spec, "alpha lost its spec binding")
     require(by_name["work"]["id"] == saved["work_id"], "work id changed")
     require(by_name["work"]["spec"] == {"name": "work", "version": 1}, "work lost its spec")
-    require(len(rows) == 4, "the database list has an unexpected row")
-    require([row["name"] for row in rows] == ["personal", "social-family", "alpha", "work"],
+    require(len(rows) == 5, "the database list has an unexpected row")
+    require([row["name"] for row in rows] == ["personal", "notes", "social-family", "alpha", "work"],
             "owned databases were not listed after personal")
 
 
