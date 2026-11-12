@@ -14,12 +14,11 @@ use tracing_subscriber::{layer::SubscriberExt, registry::LookupSpan, EnvFilter, 
 
 static INIT_ONCE: OnceCell<()> = OnceCell::new();
 
-static LAMBDA_SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
+#[cfg(feature = "sentry")]
+mod fault_tags;
+#[cfg(feature = "sentry")]
+pub use fault_tags::{fault_tags, function_name_tag, function_version_tag, service_tag};
 
-/// Service name recorded by [`init_lambda`].
-pub(crate) fn lambda_service_name() -> Option<&'static str> {
-    LAMBDA_SERVICE_NAME.get().copied()
-}
 const STATIC_DENY_LIST: &str =
     "auth_token,auth.token,password,api_key,api.key,secret,email,phone,ssn";
 
@@ -79,9 +78,10 @@ pub mod layers {
         #[cfg(feature = "sentry")]
         mod imp {
             use super::{SentryGuard, OBS_SENTRY_RELEASE_ENV};
+            use crate::fault_tags;
             use sentry::protocol::Event as SentryEvent;
             use sentry_tracing::EventMapping;
-            use std::{borrow::Cow, collections::BTreeMap, env, sync::Arc};
+            use std::{borrow::Cow, env, sync::Arc};
             use tracing::{Level, Metadata, Subscriber};
             use tracing_subscriber::{
                 filter::{filter_fn, FilterFn, Filtered},
@@ -192,52 +192,6 @@ pub mod layers {
                 ok.then_some(v)
             }
 
-            fn fault_tags(category: &str) -> BTreeMap<String, String> {
-                let mut tags = BTreeMap::from([
-                    ("fault_category".to_string(), category.to_string()),
-                    ("os".to_string(), env::consts::OS.to_string()),
-                ]);
-                if let Some(service) = crate::lambda_service_name().and_then(service_tag) {
-                    tags.insert("service".to_string(), service);
-                }
-                if let Some(version) = function_version_tag() {
-                    tags.insert("function_version".to_string(), version);
-                }
-                if let Some(name) = function_name_tag() {
-                    tags.insert("function_name".to_string(), name);
-                }
-                tags
-            }
-
-            fn service_tag(value: &str) -> Option<String> {
-                if value.is_empty()
-                    || !value
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-                {
-                    return None;
-                }
-                Some(value.to_string())
-            }
-
-            fn function_version_tag() -> Option<String> {
-                let value = env::var("AWS_LAMBDA_FUNCTION_VERSION").ok()?;
-                let value = value.trim();
-                let allowed = value == "$LATEST"
-                    || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()));
-                allowed.then(|| value.to_string())
-            }
-
-            fn function_name_tag() -> Option<String> {
-                let value = env::var("AWS_LAMBDA_FUNCTION_NAME").ok()?;
-                let value = value.trim();
-                let allowed = !value.is_empty()
-                    && value
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
-                allowed.then(|| value.to_string())
-            }
-
             fn sanitize(src: &SentryEvent<'_>) -> SentryEvent<'static> {
                 let cat = match src.tags.get("crash_kind").map(String::as_str) {
                     Some("panic") => "panic",
@@ -307,7 +261,8 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     INIT_ONCE
         .set(())
         .map_err(|()| ObsError::AlreadyInitialized)?;
-    let _ = LAMBDA_SERVICE_NAME.set(service_name);
+    #[cfg(feature = "sentry")]
+    fault_tags::remember_lambda_service(service_name);
     let _ = LogTracer::init();
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
