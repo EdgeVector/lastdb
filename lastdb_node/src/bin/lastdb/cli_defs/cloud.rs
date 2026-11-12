@@ -46,7 +46,6 @@ pub(crate) struct PrepareRecoveryArgs {
 pub(crate) enum ByteBackupCommand {
     Init(BackupInitArgs),
     Connect(BackupConnectArgs),
-    Status(BackupJsonArgs),
     Restore(BackupRestoreArgs),
 }
 
@@ -80,12 +79,6 @@ pub(crate) struct BackupConnectArgs {
     pub(crate) invite_code_stdin: bool,
     #[arg(long, conflicts_with = "invite_code_stdin")]
     pub(crate) restored: bool,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupJsonArgs {
     #[arg(long)]
     pub(crate) json: bool,
 }

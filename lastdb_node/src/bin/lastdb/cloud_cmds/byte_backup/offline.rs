@@ -4,21 +4,9 @@ mod signed;
 
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{CloudScope, DecimalU64, Id};
-use lastdb_node::byte_cloud_backup::ByteBackupRequest;
 
 pub(super) fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     match action {
-        ByteBackupCommand::Status(a) => {
-            let body = serde_json::to_value(ByteBackupRequest::Status)
-                .map_err(|_| "cannot encode backup status request")?;
-            let sock = home.join("data/folddb.sock");
-            let response = super::super::socket_client::post_json_admin(
-                &sock,
-                "/api/sync/byte-backup-v2",
-                &body,
-            )?;
-            print_backup(&parse_json_response(&response, "backup status")?, a.json)
-        }
         ByteBackupCommand::Restore(args) => restore(home, args),
         _ => Err("invalid offline backup command".into()),
     }

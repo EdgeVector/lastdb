@@ -276,8 +276,6 @@ pub(crate) enum AppCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum BackupCommand {
-    /// Read backup policy, job state and last acceptance from the owner daemon.
-    Status(BackupJsonArgs),
     /// Connect a prepared account without enabling automatic backup.
     Connect(BackupConnectArgs),
     /// Restore a signed owner database into a fresh home.
@@ -287,7 +285,6 @@ pub(crate) enum BackupCommand {
 impl BackupCommand {
     pub(crate) fn into_cloud(self) -> Result<CloudCommand, String> {
         let action = match self {
-            Self::Status(a) => ByteBackupCommand::Status(a),
             Self::Connect(a) => ByteBackupCommand::Connect(a),
             Self::Restore(a) => ByteBackupCommand::Restore(a),
         };

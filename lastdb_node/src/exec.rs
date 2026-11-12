@@ -185,7 +185,7 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::DbSchemas
         | DataRoute::DbDeleteLedger
         | DataRoute::SyncByteBackupV2
-        | DataRoute::SyncByteBackupV2Connect
+        | DataRoute::CloudConnection
         | DataRoute::DeclareSchema
         | DataRoute::DropSchema => admin_handler_timeout(),
         DataRoute::Status => Duration::from_secs(2),
@@ -236,10 +236,7 @@ pub(in crate::exec) async fn execute_data_route(
         }
         DataRoute::AutoIdentity => admin_routes::execute_auto_identity_route(host),
         DataRoute::BootIdentity => admin_routes::execute_boot_identity_route(host),
-        DataRoute::SyncByteBackupV2 => admin_routes::execute_byte_backup(req, ctx, host).await,
-        DataRoute::SyncByteBackupV2Connect => {
-            admin_routes::connect_byte_backup(req, ctx, host).await
-        }
+        DataRoute::CloudConnection => admin_routes::connect_byte_backup(req, ctx, host).await,
         DataRoute::DbSchemas => {
             heap_route_ctx_host!(admin_routes::execute_db_schemas_route, ctx, host).await
         }
