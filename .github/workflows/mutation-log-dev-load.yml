@@ -4,7 +4,8 @@ name: Mutation log DEV load
 # #778 is deployed to DEV. The OIDC role is the DEV role from
 # exemem-infra #772, ref main, and the cloud-backup-dev environment. This
 # workflow does not create or change an IAM role. The job runs only on
-# main because that role trusts ref main.
+# main because that role trusts ref main. The signer is in process. It uses
+# the existing DEV CI account secrets and does not build node_read_token.
 
 on:
   workflow_dispatch:
@@ -41,10 +42,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Install Rust
-        run: rustup toolchain install --profile minimal
-      - name: Build the node-read token helper
-        run: cargo build --locked -p cloud_backup_protocol --bin node_read_token
       - name: Refuse a role outside the DEV account before assuming it
         env:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
@@ -62,6 +59,9 @@ jobs:
         env:
           LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
           LOAD_LEVEL: ${{ inputs.level }}
           LOAD_DURATION: ${{ inputs.duration }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
