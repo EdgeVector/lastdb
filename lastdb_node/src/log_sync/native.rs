@@ -48,6 +48,9 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
             return turn::paused_for(&database.id);
         }
     };
+    if matches!(cutover::gate_for(&database.id), cutover::Gate::Native) {
+        return turn::open_native(host, database, revision, log, &device).await;
+    }
     let view = match create_body(&database.id, &database.kind, spec) {
         Ok(body) => create_view(&log, body, &database.id).await,
         Err(()) => NativeView::Unavailable,
