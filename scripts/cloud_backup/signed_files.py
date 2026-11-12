@@ -92,10 +92,13 @@ def transfer(programs, root, publisher, recipient, api_key):
     saved = reader("--db", "download", "share", "files", "save", "--file", manifest["id"],
                    "--out", str(output))
     require(saved["database"] == database and output.read_bytes() == payload, "files_download_bytes")
-    summary(f"Signed Files upload and download matched all {len(payload)} bytes. SHA-256 `{digest}`.")
+    message = f"Signed Files upload and download matched all {len(payload)} bytes. SHA-256 {digest}."
+    print(message, flush=True)
+    summary(message)
 
 
 def main():
+    os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--version", required=True)
@@ -121,7 +124,9 @@ def main():
         recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
         with running(publisher, remove_saved=True), running(recipient):
             transfer(programs, root, publisher, recipient, api_key)
-    summary("Both generated DEV daemons stopped cleanly and their temporary homes were removed.")
+    message = "Both generated DEV daemons stopped cleanly and their temporary homes were removed."
+    print(message, flush=True)
+    summary(message)
 
 
 if __name__ == "__main__":
