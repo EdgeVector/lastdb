@@ -225,10 +225,57 @@ fn sanitize_event(source: &Event<'_>) -> Event<'static> {
             }
             _ => None,
         }),
-        tags: BTreeMap::from([
-            ("fault_category".to_string(), category.to_string()),
-            ("os".to_string(), env::consts::OS.to_string()),
-        ]),
+        tags: fault_tags(category),
         ..Default::default()
     }
+}
+
+#[cfg(feature = "sentry")]
+fn fault_tags(category: &str) -> BTreeMap<String, String> {
+    let mut tags = BTreeMap::from([
+        ("fault_category".to_string(), category.to_string()),
+        ("os".to_string(), env::consts::OS.to_string()),
+    ]);
+    if let Some(service) = crate::init::lambda_service_name().and_then(service_tag) {
+        tags.insert("service".to_string(), service);
+    }
+    if let Some(version) = function_version_tag() {
+        tags.insert("function_version".to_string(), version);
+    }
+    if let Some(name) = function_name_tag() {
+        tags.insert("function_name".to_string(), name);
+    }
+    tags
+}
+
+#[cfg(feature = "sentry")]
+fn service_tag(value: &str) -> Option<String> {
+    if value.is_empty()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+#[cfg(feature = "sentry")]
+fn function_version_tag() -> Option<String> {
+    let value = env::var("AWS_LAMBDA_FUNCTION_VERSION").ok()?;
+    let value = value.trim();
+    let allowed = value == "$LATEST"
+        || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()));
+    allowed.then(|| value.to_string())
+}
+
+#[cfg(feature = "sentry")]
+fn function_name_tag() -> Option<String> {
+    let value = env::var("AWS_LAMBDA_FUNCTION_NAME").ok()?;
+    let value = value.trim();
+    let allowed = !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+    allowed.then(|| value.to_string())
 }

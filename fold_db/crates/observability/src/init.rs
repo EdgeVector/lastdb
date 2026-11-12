@@ -22,6 +22,13 @@ use crate::ObsError;
 
 static INIT_ONCE: OnceCell<()> = OnceCell::new();
 
+static LAMBDA_SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
+
+/// Service name recorded by [`init_lambda`].
+pub(crate) fn lambda_service_name() -> Option<&'static str> {
+    LAMBDA_SERVICE_NAME.get().copied()
+}
+
 const STATIC_DENY_LIST: &[&str] = &[
     "auth_token",
     "auth.token",
@@ -71,6 +78,7 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     INIT_ONCE
         .set(())
         .map_err(|()| ObsError::AlreadyInitialized)?;
+    let _ = LAMBDA_SERVICE_NAME.set(service_name);
     let _ = LogTracer::init();
 
     let (writer, worker) = tracing_appender::non_blocking(io::stdout());
