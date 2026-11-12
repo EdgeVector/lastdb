@@ -66,10 +66,8 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
         keys: 64,
     };
     let mut main =
-        RunRead::open_existing_bounded(&root.join(RUN_DIR), &home_key(key), budget, 64 << 20)
-            .map_err(map)?;
-    let _cas = RunRead::open_existing_bounded(&root.join(CAS_DIR), &cas_key(key), budget, 64 << 20)
-        .map_err(map)?;
+        RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), budget).map_err(map)?;
+    let _cas = RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), budget).map_err(map)?;
     verify_proofs(&mut main, key)?;
     crate::storage::retired::refuse_journal(&mut main)?;
     Ok(version)

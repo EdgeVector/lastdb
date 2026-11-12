@@ -237,6 +237,17 @@ impl RunRead {
         )
     }
 
+    /// Open one existing CURRENT without the cleanup performed by `RunHome::open`.
+    pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            None,
+            FlockOperation::NonBlockingLockExclusive,
+        )
+    }
+
     /// Open an inactive root with explicit combined metadata-memory admission.
     pub fn open_existing_bounded(
         root: &Path,
@@ -248,7 +259,7 @@ impl RunRead {
             root,
             key,
             budget,
-            maximum,
+            Some(maximum),
             FlockOperation::NonBlockingLockExclusive,
         )
     }
@@ -264,7 +275,7 @@ impl RunRead {
             root,
             key,
             budget,
-            maximum,
+            Some(maximum),
             FlockOperation::NonBlockingLockShared,
         )
     }
@@ -273,7 +284,7 @@ impl RunRead {
         root: &Path,
         key: &[u8; 32],
         budget: ReadBudget,
-        maximum: u64,
+        maximum: Option<u64>,
         operation: FlockOperation,
     ) -> Result<Self> {
         let root = root.canonicalize()?;
@@ -290,13 +301,31 @@ impl RunRead {
             .map_err(|_| Error::Config("disk run snapshot: another owner holds the home".into()))?;
         require_path(&root, &lock)?;
         let identity = read_descriptor_file(&root.join(RUN_HOME_MARKER))?;
-        let manifest = Arc::new(Manifest::load_paths_bounded(
-            &root.join(CURRENT),
-            &root.join(RUNS),
-            key,
-            identity,
-            maximum,
-        )?);
-        Self::new_bounded(manifest, *key, budget, maximum, Arc::new(lock))
+        let lock = Arc::new(lock);
+        if let Some(bytes) = maximum {
+            let manifest = Arc::new(Manifest::load_paths_bounded(
+                &root.join(CURRENT),
+                &root.join(RUNS),
+                key,
+                identity,
+                bytes,
+            )?);
+            return Self::new_bounded(manifest, *key, budget, bytes, lock);
+        }
+        let manifest = Arc::new(Manifest::load(&root, key, identity)?);
+        let available = u64::MAX
+            .checked_sub(manifest.retained_bytes())
+            .ok_or(Error::ReadBudgetExceeded)?;
+        Ok(Self {
+            bounded_streams: false,
+            shared_metadata_bytes: 0,
+            runs: slots(&manifest, available)?,
+            manifest,
+            key: *key,
+            budget,
+            costs: super::RunReadCosts::default(),
+            metadata: crate::disk_run::MetadataMemo::new(budget.bytes),
+            _owner_lock: lock,
+        })
     }
 }
