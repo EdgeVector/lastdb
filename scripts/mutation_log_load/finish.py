@@ -22,7 +22,9 @@ def request_for(session, operation, fields, limit):
     if operation in ("head", "snapshot", "trim", "create-database"):
         body = {"database_id": database}
         if operation == "create-database":
-            body["kind"] = "personal"
+            # Live create admits shareable only, and appends wait for an admitted spec.
+            body["kind"] = "shareable"
+            body["spec"] = {"name": "social", "version": 1}
         return request_body(operation, body)
     device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
     if operation == "append":
@@ -31,7 +33,7 @@ def request_for(session, operation, fields, limit):
             "device_id": device,
             "entries": [{
                 "authored_at_ms": session.clock(),
-                "namespace": "load",
+                "namespace": "social",
                 "payload": PAYLOAD,
                 "writer_seq": fields["seq"],
             }],

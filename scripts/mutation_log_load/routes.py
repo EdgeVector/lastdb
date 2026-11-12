@@ -31,7 +31,7 @@ ENTRY_FIELDS = (
 )
 
 FIELDS = {
-    "create-database": ("database_id", "kind"),
+    "create-database": ("database_id", "kind", "spec"),
     "append": ("database_id", "device_id", "entries"),
     "head": ("database_id",),
     "list": ("after", "database_id", "device_id", "limit"),
@@ -121,11 +121,32 @@ def require_head(body):
     return decimal(body["cursor"])
 
 
+def _lift_entry(entry):
+    """Copy the nested #778 entry onto the row the log check reads."""
+    nested = entry.get("entry")
+    if not isinstance(nested, dict):
+        return
+    if "device_id" in nested:
+        entry["writer_device"] = nested["device_id"]
+    if "node_public_key" in nested:
+        entry["writer_key"] = nested["node_public_key"]
+    for key in ("writer_seq", "authored_at_ms", "namespace"):
+        if key in nested:
+            entry[key] = nested[key]
+    if "payload" in nested:
+        entry["payload"] = nested["payload"]
+    elif "payload_b64" in nested:
+        entry["payload"] = nested["payload_b64"]
+
+
 def require_list(body):
     page = require_object(body, ("entries", "next"))
     if not isinstance(page["entries"], list):
         raise RouteError("ambiguous")
     for entry in page["entries"]:
+        if not isinstance(entry, dict):
+            raise RouteError("ambiguous")
+        _lift_entry(entry)
         require_object(entry, ENTRY_FIELDS)
     if page["next"] is not None:
         decimal(page["next"])

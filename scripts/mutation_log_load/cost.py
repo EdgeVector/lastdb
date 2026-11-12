@@ -75,7 +75,7 @@ def recheck_hold(partition_bytes, sub_bytes):
     """Worst case for a quiet logcheck of this partition.
 
     One pass is a head, one list per 90 entries, and one extra list. The
-    quiet recheck repeats that pass, and each call can take eight tries.
+    quiet recheck repeats that pass, and each call can take MAX_CONTENTION_TRIES.
     Page count comes from the partition bytes so a restored ledger still
     holds the same reserve. Dollars include each call's Lambda request.
     """

@@ -47,7 +47,8 @@ THROTTLE_FIELDS = frozenset((
     "mutation_log.snapshot.throttled",
 ))
 CONTENTION_RATE = 0.01
-MAX_CONTENTION_TRIES = 8
+# Eight tries left appends unstored at 100 writers on DEV. Twenty stored every append.
+MAX_CONTENTION_TRIES = 20
 QUIET_BASE_MS = 400
 QUIET_CAP_MS = 8000
 EXIT_OK = 0

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """DEV mutation-log load. Unit tests do not call this command.
 
-One throwaway Ed25519 key signs every request as a LastDBNode token.
-The run creates the load database, drives the writers, and leaves cleanup
-to a later step so a cleanup failure cannot replace the load's status.
+The fixed DEV CI account signs every request as a LastDBNode token.
+Create also sends that account's API key. The run creates the load
+database, drives the writers, and leaves cleanup to a later step so a
+cleanup failure cannot replace the load's status.
 """
 
 import argparse
@@ -22,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger, format_estimate
 from drive import LoadError, Session, drive
-from faults import MAX_CONTENTION_TRIES, backoff_seconds, worst_exit
+from faults import MAX_CONTENTION_TRIES, backoff_seconds, is_contention, is_throttle, worst_exit
 from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_region_environment, allow_role, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
@@ -41,29 +42,79 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise GuardError("endpoint")
 
 
-def post(endpoint, key, database_id, method, path, body):
+def _note(status, path, parsed):
+    """One stderr line for a failure that is not a retried head conflict."""
+    if status < 400:
+        return
+    if isinstance(parsed, dict) and (is_contention(status, parsed) or is_throttle(status, parsed)):
+        return
+    code = field = "-"
+    if isinstance(parsed, dict):
+        code = str(parsed.get("code") or "-")[:80]
+        field = str(parsed.get("field") or "-")[:80]
+    print("http {0} {1} {2} {3}".format(
+        status, path.rsplit("/", 1)[-1], code, field), file=sys.stderr)
+
+
+def post(endpoint, key, database_id, method, path, body, api_key, account_generation):
     if method != "POST":
         raise GuardError("method")
     issued = time.time_ns() // 1_000_000
-    header, _encoded = authorization(key, path, database_id, issued, body)
+    header, _encoded = authorization(
+        key, path, database_id, issued, body, account_generation)
+    headers = {"Authorization": header, "Content-Type": "application/json"}
+    if path.endswith("/create-database"):
+        headers["X-API-Key"] = api_key
     request = urllib.request.Request(
-        endpoint + path, data=body, method=method,
-        headers={"Authorization": header, "Content-Type": "application/json"})
+        endpoint + path, data=body, method=method, headers=headers)
     opener = urllib.request.build_opener(NoRedirect)
     started = time.monotonic()
     try:
-        with opener.open(request, timeout=20) as response:
-            payload = response.read(65536)
+        with opener.open(request, timeout=60) as response:
+            payload = response.read(2_000_000)
             status = response.status
     except urllib.error.HTTPError as error:
-        payload = error.read(65536)
+        payload = error.read(2_000_000)
         status = error.code
     elapsed = (time.monotonic() - started) * 1000
     try:
         parsed = json.loads(payload) if payload else {}
     except json.JSONDecodeError:
         parsed = None
+    _note(status, path, parsed)
     return status, parsed, elapsed
+
+
+def load_ci_key():
+    """The enrolled DEV CI publisher. The phrase and the API key stay in process."""
+    phrase = os.environ.get("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip()
+    api_key = os.environ.get("LASTDB_CLOUD_DEV_API_KEY", "")
+    raw = os.environ.get("LASTDB_CLOUD_DEV_BASELINE", "")
+    if not phrase or not isinstance(api_key, str) or not api_key or not raw:
+        raise TokenError("account")
+    cloud = Path(__file__).resolve().parents[1] / "cloud_backup"
+    sys.path.insert(0, str(cloud))
+    import baseline_data
+    try:
+        baseline = json.loads(raw)
+    except json.JSONDecodeError:
+        raise TokenError("account") from None
+    if not isinstance(baseline, dict):
+        raise TokenError("account")
+    generation = baseline.get("account_generation")
+    if baseline.get("account") != baseline_data.ACCOUNT:
+        raise TokenError("account")
+    if (not isinstance(generation, str) or not generation.isdigit()
+            or (generation.startswith("0") and generation != "0")):
+        raise TokenError("account")
+    try:
+        seed = baseline_data.seed(phrase.encode("ascii"))
+    except baseline_data.BaselineDataError as error:
+        raise TokenError(str(error)) from None
+    key = NodeKey.from_seed(seed)
+    if account_id(key.public) != baseline_data.ACCOUNT:
+        raise TokenError("account")
+    return key, api_key, generation
 
 
 def aws(service, operation, payload):
@@ -160,6 +211,9 @@ def main(argv):
     if args.phase == "load" and args.level is None:
         raise GuardError("level")
     endpoint, table, database_id = target()
+    print("database {0}".format(database_id))
+    if "jdsx4ixk2i" in endpoint:
+        raise GuardError("endpoint")
     ledger = Ledger()
     summary_path = Path(args.summary)
     if args.phase == "cleanup":
@@ -171,12 +225,12 @@ def main(argv):
             text += "\n" + render_summaries(json.loads(summary_path.read_text(encoding="utf-8")))
         print(text)
         return 0
-    key = NodeKey.generate()
+    key, api_key, account_generation = load_ci_key()
     ident = account_id(key.public)
     reports = []
 
     def transport(method, path, body):
-        return post(endpoint, key, database_id, method, path, body)
+        return post(endpoint, key, database_id, method, path, body, api_key, account_generation)
 
     session = Session(database_id, ident, key.public.hex(), transport, ledger,
                       lambda: time.time_ns() // 1_000_000)
