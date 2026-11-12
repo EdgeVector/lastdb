@@ -34,7 +34,7 @@ pub(super) enum Pause {
 
 enum Prep {
     Pause(Pause),
-    Ready(run::Ready),
+    Ready(Box<run::Ready>),
 }
 
 pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
@@ -74,7 +74,7 @@ fn fresh_native(database: &Database) -> bool {
 async fn receipt_turn(host: &Arc<Host>, database: &Database) -> Pause {
     match prepare(host, database).await {
         Prep::Pause(pause) => pause,
-        Prep::Ready(ready) => run::run_ready(host.as_ref(), ready).await,
+        Prep::Ready(ready) => run::run_ready(host.as_ref(), *ready).await,
     }
 }
 
@@ -191,7 +191,7 @@ pub(super) async fn open_native(
             }
             paused_for(&database.id)
         }
-        Prep::Ready(ready) => run::run_ready(host.as_ref(), ready).await,
+        Prep::Ready(ready) => run::run_ready(host.as_ref(), *ready).await,
     }
 }
 
@@ -222,12 +222,12 @@ async fn finish_open(
         }
     };
     match resume_state(&log, state).await {
-        Ok(state) => Prep::Ready(run::Ready {
+        Ok(state) => Prep::Ready(Box::new(run::Ready {
             database_id: database_id.to_owned(),
             shareable: kind != "personal",
             log,
             state,
-        }),
+        })),
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync resume failed");
             Prep::Pause(Pause::Retry)

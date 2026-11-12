@@ -78,17 +78,6 @@ pub(crate) fn owner(home: &Path) -> Option<Database> {
     databases(home).into_iter().find(|row| !row.native)
 }
 
-/// Database whose store is `data_dir`. The owner store is `<home>/data`.
-/// An owned sibling store is `<home>/databases/<id>/data`.
-pub(crate) fn database_at(home: &Path, data_dir: &Path) -> Option<Database> {
-    let rows = databases(home);
-    if data_dir == home.join("data") {
-        return rows.into_iter().find(|row| !row.native);
-    }
-    let id = sibling_id(home, data_dir)?;
-    rows.into_iter().find(|row| row.native && row.id == id)
-}
-
 fn read_registry(home: &Path) -> Option<RegistryFile> {
     let path = home.join("databases").join("registry.json");
     let bytes = disk::read_limited(&path, REGISTRY_LIMIT).ok()??;
@@ -103,13 +92,12 @@ fn accept(row: &EntryRow, native: bool) -> Option<Database> {
         return None;
     }
     let spec = match &row.spec {
-        None => None,
         Some(spec) if valid_spec(spec) => Some(Spec {
             name: spec.name.clone(),
             version: spec.version,
         }),
         Some(_) if native => return None,
-        Some(_) => None,
+        None | Some(_) => None,
     };
     Some(Database {
         id: row.id.clone(),
@@ -117,16 +105,6 @@ fn accept(row: &EntryRow, native: bool) -> Option<Database> {
         spec,
         native,
     })
-}
-
-fn sibling_id(home: &Path, data_dir: &Path) -> Option<String> {
-    let relative = data_dir.strip_prefix(home.join("databases")).ok()?;
-    let mut parts = relative.components();
-    let id = parts.next()?.as_os_str().to_str()?;
-    if parts.next()?.as_os_str() != "data" || parts.next().is_some() {
-        return None;
-    }
-    Some(id.to_owned())
 }
 
 fn valid_spec(spec: &SpecRow) -> bool {

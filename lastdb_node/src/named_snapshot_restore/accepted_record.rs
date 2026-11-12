@@ -105,7 +105,7 @@ fn uploaded_file(
     if !same_database(&object, database_id) {
         return Err(RestoreError::File("snapshot file"));
     }
-    Ok(RecordFile::Fetch(FileFetch { marker, object }))
+    Ok(RecordFile::Fetch(Box::new(FileFetch { marker, object })))
 }
 
 fn file_marker(section: &FileSection) -> Result<FileMarker, RestoreError> {

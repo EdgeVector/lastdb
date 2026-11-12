@@ -106,14 +106,12 @@ impl CloudLog {
         match self
             .endpoint
             .post_exchange(
-                &self.keypair,
-                &self.scope,
-                &self.database_id,
-                paths::ACCESS,
-                &body,
-                self.member_revision,
+                self.signed(
+                    paths::ACCESS,
+                    &body,
+                    Proof::Canonical(CanonicalPost::Access),
+                ),
                 65_536,
-                Proof::Canonical(CanonicalPost::Access),
             )
             .await
         {
@@ -139,16 +137,7 @@ impl CloudLog {
         proof: Proof,
     ) -> Result<(u16, Vec<u8>), ()> {
         self.endpoint
-            .post_exchange(
-                &self.keypair,
-                &self.scope,
-                &self.database_id,
-                path,
-                &body,
-                self.member_revision,
-                65_536,
-                proof,
-            )
+            .post_exchange(self.signed(path, &body, proof), 65_536)
             .await
             .map_err(|_| ())
     }
@@ -206,29 +195,13 @@ impl CloudLog {
         })
         .map_err(|_| LogError::InvalidEntry)?;
         self.endpoint
-            .post_bytes(
-                &self.keypair,
-                &self.scope,
-                &self.database_id,
-                paths::SNAPSHOT_BYTES,
-                &body,
-                self.member_revision,
-                self.data_proof(),
-            )
+            .post_bytes(self.signed(paths::SNAPSHOT_BYTES, &body, self.data_proof()))
             .await
     }
 
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
         self.endpoint
-            .post_json(
-                &self.keypair,
-                &self.scope,
-                &self.database_id,
-                path,
-                &body,
-                self.member_revision,
-                self.data_proof(),
-            )
+            .post_json(self.signed(path, &body, self.data_proof()))
             .await
     }
 
@@ -255,9 +228,29 @@ impl CloudLog {
         let proof = self.data_proof();
         self.wait(async move {
             endpoint
-                .post_json(&keypair, &scope, &database_id, path, &body, revision, proof)
+                .post_json(http::LogRequest {
+                    keypair: &keypair,
+                    scope: &scope,
+                    database_id: &database_id,
+                    path,
+                    body: &body,
+                    member_revision: revision,
+                    proof,
+                })
                 .await
         })?
+    }
+
+    fn signed<'a>(&'a self, path: &'a str, body: &'a [u8], proof: Proof) -> http::LogRequest<'a> {
+        http::LogRequest {
+            keypair: &self.keypair,
+            scope: &self.scope,
+            database_id: &self.database_id,
+            path,
+            body,
+            member_revision: self.member_revision,
+            proof,
+        }
     }
 
     fn data_proof(&self) -> Proof {

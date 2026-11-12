@@ -74,10 +74,7 @@ pub(crate) fn to_mutation(payload: &RecordPayload) -> Option<Mutation> {
 }
 
 pub(crate) fn namespace_of(schema: &str) -> Option<Namespace> {
-    let namespace = schema
-        .split_once('/')
-        .map(|(prefix, _)| prefix)
-        .unwrap_or(schema);
+    let namespace = schema.split_once('/').map_or(schema, |(prefix, _)| prefix);
     Namespace::new(namespace).ok()
 }
 

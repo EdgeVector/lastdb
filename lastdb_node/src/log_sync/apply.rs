@@ -130,13 +130,14 @@ async fn apply_owned(host: &Host, database_id: &str, entry: &Entry) -> Result<bo
         .write_mutations_receipt(vec![mutation])
         .await
     {
-        Ok(_) => match disk::write_private(&marker, b"1") {
-            Ok(()) => Ok(true),
-            Err(_) => {
+        Ok(_) => {
+            if let Ok(()) = disk::write_private(&marker, b"1") {
+                Ok(true)
+            } else {
                 tracing::warn!(target: "lastdbd::log_sync", "applied marker was not stored");
                 Ok(false)
             }
-        },
+        }
         Err(error) => {
             tracing::warn!(
                 target: "lastdbd::log_sync",

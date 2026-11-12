@@ -128,9 +128,8 @@ fn open_named(host: &Host, database_id: &str) -> Result<Named, RestoreError> {
 pub(crate) fn prefix_durable(home: &std::path::Path, database_id: &str) -> bool {
     match journal::load(home, database_id) {
         Ok(Some(journal)) if journal.complete && journal.database_id == database_id => true,
-        Ok(Some(_)) => false,
         Ok(None) => log_only_prefix(home, database_id),
-        Err(_) => false,
+        Ok(Some(_)) | Err(_) => false,
     }
 }
 

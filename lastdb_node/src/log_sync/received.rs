@@ -29,9 +29,8 @@ use super::turn::{self, Pause};
 const MEMBER_LIMIT: usize = 65_536;
 
 pub(super) async fn turn(host: &Arc<Host>) -> Pause {
-    let shares = match registered_share::list(&host.home) {
-        Ok(shares) => shares,
-        Err(_) => return Pause::Retry,
+    let Ok(shares) = registered_share::list(&host.home) else {
+        return Pause::Retry;
     };
     let mut pause = Pause::Idle;
     for share in shares.into_iter().filter(|share| share.signed_log) {
@@ -41,9 +40,8 @@ pub(super) async fn turn(host: &Arc<Host>) -> Pause {
 }
 
 async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
-    let device = match session::device_id(&host.home) {
-        Ok(device) => device,
-        Err(_) => return Pause::Retry,
+    let Ok(device) = session::device_id(&host.home) else {
+        return Pause::Retry;
     };
     let database_id = share.id.as_str();
     let stored = member_revision(&host.home, database_id);
@@ -54,17 +52,14 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
             return Pause::Retry;
         }
     };
-    let log = match refresh(host, share, log, &device, stored).await {
-        Some(log) => log,
-        None => return Pause::Retry,
+    let Some(log) = refresh(host, share, log, &device, stored).await else {
+        return Pause::Retry;
     };
-    let state = match receiver_state(share, &log, &device, &host.home) {
-        Some(state) => state,
-        None => return Pause::Retry,
+    let Some(state) = receiver_state(share, &log, &device, &host.home) else {
+        return Pause::Retry;
     };
-    let state = match log.resumed(state).await {
-        Ok(state) => state,
-        Err(_) => return Pause::Retry,
+    let Ok(state) = log.resumed(state).await else {
+        return Pause::Retry;
     };
     run::run_ready(
         host.as_ref(),
@@ -167,8 +162,7 @@ fn member_revision(home: &Path, database_id: &str) -> u64 {
     serde_json::from_slice::<MemberFileOwned>(&bytes)
         .ok()
         .filter(|file| file.database_id == database_id)
-        .map(|file| file.revision)
-        .unwrap_or(0)
+        .map_or(0, |file| file.revision)
 }
 
 fn store_member(home: &Path, database_id: &str, revision: u64) -> Result<(), ()> {

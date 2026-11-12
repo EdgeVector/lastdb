@@ -118,9 +118,9 @@ async fn apply_one(
         journal::save(home, journal)?;
     }
     match prepared.change {
-        payload::Change::Schema(change) => apply_schema(store, change).await?,
+        payload::Change::Schema(change) => apply_schema(store, *change).await?,
         payload::Change::Record(mut change) => {
-            stage_file(store, key, database_id, entry, &mut change, files).await?;
+            stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
             if bind_expected(store, &mut change.mutation, resumed).await? {
                 write_record(store, home, journal, change.mutation, resumed).await?;
             }

@@ -88,26 +88,39 @@ pub fn authorization(
     header(keypair, &token, body)
 }
 
+/// Account, database, realm, and raw path of one signed data POST.
+///
+/// [`authorization_post`] still takes the raw body, the clock, the signing key,
+/// and the grant revision. Those values are not fields of this target.
+#[derive(Clone, Copy)]
+pub struct PathPostTarget<'a> {
+    /// Scope that signs this post.
+    pub scope: &'a CloudScope,
+    /// Database id. The token sets `stream.stream_id` to this same id.
+    pub database_id: &'a Id,
+    /// Saved connection realm, or the invitation realm for a receiver.
+    pub environment: ShareEnvironment,
+    /// HTTP path. The token carries this path.
+    pub path: &'a str,
+}
+
 /// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
 ///
 /// Shareable append, head, list, ack, snapshot, and `delivery/snapshot` or
-/// `delivery/object` use this. The path in the token is `path`.
+/// `delivery/object` use this. The path in the token is `target.path`.
 pub fn authorization_post(
     keypair: &Ed25519KeyPair,
-    scope: &CloudScope,
-    database_id: &Id,
-    environment: ShareEnvironment,
-    path: &str,
+    target: PathPostTarget<'_>,
     body: &[u8],
     member_revision: u64,
     now_ms: u64,
 ) -> Result<String, String> {
     let token = issued(
         keypair,
-        scope,
-        database_id,
-        environment,
-        path,
+        target.scope,
+        target.database_id,
+        target.environment,
+        target.path,
         member_revision,
         now_ms,
     )?;

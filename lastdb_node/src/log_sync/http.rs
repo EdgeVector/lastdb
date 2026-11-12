@@ -34,6 +34,18 @@ pub(crate) enum Proof {
 const JSON_LIMIT: usize = 8 * 1024 * 1024;
 const SNAPSHOT_LIMIT: u64 = 1024 * 1024 * 1024;
 
+/// One signed log POST. The limit on the reply is not part of the request.
+#[derive(Clone, Copy)]
+pub(crate) struct LogRequest<'a> {
+    pub keypair: &'a Ed25519KeyPair,
+    pub scope: &'a CloudScope,
+    pub database_id: &'a Id,
+    pub path: &'a str,
+    pub body: &'a [u8],
+    pub member_revision: u64,
+    pub proof: Proof,
+}
+
 pub(crate) struct SelectedService {
     pub api_url: String,
     pub label: &'static str,
@@ -110,76 +122,26 @@ impl Endpoint {
         self
     }
 
-    pub(crate) async fn post_json(
-        &self,
-        keypair: &Ed25519KeyPair,
-        scope: &CloudScope,
-        database_id: &Id,
-        path: &str,
-        body: &[u8],
-        member_revision: u64,
-        proof: Proof,
-    ) -> Result<Vec<u8>, LogError> {
-        self.exchange(
-            keypair,
-            scope,
-            database_id,
-            path,
-            body,
-            member_revision,
-            JSON_LIMIT as u64,
-            proof,
-        )
-        .await
-        .and_then(|(status, bytes)| self.accepted(path, status, bytes))
+    pub(crate) async fn post_json(&self, request: LogRequest<'_>) -> Result<Vec<u8>, LogError> {
+        let path = request.path;
+        self.exchange(request, JSON_LIMIT as u64)
+            .await
+            .and_then(|(status, bytes)| self.accepted(path, status, bytes))
     }
 
-    pub(crate) async fn post_bytes(
-        &self,
-        keypair: &Ed25519KeyPair,
-        scope: &CloudScope,
-        database_id: &Id,
-        path: &str,
-        body: &[u8],
-        member_revision: u64,
-        proof: Proof,
-    ) -> Result<Vec<u8>, LogError> {
-        self.exchange(
-            keypair,
-            scope,
-            database_id,
-            path,
-            body,
-            member_revision,
-            SNAPSHOT_LIMIT,
-            proof,
-        )
-        .await
-        .and_then(|(status, bytes)| self.accepted(path, status, bytes))
+    pub(crate) async fn post_bytes(&self, request: LogRequest<'_>) -> Result<Vec<u8>, LogError> {
+        let path = request.path;
+        self.exchange(request, SNAPSHOT_LIMIT)
+            .await
+            .and_then(|(status, bytes)| self.accepted(path, status, bytes))
     }
 
     pub(crate) async fn post_exchange(
         &self,
-        keypair: &Ed25519KeyPair,
-        scope: &CloudScope,
-        database_id: &Id,
-        path: &str,
-        body: &[u8],
-        member_revision: u64,
+        request: LogRequest<'_>,
         limit: u64,
-        proof: Proof,
     ) -> Result<(u16, Vec<u8>), LogError> {
-        self.exchange(
-            keypair,
-            scope,
-            database_id,
-            path,
-            body,
-            member_revision,
-            limit,
-            proof,
-        )
-        .await
+        self.exchange(request, limit).await
     }
 
     fn accepted(&self, path: &str, status: u16, bytes: Vec<u8>) -> Result<Vec<u8>, LogError> {
@@ -200,84 +162,60 @@ impl Endpoint {
 
     async fn exchange(
         &self,
-        keypair: &Ed25519KeyPair,
-        scope: &CloudScope,
-        database_id: &Id,
-        path: &str,
-        body: &[u8],
-        member_revision: u64,
+        request: LogRequest<'_>,
         limit: u64,
-        proof: Proof,
     ) -> Result<(u16, Vec<u8>), LogError> {
         let now = fold_db::clock::unix_millis();
         let header = self
-            .authorize(
-                keypair,
-                scope,
-                database_id,
-                path,
-                body,
-                member_revision,
-                now,
-                proof,
-            )
+            .authorize(&request, now)
             .map_err(|_| LogError::UnexpectedOutcome)?;
-        let url = format!("{}{path}", self.origin);
-        let mut request = self
+        let url = format!("{}{}", self.origin, request.path);
+        let mut http_request = self
             .http
             .post(url)
             .header(reqwest::header::AUTHORIZATION, header)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        if path == super::paths::CREATE {
+        if request.path == super::paths::CREATE {
             let Some(key) = &self.owner_key else {
                 return Err(LogError::UnexpectedOutcome);
             };
-            request = request.header("X-API-Key", key.as_str());
+            http_request = http_request.header("X-API-Key", key.as_str());
         }
-        let response = observability::propagation::inject_w3c(request.body(body.to_vec()))
-            .send()
-            .await
-            .map_err(|_| LogError::UnexpectedOutcome)?;
+        let response =
+            observability::propagation::inject_w3c(http_request.body(request.body.to_vec()))
+                .send()
+                .await
+                .map_err(|_| LogError::UnexpectedOutcome)?;
         let status = response.status().as_u16();
         let bytes = read_limited(response, limit).await?;
         Ok((status, bytes))
     }
 
-    fn authorize(
-        &self,
-        keypair: &Ed25519KeyPair,
-        scope: &CloudScope,
-        database_id: &Id,
-        path: &str,
-        body: &[u8],
-        member_revision: u64,
-        now_ms: u64,
-        proof: Proof,
-    ) -> Result<String, String> {
-        match proof {
-            Proof::Legacy => sign::authorization(
-                keypair,
-                scope,
-                database_id,
-                path,
-                body,
-                member_revision,
+    fn authorize(&self, request: &LogRequest<'_>, now_ms: u64) -> Result<String, String> {
+        match request.proof {
+            Proof::Legacy => sign::authorization(sign::Authority {
+                keypair: request.keypair,
+                scope: request.scope,
+                database_id: request.database_id,
+                path: request.path,
+                body: request.body,
+                member_revision: request.member_revision,
                 now_ms,
-                self.environment,
-            ),
+                environment: self.environment,
+            }),
             Proof::Canonical(route) => {
                 let environment = ShareEnvironment::parse(self.environment)
                     .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
                 node_read::authorization(
-                    keypair,
+                    request.keypair,
                     SignedPostTarget {
-                        scope,
-                        database_id,
+                        scope: request.scope,
+                        database_id: request.database_id,
                         environment,
                         route,
                     },
-                    body,
-                    member_revision,
+                    request.body,
+                    request.member_revision,
                     now_ms,
                 )
             }
@@ -285,13 +223,15 @@ impl Endpoint {
                 let environment = ShareEnvironment::parse(self.environment)
                     .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
                 node_read::authorization_post(
-                    keypair,
-                    scope,
-                    database_id,
-                    environment,
-                    path,
-                    body,
-                    member_revision,
+                    request.keypair,
+                    node_read::PathPostTarget {
+                        scope: request.scope,
+                        database_id: request.database_id,
+                        environment,
+                        path: request.path,
+                    },
+                    request.body,
+                    request.member_revision,
                     now_ms,
                 )
             }

@@ -15,28 +15,32 @@ use serde::Serialize;
 const SCHEME: &str = "LastDBNode";
 const DOMAIN: &str = "lastdb:share:node-read-authority:v1";
 
+/// Inputs of one legacy node signature.
+#[derive(Clone, Copy)]
+pub(crate) struct Authority<'a> {
+    pub keypair: &'a Ed25519KeyPair,
+    pub scope: &'a CloudScope,
+    pub database_id: &'a Id,
+    pub path: &'a str,
+    pub body: &'a [u8],
+    pub member_revision: u64,
+    pub now_ms: u64,
+    pub environment: &'a str,
+}
+
 /// Authorization header value for one POST. A new nonce is used every call.
-pub(crate) fn authorization(
-    keypair: &Ed25519KeyPair,
-    scope: &CloudScope,
-    database_id: &Id,
-    path: &str,
-    body: &[u8],
-    member_revision: u64,
-    now_ms: u64,
-    environment: &str,
-) -> Result<String, String> {
+pub(crate) fn authorization(authority: Authority<'_>) -> Result<String, String> {
     let token = token(
-        keypair,
-        scope,
-        database_id,
-        path,
-        member_revision,
-        now_ms,
-        environment,
+        authority.keypair,
+        authority.scope,
+        authority.database_id,
+        authority.path,
+        authority.member_revision,
+        authority.now_ms,
+        authority.environment,
     )?;
-    let digest = digest_of(&token, body)?;
-    let signature = keypair.sign(digest.as_str().as_bytes());
+    let digest = digest_of(&token, authority.body)?;
+    let signature = authority.keypair.sign(digest.as_str().as_bytes());
     let token_json = serde_json::to_vec(&token).map_err(|_| "node read token was refused")?;
     let encoded_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_json);
     let encoded_signature =

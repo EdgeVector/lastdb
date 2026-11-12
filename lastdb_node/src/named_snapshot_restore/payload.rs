@@ -128,8 +128,8 @@ pub struct ContributionSection {
 }
 
 pub(super) enum Change {
-    Schema(SchemaChange),
-    Record(RecordChange),
+    Schema(Box<SchemaChange>),
+    Record(Box<RecordChange>),
 }
 
 pub(super) struct SchemaChange {
@@ -146,7 +146,7 @@ pub(super) struct RecordChange {
 pub(super) enum RecordFile {
     Keep,
     Clear,
-    Fetch(FileFetch),
+    Fetch(Box<FileFetch>),
 }
 
 pub(super) struct FileFetch {
@@ -171,10 +171,10 @@ pub fn parse_accepted(bytes: &[u8]) -> Result<AcceptedBody, RestoreError> {
 
 pub(super) fn classify(body: &AcceptedBody, database_id: &str) -> Result<Change, RestoreError> {
     match body.kind.as_str() {
-        "schema" => Ok(Change::Schema(schema_change(body)?)),
-        "record" | "file" | "inline" | "contribution" => Ok(Change::Record(
+        "schema" => Ok(Change::Schema(Box::new(schema_change(body)?))),
+        "record" | "file" | "inline" | "contribution" => Ok(Change::Record(Box::new(
             accepted_record::record_change(body, database_id)?,
-        )),
+        ))),
         _ => Err(RestoreError::Entry("snapshot entry")),
     }
 }

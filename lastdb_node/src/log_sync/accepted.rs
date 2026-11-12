@@ -62,41 +62,41 @@ async fn prepare(
     let database_id = database_id.to_owned();
     let home = home.to_owned();
     let joined =
-        tokio::task::spawn_blocking(move || read_page(runtime, &*key, &spec, &database_id, &home))
+        tokio::task::spawn_blocking(move || read_page(&runtime, &key, &spec, &database_id, &home))
             .await;
     joined.ok().flatten()
 }
 
 fn read_page(
-    runtime: Arc<PackRuntime>,
+    runtime: &Arc<PackRuntime>,
     key: &[u8; 32],
     spec: &SpecBinding,
     database_id: &str,
     home: &std::path::Path,
 ) -> Option<Prepared> {
-    let status = accepted_writes::status(&runtime);
+    let status = accepted_writes::status(runtime);
     if status.gap {
         tracing::warn!(target: "lastdbd::log_sync", "accepted prefix has a gap");
         return None;
     }
     if status.snapshot_required {
-        note_if_installed(&runtime, &home, database_id, status.opened_frontier);
+        note_if_installed(runtime, home, database_id, status.opened_frontier);
         return None;
     }
     match accepted_writes::prefix(
-        &runtime,
+        runtime,
         key,
         Publication::Share(spec),
         status.acked,
         PAGE_LIMIT,
     ) {
         Ok(page) if page.snapshot_required => {
-            note_if_installed(&runtime, home, database_id, status.opened_frontier);
+            note_if_installed(runtime, home, database_id, status.opened_frontier);
             None
         }
         Ok(page) => Some(Prepared { page }),
         Err(Blocked::Snapshot | Blocked::Gap) => {
-            note_if_installed(&runtime, home, database_id, status.opened_frontier);
+            note_if_installed(runtime, home, database_id, status.opened_frontier);
             None
         }
         Err(blocked) => {
@@ -126,9 +126,8 @@ async fn send_page(
     if prepared.page.items.is_empty() {
         return false;
     }
-    let tip = match writer_tip(log).await {
-        Some(tip) => tip,
-        None => return false,
+    let Some(tip) = writer_tip(log).await else {
+        return false;
     };
     let mut next = tip.saturating_add(1);
     for item in &prepared.page.items {
@@ -140,12 +139,11 @@ async fn send_page(
     let runtime = Arc::clone(runtime);
     let acked =
         tokio::task::spawn_blocking(move || accepted_writes::acknowledge(&runtime, through)).await;
-    match acked {
-        Ok(Ok(())) => true,
-        _ => {
-            tracing::warn!(target: "lastdbd::log_sync", "accepted prefix was not acknowledged");
-            false
-        }
+    if let Ok(Ok(())) = acked {
+        true
+    } else {
+        tracing::warn!(target: "lastdbd::log_sync", "accepted prefix was not acknowledged");
+        false
     }
 }
 
@@ -178,17 +176,14 @@ async fn append_canonical(
     canonical: &[u8],
     next: &mut u64,
 ) -> bool {
-    let namespace = match namespace_of(canonical) {
-        Some(namespace) => namespace,
-        None => return false,
+    let Some(namespace) = namespace_of(canonical) else {
+        return false;
     };
-    let sealed = match sealed_payload(host, log, mutation_id, canonical, &namespace, next) {
-        Some(sealed) => sealed,
-        None => return false,
+    let Some(sealed) = sealed_payload(host, log, mutation_id, canonical, &namespace, next) else {
+        return false;
     };
-    let entry = match cloud_entry(log, &sealed.0, &namespace, sealed.1) {
-        Some(entry) => entry,
-        None => return false,
+    let Some(entry) = cloud_entry(log, &sealed.0, &namespace, sealed.1) else {
+        return false;
     };
     append_entry(log, entry).await
 }
@@ -302,9 +297,6 @@ fn content_key(host: &Host, database_id: &str) -> Option<DatabaseContentKey> {
 fn namespace_of(canonical: &[u8]) -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(canonical).ok()?;
     let schema = value.get("schema").and_then(|item| item.as_str())?;
-    let name = schema
-        .split_once('/')
-        .map(|(prefix, _)| prefix)
-        .unwrap_or(schema);
+    let name = schema.split_once('/').map_or(schema, |(prefix, _)| prefix);
     (!name.is_empty()).then(|| name.to_owned())
 }

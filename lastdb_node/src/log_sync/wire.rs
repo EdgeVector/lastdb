@@ -369,13 +369,18 @@ fn stored_entry(database_id: &str, wire: StoredWire) -> Result<StoredEntry, LogE
             writer_seq: wire.entry.writer_seq.get(),
             authored_at_ms: wire.entry.authored_at_ms.get(),
             namespace: mutation_log::Namespace::new(&wire.entry.namespace)?,
-            incorporated_from: wire.entry.incorporated_from.map(incorporated).transpose()?,
+            incorporated_from: wire
+                .entry
+                .incorporated_from
+                .as_ref()
+                .map(incorporated)
+                .transpose()?,
             payload,
         },
     })
 }
 
-fn incorporated(body: IncorporatedBody) -> Result<Incorporation, LogError> {
+fn incorporated(body: &IncorporatedBody) -> Result<Incorporation, LogError> {
     Ok(Incorporation {
         writer: writer_of(&body.node_public_key, &body.device_id)?,
         writer_seq: body.writer_seq.get(),

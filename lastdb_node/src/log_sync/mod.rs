@@ -19,7 +19,6 @@ mod disk;
 mod files;
 mod http;
 mod native;
-mod outbox;
 mod paths;
 mod payload;
 mod received;

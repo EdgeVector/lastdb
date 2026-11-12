@@ -252,5 +252,5 @@ fn lock() -> std::sync::MutexGuard<'static, HashMap<String, Live>> {
     static LIVE: OnceLock<Mutex<HashMap<String, Live>>> = OnceLock::new();
     LIVE.get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
