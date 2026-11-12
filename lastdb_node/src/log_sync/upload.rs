@@ -1,4 +1,4 @@
-//! Upload one sealed file through the existing byte backup client.
+//! Upload one sealed file for a signed log entry.
 //!
 //! The begin value, transfer input, and sealed bytes are durable before the
 //! first request. A verified receipt is durable before the job closes. The
@@ -19,7 +19,6 @@ use cloud_backup_protocol::{bytes_sha256, canonical_bytes, DecimalU64, Id};
 use fold_db::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 
-use crate::byte_cloud_backup;
 use crate::cloud_backup_client::byte_backup::{ByteBackupClient, ExactUpload};
 use crate::database_replay::{self, FileObject};
 use crate::host::Host;
@@ -72,7 +71,7 @@ pub(super) async fn cloud_body(
         }
     };
     if saved.receipt.is_none() || !saved.closed {
-        let client = byte_cloud_backup::client_from_home(&host.home).ok()?;
+        let client = crate::cloud::client_from_home(&host.home).ok()?;
         if saved.receipt.is_none() {
             let envelope = retry::load_file(&host.home, log.database_id(), mutation_id).ok()??;
             saved.receipt = Some(verified(&client, &saved, envelope).await?);

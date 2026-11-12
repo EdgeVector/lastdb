@@ -15,7 +15,7 @@ pub(super) async fn publisher_scope(
     let selected = http::selected_service(&host.home)?;
     let account = account_of(host)?;
     let endpoint = Endpoint::open(&selected.api_url, selected.label)?.load_owner_key(&host.home);
-    let backup = crate::byte_cloud_backup::client_from_home(&host.home)?;
+    let backup = crate::cloud::client_from_home(&host.home)?;
     let context = backup
         .context(&ContextReadRequest {
             version: Version::V2,

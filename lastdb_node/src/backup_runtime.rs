@@ -34,17 +34,9 @@ pub enum Phase {
     Closed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InvocationOutcome {
-    Complete,
-    Paused(PauseState),
-}
-
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RuntimeSnapshot {
     pub active: Option<Id>,
-    pub last_completion: Option<(Id, u64, InvocationOutcome)>,
-    pub shutting_down: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,7 +56,6 @@ impl std::error::Error for DrainError {}
 
 #[derive(Default)]
 struct State {
-    next_token: u64,
     pause: Option<Arc<AtomicBool>>,
     thread: Option<JoinHandle<()>>,
     panicked: bool,
@@ -102,53 +93,11 @@ impl BackupRuntime {
             changed: watch::channel(RuntimeSnapshot::default()).0,
         }
     }
-    pub(crate) fn transition(&self) -> Result<MutexGuard<'_, ()>> {
-        self.transition.lock().map_err(|_| BackupError::WorkerPanic)
-    }
-    pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
-        self.changed.borrow().clone()
-    }
     pub(crate) fn subscribe(&self) -> watch::Receiver<RuntimeSnapshot> {
         self.changed.subscribe()
     }
-    pub(crate) fn check_admission(&self) -> Result<()> {
-        (!self.changed.borrow().shutting_down)
-            .then_some(())
-            .ok_or(BackupError::Shutdown)
-    }
-
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        request_id: Id,
-        run: impl FnOnce(Arc<AtomicBool>) -> InvocationOutcome + Send + 'static,
-    ) -> Result<()> {
-        self.check_admission()?;
-        let mut state = self.state.lock().map_err(|_| BackupError::WorkerPanic)?;
-        if self.changed.borrow().active.is_some() {
-            return Err(BackupError::Busy);
-        }
-        state.join_prev();
-        state.next_token = state.next_token.checked_add(1).ok_or(BackupError::Limit)?;
-        let (token, pause) = (state.next_token, Arc::new(AtomicBool::new(false)));
-        let (rt, done_id, wp) = (Arc::clone(self), request_id.clone(), Arc::clone(&pause));
-        let thread = std::thread::Builder::new()
-            .name("lastdb-native-backup".into())
-            .spawn(move || {
-                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(wp)))
-                    .unwrap_or_else(|_| InvocationOutcome::Paused(BackupError::WorkerPanic.pause_state()));
-                let mut st = lock_unpoisoned(&rt.state);
-                st.pause = None;
-                st.panicked |= matches!(outcome, InvocationOutcome::Paused(p) if p.reason == PauseReason::WorkerPanic);
-                rt.changed.send_modify(|s| {
-                    s.active = None;
-                    s.last_completion = Some((done_id, token, outcome));
-                });
-            })
-            .map_err(|_| BackupError::Source)?;
-        state.pause = Some(pause);
-        state.thread = Some(thread);
-        self.changed.send_modify(|s| s.active = Some(request_id));
-        Ok(())
+    pub fn wake(&self) {
+        self.changed.send_modify(|_| {});
     }
 
     pub fn begin_shutdown(&self) {
@@ -156,7 +105,7 @@ impl BackupRuntime {
         if let Some(p) = &lock_unpoisoned(&self.state).pause {
             p.store(true, Ordering::Release);
         }
-        self.changed.send_modify(|s| s.shutting_down = true);
+        self.changed.send_modify(|_| {});
     }
 
     pub async fn drain(

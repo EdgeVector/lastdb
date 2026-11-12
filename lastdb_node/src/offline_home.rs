@@ -183,7 +183,7 @@ pub fn same_inode<P: rustix::path::Arg>(dir: &File, name: P, held: &File) -> boo
     })
 }
 
-pub(crate) struct Directory {
+pub struct Directory {
     path: PathBuf,
     file: File,
     max_bytes: u64,

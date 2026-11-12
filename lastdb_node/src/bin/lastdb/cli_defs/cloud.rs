@@ -1,4 +1,4 @@
-//! Explicit byte-backup and credentials-only recovery-home commands.
+//! Explicit cloud connection and signed database restore commands.
 use super::*;
 
 pub(crate) enum CloudCommand {
@@ -85,9 +85,10 @@ pub(crate) struct BackupConnectArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupRestoreArgs {
+    /// Recover an owned database from the signed cloud log.
     #[arg(long, required = true)]
     pub(crate) recovery_phrase_stdin: bool,
-    /// Stable database ID.
+    /// Stable database id. `--stream` is the same flag.
     #[arg(long, visible_alias = "stream")]
     pub(crate) database: String,
     #[arg(long)]

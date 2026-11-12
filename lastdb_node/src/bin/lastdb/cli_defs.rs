@@ -15,7 +15,7 @@ pub(crate) enum AdminCommand {
     /// Reclaim deleted space in active stores.
     #[command(subcommand)]
     Storage(AdminStorageCommand),
-    /// Prepare recovery credentials and operate on exact backup jobs.
+    /// Prepare recovery credentials and a fresh identity.
     #[command(subcommand)]
     Backup(AdminBackupCommand),
 }
@@ -276,9 +276,9 @@ pub(crate) enum AppCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum BackupCommand {
-    /// Connect a prepared account without enabling automatic backup.
+    /// Save an existing cloud account on this home.
     Connect(BackupConnectArgs),
-    /// Restore a signed owner database into a fresh home.
+    /// Restore an owned database from the signed cloud log into a fresh home.
     Restore(BackupRestoreArgs),
 }
 

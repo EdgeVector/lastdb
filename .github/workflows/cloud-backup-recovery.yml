@@ -1,6 +1,7 @@
 name: Cloud backup recovery
 
-# Verify signed Files using the exact accepted client in DEV.
+# Signed Files upload and download on an accepted main dispatch.
+# Pull requests only check recipe syntax. They never receive cloud credentials.
 on:
   pull_request:
     paths:
@@ -22,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Verify signed Files upload and download in DEV."
+        description: "signed-files = fresh Files upload and download"
         type: choice
         options: [signed-files]
         default: signed-files
@@ -53,28 +54,10 @@ jobs:
       - name: Check the operational recipe syntax
         run: python3 -m py_compile scripts/cloud_backup/*.py
 
-  ownership-readback:
-    name: Read real CI ownership records
-    needs: recipe-syntax
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Verify actual main ownership archives without cloud credentials
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
-        run: python3 scripts/cloud_backup/inspect_history.py
-
   build-client:
     name: Build
     needs: recipe-syntax
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'signed-files'
     permissions:
       contents: read
       actions: read

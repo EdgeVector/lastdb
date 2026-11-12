@@ -380,7 +380,6 @@ def main():
     node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
                 environment={"LASTDB_TTL_SWEEP": "1",
                              "LASTDB_TTL_SWEEP_INTERVAL_SECS": "1",
-                             "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
                              "EXEMEM_API_URL": "http://127.0.0.1:9",
                              "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
     try:

@@ -29,7 +29,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Parser, Debug)]
 #[command(
     name = "lastdbd",
-    about = "LastDB Mini semantic daemon: core DB + app-identity + explicit byte backups over the owner Unix socket",
+    about = "LastDB Mini semantic daemon: core DB + app-identity + signed database sync over the owner Unix socket",
     version = env!("FOLDDB_BUILD_VERSION")
 )]
 struct Cli {
@@ -291,11 +291,10 @@ fn serve_node(
     if let Err(e) = accept_result {
         errors.push(format!("owner accept loop failed: {e}"));
     }
-    host.byte_backup.begin_shutdown();
     if let Err(e) = worker_pool.close_and_drain(Duration::from_secs(180)) {
         errors.push(format!("request handlers did not drain: {e}"));
     }
-    if let Err(e) = lastdbd::drain_background(&runtime, &host, tasks) {
+    if let Err(e) = lastdbd::drain_background(&runtime, tasks) {
         errors.push(e);
     }
     if let Err(e) = runtime.block_on(host.shutdown_received_databases()) {

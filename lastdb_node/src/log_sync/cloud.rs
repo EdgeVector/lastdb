@@ -9,14 +9,10 @@ use mutation_log::{
 use mutation_log_sync::{Outcome, SyncEvent, SyncState};
 
 use crate::host::Host;
-use crate::node_read::CanonicalPost;
 
 use super::account::{self, node_key};
-use super::cutover;
 use super::http::{self, Endpoint, Proof};
 use super::paths;
-use super::registry::Database;
-use super::status;
 use super::wire;
 
 #[derive(Clone)]
@@ -92,29 +88,6 @@ impl CloudLog {
 
     pub(crate) fn environment(&self) -> &'static str {
         self.environment_label
-    }
-
-    pub(crate) async fn service_view(&self, database: &Database) -> cutover::ServiceView {
-        let Ok(body) = wire::database_body(self.database_id.as_str()) else {
-            return cutover::ServiceView::Unavailable;
-        };
-        match self
-            .endpoint
-            .post_exchange(
-                self.signed(
-                    paths::ACCESS,
-                    &body,
-                    Proof::Canonical(CanonicalPost::Access),
-                ),
-                65_536,
-            )
-            .await
-        {
-            Ok((status, bytes)) => {
-                status::classify(status, &bytes, database, self.environment_label)
-            }
-            Err(_) => cutover::ServiceView::Unavailable,
-        }
     }
 
     pub(crate) fn principal(&self) -> &PrincipalId {

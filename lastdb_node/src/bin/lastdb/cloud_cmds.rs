@@ -1,4 +1,4 @@
-//! Explicit V2 backup and credentials-only recovery-home commands.
+//! Signed database restore and credentials-only recovery-home commands.
 use super::*;
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};

@@ -1,18 +1,18 @@
 //! Register a database on the signed cloud log, then sync its accepted writes.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::host::Host;
 use crate::node_read::CanonicalPost;
 use serde::Serialize;
 
 use super::cloud::CloudLog;
-use super::cutover::{self, NativeView};
 use super::http::Proof;
 use super::paths;
 use super::registry::{Database, Spec};
 use super::session;
-use super::status;
+use super::status::NativeView;
 use super::turn::{self, Pause};
 
 pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
@@ -20,8 +20,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
         Ok(device) => device,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "device id is unavailable");
-            cutover::observe_native(&database.id, NativeView::Unavailable);
-            return turn::paused_for(&database.id);
+            return paused(database);
         }
     };
     let revision = turn::probe_revision(&host.home, &database.id, &database.kind);
@@ -29,22 +28,32 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
-            cutover::observe_native(&database.id, NativeView::Unavailable);
-            return turn::paused_for(&database.id);
+            return paused(database);
         }
     };
-    if matches!(cutover::gate_for(&database.id), cutover::Gate::Native) {
-        return turn::open_native(host, database, log, &device).await;
-    }
-    let view = match create_body(&database.id, &database.kind, database.spec.as_ref()) {
-        Ok(body) => create_view(&log, body, &database.id).await,
-        Err(()) => NativeView::Unavailable,
-    };
-    cutover::observe_native(&database.id, view);
-    if !matches!(cutover::gate_for(&database.id), cutover::Gate::Native) {
-        return turn::paused_for(&database.id);
+    if !created(&database.id) && !register(&log, database).await {
+        return Pause::Idle;
     }
     turn::open_native(host, database, log, &device).await
+}
+
+fn paused(database: &Database) -> Pause {
+    if created(&database.id) {
+        Pause::Retry
+    } else {
+        Pause::Idle
+    }
+}
+
+async fn register(log: &CloudLog, database: &Database) -> bool {
+    let Ok(body) = create_body(&database.id, &database.kind, database.spec.as_ref()) else {
+        return false;
+    };
+    if create_view(log, body, &database.id).await != NativeView::Live {
+        return false;
+    }
+    remember(&database.id);
+    true
 }
 
 async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> NativeView {
@@ -61,7 +70,7 @@ async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> Native
     if !(200..300).contains(&status) {
         return NativeView::Unavailable;
     }
-    status::native_body(&bytes, database_id, log.environment())
+    super::status::native_body(&bytes, database_id, log.environment())
 }
 
 fn create_body(database_id: &str, kind: &str, spec: Option<&Spec>) -> Result<Vec<u8>, ()> {
@@ -74,6 +83,22 @@ fn create_body(database_id: &str, kind: &str, spec: Option<&Spec>) -> Result<Vec
         }),
     })
     .map_err(|_| ())
+}
+
+fn created(database_id: &str) -> bool {
+    confirmed().contains(database_id)
+}
+
+fn remember(database_id: &str) {
+    confirmed().insert(database_id.to_owned());
+}
+
+fn confirmed() -> std::sync::MutexGuard<'static, HashSet<String>> {
+    static CREATED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    CREATED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[derive(Serialize)]

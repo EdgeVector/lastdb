@@ -205,8 +205,10 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
 
 fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
     use AdminBackupCommand::{Init, PrepareRecoveryHome, RecoverCredentialsHome};
-    let action = match action {
-        Init(a) => ByteBackupCommand::Init(a),
+    match action {
+        Init(a) => Ok(CloudCommand::BackupV2 {
+            action: ByteBackupCommand::Init(a),
+        }),
         RecoverCredentialsHome { args, existing_dev } => {
             if !existing_dev {
                 return Ok(CloudCommand::RecoverCredentialsHome(args));
@@ -214,16 +216,15 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
             if args.env != "dev" {
                 return Err("--existing-dev requires --env dev".into());
             }
-            return Ok(CloudCommand::RecoverDevCredentialsHome {
+            Ok(CloudCommand::RecoverDevCredentialsHome {
                 into: args.into,
                 expected_user_hash: args.expected_user_hash,
                 identity_seed_stdin: args.identity_seed_stdin,
                 json: args.json,
-            });
+            })
         }
-        PrepareRecoveryHome(a) => return Ok(CloudCommand::PrepareRecoveryHome(a)),
-    };
-    Ok(CloudCommand::BackupV2 { action })
+        PrepareRecoveryHome(a) => Ok(CloudCommand::PrepareRecoveryHome(a)),
+    }
 }
 
 fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {

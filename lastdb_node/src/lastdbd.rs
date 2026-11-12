@@ -15,6 +15,7 @@ use lastdb_node::lastdb_uds::uds_router;
 use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
@@ -34,8 +35,18 @@ pub(crate) fn spawn_background(
     socket: &Path,
 ) -> BackgroundTasks {
     let _guard = runtime.enter();
-    lastdb_node::byte_cloud_backup::register_blob_source(host);
-    let sync = lastdb_node::log_sync::spawn(Arc::clone(host), Arc::clone(shutdown));
+    let (sync_host, sync_shutdown) = (Arc::clone(host), Arc::clone(shutdown));
+    let sync = tokio::spawn(
+        async move {
+            if lastdb_node::log_sync::spawn(sync_host, sync_shutdown)
+                .await
+                .is_err()
+            {
+                tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
+            }
+        }
+        .in_current_span(),
+    );
     (
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
         sync,
@@ -51,32 +62,27 @@ pub(crate) fn spawn_background(
 
 pub(crate) fn drain_background(
     runtime: &tokio::runtime::Runtime,
-    host: &Arc<Host>,
-    (ttl_sweep_task, log_sync_task, received_shares_task, saved_queries_task): BackgroundTasks,
+    (ttl_sweep_task, sync_task, received_shares_task, saved_queries_task): BackgroundTasks,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
         let drain = async {
-            let (ttl_sweep, sync, received_shares, saved_queries, byte_backup) = tokio::join!(
+            let (ttl_sweep, sync, received_shares, saved_queries) = tokio::join!(
                 ttl_sweep_task,
-                log_sync_task,
+                sync_task,
                 received_shares_task,
                 saved_queries_task,
-                host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
             for (name, res) in [
                 ("ttl sweep", ttl_sweep),
-                ("cloud sync", sync),
+                ("log sync", sync),
                 ("received shares", received_shares),
                 ("saved queries", saved_queries),
             ] {
                 if let Err(e) = res {
                     errors.push(format!("{name} task failed: {e}"));
                 }
-            }
-            if let Err(e) = byte_backup {
-                errors.push(format!("byte backup did not drain: {e}"));
             }
             if errors.is_empty() {
                 Ok(())

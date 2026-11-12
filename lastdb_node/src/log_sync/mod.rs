@@ -8,7 +8,6 @@ mod accepted;
 mod account;
 mod apply;
 mod cloud;
-mod cutover;
 mod disk;
 mod files;
 mod http;
@@ -27,6 +26,5 @@ mod turn;
 mod upload;
 mod wire;
 
-pub(crate) use cutover::legacy_resume_forbidden;
-pub use owner_recovery::recover_owned;
+pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub use turn::spawn;

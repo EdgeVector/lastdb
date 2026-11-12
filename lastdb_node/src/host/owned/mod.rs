@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
+mod adopt;
 mod create;
 mod lookup;
 mod registry;

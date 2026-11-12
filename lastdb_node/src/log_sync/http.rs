@@ -76,10 +76,6 @@ pub(crate) fn selected_service(home: &std::path::Path) -> Result<SelectedService
     })
 }
 
-pub(crate) fn environment_label(home: &std::path::Path) -> Result<&'static str, String> {
-    Ok(selected_service(home)?.label)
-}
-
 impl Endpoint {
     pub(crate) fn open(api_root: &str, environment: &'static str) -> Result<Self, String> {
         let url = Url::parse(api_root).map_err(|_| "cloud endpoint is not a URL")?;

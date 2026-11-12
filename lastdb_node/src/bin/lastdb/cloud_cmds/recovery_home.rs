@@ -1,13 +1,11 @@
 //! Protected credential homes: offline transfer or explicit source-free registration.
 use super::{
-    admin_scan_client_timeout, block_on_cloud, parse_json_response, print_backup,
-    read_stdin_no_control, read_stdin_secret, require_disjoint, CloudCommand, FreshHome,
-    PrepareRecoveryArgs, RecoverCredentialsArgs,
+    block_on_cloud, print_backup, read_stdin_no_control, read_stdin_secret, require_disjoint,
+    CloudCommand, FreshHome, PrepareRecoveryArgs, RecoverCredentialsArgs,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::AccountId;
 use fold_db::security::Ed25519KeyPair;
-use lastdb_node::byte_cloud_backup::SensitiveConnectionRequest;
 use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::{
@@ -19,6 +17,9 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use zeroize::Zeroizing;
+
+#[path = "existing_connection.rs"]
+mod existing_connection;
 
 const INTENT: &str = ".native_backup_registration.json";
 const RECOVERY_ERRS: [&str; 4] = [
@@ -87,7 +88,7 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
                 }
             })
         }
-        CloudCommand::BackupV2 { .. } => unreachable!("handled by byte backup dispatch"),
+        CloudCommand::BackupV2 { .. } => unreachable!("handled by signed restore dispatch"),
     }
 }
 
@@ -102,35 +103,28 @@ pub(super) fn run_existing(
             "existing connection requires an absolute home and dev or prod environment".into(),
         );
     }
-    let expected_user_hash = expected
-        .map(|v| AccountId::try_from(v.to_owned()).map_err(|_| "invalid expected account identity"))
+    let expected = expected
+        .map(|value| {
+            AccountId::try_from(value.to_owned()).map_err(|_| "invalid expected account identity")
+        })
         .transpose()?;
     let api_key = read_stdin_no_control(4096, "existing account API key")?;
-    let req = SensitiveConnectionRequest {
-        environment: env.to_owned(),
-        expected_user_hash,
-        api_key: api_key.as_str().to_owned(),
-    };
-    let body = Zeroizing::new(
-        serde_json::to_vec(&req).map_err(|_| "cannot encode protected connection request")?,
-    );
-    let hdrs = super::super::socket_client::client_headers();
-    let mut wire = Zeroizing::new(
-        format!(
-            "POST /api/cloud/connection HTTP/1.1\r\nHost: localhost\r\n{hdrs}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len(),
-        )
-        .into_bytes(),
-    );
-    wire.extend_from_slice(&body);
-    let sock = home.join("data/folddb.sock");
-    let resp = super::super::socket_client::request_with_timeout(
-        &sock,
-        &wire,
-        admin_scan_client_timeout(),
-    )?;
+    if api_key.is_empty() || api_key.len() > 4096 || api_key.trim() != api_key.as_str() {
+        return Err("existing account API key was refused".into());
+    }
+    let account_id = existing_connection::home_account(home)?;
+    if expected.as_ref().is_some_and(|id| id != &account_id) {
+        return Err("expected account identity does not match this home".into());
+    }
+    existing_connection::save(home, env, &account_id, &api_key)?;
     print_backup(
-        &parse_json_response(&resp, "V2 existing account connection")?,
+        &serde_json::json!({
+            "ok": true,
+            "environment": env,
+            "account_id": account_id,
+            "credentials_saved": true,
+            "registration_attempted": false,
+        }),
         json,
     )
 }

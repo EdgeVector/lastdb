@@ -3,7 +3,6 @@
 pub mod accepted_writes;
 pub mod app_registry_index;
 pub mod backup_runtime;
-pub mod byte_cloud_backup;
 pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
 pub mod cloud;
@@ -32,6 +31,7 @@ pub mod share_file;
 pub mod share_invitation;
 pub mod share_publication;
 pub mod share_spec;
+pub mod share_write_gate;
 pub mod version;
 
 pub use host::Host;

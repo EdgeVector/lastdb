@@ -1,19 +1,28 @@
-//! Offline native backup setup and signed owner-prefix home restore.
 use super::*;
+
+mod signed;
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
-use cloud_backup_protocol::{CloudScope, DecimalU64, Id};
-use lastdb_node::Host;
-use std::fs::{self as std_fs, File};
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use zeroize::Zeroizing;
+use cloud_backup_protocol::Id;
 
 pub(super) fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
-    match action {
-        ByteBackupCommand::Restore(args) => restore(home, args),
-        _ => Err("invalid offline backup command".into()),
-    }
+    let ByteBackupCommand::Restore(args) = action else {
+        return Err("this home command is not a signed restore".into());
+    };
+    let phrase = super::read_stdin_secret(4096, "recovery phrase")?;
+    super::block_on_cloud("signed restore", async {
+        let account_id = lastdb_node::backup_access::account_from_phrase(&phrase)?;
+        let client = lastdb_node::cloud::client_from_home(home)?;
+        let scope = client
+            .context(&ContextReadRequest {
+                version: Version::V2,
+                account_id,
+                required_destinations: Vec::new(),
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .scope;
+        signed::restore(home, &scope, &phrase, args).await
+    })
 }
 
 pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Result<(), String> {
@@ -37,7 +46,6 @@ pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Re
             );
         }
     }
-    lastdb_node::byte_cloud_backup::require_enabled().map_err(|e| e.to_string())?;
     match action {
         ByteBackupCommand::Init(_) if source.is_some() => {
             Err("native backup init uses --into without --data-dir".into())
@@ -57,7 +65,7 @@ pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Re
                 a.json,
             )
         }
-        _ => Err("invalid native backup setup command".into()),
+        ByteBackupCommand::Restore(_) => Err("signed restore requires an explicit home".into()),
     }
 }
 
@@ -89,116 +97,17 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     )
 }
 
-fn restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
-    let phrase = super::read_stdin_secret(4096, "recovery phrase")?;
-    super::block_on_cloud("signed recovery", async {
-        let account_id = lastdb_node::backup_access::account_from_phrase(&phrase)?;
-        let client = lastdb_node::byte_cloud_backup::client_from_home(home)?;
-        let request = ContextReadRequest {
-            version: Version::V2,
-            account_id,
-            required_destinations: Vec::new(),
-        };
-        let mut scope = client
-            .context(&request)
-            .await
-            .map_err(|e| e.to_string())?
-            .scope;
-        if let Some(value) = args.generation {
-            scope.account_generation = DecimalU64::new(value);
-        }
-        restore_signed(home, scope, &phrase, args).await
-    })
+fn with_gen(
+    scope: &cloud_backup_protocol::CloudScope,
+    generation: Option<u64>,
+) -> cloud_backup_protocol::CloudScope {
+    let mut next = scope.clone();
+    if let Some(generation) = generation {
+        next.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
+    }
+    next
 }
 
-async fn restore_signed(
-    connection_home: &Path,
-    scope: CloudScope,
-    phrase: &str,
-    args: BackupRestoreArgs,
-) -> Result<(), String> {
-    let destination = args.into;
-    let database =
-        Id::try_from(args.database).map_err(|_| "database ID must be a canonical UUID")?;
-    let parent = destination.parent().ok_or("missing recovery parent")?;
-    FreshHome::preflight_empty(&destination)?;
-    let staged_path = parent.join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
-    let seed = Zeroizing::new(lastdb_node::backup_access::seed_from_phrase(phrase)?);
-    let mut fresh = FreshHome::preflight_empty(&staged_path)?.create()?;
-    fresh.write(IDENTITY_KEY_FILE, seed.as_ref())?;
-    fresh.commit()?;
-    drop(fresh);
-    let staged = StagedHome::open(staged_path)?;
-    let host = Arc::new(Host::boot(&staged.path).await?);
-    let result =
-        lastdb_node::log_sync::recover_owned(&host, connection_home, scope, &database, "recovered")
-            .await;
-    let owned_closed = host.shutdown_owned_databases().await;
-    let owner_closed = host.db.shutdown().await;
-    drop(host);
-    let through = result?;
-    owned_closed?;
-    owner_closed.map_err(|e| e.to_string())?;
-    staged.publish(&destination)?;
-    print_backup(
-        &serde_json::json!({
-            "ok": true,
-            "database_id": database,
-            "name": "recovered",
-            "through_delivery_seq": through,
-            "destination": destination,
-        }),
-        args.json,
-    )
-}
-
-struct StagedHome {
-    path: PathBuf,
-    inode: (u64, u64),
-}
-
-impl StagedHome {
-    fn open(path: PathBuf) -> Result<Self, String> {
-        let meta = std_fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
-        if !meta.is_dir() {
-            return Err("the staged recovery home changed".into());
-        }
-        Ok(Self {
-            path,
-            inode: (meta.dev(), meta.ino()),
-        })
-    }
-
-    fn owns_path(&self) -> bool {
-        std_fs::symlink_metadata(&self.path)
-            .is_ok_and(|meta| meta.is_dir() && (meta.dev(), meta.ino()) == self.inode)
-    }
-
-    fn publish(&self, destination: &Path) -> Result<(), String> {
-        if !self.owns_path() {
-            return Err("the staged recovery home changed".into());
-        }
-        File::open(&self.path)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| format!("cannot sync the staged recovery home: {e}"))?;
-        rustix::fs::renameat_with(
-            rustix::fs::CWD,
-            &self.path,
-            rustix::fs::CWD,
-            destination,
-            rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(|e| format!("cannot publish the recovered home: {e}"))?;
-        File::open(destination.parent().ok_or("missing recovery parent")?)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| format!("cannot sync the recovered home parent: {e}"))
-    }
-}
-
-impl Drop for StagedHome {
-    fn drop(&mut self) {
-        if self.owns_path() {
-            let _ = std_fs::remove_dir_all(&self.path);
-        }
-    }
+fn id(value: String) -> Result<Id, String> {
+    Id::try_from(value).map_err(|_| "signed restore requires a canonical database id".into())
 }
