@@ -15,8 +15,6 @@ const SELECTOR = /^[A-Za-z0-9_-]{1,64}$/;
 const UUID_HYPHENATED =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
-const RESERVED_SPEC_NAMES = new Set(['social', 'medical', 'finance', 'work']);
-
 /** Versioned spec binding stored on an owned database. */
 export interface DatabaseSpec {
   name: string;
@@ -81,15 +79,9 @@ function createBody(request: CreateDatabaseRequest): CreateDatabaseRequest {
   if (!SELECTOR.test(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
     throw new RequestRejectedError('invalid_request', 'invalid database name');
   }
-  if (name === 'graph') {
-    throw new RequestRejectedError('conflict', 'database name is reserved and not provisioned');
-  }
   const spec = request.spec ?? null;
   if (spec !== null && !validSpec(spec)) {
     throw new RequestRejectedError('invalid_request', 'invalid spec binding');
-  }
-  if (RESERVED_SPEC_NAMES.has(name) && spec?.name !== name) {
-    throw new RequestRejectedError('conflict', 'reserved database name requires its spec');
   }
   const kind = request.kind;
   if (kind !== undefined && kind !== 'personal' && kind !== 'shareable') {

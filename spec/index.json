@@ -1,33 +1,6 @@
 {
   "catalog_label": "1.0",
   "registry_version": 1,
-  "reserved_databases": [
-    {
-      "name": "graph",
-      "reservation": "unprovisioned"
-    },
-    {
-      "name": "social",
-      "reservation": "requires_own_spec",
-      "spec": { "name": "social", "version": 1 },
-      "schema_body": true
-    },
-    {
-      "name": "medical",
-      "reservation": "requires_own_spec",
-      "schema_body": false
-    },
-    {
-      "name": "finance",
-      "reservation": "requires_own_spec",
-      "schema_body": false
-    },
-    {
-      "name": "work",
-      "reservation": "requires_own_spec",
-      "schema_body": false
-    }
-  ],
   "personal": {
     "name": "personal",
     "shareable": false,
@@ -49,7 +22,6 @@
       "catalog_label": "1.0",
       "shareable": true,
       "publication": true,
-      "reserved_database_name": false,
       "namespaces": ["lastdb-files"],
       "schemas": ["FileCatalog", "FileChunk"]
     }

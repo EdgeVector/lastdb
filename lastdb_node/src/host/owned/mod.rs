@@ -84,8 +84,6 @@ pub(crate) enum OwnedError {
     InvalidName,
     InvalidSpec,
     AlreadyRegistered,
-    ReservedUnprovisioned,
-    ReservedSpec,
     NotOwned,
     Unavailable,
 }
@@ -96,8 +94,6 @@ impl OwnedError {
             Self::InvalidName => (400, "invalid database name"),
             Self::InvalidSpec => (400, "invalid spec binding"),
             Self::AlreadyRegistered => (409, "database name is already registered"),
-            Self::ReservedUnprovisioned => (409, "database name is reserved and not provisioned"),
-            Self::ReservedSpec => (409, "reserved database name requires its spec"),
             Self::NotOwned => (404, "database is not registered"),
             Self::Unavailable => (503, "database registry is unavailable"),
         }
@@ -233,11 +229,7 @@ impl Tables {
         if state.owned[index].kind == Kind::Personal && spec.is_some() {
             return Err(OwnedError::InvalidSpec);
         }
-        let name = state.owned[index]
-            .name
-            .clone()
-            .ok_or(OwnedError::Unavailable)?;
-        registry::validate_binding(&name, spec.as_ref())?;
+        registry::validate_binding(spec.as_ref())?;
         let previous = state.owned[index].spec.clone();
         state.owned[index].spec = spec;
         let file = snapshot(&state);

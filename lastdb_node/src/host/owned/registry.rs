@@ -13,8 +13,6 @@ const REGISTRY_DIR: &str = "databases";
 const REGISTRY_FILE: &str = "registry.json";
 /// Same file name as the publication marker. The host layer does not call the backup module.
 const PUBLICATION_MARKER: &str = "share-publication.json";
-const UNPROVISIONED: &str = "graph";
-const RESERVED_SPECS: [&str; 4] = ["social", "medical", "finance", "work"];
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -129,20 +127,14 @@ pub(crate) fn validate_create(name: &str, spec: Option<&SpecBinding>) -> Result<
     if !valid_database_name(name) {
         return Err(OwnedError::InvalidName);
     }
-    if name == UNPROVISIONED {
-        return Err(OwnedError::ReservedUnprovisioned);
-    }
-    validate_binding(name, spec)
+    validate_binding(spec)
 }
 
-pub(super) fn validate_binding(name: &str, spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
+pub(super) fn validate_binding(spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
     if let Some(spec) = spec {
         if !valid_label(&spec.name) || spec.version == 0 {
             return Err(OwnedError::InvalidSpec);
         }
-    }
-    if RESERVED_SPECS.contains(&name) && spec.is_none_or(|spec| spec.name != name) {
-        return Err(OwnedError::ReservedSpec);
     }
     Ok(())
 }
