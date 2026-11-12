@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use mutation_log_sync::{SyncError, SyncState};
 use serde::Deserialize;
+use tracing::Instrument;
 
 use crate::host::Host;
 
@@ -33,16 +34,19 @@ pub(super) enum Pause {
 
 enum Prep {
     Pause(Pause),
-    Ready(Ready),
+    Ready(run::Ready),
 }
 
 pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        while !shutdown.load(Ordering::Acquire) {
-            let pause = one_turn(&host).await;
-            sleep_interruptible(&shutdown, pause).await;
+    tokio::spawn(
+        async move {
+            while !shutdown.load(Ordering::Acquire) {
+                let pause = one_turn(&host).await;
+                sleep_interruptible(&shutdown, pause).await;
+            }
         }
-    })
+        .in_current_span(),
+    )
 }
 
 async fn one_turn(host: &Arc<Host>) -> Pause {
@@ -266,14 +270,14 @@ fn note_ready(home: &Path, database: &Database) {
 }
 
 pub(super) fn shorter(current: Pause, next: Pause) -> Pause {
-    if pause_rank(next) < pause_rank(current) {
+    if pause_rank(&next) < pause_rank(&current) {
         next
     } else {
         current
     }
 }
 
-fn pause_rank(pause: Pause) -> u8 {
+fn pause_rank(pause: &Pause) -> u8 {
     match pause {
         Pause::Idle => 0,
         Pause::Retry => 1,

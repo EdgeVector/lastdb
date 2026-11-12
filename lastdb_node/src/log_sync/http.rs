@@ -84,6 +84,7 @@ impl Endpoint {
             Some(port) => format!("{}://{host}:{port}", url.scheme()),
             None => format!("{}://{host}", url.scheme()),
         };
+        // trace-egress: propagate — log sync posts to the enrolled service.
         let http = reqwest::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
@@ -233,8 +234,7 @@ impl Endpoint {
             };
             request = request.header("X-API-Key", key.as_str());
         }
-        let response = request
-            .body(body.to_vec())
+        let response = observability::propagation::inject_w3c(request.body(body.to_vec()))
             .send()
             .await
             .map_err(|_| LogError::UnexpectedOutcome)?;

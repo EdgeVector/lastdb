@@ -36,7 +36,7 @@ pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<R
     if log.principal() != &reader.key || log.device() != &reader.device {
         return Err(LogError::Unauthorized);
     }
-    let through = log.wait(install(log.clone()))?;
+    let through = log.wait(install(log.clone()))??;
     match log.list(&reader.key, through, mutation_log::LIST_PAGE_LIMIT, 0) {
         Ok(page) => Ok(Recovery {
             reset: None,

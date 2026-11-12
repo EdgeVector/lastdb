@@ -51,7 +51,7 @@ pub(crate) fn store_cursor(home: &Path, database_id: &str, cursor: u64) -> Resul
     let bytes = serde_json::to_vec(&SessionFile { cursor })
         .map_err(|_| "log sync session encoding failed")?;
     disk::write_private(&session_path(home, database_id), &bytes)
-        .map_err(|_| "cannot write log sync session")
+        .map_err(|_| "cannot write log sync session".to_owned())
 }
 
 /// Record a durable first prefix, including an empty log with no snapshot.
@@ -62,7 +62,7 @@ pub(crate) fn mark_prefix(home: &Path, database_id: &str, through: u64) -> Resul
     })
     .map_err(|_| "log prefix encoding failed")?;
     disk::write_private(&prefix_path(home, database_id), &bytes)
-        .map_err(|_| "cannot write log prefix")
+        .map_err(|_| "cannot write log prefix".to_owned())
 }
 
 fn device_path(home: &Path) -> PathBuf {

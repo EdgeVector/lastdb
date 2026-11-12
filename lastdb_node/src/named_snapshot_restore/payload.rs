@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use cloud_backup_protocol::canonical_bytes;
-use fold_db::record_value::FileMarker;
-use fold_db::schema::types::{KeyValue, Schema};
+use fold_db::record_value::{FileMarker, InlineWrite};
+use fold_db::schema::types::{KeyValue, Mutation, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};

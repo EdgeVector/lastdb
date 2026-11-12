@@ -274,10 +274,11 @@ async fn append_entry(log: &CloudLog, entry: Entry) -> bool {
     let seq = entry.writer_seq;
     let mut log = log.clone();
     let joined = tokio::task::spawn_blocking(move || {
+        let writer = log.reader();
         MutationLog::append(
             &mut log,
             AppendBatch {
-                writer: log.reader(),
+                writer,
                 entries: vec![entry],
                 accepted_at_ms: fold_db::clock::unix_millis(),
             },

@@ -23,7 +23,7 @@ pub(crate) fn read_limited(path: &Path, limit: usize) -> std::io::Result<Option<
             "log sync file exceeds its limit",
         ));
     }
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)?;
