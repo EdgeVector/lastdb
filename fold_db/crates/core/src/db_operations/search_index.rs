@@ -1,6 +1,6 @@
 //! Search-plane outbox delivery helpers and bounded queue policy.
 
-use crate::schema::types::{KeyValue, SchemaError};
+use crate::schema::types::{KeyValue, Schema, SchemaError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -26,10 +26,7 @@ pub struct IndexChange {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexChangeBatch {
-    #[serde(
-        default = "default_format_version",
-        skip_serializing_if = "is_current_format_version"
-    )]
+    #[serde(default = "version_one", skip_serializing_if = "is_version_one")]
     pub format_version: u32,
     pub schema_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,29 +34,29 @@ pub struct IndexChangeBatch {
     pub changes: Vec<IndexChange>,
 }
 
-fn default_format_version() -> u32 {
+fn version_one() -> u32 {
     1
 }
 
-fn is_current_format_version(v: &u32) -> bool {
+fn is_version_one(v: &u32) -> bool {
     *v == 1
 }
 
 /// Inbox directory for a node home, by layout alone (no environment reads).
 pub fn search_inbox_dir_for_home(home: &Path) -> PathBuf {
-    home.join("apps").join("search").join("inbox")
+    home.join("apps/search/inbox")
 }
 
 fn resolve_search_inbox_dir() -> Option<PathBuf> {
-    if let Ok(explicit) = std::env::var("LASTDB_SEARCH_INBOX") {
-        let p = PathBuf::from(explicit.trim());
-        if !p.as_os_str().is_empty() {
-            return Some(p);
-        }
-    }
-    let home = std::env::var("LASTDB_HOME").ok()?;
-    let home = home.trim();
-    (!home.is_empty()).then(|| search_inbox_dir_for_home(Path::new(home)))
+    let env_str = |k| {
+        std::env::var(k)
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+    env_str("LASTDB_SEARCH_INBOX")
+        .map(PathBuf::from)
+        .or_else(|| env_str("LASTDB_HOME").map(|h| search_inbox_dir_for_home(Path::new(&h))))
 }
 
 /// Deliver one Search change batch to the configured or environment-resolved inbox.
@@ -85,54 +82,38 @@ pub(crate) fn deliver_outbox(
         SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
     })?;
     debug!(
-        target: "search_outbox",
-        path = %path.display(),
-        schema = %batch.schema_name,
-        changes = batch.changes.len(),
-        delivered,
-        "Search batch delivery decision"
+        target: "search_outbox", path = %path.display(), schema = %batch.schema_name,
+        changes = batch.changes.len(), delivered, "Search batch delivery decision"
     );
     Ok(())
 }
 
-pub(crate) mod inbox_fields {
-    use crate::schema::types::Schema;
-    use serde_json::Value;
-    use std::collections::{HashMap, HashSet};
-
-    pub(crate) fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
-        if schema.field_classifications.is_empty() {
-            return None;
-        }
-        Some(
-            schema
-                .field_classifications
-                .iter()
-                .filter(|(_, c)| !is_search_excluded(c))
-                .filter(|(_, c)| c.iter().any(|tag| tag.eq_ignore_ascii_case("word")))
-                .map(|(field_name, _)| field_name.clone())
-                .collect(),
-        )
-    }
-
-    fn is_search_excluded(classifications: &[String]) -> bool {
-        classifications.iter().any(|c| {
-            c.eq_ignore_ascii_case("secret")
-                || c.eq_ignore_ascii_case("no_index")
-                || c.eq_ignore_ascii_case("no-index")
-        })
-    }
-
-    pub(crate) fn inbox_fields(
-        fields: &HashMap<String, Value>,
-        searchable: Option<&HashSet<String>>,
-    ) -> HashMap<String, Value> {
-        fields
+pub(crate) fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
+    (!schema.field_classifications.is_empty()).then(|| {
+        schema
+            .field_classifications
             .iter()
-            .filter(|(field_name, _)| searchable.is_none_or(|allow| allow.contains(*field_name)))
-            .map(|(field_name, value)| (field_name.clone(), value.clone()))
+            .filter(|(_, c)| {
+                !c.iter().any(|t| {
+                    ["secret", "no_index", "no-index"]
+                        .iter()
+                        .any(|skip| t.eq_ignore_ascii_case(skip))
+                }) && c.iter().any(|t| t.eq_ignore_ascii_case("word"))
+            })
+            .map(|(name, _)| name.clone())
             .collect()
-    }
+    })
+}
+
+pub(crate) fn inbox_fields(
+    fields: &HashMap<String, Value>,
+    searchable: Option<&HashSet<String>>,
+) -> HashMap<String, Value> {
+    fields
+        .iter()
+        .filter(|(name, _)| searchable.is_none_or(|allow| allow.contains(*name)))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 pub mod queue_policy {
@@ -154,14 +135,11 @@ pub mod queue_policy {
     pub fn enabled() -> bool {
         CLI_ENABLED.load(Ordering::Relaxed)
             || std::env::var("LASTDB_SEARCH_ENABLED")
-                .is_ok_and(|value| matches!(value.trim(), "1" | "true" | "on"))
+                .is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on"))
     }
 
     fn max_bytes() -> u64 {
-        std::env::var("LASTDB_SEARCH_QUEUE_MAX_BYTES")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(DEFAULT_MAX_BYTES)
+        crate::env_flag::var_or("LASTDB_SEARCH_QUEUE_MAX_BYTES", DEFAULT_MAX_BYTES)
             .clamp(64 * 1024, 1024 * 1024 * 1024)
     }
 
@@ -170,7 +148,7 @@ pub mod queue_policy {
         serde_json::json!({
             "enabled": enabled(), "max_batch_bytes": max_bytes(), "max_batch_files": MAX_FILES,
             "rebuild_required": marker.as_ref().ok(),
-            "status_error": marker.err().map(|error| error.to_string()),
+            "status_error": marker.err().map(|e| e.to_string()),
         })
     }
 
@@ -210,8 +188,7 @@ pub mod queue_policy {
     }
 
     fn fits(inbox: &Path, incoming: u64) -> io::Result<bool> {
-        let mut bytes = incoming;
-        let mut batches = 1usize;
+        let (mut bytes, mut batches, cap) = (incoming, 1usize, max_bytes());
         let deadline = Instant::now() + Duration::from_secs(1);
         for (entries, entry) in fs::read_dir(inbox)?.enumerate() {
             if entries >= MAX_FILES + 16 || Instant::now() >= deadline {
@@ -220,8 +197,8 @@ pub mod queue_policy {
             let entry = entry?;
             let info = match entry.path().symlink_metadata() {
                 Ok(info) => info,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
             };
             if !info.is_file() {
                 return Ok(false);
@@ -230,11 +207,11 @@ pub mod queue_policy {
                 batches += 1;
                 bytes = bytes.saturating_add(info.len());
             }
-            if batches > MAX_FILES || bytes > max_bytes() {
+            if batches > MAX_FILES || bytes > cap {
                 return Ok(false);
             }
         }
-        Ok(bytes <= max_bytes())
+        Ok(bytes <= cap)
     }
 
     pub(in crate::db_operations::search_index) fn deliver(
@@ -260,7 +237,7 @@ pub mod queue_policy {
         temp.write_all(body)?;
         temp.as_file().sync_all()?;
         temp.persist_noclobber(inbox.join(name))
-            .map_err(|error| error.error)?;
+            .map_err(|e| e.error)?;
         File::open(inbox)?.sync_all()
     }
 }

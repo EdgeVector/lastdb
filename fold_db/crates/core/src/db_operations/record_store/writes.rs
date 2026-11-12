@@ -1,22 +1,26 @@
-//! Record writes, warm-set point reads, file delegation, schema release, and delete ledger.
+//! Record writes, warm-set point reads, storage inventory, schema release, and delete ledger.
 
 use super::{RangeWalk, RecordStore};
+use crate::db_operations::SchemaStorage;
 use crate::error::FoldDbError;
+use crate::schema::types::field::FilterUtils;
 use crate::schema::types::{FileWrite, KeyValue, Schema, SchemaError};
 use crate::storage::format::records::{
-    self as format, release_families, RecordAddress, ReleaseFamily, ReleaseKind,
+    self as format, release_families, RecordAddress, ReleaseKind,
 };
 use chrono::Utc;
-use cloud_backup_protocol::v2::blobs::BlobPath;
 use futures::FutureExt;
 use lastdb_model::kind_partition::exact_prefix_bounds;
-use lastdb_model::portable_mutation::{Position, Stamp};
-use lastdb_model::record_space::record_space_uuid;
-use lastdb_model::record_value::{FileMarker, StoredRecord};
+use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
+use lastdb_model::record_value::StoredRecord;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 const READ_CHUNK: usize = 10_000;
+const INVENTORY_PAGE_BYTE_BUDGET: u64 = 8 * 1024 * 1024;
+const INVENTORY_PAGE_ROWS_MIN: usize = 16;
+const INVENTORY_PAGE_ROWS_MAX: usize = 4096;
 
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
@@ -49,13 +53,6 @@ impl RecordDeleteLedgerEntry {
 }
 
 impl RecordStore {
-    pub(crate) async fn record_record_delete_audit(
-        &self,
-        entry: RecordDeleteLedgerEntry,
-    ) -> Result<(), SchemaError> {
-        self.format.record_delete_audit(entry).await
-    }
-
     pub async fn list_record_delete_ledger(
         &self,
         limit: usize,
@@ -68,21 +65,95 @@ impl RecordStore {
             .await
             .map_err(|e| SchemaError::InvalidData(format!("delete ledger scan: {e}")))?;
         rows.sort_by(|a, b| a.0.cmp(&b.0));
+        let take = if limit > 0 { limit } else { rows.len() };
+        rows.into_iter()
+            .take(take)
+            .map(|(k, v)| {
+                serde_json::from_slice(&v).map_err(|e| {
+                    SchemaError::InvalidData(format!(
+                        "delete ledger row {} is unreadable: {e}",
+                        String::from_utf8_lossy(&k)
+                    ))
+                })
+            })
+            .collect()
+    }
 
-        let mut out = Vec::new();
-        for (k, v) in rows {
-            let entry = serde_json::from_slice::<RecordDeleteLedgerEntry>(&v).map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "delete ledger row {} is unreadable: {e}",
-                    String::from_utf8_lossy(&k)
-                ))
-            })?;
-            out.push(entry);
-            if limit > 0 && out.len() >= limit {
-                break;
+    pub(crate) async fn record_storage_breakdown(
+        &self,
+        schema_names: &[String],
+    ) -> Result<(Vec<SchemaStorage>, u64), SchemaError> {
+        let spaces: HashMap<String, &str> = schema_names
+            .iter()
+            .map(|n| (record_space_uuid(n), n.as_str()))
+            .collect();
+        let end = FilterUtils::create_prefix_end(RECORD_PREFIX)?;
+        let mut walk = RangeWalk::new(
+            RECORD_PREFIX.as_bytes(),
+            end.as_bytes(),
+            INVENTORY_PAGE_ROWS_MIN,
+        );
+        let mut totals = HashMap::<String, (u64, u64)>::new();
+        while !walk.done() {
+            let rows = self
+                .walk_step(&mut walk)
+                .await
+                .map_err(|e| SchemaError::InvalidData(format!("record storage scan: {e}")))?;
+            let mut page_bytes = 0u64;
+            for (key, value) in &rows {
+                page_bytes += (key.len() + value.len()) as u64;
+                let record = StoredRecord::decode(value).map_err(|e| {
+                    SchemaError::InvalidData(format!("record storage scan: a stored record: {e}"))
+                })?;
+                if !record.is_live() {
+                    continue;
+                }
+                let rest = &key[RECORD_PREFIX.len()..];
+                let space = rest
+                    .iter()
+                    .position(|&b| b == b':')
+                    .and_then(|end| std::str::from_utf8(&rest[..end]).ok())
+                    .ok_or_else(|| {
+                        SchemaError::InvalidData(
+                            "record storage scan: a record key has no space".into(),
+                        )
+                    })?;
+                let name = spaces
+                    .get(space)
+                    .map_or_else(|| format!("{RECORD_PREFIX}{space}"), |&n| n.to_owned());
+                let entry = totals.entry(name).or_default();
+                entry.0 += 1;
+                entry.1 += value.len() as u64;
+            }
+            if !rows.is_empty() {
+                let avg = (page_bytes / rows.len() as u64).max(1);
+                walk.set_limit(
+                    usize::try_from(INVENTORY_PAGE_BYTE_BUDGET / avg)
+                        .unwrap_or(INVENTORY_PAGE_ROWS_MAX)
+                        .clamp(INVENTORY_PAGE_ROWS_MIN, INVENTORY_PAGE_ROWS_MAX),
+                );
             }
         }
-        Ok(out)
+        let mut total_bytes = 0u64;
+        let mut per_schema: Vec<SchemaStorage> = totals
+            .into_iter()
+            .map(|(schema_name, (record_count, record_bytes))| {
+                total_bytes += record_bytes;
+                SchemaStorage {
+                    schema_name,
+                    display_name: None,
+                    bytes: record_bytes,
+                    record_count,
+                    record_bytes,
+                }
+            })
+            .collect();
+        per_schema.sort_by(|a, b| {
+            b.bytes
+                .cmp(&a.bytes)
+                .then_with(|| a.schema_name.cmp(&b.schema_name))
+        });
+        Ok((per_schema, total_bytes))
     }
 
     pub(crate) async fn release_schema_rows(
@@ -91,7 +162,22 @@ impl RecordStore {
     ) -> Result<SchemaRelease, SchemaError> {
         let mut out = SchemaRelease::default();
         for family in release_families(schema)? {
-            let count = self.release_family(&family).await?;
+            let (start, end) = exact_prefix_bounds(family.prefix());
+            let mut walk = RangeWalk::new(
+                start.as_bytes(),
+                end.as_bytes(),
+                crate::storage::format::SCHEMA_RELEASE_ROWS,
+            );
+            let mut count = 0;
+            while !walk.done() {
+                let rows = self.walk_step(&mut walk).await?;
+                if !rows.is_empty() {
+                    let keys = rows.into_iter().map(|(k, _)| k).collect();
+                    count += self
+                        .in_write_scope(self.format.release_schema_batch(keys, &family))
+                        .await?;
+                }
+            }
             match family.kind() {
                 ReleaseKind::Records => out.records += count,
                 ReleaseKind::Alternates => out.alternates += count,
@@ -99,34 +185,6 @@ impl RecordStore {
             }
         }
         Ok(out)
-    }
-
-    async fn release_family(&self, family: &ReleaseFamily) -> Result<u64, SchemaError> {
-        let (start, end) = exact_prefix_bounds(family.prefix());
-        let mut walk = RangeWalk::new(
-            start.as_bytes(),
-            end.as_bytes(),
-            crate::storage::format::SCHEMA_RELEASE_ROWS,
-        );
-        let mut released = 0;
-        while !walk.done() {
-            let step = self.walk_step(&mut walk).await?;
-            if step.rows.is_empty() {
-                continue;
-            }
-            let keys = step.rows.into_iter().map(|(key, _)| key).collect();
-            released += self
-                .in_write_scope(self.format.release_schema_batch(keys, family))
-                .await?;
-        }
-        Ok(released)
-    }
-
-    pub(crate) async fn read_applied_deletes(
-        &self,
-        keys: &[&RecordAddress],
-    ) -> Result<Vec<Option<Stamp>>, SchemaError> {
-        Ok(self.format.applied_deletes(keys).await?)
     }
 
     pub(crate) fn record_key(
@@ -143,71 +201,60 @@ impl RecordStore {
         schema: &Schema,
         key: &KeyValue,
     ) -> Result<RecordAddress, SchemaError> {
-        let space = record_space_uuid(&schema.name);
-        RecordAddress::new(&self.primary_codec(schema)?, &space, key)
+        RecordAddress::new(
+            &self.primary_codec(schema)?,
+            &record_space_uuid(&schema.name),
+            key,
+        )
     }
 
     pub(crate) async fn read_records<K: AsRef<str> + Sync>(
         &self,
         keys: &[K],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        self.record_read_scope(self.read_records_scoped(keys).boxed())
-            .await
-    }
-
-    async fn read_records_scoped<K: AsRef<str> + Sync>(
-        &self,
-        keys: &[K],
-    ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        let runtime = self.runtime.clone();
-        let mut warm = runtime
-            .warm_records(keys)
-            .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
-        let mut out = match &mut warm {
-            Some(read) => read.take_found(),
-            None => vec![None; keys.len()],
-        };
-        let misses: Vec<usize> = (0..keys.len()).filter(|at| out[*at].is_none()).collect();
-        let mut admitted = Vec::new();
-        for chunk in misses.chunks(READ_CHUNK) {
-            let rows = self
-                .main_store
-                .get_many(
-                    chunk
+        self.record_read_scope(
+            async move {
+                let mut warm = self
+                    .runtime
+                    .warm_records(keys)
+                    .map_err(|e| SchemaError::InvalidData(format!("read records: {e}")))?;
+                let mut out = warm
+                    .as_mut()
+                    .map_or_else(|| vec![None; keys.len()], |r| r.take_found());
+                let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
+                let mut admitted = Vec::new();
+                for chunk in misses.chunks(READ_CHUNK) {
+                    let req = chunk
                         .iter()
-                        .map(|at| keys[*at].as_ref().as_bytes().to_vec())
-                        .collect(),
-                )
-                .await
-                .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
-            if rows.len() != chunk.len() {
-                return Err(SchemaError::InvalidData(
-                    "the record read batch is incomplete".into(),
-                ));
-            }
-            for (at, row) in chunk.iter().zip(rows) {
-                let Some(bytes) = row else { continue };
-                let record = Arc::new(StoredRecord::decode(&bytes).map_err(|error| {
-                    SchemaError::InvalidData(format!("a stored record: {error}"))
-                })?);
-                if warm.is_some() {
-                    admitted.push((*at, Arc::clone(&record), bytes.len()));
+                        .map(|&at| keys[at].as_ref().as_bytes().to_vec())
+                        .collect();
+                    let rows = self
+                        .main_store
+                        .get_many(req)
+                        .await
+                        .map_err(|e| SchemaError::InvalidData(format!("read records: {e}")))?;
+                    if rows.len() != chunk.len() {
+                        return Err(SchemaError::InvalidData(
+                            "the record read batch is incomplete".into(),
+                        ));
+                    }
+                    for (&at, row) in chunk.iter().zip(rows) {
+                        let Some(bytes) = row else { continue };
+                        let record = Arc::new(super::reads::decode(&bytes)?);
+                        if warm.is_some() {
+                            admitted.push((at, Arc::clone(&record), bytes.len()));
+                        }
+                        out[at] = Some(record);
+                    }
                 }
-                out[*at] = Some(record);
+                if let Some(read) = &warm {
+                    self.runtime.admit_read_records(read, admitted);
+                }
+                Ok(out)
             }
-        }
-        if let Some(read) = &warm {
-            runtime.admit_read_records(read, admitted);
-        }
-        Ok(out)
-    }
-
-    pub(crate) async fn stage_records(
-        &self,
-        schema: &Schema,
-        changes: Vec<RecordChange>,
-    ) -> Result<(), SchemaError> {
-        self.format.stage_records(schema, changes).await
+            .boxed(),
+        )
+        .await
     }
 
     pub fn seal_record_file(
@@ -219,34 +266,6 @@ impl RecordStore {
         self.format.seal_record_file(plaintext, name, media_type)
     }
 
-    pub(crate) async fn open_inline_file(
-        &self,
-        record_key: &str,
-        marker: &FileMarker,
-    ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        self.format.open_inline_file(record_key, marker).await
-    }
-
-    pub(crate) fn record_blob_path(
-        &self,
-        record_key: &str,
-        version: &Position,
-    ) -> Result<BlobPath, FoldDbError> {
-        self.format.record_blob_path(record_key, version)
-    }
-
-    pub(crate) async fn install_record_file(
-        &self,
-        record_key: &str,
-        version: &Position,
-        marker: &FileMarker,
-        row: Vec<u8>,
-    ) -> Result<Vec<u8>, FoldDbError> {
-        self.format
-            .install_record_file(record_key, version, marker, row)
-            .await
-    }
-
     pub async fn reference_local_file(
         &self,
         path: &std::path::Path,
@@ -255,17 +274,6 @@ impl RecordStore {
     ) -> Result<FileWrite, FoldDbError> {
         self.format
             .reference_local_file(path, name, media_type)
-            .await
-    }
-
-    pub(crate) async fn open_record_file(
-        &self,
-        record_key: &str,
-        version: &Position,
-        marker: &FileMarker,
-    ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        self.format
-            .open_record_file(record_key, version, marker)
             .await
     }
 }

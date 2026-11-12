@@ -7,13 +7,12 @@ use std::path::Path;
 pub const LAST_BOOT_ERROR_FILE: &str = "last_boot_error.txt";
 
 pub(super) fn emit_fresh_recovery_phrase(mnemonic: &str) {
-    let emit_secret = std::env::var_os("CI").is_none()
+    if std::env::var_os("CI").is_none()
         && std::env::var_os("LASTDB_SUPPRESS_RECOVERY_PHRASE").is_none()
-        && io::stderr().is_terminal();
-    if emit_secret {
+        && io::stderr().is_terminal()
+    {
         eprint!(
-            "\n\
-             === LastDB recovery phrase (save this; only shown once) ===\n\
+            "\n=== LastDB recovery phrase (save this; only shown once) ===\n\
              {mnemonic}\n\
              ===========================================================\n\
              This phrase is your account root: identity, content encryption, \
@@ -37,10 +36,9 @@ pub(super) fn ensure_node_home(home: &Path) -> io::Result<()> {
             .create_new(true)
             .open(&marker)
         {
-            Ok(_) => tracing::info!(
-                path = %marker.display(),
-                "excluded node home from Spotlight indexing"
-            ),
+            Ok(_) => {
+                tracing::info!(path = %marker.display(), "excluded node home from Spotlight indexing");
+            }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
             Err(e) => tracing::warn!(
                 target: "lastdb_node::host",
@@ -93,8 +91,7 @@ pub(super) fn map_and_record_boot_error(
         format!("core database boot failed: {raw}")
     };
     let path = home.join(LAST_BOOT_ERROR_FILE);
-    let body = format!("{}\n", msg.lines().next().unwrap_or(&msg));
-    if let Err(e) = std::fs::write(&path, body) {
+    if let Err(e) = std::fs::write(&path, format!("{}\n", msg.lines().next().unwrap_or(&msg))) {
         tracing::warn!(
             target: "lastdbd::boot",
             error = %e,

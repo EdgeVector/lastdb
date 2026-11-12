@@ -13,11 +13,11 @@ const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 423,
 pub(in crate::exec) fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Value {
     let mut map = serde_json::Map::new();
     if let Ok(Value::Object(fields)) = serde_json::to_value(data) {
-        for (k, v) in fields {
-            if k != "ok" && k != "user_hash" {
-                map.insert(k, v);
-            }
-        }
+        map.extend(
+            fields
+                .into_iter()
+                .filter(|(k, _)| k != "ok" && k != "user_hash"),
+        );
     } else {
         debug_assert!(false, "handler payload did not serialize to a JSON object");
         map.insert(
@@ -31,19 +31,17 @@ pub(in crate::exec) fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Valu
 }
 
 pub(in crate::exec) fn json_ok(body: &Value) -> UdsResponse {
-    match serde_json::to_vec(body) {
-        Ok(bytes) => {
-            UdsResponse::new(200, "OK", bytes).with_header("Content-Type", "application/json")
-        }
-        Err(_) => content_free(500, "Internal Server Error"),
-    }
+    serde_json::to_vec(body).map_or_else(
+        |_| content_free(500, "Internal Server Error"),
+        |bytes| UdsResponse::new(200, "OK", bytes).with_header("Content-Type", "application/json"),
+    )
 }
 
 pub(in crate::exec) fn content_free(status: u16, reason: &'static str) -> UdsResponse {
     UdsResponse::new(status, reason, reason.as_bytes().to_vec())
 }
 
-fn status_reason(status: u16) -> &'static str {
+const fn status_reason(status: u16) -> &'static str {
     match status {
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -95,12 +93,10 @@ impl HostError {
 
 impl From<FoldDbError> for HostError {
     fn from(err: FoldDbError) -> Self {
-        match &err {
-            FoldDbError::Schema(schema_err) => Self::from(schema_err.clone()),
-            FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => {
-                Self::new(400, msg.clone())
-            }
-            FoldDbError::InProgress(msg) => Self::new(503, msg.clone()),
+        match err {
+            FoldDbError::Schema(schema_err) => Self::from(schema_err),
+            FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => Self::new(400, msg),
+            FoldDbError::InProgress(msg) => Self::new(503, msg),
             other => Self::internal(other.to_string()),
         }
     }
@@ -194,11 +190,13 @@ pub(in crate::exec) fn render(
                 return content_free(500, "Internal Server Error");
             }
             if let Some(body) = e.structured_body.as_ref() {
-                match serde_json::to_vec(body) {
-                    Ok(bytes) => UdsResponse::new(e.status, status_reason(e.status), bytes)
-                        .with_header("Content-Type", "application/json"),
-                    Err(_) => content_free(500, "Internal Server Error"),
-                }
+                serde_json::to_vec(body).map_or_else(
+                    |_| content_free(500, "Internal Server Error"),
+                    |bytes| {
+                        UdsResponse::new(e.status, status_reason(e.status), bytes)
+                            .with_header("Content-Type", "application/json")
+                    },
+                )
             } else {
                 UdsResponse::new(e.status, status_reason(e.status), e.message.into_bytes())
             }
@@ -219,15 +217,9 @@ pub(in crate::exec) fn mapped_error_response(
     err: FoldDbError,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    let mapped = HostError::from(err);
+    let mut mapped = HostError::from(err);
     if mapped.status == 500 {
-        return render(
-            Err(HostError::new(
-                500,
-                format!("{operation}: {}", mapped.message),
-            )),
-            ctx,
-        );
+        mapped.message = format!("{operation}: {}", mapped.message);
     }
     render(Err(mapped), ctx)
 }

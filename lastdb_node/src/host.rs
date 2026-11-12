@@ -44,16 +44,15 @@ impl Host {
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("failed to create data dir {}: {e}", data_dir.display()))?;
 
-        let existing_store = data_dir
+        let existing = data_dir
             .join(fold_db::storage::disk_pack::NODE_MARKER)
             .is_file();
-        let (seed, freshly_generated) = load_or_generate_seed_with_meta(home)?;
-        if freshly_generated {
+        let (seed, fresh) = load_or_generate_seed_with_meta(home)?;
+        if fresh {
             match bip39::Mnemonic::from_entropy(&seed) {
-                Ok(mnemonic) => recovery::emit_fresh_recovery_phrase(&mnemonic.to_string()),
+                Ok(m) => recovery::emit_fresh_recovery_phrase(&m.to_string()),
                 Err(e) => tracing::warn!(
-                    error = %e,
-                    "fresh identity written but BIP39 phrase could not be encoded"
+                    error = %e, "fresh identity written but BIP39 phrase could not be encoded"
                 ),
             }
         }
@@ -64,34 +63,29 @@ impl Host {
         let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|e| format!("E2E key derivation failed: {e}"))?;
 
-        let search_outbox_inbox =
-            fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
-        let config = DatabaseConfig::local(data_dir.clone());
+        let inbox = fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
-            &config,
+            &DatabaseConfig::local(data_dir.clone()),
             &e2e_keys,
             Arc::clone(&keypair),
             fold_db::fold_db_core::factory::FoldDbOptions {
                 offline_maintenance: false,
-                search_outbox_inbox: Some(search_outbox_inbox.clone()),
+                search_outbox_inbox: Some(inbox.clone()),
                 capture_accepted: false,
             },
         )
         .await
-        .map_err(|e| recovery::map_and_record_boot_error(home, existing_store, e))?;
+        .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
 
-        fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
-            .map_err(|error| format!("Search queue preparation failed: {error}"))?;
+        fold_db::db_operations::search_index::queue_policy::prepare(&inbox)
+            .map_err(|e| format!("Search queue preparation failed: {e}"))?;
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         recovery::clear_last_boot_error(home);
         tracing::info!(
-            target: "lastdbd::boot",
-            user_hash = %user_hash,
-            at_rest_provider = "e2e_content_key",
-            "minimal host booted"
+            target: "lastdbd::boot", user_hash = %user_hash,
+            at_rest_provider = "e2e_content_key", "minimal host booted"
         );
-
         Ok(Self {
             home: home.to_path_buf(),
             data_dir,

@@ -37,23 +37,18 @@ pub struct E2eKeys {
 }
 
 impl E2eKeys {
-    pub fn from_secret(secret: &[u8; 32]) -> Self {
-        let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), secret);
-        let mut encryption_key = [0u8; 32];
-        hk.expand(CONTENT_KEY_INFO, &mut encryption_key)
-            .expect("32 bytes is a valid HKDF-SHA256 output length");
-        Self { encryption_key }
-    }
-
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> CryptoResult<Self> {
-        let ed_seed = ed25519_compact::Seed::new(*seed);
-        let ed_kp = ed25519_compact::KeyPair::from_seed(ed_seed);
+        let ed_kp = ed25519_compact::KeyPair::from_seed(ed25519_compact::Seed::new(*seed));
         let x25519_sk = x25519::SecretKey::from_ed25519(&ed_kp.sk).map_err(|e| {
             CryptoError::KeyError(format!("Ed25519→X25519 conversion failed: {e:?}"))
         })?;
         let mut secret = Zeroizing::new([0u8; 32]);
         secret.copy_from_slice(x25519_sk.as_ref());
-        Ok(Self::from_secret(&secret))
+        let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), &*secret);
+        let mut encryption_key = [0u8; 32];
+        hk.expand(CONTENT_KEY_INFO, &mut encryption_key)
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
+        Ok(Self { encryption_key })
     }
 
     pub fn encryption_key(&self) -> [u8; 32] {
@@ -83,22 +78,11 @@ pub mod envelope {
     const MIN_ENVELOPE_SIZE: usize = VERSION_SIZE + NONCE_SIZE + TAG_SIZE;
 
     pub fn encrypt_envelope(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| CryptoError::EncryptionFailed(format!("Invalid key: {e}")))?;
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let ciphertext = cipher
-            .encrypt(&nonce, plaintext)
-            .map_err(|e| CryptoError::EncryptionFailed(format!("AES-GCM encrypt: {e}")))?;
-        let mut envelope = Vec::with_capacity(VERSION_SIZE + NONCE_SIZE + ciphertext.len());
-        envelope.push(ENVELOPE_VERSION);
-        envelope.extend_from_slice(&nonce);
-        envelope.extend_from_slice(&ciphertext);
-        Ok(envelope)
+        encrypt_envelope_with_aad(key, b"", plaintext)
     }
 
     /// Same envelope as `encrypt_envelope`, with associated data authenticated
-    /// and left outside the ciphertext. The caller must present the same bytes
-    /// to `decrypt_envelope_with_aad`.
+    /// and left outside the ciphertext.
     pub fn encrypt_envelope_with_aad(
         key: &[u8; 32],
         aad: &[u8],
@@ -124,23 +108,7 @@ pub mod envelope {
     }
 
     pub fn decrypt_envelope(key: &[u8; 32], envelope: &[u8]) -> CryptoResult<Vec<u8>> {
-        if envelope.len() < MIN_ENVELOPE_SIZE {
-            return Err(CryptoError::InvalidFormat(format!(
-                "Envelope too short: {} bytes (minimum {MIN_ENVELOPE_SIZE})",
-                envelope.len()
-            )));
-        }
-        let version = envelope[0];
-        if version != ENVELOPE_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
-        }
-        let nonce_bytes = &envelope[VERSION_SIZE..VERSION_SIZE + NONCE_SIZE];
-        let ciphertext = &envelope[VERSION_SIZE + NONCE_SIZE..];
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| CryptoError::DecryptionFailed(format!("Invalid key: {e}")))?;
-        cipher
-            .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
-            .map_err(|e| CryptoError::DecryptionFailed(format!("AES-GCM decrypt: {e}")))
+        decrypt_envelope_with_aad(key, b"", envelope)
     }
 
     /// Open an envelope produced by `encrypt_envelope_with_aad`.
@@ -159,8 +127,7 @@ pub mod envelope {
         if version != ENVELOPE_VERSION {
             return Err(CryptoError::UnsupportedVersion(version));
         }
-        let nonce_bytes = &envelope[VERSION_SIZE..VERSION_SIZE + NONCE_SIZE];
-        let ciphertext = &envelope[VERSION_SIZE + NONCE_SIZE..];
+        let (nonce_bytes, ciphertext) = envelope[VERSION_SIZE..].split_at(NONCE_SIZE);
         let cipher = Aes256Gcm::new_from_slice(key)
             .map_err(|e| CryptoError::DecryptionFailed(format!("Invalid key: {e}")))?;
         cipher
@@ -190,14 +157,23 @@ pub mod at_rest {
         Ok(out)
     }
 
-    fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<&[u8]>> {
-        if !stored.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
-            return Ok(None);
-        }
-        let Some((&flags, ciphertext)) = stored[AT_REST_ENC_BINARY_PREFIX.len()..].split_first()
+    pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoResult<Vec<u8>> {
+        let Some(rest) = stored
+            .strip_prefix(AT_REST_ENC_BINARY_PREFIX.as_bytes())
+            .filter(|_| {
+                max > 0
+                    && max.checked_add(1).is_some()
+                    && usize::try_from(max).is_ok()
+                    && stored.len() as u64 <= max
+            })
         else {
             return Err(CryptoError::InvalidFormat(
-                "at-rest ENB envelope is missing its flags byte".to_string(),
+                "bounded encrypted value required".into(),
+            ));
+        };
+        let Some((&flags, ciphertext)) = rest.split_first() else {
+            return Err(CryptoError::InvalidFormat(
+                "at-rest ENB envelope is missing its flags byte".into(),
             ));
         };
         if flags != 0 {
@@ -205,25 +181,6 @@ pub mod at_rest {
                 "at-rest ENB envelope has unsupported flags 0x{flags:02x}"
             )));
         }
-        Ok(Some(ciphertext))
-    }
-
-    pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoResult<Vec<u8>> {
-        if max == 0
-            || max.checked_add(1).is_none()
-            || usize::try_from(max).is_err()
-            || stored.len() as u64 > max
-            || !stored.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes())
-        {
-            return Err(CryptoError::InvalidFormat(
-                "bounded encrypted value required".into(),
-            ));
-        }
-        let Some(ciphertext) = decode_binary_ciphertext(stored)? else {
-            return Err(CryptoError::InvalidFormat(
-                "at-rest value has no ENB: marker".into(),
-            ));
-        };
         let plain = decrypt_envelope(key, ciphertext)?;
         if plain.len() as u64 > max {
             return Err(CryptoError::InvalidFormat(

@@ -1,25 +1,23 @@
 //! Mutation Manager — public write entry points, native transaction commits, and Search outbox.
 
-mod validation;
 mod write_effects;
 mod write_records;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::portable_mutation::Stamp;
 
-use crate::db_operations::search_index::inbox_fields::{inbox_fields, searchable_fields};
 use crate::db_operations::search_index::{
-    deliver_outbox, IndexChange, IndexChangeBatch, IndexChangeKind,
+    inbox_fields, searchable_fields, IndexChange, IndexChangeBatch, IndexChangeKind,
 };
 use crate::db_operations::DbOperations;
 use crate::schema::mutation_author::sign_mutation_author_clock;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
-use crate::schema::{SchemaCore, SchemaError};
+use crate::schema::{SchemaCore, SchemaError, SchemaState};
 use crate::storage::disk_pack::transaction;
 
 pub(super) struct AuthoredMutation {
@@ -79,27 +77,13 @@ pub struct ResidentCommitReceipt {
     pub stages: ResidentCommitStages,
 }
 
-impl ResidentCommitReceipt {
-    #[must_use]
-    pub fn empty() -> Self {
-        Self {
-            mutation_ids: Vec::new(),
-            record_revisions: BTreeMap::new(),
-            revision: None,
-            operations: ResidentCommitOperations::default(),
-            durability: ResidentDurability::Queued,
-            stages: ResidentCommitStages::default(),
-        }
-    }
-}
-
 /// Manages mutation operations for the FoldDB system.
 pub struct MutationManager {
     db_ops: Arc<DbOperations>,
     schema_manager: Arc<SchemaCore>,
     signer: Arc<crate::security::Ed25519KeyPair>,
     search_outbox_inbox: Option<PathBuf>,
-    author_clock_state: std::sync::Mutex<crate::schema::types::MutationAuthorClockState>,
+    author_clock_state: Mutex<crate::schema::types::MutationAuthorClockState>,
 }
 
 impl MutationManager {
@@ -115,7 +99,7 @@ impl MutationManager {
             schema_manager,
             signer,
             search_outbox_inbox,
-            author_clock_state: std::sync::Mutex::new(author_clock_state),
+            author_clock_state: Mutex::new(author_clock_state),
         }
     }
 
@@ -134,16 +118,30 @@ impl MutationManager {
             let now = crate::clock::unix_nanos();
             self.validate_mutation_batch(&mutations)?;
             if mutations.is_empty() {
-                return Ok(ResidentCommitReceipt::empty());
+                return Ok(ResidentCommitReceipt {
+                    mutation_ids: Vec::new(),
+                    record_revisions: BTreeMap::new(),
+                    revision: None,
+                    operations: ResidentCommitOperations::default(),
+                    durability: ResidentDurability::Queued,
+                    stages: ResidentCommitStages::default(),
+                });
             }
             self.prepare_mutation_author_clocks(&mut mutations, now)?;
             let revision = mutations.first().map(|m| m.logical_counter);
-            self.reject_blocked_mutation_targets(&mutations)?;
+            let states = self.schema_manager.get_schema_states()?;
             for mutation in &mutations {
+                if states.get(&mutation.schema_name).copied() == Some(SchemaState::Blocked) {
+                    return Err(SchemaError::Blocked(format!(
+                        "Schema '{}' is blocked and cannot be mutated (a drop is running)",
+                        mutation.schema_name
+                    )));
+                }
                 mutation.validate_record_intent()?;
             }
-            let start = std::time::Instant::now();
-            let mut receipt = self.commit_native_batch(mutations, start).await?;
+            let mut receipt = self
+                .commit_native_batch(mutations, std::time::Instant::now())
+                .await?;
             receipt.revision = revision;
             Ok(receipt)
         })
@@ -155,28 +153,26 @@ impl MutationManager {
         mutations: &mut [Mutation],
         now: u64,
     ) -> Result<(), SchemaError> {
-        let local_writer_id = self.signer.public_key_base64();
-        let mut resident_state = self
+        let writer_id = self.signer.public_key_base64();
+        let mut guard = self
             .author_clock_state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut state = *resident_state;
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut state = *guard;
         let (mut times, logical_counter) = state
             .advance_local_batch(now, mutations.len())
             .ok_or_else(|| {
                 SchemaError::InvalidData("mutation author-clock range exhausted".into())
             })?;
-        for mutation in mutations {
-            mutation.imported_written_at =
-                Some(times.next().expect("one reserved time per local mutation"));
-            mutation.logical_counter = logical_counter;
-            mutation.author_clock_writer_id = local_writer_id.clone();
-            mutation.author_clock_signature_version =
+        for m in mutations {
+            m.imported_written_at = Some(times.next().expect("reserved time"));
+            m.logical_counter = logical_counter;
+            m.author_clock_writer_id.clone_from(&writer_id);
+            m.author_clock_signature_version =
                 crate::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
-            mutation.author_clock_signature =
-                sign_mutation_author_clock(mutation, self.signer.as_ref());
+            m.author_clock_signature = sign_mutation_author_clock(m, self.signer.as_ref());
         }
-        *resident_state = state;
+        *guard = state;
         Ok(())
     }
 
@@ -191,7 +187,7 @@ impl MutationManager {
         let (mutation_ids, record_revisions, operations) =
             transaction::request_scope(Arc::clone(&runtime), async {
                 runtime.record_read_stage("request-start", mutations.len());
-                if let Some(admission) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
+                if let Some(adm) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
                     if mutations.len() != 1 {
                         return Err(SchemaError::InvalidData(
                             "a contribution requires one native mutation".into(),
@@ -200,7 +196,7 @@ impl MutationManager {
                     if self
                         .db_ops
                         .metadata()
-                        .stage_contribution_receipt(&admission.receipt_id, &admission.intent_digest)
+                        .stage_contribution_receipt(&adm.receipt_id, &adm.intent_digest)
                         .await?
                     {
                         return Ok((
@@ -210,13 +206,21 @@ impl MutationManager {
                         ));
                     }
                 }
-                let mut record_revisions = BTreeMap::new();
-                let operations = count_applied_operations(&mutations);
+                let mut operations = ResidentCommitOperations::default();
+                for m in &mutations {
+                    match m.mutation_type {
+                        MutationType::Create => operations.created += 1,
+                        MutationType::Replace => operations.updated += 1,
+                        MutationType::Delete | MutationType::Purge => operations.deleted += 1,
+                    }
+                }
                 let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
                 let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
-                for (mutation, stamp) in mutations.iter().zip(&stamps) {
-                    record_revisions.insert(mutation.uuid.clone(), stamp.revision());
-                }
+                let record_revisions = mutations
+                    .iter()
+                    .zip(&stamps)
+                    .map(|(m, s)| (m.uuid.clone(), s.revision()))
+                    .collect();
                 self.db_ops
                     .records()
                     .stage_accepted_mutations(&mutations)
@@ -227,11 +231,26 @@ impl MutationManager {
                     .zip(stamps)
                     .map(|(mutation, stamp)| AuthoredMutation { mutation, stamp })
                     .collect();
-                let group_count = self
+                let groups = self
                     .stage_record_groups(authored, &mut stages, &runtime)
                     .await?;
-                runtime.record_read_stage("stored-stages-done", group_count);
-                self.stage_native_author_clock().await?;
+                runtime.record_read_stage("stored-stages-done", groups);
+                let writer = self.signer.public_key_base64();
+                let state = *self
+                    .author_clock_state
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                let mut durable = self
+                    .db_ops
+                    .metadata()
+                    .author_clock(&writer)
+                    .await?
+                    .unwrap_or_default();
+                durable.observe_remote(state.physical_nanos, state.logical_counter);
+                self.db_ops
+                    .metadata()
+                    .stage_author_clock(&writer, &durable)
+                    .await?;
                 Ok::<_, SchemaError>((mutation_ids, record_revisions, operations))
             })
             .await?;
@@ -246,26 +265,7 @@ impl MutationManager {
         })
     }
 
-    async fn stage_native_author_clock(&self) -> Result<(), SchemaError> {
-        let writer = self.signer.public_key_base64();
-        let state = *self
-            .author_clock_state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut durable = self
-            .db_ops
-            .metadata()
-            .author_clock(&writer)
-            .await?
-            .unwrap_or_default();
-        durable.observe_remote(state.physical_nanos, state.logical_counter);
-        self.db_ops
-            .metadata()
-            .stage_author_clock(&writer, &durable)
-            .await
-    }
-
-    fn build_index_change_batch<'a>(
+    pub(super) fn build_index_change_batch<'a>(
         schema_name: &str,
         schema: &Schema,
         schema_mutations: impl ExactSizeIterator<Item = &'a Mutation>,
@@ -275,24 +275,26 @@ impl MutationManager {
             return None;
         }
         let searchable = searchable_fields(schema);
-        let mut changes = Vec::with_capacity(schema_mutations.len());
-        for (mutation, key_value) in schema_mutations.zip(mutation_key_values) {
-            let (kind, record_fields) = match mutation.mutation_type {
-                MutationType::Create | MutationType::Replace => (
-                    IndexChangeKind::Upsert,
-                    inbox_fields(&mutation.record_fields, searchable.as_ref()),
-                ),
-                MutationType::Delete | MutationType::Purge => {
-                    (IndexChangeKind::Tombstone, HashMap::default())
+        let changes: Vec<_> = schema_mutations
+            .zip(mutation_key_values)
+            .map(|(m, kv)| {
+                let (kind, record_fields) = match m.mutation_type {
+                    MutationType::Create | MutationType::Replace => (
+                        IndexChangeKind::Upsert,
+                        inbox_fields(&m.record_fields, searchable.as_ref()),
+                    ),
+                    MutationType::Delete | MutationType::Purge => {
+                        (IndexChangeKind::Tombstone, HashMap::default())
+                    }
+                };
+                IndexChange {
+                    mutation_id: m.uuid.clone(),
+                    kind,
+                    key_value: kv.clone(),
+                    record_fields,
                 }
-            };
-            changes.push(IndexChange {
-                mutation_id: mutation.uuid.clone(),
-                kind,
-                key_value: key_value.clone(),
-                record_fields,
-            });
-        }
+            })
+            .collect();
         (!changes.is_empty()).then(|| IndexChangeBatch {
             format_version: 1,
             schema_name: schema_name.to_string(),
@@ -300,24 +302,4 @@ impl MutationManager {
             changes,
         })
     }
-
-    pub(crate) fn deliver_search_outbox(
-        inbox: Option<PathBuf>,
-        batch: &IndexChangeBatch,
-    ) -> Result<(), crate::storage::StorageError> {
-        deliver_outbox(inbox, batch)
-            .map_err(|error| crate::storage::StorageError::BackendError(error.to_string()))
-    }
-}
-
-fn count_applied_operations(mutations: &[Mutation]) -> ResidentCommitOperations {
-    let mut operations = ResidentCommitOperations::default();
-    for mutation in mutations {
-        match mutation.mutation_type {
-            MutationType::Create => operations.created += 1,
-            MutationType::Replace => operations.updated += 1,
-            MutationType::Delete | MutationType::Purge => operations.deleted += 1,
-        }
-    }
-    operations
 }

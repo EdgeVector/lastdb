@@ -51,26 +51,32 @@ pub mod peer_cred {
         ForeignUser { peer_uid: u32, owner_uid: u32 },
     }
 
-    #[cfg(target_os = "linux")]
-    pub fn read_peer_credential(fd: std::os::unix::io::RawFd) -> std::io::Result<PeerCredential> {
-        let mut cred = libc::ucred {
-            pid: 0,
-            uid: 0,
-            gid: 0,
-        };
-        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn getsockopt<T>(
+        fd: std::os::unix::io::RawFd,
+        level: libc::c_int,
+        opt: libc::c_int,
+    ) -> std::io::Result<T> {
+        let mut val: T = unsafe { std::mem::zeroed() };
+        let mut len = std::mem::size_of::<T>() as libc::socklen_t;
         let rc = unsafe {
             libc::getsockopt(
                 fd,
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                (&mut cred as *mut libc::ucred).cast::<libc::c_void>(),
+                level,
+                opt,
+                (&raw mut val).cast::<libc::c_void>(),
                 &mut len,
             )
         };
         if rc != 0 {
             return Err(std::io::Error::last_os_error());
         }
+        Ok(val)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn read_peer_credential(fd: std::os::unix::io::RawFd) -> std::io::Result<PeerCredential> {
+        let cred: libc::ucred = getsockopt(fd, libc::SOL_SOCKET, libc::SO_PEERCRED)?;
         Ok(PeerCredential {
             uid: cred.uid,
             pid: Some(cred.pid),
@@ -79,49 +85,17 @@ pub mod peer_cred {
 
     #[cfg(target_os = "macos")]
     pub fn read_peer_credential(fd: std::os::unix::io::RawFd) -> std::io::Result<PeerCredential> {
-        let mut cred: libc::xucred = unsafe { std::mem::zeroed() };
-        let mut len = std::mem::size_of::<libc::xucred>() as libc::socklen_t;
-        let rc = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_LOCAL,
-                libc::LOCAL_PEERCRED,
-                (&mut cred as *mut libc::xucred).cast::<libc::c_void>(),
-                &mut len,
-            )
-        };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
+        let cred: libc::xucred = getsockopt(fd, libc::SOL_LOCAL, libc::LOCAL_PEERCRED)?;
         if cred.cr_version != libc::XUCRED_VERSION {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "unexpected xucred version from LOCAL_PEERCRED",
             ));
         }
-        let pid = read_peer_pid(fd).ok();
+        let pid = getsockopt::<libc::pid_t>(fd, libc::SOL_LOCAL, libc::LOCAL_PEERPID).ok();
         Ok(PeerCredential {
             uid: cred.cr_uid,
             pid,
         })
-    }
-
-    #[cfg(target_os = "macos")]
-    fn read_peer_pid(fd: std::os::unix::io::RawFd) -> std::io::Result<i32> {
-        let mut pid: libc::pid_t = 0;
-        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
-        let rc = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_LOCAL,
-                libc::LOCAL_PEERPID,
-                (&mut pid as *mut libc::pid_t).cast::<libc::c_void>(),
-                &mut len,
-            )
-        };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(pid)
     }
 }

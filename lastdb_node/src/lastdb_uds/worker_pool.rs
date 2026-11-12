@@ -30,7 +30,7 @@ pub enum SubmitError {
 struct ConnJob {
     stream: UnixStream,
     work: Box<dyn FnOnce(UnixStream, ConnectionWork) + Send + 'static>,
-    in_flight_guard: InFlightGuard,
+    guard: InFlightGuard,
 }
 
 /// Admission kept for one accepted connection across async continuation.
@@ -40,15 +40,12 @@ pub struct ConnectionWork {
 
 impl ConnectionWork {
     /// Continue an accepted request on the same bounded worker pool, retaining its admission.
-    pub fn resume<F>(self, stream: UnixStream, work: F)
-    where
-        F: FnOnce(UnixStream, Self) + Send + 'static,
-    {
+    pub fn resume<F: FnOnce(UnixStream, Self) + Send + 'static>(self, stream: UnixStream, work: F) {
         let dispatch = Arc::clone(&self.guard.0.dispatch);
         let job = ConnJob {
             stream,
             work: Box::new(work),
-            in_flight_guard: self.guard,
+            guard: self.guard,
         };
         if dispatch.enqueue(job, true).is_err() {
             tracing::error!("accepted socket response dispatcher closed");
@@ -117,12 +114,9 @@ impl UdsWorkerPool {
     pub fn from_env() -> Self {
         let cpus = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
         let default_workers = cpus.saturating_mul(2).clamp(MIN_WORKERS, MAX_WORKERS);
-        let workers = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_WORKERS")
-            .unwrap_or(default_workers)
-            .max(1);
-        let queue_capacity = fold_db::env_flag::var_parsed::<usize>("LASTDB_UDS_QUEUE")
-            .unwrap_or(DEFAULT_QUEUE_CAPACITY)
-            .max(1);
+        let workers = fold_db::env_flag::var_or("LASTDB_UDS_WORKERS", default_workers).max(1);
+        let queue_capacity =
+            fold_db::env_flag::var_or("LASTDB_UDS_QUEUE", DEFAULT_QUEUE_CAPACITY).max(1);
         let dispatch = Dispatch::new(queue_capacity);
         let inner = Arc::new(PoolInner {
             dispatch: Arc::clone(&dispatch),
@@ -133,26 +127,20 @@ impl UdsWorkerPool {
             admission: Mutex::new(AdmissionState::default()),
             drained: Condvar::new(),
         });
-        let stack_bytes = fold_db::env_flag::var_parsed::<usize>("RUST_MIN_STACK")
-            .unwrap_or(0)
-            .max(DEFAULT_WORKER_STACK_BYTES);
+        let stack =
+            fold_db::env_flag::var_or("RUST_MIN_STACK", 0usize).max(DEFAULT_WORKER_STACK_BYTES);
         for i in 0..workers {
             let dispatch = Arc::clone(&dispatch);
             thread::Builder::new()
                 .name(format!("lastdb-uds-worker-{i}"))
-                .stack_size(stack_bytes)
+                .stack_size(stack)
                 .spawn(move || {
                     let slot = Arc::new(Slot {
                         hand: Mutex::new(Hand::Empty),
                         ready: Condvar::new(),
                     });
                     while let Some(job) = dispatch.next(&slot) {
-                        (job.work)(
-                            job.stream,
-                            ConnectionWork {
-                                guard: job.in_flight_guard,
-                            },
-                        );
+                        (job.work)(job.stream, ConnectionWork { guard: job.guard });
                     }
                 })
                 .unwrap_or_else(|e| panic!("failed to spawn UDS worker {i}: {e}"));
@@ -161,15 +149,12 @@ impl UdsWorkerPool {
     }
 
     /// Submit an accepted connection for handling on the bounded worker pool.
-    pub fn try_submit_owned_connection<F>(
+    pub fn try_submit_owned_connection<F: FnOnce(UnixStream, ConnectionWork) + Send + 'static>(
         &self,
         stream: UnixStream,
         work: F,
-    ) -> Result<(), SubmitError>
-    where
-        F: FnOnce(UnixStream, ConnectionWork) + Send + 'static,
-    {
-        let in_flight_guard = {
+    ) -> Result<(), SubmitError> {
+        let guard = {
             let mut state = lock(&self.inner.admission);
             if state.closed {
                 return self.reject(stream, SubmitError::ShutDown);
@@ -183,7 +168,7 @@ impl UdsWorkerPool {
         let job = ConnJob {
             stream,
             work: Box::new(work),
-            in_flight_guard,
+            guard,
         };
         match self.inner.dispatch.enqueue(job, false) {
             Ok(()) => {
@@ -218,18 +203,6 @@ impl UdsWorkerPool {
         self.inner.queue_capacity
     }
 
-    /// Jobs refused because the queue was full.
-    #[must_use]
-    pub fn queue_full_rejects(&self) -> u64 {
-        self.inner.queue_full_rejects.load(Ordering::Relaxed)
-    }
-
-    /// Jobs accepted into the pool and not yet finished (queued or running).
-    #[must_use]
-    pub fn in_flight(&self) -> usize {
-        lock(&self.inner.admission).in_flight
-    }
-
     /// Refuse new connections, then wait up to `timeout` for queued and active handlers.
     pub fn close_and_drain(&self, timeout: Duration) -> Result<(), String> {
         let started = Instant::now();
@@ -238,34 +211,30 @@ impl UdsWorkerPool {
         while state.in_flight != 0 {
             let remaining = timeout.saturating_sub(started.elapsed());
             if remaining.is_zero() {
-                break;
+                return Err(format!(
+                    "UDS worker pool drain timed out with {} accepted connection(s) still active",
+                    state.in_flight
+                ));
             }
-            let (next, _) = self
+            state = self
                 .inner
                 .drained
                 .wait_timeout(state, remaining)
-                .unwrap_or_else(PoisonError::into_inner);
-            state = next;
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
-        if state.in_flight == 0 {
-            Ok(())
-        } else {
-            Err(format!(
-                "UDS worker pool drain timed out with {} accepted connection(s) still active",
-                state.in_flight
-            ))
-        }
+        Ok(())
     }
 
     /// Occupancy and reject counters for `/api/status`.
     #[must_use]
     pub fn snapshot(&self) -> UdsPoolSnapshot {
         UdsPoolSnapshot {
-            workers: self.workers(),
-            queue_capacity: self.queue_capacity(),
-            in_flight: self.in_flight(),
+            workers: self.inner.workers,
+            queue_capacity: self.inner.queue_capacity,
+            in_flight: lock(&self.inner.admission).in_flight,
             submitted: self.inner.submitted.load(Ordering::Relaxed),
-            queue_full_rejects: self.queue_full_rejects(),
+            queue_full_rejects: self.inner.queue_full_rejects.load(Ordering::Relaxed),
         }
     }
 }
@@ -306,21 +275,21 @@ impl<J> Dispatch<J> {
 
     fn enqueue(&self, job: J, resume_front: bool) -> Result<(), (J, SubmitError)> {
         let slot = {
-            let mut state = lock(&self.state);
-            if state.closed {
+            let mut s = lock(&self.state);
+            if s.closed {
                 return Err((job, SubmitError::ShutDown));
             }
-            if let Some(slot) = state.idle.pop() {
-                slot
-            } else if resume_front {
-                state.queue.push_front(job);
+            let Some(slot) = s.idle.pop() else {
+                if resume_front {
+                    s.queue.push_front(job);
+                } else if s.queue.len() >= s.capacity {
+                    return Err((job, SubmitError::QueueFull));
+                } else {
+                    s.queue.push_back(job);
+                }
                 return Ok(());
-            } else if state.queue.len() >= state.capacity {
-                return Err((job, SubmitError::QueueFull));
-            } else {
-                state.queue.push_back(job);
-                return Ok(());
-            }
+            };
+            slot
         };
         *lock(&slot.hand) = Hand::Job(job);
         slot.ready.notify_one();
@@ -329,9 +298,9 @@ impl<J> Dispatch<J> {
 
     fn close(&self) {
         let idle = {
-            let mut state = lock(&self.state);
-            state.closed = true;
-            std::mem::take(&mut state.idle)
+            let mut s = lock(&self.state);
+            s.closed = true;
+            std::mem::take(&mut s.idle)
         };
         for slot in idle {
             *lock(&slot.hand) = Hand::Closed;
@@ -341,14 +310,14 @@ impl<J> Dispatch<J> {
 
     fn next(&self, slot: &Arc<Slot<J>>) -> Option<J> {
         {
-            let mut state = lock(&self.state);
-            if let Some(job) = state.queue.pop_front() {
+            let mut s = lock(&self.state);
+            if let Some(job) = s.queue.pop_front() {
                 return Some(job);
             }
-            if state.closed {
+            if s.closed {
                 return None;
             }
-            state.idle.push(Arc::clone(slot));
+            s.idle.push(Arc::clone(slot));
         }
         let mut hand = lock(&slot.hand);
         loop {

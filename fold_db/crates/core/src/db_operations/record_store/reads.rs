@@ -14,12 +14,6 @@ const MIN_ROWS: usize = 16;
 const RECORD_PROBE_ROWS: usize = 16;
 
 pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
-pub(crate) type RecordKeyPage = (Vec<(String, String)>, Option<String>, bool);
-
-#[derive(Debug, Default)]
-pub(crate) struct Step {
-    pub rows: Vec<(Vec<u8>, Vec<u8>)>,
-}
 
 /// Bounded walk over `start..end` that halves spans if a single read hits the resource limit.
 #[derive(Debug, Clone)]
@@ -32,13 +26,11 @@ pub(crate) struct RangeWalk {
 impl RangeWalk {
     pub(crate) fn new(start: &[u8], end: &[u8], limit: usize) -> Self {
         let limit = limit.max(1);
-        let todo = if start < end {
-            vec![(start.to_vec(), end.to_vec())]
-        } else {
-            Vec::new()
-        };
         Self {
-            todo,
+            todo: (start < end)
+                .then(|| (start.to_vec(), end.to_vec()))
+                .into_iter()
+                .collect(),
             limit,
             asked: limit,
         }
@@ -56,10 +48,14 @@ impl RangeWalk {
     pub(crate) fn request(&self) -> Option<(Vec<u8>, Vec<u8>, usize)> {
         self.todo
             .last()
-            .map(|(start, end)| (start.clone(), end.clone(), self.asked))
+            .map(|(s, e)| (s.clone(), e.clone(), self.asked))
     }
 
-    fn cut_top(&mut self) -> bool {
+    pub(crate) fn read_too_big(&mut self) -> bool {
+        if self.asked > MIN_ROWS {
+            self.asked = MIN_ROWS;
+            return true;
+        }
         let Some((start, end)) = self.todo.pop() else {
             return false;
         };
@@ -72,21 +68,12 @@ impl RangeWalk {
         true
     }
 
-    pub(crate) fn read_too_big(&mut self) -> bool {
-        if self.asked > MIN_ROWS {
-            self.asked = MIN_ROWS;
-            return true;
-        }
-        self.cut_top()
-    }
-
     pub(crate) fn finish_yield(&mut self, rows: usize, resume: Option<&[u8]>) {
         let Some((_, end)) = self.todo.pop() else {
             return;
         };
         if let Some(last) = resume {
-            let mut next = Vec::with_capacity(last.len() + 1);
-            next.extend_from_slice(last);
+            let mut next = last.to_vec();
             next.push(0);
             if next < end {
                 self.todo.push((next, end));
@@ -99,25 +86,25 @@ impl RangeWalk {
 }
 
 impl RecordStore {
-    pub(crate) async fn walk_step(&self, walk: &mut RangeWalk) -> Result<Step, SchemaError> {
+    pub(crate) async fn walk_step(
+        &self,
+        walk: &mut RangeWalk,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
         loop {
             let Some((start, end, asked)) = walk.request() else {
-                return Ok(Step::default());
+                return Ok(Vec::new());
             };
-            let result = self
+            match self
                 .reader()
                 .scan_range_yielding(&start, &end, asked, 0)
-                .await;
-            match result.map_err(SchemaError::from) {
+                .await
+                .map_err(SchemaError::from)
+            {
                 Ok(scan) => {
                     walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
-                    return Ok(Step { rows: scan.rows });
+                    return Ok(scan.rows);
                 }
-                Err(error @ SchemaError::ReadResourceLimit { .. }) => {
-                    if !walk.read_too_big() {
-                        return Err(error);
-                    }
-                }
+                Err(SchemaError::ReadResourceLimit { .. }) if walk.read_too_big() => {}
                 Err(error) => return Err(error),
             }
         }
@@ -136,10 +123,7 @@ impl RecordStore {
                     .await?
             }
             F::HashRangeKeys(keys) => {
-                let keys: Vec<_> = keys
-                    .iter()
-                    .map(|(hash, range)| api_key(ranged, hash, range))
-                    .collect();
+                let keys: Vec<_> = keys.iter().map(|(h, r)| api_key(ranged, h, r)).collect();
                 self.records_at(schema, &keys).await?
             }
             F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. }
@@ -165,20 +149,15 @@ impl RecordStore {
         keys: &[KeyValue],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let mut seen = HashSet::new();
-        let keys: Vec<KeyValue> = keys
-            .iter()
-            .filter(|key| seen.insert(*key))
-            .cloned()
-            .collect();
+        let keys: Vec<KeyValue> = keys.iter().filter(|k| seen.insert(*k)).cloned().collect();
         let storage_keys = keys
             .iter()
-            .map(|key| self.record_key(schema, key))
+            .map(|k| self.record_key(schema, k))
             .collect::<Result<Vec<_>, _>>()?;
-        let records = self.read_records(&storage_keys).await?;
         Ok(keys
             .into_iter()
-            .zip(records)
-            .filter_map(|(key, record)| record.map(|record| (key, record)))
+            .zip(self.read_records(&storage_keys).await?)
+            .filter_map(|(k, r)| r.map(|r| (k, r)))
             .collect())
     }
 
@@ -189,30 +168,28 @@ impl RecordStore {
         limit: usize,
         after: Option<&str>,
         hash: Option<&str>,
-    ) -> Result<RecordKeyPage, SchemaError> {
+    ) -> Result<(Vec<(String, String)>, Option<String>, bool), SchemaError> {
         if limit == 0 {
             return Ok((Vec::new(), None, false));
         }
         let space = record_space_uuid(&schema.name);
         let base = match hash {
-            Some(hash) => {
-                let codec = self.primary_codec(schema)?;
-                record_hash_prefix(
-                    &space,
-                    &codec
-                        .storage_hash(&space, hash)
-                        .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-                )
+            Some(h) => {
+                let storage = self
+                    .primary_codec(schema)?
+                    .storage_hash(&space, h)
+                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+                record_hash_prefix(&space, &storage)
             }
             None => space_prefix(schema),
         };
         let start = match after {
-            Some(cursor) if !cursor.starts_with(&base) => {
+            Some(c) if !c.starts_with(&base) => {
                 return Err(SchemaError::InvalidCursor(
                     "cursor is not in this schema's records".into(),
                 ))
             }
-            Some(cursor) => format!("{cursor}\0"),
+            Some(c) => format!("{c}\0"),
             None => base.clone(),
         };
         let end = FilterUtils::create_prefix_end(&base)?;
@@ -220,7 +197,7 @@ impl RecordStore {
             .main_store
             .scan_range_paged(start.as_bytes(), end.as_bytes(), limit.saturating_add(1))
             .await
-            .map_err(|error| SchemaError::InvalidData(format!("list record keys: {error}")))?;
+            .map_err(|e| SchemaError::InvalidData(format!("list record keys: {e}")))?;
         let has_more = rows.len() > limit;
         let mut keys = Vec::with_capacity(limit);
         let mut cursor = None;
@@ -229,8 +206,8 @@ impl RecordStore {
             let physical = String::from_utf8(key)
                 .map_err(|_| SchemaError::InvalidData("a record key is not text".into()))?;
             if record.is_live() {
-                let key = comparison.canonical_key(record.key.clone())?;
-                keys.push((key.hash.unwrap_or_default(), key.range.unwrap_or_default()));
+                let k = comparison.canonical_key(record.key)?;
+                keys.push((k.hash.unwrap_or_default(), k.range.unwrap_or_default()));
             }
             cursor = Some(physical);
         }
@@ -245,7 +222,7 @@ impl RecordStore {
                 .main_store
                 .scan_range_paged(prefix.as_bytes(), end.as_bytes(), RECORD_PROBE_ROWS + 1)
                 .await
-                .map_err(|error| SchemaError::InvalidData(format!("probe records: {error}")))?;
+                .map_err(|e| SchemaError::InvalidData(format!("probe records: {e}")))?;
             if rows.len() > RECORD_PROBE_ROWS {
                 return Ok(true);
             }
@@ -270,35 +247,31 @@ fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
     StoredRecord::decode(bytes)
-        .map_err(|error| SchemaError::InvalidData(format!("a stored record: {error}")))
+        .map_err(|e| SchemaError::InvalidData(format!("a stored record: {e}")))
 }
 
 fn midpoint(low: &[u8], high: &[u8]) -> Option<Vec<u8>> {
-    if low >= high || low.iter().chain(high).any(|byte| *byte >= 0x80) {
+    if low >= high || low.iter().chain(high).any(|&b| b >= 0x80) {
         return None;
     }
     let width = low.len().max(high.len()) + 1;
-    let digits = |key: &[u8]| -> Vec<u32> {
-        (0..width)
-            .map(|at| key.get(at).map_or(0, |byte| u32::from(*byte)))
-            .collect()
-    };
-    let (a, b) = (digits(low), digits(high));
     let mut sum = vec![0u32; width + 1];
-    let mut carry = 0;
+    let mut carry = 0u32;
     for at in (0..width).rev() {
-        let total = a[at] + b[at] + carry;
+        let total = low.get(at).map_or(0, |&b| u32::from(b))
+            + high.get(at).map_or(0, |&b| u32::from(b))
+            + carry;
         sum[at + 1] = total % 128;
         carry = total / 128;
     }
     sum[0] = carry;
     let mut middle = Vec::with_capacity(width);
-    let mut remainder = 0;
+    let mut rem = 0;
     for (at, digit) in sum.into_iter().enumerate() {
-        let value = remainder * 128 + digit;
-        remainder = value % 2;
+        let val = rem * 128 + digit;
+        rem = val % 2;
         if at > 0 {
-            middle.push(u8::try_from(value / 2).ok()?);
+            middle.push(u8::try_from(val / 2).ok()?);
         }
     }
     while middle.len() > 1 && middle.last() == Some(&0) && middle[..middle.len() - 1] > *low {

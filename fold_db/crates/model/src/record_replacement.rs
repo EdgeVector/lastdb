@@ -1,8 +1,5 @@
 //! Complete local record intents. Data and validation only, no write authority.
-//!
-//! The native writer consumes these values without granting storage authority.
-//! A format writer must still validate payload fields, the stored revision,
-//! complete key equality on delete and the issuing context for changed files.
+
 use crate::record_value::FileMarker;
 use crate::schema::types::KeyValue;
 use schema_types::record_keys::RecordKeys;
@@ -19,24 +16,21 @@ pub struct RecordTarget {
 }
 
 impl RecordTarget {
-    pub fn validate(&self, definition: &RecordKeys) -> Result<(), String> {
-        definition.validate()?;
+    pub fn validate(&self, def: &RecordKeys) -> Result<(), String> {
+        def.validate()?;
         if self.schema.is_empty() {
             return Err("a record target requires a schema".into());
         }
-        definition
-            .primary
+        def.primary
             .validate_coordinates(self.key.hash.as_deref(), self.key.range.as_deref())?;
-        if definition.alternates.keys().ne(self.alternates.keys()) {
+        if def.alternates.keys().ne(self.alternates.keys()) {
             return Err("supply exactly every declared alternate key".into());
         }
         for (name, key) in &self.alternates {
-            let declared = &definition.alternates[name];
+            let declared = &def.alternates[name];
             match key {
-                Some(key) => {
-                    declared.validate_coordinates(key.hash.as_deref(), key.range.as_deref())?;
-                }
-                None if declared.allow_absent => (),
+                Some(k) => declared.validate_coordinates(k.hash.as_deref(), k.range.as_deref())?,
+                None if declared.allow_absent => {}
                 None => return Err(format!("alternate {name} requires an address")),
             }
         }
@@ -67,30 +61,21 @@ pub struct RecordReplacement {
     pub fields: BTreeMap<String, Value>,
     pub metadata: Option<RecordMetadata>,
     pub file: Option<FileMarker>,
-    /// The marker of the record's inline file; its bytes are in their own row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_file: Option<FileMarker>,
 }
 
 impl RecordReplacement {
-    pub fn validate(&self, definition: &RecordKeys) -> Result<(), String> {
-        self.target.validate(definition)?;
+    pub fn validate(&self, def: &RecordKeys) -> Result<(), String> {
+        self.target.validate(def)?;
         if matches!(&self.expected, RecordExpectation::Revision { revision } if revision.is_empty())
         {
             return Err("a replacement revision must be nonempty".into());
         }
-        if self
-            .file
-            .as_ref()
-            .is_some_and(|file| !file.has_valid_hash())
-        {
+        if self.file.as_ref().is_some_and(|f| !f.has_valid_hash()) {
             return Err("a record file marker requires a lowercase SHA-256".into());
         }
-        if self
-            .inline_file
-            .as_ref()
-            .is_some_and(|file| !file.fits_inline())
-        {
+        if self.inline_file.as_ref().is_some_and(|f| !f.fits_inline()) {
             return Err("an inline file marker has an invalid digest, label or size".into());
         }
         Ok(())

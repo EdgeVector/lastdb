@@ -35,8 +35,7 @@ pub mod key_comparison {
                 .range_type
                 .clone()
                 .unwrap_or(FieldValueType::String);
-            let range_comparison =
-                RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
+            let range = RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
             let profile = keys
                 .primary
                 .range_profile()
@@ -48,12 +47,12 @@ pub mod key_comparison {
                 &schema.owner_app_id,
                 &schema.schema_type,
                 keys,
-                &range_comparison,
+                &range,
             ))
             .map_err(|_| SchemaError::InvalidData("cannot encode key comparison context".into()))?;
             Ok(Self {
                 identity: format!("kc1:{:x}", Sha256::digest(bytes)),
-                range: range_comparison,
+                range,
                 failure: OnceLock::new(),
                 profile,
             })
@@ -81,19 +80,20 @@ pub mod key_comparison {
         where
             E: From<SchemaError>,
         {
-            if let Ok(active) = COMPARISON.try_with(Arc::clone) {
+            let (result, ctx) = if let Ok(active) = COMPARISON.try_with(Arc::clone) {
                 if active.identity != self.identity {
                     return Err(SchemaError::InvalidData(
                         "key comparison context changed during the read".into(),
                     )
                     .into());
                 }
-                let result = future.await?;
-                active.require_valid_comparison()?;
-                return Ok(result);
+                (future.await?, active)
+            } else {
+                (COMPARISON.scope(Arc::clone(&self), future).await?, self)
+            };
+            if let Some(detail) = ctx.failure.get() {
+                return Err(SchemaError::InvalidData(detail.clone()).into());
             }
-            let result = COMPARISON.scope(Arc::clone(&self), future).await?;
-            self.require_valid_comparison()?;
             Ok(result)
         }
 
@@ -120,13 +120,6 @@ pub mod key_comparison {
                         .cmp(&self.range.validate_value(right).is_ok())
                         .then_with(|| left.cmp(right))
                 }
-            }
-        }
-
-        fn require_valid_comparison(&self) -> Result<(), SchemaError> {
-            match self.failure.get() {
-                Some(detail) => Err(SchemaError::InvalidData(detail.clone())),
-                None => Ok(()),
             }
         }
 

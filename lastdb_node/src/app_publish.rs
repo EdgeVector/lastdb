@@ -11,28 +11,23 @@ pub fn default_dev_key_path(home: &Path) -> PathBuf {
 }
 
 pub fn validate_version(version: &str) -> Result<(), String> {
-    let trimmed = version.trim();
-    if trimmed != version || trimmed.is_empty() {
+    if version.trim() != version || version.is_empty() {
         return Err(
             "version must be a non-empty SemVer string without surrounding whitespace".into(),
         );
     }
-    semver::Version::parse(trimmed).map_err(|e| format!("version must be valid SemVer: {e}"))?;
-    Ok(())
+    semver::Version::parse(version)
+        .map(|_| ())
+        .map_err(|e| format!("version must be valid SemVer: {e}"))
 }
 
-fn reject_locator(path: &Path) -> Result<(), String> {
+pub fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     if path
         .to_str()
         .is_some_and(|v| v.starts_with("lastsecrets://"))
     {
         return Err("dev key path does not accept a lastsecrets locator".into());
     }
-    Ok(())
-}
-
-pub fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
-    reject_locator(path)?;
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read dev key {}: {e}", path.display()))?;
     let bytes = BASE64

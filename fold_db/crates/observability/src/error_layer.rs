@@ -1,54 +1,38 @@
 //! Optional Sentry ERROR sink with strict privacy allowlisting.
 
 #[cfg(feature = "sentry")]
-use std::{collections::BTreeMap, env};
-
-#[cfg(feature = "sentry")]
 use sentry::protocol::Event;
 #[cfg(feature = "sentry")]
 use sentry_tracing::EventMapping;
 #[cfg(feature = "sentry")]
+use std::{borrow::Cow, collections::BTreeMap, env, sync::Arc};
+#[cfg(feature = "sentry")]
 use tracing::{Level, Metadata, Subscriber};
 #[cfg(feature = "sentry")]
-use tracing_subscriber::filter::{filter_fn, FilterFn, Filtered};
-#[cfg(feature = "sentry")]
-use tracing_subscriber::layer::Layer;
-#[cfg(feature = "sentry")]
-use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{
+    filter::{filter_fn, FilterFn, Filtered},
+    layer::Layer,
+    registry::LookupSpan,
+};
 
-/// Environment variable that gates Sentry initialization.
-pub const OBS_SENTRY_DSN_ENV: &str = "OBS_SENTRY_DSN";
-
-/// Environment variable that names the Sentry deployment environment.
-pub const OBS_SENTRY_ENVIRONMENT_ENV: &str = "OBS_SENTRY_ENVIRONMENT";
+#[cfg(feature = "sentry")]
+const OBS_SENTRY_DSN_ENV: &str = "OBS_SENTRY_DSN";
+#[cfg(feature = "sentry")]
+const OBS_SENTRY_ENVIRONMENT_ENV: &str = "OBS_SENTRY_ENVIRONMENT";
 
 /// Environment variable that names the Sentry release version.
 pub const OBS_SENTRY_RELEASE_ENV: &str = "OBS_SENTRY_RELEASE";
 
 /// RAII guard returned by [`build_error_layer`].
 #[must_use = "SentryGuard must be held for the lifetime of the binary or buffered events may be dropped"]
-#[cfg(feature = "sentry")]
 pub struct SentryGuard {
+    #[cfg(feature = "sentry")]
     _client: sentry::ClientInitGuard,
 }
 
-/// Empty guard used when built without the `sentry` feature.
-#[cfg(not(feature = "sentry"))]
-pub struct SentryGuard;
-
-#[cfg(feature = "sentry")]
 impl std::fmt::Debug for SentryGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SentryGuard").finish_non_exhaustive()
-    }
-}
-
-#[cfg(not(feature = "sentry"))]
-impl std::fmt::Debug for SentryGuard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SentryGuard")
-            .field("compiled", &false)
-            .finish()
     }
 }
 
@@ -61,11 +45,10 @@ pub type ErrorLayer<S> = Filtered<sentry_tracing::SentryLayer<S>, FilterFn, S>;
 pub struct ErrorLayer<S>(std::marker::PhantomData<fn(S)>);
 
 #[cfg(not(feature = "sentry"))]
-impl<S> tracing_subscriber::layer::Layer<S> for ErrorLayer<S> where S: tracing::Subscriber {}
+impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for ErrorLayer<S> {}
 
-/// Parse `OBS_SENTRY_DSN` as a Sentry DSN without panicking.
 #[cfg(feature = "sentry")]
-pub fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
+fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
     let raw = raw.trim();
     if raw.is_empty() {
         return None;
@@ -78,13 +61,11 @@ pub fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
         );
         return None;
     }
-    match raw.parse::<sentry::types::Dsn>() {
-        Ok(dsn) => Some(dsn),
-        Err(err) => {
+    raw.parse::<sentry::types::Dsn>()
+        .inspect_err(|err| {
             eprintln!("observability: invalid {OBS_SENTRY_DSN_ENV} ({err}); Sentry disabled");
-            None
-        }
-    }
+        })
+        .ok()
 }
 
 /// Build the Sentry ERROR-layer when `OBS_SENTRY_DSN` is set to a valid DSN.
@@ -93,51 +74,28 @@ pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    let dsn_raw = match env::var(OBS_SENTRY_DSN_ENV) {
-        Ok(v) if !v.is_empty() => v,
-        _ => return None,
-    };
-    let dsn = parse_obs_sentry_dsn(&dsn_raw)?;
-
-    let environment = env::var(OBS_SENTRY_ENVIRONMENT_ENV)
-        .ok()
-        .filter(|e| !e.is_empty())
-        .map(std::borrow::Cow::Owned);
-    let release = env::var(OBS_SENTRY_RELEASE_ENV)
-        .ok()
-        .filter(|r| !r.is_empty())
-        .map_or_else(
-            || std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION")),
-            std::borrow::Cow::Owned,
-        );
-
+    let dsn = parse_obs_sentry_dsn(&env::var(OBS_SENTRY_DSN_ENV).ok()?)?;
+    let non_empty_env = |k| env::var(k).ok().filter(|v| !v.is_empty());
+    let release = non_empty_env(OBS_SENTRY_RELEASE_ENV)
+        .map_or(Cow::Borrowed(env!("CARGO_PKG_VERSION")), Cow::Owned);
     let options = sentry::ClientOptions {
         release: Some(release),
-        environment,
+        environment: non_empty_env(OBS_SENTRY_ENVIRONMENT_ENV).map(Cow::Owned),
         default_integrations: false,
         send_default_pii: false,
         attach_stacktrace: false,
         max_breadcrumbs: 0,
         auto_session_tracking: false,
-        before_send: Some(std::sync::Arc::new(|event| Some(sanitize_event(&event)))),
+        before_send: Some(Arc::new(|event| Some(sanitize_event(&event)))),
         ..Default::default()
     };
     let client = sentry::init((dsn, options));
-    let filter: FilterFn = filter_fn(is_error_or_span as fn(&Metadata<'_>) -> bool);
+    let filter: FilterFn =
+        filter_fn(|meta: &Metadata<'_>| !meta.is_event() || *meta.level() == Level::ERROR);
     let layer = sentry_tracing::layer()
         .event_mapper(event_mapper::<S>)
         .with_filter(filter);
-
     Some((layer, SentryGuard { _client: client }))
-}
-
-#[cfg(feature = "sentry")]
-fn is_error_or_span(meta: &Metadata<'_>) -> bool {
-    if meta.is_event() {
-        *meta.level() == Level::ERROR
-    } else {
-        true
-    }
 }
 
 /// Return `None` when built without the `sentry` feature.
@@ -162,8 +120,8 @@ where
     if is_disk_full_storage_event(&sentry_event) {
         let mut breadcrumb = sentry_tracing::breadcrumb_from_event(event, Some(&ctx));
         breadcrumb.data.insert(
-            "lastdbd.event_class".to_string(),
-            serde_json::Value::String("disk_full_storage".to_string()),
+            "lastdbd.event_class".into(),
+            serde_json::Value::String("disk_full_storage".into()),
         );
         return EventMapping::Breadcrumb(breadcrumb);
     }
@@ -172,40 +130,45 @@ where
 
 #[cfg(feature = "sentry")]
 fn is_disk_full_storage_event(event: &Event<'_>) -> bool {
-    event_text(event).is_some_and(|text| {
-        let lower = text.to_ascii_lowercase();
-        (lower.contains("storagefull")
-            || lower.contains("storage full")
-            || lower.contains("no space left on device")
-            || lower.contains("enospc"))
-            && (lower.contains("storage") || lower.contains("db") || lower.contains("database"))
-    })
+    let mut parts: Vec<String> = event.message.iter().cloned().collect();
+    if let Some(log) = &event.logentry {
+        parts.push(log.message.clone());
+        parts.extend(log.params.iter().map(ToString::to_string));
+    }
+    parts.extend(event.extra.values().map(ToString::to_string));
+    let lower = parts.join(" ").to_ascii_lowercase();
+    [
+        "storagefull",
+        "storage full",
+        "no space left on device",
+        "enospc",
+    ]
+    .iter()
+    .any(|n| lower.contains(n))
+        && ["storage", "db", "database"]
+            .iter()
+            .any(|n| lower.contains(n))
 }
 
 #[cfg(feature = "sentry")]
-fn event_text(event: &Event<'_>) -> Option<String> {
-    let mut parts = Vec::new();
-    if let Some(message) = event.message.as_deref() {
-        parts.push(message.to_string());
-    }
-    if let Some(logentry) = event.logentry.as_ref() {
-        parts.push(logentry.message.clone());
-        parts.extend(logentry.params.iter().map(ToString::to_string));
-    }
-    parts.extend(event.extra.values().map(ToString::to_string));
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" "))
-    }
+fn numeric_version(release: &str) -> Option<&str> {
+    let version = release
+        .strip_prefix('v')
+        .unwrap_or(release)
+        .split('-')
+        .next()?;
+    let parts: Vec<&str> = version.split('.').collect();
+    (parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| (1..=6).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit())))
+    .then_some(version)
 }
 
 #[cfg(feature = "sentry")]
 fn sanitize_event(source: &Event<'_>) -> Event<'static> {
     let category = match source.tags.get("crash_kind").map(String::as_str) {
-        Some("panic") => "panic",
-        Some("startup_failed") => "startup_failed",
-        Some("unclean_exit") => "unclean_exit",
+        Some(k @ ("panic" | "startup_failed" | "unclean_exit")) => k,
         _ => "application_error",
     };
     Event {
@@ -216,18 +179,21 @@ fn sanitize_event(source: &Event<'_>) -> Event<'static> {
         release: source
             .release
             .as_deref()
-            .and_then(crate::crash::numeric_version)
-            .map(str::to_string)
-            .map(Into::into),
-        environment: source.environment.as_deref().and_then(|value| match value {
-            "production" | "development" | "prod" | "dev" | "staging" => {
-                Some(value.to_string().into())
-            }
-            _ => None,
-        }),
+            .and_then(numeric_version)
+            .map(|v| v.to_owned().into()),
+        environment: source
+            .environment
+            .as_deref()
+            .filter(|v| {
+                matches!(
+                    *v,
+                    "production" | "development" | "prod" | "dev" | "staging"
+                )
+            })
+            .map(|v| v.to_owned().into()),
         tags: BTreeMap::from([
-            ("fault_category".to_string(), category.to_string()),
-            ("os".to_string(), env::consts::OS.to_string()),
+            ("fault_category".into(), category.into()),
+            ("os".into(), env::consts::OS.into()),
         ]),
         ..Default::default()
     }

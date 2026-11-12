@@ -18,7 +18,7 @@ pub(super) fn is_media_type(header: Option<&str>, expected: &str) -> bool {
         value.split(',').any(|item| {
             item.split(';')
                 .next()
-                .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case(expected))
+                .is_some_and(|m| m.trim().eq_ignore_ascii_case(expected))
         })
     })
 }
@@ -37,20 +37,10 @@ impl FileTarget {
     pub(super) fn parse(body: &[u8], route: &str) -> Result<Self, HostError> {
         let target: Self = serde_json::from_slice(body)
             .map_err(|error| HostError::new(400, format!("invalid {route} body: {error}")))?;
-        target.require_hash()?;
-        Ok(target)
-    }
-
-    pub(super) fn require_hash(&self) -> Result<(), HostError> {
-        if self.key.hash.as_deref().is_none_or(str::is_empty) {
+        if target.key.hash.as_deref().is_none_or(str::is_empty) {
             return Err(HostError::new(400, "a file route requires key.hash"));
         }
-        Ok(())
-    }
-
-    pub(super) fn canonical(&self, host: &Host) -> Result<String, HostError> {
-        schema_resolve::resolve_schema_name(host, &self.schema)?
-            .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", self.schema)))
+        Ok(target)
     }
 }
 
@@ -61,29 +51,26 @@ pub(super) async fn execute_db_fetch_blob_route(
 ) -> UdsResponse {
     let read = async {
         let target = FileTarget::parse(&req.body, "/api/db/fetch-blob")?;
-        let schema = target.canonical(host)?;
-        let revision = target.expected_revision.as_deref();
-        let result = match target.placement {
-            Placement::Inline => {
+        let schema = schema_resolve::resolve_schema_name(host, &target.schema)?
+            .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", target.schema)))?;
+        let rev = target.expected_revision.as_deref();
+        let (result, missing) = match target.placement {
+            Placement::Inline => (
                 host.records()
-                    .read_record_inline_file(&schema, &target.key, revision)
-                    .await
-            }
-            Placement::Blob => {
+                    .read_record_inline_file(&schema, &target.key, rev)
+                    .await,
+                "the record has no inline file",
+            ),
+            Placement::Blob => (
                 host.records()
-                    .read_record_file(&schema, &target.key, revision)
-                    .await
-            }
+                    .read_record_file(&schema, &target.key, rev)
+                    .await,
+                "the record has no file",
+            ),
         };
-        result.map_err(HostError::from)?.ok_or_else(|| {
-            HostError::new(
-                404,
-                match target.placement {
-                    Placement::Blob => "the record has no file",
-                    Placement::Inline => "the record has no inline file",
-                },
-            )
-        })
+        result
+            .map_err(HostError::from)?
+            .ok_or_else(|| HostError::new(404, missing))
     };
     render_file(req, ctx, read.await)
 }

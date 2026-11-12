@@ -36,21 +36,12 @@ impl RangeStorageProfile {
     pub fn encode_value(self, api: &str) -> Result<String, String> {
         match self {
             Self::StringUtf8V1 => Ok(api.to_owned()),
-            Self::IntegerI64V1 => {
-                let value = api
-                    .parse::<i64>()
-                    .map_err(|_| "expected a signed 64-bit range key")?;
-                let biased = (value as u64) ^ (1_u64 << 63);
-                Ok(format!("{biased:016x}"))
-            }
-            Self::DateDaysV1 => {
-                let biased = date_day(api)? - FIRST_DAY;
-                Ok(format!("{biased:06x}"))
-            }
-            Self::DateTimeNanosV1 => {
-                let biased = datetime_nanos(api)? - FIRST_NANOS;
-                Ok(format!("{biased:018x}"))
-            }
+            Self::IntegerI64V1 => api
+                .parse::<i64>()
+                .map(|v| format!("{:016x}", (v as u64) ^ (1_u64 << 63)))
+                .map_err(|_| "expected a signed 64-bit range key".into()),
+            Self::DateDaysV1 => Ok(format!("{:06x}", date_day(api)? - FIRST_DAY)),
+            Self::DateTimeNanosV1 => Ok(format!("{:018x}", datetime_nanos(api)? - FIRST_NANOS)),
             Self::BooleanV1 => match api {
                 "false" => Ok("0".into()),
                 "true" => Ok("1".into()),
@@ -63,8 +54,8 @@ impl RangeStorageProfile {
         match self {
             Self::StringUtf8V1 => Ok(stored.to_owned()),
             Self::IntegerI64V1 => {
-                let value = parse_hex(stored, 16)? as u64;
-                Ok(((value ^ (1_u64 << 63)) as i64).to_string())
+                let v = parse_hex(stored, 16)? as u64;
+                Ok(((v ^ (1_u64 << 63)) as i64).to_string())
             }
             Self::DateDaysV1 => {
                 let biased = parse_hex(stored, 6)?;
@@ -75,7 +66,19 @@ impl RangeStorageProfile {
                     .map(|date| date.format("%Y-%m-%d").to_string())
                     .ok_or_else(|| "stored Date range is invalid".into())
             }
-            Self::DateTimeNanosV1 => decode_datetime(stored),
+            Self::DateTimeNanosV1 => {
+                let biased = parse_hex(stored, 18)?;
+                if biased >= (END_NANOS - FIRST_NANOS) as u128 {
+                    return Err("stored DateTime range is outside UTC years 0000..9999".into());
+                }
+                let nanos = FIRST_NANOS + biased as i128;
+                DateTime::<Utc>::from_timestamp(
+                    nanos.div_euclid(NANOS_PER_SECOND) as i64,
+                    nanos.rem_euclid(NANOS_PER_SECOND) as u32,
+                )
+                .map(|instant| instant.to_rfc3339_opts(SecondsFormat::Nanos, true))
+                .ok_or_else(|| "stored DateTime range is invalid".into())
+            }
             Self::BooleanV1 => match stored {
                 "0" => Ok("false".into()),
                 "1" => Ok("true".into()),
@@ -85,10 +88,9 @@ impl RangeStorageProfile {
     }
 
     pub fn require_text_prefix(self) -> Result<(), String> {
-        match self {
-            Self::StringUtf8V1 => Ok(()),
-            _ => Err("a text prefix requires a String range storage profile".into()),
-        }
+        (self == Self::StringUtf8V1)
+            .then_some(())
+            .ok_or_else(|| "a text prefix requires a String range storage profile".into())
     }
 }
 
@@ -103,9 +105,7 @@ impl FieldRangeProfile {
     pub fn for_field_type(range: Option<&FieldValueType>) -> Result<Self, String> {
         match range {
             None => Ok(Self::EmptyV1),
-            Some(field_type) => Ok(Self::TypedV1 {
-                scalar: RangeStorageProfile::typed(field_type)?,
-            }),
+            Some(ty) => RangeStorageProfile::typed(ty).map(|scalar| Self::TypedV1 { scalar }),
         }
     }
 
@@ -132,31 +132,17 @@ impl FieldRangeProfile {
 }
 
 fn empty_slot(value: &str) -> Result<String, String> {
-    if value.is_empty() {
-        Ok(String::new())
-    } else {
-        Err("a field key without a range field requires an empty range slot".into())
-    }
-}
-
-fn decode_datetime(stored: &str) -> Result<String, String> {
-    let biased = parse_hex(stored, 18)?;
-    if biased >= (END_NANOS - FIRST_NANOS) as u128 {
-        return Err("stored DateTime range is outside UTC years 0000..9999".into());
-    }
-    let nanos = FIRST_NANOS + biased as i128;
-    let seconds = nanos.div_euclid(NANOS_PER_SECOND) as i64;
-    let fraction = nanos.rem_euclid(NANOS_PER_SECOND) as u32;
-    DateTime::<Utc>::from_timestamp(seconds, fraction)
-        .map(|instant| instant.to_rfc3339_opts(SecondsFormat::Nanos, true))
-        .ok_or_else(|| "stored DateTime range is invalid".into())
+    value
+        .is_empty()
+        .then(String::new)
+        .ok_or_else(|| "a field key without a range field requires an empty range slot".into())
 }
 
 fn parse_hex(text: &str, width: usize) -> Result<u128, String> {
     if text.len() != width
         || !text
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
         return Err("stored typed range has a noncanonical width or alphabet".into());
     }

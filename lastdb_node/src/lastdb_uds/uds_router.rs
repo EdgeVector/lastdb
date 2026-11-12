@@ -117,7 +117,7 @@ pub enum ControlRoute {
     NotFound,
 }
 
-fn single_method(method: &str, allow: &'static str, route: ControlRoute) -> ControlRoute {
+fn allow_only(method: &str, allow: &'static str, route: ControlRoute) -> ControlRoute {
     if method == allow {
         route
     } else {
@@ -127,35 +127,33 @@ fn single_method(method: &str, allow: &'static str, route: ControlRoute) -> Cont
 
 /// Classify a parsed control-socket request into a [`ControlRoute`].
 pub fn route(req: &UdsRequest) -> ControlRoute {
-    let end = req.target.find(['?', '#']).unwrap_or(req.target.len());
-    let path = &req.target[..end];
+    let path = &req.target[..req.target.find(['?', '#']).unwrap_or(req.target.len())];
     let method = req.method.as_str();
-
     match path {
-        "/health" => return single_method(method, "GET", ControlRoute::Health),
-        "/api/version" => return single_method(method, "GET", ControlRoute::Version),
-        "/api/db/native-status" => {
-            return match method {
-                "GET" | "POST" => ControlRoute::Data(DataRoute::DbNativeStatus),
-                _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
-            }
-        }
-        "/api/db/cleanup" => {
-            return match method {
-                "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
-                _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
-            }
+        "/health" => return allow_only(method, "GET", ControlRoute::Health),
+        "/api/version" => return allow_only(method, "GET", ControlRoute::Version),
+        "/api/db/native-status" | "/api/db/cleanup" => {
+            let data = if path == "/api/db/cleanup" {
+                DataRoute::DbCleanup
+            } else {
+                DataRoute::DbNativeStatus
+            };
+            return if matches!(method, "GET" | "POST") {
+                ControlRoute::Data(data)
+            } else {
+                ControlRoute::MethodNotAllowed { allow: "GET, POST" }
+            };
         }
         _ => {}
     }
     if let Some(&(_, allow, data)) = EXACT_ROUTES.iter().find(|&&(p, _, _)| p == path) {
-        return single_method(method, allow, ControlRoute::Data(data));
+        return allow_only(method, allow, ControlRoute::Data(data));
     }
     if path
         .strip_prefix("/api/schema/")
         .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
     {
-        return single_method(method, "GET", ControlRoute::Data(DataRoute::GetSchema));
+        return allow_only(method, "GET", ControlRoute::Data(DataRoute::GetSchema));
     }
     ControlRoute::NotFound
 }
@@ -173,16 +171,11 @@ fn instance_id() -> &'static str {
 
 /// Cheap liveness response for the control socket.
 pub fn health_response() -> UdsResponse {
-    let instance_id = instance_id();
-    UdsResponse::new(
-        200,
-        "OK",
-        format!(
-            "{{\"status\":\"ok\",\"api_version\":{API_VERSION},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{instance_id}\"}}"
-        )
-        .into_bytes(),
-    )
-    .with_header("Content-Type", "application/json")
+    let id = instance_id();
+    let body = format!(
+        "{{\"status\":\"ok\",\"api_version\":{API_VERSION},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{id}\"}}"
+    );
+    UdsResponse::new(200, "OK", body.into_bytes()).with_header("Content-Type", "application/json")
 }
 
 /// Build a 405 Method Not Allowed response with an `Allow` header.
@@ -192,35 +185,23 @@ pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
 }
 
 /// Route a parsed request and answer it, delegating recognized data routes to `execute_data`.
-pub fn dispatch<F>(
+pub fn dispatch<F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse>(
     req: &UdsRequest,
     ctx: &AccessContext,
     execute_data: F,
     (min_api, cur_outbox, min_outbox): (u32, u32, u32),
-) -> UdsResponse
-where
-    F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse,
-{
+) -> UdsResponse {
     match route(req) {
         ControlRoute::Health => health_response(),
         ControlRoute::Version => {
-            let build = serde_json::Value::String(
-                BUILD_VERSION
-                    .get()
-                    .copied()
-                    .unwrap_or("unknown")
-                    .to_string(),
+            let build =
+                serde_json::Value::String(BUILD_VERSION.get().copied().unwrap_or("unknown").into());
+            let id = instance_id();
+            let body = format!(
+                "{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{id}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{cur_outbox},\"min_supported_outbox_format_version\":{min_outbox}}}"
             );
-            let instance_id = instance_id();
-            UdsResponse::new(
-                200,
-                "OK",
-                format!(
-                    "{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{instance_id}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{cur_outbox},\"min_supported_outbox_format_version\":{min_outbox}}}"
-                )
-                .into_bytes(),
-            )
-            .with_header("Content-Type", "application/json")
+            UdsResponse::new(200, "OK", body.into_bytes())
+                .with_header("Content-Type", "application/json")
         }
         ControlRoute::Data(data) => execute_data(data, req, ctx),
         ControlRoute::NotFound => UdsResponse::new(404, "Not Found", b"Not Found".to_vec()),

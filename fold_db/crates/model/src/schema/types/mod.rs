@@ -1,5 +1,4 @@
 pub mod errors;
-pub mod field;
 pub mod mutation;
 pub mod operations;
 
@@ -23,6 +22,68 @@ pub mod schema {
     pub use schema_types::DeclarativeSchemaType;
 }
 
+pub mod field {
+    use super::key_value::KeyValue;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum HashRangeFilter {
+        HashRangeKey {
+            hash: String,
+            range: String,
+        },
+        HashKey(String),
+        HashRangePrefix {
+            hash: String,
+            prefix: String,
+        },
+        HashRangeRange {
+            hash: String,
+            start: String,
+            end: String,
+        },
+        HashRangeKeys(Vec<(String, String)>),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum KeyWindow {
+        Offset { offset: usize, limit: usize },
+        After { after: KeyValue, limit: usize },
+    }
+
+    impl KeyWindow {
+        #[must_use]
+        pub fn offset(offset: usize, limit: usize) -> Self {
+            Self::Offset { offset, limit }
+        }
+        #[must_use]
+        pub fn after(after: KeyValue, limit: usize) -> Self {
+            Self::After { after, limit }
+        }
+    }
+
+    pub struct FilterUtils;
+
+    impl FilterUtils {
+        pub fn create_prefix_end(prefix: &str) -> Result<String, crate::schema::SchemaError> {
+            let mut prefix_end = prefix.to_string();
+            while let Some(last_char) = prefix_end.pop() {
+                let next_cp = match last_char as u32 + 1 {
+                    0xD800 => 0xE000,
+                    n => n,
+                };
+                if let Some(next_char) = char::from_u32(next_cp) {
+                    prefix_end.push(next_char);
+                    return Ok(prefix_end);
+                }
+            }
+            Err(crate::schema::SchemaError::InvalidData(
+                "the prefix has no finite upper bound; select by prefix instead".into(),
+            ))
+        }
+    }
+}
+
 pub mod author_clock {
     use super::Mutation;
     use sha2::{Digest, Sha256};
@@ -42,20 +103,12 @@ pub mod author_clock {
             count: usize,
         ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
             let additional = u64::try_from(count.checked_sub(1)?).ok()?;
-            let mut state = *self;
-            let (first, counter) = state.advance_local(now_nanos)?;
-            let last = first.checked_add(additional)?;
-            state.physical_nanos = last;
-            *self = state;
-            Some((first..=last, counter))
-        }
-
-        #[must_use]
-        pub fn advance_local(&mut self, now_nanos: u64) -> Option<(u64, u64)> {
             let counter = self.logical_counter.checked_add(1)?;
-            self.physical_nanos = self.physical_nanos.max(now_nanos);
+            let first = self.physical_nanos.max(now_nanos);
+            let last = first.checked_add(additional)?;
+            self.physical_nanos = last;
             self.logical_counter = counter;
-            Some((self.physical_nanos, self.logical_counter))
+            Some((first..=last, counter))
         }
 
         pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {
@@ -66,13 +119,14 @@ pub mod author_clock {
 
     #[must_use]
     pub fn mutation_author_clock_key(device_id: &str) -> String {
-        let digest = Sha256::digest(device_id.as_bytes());
-        format!("mutation_author_clock:{digest:x}")
+        format!(
+            "mutation_author_clock:{:x}",
+            Sha256::digest(device_id.as_bytes())
+        )
     }
 
     #[must_use]
     pub fn mutation_author_canonical_bytes(mutation: &Mutation) -> Vec<u8> {
-        let written_at = mutation.imported_written_at.unwrap_or(0);
         let content_hash = mutation.content_hash();
         crate::canonical::CanonicalWriter::with_capacity(
             content_hash.len() + mutation.uuid.len() + mutation.author_clock_writer_id.len() + 32,
@@ -81,7 +135,7 @@ pub mod author_clock {
         .field(content_hash.as_bytes())
         .field(mutation.uuid.as_bytes())
         .field(mutation.author_clock_writer_id.as_bytes())
-        .u64(written_at)
+        .u64(mutation.imported_written_at.unwrap_or(0))
         .u64(mutation.logical_counter)
         .finish()
     }
@@ -90,14 +144,13 @@ pub mod author_clock {
 pub mod declarative_schemas {
     use std::ops::{Deref, DerefMut};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub struct DeclarativeSchemaDefinition {
         wire: schema_types::DeclarativeSchemaDefinition,
     }
 
     impl Deref for DeclarativeSchemaDefinition {
         type Target = schema_types::DeclarativeSchemaDefinition;
-
         fn deref(&self) -> &Self::Target {
             &self.wire
         }
@@ -112,9 +165,7 @@ pub mod declarative_schemas {
     impl DeclarativeSchemaDefinition {
         #[must_use]
         pub fn has_field(&self, name: &str) -> bool {
-            self.fields
-                .as_ref()
-                .is_some_and(|fields| fields.iter().any(|field| field == name))
+            self.fields.iter().flatten().any(|field| field == name)
         }
 
         pub fn validate(&self) -> Result<(), crate::schema::SchemaError> {
@@ -130,10 +181,6 @@ pub mod declarative_schemas {
                     "this home requires explicit record_keys".into(),
                 )
             })
-        }
-
-        pub fn validate_field_name(name: &str) -> Result<(), String> {
-            schema_types::DeclarativeSchemaDefinition::validate_field_name(name)
         }
 
         #[must_use]
@@ -160,12 +207,6 @@ pub mod declarative_schemas {
     impl From<DeclarativeSchemaDefinition> for schema_types::DeclarativeSchemaDefinition {
         fn from(schema: DeclarativeSchemaDefinition) -> Self {
             schema.to_wire()
-        }
-    }
-
-    impl PartialEq for DeclarativeSchemaDefinition {
-        fn eq(&self, other: &Self) -> bool {
-            self.wire == other.wire
         }
     }
 
@@ -229,9 +270,8 @@ pub mod key_value {
     impl std::fmt::Display for KeyValue {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match (&self.hash, &self.range) {
-                (Some(hash), Some(range)) => write!(f, "{hash}:{range}"),
-                (Some(hash), None) => write!(f, "{hash}"),
-                (None, Some(range)) => write!(f, "{range}"),
+                (Some(h), Some(r)) => write!(f, "{h}:{r}"),
+                (Some(s), None) | (None, Some(s)) => f.write_str(s),
                 (None, None) => Ok(()),
             }
         }
@@ -280,15 +320,16 @@ pub mod query_cursor {
         }
 
         pub fn record_position(&self) -> Result<Option<String>, String> {
-            let Some(record) = self.record.as_deref() else {
-                return Ok(None);
-            };
-            let bytes = URL_SAFE_NO_PAD
-                .decode(record)
-                .map_err(|_| "the record cursor is not base64url".to_string())?;
-            String::from_utf8(bytes)
-                .map(Some)
-                .map_err(|_| "the record cursor is not a record key".to_string())
+            self.record
+                .as_deref()
+                .map(|r| {
+                    let bytes = URL_SAFE_NO_PAD
+                        .decode(r)
+                        .map_err(|_| "the record cursor is not base64url".to_string())?;
+                    String::from_utf8(bytes)
+                        .map_err(|_| "the record cursor is not a record key".to_string())
+                })
+                .transpose()
         }
 
         #[must_use]

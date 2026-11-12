@@ -17,6 +17,11 @@ use fold_db::schema::types::{KeyValue, Query};
 use super::{fill_page, key_is_expired, Backlog};
 use crate::host::Host;
 
+static WATCH: Mutex<Option<WriterWatch>> = Mutex::new(None);
+const REST_SLICE: Duration = Duration::from_millis(250);
+const MAX_PAUSE: Duration = Duration::from_secs(600);
+const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
+
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, is_delete: bool) -> usize {
     let limit = host.db.db_ops().batch_operation_limit();
     let shape = backlog.shape;
@@ -36,11 +41,6 @@ fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, is_delete: bool
     }
     pace_batch.min(keys).min(backlog.batch_cap).max(1)
 }
-
-static WATCH: Mutex<Option<WriterWatch>> = Mutex::new(None);
-const REST_SLICE: Duration = Duration::from_millis(250);
-const MAX_PAUSE: Duration = Duration::from_secs(600);
-const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct PassTotals {
@@ -167,8 +167,10 @@ async fn erase_page(
         let chunk = backlog.take(batch_size(host, backlog, pace.batch, is_delete));
         let taken = chunk.len();
         let started = Instant::now();
-        let fut = erase_batch(host, backlog, chunk, is_delete);
-        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(fut)).await;
+        let (outcome, blocked, scopes) = Box::pin(WriterWatch::measure(erase_batch(
+            host, backlog, chunk, is_delete,
+        )))
+        .await;
         let pause = pace.pause_after(blocked, watch.writer_present(scopes));
         match outcome {
             Ok((erased, dropped, missing)) => {
@@ -188,9 +190,13 @@ async fn erase_page(
             }
             Err(error)
                 if taken > 1
-                    && (error.contains("read resource limit exceeded")
-                        || error.contains("complete mutation limit exceeded")
-                        || error.contains("write resource limit")) =>
+                    && [
+                        "read resource limit exceeded",
+                        "complete mutation limit exceeded",
+                        "write resource limit",
+                    ]
+                    .iter()
+                    .any(|pat| error.contains(pat)) =>
             {
                 backlog.shrink_after_limit(taken);
                 tracing::warn!(
@@ -265,7 +271,7 @@ async fn erase_batch(
     } else {
         chunk
             .into_iter()
-            .filter(|key| key_is_expired(key, &backlog.schema_type, cutoff))
+            .filter(|k| key_is_expired(k, &backlog.schema_type, cutoff))
             .collect()
     };
     let dropped = listed - keys.len();
@@ -285,12 +291,12 @@ async fn erase_batch(
             .mutation_manager()
             .absent_erase_targets(&backlog.schema_name, &keys)
             .await
-            .map_err(|check| format!("{error}; the absent-key check failed: {check}"))?;
+            .map_err(|c| format!("{error}; the absent-key check failed: {c}"))?;
         if absent.is_empty() {
             return Err(error);
         }
         missing += absent.len();
-        keys.retain(|key| !absent.contains(key));
+        keys.retain(|k| !absent.contains(k));
         tracing::info!(
             target: "lastdbd::ttl_sweep", schema = %backlog.schema_name,
             absent = absent.len(), kept = keys.len(),
@@ -321,11 +327,14 @@ async fn purge_keys(
             )
         })
         .collect();
-    let filter = Some(HashRangeFilter::HashRangeKeys(pairs));
+    let query = Query::new_with_filter(
+        schema_name.into(),
+        Some(HashRangeFilter::HashRangeKeys(pairs)),
+    );
     let mut rows = host
         .db
         .query_executor()
-        .query(Query::new_with_filter(schema_name.into(), filter))
+        .query(query)
         .await
         .map_err(|e| e.to_string())?;
     if rows.len() != keys.len() {
@@ -337,31 +346,27 @@ async fn purge_keys(
         (MutationType::Purge, "ttl-sweep-purge", None)
     };
     let pubkey = host.public_key();
-    let mutations: Vec<Mutation> = keys
+    let mutations = keys
         .iter()
         .map(|key| {
             let r = rows.remove(key).expect("every erasure key was read");
-            let t = RecordTarget {
-                schema: schema_name.into(),
-                key: key.clone(),
-                alternates: r.alternates,
-            };
-            let exp = RecordExpectation::Revision {
-                revision: r.revision,
-            };
             let mut m = Mutation::with_uuid(
                 uuid::Uuid::new_v4().to_string(),
-                t,
+                RecordTarget {
+                    schema: schema_name.into(),
+                    key: key.clone(),
+                    alternates: r.alternates,
+                },
                 HashMap::new(),
                 pubkey.clone(),
                 mutation_type,
-                exp,
-            )
-            .with_erase_caller(caller);
+                RecordExpectation::Revision {
+                    revision: r.revision,
+                },
+            );
+            m.erase_caller = Some(caller);
             m.synchronous = sync;
-            if let Some(nanos) = write_cutoff_nanos {
-                m = m.with_erase_written_before_nanos(nanos);
-            }
+            m.erase_written_before_nanos = write_cutoff_nanos;
             m
         })
         .collect();
