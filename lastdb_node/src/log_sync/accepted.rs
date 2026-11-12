@@ -196,11 +196,8 @@ fn sealed_payload(
     namespace: &str,
     next: &mut u64,
 ) -> Option<(Seal, Vec<u8>)> {
-    if let Some(saved) = retry::load(&host.home, log.database_id(), mutation_id)
-        .ok()
-        .flatten()
-    {
-        if saved.0.writer_seq > *next {
+    if let Some(saved) = retry::load(&host.home, log.database_id(), mutation_id).ok()? {
+        if saved.0.writer_seq > *next || saved.0.namespace != namespace {
             return None;
         }
         *next = (*next).max(saved.0.writer_seq.saturating_add(1));
@@ -260,7 +257,7 @@ async fn append_entry(log: &CloudLog, entry: Entry) -> bool {
     .await;
     match joined {
         Ok(Ok(AppendOutcome::Accepted { .. })) => true,
-        Ok(Ok(AppendOutcome::Duplicate { next_seq })) => next_seq == seq.saturating_add(1),
+        Ok(Ok(AppendOutcome::Duplicate { next_seq })) => next_seq > seq,
         _ => false,
     }
 }
