@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 const DIRECTORY: &str = "share-members";
 const FILE_LIMIT: u64 = CONTROL_JSON_MAX_BYTES * 2;
 
-struct Saved {
+pub(super) struct Saved {
     body: Vec<u8>,
     record: PendingRecord,
 }

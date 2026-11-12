@@ -14,82 +14,66 @@ const MAX_INPUT_BYTES: u64 = 64 * 1024;
 const GRANT_FLAGS: &str =
     "contributor grant requires --home, --rules, --operation-id, and --expected-version";
 
-pub(super) fn invite(
-    db: Option<&str>,
-    identity_home: &Path,
-    home: Option<&Path>,
-    recipient: &Path,
-    recipient_key: String,
-    out: &Path,
-    expires_in_hours: u32,
-    regrant: bool,
-) -> Result<(), String> {
-    if db.is_some() && home.is_some() {
+/// Parent `--db` or publication `--home`, plus the invite flags.
+pub(super) struct InviteOptions<'a> {
+    pub db: Option<&'a str>,
+    pub identity_home: &'a Path,
+    pub home: Option<&'a Path>,
+    pub recipient: &'a Path,
+    pub recipient_key: String,
+    pub out: &'a Path,
+    pub expires_in_hours: u32,
+    pub regrant: bool,
+}
+
+/// Parent `--db` or publication `--home`, plus the contributor grant flags.
+pub(super) struct GrantOptions<'a> {
+    pub identity_home: &'a Path,
+    pub db: Option<&'a str>,
+    pub home: Option<&'a Path>,
+    pub recipient: &'a Path,
+    pub recipient_key: String,
+    pub rules: Option<&'a Path>,
+    pub operation_id: Option<String>,
+    pub expected_version: Option<u64>,
+    pub out: &'a Path,
+    pub regrant: bool,
+    pub expires_in_hours: Option<u32>,
+}
+
+pub(super) fn invite(args: InviteOptions<'_>) -> Result<(), String> {
+    if args.db.is_some() && args.home.is_some() {
         return Err("share invite accepts --db or --home, not both".into());
     }
-    let contact = read_contact(recipient, recipient_key)?;
-    if let Some(selector) = db {
+    let contact = read_contact(args.recipient, args.recipient_key)?;
+    if let Some(selector) = args.db {
         return named_invite(
-            identity_home,
+            args.identity_home,
             selector,
             &contact,
-            out,
-            expires_in_hours,
-            regrant,
+            args.out,
+            args.expires_in_hours,
+            args.regrant,
         );
     }
     legacy_invite(
-        identity_home,
-        home,
+        args.identity_home,
+        args.home,
         &contact,
-        out,
-        expires_in_hours,
-        regrant,
+        args.out,
+        args.expires_in_hours,
+        args.regrant,
     )
 }
 
-pub(super) fn grant(
-    identity_home: &Path,
-    db: Option<&str>,
-    home: Option<&Path>,
-    recipient: &Path,
-    recipient_key: String,
-    rules: Option<&Path>,
-    operation_id: Option<String>,
-    expected_version: Option<u64>,
-    out: &Path,
-    regrant: bool,
-    expires_in_hours: Option<u32>,
-) -> Result<(), String> {
-    if db.is_some() && home.is_some() {
+pub(super) fn grant(args: GrantOptions<'_>) -> Result<(), String> {
+    if args.db.is_some() && args.home.is_some() {
         return Err("contributor grant accepts --db or --home, not both".into());
     }
-    if let Some(selector) = db {
-        return named_grant(
-            identity_home,
-            selector,
-            recipient,
-            recipient_key,
-            rules,
-            operation_id,
-            expected_version,
-            out,
-            regrant,
-            expires_in_hours,
-        );
+    if let Some(selector) = args.db {
+        return named_grant(selector, args);
     }
-    legacy_grant(
-        identity_home,
-        home,
-        recipient,
-        recipient_key,
-        rules,
-        operation_id,
-        expected_version,
-        out,
-        regrant,
-        expires_in_hours,
-    )
+    legacy_grant(args)
 }
 
 pub(super) fn revoke(
@@ -157,66 +141,55 @@ fn legacy_invite(
     Ok(())
 }
 
-fn named_grant(
-    home: &Path,
-    selector: &str,
-    recipient: &Path,
-    recipient_key: String,
-    rules: Option<&Path>,
-    operation_id: Option<String>,
-    expected_version: Option<u64>,
-    out: &Path,
-    regrant: bool,
-    expires_in_hours: Option<u32>,
-) -> Result<(), String> {
-    if rules.is_some() || operation_id.is_some() || expected_version.is_some() {
+fn named_grant(selector: &str, args: GrantOptions<'_>) -> Result<(), String> {
+    if args.rules.is_some() || args.operation_id.is_some() || args.expected_version.is_some() {
         return Err("named database grant does not accept publication flags".into());
     }
-    let contact = read_contact(recipient, recipient_key)?;
+    let contact = read_contact(args.recipient, args.recipient_key)?;
     let ack = member_update(
-        home,
+        args.identity_home,
         selector,
         contact.identity_public_key(),
-        MemberIntent::Submit { regrant },
+        MemberIntent::Submit {
+            regrant: args.regrant,
+        },
     )?;
-    let sealed = seal(home, &ack, &contact, expires_in_hours.unwrap_or(24))?;
-    write_file(out, &sealed)?;
-    print_member("grant", Some(out), &ack);
+    let sealed = seal(
+        args.identity_home,
+        &ack,
+        &contact,
+        args.expires_in_hours.unwrap_or(24),
+    )?;
+    write_file(args.out, &sealed)?;
+    print_member("grant", Some(args.out), &ack);
     Ok(())
 }
 
-fn legacy_grant(
-    identity_home: &Path,
-    home: Option<&Path>,
-    recipient: &Path,
-    recipient_key: String,
-    rules: Option<&Path>,
-    operation_id: Option<String>,
-    expected_version: Option<u64>,
-    out: &Path,
-    regrant: bool,
-    expires_in_hours: Option<u32>,
-) -> Result<(), String> {
-    if regrant {
+fn legacy_grant(args: GrantOptions<'_>) -> Result<(), String> {
+    if args.regrant {
         return Err("--regrant applies only to a named database".into());
     }
-    if expires_in_hours.is_some() {
+    if args.expires_in_hours.is_some() {
         return Err("--expires-in-hours applies only to a named database grant".into());
     }
-    let (home, rules, operation_id, expected_version) =
-        legacy_grant_args(home, rules, operation_id, expected_version)?;
-    let contact = read_contact(recipient, recipient_key)?;
+    let (home, rules, operation_id, expected_version) = legacy_grant_args(
+        args.home,
+        args.rules,
+        args.operation_id,
+        args.expected_version,
+    )?;
+    let contact = read_contact(args.recipient, args.recipient_key)?;
     let rules: Vec<WriteRule> = read_json(rules, "invalid share write rules")?;
     let sealed = runtime()?.block_on(share_contribution::grant(GrantRequest {
         home,
-        owner_home: identity_home,
+        owner_home: args.identity_home,
         contact: &contact,
         rules,
         operation_id,
         expected_version,
     }))?;
-    write_file(out, &sealed)?;
-    println!("{}", json!({"grant": out}));
+    write_file(args.out, &sealed)?;
+    println!("{}", json!({ "grant": args.out }));
     Ok(())
 }
 

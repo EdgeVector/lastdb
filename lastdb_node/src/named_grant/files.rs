@@ -68,9 +68,8 @@ pub(super) fn remove_file(path: &Path) -> Result<(), String> {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
             fs::remove_file(path).map_err(|_| "cannot remove a private file".to_owned())
         }
-        Ok(_) => Err("cannot remove a private file".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("cannot remove a private file".into()),
+        Ok(_) | Err(_) => Err("cannot remove a private file".into()),
     }
 }
 
