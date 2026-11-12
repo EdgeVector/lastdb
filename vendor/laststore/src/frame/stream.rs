@@ -224,6 +224,7 @@ impl BufRead for GcmReader {
 
 enum Payload {
     Raw(GcmReader),
+    Pending(GcmReader, u32),
     Zstd(Box<zstd::stream::read::Decoder<'static, GcmReader>>),
 }
 
@@ -253,10 +254,8 @@ impl VerifiedFrameReader {
             if exp > MAX_DECOMPRESSED_FRAME_BYTES as u64 {
                 return Err(corrupt("streamed decompressed frame exceeds limit"));
             }
-            let mut dec = zstd::stream::read::Decoder::with_buffer(plain)?;
-            dec.window_log_max(ZSTD_WINDOW_BYTES.ilog2())?;
             (
-                Payload::Zstd(Box::new(dec)),
+                Payload::Pending(plain, ZSTD_WINDOW_BYTES.ilog2()),
                 exp,
                 ZSTD_WINDOW_BYTES as u64 + 2 * stream_buf,
             )
@@ -273,15 +272,31 @@ impl VerifiedFrameReader {
         })
     }
 
-    fn verify_end(&mut self) -> io::Result<()> {
-        if let Some(p) = self.payload.take() {
-            let (eof, mut r) = match p {
-                Payload::Raw(mut r) => (r.read(&mut [0])? == 0, r),
-                Payload::Zstd(mut r) => (r.read(&mut [0])? == 0, (*r).finish()),
+    fn read_payload(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if matches!(self.payload, Some(Payload::Pending(..))) {
+            let Some(Payload::Pending(plain, wlog)) = self.payload.take() else {
+                unreachable!()
             };
-            if !eof {
-                return Err(bad_data("excess frame plaintext"));
-            }
+            let mut dec = zstd::stream::read::Decoder::with_buffer(plain)?;
+            dec.window_log_max(wlog)?;
+            self.payload = Some(Payload::Zstd(Box::new(dec)));
+        }
+        match &mut self.payload {
+            Some(Payload::Raw(r)) => r.read(out),
+            Some(Payload::Zstd(r)) => r.read(out),
+            _ => Ok(0),
+        }
+    }
+
+    fn verify_end(&mut self) -> io::Result<()> {
+        if self.payload.is_some() && self.read_payload(&mut [0])? != 0 {
+            return Err(bad_data("excess frame plaintext"));
+        }
+        if let Some(p) = self.payload.take() {
+            let mut r = match p {
+                Payload::Raw(r) | Payload::Pending(r, _) => r,
+                Payload::Zstd(r) => (*r).finish(),
+            };
             r.verify_consumed()?;
             self.source.check().map_err(io_err)?;
         }
@@ -303,11 +318,7 @@ impl Read for VerifiedFrameReader {
                 return self.verify_end().map(|()| 0);
             }
             let limit = (self.payload_len - self.delivered).min(output.len() as u64) as usize;
-            let n = match &mut self.payload {
-                Some(Payload::Raw(r)) => r.read(&mut output[..limit])?,
-                Some(Payload::Zstd(r)) => r.read(&mut output[..limit])?,
-                None => 0,
-            };
+            let n = self.read_payload(&mut output[..limit])?;
             if n == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,

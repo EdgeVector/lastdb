@@ -166,7 +166,6 @@ impl RunRead {
             .ok_or(Error::ReadBudgetExceeded)? as u64;
         self.examine(1)?;
         self.charge(add)
-            .inspect_err(|_| self.costs.examined_keys -= 1)
     }
 
     pub(super) fn examine(&mut self, keys: u64) -> Result<()> {

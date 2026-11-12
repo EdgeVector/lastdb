@@ -211,11 +211,11 @@ impl RecordFormat {
             ));
         }
         let alternates = super::encode_alternates(schema, &changes, &self.content_key)?;
-        let (main, files, written) = super::encode(changes, alternates)?;
-        let (puts, deletes, local_refs) = self.encode_files(files).await?;
-        self.main_store.batch_mutate(main).await?;
+        let encoded = super::encode(changes, alternates)?;
+        let (puts, deletes, local_refs) = self.encode_files(encoded.files).await?;
+        self.main_store.batch_mutate(encoded.main).await?;
         self.stage_files(puts, deletes).await?;
-        self.runtime.stage_written_records(written);
+        self.runtime.stage_written_records(encoded.written);
         if !local_refs.is_empty() {
             let rt = Arc::clone(&self.runtime);
             transaction::after_commit(&self.runtime, async move {

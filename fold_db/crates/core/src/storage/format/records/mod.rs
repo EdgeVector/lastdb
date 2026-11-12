@@ -270,10 +270,16 @@ pub(crate) struct RecordChange {
 
 type EncodedFile = (RecordAddress, Arc<StoredRecord>, Option<FileWrite>);
 
+struct EncodedRecords {
+    main: Vec<KvMutation>,
+    files: Vec<EncodedFile>,
+    written: Vec<WrittenRecord>,
+}
+
 fn encode(
     changes: Vec<RecordChange>,
     alternates: Vec<KvMutation>,
-) -> Result<(Vec<KvMutation>, Vec<EncodedFile>, Vec<WrittenRecord>), SchemaError> {
+) -> Result<EncodedRecords, SchemaError> {
     let invalid = |m: &str| SchemaError::InvalidData(m.into());
     let (n, mut seen) = (changes.len(), HashSet::with_capacity(changes.len()));
     if !changes.iter().all(|c| seen.insert(c.key.as_str())) {
@@ -314,7 +320,11 @@ fn encode(
         }
     }
     main.extend(alternates);
-    Ok((main, files, written))
+    Ok(EncodedRecords {
+        main,
+        files,
+        written,
+    })
 }
 
 pub(in crate::storage) fn require_final_record_sizes<'a>(
