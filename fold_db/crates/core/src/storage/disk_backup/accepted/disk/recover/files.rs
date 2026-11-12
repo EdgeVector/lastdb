@@ -78,6 +78,20 @@ pub(super) fn file_max() -> u64 {
     lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES.saturating_add(64)
 }
 
+pub(super) fn page_budget() -> u64 {
+    lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+}
+
+pub(super) fn entry_weight(root: &Path, sequence: u64) -> Result<u64, Error> {
+    let meta = read_meta(&root.join("entries").join(seq_name(sequence)))?;
+    if meta.sequence != sequence {
+        return Err(Error::Gap);
+    }
+    meta.envelope_bytes
+        .checked_add(meta.file_bytes)
+        .ok_or(Error::Gap)
+}
+
 pub(super) fn seq_name(sequence: u64) -> String {
     format!("{sequence:020}")
 }
@@ -147,7 +161,7 @@ pub(super) fn pending_note(sequence: u64, note: &Note) -> PendingNote {
         envelope_sha256: super::super::body::sha256_hex(&note.envelope),
         file_sha256: note.file.as_deref().map(super::super::body::sha256_hex),
         envelope_bytes: note.envelope.len() as u64,
-        file_bytes: note.file.as_ref().map(Vec::len).unwrap_or(0) as u64,
+        file_bytes: note.file.as_ref().map_or(0, Vec::len) as u64,
     }
 }
 
@@ -200,21 +214,18 @@ pub(super) fn install(
     let opened = inner
         .state
         .as_ref()
-        .map(|state| state.opened_frontier)
-        .unwrap_or(pending.frontier_before);
+        .map_or(pending.frontier_before, |state| state.opened_frontier);
     let snapshot = inner
         .state
         .as_ref()
-        .map(|state| state.snapshot_required)
-        .unwrap_or(inner.history);
-    let acked = inner.state.as_ref().map(|state| state.acked).unwrap_or(0);
+        .map_or(inner.history, |state| state.snapshot_required);
+    let acked = inner.state.as_ref().map_or(0, |state| state.acked);
     let retained = inner
         .state
         .as_ref()
-        .map(|state| state.retained_bytes)
-        .unwrap_or(0)
+        .map_or(0, |state| state.retained_bytes)
         .saturating_add(added);
-    let head = pending.notes.last().map(|note| note.sequence).unwrap_or(0);
+    let head = pending.notes.last().map_or(0, |note| note.sequence);
     inner.store(
         root,
         super::super::State {

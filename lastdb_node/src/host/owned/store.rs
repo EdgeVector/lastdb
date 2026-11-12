@@ -63,6 +63,8 @@ pub(super) async fn open(
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox),
+            // Owned siblings are shareable. Capture starts here, before cloud enrollment.
+            capture_accepted: true,
         },
     )
     .await

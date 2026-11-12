@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 pub(in crate::storage) const DIR: &str = "accepted-v1";
-const MAX_PAGE: u32 = 90;
+pub(super) const MAX_PAGE: u32 = 90;
 
 #[derive(Clone)]
 pub(in crate::storage) struct Note {
@@ -99,16 +99,16 @@ impl Log {
     }
 
     pub(super) fn status(&self) -> Status {
-        self.inner
-            .lock()
-            .map(|inner| inner.status())
-            .unwrap_or(Status {
+        self.inner.lock().map_or(
+            Status {
                 head: 0,
                 acked: 0,
                 opened_frontier: 0,
                 snapshot_required: true,
                 gap: true,
-            })
+            },
+            |inner| inner.status(),
+        )
     }
 
     pub(super) fn prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
@@ -189,12 +189,10 @@ impl Inner {
     fn status(&self) -> Status {
         let state = self.state.as_ref();
         Status {
-            head: state.map(|state| state.head).unwrap_or(0),
-            acked: state.map(|state| state.acked).unwrap_or(0),
-            opened_frontier: state.map(|state| state.opened_frontier).unwrap_or(0),
-            snapshot_required: state
-                .map(|state| state.snapshot_required)
-                .unwrap_or(self.history),
+            head: state.map_or(0, |state| state.head),
+            acked: state.map_or(0, |state| state.acked),
+            opened_frontier: state.map_or(0, |state| state.opened_frontier),
+            snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
             gap: self.blocked || state.is_some_and(|state| state.gap),
         }
     }
@@ -212,18 +210,9 @@ impl Inner {
             return Err(Error::Behind);
         }
         let last = after.saturating_add(u64::from(limit)).min(view.head);
-        let mut items = Vec::new();
-        for sequence in (after + 1)..=last {
-            match recover::load_entry(root, sequence) {
-                Ok(entry) => items.push(entry),
-                Err(_) => {
-                    self.block(root, Error::Gap);
-                    return Err(Error::Gap);
-                }
-            }
-        }
+        let (through, items) = recover::read_page(root, self, after, last)?;
         Ok(Page {
-            through: last,
+            through,
             snapshot_required: view.snapshot_required,
             items,
         })
@@ -255,8 +244,7 @@ impl Inner {
         let needed = self
             .state
             .as_ref()
-            .map(|state| state.opened_frontier)
-            .unwrap_or(self.frontier);
+            .map_or(self.frontier, |state| state.opened_frontier);
         if covered < needed {
             return Err(Error::Snapshot);
         }
