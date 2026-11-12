@@ -137,6 +137,12 @@ impl DatabaseContentKey {
     pub fn database_id(&self) -> &str {
         &self.database_id
     }
+
+    /// AES key for `accepted_writes`. Callers do not log these bytes.
+    #[must_use]
+    pub(crate) fn encryption_bytes(&self) -> &[u8; 32] {
+        self.bytes.deref()
+    }
 }
 
 /// Seal the canonical record bytes. Empty input is refused.

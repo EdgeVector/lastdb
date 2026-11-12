@@ -1,5 +1,9 @@
-//! Signed POST of one canonical body. The API key is not attached to these routes.
+//! Signed POST of one canonical body.
+//!
+//! The saved owner API key is sent only on native create. Every other route
+//! stays on the node signature.
 
+use std::path::Path;
 use std::time::Duration;
 
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
@@ -39,6 +43,7 @@ pub(crate) struct Endpoint {
     origin: String,
     environment: &'static str,
     http: reqwest::Client,
+    owner_key: Option<zeroize::Zeroizing<String>>,
 }
 
 /// Saved connection environment and the endpoint that environment already uses.
@@ -90,7 +95,18 @@ impl Endpoint {
             origin,
             environment,
             http,
+            owner_key: None,
         })
+    }
+
+    /// Remember the saved owner key. Create is the only route that sends it.
+    pub(crate) fn load_owner_key(mut self, home: &Path) -> Self {
+        if let Ok(Some(saved)) = crate::cloud::load_saved_credentials(home) {
+            if !saved.api_key.is_empty() {
+                self.owner_key = Some(saved.api_key);
+            }
+        }
+        self
     }
 
     pub(crate) async fn post_json(
@@ -206,11 +222,18 @@ impl Endpoint {
             )
             .map_err(|_| LogError::UnexpectedOutcome)?;
         let url = format!("{}{path}", self.origin);
-        let response = self
+        let mut request = self
             .http
             .post(url)
             .header(reqwest::header::AUTHORIZATION, header)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        if path == super::paths::CREATE {
+            let Some(key) = &self.owner_key else {
+                return Err(LogError::UnexpectedOutcome);
+            };
+            request = request.header("X-API-Key", key.as_str());
+        }
+        let response = request
             .body(body.to_vec())
             .send()
             .await

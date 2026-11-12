@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use fold_db::schema::types::SchemaError;
-use mutation_log::{classify_shareable, Entry, NamespaceKind, StoredEntry};
-use mutation_log_sync::{Outcome, SyncEvent, SyncState};
+use mutation_log::{Entry, StoredEntry};
+use mutation_log_sync::Outcome;
 
 use crate::host::Host;
 
@@ -23,6 +23,7 @@ use super::payload;
 const MARKER_LIMIT: usize = 64;
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
+static NAMED_HELD: AtomicBool = AtomicBool::new(false);
 
 pub(crate) enum PagePlan {
     /// Snapshot bytes are staged. Do not ack and do not apply the suffix.
@@ -36,7 +37,6 @@ pub(crate) enum PagePlan {
 pub(crate) async fn apply_page(
     host: &Host,
     log: &CloudLog,
-    state: &mut SyncState,
     outcome: &Outcome,
     database_id: &str,
     shareable: bool,
@@ -61,7 +61,7 @@ pub(crate) async fn apply_page(
     }
     let mut handled = None;
     for stored in entries {
-        if !advance_one(host, log, state, database_id, shareable, stored).await? {
+        if !advance_one(host, log, database_id, shareable, stored).await? {
             return Ok(PagePlan::Hold(handled));
         }
         handled = Some(stored.delivery_seq);
@@ -72,24 +72,31 @@ pub(crate) async fn apply_page(
 async fn advance_one(
     host: &Host,
     log: &CloudLog,
-    state: &mut SyncState,
     database_id: &str,
     shareable: bool,
     stored: &StoredEntry,
 ) -> Result<bool, String> {
     let entry = &stored.entry;
     if entry.writer.key.as_str() == log.principal().as_str() {
+        if &entry.writer.device == log.device() {
+            return mark_local(host, database_id, entry);
+        }
+        if shareable {
+            hold_named();
+            return Ok(false);
+        }
         return apply_owned(host, database_id, entry).await;
     }
-    if !shareable {
-        tracing::warn!(
-            target: "lastdbd::log_sync",
-            delivery_seq = stored.delivery_seq,
-            "personal log entry is not from this node key"
-        );
+    if shareable {
+        hold_named();
         return Ok(false);
     }
-    validate_submission(host, log, state, entry).await
+    tracing::warn!(
+        target: "lastdbd::log_sync",
+        delivery_seq = stored.delivery_seq,
+        "personal log entry is not from this node key"
+    );
+    Ok(false)
 }
 
 async fn apply_owned(host: &Host, database_id: &str, entry: &Entry) -> Result<bool, String> {
@@ -141,68 +148,6 @@ async fn apply_owned(host: &Host, database_id: &str, entry: &Entry) -> Result<bo
     }
 }
 
-async fn validate_submission(
-    host: &Host,
-    log: &CloudLog,
-    state: &mut SyncState,
-    entry: &Entry,
-) -> Result<bool, String> {
-    let Some(decoded) = payload::decode(&entry.payload) else {
-        return reject(entry);
-    };
-    let namespace_matches =
-        payload::namespace_of(&decoded.schema).as_ref() == Some(&entry.namespace);
-    if !namespace_matches || classify_shareable(&entry.namespace) == NamespaceKind::AppPrivate {
-        return reject(entry);
-    }
-    match host
-        .db
-        .schema_manager()
-        .resolve_schema(&decoded.schema)
-        .await
-    {
-        Ok(Some(_)) => reappend(log, state, entry).await,
-        Ok(None) => {
-            tracing::warn!(target: "lastdbd::log_sync", "submission schema is not installed");
-            Ok(false)
-        }
-        Err(_) => {
-            tracing::warn!(target: "lastdbd::log_sync", "submission schema lookup failed");
-            Ok(false)
-        }
-    }
-}
-
-fn reject(entry: &Entry) -> Result<bool, String> {
-    tracing::warn!(
-        target: "lastdbd::log_sync",
-        writer_seq = entry.writer_seq,
-        "submission stays unacked because reject is not a route"
-    );
-    Ok(false)
-}
-
-async fn reappend(log: &CloudLog, state: &mut SyncState, entry: &Entry) -> Result<bool, String> {
-    let event = SyncEvent::Reappend {
-        entry: entry.clone(),
-        accepted_at_ms: fold_db::clock::unix_millis(),
-    };
-    match log.drive_once(state.clone(), event).await {
-        Ok((next, Outcome::Appended { .. } | Outcome::Duplicate { .. })) => {
-            *state = next;
-            Ok(true)
-        }
-        Ok(_) => {
-            tracing::warn!(target: "lastdbd::log_sync", "reappend returned an unexpected outcome");
-            Ok(false)
-        }
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "reappend failed");
-            Ok(false)
-        }
-    }
-}
-
 async fn stage_snapshot(
     host: &Host,
     log: &CloudLog,
@@ -223,6 +168,30 @@ async fn stage_snapshot(
         .map_err(|_| "cannot stage snapshot bytes".to_owned())?;
     disk::write_private(&dir.join(format!("{name}.ref")), snapshot_ref.as_bytes())
         .map_err(|_| "cannot stage snapshot ref".to_owned())
+}
+
+fn mark_local(host: &Host, database_id: &str, entry: &Entry) -> Result<bool, String> {
+    let name = format!("{}-{}", entry.writer.device.as_str(), entry.writer_seq);
+    if !cutover::label_ok(entry.writer.device.as_str()) {
+        return Ok(false);
+    }
+    let marker = marker_path(&host.home, database_id, &name);
+    match disk::read_limited(&marker, MARKER_LIMIT) {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => disk::write_private(&marker, b"1")
+            .map(|()| true)
+            .map_err(|_| "applied marker was not stored".to_owned()),
+        Err(_) => Ok(false),
+    }
+}
+
+fn hold_named() {
+    if !NAMED_HELD.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            "named entry stays unacked until the typed payload can be applied"
+        );
+    }
 }
 
 fn marker_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {

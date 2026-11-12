@@ -1,25 +1,23 @@
 //! Pull, apply, and ack for one database that is already open.
 //!
-//! Local writes are not appended from a side queue. `accepted::prefix` is
-//! the missing public read of the native commit.
+//! An owned shareable database publishes one accepted page first. The cloud
+//! cursor moves only after that pull is applied.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use mutation_log::{DatabaseId, DatabaseKind, DeviceId, LogError, PrincipalId};
-use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
+use mutation_log_sync::{SyncError, SyncEvent, SyncRole, SyncState};
 
 use crate::host::Host;
 
 use super::accepted;
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
-use super::outbox;
 use super::session;
 use super::turn::{self, Pause};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
-static CAPTURE_WARNED: AtomicBool = AtomicBool::new(false);
 
 pub(super) struct Ready {
     pub(super) database_id: String,
@@ -29,15 +27,8 @@ pub(super) struct Ready {
 }
 
 pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
-    if accepted::prefix(&host.data_dir, &ready.database_id).is_err()
-        && !CAPTURE_WARNED.swap(true, Ordering::Relaxed)
-    {
-        tracing::warn!(
-            target: "lastdbd::log_sync",
-            reason = %accepted::Blocked,
-            queue = outbox::RETIRED,
-            "local writes stay in the native commit until accepted_writes::prefix is published"
-        );
+    if ready.shareable {
+        accepted::publish_owned(host, &ready.log).await;
     }
     pull_and_ack(host, &mut ready).await
 }
@@ -66,7 +57,6 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
     let plan = match apply::apply_page(
         host,
         &ready.log,
-        &mut ready.state,
         &outcome,
         &ready.database_id,
         ready.shareable,
@@ -89,12 +79,18 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
 }
 
 async fn finish_ack(host: &Host, log: &CloudLog, database_id: &str, seq: u64) -> Pause {
-    if let Err(error) = log.ack_through(log.reader(), seq).await {
-        tracing::warn!(target: "lastdbd::log_sync", error = %error, "ack failed");
-        return Pause::Retry;
+    if seq > 0 {
+        if let Err(error) = log.ack_through(log.reader(), seq).await {
+            tracing::warn!(target: "lastdbd::log_sync", error = %error, "ack failed");
+            return Pause::Retry;
+        }
     }
     if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
+        return Pause::Retry;
+    }
+    if let Err(error) = session::mark_prefix(&host.home, database_id, seq) {
+        tracing::warn!(target: "lastdbd::log_sync", error = %error, "durable prefix was not stored");
         return Pause::Retry;
     }
     Pause::Idle

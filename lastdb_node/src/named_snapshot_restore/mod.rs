@@ -26,6 +26,7 @@ pub use types::{
 pub use wire::{manifest_from_json, part_from_json};
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use cloud_backup_protocol::Id;
@@ -98,12 +99,42 @@ async fn open_named(host: &Host, database_id: &str) -> Result<Target, RestoreErr
     }
 }
 
-/// True only after [`install`] flushed the store and saved a complete prefix.
+/// True after a complete snapshot install, or after a durable log-only prefix.
+///
+/// An incomplete snapshot journal stays false. A missing journal is ready
+/// only when sync has stored `log-sync/<id>/prefix.json` after a successful
+/// pull and ack, including an empty log with no snapshot.
 pub(crate) fn prefix_durable(home: &std::path::Path, database_id: &str) -> bool {
     match journal::load(home, database_id) {
-        Ok(Some(journal)) => journal.complete && journal.database_id == database_id,
-        _ => false,
+        Ok(Some(journal)) if journal.complete && journal.database_id == database_id => true,
+        Ok(Some(_)) => false,
+        Ok(None) => log_only_prefix(home, database_id),
+        Err(_) => false,
     }
+}
+
+fn log_only_prefix(home: &std::path::Path, database_id: &str) -> bool {
+    if database_id.is_empty() || database_id.contains(['/', '\\']) {
+        return false;
+    }
+    let path = home.join("log-sync").join(database_id).join("prefix.json");
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.permissions().mode() & 0o022 != 0 || metadata.len() > 4096 {
+        return false;
+    }
+    let Ok(bytes) = fs::read(&path) else {
+        return false;
+    };
+    serde_json::from_slice::<LogPrefix>(&bytes)
+        .ok()
+        .is_some_and(|marker| marker.database_id == database_id)
+}
+
+#[derive(serde::Deserialize)]
+struct LogPrefix {
+    database_id: String,
 }
 
 fn require_id(database_id: &str) -> Result<(), RestoreError> {

@@ -27,7 +27,7 @@ pub(crate) struct CloudLog {
     host: Arc<Host>,
     endpoint: Arc<Endpoint>,
     keypair: Arc<Ed25519KeyPair>,
-    scope: CloudScope,
+    pub(super) scope: CloudScope,
     database_id: Id,
     principal: PrincipalId,
     device: mutation_log::DeviceId,
@@ -48,7 +48,8 @@ impl CloudLog {
         let wire_id =
             Id::try_from(database_id.to_owned()).map_err(|_| "database id is not a UUID")?;
         let account = account_of(host)?;
-        let endpoint = Endpoint::open(&selected.api_url, selected.label)?;
+        let endpoint =
+            Endpoint::open(&selected.api_url, selected.label)?.load_owner_key(&host.home);
         let backup = crate::byte_cloud_backup::credentials::client_from_home(&host.home)?;
         let context = backup
             .context(&ContextReadRequest {

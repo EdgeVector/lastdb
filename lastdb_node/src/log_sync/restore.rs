@@ -4,9 +4,9 @@
 //! `snapshot_ref`. Each ancestor is its own request. A part request sends
 //! `snapshot_ref` and `part`. `delivery/object` returns standard-base64
 //! ciphertext ranges. `named_snapshot_restore::install` writes the sibling
-//! store and does not acknowledge. A personal database does not call these
-//! routes. `note_snapshot` is not called: that reader is not a committed
-//! function. This module does not edit `registry.json`.
+//! store and does not acknowledge the cloud cursor. After that install, an
+//! owned database records snapshot coverage. A personal database does not
+//! call these routes. This module does not edit `registry.json`.
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -15,6 +15,8 @@ use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
 use mutation_log::{LogError, MutationLog, Recovery};
 use serde::{Deserialize, Serialize};
 
+use crate::accepted_writes;
+use crate::host::owned::Resolved;
 use crate::named_snapshot_restore::{
     self, RestoreError, SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest,
     SnapshotObject, SnapshotPart,
@@ -60,9 +62,27 @@ async fn install(log: CloudLog) -> Result<u64, LogError> {
     };
     let mut files = Files { log: log.clone() };
     match named_snapshot_restore::install(log.host(), &request, &mut files).await {
-        Ok(prefix) => Ok(prefix.through_delivery_seq),
+        Ok(prefix) => {
+            note_owned(&log).await;
+            Ok(prefix.through_delivery_seq)
+        }
         Err(RestoreError::Scope(_)) => Err(LogError::SnapshotRequired),
         Err(_) => Err(LogError::UnexpectedOutcome),
+    }
+}
+
+async fn note_owned(log: &CloudLog) {
+    let Ok((Resolved::Owned, Some(store))) = log.host().owned.resolve(log.database_id()) else {
+        return;
+    };
+    let runtime = store.db_ops().native_runtime();
+    let noted = tokio::task::spawn_blocking(move || {
+        let status = accepted_writes::status(&runtime);
+        accepted_writes::note_snapshot(&runtime, status.opened_frontier)
+    })
+    .await;
+    if !matches!(noted, Ok(Ok(()))) {
+        tracing::warn!(target: "lastdbd::log_sync", "accepted snapshot coverage was not recorded");
     }
 }
 
@@ -102,7 +122,12 @@ async fn one_manifest(
         .post_named(paths::DELIVERY_SNAPSHOT, body)
         .await
         .map_err(|_| LogError::UnexpectedOutcome)?;
-    named_snapshot_restore::manifest_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)
+    let manifest = named_snapshot_restore::manifest_from_json(&raw)
+        .map_err(|_| LogError::UnexpectedOutcome)?;
+    if snapshot_ref.is_some_and(|wanted| manifest.snapshot_ref != wanted) {
+        return Err(LogError::UnexpectedOutcome);
+    }
+    Ok(manifest)
 }
 
 async fn objects(

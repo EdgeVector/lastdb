@@ -15,6 +15,7 @@ use super::cutover::{self, Commit, Gate, ServiceView};
 use super::disk;
 use super::http;
 use super::native;
+use super::received;
 use super::registry::{self, Database};
 use super::run;
 use super::session;
@@ -46,10 +47,11 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
 
 async fn one_turn(host: &Arc<Host>) -> Pause {
     let databases = registry::databases(&host.home);
-    if databases.is_empty() {
-        return Pause::Idle;
-    }
-    let mut pause = Pause::Snapshot;
+    let mut pause = if databases.is_empty() {
+        Pause::Idle
+    } else {
+        Pause::Snapshot
+    };
     for database in &databases {
         let next = if fresh_native(database) {
             native::turn(host, database).await
@@ -58,7 +60,7 @@ async fn one_turn(host: &Arc<Host>) -> Pause {
         };
         pause = shorter(pause, next);
     }
-    pause
+    shorter(pause, received::turn(host).await)
 }
 
 fn fresh_native(database: &Database) -> bool {
@@ -263,7 +265,7 @@ fn note_ready(home: &Path, database: &Database) {
     }
 }
 
-fn shorter(current: Pause, next: Pause) -> Pause {
+pub(super) fn shorter(current: Pause, next: Pause) -> Pause {
     if pause_rank(next) < pause_rank(current) {
         next
     } else {

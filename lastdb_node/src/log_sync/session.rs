@@ -13,6 +13,12 @@ struct SessionFile {
     cursor: u64,
 }
 
+#[derive(Serialize)]
+struct PrefixFile<'a> {
+    database_id: &'a str,
+    through: u64,
+}
+
 pub(crate) fn device_id(home: &Path) -> Result<String, String> {
     let path = device_path(home);
     if let Some(bytes) = disk::read_limited(&path, LIMIT).map_err(|_| "cannot read device id")? {
@@ -48,10 +54,25 @@ pub(crate) fn store_cursor(home: &Path, database_id: &str, cursor: u64) -> Resul
         .map_err(|_| "cannot write log sync session")
 }
 
+/// Record a durable first prefix, including an empty log with no snapshot.
+pub(crate) fn mark_prefix(home: &Path, database_id: &str, through: u64) -> Result<(), String> {
+    let bytes = serde_json::to_vec(&PrefixFile {
+        database_id,
+        through,
+    })
+    .map_err(|_| "log prefix encoding failed")?;
+    disk::write_private(&prefix_path(home, database_id), &bytes)
+        .map_err(|_| "cannot write log prefix")
+}
+
 fn device_path(home: &Path) -> PathBuf {
     home.join("log-sync").join("device-id")
 }
 
 fn session_path(home: &Path, database_id: &str) -> PathBuf {
     home.join("log-sync").join(database_id).join("session.json")
+}
+
+fn prefix_path(home: &Path, database_id: &str) -> PathBuf {
+    home.join("log-sync").join(database_id).join("prefix.json")
 }

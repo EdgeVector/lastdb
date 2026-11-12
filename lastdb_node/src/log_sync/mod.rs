@@ -5,7 +5,7 @@
 //! stop byte backup. This module does not change backup policy. A named
 //! database installs a snapshot with `named_snapshot_restore` after
 //! `delivery/snapshot`. That install does not acknowledge. Local capture
-//! stays blocked until `accepted_writes` is a committed reader.
+//! is read with `accepted_writes` and published from `accepted`.
 //! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
 //! file set and is not the named installer. This module does not edit
 //! `registry.json`.
@@ -16,13 +16,16 @@ mod apply;
 mod cloud;
 mod cutover;
 mod disk;
+mod files;
 mod http;
 mod native;
 mod outbox;
 mod paths;
 mod payload;
+mod received;
 mod registry;
 mod restore;
+mod retry;
 mod run;
 mod session;
 mod sign;
