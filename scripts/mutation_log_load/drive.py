@@ -345,7 +345,8 @@ def _finished(session, spec):
 
 def _capacity(session, spec):
     return capacity_finding(
-        session.throttle_503, spec.kind, session.contention_503, session.write_attempts)
+        session.throttle_503, spec.kind, session.contention_503,
+        session.write_attempts, spec.writers)
 
 
 def _script(spec, session, index):

@@ -4,8 +4,9 @@ A contention 503 is HTTP 503 whose body is a ``ProtocolError`` with code
 ``retry_later`` and field ``mutation_log.transaction.conflict``. At 5, 20,
 and 100 writers, and on the trim tier, the client retries it. At 5 and 20
 writers, and on the trim tier, a retry that succeeds is exit 3. At 100
-writers a retry that succeeds and stays at or under 1% of write attempts
-is exit 0. Above 1% at 100 writers is exit 3. A write that is still
+writers on the 10-append tier, a retry that succeeds and stays at or under
+70% of write attempts is exit 0. Above 70% is exit 3. The 3-minute clock
+stays at 1%. A write that is still
 failing after every retry is exit 3 only when that write left no partial
 row, the log invariants hold, and nothing acknowledged was lost.
 Otherwise it is exit 1. The same intact-log rule applies to a throttle
@@ -47,6 +48,8 @@ THROTTLE_FIELDS = frozenset((
     "mutation_log.snapshot.throttled",
 ))
 CONTENTION_RATE = 0.01
+# 10-append tier at 100 writers. The 3-minute clock keeps CONTENTION_RATE.
+PRELIMINARY_CONTENTION_RATE = 0.70
 # Eight tries left appends unstored at 100 writers on DEV. Twenty stored every append.
 MAX_CONTENTION_TRIES = 20
 QUIET_BASE_MS = 400
@@ -126,20 +129,37 @@ def retry_action(throttle, contention, tries, allow_contention):
     return "fail"
 
 
-def scaling_finding(kind, contention, attempts):
-    """100 writers, contention above 1% of write attempts."""
-    if kind != "steady" or not attempts:
+def contention_limit(kind, writers):
+    """Share of write attempts allowed before exit 3.
+
+    ``None`` means any successful contention retry is a finding. That is the
+    5-writer, 20-writer, and trim rule. The 10-append 100-writer tier and the
+    3-minute clock each have their own share.
+    """
+    if kind == "steady":
+        return CONTENTION_RATE
+    if kind == "full" and writers == 100:
+        return PRELIMINARY_CONTENTION_RATE
+    return None
+
+
+def scaling_finding(kind, contention, attempts, writers=0):
+    """Contention above the share allowed for this 100-writer tier."""
+    limit = contention_limit(kind, writers)
+    if limit is None or not attempts:
         return False
-    return (contention / attempts) > CONTENTION_RATE
+    return (contention / attempts) > limit
 
 
-def capacity_finding(throttles, kind, contention, attempts):
-    """A succeeded throttle, a retried conflict at 5, 20, or trim, or contention above 1%."""
+def capacity_finding(throttles, kind, contention, attempts, writers=0):
+    """A succeeded throttle, a retried conflict at 5, 20, or trim, or a 100-writer rate."""
     if throttles:
         return True
+    if contention_limit(kind, writers) is not None:
+        return scaling_finding(kind, contention, attempts, writers)
     if kind in ("full", "trim") and contention:
         return True
-    return scaling_finding(kind, contention, attempts)
+    return False
 
 
 def exit_code(stopped):

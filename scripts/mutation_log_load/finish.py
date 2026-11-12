@@ -162,7 +162,8 @@ def finding_text(session, spec):
         return "trim not exercised"
     message = finding_message(
         session.throttle_503, spec.kind, session.contention_503,
-        session.write_attempts, session.contention_unresolved, session.throttle_unresolved)
+        session.write_attempts, session.contention_unresolved,
+        session.throttle_unresolved, spec.writers)
     pending = len(session.unresolved)
     if not pending:
         return message

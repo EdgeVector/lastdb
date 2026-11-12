@@ -2,7 +2,7 @@
 
 import json
 
-from faults import scaling_finding
+from faults import contention_limit, scaling_finding
 
 
 def percentile(samples, percent):
@@ -51,13 +51,16 @@ def tier_summary(samples, errors, elapsed_ms, counters, estimate, tier_reads):
     return summary
 
 
-def finding_message(throttles, kind, contention, attempts, unresolved=0, throttle_unresolved=0):
+def finding_message(throttles, kind, contention, attempts, unresolved=0,
+                    throttle_unresolved=0, writers=0):
     parts = []
+    limit = contention_limit(kind, writers)
     if throttles:
         parts.append("throttle")
-    if scaling_finding(kind, contention, attempts):
-        parts.append("contention above 1 percent of write attempts")
-    elif contention and not unresolved and kind in ("full", "trim"):
+    if scaling_finding(kind, contention, attempts, writers):
+        parts.append("contention above {0} percent of write attempts".format(
+            int(round(limit * 100))))
+    elif contention and not unresolved and kind in ("full", "trim") and limit is None:
         parts.append("contention retried")
     if unresolved:
         parts.append("contention unresolved {0}".format(unresolved))
