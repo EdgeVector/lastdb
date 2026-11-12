@@ -1,9 +1,11 @@
 //! Captured read roots, write-read caching, and finite read-budget accounting.
 
-use super::physical::{call_error, PhysicalRead, ReadMode};
+use super::physical::{call_error, V2Read};
 use super::transaction::{PendingBatch, PendingRecord};
 use super::*;
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::sync::PoisonError;
 
 const WRITE_READ_MAX_BYTES: usize = 1024 * 1024;
 const WRITE_READ_MAX_VALUE_BYTES: usize = 16 * 1024;
@@ -15,31 +17,27 @@ struct SavedWriteReads {
     bytes: usize,
 }
 
+#[derive(Clone)]
 pub(in crate::storage::disk_pack) struct ReadContext {
-    pub(in crate::storage::disk_pack) call: Arc<Mutex<PhysicalRead>>,
+    pub(in crate::storage::disk_pack) call: Arc<Mutex<V2Read>>,
     identity: uuid::Uuid,
-    failure: Arc<Mutex<Option<ReadFailure>>>,
+    failure: Arc<Mutex<Option<(bool, String)>>>,
     pub(in crate::storage::disk_pack) accepted: Arc<Vec<Arc<PendingBatch>>>,
     pub(in crate::storage::disk_pack) revision: u64,
     write_owner: Option<Arc<PendingBatch>>,
     write_reads: Option<Arc<Mutex<SavedWriteReads>>>,
 }
 
-struct ReadFailure {
-    resource: bool,
-    detail: String,
-}
-
 tokio::task_local! {
     static READ: Arc<ReadContext>;
-    static ITEM: Option<Arc<Mutex<Option<ReadFailure>>>>;
+    static ITEM: Option<Arc<Mutex<Option<(bool, String)>>>>;
 }
 
 impl ReadContext {
     pub(in crate::storage::disk_pack) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
-        READ.try_with(Arc::clone).ok().filter(|context| {
-            context.identity == runtime.home_identity()
-                && context
+        READ.try_with(Arc::clone).ok().filter(|ctx| {
+            ctx.identity == runtime.native_home_id()
+                && ctx
                     .validate_owner(PendingBatch::current(runtime).as_ref())
                     .is_ok()
         })
@@ -54,76 +52,66 @@ impl ReadContext {
                 "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
-        let accepted = if write_owner.is_some() {
+        let prep = write_owner.is_some();
+        let accepted = if prep {
             runtime.preparation_prefix()
         } else {
             Arc::new(Vec::new())
         };
         runtime.adopt_merged_root()?;
-        let view = runtime.view.read().expect("native complete read view");
-        let mode = if write_owner.is_some() {
-            ReadMode::WritePreparation
-        } else {
-            ReadMode::Ordinary(budget())
+        let (call, revision) = {
+            let view = runtime.view.read().expect("native complete read view");
+            (runtime.physical.read(&view.current, prep), view.revision)
         };
-        let call = runtime.physical_read(&view.current, mode);
-        let revision = view.revision;
-        drop(view);
-        let write_reads = write_owner
-            .as_ref()
-            .map(|_| Arc::new(Mutex::new(SavedWriteReads::default())));
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
             revision,
-            identity: runtime.home_identity(),
+            identity: runtime.native_home_id(),
             failure: Arc::new(Mutex::new(None)),
             write_owner,
-            write_reads,
+            write_reads: prep.then(|| Arc::new(Mutex::new(SavedWriteReads::default()))),
         }))
     }
 
     pub(in crate::storage::disk_pack) async fn current(
         runtime: &Arc<PackRuntime>,
     ) -> StorageResult<Arc<Self>> {
-        if let Ok(context) = READ.try_with(Arc::clone) {
-            if context.identity != runtime.home_identity() {
+        if let Ok(ctx) = READ.try_with(Arc::clone) {
+            if ctx.identity != runtime.native_home_id() {
                 return Err(StorageError::InvalidOperation(
                     "one native read scope cannot change home identity".into(),
                 ));
             }
-            context.validate_owner(PendingBatch::current(runtime).as_ref())?;
+            ctx.validate_owner(PendingBatch::current(runtime).as_ref())?;
             let failure = ITEM
                 .try_with(Clone::clone)
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| Arc::new(Mutex::new(None)));
             return Ok(Arc::new(Self {
-                call: Arc::clone(&context.call),
-                identity: context.identity,
                 failure,
-                accepted: Arc::clone(&context.accepted),
-                revision: context.revision,
-                write_owner: context.write_owner.clone(),
-                write_reads: context.write_reads.clone(),
+                ..(*ctx).clone()
             }));
         }
-        let runtime = Arc::clone(runtime);
-        run_blocking(move || Self::capture(&runtime, None)).await
+        let rt = Arc::clone(runtime);
+        run_blocking(move || Self::capture(&rt, None)).await
     }
 
     pub(in crate::storage::disk_pack) fn remembered<T>(
         &self,
         result: StorageResult<T>,
     ) -> StorageResult<T> {
-        if let Err(error) = &result {
-            let mut failure = self.failure.lock().expect("native item failure");
-            if failure.is_none() {
-                *failure = Some(ReadFailure {
-                    resource: matches!(error, StorageError::ReadResourceLimit { .. }),
-                    detail: error.to_string(),
+        if let Err(err) = &result {
+            self.failure
+                .lock()
+                .expect("native item failure")
+                .get_or_insert_with(|| {
+                    (
+                        matches!(err, StorageError::ReadResourceLimit { .. }),
+                        err.to_string(),
+                    )
                 });
-            }
         }
         result
     }
@@ -135,7 +123,7 @@ impl ReadContext {
         self.write_owner
             .as_ref()
             .zip(pending)
-            .is_some_and(|(owner, pending)| Arc::ptr_eq(owner, pending))
+            .is_some_and(|(a, b)| Arc::ptr_eq(a, b))
     }
 
     pub(in crate::storage::disk_pack) fn validate_owner(
@@ -154,14 +142,12 @@ impl ReadContext {
         self.failure
             .lock()
             .expect("native item failure")
-            .as_ref()
-            .map(|f| {
-                if f.resource {
-                    StorageError::ReadResourceLimit {
-                        detail: f.detail.clone(),
-                    }
+            .clone()
+            .map(|(res, detail)| {
+                if res {
+                    StorageError::ReadResourceLimit { detail }
                 } else {
-                    StorageError::BackendError(f.detail.clone())
+                    StorageError::BackendError(detail)
                 }
             })
     }
@@ -172,14 +158,12 @@ impl ReadContext {
         collection: &str,
         key: &str,
     ) -> Option<Arc<PendingRecord>> {
-        pending
-            .and_then(|batch| batch.lookup(collection, key))
-            .or_else(|| {
-                self.accepted
-                    .iter()
-                    .rev()
-                    .find_map(|batch| batch.lookup(collection, key))
-            })
+        pending.and_then(|b| b.lookup(collection, key)).or_else(|| {
+            self.accepted
+                .iter()
+                .rev()
+                .find_map(|b| b.lookup(collection, key))
+        })
     }
 
     pub(in crate::storage::disk_pack) fn overlay_rows(
@@ -198,55 +182,31 @@ impl ReadContext {
         rows.into_values().collect()
     }
 
-    pub(in crate::storage::disk_pack) fn record_stage(&self, stage: &'static str, items: usize) {
-        if !tracing::enabled!(target: "lastdb::native_read_budget", tracing::Level::DEBUG) {
-            return;
-        }
-        let call = self
-            .call
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (costs, limits) = (call.costs(), call.budget());
-        tracing::debug!(
-            target: "lastdb::native_read_budget",
-            stage,
-            items,
-            examined_keys = costs.examined_keys,
-            key_limit = limits.keys,
-            charged_bytes = costs.budget_bytes,
-            "native preparation cumulative read costs"
-        );
-    }
-
     pub(in crate::storage::disk_pack) fn account_memory_record(
         &self,
-        call: &mut PhysicalRead,
+        call: &mut V2Read,
         key_bytes: usize,
         body_bytes: usize,
     ) -> StorageResult<()> {
-        let result = key_bytes
+        let res = key_bytes
             .checked_add(body_bytes)
             .ok_or_else(|| StorageError::ReadResourceLimit {
                 detail: "native memory record length overflow".into(),
             })
             .and_then(|bytes| {
                 self.require_room(call, 1, bytes as u64)?;
-                call.account_memory_record(key_bytes, body_bytes)
-                    .map_err(|error| call_error(error, call))
+                call.main
+                    .account_memory_record(key_bytes, body_bytes)
+                    .map_err(|e| call_error(e, call))
             });
-        self.remembered(result)
+        self.remembered(res)
     }
 
-    pub(super) fn require_room(
-        &self,
-        call: &PhysicalRead,
-        keys: u64,
-        bytes: u64,
-    ) -> StorageResult<()> {
+    pub(super) fn require_room(&self, call: &V2Read, keys: u64, bytes: u64) -> StorageResult<()> {
         if let Some(error) = self.error() {
             return Err(error);
         }
-        let (costs, limits) = (call.costs(), call.budget());
+        let (costs, limits) = (call.costs(), call.main.budget());
         if costs
             .examined_keys
             .checked_add(keys)
@@ -268,7 +228,7 @@ impl ReadContext {
 
     pub(super) fn reuse_disk_value(
         &self,
-        call: &mut PhysicalRead,
+        call: &mut V2Read,
         coordinate: &Coordinate,
     ) -> StorageResult<Option<Option<Vec<u8>>>> {
         let Some(reads) = &self.write_reads else {
@@ -276,13 +236,13 @@ impl ReadContext {
         };
         let value = reads
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner)
             .values
             .get(coordinate)
             .cloned();
-        if let Some(value) = &value {
-            let bytes = value.as_ref().map_or(0, Vec::len);
-            self.account_memory_record(call, coordinate.0.len() + coordinate.1.len(), bytes)?;
+        if let Some(val) = &value {
+            let len = val.as_ref().map_or(0, Vec::len);
+            self.account_memory_record(call, coordinate.0.len() + coordinate.1.len(), len)?;
         }
         Ok(value)
     }
@@ -295,14 +255,10 @@ impl ReadContext {
         if body_bytes > WRITE_READ_MAX_VALUE_BYTES {
             return;
         }
-        let mut saved = reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let bytes = coordinate.0.len()
-            + coordinate.1.len()
-            + body_bytes
-            + std::mem::size_of::<(Coordinate, Option<Vec<u8>>)>()
-            + 8 * std::mem::size_of::<usize>();
+        let mut saved = reads.lock().unwrap_or_else(PoisonError::into_inner);
+        let overhead =
+            std::mem::size_of::<(Coordinate, Option<Vec<u8>>)>() + 8 * std::mem::size_of::<usize>();
+        let bytes = coordinate.0.len() + coordinate.1.len() + body_bytes + overhead;
         if bytes <= WRITE_READ_MAX_BYTES.saturating_sub(saved.bytes)
             && !saved.values.contains_key(coordinate)
         {
@@ -327,15 +283,16 @@ impl PackReadScope {
         })
     }
 
-    pub async fn run<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+    pub async fn run<T>(&self, future: impl Future<Output = T>) -> T {
+        let item = Some(Arc::clone(&self.context.failure));
         READ.scope(
             Arc::clone(&self.context),
-            ITEM.scope(Some(Arc::clone(&self.context.failure)), Box::pin(future)),
+            ITEM.scope(item, Box::pin(future)),
         )
         .await
     }
 
-    pub async fn run_shared<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+    pub async fn run_shared<T>(&self, future: impl Future<Output = T>) -> T {
         READ.scope(
             Arc::clone(&self.context),
             ITEM.scope(None, Box::pin(future)),
@@ -343,25 +300,22 @@ impl PackReadScope {
         .await
     }
 
-    pub async fn run_result<T, E>(
-        &self,
-        future: impl std::future::Future<Output = Result<T, E>>,
-    ) -> Result<T, E>
+    pub async fn run_result<T, E>(&self, future: impl Future<Output = Result<T, E>>) -> Result<T, E>
     where
         E: From<StorageError>,
     {
         let result = self.run(future).await;
-        if let Some(error) = self.context.error() {
-            return Err(error.into());
+        match self.context.error() {
+            Some(err) => Err(err.into()),
+            None => result,
         }
-        result
     }
 }
 
 pub(in crate::storage::disk_pack) async fn write_scope<T>(
     runtime: Arc<PackRuntime>,
     pending: Arc<PendingBatch>,
-    future: impl std::future::Future<Output = T>,
+    future: impl Future<Output = T>,
 ) -> StorageResult<T> {
     let context = run_blocking(move || ReadContext::capture(&runtime, Some(pending))).await?;
     PackReadScope { context }

@@ -3,39 +3,12 @@
 use super::{IndexBlock, RunReader};
 use crate::disk_run::bloom::key_hash;
 use crate::disk_run::codec::corrupt;
-use crate::disk_run::footer::BlockRef;
+use crate::disk_run::footer::{refs_footprint, try_vec, BlockRef};
 use crate::disk_run::{INDEX_COUNTER_BASE, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
 use crate::frame::VerifiedFrameReader;
 use crate::{Error, Result};
 use std::cmp::Ordering;
 use std::io::{Read, Write};
-
-pub(crate) enum SelectedBody {
-    Deleted,
-    Value(StreamBody),
-}
-
-pub(crate) struct StreamBody {
-    block: Block,
-    bytes: u64,
-    pub(crate) memory_available: u64,
-}
-
-impl StreamBody {
-    pub(crate) fn into_vec(mut self, maximum: u64) -> Result<Vec<u8>> {
-        if self.bytes > maximum {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        let length = usize::try_from(self.bytes).map_err(|_| Error::ReadBudgetExceeded)?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(length)
-            .map_err(|_| Error::ReadBudgetExceeded)?;
-        copy_exact(&mut self.block.input, &mut out, self.bytes)?;
-        self.block.remaining = 0;
-        self.block.finish()?;
-        Ok(out)
-    }
-}
 
 pub(in crate::disk_run) struct Block {
     pub(in crate::disk_run) input: VerifiedFrameReader,
@@ -53,10 +26,11 @@ impl Block {
         coordinate_bytes: u64,
         retained: u64,
     ) -> Result<Self> {
-        let max_encoded = reader
-            .block_limit()
-            .saturating_add(8 + crate::frame::min_encoded_len());
-        if reference.len as usize > max_encoded {
+        if reference.len as usize
+            > reader
+                .block_limit()
+                .saturating_add(8 + crate::frame::min_encoded_len())
+        {
             return Err(corrupt("stored block length over its limit"));
         }
         let (input, memory_available) = reader.open_verified_frame(
@@ -99,13 +73,13 @@ impl Block {
     }
 
     fn length(&mut self, maximum: usize) -> Result<usize> {
-        let n = self
-            .varint()?
-            .ok_or_else(|| corrupt("stream record ends early"))?;
-        usize::try_from(n)
-            .ok()
-            .filter(|n| *n <= maximum)
-            .ok_or_else(|| corrupt("stream record length"))
+        usize::try_from(
+            self.varint()?
+                .ok_or_else(|| corrupt("stream record ends early"))?,
+        )
+        .ok()
+        .filter(|&n| n <= maximum)
+        .ok_or_else(|| corrupt("stream record length"))
     }
 
     fn next(&mut self) -> Result<Option<bool>> {
@@ -116,51 +90,32 @@ impl Block {
         };
         let shared = usize::try_from(shared)
             .ok()
-            .filter(|n| *n <= self.key.len())
+            .filter(|&n| n <= self.key.len())
             .ok_or_else(|| corrupt("stream key prefix"))?;
         let suffix = self.length(MAX_RUN_KEY_BYTES - shared)?;
         let length = shared + suffix;
         if (length.max(self.key.capacity()) as u64).saturating_mul(2) > self.coordinate_bytes {
             return Err(Error::ReadBudgetExceeded);
         }
-        self.key
-            .reserve_exact(length.saturating_sub(self.key.len()));
-        let (old_len, mut order, mut remaining, mut at) =
-            (self.key.len(), Ordering::Equal, suffix, shared);
-        let mut buffer = [0u8; 65536];
-        while remaining != 0 {
-            let n = remaining.min(buffer.len());
-            self.input.read_exact(&mut buffer[..n])?;
-            for &byte in &buffer[..n] {
-                if order == Ordering::Equal {
-                    order = self
-                        .key
-                        .get(at)
-                        .map_or(Ordering::Greater, |old| byte.cmp(old));
-                }
-                if at < self.key.len() {
-                    self.key[at] = byte;
-                } else {
-                    self.key.push(byte);
-                }
-                at += 1;
-            }
-            remaining -= n;
-        }
-        if order == Ordering::Equal {
-            order = length.cmp(&old_len);
-        }
-        self.key.truncate(length);
-        if self.key.is_empty() || self.seen && order != Ordering::Greater {
+        let mut tail = try_vec(suffix)?;
+        tail.resize(suffix, 0);
+        self.input.read_exact(&mut tail)?;
+        if length == 0 || self.seen && tail.as_slice() <= &self.key[shared..] {
             return Err(corrupt("stream block key order"));
         }
+        self.key.truncate(shared);
+        self.key
+            .try_reserve_exact(length.saturating_sub(self.key.len()))
+            .map_err(|_| Error::ReadBudgetExceeded)?;
+        self.key.extend_from_slice(&tail);
+        drop(tail);
         self.seen = true;
         let tag = self.length(MAX_RUN_VALUE_BYTES + 1)?;
         self.remaining = tag.saturating_sub(1) as u64;
         Ok(Some(tag != 0))
     }
 
-    pub(in crate::disk_run) fn finish(mut self) -> Result<()> {
+    fn finish(mut self) -> Result<()> {
         while self.next()?.is_some() {}
         Ok(())
     }
@@ -180,14 +135,8 @@ impl Block {
 
 impl RunReader {
     pub(in crate::disk_run) fn metadata_bytes(&self) -> u64 {
-        (self.top.indexes.capacity() * std::mem::size_of::<BlockRef>()
-            + self.top.last_key.capacity()
-            + self
-                .top
-                .indexes
-                .iter()
-                .map(|r| r.first_key.capacity())
-                .sum::<usize>()) as u64
+        (refs_footprint(&self.top.indexes, self.top.indexes.capacity())
+            + self.top.last_key.capacity()) as u64
     }
 
     fn open_verified_frame(
@@ -239,10 +188,7 @@ impl RunReader {
             return Err(Error::ReadBudgetExceeded);
         }
         let count = usize::try_from(input.payload_len).map_err(|_| Error::ReadBudgetExceeded)?;
-        let mut output = Vec::new();
-        output
-            .try_reserve_exact(count)
-            .map_err(|_| Error::ReadBudgetExceeded)?;
+        let mut output = try_vec(count)?;
         output.resize(count, 0);
         input.read_exact(&mut output)?;
         if input.read(&mut [0; 1])? != 0 {
@@ -275,7 +221,8 @@ impl RunReader {
         wanted: &[u8],
         admission: u64,
         retained: u64,
-    ) -> Result<Option<SelectedBody>> {
+        maximum: u64,
+    ) -> Result<Option<Option<Vec<u8>>>> {
         let Some(number) = self.index_for(wanted) else {
             return Ok(None);
         };
@@ -283,11 +230,7 @@ impl RunReader {
         if !index.may_hold(key_hash(wanted))? {
             return Ok(None);
         }
-        let Some(slot) = index
-            .blocks
-            .partition_point(|b| b.first_key.as_slice() <= wanted)
-            .checked_sub(1)
-        else {
+        let Some(slot) = index.block_pos(wanted) else {
             return Ok(None);
         };
         let reference = &index.blocks[slot];
@@ -301,19 +244,23 @@ impl RunReader {
             match block.key.as_slice().cmp(wanted) {
                 Ordering::Less => {}
                 Ordering::Greater => return block.finish().map(|()| None),
-                Ordering::Equal if !live => {
-                    return block.finish().map(|()| Some(SelectedBody::Deleted))
-                }
+                Ordering::Equal if !live => return block.finish().map(|()| Some(None)),
                 Ordering::Equal => {
-                    let bytes = block.remaining;
-                    let memory_available = block
-                        .memory_available
-                        .saturating_sub(block.key.capacity() as u64);
-                    return Ok(Some(SelectedBody::Value(StreamBody {
-                        block,
-                        bytes,
-                        memory_available,
-                    })));
+                    let limit = maximum.min(admission).min(
+                        block
+                            .memory_available
+                            .saturating_sub(block.key.capacity() as u64),
+                    );
+                    if block.remaining > limit {
+                        return Err(Error::ReadBudgetExceeded);
+                    }
+                    let length =
+                        usize::try_from(block.remaining).map_err(|_| Error::ReadBudgetExceeded)?;
+                    let mut out = try_vec(length)?;
+                    copy_exact(&mut block.input, &mut out, block.remaining)?;
+                    block.remaining = 0;
+                    block.finish()?;
+                    return Ok(Some(Some(out)));
                 }
             }
         }
@@ -332,10 +279,7 @@ impl RunReader {
         for number in start..self.index_count() {
             let index = self.stream_index(number, admission)?;
             let first = if number == start {
-                index
-                    .blocks
-                    .partition_point(|b| b.first_key.as_slice() <= lower)
-                    .saturating_sub(1)
+                index.block_pos(lower).unwrap_or(0)
             } else {
                 0
             };
@@ -368,7 +312,7 @@ impl RunReader {
 }
 
 fn copy_exact(input: &mut dyn Read, out: &mut dyn Write, mut bytes: u64) -> Result<()> {
-    let mut buffer = [0u8; 65536];
+    let mut buffer = [0u8; 8192];
     while bytes != 0 {
         let take = bytes.min(buffer.len() as u64) as usize;
         input.read_exact(&mut buffer[..take])?;

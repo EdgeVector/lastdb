@@ -1,11 +1,16 @@
 //! Native disk backend with complete-request admission and captured read roots.
 
 use super::error::{StorageError, StorageResult};
+use crate::resident::CoreWarmSet;
+use crate::storage::disk_cleanup::CleanupJob;
+use crate::storage::format::{NAMESPACES, REGISTRY};
+use lastdb_model::storage_policy::native_read::{EAGER_BLOCKS, EAGER_WORK_BYTES};
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
-use laststore::space::SpaceReservation;
+use laststore::space::{SpacePolicy, SpaceReservation};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::runtime::{Handle, RuntimeFlavor};
 
 mod blob_backup;
 pub use blob_backup::{blob_path_of_key, BlobRow};
@@ -23,10 +28,9 @@ pub(crate) mod transaction;
 mod view;
 pub(crate) use view::record_warm;
 
-pub use crate::storage::disk_backup::byte_backup;
-pub use crate::storage::disk_backup::mutation_log;
-pub use crate::storage::disk_backup::run_restore;
-pub use crate::storage::disk_backup::NativeCloudWorkGuard;
+pub use crate::storage::disk_backup::{
+    byte_backup, mutation_log, run_restore, NativeCloudWorkGuard,
+};
 pub use crate::storage::disk_cleanup::{
     NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
 };
@@ -40,49 +44,14 @@ pub use view::{
     NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeStorageDiagnostics,
 };
 
-use crate::storage::format::{NAMESPACES, REGISTRY};
-
-pub(in crate::storage) mod space {
-    use crate::storage::error::{StorageError, StorageResult};
-    use laststore::space::SpacePolicy;
-
-    /// An unset cap keeps compatibility; an explicit cap must be a positive byte count.
-    pub(in crate::storage) fn policy_from_env() -> StorageResult<SpacePolicy> {
-        let mut policy = SpacePolicy::default();
-        match std::env::var("LASTDB_DISK_CAP_BYTES") {
-            Ok(raw) => {
-                policy.disk_cap_bytes =
-                    raw.parse::<u64>().ok().filter(|n| *n > 0).ok_or_else(|| {
-                        StorageError::ConfigurationError(
-                            "LASTDB_DISK_CAP_BYTES must be a positive integer byte count".into(),
-                        )
-                    })?;
-            }
-            Err(std::env::VarError::NotPresent) => {}
-            Err(std::env::VarError::NotUnicode(_)) => {
-                return Err(StorageError::ConfigurationError(
-                    "LASTDB_DISK_CAP_BYTES must contain a positive integer byte count".into(),
-                ));
-            }
-        }
-        Ok(policy)
-    }
-}
-
-/// Run synchronous native disk work from an async caller. A multi-thread
-/// runtime blocks in place; any other context uses a blocking task.
+/// Run synchronous native disk work from an async caller.
 pub(in crate::storage) async fn run_blocking<T, F>(work: F) -> StorageResult<T>
 where
     T: Send + 'static,
     F: FnOnce() -> StorageResult<T> + Send + 'static,
 {
-    let can_block = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
-        matches!(
-            handle.runtime_flavor(),
-            tokio::runtime::RuntimeFlavor::MultiThread
-        )
-    });
-    if can_block {
+    if Handle::try_current().is_ok_and(|h| matches!(h.runtime_flavor(), RuntimeFlavor::MultiThread))
+    {
         tokio::task::block_in_place(work)
     } else {
         tokio::task::spawn_blocking(work).await?
@@ -92,27 +61,26 @@ where
 /// Native v2 run homes and their complete published root.
 pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
-    pub(in crate::storage) cleanup_job: Arc<crate::storage::disk_cleanup::CleanupJob>,
+    pub(in crate::storage) cleanup_job: Arc<CleanupJob>,
     pub(in crate::storage) mutation_log: mutation_log::MutationLog,
-    /// Present only for an owned shareable database opened by the normal sender.
     pub(in crate::storage) accepted: Option<crate::storage::disk_backup::accepted::Log>,
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    core: Arc<Mutex<crate::resident::CoreWarmSet>>,
+    core: Arc<Mutex<CoreWarmSet>>,
     pub(in crate::storage) failed: AtomicBool,
     initializing: AtomicBool,
     pub(in crate::storage) serving: AtomicBool,
     failed_write: Mutex<Option<SpaceReservation>>,
-    pub(in crate::storage) space_policy: laststore::space::SpacePolicy,
+    pub(in crate::storage) space_policy: SpacePolicy,
     last_root: Arc<view::LastRoot>,
 }
 
 impl PackRuntime {
     pub(crate) fn batch_operation_limit(&self) -> usize {
-        physical::V2_BATCH_OPERATIONS
+        16_384
     }
 
     pub(crate) fn fresh_initialization_pending(&self) -> bool {
@@ -120,32 +88,11 @@ impl PackRuntime {
     }
 
     pub(in crate::storage) fn require_initialized(&self) -> StorageResult<()> {
-        if self.fresh_initialization_pending() {
-            return Err(creation_refusal(
-                "current creation requires its durable key proofs first",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(in crate::storage::disk_pack) fn validate_initialization_write(
-        &self,
-        operations: &[HomeMutation],
-    ) -> StorageResult<()> {
-        if !self.fresh_initialization_pending() {
-            return Ok(());
-        }
-        let registry_only = operations.iter().all(|operation| {
-            operation.collection == REGISTRY
-                && operation.key.starts_with(NAMESPACES)
-                && operation.body.as_deref() == Some(&[1])
-        });
-        if !registry_only {
-            return Err(creation_refusal(
-                "creation already holds its durable proofs; source writes must wait",
-            ));
-        }
-        Ok(())
+        (!self.fresh_initialization_pending())
+            .then_some(())
+            .ok_or_else(|| {
+                creation_refusal("current creation requires its durable key proofs first")
+            })
     }
 
     pub(crate) async fn finish_fresh_initialization(self: &Arc<Self>) -> StorageResult<()> {
@@ -157,19 +104,18 @@ impl PackRuntime {
                 "current creation needs its own durable transaction",
             ));
         }
-        let gate = self.enter_write().await;
-        let runtime = Arc::clone(self);
+        let (gate, rt) = (self.enter_write().await, Arc::clone(self));
         run_blocking(move || {
             let _gate = gate;
-            if runtime.failed.load(Ordering::Acquire) {
+            if rt.failed.load(Ordering::Acquire) {
                 return Err(creation_refusal(
                     "current creation requires a snapshot reopen",
                 ));
             }
-            if runtime.fresh_initialization_pending() {
-                runtime.mark_accepted_born(runtime.physical.current_root().frontier())?;
-                run_node::complete_initialization(runtime.physical.path())?;
-                runtime.initializing.store(false, Ordering::Release);
+            if rt.fresh_initialization_pending() {
+                rt.mark_accepted_born(rt.physical.current_root().frontier())?;
+                run_node::complete_initialization(rt.physical.path())?;
+                rt.initializing.store(false, Ordering::Release);
             }
             Ok(())
         })
@@ -181,10 +127,13 @@ impl PackRuntime {
         name: &str,
     ) -> StorageResult<()> {
         let key = format!("{NAMESPACES}{name}");
-        let context = read::ReadContext::current(self).await?;
+        let ctx = read::ReadContext::current(self).await?;
         let pending = transaction::PendingBatch::current(self);
+        let coord = [(REGISTRY.to_string(), key.clone())];
         if self
-            .raw_get(&context, REGISTRY, &key, pending.as_ref())?
+            .raw_many(&ctx, &coord, pending.as_ref())?
+            .pop()
+            .flatten()
             .is_none()
         {
             self.mutate(vec![HomeMutation {
@@ -204,17 +153,16 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
-        let gate = self.enter_write().await;
-        let runtime = Arc::clone(self);
+        let (gate, rt) = (self.enter_write().await, Arc::clone(self));
         run_blocking(move || {
             let _gate = gate;
-            runtime.commit(operations)
+            rt.commit(operations)
         })
         .await
     }
 }
 
-fn creation_refusal(message: &str) -> StorageError {
+pub(in crate::storage::disk_pack) fn creation_refusal(message: &str) -> StorageError {
     StorageError::InvalidOperation(format!("native home creation refused: {message}"))
 }
 
@@ -249,8 +197,8 @@ pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {
 pub(in crate::storage) fn budget() -> ReadBudget {
     ReadBudget {
         pages: 4096,
-        blocks: lastdb_model::storage_policy::native_read::EAGER_BLOCKS,
-        bytes: lastdb_model::storage_policy::native_read::EAGER_WORK_BYTES,
+        blocks: EAGER_BLOCKS,
+        bytes: EAGER_WORK_BYTES,
         keys: 10000,
     }
 }
@@ -271,17 +219,14 @@ impl PackNamespacedStore {
         physical: physical::V2Home,
         current: physical::V2Root,
         initializing: bool,
-        space_policy: laststore::space::SpacePolicy,
+        space_policy: SpacePolicy,
         capture_accepted: bool,
     ) -> Self {
         let last_root = Arc::new(view::LastRoot::new(&current));
-        let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
+        let cleanup_job = Arc::new(CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
         let accepted = capture_accepted.then(|| {
-            crate::storage::disk_backup::accepted::Log::open(
-                physical.path(),
-                physical.current_root().frontier(),
-            )
+            crate::storage::disk_backup::accepted::Log::open(physical.path(), current.frontier())
         });
         Self {
             runtime: Arc::new(PackRuntime {
@@ -293,11 +238,11 @@ impl PackNamespacedStore {
                     current,
                     revision: 0,
                 })),
-                prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
-                write_gate: Arc::new(tokio::sync::Mutex::new(())),
+                prepare_gate: Arc::default(),
+                write_gate: Arc::default(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
+                core: Arc::new(Mutex::new(CoreWarmSet::default())),
                 failed: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
                 initializing: AtomicBool::new(initializing),

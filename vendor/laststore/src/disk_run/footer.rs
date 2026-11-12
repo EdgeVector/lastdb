@@ -1,7 +1,7 @@
 //! The run footer, block-ref entries, and replacement-file space admission.
 
 use super::codec::{corrupt, get_len, get_slice, get_varint, put_key, put_varint};
-use super::MAX_RUN_KEY_BYTES;
+use super::{MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES};
 use crate::space::{reserve_space, SpacePolicy, SpaceReservation};
 use crate::{Error, Result};
 use std::path::{Path, PathBuf};
@@ -11,9 +11,20 @@ use uuid::Uuid;
 const MAGIC: [u8; 8] = *b"LDRUN\x01\0\0";
 const VERSION: u32 = 1;
 pub(super) const FOOTER_BYTES: usize = 64;
-const MAX_ENTRIES: usize = super::MAX_INDEX_ENTRIES;
 const PUBLICATION_BYTES: u64 = 4096;
 const OUTPUT_CHUNK_BYTES: u64 = 1 << 20;
+
+pub(super) fn try_vec<T>(count: usize) -> Result<Vec<T>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(count)
+        .map_err(|_| Error::ReadBudgetExceeded)?;
+    Ok(v)
+}
+
+pub(super) fn refs_footprint(refs: &[BlockRef], cap: usize) -> usize {
+    cap * std::mem::size_of::<BlockRef>()
+        + refs.iter().map(|r| r.first_key.capacity()).sum::<usize>()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Footer {
@@ -42,8 +53,8 @@ impl Footer {
     }
 
     pub(super) fn decode(bytes: &[u8; FOOTER_BYTES]) -> Result<Self> {
-        let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4"));
-        let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8"));
+        let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        let u64_at = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
         if bytes[0..8] != MAGIC || u32_at(60) != crc32fast::hash(&bytes[..60]) {
             return Err(corrupt("bad footer"));
         }
@@ -51,7 +62,7 @@ impl Footer {
             return Err(corrupt("unknown run version"));
         }
         Ok(Self {
-            run_id: Uuid::from_slice(&bytes[12..28]).expect("16 bytes"),
+            run_id: Uuid::from_slice(&bytes[12..28]).unwrap(),
             top_offset: u64_at(28),
             top_len: u32_at(36),
             records: u64_at(40),
@@ -85,35 +96,26 @@ pub(super) fn get_refs_bounded(
     bytes: &[u8],
     at: &mut usize,
     maximum: u64,
-) -> Result<Vec<BlockRef>> {
-    let count = get_len(bytes, at, MAX_ENTRIES)?;
-    let entries = count
+) -> Result<(Vec<BlockRef>, u64)> {
+    let count = get_len(bytes, at, MAX_INDEX_ENTRIES)?;
+    let mut refs: Vec<BlockRef> = try_vec(count)?;
+    let entries = refs
+        .capacity()
         .checked_mul(std::mem::size_of::<BlockRef>())
         .ok_or(Error::ReadBudgetExceeded)?;
     let mut used = admit(admit(0, bytes.len(), maximum)?, entries, maximum)?;
-    let mut refs: Vec<BlockRef> = Vec::new();
-    refs.try_reserve_exact(count)
-        .map_err(|_| Error::ReadBudgetExceeded)?;
     for _ in 0..count {
-        let previous = refs
-            .last()
-            .map_or(&[][..], |entry| entry.first_key.as_slice());
-        let shared = get_len(bytes, at, previous.len())?;
+        let prev = refs.last().map_or(&[][..], |e| e.first_key.as_slice());
+        let shared = get_len(bytes, at, prev.len())?;
         let suffix_len = get_len(bytes, at, MAX_RUN_KEY_BYTES - shared)?;
         let suffix = get_slice(bytes, at, suffix_len)?;
-        let key_len = shared
-            .checked_add(suffix_len)
-            .ok_or(Error::ReadBudgetExceeded)?;
-        used = admit(used, key_len, maximum)?;
-        let number = get_varint(bytes, at)?;
-        let offset = get_varint(bytes, at)?;
+        let (number, offset) = (get_varint(bytes, at)?, get_varint(bytes, at)?);
         let len = u32::try_from(get_varint(bytes, at)?).map_err(|_| corrupt("block length"))?;
-        let mut key = Vec::new();
-        key.try_reserve_exact(key_len)
-            .map_err(|_| Error::ReadBudgetExceeded)?;
-        key.extend_from_slice(&previous[..shared]);
+        let mut key = try_vec(shared + suffix_len)?;
+        used = admit(used, key.capacity(), maximum)?;
+        key.extend_from_slice(&prev[..shared]);
         key.extend_from_slice(suffix);
-        if refs.last().is_some_and(|prev| prev.first_key >= key) {
+        if refs.last().is_some_and(|p| p.first_key >= key) {
             return Err(corrupt("block entries are not ascending"));
         }
         refs.push(BlockRef {
@@ -123,12 +125,12 @@ pub(super) fn get_refs_bounded(
             len,
         });
     }
-    Ok(refs)
+    Ok((refs, used))
 }
 
 fn admit(used: u64, bytes: usize, maximum: u64) -> Result<u64> {
-    used.checked_add(u64::try_from(bytes).map_err(|_| Error::ReadBudgetExceeded)?)
-        .filter(|value| *value <= maximum)
+    used.checked_add(bytes as u64)
+        .filter(|&v| v <= maximum)
         .ok_or(Error::ReadBudgetExceeded)
 }
 
@@ -144,9 +146,9 @@ pub(super) struct Top {
 impl Top {
     pub(super) fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        put_varint(&mut out, self.records);
-        put_varint(&mut out, self.data_blocks);
-        put_varint(&mut out, self.max_payload);
+        for v in [self.records, self.data_blocks, self.max_payload] {
+            put_varint(&mut out, v);
+        }
         put_refs(&mut out, &self.indexes);
         put_varint(&mut out, self.last_key.len() as u64);
         out.extend_from_slice(&self.last_key);
@@ -155,28 +157,19 @@ impl Top {
 
     pub(super) fn decode_bounded(bytes: &[u8], maximum: u64) -> Result<Self> {
         let mut at = 0;
-        let records = get_varint(bytes, &mut at)?;
-        let data_blocks = get_varint(bytes, &mut at)?;
-        let max_payload = get_varint(bytes, &mut at)?;
-        let indexes = get_refs_bounded(bytes, &mut at, maximum)?;
-        let entries = indexes
-            .capacity()
-            .checked_mul(std::mem::size_of::<BlockRef>())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let mut used = admit(admit(0, bytes.len(), maximum)?, entries, maximum)?;
-        for entry in &indexes {
-            used = admit(used, entry.first_key.capacity(), maximum)?;
-        }
+        let (records, data_blocks, max_payload) = (
+            get_varint(bytes, &mut at)?,
+            get_varint(bytes, &mut at)?,
+            get_varint(bytes, &mut at)?,
+        );
+        let (indexes, used) = get_refs_bounded(bytes, &mut at, maximum)?;
         let last_len = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES)?;
-        admit(used, last_len, maximum)?;
         let last = get_slice(bytes, &mut at, last_len)?;
         if at != bytes.len() {
             return Err(corrupt("trailing bytes in top block"));
         }
-        let mut last_key = Vec::new();
-        last_key
-            .try_reserve_exact(last_len)
-            .map_err(|_| Error::ReadBudgetExceeded)?;
+        let mut last_key = try_vec(last_len)?;
+        admit(used, last_key.capacity(), maximum)?;
         last_key.extend_from_slice(last);
         Ok(Self {
             records,
@@ -219,6 +212,7 @@ impl MergeSpace {
 
     pub(crate) fn admit_run(&self, bytes: u64) -> Result<()> {
         let mut pending = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let overflow = || Error::WriteCapacity("disk run: replacement reservation overflow".into());
         let required = bytes.checked_add(PUBLICATION_BYTES).ok_or_else(overflow)?;
         if required <= pending.ticket.bytes() {
             return Ok(());
@@ -229,17 +223,13 @@ impl MergeSpace {
             .checked_add(OUTPUT_CHUNK_BYTES)
             .ok_or_else(overflow)?
             .max(required);
-        let extra = pending
-            .ticket
-            .reserve_extension(&pending.policy, chunk)
-            .or_else(|error| match error {
-                Error::Io(io)
-                    if io.raw_os_error() == Some(rustix::io::Errno::NOSPC.raw_os_error()) =>
-                {
-                    pending.ticket.reserve_extension(&pending.policy, required)
-                }
-                error => Err(error),
-            })?;
+        let nospc = rustix::io::Errno::NOSPC.raw_os_error();
+        let extra = match pending.ticket.reserve_extension(&pending.policy, chunk) {
+            Err(Error::Io(io)) if io.raw_os_error() == Some(nospc) => {
+                pending.ticket.reserve_extension(&pending.policy, required)
+            }
+            other => other,
+        }?;
         pending.ticket.absorb(extra);
         Ok(())
     }
@@ -285,8 +275,4 @@ impl Drop for Pending {
             }
         }
     }
-}
-
-fn overflow() -> Error {
-    Error::WriteCapacity("disk run: replacement reservation overflow".into())
 }

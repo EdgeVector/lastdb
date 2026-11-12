@@ -17,8 +17,6 @@ use uuid::Uuid;
 const TAIL_BYTES: usize = 512;
 const FRAME_WORKSPACE: u64 = 8 * 1024 * 1024;
 
-pub(crate) type SummaryRecord = (Vec<u8>, Option<u64>);
-
 impl RunReader {
     pub(crate) fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
         Self::open_inner(path, data_key, None, 0)
@@ -54,24 +52,36 @@ impl RunReader {
         if len < FOOTER_BYTES as u64 {
             return Err(corrupt("file shorter than a footer"));
         }
-        let (footer, tail) = read_footer(&file, len, bytes.is_none())?;
+        let mut raw = [0u8; FOOTER_BYTES];
+        let tail = if bytes.is_none() {
+            let count = len.min(TAIL_BYTES as u64) as usize;
+            let mut tail = vec![0u8; count];
+            file.read_exact_at(&mut tail, len - count as u64)?;
+            raw.copy_from_slice(&tail[count - FOOTER_BYTES..]);
+            Some(tail)
+        } else {
+            file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
+            None
+        };
+        let footer = Footer::decode(&raw)?;
         if bytes.is_some_and(|n| u64::from(footer.top_len).saturating_mul(4) > n) {
             return Err(Error::ReadBudgetExceeded);
         }
         if footer.run_id != named {
             return Err(corrupt("run file name and run id disagree"));
         }
-        let end = footer
+        if footer
             .top_offset
             .checked_add(u64::from(footer.top_len))
-            .and_then(|end| end.checked_add(FOOTER_BYTES as u64));
-        if end != Some(len) {
+            .and_then(|e| e.checked_add(FOOTER_BYTES as u64))
+            != Some(len)
+        {
             return Err(corrupt("top block is not before the footer"));
         }
-        let frame_key = match bytes {
-            None => Some(Box::new(PreparedFrameKey::new(data_key, footer.run_id)?)),
-            Some(_) => None,
-        };
+        let frame_key = bytes
+            .is_none()
+            .then(|| PreparedFrameKey::new(data_key, footer.run_id).map(Box::new))
+            .transpose()?;
         let mut reader = Self {
             reserved_memory: reserved,
             file,
@@ -89,18 +99,16 @@ impl RunReader {
 
     fn read_top(&self, admission: Option<u64>, tail: Option<&[u8]>, len: u64) -> Result<Top> {
         let f = self.footer;
-        let payload = match admission {
-            Some(adm) => {
-                self.read_metadata_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, adm)?
-            }
-            None => match cached_top(tail, len, &f) {
-                Some(frame) => {
-                    self.decode_checked_frame(frame, TOP_COUNTER, MAX_TOP_BYTES, None)?
-                }
-                None => {
-                    self.read_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, None)?
-                }
-            },
+        let payload = if let Some(adm) = admission {
+            self.read_metadata_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, adm)?
+        } else if let Some(frame) = tail.and_then(|t| {
+            let at = usize::try_from(f.top_offset.checked_sub(len.checked_sub(t.len() as u64)?)?)
+                .ok()?;
+            t.get(at..at.checked_add(f.top_len as usize)?)
+        }) {
+            self.decode_checked_frame(frame, TOP_COUNTER, MAX_TOP_BYTES, None)?
+        } else {
+            self.read_frame(f.top_offset, f.top_len, TOP_COUNTER, MAX_TOP_BYTES, None)?
         };
         Top::decode_bounded(&payload, admission.unwrap_or(u64::MAX))
     }
@@ -109,7 +117,7 @@ impl RunReader {
         let admission = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
         let mut summary = RunSummary {
             path: path.to_owned(),
-            run_id: self.run_id(),
+            run_id: self.footer.run_id,
             records: 0,
             tombstones: 0,
             record_bytes: 0,
@@ -155,10 +163,12 @@ impl RunReader {
                 blocks += 1;
             }
         }
-        if summary.records != self.records()
+        let expected_first = self.top.indexes.first().map(|i| i.first_key.as_slice());
+        let expected_last = (self.footer.records > 0).then_some(self.top.last_key.as_slice());
+        if summary.records != self.footer.records
             || blocks != u64::from(self.footer.data_blocks)
-            || summary.first_key.as_deref() != self.first_key()
-            || summary.last_key.as_deref() != self.last_key()
+            || summary.first_key.as_deref() != expected_first
+            || summary.last_key.as_deref() != expected_last
         {
             return Err(corrupt("imported mutation run complete summary"));
         }
@@ -203,7 +213,7 @@ impl SummaryCursor {
         })
     }
 
-    pub(crate) fn next_record(&mut self) -> Result<Option<SummaryRecord>> {
+    pub(crate) fn next_record(&mut self) -> Result<Option<(Vec<u8>, Option<u64>)>> {
         if self.at == self.payload.len() && !self.load_block()? {
             return Ok(None);
         }
@@ -226,8 +236,7 @@ impl SummaryCursor {
             return Err(corrupt("diagnostic block first key"));
         }
         self.seen = true;
-        let tag = get_len(&self.payload, &mut self.at, MAX_RUN_VALUE_BYTES + 1)?;
-        let bytes = tag.checked_sub(1);
+        let bytes = get_len(&self.payload, &mut self.at, MAX_RUN_VALUE_BYTES + 1)?.checked_sub(1);
         if let Some(bytes) = bytes {
             get_slice(&self.payload, &mut self.at, bytes)?;
         }
@@ -285,26 +294,4 @@ impl SummaryCursor {
             return Ok(true);
         }
     }
-}
-
-fn read_footer(file: &File, len: u64, ordinary: bool) -> Result<(Footer, Option<Vec<u8>>)> {
-    let mut raw = [0u8; FOOTER_BYTES];
-    let tail = if ordinary {
-        let count = len.min(TAIL_BYTES as u64) as usize;
-        let mut tail = vec![0u8; count];
-        file.read_exact_at(&mut tail, len - count as u64)?;
-        raw.copy_from_slice(&tail[count - FOOTER_BYTES..]);
-        Some(tail)
-    } else {
-        file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
-        None
-    };
-    Ok((Footer::decode(&raw)?, tail))
-}
-
-fn cached_top<'a>(tail: Option<&'a [u8]>, len: u64, footer: &Footer) -> Option<&'a [u8]> {
-    let tail = tail?;
-    let start = len.checked_sub(tail.len() as u64)?;
-    let offset = usize::try_from(footer.top_offset.checked_sub(start)?).ok()?;
-    tail.get(offset..offset.checked_add(footer.top_len as usize)?)
 }

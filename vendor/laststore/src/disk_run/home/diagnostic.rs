@@ -15,7 +15,6 @@ use std::time::Instant;
 const MEMORY_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_RECORDS: u64 = 50_000_000;
 const MAX_INPUTS: usize = 512;
-type InventoryRecord = (Vec<u8>, Option<u64>);
 type Head = Reverse<(Vec<u8>, usize, Option<u64>)>;
 
 /// Allocated physical bytes at one captured checkpoint.
@@ -156,10 +155,10 @@ impl RunHome {
                 if Instant::now() >= deadline {
                     return Err(Error::ReadBudgetExceeded);
                 }
-                let metadata = fs::symlink_metadata(entry?.path())?;
-                if metadata.is_file() {
+                let meta = fs::symlink_metadata(entry?.path())?;
+                if meta.is_file() {
                     total_allocated_bytes =
-                        total_allocated_bytes.saturating_add(metadata.blocks().saturating_mul(512));
+                        total_allocated_bytes.saturating_add(meta.blocks().saturating_mul(512));
                 }
             }
         }
@@ -174,7 +173,7 @@ impl RunHome {
             files: FileDiagnostics {
                 total_allocated_bytes,
             },
-            levels: root.levels.iter().map(|level| part(level)).collect(),
+            levels: root.levels.iter().map(|l| part(l)).collect(),
             merging: part(&root.merging),
             base: part(&root.base),
             published_record_bytes: root.newest_first().map(|r| r.meta.record_bytes).sum(),
@@ -196,7 +195,7 @@ impl RunHome {
 enum InventoryCursor<'a> {
     Run(SummaryCursor),
     Base {
-        home: &'a RunHome,
+        key: &'a [u8; 32],
         files: &'a [Arc<RunFile>],
         next: usize,
         current: Option<SummaryCursor>,
@@ -205,11 +204,11 @@ enum InventoryCursor<'a> {
 }
 
 impl InventoryCursor<'_> {
-    fn next_record(&mut self, deadline: Instant) -> Result<Option<InventoryRecord>> {
+    fn next_record(&mut self, deadline: Instant) -> Result<Option<(Vec<u8>, Option<u64>)>> {
         match self {
             Self::Run(cursor) => cursor.next_record(),
             Self::Base {
-                home,
+                key,
                 files,
                 next,
                 current,
@@ -227,7 +226,7 @@ impl InventoryCursor<'_> {
                     *current = None;
                     return Ok(None);
                 };
-                *current = Some(SummaryCursor::open(&run.path, &home.key, *allowance)?);
+                *current = Some(SummaryCursor::open(&run.path, key, *allowance)?);
                 *next += 1;
             },
         }
@@ -253,14 +252,14 @@ fn inventory(home: &RunHome, root: &Manifest, deadline: Instant) -> LogicalInven
         time_limit_seconds: deadline.saturating_duration_since(started).as_secs(),
         collections: BTreeMap::new(),
     };
-    match collect(home, root, &mut report, deadline) {
+    match collect(&home.key, root, &mut report, deadline) {
         Ok(()) => report.complete = true,
         Err(Error::ReadBudgetExceeded) => {
             report.stopped_reason = Some(if Instant::now() >= deadline {
                 "shared_time_cap"
             } else {
                 "memory_or_work_cap"
-            })
+            });
         }
         Err(_) => report.stopped_reason = Some("record_read_failed"),
     }
@@ -269,7 +268,7 @@ fn inventory(home: &RunHome, root: &Manifest, deadline: Instant) -> LogicalInven
 }
 
 fn collect(
-    home: &RunHome,
+    key: &[u8; 32],
     root: &Manifest,
     report: &mut LogicalInventory,
     deadline: Instant,
@@ -295,14 +294,13 @@ fn collect(
     }
     let (mut cursors, mut heads) = (Vec::with_capacity(count), BinaryHeap::with_capacity(count));
     for run in root.tiered().chain(&root.merging) {
-        let mut cursor =
-            InventoryCursor::Run(SummaryCursor::open(&run.path, &home.key, allowance)?);
+        let mut cursor = InventoryCursor::Run(SummaryCursor::open(&run.path, key, allowance)?);
         push_next(&mut cursor, cursors.len(), &mut heads, report, deadline)?;
         cursors.push(cursor);
     }
     if !root.base.is_empty() {
         let mut cursor = InventoryCursor::Base {
-            home,
+            key,
             files: &root.base,
             next: 0,
             current: None,
@@ -311,12 +309,12 @@ fn collect(
         push_next(&mut cursor, cursors.len(), &mut heads, report, deadline)?;
         cursors.push(cursor);
     }
-    while let Some(Reverse((key, slot, bytes))) = heads.pop() {
-        add_record(report, &key, bytes)?;
+    while let Some(Reverse((rk, slot, bytes))) = heads.pop() {
+        add_record(report, &rk, bytes)?;
         report.merged_keys += 1;
         while heads
             .peek()
-            .is_some_and(|Reverse((next, _, _))| *next == key)
+            .is_some_and(|Reverse((next, _, _))| *next == rk)
         {
             let Reverse((_, old, _)) = heads.pop().expect("equal head exists");
             push_next(&mut cursors[old], old, &mut heads, report, deadline)?;

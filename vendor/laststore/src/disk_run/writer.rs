@@ -41,10 +41,9 @@ pub(crate) struct PreparedRun {
 impl PreparedRun {
     pub(crate) fn finish(mut self) -> Result<RunSummary> {
         sync_dirty_file(&self.writer.file)?;
-        let path = &self.summary.path;
-        fs::rename(&self.writer.tmp, path)?;
+        fs::rename(&self.writer.tmp, &self.summary.path)?;
         if let Some(space) = &self.writer.space {
-            space.output(path);
+            space.output(&self.summary.path);
         }
         sync_directory(&self.writer.dir)?;
         self.writer.finished = true;
@@ -60,7 +59,6 @@ pub(crate) struct RunWriter {
     run_id: Uuid,
     offset: u64,
     block: Vec<u8>,
-    block_prev: Vec<u8>,
     block_first: Vec<u8>,
     data_blocks: u64,
     index: Vec<BlockRef>,
@@ -81,6 +79,18 @@ pub(crate) struct RunWriter {
 
 impl RunWriter {
     pub(crate) fn create(dir: &Path, data_key: &[u8; 32]) -> Result<Self> {
+        Self::open_new(dir, data_key, None)
+    }
+
+    pub(crate) fn create_reserved(
+        dir: &Path,
+        data_key: &[u8; 32],
+        space: &MergeSpace,
+    ) -> Result<Self> {
+        Self::open_new(dir, data_key, Some(space.clone()))
+    }
+
+    fn open_new(dir: &Path, data_key: &[u8; 32], space: Option<MergeSpace>) -> Result<Self> {
         let run_id = Uuid::new_v4();
         let tmp = dir.join(format!(".{run_id}.tmp"));
         let file = OpenOptions::new()
@@ -96,7 +106,6 @@ impl RunWriter {
             run_id,
             offset: 0,
             block: Vec::with_capacity(BLOCK_BYTES + 1024),
-            block_prev: Vec::new(),
             block_first: Vec::new(),
             data_blocks: 0,
             index: Vec::new(),
@@ -112,18 +121,8 @@ impl RunWriter {
             max_payload: 0,
             failed: false,
             finished: false,
-            space: None,
+            space,
         })
-    }
-
-    pub(crate) fn create_reserved(
-        dir: &Path,
-        data_key: &[u8; 32],
-        space: &MergeSpace,
-    ) -> Result<Self> {
-        let mut writer = Self::create(dir, data_key)?;
-        writer.space = Some(space.clone());
-        Ok(writer)
     }
 
     pub(crate) fn bytes_written(&self) -> u64 {
@@ -144,17 +143,18 @@ impl RunWriter {
             return Err(corrupt("keys pushed out of order"));
         }
         if !self.block.is_empty()
-            && self.block.len() + record_len(&self.block_prev, key, value) > BLOCK_BYTES
+            && self.block.len() + record_len(self.last_key.as_deref().unwrap_or(&[]), key, value)
+                > BLOCK_BYTES
         {
             self.flush_block()?;
         }
-        if self.block.is_empty() {
-            self.block_prev.clear();
+        let prev = if self.block.is_empty() {
             self.block_first = key.to_vec();
-        }
-        put_record(&mut self.block, &self.block_prev, key, value);
-        self.block_prev.clear();
-        self.block_prev.extend_from_slice(key);
+            &[][..]
+        } else {
+            self.last_key.as_deref().unwrap_or(&[])
+        };
+        put_record(&mut self.block, prev, key, value);
         self.index_hashes.push(key_hash(key));
         self.records += 1;
         self.record_bytes += (key.len() + value.map_or(0, <[u8]>::len)) as u64;
@@ -171,12 +171,11 @@ impl RunWriter {
 
     fn refuse_after_failure(&self) -> Result<()> {
         if self.failed {
-            Err(Error::WriteCapacity(
+            return Err(Error::WriteCapacity(
                 "disk run: an earlier block write failed; start a new run".into(),
-            ))
-        } else {
-            Ok(())
+            ));
         }
+        Ok(())
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
@@ -192,13 +191,13 @@ impl RunWriter {
 
     fn write_frame(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
         let written = (|| {
-            let header = FrameHeader {
+            let hdr = FrameHeader {
                 chunk_uuid: self.run_id,
                 shard: 0,
                 start_csn: 0,
                 counter,
             };
-            let frame = encode_frame(&self.data_key, header, payload)?;
+            let frame = encode_frame(&self.data_key, hdr, payload)?;
             let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
             self.write_bytes(&frame)?;
             let offset = self.offset;

@@ -2,8 +2,8 @@
 
 use super::commit::MAX_MERGE_INPUTS;
 use super::manifest::{Manifest, RunFile};
-use super::{write_private_file, RunHome, CAS_DELETE, NODE_CLEANUP};
-use crate::disk_run::{RunReader, RUN_SUFFIX};
+use super::{is_removable_run, write_private_file, RunHome, CAS_DELETE, NODE_CLEANUP};
+use crate::disk_run::RunReader;
 use crate::durability::sync_directory;
 use crate::frame::{decode_frame_bounded, encode_frame, FrameHeader};
 use crate::space::SpacePolicy;
@@ -48,7 +48,7 @@ pub struct RunCleanupFiles {
 }
 
 impl RunHome {
-    pub(in crate::disk_run::home) fn count_hidden(&self, held: &Manifest) -> Result<()> {
+    pub(super) fn count_hidden(&self, held: &Manifest) -> Result<()> {
         let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
         for (at, run) in runs.iter().enumerate().take(held.tiered().count()) {
             if run.hidden().is_none() {
@@ -62,7 +62,7 @@ impl RunHome {
         let older: Vec<&Arc<RunFile>> = older
             .iter()
             .copied()
-            .filter(|other| other.meta.meets(&run.meta))
+            .filter(|o| o.meta.meets(&run.meta))
             .collect();
         if older.is_empty() {
             return Ok(0);
@@ -96,25 +96,28 @@ impl RunHome {
     ) -> Result<u64> {
         let (mut open, mut bytes) = ((0..keys.len()).collect::<Vec<_>>(), 0u64);
         for (slot, run) in older.iter().enumerate() {
-            let wanted: Vec<usize> = open
+            let lookups: Vec<&[u8]> = open
                 .iter()
-                .copied()
-                .filter(|&at| run.meta.covers(&keys[at]))
+                .filter_map(|&at| run.meta.covers(&keys[at]).then_some(keys[at].as_slice()))
                 .collect();
-            if !wanted.is_empty() {
+            if !lookups.is_empty() {
                 let reader = match &mut readers[slot] {
                     Some(r) => r,
                     slot_ref => slot_ref.insert(RunReader::open(&run.path, &self.key)?),
                 };
-                let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
-                let mut found = HashSet::new();
-                for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
-                    if let Some(size) = size {
-                        bytes = bytes.saturating_add(size);
-                        found.insert(at);
+                let mut hits = reader.record_bytes_many(&lookups)?.into_iter();
+                open.retain(|&at| {
+                    if !run.meta.covers(&keys[at]) {
+                        return true;
                     }
-                }
-                open.retain(|at| !found.contains(at));
+                    match hits.next().expect("aligned") {
+                        Some(size) => {
+                            bytes = bytes.saturating_add(size);
+                            false
+                        }
+                        None => true,
+                    }
+                });
             }
             if keys.last().is_some_and(|last| run.meta.last_key <= *last) {
                 readers[slot] = None;
@@ -220,9 +223,8 @@ impl RunHome {
         payload.extend_from_slice(magic);
         payload.extend_from_slice(self.identity.as_bytes());
         payload.extend_from_slice(bytes);
-        let frame = encode_frame(&self.key, header, &payload)?;
         let pending = self.root.join(format!(".{name}.{chunk_uuid}.tmp"));
-        write_private_file(&pending, &frame)?;
+        write_private_file(&pending, &encode_frame(&self.key, header, &payload)?)?;
         fs::rename(&pending, self.root.join(name))
             .map_err(Error::from)
             .and_then(|()| sync_directory(&self.root))
@@ -262,7 +264,7 @@ impl RunHome {
         let protected: HashSet<_> = current
             .newest_first()
             .chain(&held)
-            .map(|run| run.meta.run_id)
+            .map(|r| r.meta.run_id)
             .collect();
         let mut removed_files = 0;
         for (index, entry) in fs::read_dir(&self.runs)?.enumerate() {
@@ -272,13 +274,7 @@ impl RunHome {
                 ));
             }
             let entry = entry?;
-            let raw_name = entry.file_name();
-            let name = raw_name.to_string_lossy();
-            let obsolete = name
-                .strip_suffix(RUN_SUFFIX)
-                .and_then(|id| Uuid::parse_str(id).ok())
-                .is_some_and(|id| !protected.contains(&id));
-            if obsolete || (name.starts_with('.') && name.ends_with(".tmp")) {
+            if is_removable_run(&entry.file_name().to_string_lossy(), &protected) {
                 match fs::remove_file(entry.path()) {
                     Ok(()) => removed_files += 1,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -296,7 +292,7 @@ impl RunHome {
             }
         }
         Ok(RunCleanupFiles {
-            held_bytes: held.iter().map(|run| run.meta.file_bytes).sum(),
+            held_bytes: held.iter().map(|r| r.meta.file_bytes).sum(),
             removed_files,
         })
     }

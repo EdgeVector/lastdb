@@ -40,20 +40,23 @@ impl Source {
     fn open(file: &File, offset: u64, encoded_bytes: u64) -> Result<Self> {
         let identity = file.metadata()?;
         let min_len = (HEADER_SIZE + TAG_SIZE) as u64;
-        let end = offset.checked_add(encoded_bytes);
-        if !identity.is_file() || encoded_bytes < min_len || end.is_none_or(|e| e > identity.len())
+        if !identity.is_file()
+            || encoded_bytes < min_len
+            || offset
+                .checked_add(encoded_bytes)
+                .is_none_or(|e| e > identity.len())
         {
             return Err(Error::Corrupt("streamed frame file extent differs".into()));
         }
         let (file, mut header_bytes) = (file.try_clone()?, [0; HEADER_SIZE]);
-        read_at(&file, &mut header_bytes, offset)?;
+        file.read_exact_at(&mut header_bytes, offset)?;
         let (header, stored, flags) = decode_header_prefix(&header_bytes)?;
         let stored_bytes = stored as u64;
         if stored_bytes.checked_add(min_len) != Some(encoded_bytes) {
             return Err(Error::Corrupt("streamed frame length differs".into()));
         }
         let mut tag = [0; TAG_SIZE];
-        read_at(&file, &mut tag, offset + HEADER_SIZE as u64 + stored_bytes)?;
+        file.read_exact_at(&mut tag, offset + HEADER_SIZE as u64 + stored_bytes)?;
         let source = Self {
             file,
             identity,
@@ -86,31 +89,9 @@ impl Source {
             .checked_add(HEADER_SIZE as u64)
             .and_then(|s| s.checked_add(position))
             .ok_or_else(|| Error::Corrupt("streamed frame offset overflow".into()))?;
-        read_at(&self.file, bytes, pos)?;
+        self.file.read_exact_at(bytes, pos)?;
         self.check()
     }
-}
-
-fn read_at(file: &File, mut bytes: &mut [u8], mut offset: u64) -> io::Result<()> {
-    while !bytes.is_empty() {
-        match file.read_at(bytes, offset) {
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-            Ok(0) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "truncated frame",
-                ))
-            }
-            Ok(n) => {
-                offset = offset
-                    .checked_add(n as u64)
-                    .ok_or_else(|| io_invalid("offset overflow"))?;
-                bytes = &mut bytes[n..];
-            }
-        }
-    }
-    Ok(())
 }
 
 struct GcmReader {
@@ -311,11 +292,10 @@ impl VerifiedFrameReader {
                     "streamed decompressed frame exceeds limit".into(),
                 ));
             }
-            let extra = ZSTD_WINDOW_BYTES as u64 + 2 * stream_buf;
             (
                 Payload::Pending(Box::new(plain), ZSTD_WINDOW_BYTES.ilog2()),
                 expected,
-                extra,
+                ZSTD_WINDOW_BYTES as u64 + 2 * stream_buf,
             )
         };
         Ok(Self {

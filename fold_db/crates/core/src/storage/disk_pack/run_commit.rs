@@ -1,15 +1,19 @@
 //! Commit admission, publication, background merge worker, and root adoption.
 
-use super::physical::{PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
+use super::physical::{V2Home, V2Root, CAS_COLLECTION};
 use super::*;
+use lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES;
 use laststore::disk_run::home::{CheckpointKind, RunHome};
-use laststore::space::SpacePolicy;
+use laststore::space::{reserve_space, SpacePolicy};
+use std::collections::BTreeMap;
+use std::sync::{TryLockError, Weak};
+use std::time::{Duration, Instant};
 
-const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+const MERGE_RETRY: Duration = Duration::from_secs(30);
 const HELD_SHARE: u64 = 16;
 const MIN_HELD_BYTES: u64 = 1 << 20;
-const HELD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
-const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
+const HELD_WAIT: Duration = Duration::from_secs(2);
+const HELD_POLL: Duration = Duration::from_millis(2);
 
 pub(super) struct PreparedCommit {
     pub(super) operations: Vec<HomeMutation>,
@@ -36,7 +40,17 @@ impl PackRuntime {
         operations: Vec<HomeMutation>,
         previous: Option<&PreparedCommit>,
     ) -> StorageResult<PreparedCommit> {
-        self.validate_initialization_write(&operations)?;
+        if self.fresh_initialization_pending()
+            && !operations.iter().all(|op| {
+                op.collection == REGISTRY
+                    && op.key.starts_with(NAMESPACES)
+                    && op.body.as_deref() == Some(&[1])
+            })
+        {
+            return Err(creation_refusal(
+                "creation already holds its durable proofs; source writes must wait",
+            ));
+        }
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native writer requires a snapshot reopen after a failed publication".into(),
@@ -50,14 +64,15 @@ impl PackRuntime {
                 .transpose()?
                 .unwrap_or(0);
         let reserved_bytes = batch_bytes.saturating_add(cas_delete::space(intent_keys)?);
-        let v2 = &self.physical;
         let space = match previous {
             Some(prev) => prev
                 .space
                 .reserve_extension(&self.space_policy, reserved_bytes),
-            None => {
-                laststore::space::reserve_space(v2.home.path(), &self.space_policy, reserved_bytes)
-            }
+            None => reserve_space(
+                self.physical.home.path(),
+                &self.space_policy,
+                reserved_bytes,
+            ),
         }
         .map_err(map)?;
         Ok(PreparedCommit {
@@ -79,10 +94,8 @@ impl PackRuntime {
         let PreparedCommit {
             operations, space, ..
         } = prepared;
-        let split = !notes.is_empty()
-            && operations
-                .iter()
-                .any(|operation| operation.collection == CAS_COLLECTION);
+        let split =
+            !notes.is_empty() && operations.iter().any(|op| op.collection == CAS_COLLECTION);
         if split {
             self.arm_accepted_split()?;
         }
@@ -98,19 +111,16 @@ impl PackRuntime {
             if let Some(journal) = journal {
                 journal.finish(v2);
             }
-            Ok(())
+            if split {
+                self.note_accepted_split(frontier_before)?;
+            }
+            self.publish_accepted(frontier_before, v2.current_root().frontier())
         })();
         if let Err(error) = result {
-            return Err(self.fail_native(frontier_before, space, error));
-        }
-        if split {
-            if let Err(error) = self.note_accepted_split(frontier_before) {
-                return Err(self.fail_native(frontier_before, space, error));
-            }
-        }
-        let frontier_after = self.physical.current_root().frontier();
-        if let Err(error) = self.publish_accepted(frontier_before, frontier_after) {
-            return Err(self.fail_native(frontier_before, space, error));
+            self.fail_accepted(frontier_before);
+            self.failed.store(true, Ordering::Release);
+            *self.failed_write.lock().expect("native failed write owner") = Some(space);
+            return Err(error);
         }
         let root = v2.current_root();
         let (generation, frontier) = (root.generation(), root.frontier());
@@ -118,57 +128,72 @@ impl PackRuntime {
         self.last_root.observe(generation, frontier);
         drop(space);
         self.failed.store(false, Ordering::Release);
-        start_merges(
-            v2,
-            Arc::clone(&self.view),
-            Arc::clone(&self.last_root),
-            &self.space_policy,
-        );
+        self.spawn_merges();
         Ok(())
     }
 
-    fn fail_native(
-        &self,
-        frontier_before: u64,
-        space: SpaceReservation,
-        error: StorageError,
-    ) -> StorageError {
-        self.fail_accepted(frontier_before);
-        self.failed.store(true, Ordering::Release);
-        *self.failed_write.lock().expect("native failed write owner") = Some(space);
-        error
+    pub(super) fn resume_merges(&self) {
+        if self.physical.home.needs_merge() || self.physical.cas.needs_merge() {
+            self.spawn_merges();
+        }
     }
 
-    pub(super) fn resume_merges(&self) {
+    fn spawn_merges(&self) {
         let v2 = &self.physical;
-        if v2.home.needs_merge() || v2.cas.needs_merge() {
-            start_merges(
-                v2,
-                Arc::clone(&self.view),
-                Arc::clone(&self.last_root),
-                &self.space_policy,
-            );
+        let waiting = v2
+            .retry_after
+            .lock()
+            .expect("disk run merge retry")
+            .is_some_and(|at| Instant::now() < at);
+        if waiting || v2.merging.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let homes = [Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
+        let (view, last_root, merging, stop, retry, policy) = (
+            Arc::clone(&self.view),
+            Arc::clone(&self.last_root),
+            Arc::clone(&v2.merging),
+            Arc::clone(&v2.stop),
+            Arc::clone(&v2.retry_after),
+            self.space_policy.clone(),
+        );
+        let spawned = std::thread::Builder::new()
+            .name("lastdb-run-merge".into())
+            .spawn(move || {
+                merge_until_settled(&homes, &view, &last_root, &merging, &stop, &retry, &policy);
+            });
+        match spawned {
+            Ok(handle) => {
+                if let Some(prev) = v2
+                    .merger
+                    .lock()
+                    .expect("disk run merge thread")
+                    .replace(handle)
+                {
+                    let _ = prev.join();
+                }
+            }
+            Err(error) => {
+                v2.merging.store(false, Ordering::Release);
+                tracing::warn!(%error, "disk run merge thread did not start; the next commit retries");
+            }
         }
     }
 
     pub(in crate::storage) fn adopt_merged_root(&self) -> StorageResult<()> {
         let mut view = match self.view.try_write() {
             Ok(view) => view,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
-            Err(std::sync::TryLockError::Poisoned(_)) => {
+            Err(TryLockError::WouldBlock) => return Ok(()),
+            Err(TryLockError::Poisoned(_)) => {
                 self.failed.store(true, Ordering::Release);
-                tracing::error!(
-                    "native read view lock is poisoned; restart the process to reopen the home"
-                );
-                return Err(StorageError::BackendError(
-                    "native read view lock is poisoned; restart the process to reopen the home"
-                        .into(),
-                ));
+                let msg =
+                    "native read view lock is poisoned; restart the process to reopen the home";
+                tracing::error!(msg);
+                return Err(StorageError::BackendError(msg.into()));
             }
         };
         let replaced = adopt(&mut view, self.physical.current_root(), &self.last_root);
-        drop(view);
-        drop(replaced);
+        drop((view, replaced));
         Ok(())
     }
 }
@@ -179,37 +204,34 @@ fn prefix_batch_bytes(
     limit: usize,
 ) -> StorageResult<u64> {
     let bytes = transaction::batch_bytes(incoming, limit)?;
-    let Some(previous) = previous else {
+    let Some(prev) = previous else {
         return Ok(bytes);
     };
-    let operations = previous.operations.len().checked_add(incoming.len());
-    let bytes = previous
+    let ops = prev.operations.len().checked_add(incoming.len());
+    let total = prev
         .batch_bytes
         .checked_add(bytes)
         .and_then(|b| b.checked_sub(256));
-    if operations.is_none_or(|count| count > limit)
-        || bytes
-            .is_none_or(|b| b > lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES)
-    {
-        return Err(StorageError::WriteResourceLimit {
+    match (ops, total) {
+        (Some(n), Some(b)) if n <= limit && b <= PENDING_MEMORY_BYTES => Ok(b),
+        _ => Err(StorageError::WriteResourceLimit {
             detail: "native accepted prefix reached its operation or byte limit; retry after flush"
                 .into(),
-        });
+        }),
     }
-    Ok(bytes.expect("checked native prefix bytes"))
 }
 
 fn adopt(
     view: &mut view::NativeReadView,
     latest: V2Root,
     last_root: &view::LastRoot,
-) -> Option<PhysicalRoot> {
-    let held = &view.current;
-    if held.frontier() != latest.frontier() || held.generation() >= latest.generation() {
-        return None;
-    }
-    last_root.observe(latest.generation(), latest.frontier());
-    Some(std::mem::replace(&mut view.current, latest))
+) -> Option<V2Root> {
+    (view.current.frontier() == latest.frontier()
+        && view.current.generation() < latest.generation())
+    .then(|| {
+        last_root.observe(latest.generation(), latest.frontier());
+        std::mem::replace(&mut view.current, latest)
+    })
 }
 
 fn commit_split(
@@ -224,15 +246,12 @@ fn commit_split(
         }
         return Ok(());
     }
-    let (cas, main): (Vec<_>, Vec<_>) = operations
+    let (cas, main): (Vec<_>, _) = operations
         .into_iter()
         .partition(|op| op.collection == CAS_COLLECTION);
-    let mut last = std::collections::BTreeMap::new();
-    for op in cas {
-        last.insert(op.key.clone(), op);
-    }
+    let mut last: BTreeMap<_, _> = cas.into_iter().map(|op| (op.key.clone(), op)).collect();
     blob_backup::queue_new_uploads(&mut last);
-    let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
+    let (puts, deletes): (Vec<_>, _) = last.into_values().partition(|op| op.body.is_some());
     cas_delete::save(v2, !puts.is_empty(), !main.is_empty(), &deletes)?;
     if !puts.is_empty() {
         v2.cas.commit(puts).map_err(map)?;
@@ -254,76 +273,24 @@ fn commit_split(
     Ok(())
 }
 
-fn start_merges(
-    v2: &V2Home,
-    view: Arc<RwLock<view::NativeReadView>>,
-    last_root: Arc<view::LastRoot>,
-    policy: &SpacePolicy,
-) {
-    let waiting = v2
-        .retry_after
-        .lock()
-        .expect("disk run merge retry")
-        .is_some_and(|at| std::time::Instant::now() < at);
-    if waiting || v2.merging.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let homes = [Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
-    let (merging, stop, retry_after, policy) = (
-        Arc::clone(&v2.merging),
-        Arc::clone(&v2.stop),
-        Arc::clone(&v2.retry_after),
-        policy.clone(),
-    );
-    match std::thread::Builder::new()
-        .name("lastdb-run-merge".into())
-        .spawn(move || {
-            merge_until_settled(
-                &homes,
-                &view,
-                &last_root,
-                &merging,
-                &stop,
-                &retry_after,
-                &policy,
-            );
-        }) {
-        Ok(handle) => {
-            if let Some(earlier) = v2
-                .merger
-                .lock()
-                .expect("disk run merge thread")
-                .replace(handle)
-            {
-                let _ = earlier.join();
-            }
-        }
-        Err(error) => {
-            v2.merging.store(false, Ordering::Release);
-            tracing::warn!(%error, "disk run merge thread did not start; the next commit retries");
-        }
-    }
-}
-
 fn merge_until_settled(
-    homes: &[std::sync::Weak<RunHome>; 2],
+    homes: &[Weak<RunHome>; 2],
     view: &RwLock<view::NativeReadView>,
     last_root: &view::LastRoot,
     merging: &AtomicBool,
     stop: &AtomicBool,
-    retry_after: &Mutex<Option<std::time::Instant>>,
+    retry_after: &Mutex<Option<Instant>>,
     policy: &SpacePolicy,
 ) {
     let cas_policy = SpacePolicy::default();
     loop {
         'steps: while !stop.load(Ordering::Acquire) {
             let mut merged = false;
-            for (index, weak) in homes.iter().enumerate() {
+            for (idx, weak) in homes.iter().enumerate() {
                 let Some(home) = weak.upgrade() else {
                     break 'steps;
                 };
-                let space = if index == 0 { policy } else { &cas_policy };
-                match home.merge_step_with_space(space) {
+                match home.merge_step_with_space(if idx == 0 { policy } else { &cas_policy }) {
                     Ok(true) => {
                         drop(home);
                         if let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) {
@@ -344,7 +311,7 @@ fn merge_until_settled(
                     Err(error) => {
                         tracing::warn!(%error, "disk run merge failed");
                         *retry_after.lock().expect("disk run merge retry") =
-                            Some(std::time::Instant::now() + MERGE_RETRY);
+                            Some(Instant::now() + MERGE_RETRY);
                         merging.store(false, Ordering::Release);
                         return;
                     }
@@ -358,23 +325,21 @@ fn merge_until_settled(
         let needed = !stop.load(Ordering::Acquire)
             && homes
                 .iter()
-                .any(|h| h.upgrade().is_some_and(|h| h.needs_merge()));
+                .filter_map(Weak::upgrade)
+                .any(|h| h.needs_merge());
         if !needed || merging.swap(true, Ordering::AcqRel) {
             return;
         }
     }
 }
 
-fn wait_for_held_runs(home: &std::sync::Weak<RunHome>, stop: &AtomicBool) {
-    let until = std::time::Instant::now() + HELD_WAIT;
+fn wait_for_held_runs(home: &Weak<RunHome>, stop: &AtomicBool) {
+    let until = Instant::now() + HELD_WAIT;
     let mut limit = None;
     while let Some(home) = home.upgrade() {
-        let budget = *limit
+        let cap = *limit
             .get_or_insert_with(|| (home.status().file_bytes / HELD_SHARE).max(MIN_HELD_BYTES));
-        if home.retired_bytes() <= budget
-            || stop.load(Ordering::Acquire)
-            || std::time::Instant::now() >= until
-        {
+        if home.retired_bytes() <= cap || stop.load(Ordering::Acquire) || Instant::now() >= until {
             return;
         }
         drop(home);

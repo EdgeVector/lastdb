@@ -1,7 +1,8 @@
 //! Ordered ranges under one hash, merged across the held runs.
 
 use super::read::{ReadBudget, RunRead, RunReadCosts};
-use super::stream::{prefix_end, run_key, storage_key, BoundedRange};
+use super::stream::{should_yield, BoundedRange};
+use super::{prefix_end, run_key, storage_key};
 use crate::disk_run::{Found, MergeIter, MergeSource, RunSequence};
 use crate::{Error, Result};
 use std::ops::Bound;
@@ -96,9 +97,12 @@ impl RunRead {
         exclusive: bool,
     ) -> Result<RunHashRange<'_>> {
         self.charge((collection.len() + lower.len() + end.len()) as u64)?;
-        let lower = run_key(collection, lower)?;
-        let upper = run_key(collection, end)?;
-        self.range_between(collection, lower, Some(upper), exclusive)
+        self.range_between(
+            collection,
+            run_key(collection, lower)?,
+            Some(run_key(collection, end)?),
+            exclusive,
+        )
     }
 
     fn range_between(
@@ -110,9 +114,14 @@ impl RunRead {
     ) -> Result<RunHashRange<'_>> {
         if self.bounded_streams {
             return Ok(RunHashRange {
-                mode: RangeMode::Bounded(BoundedRange::new(
-                    self, collection, lower, upper, exclusive,
-                )),
+                mode: RangeMode::Bounded(BoundedRange {
+                    owner: self,
+                    collection: collection.into(),
+                    lower,
+                    upper,
+                    exclusive,
+                    exhausted: false,
+                }),
             });
         }
         let base_from = self.runs.len() - self.manifest.base.len();
@@ -126,7 +135,7 @@ impl RunRead {
             .filter(|(file, _)| file.meta.overlaps(&lower, upper.as_deref()))
             .map(|(file, _)| file.path.clone())
             .collect();
-        let RunRead {
+        let Self {
             runs,
             key,
             costs,
@@ -171,14 +180,11 @@ impl RunRead {
 
 impl OrdinaryRange<'_> {
     fn account(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
-        if self.costs.examined_keys >= self.budget.keys {
-            return Err(Error::ReadBudgetExceeded);
-        }
         let bytes = self
             .costs
             .budget_bytes
             .saturating_add(key_bytes.saturating_add(body_bytes) as u64);
-        if bytes > self.budget.bytes {
+        if self.costs.examined_keys >= self.budget.keys || bytes > self.budget.bytes {
             return Err(Error::ReadBudgetExceeded);
         }
         self.costs.examined_keys += 1;
@@ -187,21 +193,17 @@ impl OrdinaryRange<'_> {
     }
 
     fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RunRangePage> {
-        let mut records = Vec::new();
-        let mut last: Option<Vec<u8>> = None;
-        let mut resume = None;
+        let (mut records, mut last, mut resume) = (Vec::new(), None, None);
         while !self.exhausted && records.len() < limit {
-            if let Some((held, keys_per_row)) = yielding {
-                let rows = held + records.len();
-                let needed = keys_per_row.saturating_mul(rows).saturating_add(16) as u64;
-                if rows > 0
-                    && keys_per_row > 0
-                    && self.costs.examined_keys.saturating_add(needed) > self.budget.keys
-                    && last.is_some()
-                {
-                    resume = last.take();
-                    break;
-                }
+            if should_yield(
+                yielding,
+                records.len(),
+                self.costs.examined_keys,
+                self.budget.keys,
+                last.is_some(),
+            ) {
+                resume = last.take();
+                break;
             }
             let (key, found) = match self.held.take() {
                 Some(held) => held,
@@ -237,13 +239,12 @@ impl OrdinaryRange<'_> {
             records.push((storage_key(&self.collection, &key)?, value));
             last = yielding.map(|_| key);
         }
-        let resume = resume
-            .map(|key| storage_key(&self.collection, &key))
-            .transpose()?;
         Ok(RunRangePage {
             records,
             exhausted: self.exhausted,
-            resume,
+            resume: resume
+                .map(|key| storage_key(&self.collection, &key))
+                .transpose()?,
         })
     }
 }
@@ -253,7 +254,7 @@ impl RunHashRange<'_> {
     pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
         match &mut self.mode {
             RangeMode::Ordinary(r) => r.account(key_bytes, body_bytes),
-            RangeMode::Bounded(r) => r.account(key_bytes, body_bytes),
+            RangeMode::Bounded(r) => r.owner.account_memory_record(key_bytes, body_bytes),
         }
     }
 

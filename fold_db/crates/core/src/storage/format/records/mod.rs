@@ -21,6 +21,7 @@ use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::alternate_field_key_id;
+use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{
     FileMarker, InlineWrite, RecordValueError, StoredRecord, MAX_RECORD_BYTES,
 };
@@ -38,8 +39,6 @@ pub struct AlternateEntry {
 }
 
 pub(in crate::storage) mod applied_deletes {
-    //! Replay remembers an erasure without leaving a record at the live key.
-
     use super::{RecordAddress, RecordFormat};
     use crate::storage::error::StorageResult;
     use crate::storage::{KvMutation, StorageError};
@@ -50,7 +49,7 @@ pub(in crate::storage) mod applied_deletes {
 
     pub(super) fn encode(key: &RecordAddress, stamp: &Stamp) -> StorageResult<KvMutation> {
         let value = serde_json::to_vec(&AppliedDelete::from(stamp.clone())).map_err(invalid)?;
-        Ok(KvMutation::put(address(key.as_str()), value))
+        Ok(KvMutation::put(format!("ad:{}", key.as_str()), value))
     }
 
     fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
@@ -63,12 +62,7 @@ pub(in crate::storage) mod applied_deletes {
     }
 
     pub(crate) fn record_key(key: &str) -> Option<&str> {
-        key.split_once(':')
-            .and_then(|(family, record)| (family == APPLIED_DELETE_FAMILY).then_some(record))
-    }
-
-    fn address(record: &str) -> String {
-        format!("{APPLIED_DELETE_FAMILY}:{record}")
+        key.strip_prefix("ad:")
     }
 
     impl RecordFormat {
@@ -76,19 +70,16 @@ pub(in crate::storage) mod applied_deletes {
             &self,
             keys: &[&RecordAddress],
         ) -> StorageResult<Vec<Option<Stamp>>> {
-            let rows = self
-                .main_store
-                .get_many(
-                    keys.iter()
-                        .map(|k| address(k.as_str()).into_bytes())
-                        .collect(),
-                )
-                .await?;
+            let req = keys
+                .iter()
+                .map(|k| format!("ad:{}", k.as_str()).into_bytes())
+                .collect();
+            let rows = self.main_store.get_many(req).await?;
             if rows.len() != keys.len() {
                 return Err(invalid("incomplete applied-delete read"));
             }
             rows.iter()
-                .map(|row| row.as_deref().map(decode).transpose())
+                .map(|r| r.as_deref().map(decode).transpose())
                 .collect()
         }
     }
@@ -119,12 +110,11 @@ pub(in crate::storage) mod inline_files {
     }
 
     pub(crate) fn record_key(key: &str) -> Option<&str> {
-        key.split_once(':')
-            .and_then(|(family, record)| (family == INLINE_FILE_FAMILY).then_some(record))
+        key.strip_prefix("fi:")
     }
 
     pub(in crate::storage) fn address(record: &str) -> String {
-        format!("{INLINE_FILE_FAMILY}:{record}")
+        format!("fi:{record}")
     }
 
     pub(in crate::storage) fn decode_for(
@@ -132,18 +122,15 @@ pub(in crate::storage) mod inline_files {
         marker: &FileMarker,
     ) -> StorageResult<InlineFile> {
         let file = InlineFile::decode(bytes).map_err(StorageError::InvalidOperation)?;
-        if &file.marker != marker {
-            return Err(StorageError::InvalidOperation(
+        (&file.marker == marker).then_some(file).ok_or_else(|| {
+            StorageError::InvalidOperation(
                 "the inline file row differs from its record marker".into(),
-            ));
-        }
-        Ok(file)
+            )
+        })
     }
 }
 
 impl RecordFormat {
-    /// The plaintext of the inline file of the record at `record_key`,
-    /// checked against its marker. `None` when the row is absent.
     pub(crate) async fn open_inline_file(
         &self,
         record_key: &str,
@@ -156,8 +143,10 @@ impl RecordFormat {
         else {
             return Ok(None);
         };
-        let file = inline_files::decode_for(&row, marker)?;
-        Ok(Some(file.bytes().map_err(FoldDbError::Database)?))
+        inline_files::decode_for(&row, marker)?
+            .bytes()
+            .map(Some)
+            .map_err(FoldDbError::Database)
     }
 }
 
@@ -166,31 +155,29 @@ pub(in crate::storage::format::records) fn encode_alternates(
     changes: &[RecordChange],
     node_key: &[u8; 32],
 ) -> Result<Vec<KvMutation>, SchemaError> {
-    let definitions = schema.require_record_keys()?;
-    if definitions.alternates.is_empty() {
+    let defs = schema.require_record_keys()?;
+    if defs.alternates.is_empty() {
         return Ok(Vec::new());
     }
     let mut pointers = Vec::new();
     for change in changes {
-        let before = change.before.as_ref().filter(|record| record.is_live());
+        let before = change.before.as_ref().filter(|r| r.is_live());
         let after = change.after.is_live().then_some(&change.after);
-        for (name, definition) in &definitions.alternates {
-            let old = before.and_then(|record| record.alternates.get(name)?.as_ref());
-            let new = after.and_then(|record| record.alternates.get(name)?.as_ref());
+        for (name, def) in &defs.alternates {
+            let old = before.and_then(|r| r.alternates.get(name)?.as_ref());
+            let new = after.and_then(|r| r.alternates.get(name)?.as_ref());
             if old == new {
                 continue;
             }
-            let field_key = alternate_field_key_id(schema, name);
-            let profile = definition
-                .range_profile()
-                .map_err(SchemaError::InvalidData)?;
-            let codec = FieldKeyCodec::from_node_key(node_key, &field_key, profile);
+            let fk = alternate_field_key_id(schema, name);
+            let profile = def.range_profile().map_err(SchemaError::InvalidData)?;
+            let codec = FieldKeyCodec::from_node_key(node_key, &fk, profile);
             if let Some(old) = old {
-                let key = AlternateAddress::new(&codec, &field_key, old, &change.key)?;
+                let key = AlternateAddress::new(&codec, &fk, old, &change.key)?;
                 pointers.push(KvMutation::delete(key.into_string()));
             }
             if let Some(new) = new {
-                let key = AlternateAddress::new(&codec, &field_key, new, &change.key)?;
+                let key = AlternateAddress::new(&codec, &fk, new, &change.key)?;
                 let entry = AlternateEntry {
                     primary: change.key.api_key().clone(),
                     matched: new.clone(),
@@ -209,18 +196,14 @@ pub(in crate::storage::format::records) fn encode_alternates(
     Ok(pointers)
 }
 
-/// Prepared values of one complete replacement or erasure.
 pub(crate) struct RecordChange {
     pub key: RecordAddress,
-    /// Logical change context; never authorizes skipping file admission.
     pub before: Option<Arc<StoredRecord>>,
     pub after: StoredRecord,
     pub file_write: Option<FileWrite>,
-    /// Puts or clears the inline file row. `None` keeps the row as it is.
     pub inline_write: Option<InlineWrite>,
 }
 
-/// Only this format module can create the batch or add primary/alternate rows.
 pub(in crate::storage::format::records) struct EncodedRecords {
     main: Vec<KvMutation>,
     pub(in crate::storage::format::records) files: Vec<store::FileChange>,
@@ -231,10 +214,13 @@ pub(in crate::storage::format::records) fn encode(
     changes: Vec<RecordChange>,
     alternates: Vec<KvMutation>,
 ) -> Result<EncodedRecords, SchemaError> {
-    let mut main = Vec::with_capacity(changes.len() + alternates.len());
-    let mut files = Vec::with_capacity(changes.len());
-    let mut written = Vec::with_capacity(changes.len());
-    let mut keys = HashSet::with_capacity(changes.len());
+    let n = changes.len();
+    let mut main = Vec::with_capacity(n + alternates.len());
+    let (mut files, mut written, mut keys) = (
+        Vec::with_capacity(n),
+        Vec::with_capacity(n),
+        HashSet::with_capacity(n),
+    );
     for change in &changes {
         if !keys.insert(change.key.as_str()) {
             return Err(SchemaError::InvalidData(
@@ -256,10 +242,8 @@ pub(in crate::storage::format::records) fn encode(
         });
         if after.is_live() {
             match &change.inline_write {
-                Some(InlineWrite::Put(file))
-                    if after.inline_file.as_ref() == Some(&file.marker) =>
-                {
-                    main.push(inline_files::put(&change.key, file)?);
+                Some(InlineWrite::Put(f)) if after.inline_file.as_ref() == Some(&f.marker) => {
+                    main.push(inline_files::put(&change.key, f)?);
                 }
                 Some(InlineWrite::Clear) if after.inline_file.is_none() => {
                     main.push(inline_files::delete(&change.key));
@@ -289,7 +273,6 @@ pub(in crate::storage::format::records) fn encode(
 }
 
 impl EncodedRecords {
-    /// Stage only into the coordinator's current request.
     pub(in crate::storage::format::records) async fn stage(
         self,
         main_store: &PackKvStore,
@@ -305,8 +288,6 @@ impl EncodedRecords {
     }
 }
 
-/// Native record addresses are canonical UTF-8 keys stored verbatim. Check
-/// only final staged bodies, not intermediate writes or any stored-key census.
 pub(in crate::storage) fn require_final_record_sizes<'a>(
     max_body_bytes: usize,
     records: impl Iterator<Item = (&'a str, &'a str, usize)>,
@@ -314,9 +295,9 @@ pub(in crate::storage) fn require_final_record_sizes<'a>(
     if max_body_bytes <= MAX_RECORD_BYTES {
         return Ok(());
     }
-    for (collection, key, bytes) in records {
-        if collection == super::RECORDS_COLLECTION
-            && key.starts_with(lastdb_model::record_space::RECORD_PREFIX)
+    for (col, key, bytes) in records {
+        if col == super::RECORDS_COLLECTION
+            && key.starts_with(RECORD_PREFIX)
             && bytes > MAX_RECORD_BYTES
         {
             return Err(StorageError::RecordTooLarge {

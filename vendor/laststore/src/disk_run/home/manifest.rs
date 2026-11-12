@@ -37,7 +37,7 @@ impl RunMeta {
         self.first_key.as_slice() <= key && key <= self.last_key.as_slice()
     }
 
-    pub(super) fn meets(&self, other: &RunMeta) -> bool {
+    pub(super) fn meets(&self, other: &Self) -> bool {
         self.first_key <= other.last_key && other.first_key <= self.last_key
     }
 
@@ -65,20 +65,11 @@ pub(super) struct RunFile {
 
 impl RunFile {
     pub(super) fn new(runs: &Path, meta: RunMeta) -> Arc<Self> {
-        let path = runs.join(format!("{}{RUN_SUFFIX}", meta.run_id));
-        Self::from_parts(meta, path, 0)
-    }
-
-    pub(in crate::disk_run::home) fn from_parts(
-        meta: RunMeta,
-        path: PathBuf,
-        hidden: u64,
-    ) -> Arc<Self> {
         Arc::new(Self {
-            path,
+            path: runs.join(format!("{}{RUN_SUFFIX}", meta.run_id)),
             meta,
             obsolete: AtomicBool::new(false),
-            hidden: AtomicU64::new(hidden),
+            hidden: AtomicU64::new(0),
         })
     }
 
@@ -144,9 +135,9 @@ impl Manifest {
         let mut out = Vec::new();
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(self.home_id.as_bytes());
-        put_varint(&mut out, self.generation);
-        put_varint(&mut out, self.frontier);
-        put_varint(&mut out, self.levels.len() as u64);
+        for v in [self.generation, self.frontier, self.levels.len() as u64] {
+            put_varint(&mut out, v);
+        }
         for level in &self.levels {
             put_runs(&mut out, level);
         }
@@ -162,49 +153,53 @@ impl Manifest {
         out
     }
 
-    pub(in crate::disk_run::home) fn decode(bytes: &[u8], runs: &Path) -> Result<Self> {
-        decode_with(bytes, runs, &mut Admission::unbounded())
-    }
-
-    pub(in crate::disk_run::home) fn decode_bounded(
+    pub(super) fn decode_bounded(
         bytes: &[u8],
         cap: usize,
         runs: &Path,
         maximum: u64,
     ) -> Result<Self> {
         let mut budget = Admission { maximum, used: 0 };
-        budget.add(cap as u64 + (size_of::<Self>() + ARC_HEADER) as u64)?;
+        budget.add((cap + size_of::<Self>() + ARC_HEADER) as u64)?;
         decode_with(bytes, runs, &mut budget)
     }
 
     pub(super) fn check_shape(&self) -> Result<()> {
-        check_shape_with(self, &mut Admission::unbounded())
+        check_shape_with(
+            self,
+            &mut Admission {
+                maximum: u64::MAX,
+                used: 0,
+            },
+        )
     }
 
-    pub(in crate::disk_run::home) fn retained_bytes(&self) -> u64 {
-        let mut bytes = (size_of::<Self>()
+    pub(super) fn retained_bytes(&self) -> u64 {
+        let base = size_of::<Self>()
             + ARC_HEADER
             + self.levels.capacity() * size_of::<Vec<Arc<RunFile>>>()
-            + self.merge_cut.as_ref().map_or(0, Vec::capacity)) as u64;
-        for list in self.levels.iter().chain([&self.merging, &self.base]) {
-            bytes = bytes.saturating_add((list.capacity() * size_of::<Arc<RunFile>>()) as u64);
-            for run in list {
-                let per_run = size_of::<RunFile>()
-                    + ARC_HEADER
-                    + run.path.capacity()
-                    + run.meta.first_key.capacity()
-                    + run.meta.last_key.capacity();
-                bytes = bytes.saturating_add(per_run as u64);
-            }
-        }
-        bytes
+            + self.merge_cut.as_ref().map_or(0, Vec::capacity);
+        let run_mem = |r: &Arc<RunFile>| {
+            size_of::<RunFile>()
+                + ARC_HEADER
+                + r.path.capacity()
+                + r.meta.first_key.capacity()
+                + r.meta.last_key.capacity()
+        };
+        self.levels
+            .iter()
+            .chain([&self.merging, &self.base])
+            .fold(base as u64, |acc, list| {
+                let slots = list.capacity() * size_of::<Arc<RunFile>>();
+                acc.saturating_add((slots + list.iter().map(run_mem).sum::<usize>()) as u64)
+            })
     }
 }
 
 fn put_runs(out: &mut Vec<u8>, runs: &[Arc<RunFile>]) {
     put_varint(out, runs.len() as u64);
-    for run in runs {
-        let (m, h) = (&run.meta, run.hidden.load(Ordering::Acquire));
+    for r in runs {
+        let m = &r.meta;
         out.extend_from_slice(m.run_id.as_bytes());
         for v in [
             m.records,
@@ -212,7 +207,7 @@ fn put_runs(out: &mut Vec<u8>, runs: &[Arc<RunFile>]) {
             m.record_bytes,
             m.tombstone_bytes,
             m.file_bytes,
-            h,
+            r.hidden.load(Ordering::Acquire),
         ] {
             put_varint(out, v);
         }
@@ -236,8 +231,7 @@ fn decode_with(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Mani
         levels.push(run_list(bytes, &mut at, runs, budget)?);
     }
     let merging = run_list(bytes, &mut at, runs, budget)?;
-    let cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?;
-    let merge_cut = cut
+    let merge_cut = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES + 1)?
         .checked_sub(1)
         .map(|len| budget.copy(get_slice(bytes, &mut at, len)?))
         .transpose()?;
@@ -261,7 +255,7 @@ fn decode_with(bytes: &[u8], runs: &Path, budget: &mut Admission) -> Result<Mani
 fn run_list(
     bytes: &[u8],
     at: &mut usize,
-    directory: &Path,
+    dir: &Path,
     budget: &mut Admission,
 ) -> Result<Vec<Arc<RunFile>>> {
     let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
@@ -269,11 +263,11 @@ fn run_list(
     for _ in 0..count {
         let run_id = Uuid::from_slice(get_slice(bytes, at, 16)?)
             .map_err(|_| corrupt("bad run entry in CURRENT"))?;
-        let mut v = [0u64; 6];
-        for slot in &mut v {
-            *slot = get_varint(bytes, at)?;
+        let mut nums = [0u64; 6];
+        for n in &mut nums {
+            *n = get_varint(bytes, at)?;
         }
-        let [records, tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = v;
+        let [records, tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = nums;
         let first_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
         let first_key = budget.copy(get_slice(bytes, at, first_len)?)?;
         let last_len = get_len(bytes, at, MAX_RUN_KEY_BYTES)?;
@@ -287,9 +281,9 @@ fn run_list(
             return Err(corrupt("bad run entry in CURRENT"));
         }
         budget.add((size_of::<RunFile>() + ARC_HEADER) as u64)?;
-        let path = budget.path(directory, run_id)?;
-        runs.push(RunFile::from_parts(
-            RunMeta {
+        runs.push(Arc::new(RunFile {
+            path: budget.path(dir, run_id)?,
+            meta: RunMeta {
                 run_id,
                 records,
                 tombstones,
@@ -299,9 +293,9 @@ fn run_list(
                 first_key,
                 last_key,
             },
-            path,
-            hidden,
-        ));
+            obsolete: AtomicBool::new(false),
+            hidden: AtomicU64::new(hidden),
+        }));
     }
     Ok(runs)
 }
@@ -333,25 +327,21 @@ struct Admission {
 }
 
 impl Admission {
-    fn unbounded() -> Self {
-        Self {
-            maximum: u64::MAX,
-            used: 0,
-        }
-    }
     fn add(&mut self, bytes: u64) -> Result<()> {
         self.used = self
             .used
             .checked_add(bytes)
-            .filter(|n| *n <= self.maximum)
+            .filter(|&n| n <= self.maximum)
             .ok_or(Error::ReadBudgetExceeded)?;
         Ok(())
     }
+
     fn array<T>(&mut self, count: usize) -> Result<Vec<T>> {
-        let bytes = count
-            .checked_mul(size_of::<T>())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        self.add(bytes as u64)?;
+        self.add(
+            count
+                .checked_mul(size_of::<T>())
+                .ok_or(Error::ReadBudgetExceeded)? as u64,
+        )?;
         let mut values = Vec::new();
         values
             .try_reserve_exact(count)
@@ -359,17 +349,19 @@ impl Admission {
         self.add((values.capacity().saturating_sub(count) * size_of::<T>()) as u64)?;
         Ok(values)
     }
+
     fn copy(&mut self, bytes: &[u8]) -> Result<Vec<u8>> {
         let mut value = self.array(bytes.len())?;
         value.extend_from_slice(bytes);
         Ok(value)
     }
-    fn path(&mut self, directory: &Path, id: Uuid) -> Result<PathBuf> {
-        let mut name = [0; 42];
-        let _ = id.hyphenated().encode_lower(&mut name[..36]);
-        name[36..].copy_from_slice(RUN_SUFFIX.as_bytes());
-        let name = std::str::from_utf8(&name).map_err(|_| corrupt("bad run path"))?;
-        let size = directory
+
+    fn path(&mut self, dir: &Path, id: Uuid) -> Result<PathBuf> {
+        let mut buf = [0u8; 42];
+        let _ = id.hyphenated().encode_lower(&mut buf[..36]);
+        buf[36..].copy_from_slice(RUN_SUFFIX.as_bytes());
+        let name = std::str::from_utf8(&buf).expect("ascii run filename");
+        let size = dir
             .as_os_str()
             .len()
             .checked_add(1 + name.len())
@@ -379,7 +371,7 @@ impl Admission {
         path.try_reserve_exact(size)
             .map_err(|_| Error::ReadBudgetExceeded)?;
         self.add(path.capacity().saturating_sub(size) as u64)?;
-        path.push(directory);
+        path.push(dir);
         path.push(name);
         Ok(path)
     }

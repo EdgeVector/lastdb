@@ -1,11 +1,10 @@
 //! Durable flat holds of unchanged run-home files. Never a second owner.
+
 use super::{
-    manifest::Manifest,
-    open::{slots, ReadSlot},
-    read_descriptor_file, verified_hard_link, write_private_file, ReadBudget, RunHome, RunRead,
-    RunReadCosts, CURRENT, RUNS, RUN_HOME_MARKER,
+    manifest::Manifest, open::ReadSlot, read_descriptor_file, verified_hard_link,
+    write_private_file, ReadBudget, RunHome, RunRead, CURRENT, RUNS, RUN_HOME_MARKER,
 };
-use crate::disk_run::MetadataMemo;
+use crate::disk_run::RUN_SUFFIX;
 use crate::durability::sync_directory;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -94,7 +93,7 @@ impl RunHome {
             frontier: selected.frontier,
             files: Vec::new(),
             root: destination.to_path_buf(),
-            manifest: Arc::default(),
+            manifest: Arc::new(OnceLock::new()),
         };
         capture.link(
             &self.root.join(RUN_HOME_MARKER),
@@ -112,10 +111,10 @@ impl RunHome {
             fs::metadata(&current)?.len(),
         )?;
         for run in selected.newest_first() {
-            let held = format!("{}.ldrun", run.meta.run_id);
+            let held = format!("{}{RUN_SUFFIX}", run.meta.run_id);
             capture.link(
                 &run.path,
-                &format!("runs/{held}"),
+                &format!("{RUNS}/{held}"),
                 &held,
                 CapturedRunKind::Run,
                 run.meta.file_bytes,
@@ -170,11 +169,11 @@ impl CapturedRunHome {
             .read(true)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(root.join("capture.json"))?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file()
-            || metadata.uid() != directory.uid()
-            || metadata.mode() & 0o077 != 0
-            || metadata.len().saturating_mul(3) > maximum
+        let meta = file.metadata()?;
+        if !meta.is_file()
+            || meta.uid() != directory.uid()
+            || meta.mode() & 0o077 != 0
+            || meta.len().saturating_mul(3) > maximum
         {
             return Err(Error::ReadBudgetExceeded);
         }
@@ -230,45 +229,34 @@ impl CapturedRunHome {
             .checked_add(2)
             .ok_or_else(|| invalid("run capture file count"))?;
         if self.files.len() != count
-            || self
-                .files
-                .windows(2)
-                .any(|pair| pair[0].path >= pair[1].path)
-            || self.files[0].path != Path::new(CURRENT)
-            || self.files[0].held != "current"
-            || self.files[1].path != Path::new(RUN_HOME_MARKER)
-            || self.files[1].held != "descriptor"
+            || self.files.windows(2).any(|p| p[0].path >= p[1].path)
+            || (self.files[0].path.as_path(), self.files[0].held.as_str())
+                != (Path::new(CURRENT), "current")
+            || (self.files[1].path.as_path(), self.files[1].held.as_str())
+                != (Path::new(RUN_HOME_MARKER), "descriptor")
         {
             return Err(invalid("run capture exact file closure"));
         }
         let runs = &self.files[2..];
-        for file in runs {
-            if file.path.parent() != Some(Path::new(RUNS))
-                || file.path.file_name() != Some(std::ffi::OsStr::new(&file.held))
-            {
-                return Err(invalid("run capture exact file closure"));
-            }
+        if runs.iter().any(|f| {
+            f.path.parent() != Some(Path::new(RUNS))
+                || f.path.file_name() != Some(std::ffi::OsStr::new(&f.held))
+        }) {
+            return Err(invalid("run capture exact file closure"));
         }
         for run in manifest.newest_first() {
-            let mut name = [0; 42];
-            let _ = run.meta.run_id.hyphenated().encode_lower(&mut name[..36]);
-            name[36..].copy_from_slice(super::super::RUN_SUFFIX.as_bytes());
-            if runs
-                .binary_search_by(|file| file.held.as_bytes().cmp(name.as_slice()))
-                .is_err()
-            {
+            let held = format!("{}{RUN_SUFFIX}", run.meta.run_id);
+            if runs.binary_search_by(|f| f.held.cmp(&held)).is_err() {
                 return Err(invalid("run capture exact file closure"));
+            }
+            if fs::metadata(&run.path)?.len() != run.meta.file_bytes {
+                return Err(invalid("run capture referenced file length"));
             }
         }
         for file in &self.files {
             let meta = fs::symlink_metadata(self.root.join(&file.held))?;
             if !meta.is_file() || meta.len() != file.bytes {
                 return Err(invalid("run capture file length"));
-            }
-        }
-        for run in manifest.newest_first() {
-            if fs::metadata(&run.path)?.len() != run.meta.file_bytes {
-                return Err(invalid("run capture referenced file length"));
             }
         }
         Ok(())
@@ -295,7 +283,8 @@ impl CapturedRunHome {
     /// Read the exact captured root while the same native owner keeps its lock.
     pub fn read(&self, owner: &RunHome, budget: ReadBudget) -> Result<RunRead> {
         let working = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
-        if self.retained_bytes().saturating_add(self.reader_bytes()) > working {
+        let retained = self.retained_bytes();
+        if retained.saturating_add(self.reader_bytes()) > working {
             return Err(Error::ReadBudgetExceeded);
         }
         if owner.identity != self.home_id {
@@ -306,23 +295,13 @@ impl CapturedRunHome {
                 .get()
                 .ok_or_else(|| invalid("run capture is not reopened"))?,
         );
-        let available = working
-            .checked_sub(self.retained_bytes())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        let runs = slots(&manifest, available)?;
-        let shared_metadata_bytes =
-            self.retained_bytes() + (runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64;
-        Ok(RunRead {
-            bounded_streams: true,
-            shared_metadata_bytes,
-            runs,
+        RunRead::with_retained(
             manifest,
-            key: owner.key,
+            owner.key,
             budget,
-            costs: RunReadCosts::default(),
-            metadata: MetadataMemo::new(0),
-            _owner_lock: Arc::clone(&owner.lock),
-        })
+            retained,
+            Arc::clone(&owner.lock),
+        )
     }
 
     /// Release only recognized flat capture links, including an interrupted capture.
@@ -334,16 +313,15 @@ impl CapturedRunHome {
         };
         for entry in entries {
             let entry = entry?;
-            let name = entry.file_name();
-            let name = name
+            let raw_name = entry.file_name();
+            let name = raw_name
                 .to_str()
                 .ok_or_else(|| invalid("run capture release name"))?;
-            let run = name
-                .strip_suffix(".ldrun")
-                .and_then(|s| Uuid::parse_str(s).ok());
-            if !matches!(name, "descriptor" | "current" | "capture.json")
-                && !run.is_some_and(|id| !id.is_nil() && format!("{id}.ldrun") == name)
-            {
+            let valid_run = name
+                .strip_suffix(RUN_SUFFIX)
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .is_some_and(|id| !id.is_nil() && format!("{id}{RUN_SUFFIX}") == name);
+            if !matches!(name, "descriptor" | "current" | "capture.json") && !valid_run {
                 return Err(invalid("run capture release coordinate"));
             }
             if !fs::symlink_metadata(entry.path())?.is_file() {

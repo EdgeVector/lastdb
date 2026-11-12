@@ -1,16 +1,16 @@
 //! Bounded and yielding native prefix/range row scans.
 
-use super::physical::PhysicalRead;
+use super::physical::V2Read;
 use super::*;
 use laststore::disk_run::home::{RangeBounds, RunHashRange};
 use std::collections::VecDeque;
+use std::sync::PoisonError;
 
-pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
+type NativeRows = Vec<(String, Vec<u8>)>;
 
-/// Decode each stored key. The row order stays the same.
 fn decode_native_rows(rows: NativeRows) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
     rows.into_iter()
-        .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
+        .map(|(k, body)| Ok((native_routing::decode(&k)?, body)))
         .collect()
 }
 
@@ -27,8 +27,8 @@ fn finish_bounded_rows(
         });
     }
     let mut rows = decode_native_rows(rows)?;
-    rows.sort_by(|left, right| left.0.cmp(&right.0));
-    rows.dedup_by(|left, right| left.0 == right.0);
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows.dedup_by(|a, b| a.0 == b.0);
     if require_end && rows.len() > limit {
         return Err(StorageError::ReadResourceLimit {
             detail: format!("native complete metadata result exceeds {limit} distinct keys"),
@@ -82,10 +82,11 @@ impl PackKvStore {
         let start_text = std::str::from_utf8(start).map_err(|_| {
             StorageError::InvalidOperation("native range requires a UTF-8 start".into())
         })?;
-        let end_is_limit = end
-            .strip_suffix(&[255])
-            .is_some_and(|prefix| std::str::from_utf8(prefix).is_ok());
-        if start_text.starts_with("b64:") || (std::str::from_utf8(end).is_err() && !end_is_limit) {
+        let end_ok = std::str::from_utf8(end).is_ok()
+            || end
+                .strip_suffix(&[255])
+                .is_some_and(|p| std::str::from_utf8(p).is_ok());
+        if start_text.starts_with("b64:") || !end_ok {
             return Err(StorageError::InvalidOperation(
                 "native range requires UTF-8 ids or a metadata limit marker".into(),
             ));
@@ -108,18 +109,18 @@ impl PackKvStore {
         require_end: bool,
         detail: &'static str,
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        let runtime = Arc::clone(&self.runtime);
-        let context = read::ReadContext::current(&runtime).await?;
-        let pending = transaction::PendingBatch::current(&runtime);
-        let collection = native_routing::collection_for_namespace(&self.namespace).to_string();
-        let observed = Arc::clone(&context);
-        let result = run_blocking(move || {
+        let rt = Arc::clone(&self.runtime);
+        let ctx = read::ReadContext::current(&rt).await?;
+        let pending = transaction::PendingBatch::current(&rt);
+        let col = native_routing::collection_for_namespace(&self.namespace).to_string();
+        let observed = Arc::clone(&ctx);
+        let res = run_blocking(move || {
             let (rows, exhausted) =
-                runtime.raw_rows(&context, &collection, &start, &end, limit, pending.as_ref())?;
+                rt.raw_rows(&ctx, &col, &start, &end, limit, pending.as_ref())?;
             finish_bounded_rows(rows, exhausted, limit, require_end, detail)
         })
         .await;
-        observed.remembered(result)
+        observed.remembered(res)
     }
 
     /// Read up to `limit` rows of `start..end`, and name where to continue.
@@ -130,48 +131,43 @@ impl PackKvStore {
         limit: usize,
         keys_per_row: usize,
     ) -> StorageResult<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
-        let simple = limit > 0
-            && start < end
-            && std::str::from_utf8(start).is_ok_and(|text| !text.starts_with("b64:"))
-            && std::str::from_utf8(end).is_ok()
-            && transaction::PendingBatch::current(&self.runtime).is_none();
-        if !simple {
+        if limit == 0
+            || start >= end
+            || !std::str::from_utf8(start).is_ok_and(|t| !t.starts_with("b64:"))
+            || std::str::from_utf8(end).is_err()
+            || transaction::PendingBatch::current(&self.runtime).is_some()
+        {
             let rows = self.range_rows(start, end, limit, false).await?;
             let resume = (limit > 0 && rows.len() >= limit)
-                .then(|| rows.last().map(|(key, _)| key.clone()))
+                .then(|| rows.last().map(|(k, _)| k.clone()))
                 .flatten();
             return Ok((rows, resume));
         }
-        let collection = native_routing::collection_for_namespace(&self.namespace).to_string();
-        let (start, end) = (start.to_vec(), end.to_vec());
-        let runtime = Arc::clone(&self.runtime);
-        let context = read::ReadContext::current(&runtime).await?;
-        let observed = Arc::clone(&context);
-        let result = run_blocking(move || {
-            let (rows, resume) = runtime.raw_rows_yielding(
-                &context,
-                &collection,
-                &start,
-                &end,
-                limit,
-                keys_per_row,
-            )?;
-            let rows = decode_native_rows(rows)?;
-            let resume = resume.map(|key| native_routing::decode(&key)).transpose()?;
-            Ok((rows, resume))
+        let col = native_routing::collection_for_namespace(&self.namespace).to_string();
+        let (start, end, rt) = (start.to_vec(), end.to_vec(), Arc::clone(&self.runtime));
+        let ctx = read::ReadContext::current(&rt).await?;
+        let observed = Arc::clone(&ctx);
+        let res = run_blocking(move || {
+            let (rows, resume) =
+                rt.raw_rows_yielding(&ctx, &col, &start, &end, limit, keys_per_row)?;
+            Ok((
+                decode_native_rows(rows)?,
+                resume.map(|k| native_routing::decode(&k)).transpose()?,
+            ))
         })
         .await;
-        observed.remembered(result)
+        observed.remembered(res)
     }
 }
 
 fn text_upper(prefix: &str) -> Option<String> {
     let mut out = prefix.to_string();
-    while let Some(character) = out.pop() {
-        let mut next = character as u32 + 1;
-        if next == 0xd800 {
-            next = 0xe000;
-        }
+    while let Some(ch) = out.pop() {
+        let next = if ch as u32 + 1 == 0xd800 {
+            0xe000
+        } else {
+            ch as u32 + 1
+        };
         if let Some(next) = char::from_u32(next) {
             out.push(next);
             return Some(out);
@@ -181,14 +177,14 @@ fn text_upper(prefix: &str) -> Option<String> {
 }
 
 fn cursor<'a>(
-    call: &'a mut PhysicalRead,
+    call: &'a mut V2Read,
     collection: &str,
     start: &[u8],
     end: &[u8],
 ) -> StorageResult<RunHashRange<'a>> {
-    if let Ok(start_text) = std::str::from_utf8(start) {
-        if let Some(at) = start_text.find('\0').filter(|at| *at > 0) {
-            let prefix = &start_text[..at + 1];
+    if let Ok(s) = std::str::from_utf8(start) {
+        if let Some(at) = s.find('\0').filter(|&at| at > 0) {
+            let prefix = &s[..at + 1];
             let mut hash_end = prefix.as_bytes().to_vec();
             *hash_end.last_mut().expect("hash separator") = 1;
             let end_suffix = if end == hash_end {
@@ -196,34 +192,32 @@ fn cursor<'a>(
             } else {
                 std::str::from_utf8(end)
                     .ok()
-                    .and_then(|end| end.strip_prefix(prefix))
-                    .map(|suffix| Some(suffix.to_string()))
+                    .and_then(|e| e.strip_prefix(prefix))
+                    .map(|suf| Some(suf.to_string()))
             };
             if let Some(end) = end_suffix {
+                let bounds = RangeBounds {
+                    start: s[at + 1..].to_string(),
+                    end,
+                };
                 return call
-                    .hash_range(
-                        collection,
-                        prefix,
-                        RangeBounds {
-                            start: start_text[at + 1..].to_string(),
-                            end,
-                        },
-                    )
+                    .home_for(collection)
+                    .hash_range(collection, prefix, bounds)
                     .map_err(map);
             }
         }
     }
-    call.administrative_range(collection, start, end)
+    call.home_for(collection)
+        .administrative_range(collection, start, end)
         .map_err(map)
 }
 
 fn require_page_limit(limit: usize) -> StorageResult<()> {
-    if limit > 10000 {
-        return Err(StorageError::ReadResourceLimit {
+    (limit <= 10000)
+        .then_some(())
+        .ok_or_else(|| StorageError::ReadResourceLimit {
             detail: "native page exceeds 10000 records".into(),
-        });
-    }
-    Ok(())
+        })
 }
 
 impl PackRuntime {
@@ -246,14 +240,9 @@ impl PackRuntime {
                 .overlay_rows(pending, collection, start, end)
                 .into_iter()
                 .peekable();
-            let mut call = context
-                .call
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut call = context.call.lock().unwrap_or_else(PoisonError::into_inner);
             let mut cursor = cursor(&mut call, collection, start, end)?;
-            let mut disk = VecDeque::new();
-            let mut exhausted = false;
-            let mut out = Vec::new();
+            let (mut disk, mut exhausted, mut out) = (VecDeque::new(), false, Vec::new());
             while out.len() < limit {
                 if disk.is_empty() && !exhausted {
                     let page = cursor
@@ -262,24 +251,19 @@ impl PackRuntime {
                     exhausted = page.exhausted;
                     disk.extend(page.records);
                 }
-                let use_overlay = match (overlay.peek(), disk.front()) {
-                    (Some(memory), Some((key, _))) => &memory.key <= key,
-                    (Some(_), None) => true,
-                    (None, _) => false,
-                };
-                if use_overlay {
-                    let memory = overlay.next().expect("selected pending record");
+                if overlay
+                    .peek()
+                    .is_some_and(|m| disk.front().is_none_or(|(k, _)| m.key <= *k))
+                {
+                    let m = overlay.next().expect("selected pending record");
                     cursor
-                        .account_memory_record(
-                            memory.key.len(),
-                            memory.body.as_ref().map_or(0, Vec::len),
-                        )
+                        .account_memory_record(m.key.len(), m.body.as_ref().map_or(0, Vec::len))
                         .map_err(map)?;
-                    if disk.front().is_some_and(|(key, _)| *key == memory.key) {
+                    if disk.front().is_some_and(|(k, _)| *k == m.key) {
                         disk.pop_front();
                     }
-                    if let Some(body) = &memory.body {
-                        out.push((memory.key.clone(), body.clone()));
+                    if let Some(body) = &m.body {
+                        out.push((m.key.clone(), body.clone()));
                     }
                 } else if let Some(record) = disk.pop_front() {
                     out.push(record);
@@ -307,15 +291,12 @@ impl PackRuntime {
         let result = (|| {
             context.validate_owner(None)?;
             require_page_limit(limit)?;
-            let mut call = context
-                .call
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut call = context.call.lock().unwrap_or_else(PoisonError::into_inner);
             let mut cursor = cursor(&mut call, collection, start, end)?;
             let mut out: NativeRows = Vec::new();
             loop {
                 if out.len() >= limit {
-                    let last = out.last().map(|(key, _)| key.clone());
+                    let last = out.last().map(|(k, _)| k.clone());
                     return Ok((out, last));
                 }
                 let page = match cursor.next_page_yielding(
@@ -325,7 +306,7 @@ impl PackRuntime {
                 ) {
                     Ok(page) => page,
                     Err(laststore::Error::ReadBudgetExceeded) if !out.is_empty() => {
-                        let last = out.last().map(|(key, _)| key.clone());
+                        let last = out.last().map(|(k, _)| k.clone());
                         return Ok((out, last));
                     }
                     Err(error) => return Err(map(error)),

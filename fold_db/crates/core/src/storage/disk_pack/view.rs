@@ -1,8 +1,10 @@
 //! One atomic disk root, immutable read view, diagnostics, and warm-memory relief.
 
 use super::*;
+use crate::resident::CoreWarmByteStats;
 use laststore::disk_run::home::RunHomeDiagnostics;
 use std::sync::atomic::AtomicU64;
+use std::time::{Duration, Instant};
 
 /// A read-only operational boundary; this method never wakes a flush worker.
 #[derive(serde::Serialize)]
@@ -16,14 +18,12 @@ pub struct NativeDiskStatus {
     pub completed_sequence: u64,
     pub writer_failed: bool,
     pub cas_delete_recovery: Option<CasDeleteRecovery>,
-    /// Decoded records in the warm set.
     pub warm_records: usize,
     pub core_warm_held: usize,
     pub core_warm_hits: u64,
     pub core_warm_misses: u64,
     pub core_warm_purged: u64,
-    /// Warm set byte charge and the enforced clean-record retention limit.
-    pub core_warm_bytes: crate::resident::CoreWarmByteStats,
+    pub core_warm_bytes: CoreWarmByteStats,
 }
 
 #[derive(serde::Serialize)]
@@ -34,7 +34,7 @@ pub struct NativeStorageDiagnostics {
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct NativeMemoryStatus {
-    pub warm: crate::resident::CoreWarmByteStats,
+    pub warm: CoreWarmByteStats,
     pub records: usize,
     pub held_records: usize,
 }
@@ -51,7 +51,7 @@ pub struct NativeMemoryPurgeReport {
 
 #[derive(Clone)]
 pub(in crate::storage::disk_pack) struct NativeReadView {
-    pub(in crate::storage::disk_pack) current: physical::PhysicalRoot,
+    pub(in crate::storage::disk_pack) current: physical::V2Root,
     pub(in crate::storage::disk_pack) revision: u64,
 }
 
@@ -62,14 +62,13 @@ pub(in crate::storage::disk_pack) struct LastRoot {
 }
 
 impl LastRoot {
-    pub(in crate::storage::disk_pack) fn new(root: &physical::PhysicalRoot) -> Self {
+    pub(in crate::storage::disk_pack) fn new(root: &physical::V2Root) -> Self {
         Self {
             generation: AtomicU64::new(root.generation()),
             frontier: AtomicU64::new(root.frontier()),
         }
     }
 
-    /// A commit and a merge adoption can race; the newer generation wins.
     pub(in crate::storage::disk_pack) fn observe(&self, generation: u64, frontier: u64) {
         if self.generation.fetch_max(generation, Ordering::Relaxed) <= generation {
             self.frontier.store(frontier, Ordering::Relaxed);
@@ -86,10 +85,9 @@ impl LastRoot {
 
 impl PackRuntime {
     pub fn native_home_id(&self) -> uuid::Uuid {
-        self.home_identity()
+        self.physical.identity()
     }
 
-    /// Health probes read only this atomic; they never wait for a writer or read a record.
     pub fn requires_recovery(&self) -> bool {
         self.failed.load(Ordering::Acquire)
     }
@@ -99,9 +97,9 @@ impl PackRuntime {
         let view = self.view.try_read().ok();
         let (generation, frontier) = view.as_deref().map_or_else(
             || self.last_root.get(),
-            |view| (view.current.generation(), view.current.frontier()),
+            |v| (v.current.generation(), v.current.frontier()),
         );
-        let accepted = queue.request_count();
+        let accepted = queue.requests.len();
         let (core, core_bytes) = {
             let mut core = self.core.lock().expect("native core status");
             (core.stats(), core.byte_stats())
@@ -112,7 +110,7 @@ impl PackRuntime {
             frontier,
             accepted_batch: accepted > 0,
             accepted_batches: accepted,
-            accepted_sequence: queue.sequence(),
+            accepted_sequence: queue.next_sequence,
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.requires_recovery(),
             cas_delete_recovery: self.physical.cas_delete_recovery,
@@ -134,21 +132,23 @@ impl PackRuntime {
             return Ok(None);
         }
         if include_inventory
-            && self
+            && !self
                 .queue
                 .lock()
                 .expect("native diagnostic queue")
-                .request_count()
-                > 0
+                .requests
+                .is_empty()
         {
             return Err(StorageError::InvalidOperation(
                 "storage inventory requires a checkpoint without accepted writes".into(),
             ));
         }
-        let main = Arc::clone(&self.physical.home);
-        let cas = Arc::clone(&self.physical.cas);
+        let (main, cas) = (
+            Arc::clone(&self.physical.home),
+            Arc::clone(&self.physical.cas),
+        );
         tokio::task::spawn_blocking(move || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            let deadline = Instant::now() + Duration::from_secs(60);
             let main_cut = main.diagnostic_checkpoint(deadline).map_err(map)?;
             let cas_cut = cas.diagnostic_checkpoint(deadline).map_err(map)?;
             Ok(Some(NativeStorageDiagnostics {
@@ -165,8 +165,8 @@ impl PackRuntime {
             || StorageError::BackendError("native warm set lock is unavailable".into());
         let _view = self.view.read().map_err(|_| unavailable())?;
         let mut core = self.core.lock().map_err(|_| unavailable())?;
-        let target = usize::try_from(target_bytes).unwrap_or(usize::MAX);
-        let (purged, before, after) = core.purge_clean_to_bytes(target);
+        let (purged, before, after) =
+            core.purge_clean_to_bytes(usize::try_from(target_bytes).unwrap_or(usize::MAX));
         let stats = core.stats();
         let remaining = NativeMemoryStatus {
             warm: core.byte_stats(),
@@ -186,7 +186,7 @@ impl PackRuntime {
 
     pub(in crate::storage::disk_pack) fn install_committed(
         &self,
-        current: physical::PhysicalRoot,
+        current: physical::V2Root,
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
@@ -210,8 +210,7 @@ impl PackRuntime {
             }
         }
         let replaced = std::mem::replace(&mut view.current, current);
-        drop(view);
-        drop(replaced);
+        drop((view, replaced));
         self.adopt_merged_root()
     }
 }
@@ -220,12 +219,13 @@ pub(crate) mod record_warm {
     //! The record warm set of a home (decision D2).
 
     use super::*;
-    use crate::resident::RecordCoordinate;
+    use crate::resident::{core_warm_bytes, RecordCoordinate};
+    use crate::storage::format::MAIN_NAMESPACE;
     use lastdb_model::record_value::StoredRecord;
     use std::collections::HashMap;
     use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+    use std::sync::PoisonError;
 
-    /// The memory answer of one read by record key.
     pub(crate) struct WarmRecordRead {
         revision: u64,
         coordinates: Vec<RecordCoordinate>,
@@ -238,7 +238,6 @@ pub(crate) mod record_warm {
         }
     }
 
-    /// One record value that a native write request puts.
     pub(crate) struct WrittenRecord {
         coordinate: RecordCoordinate,
         record: Arc<StoredRecord>,
@@ -249,7 +248,7 @@ pub(crate) mod record_warm {
     impl WrittenRecord {
         pub(crate) fn new(key: &str, record: Arc<StoredRecord>, value: &[u8]) -> Self {
             Self {
-                coordinate: kv::coordinate(crate::storage::format::MAIN_NAMESPACE, key.as_bytes()),
+                coordinate: kv::coordinate(MAIN_NAMESPACE, key.as_bytes()),
                 record,
                 bytes: value.len(),
                 digest: digest(value),
@@ -269,47 +268,37 @@ pub(crate) mod record_warm {
             if transaction::PendingBatch::current(self).is_some() {
                 return Ok(None);
             }
-            let main = crate::storage::format::MAIN_NAMESPACE;
-            let coordinates: Vec<_> = keys
+            let coords: Vec<_> = keys
                 .iter()
-                .map(|key| kv::coordinate(main, key.as_ref().as_bytes()))
+                .map(|k| kv::coordinate(MAIN_NAMESPACE, k.as_ref().as_bytes()))
                 .collect();
-            let (revision, found) = if let Some(context) = read::ReadContext::captured(self) {
-                let view = self.view.read().expect("native record warm view");
-                if view.revision != context.revision {
+            let view = self.view.read().expect("native record warm view");
+            let found = if let Some(ctx) = read::ReadContext::captured(self) {
+                if view.revision != ctx.revision {
                     return Ok(None);
                 }
-                let mut call = context
-                    .call
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut call = ctx.call.lock().unwrap_or_else(PoisonError::into_inner);
                 let found = self
                     .core
                     .lock()
                     .expect("native record warm set")
-                    .record_lookup(&coordinates);
+                    .record_lookup(&coords);
                 for (key, hit) in keys.iter().zip(&found) {
                     if let Some((_, bytes)) = hit {
-                        context.account_memory_record(&mut call, key.as_ref().len(), *bytes)?;
+                        ctx.account_memory_record(&mut call, key.as_ref().len(), *bytes)?;
                     }
                 }
-                (context.revision, found)
+                found
             } else {
-                let view = self.view.read().expect("native record warm view");
-                let found = self
-                    .core
+                self.core
                     .lock()
                     .expect("native record warm set")
-                    .record_lookup(&coordinates);
-                (view.revision, found)
+                    .record_lookup(&coords)
             };
             Ok(Some(WarmRecordRead {
-                revision,
-                coordinates,
-                found: found
-                    .into_iter()
-                    .map(|hit| hit.map(|(record, _)| record))
-                    .collect(),
+                revision: view.revision,
+                coordinates: coords,
+                found: found.into_iter().map(|h| h.map(|(r, _)| r)).collect(),
             }))
         }
 
@@ -318,25 +307,23 @@ pub(crate) mod record_warm {
             read: &WarmRecordRead,
             records: Vec<(usize, Arc<StoredRecord>, usize)>,
         ) {
-            if records.is_empty() {
-                return;
-            }
-            let records = records
-                .into_iter()
-                .map(|(at, record, bytes)| (read.coordinates[at].clone(), record, bytes))
-                .collect();
-            let view = self.view.read().expect("native record warm view");
-            if view.revision == read.revision {
+            if !records.is_empty()
+                && self.view.read().expect("native record warm view").revision == read.revision
+            {
+                let items = records
+                    .into_iter()
+                    .map(|(at, r, b)| (read.coordinates[at].clone(), r, b))
+                    .collect();
                 self.core
                     .lock()
                     .expect("native record warm set")
-                    .admit_records(records);
+                    .admit_records(items);
             }
         }
 
         pub(crate) fn stage_written_records(&self, records: Vec<WrittenRecord>) {
             if let Some(pending) = transaction::PendingBatch::current(self) {
-                pending.stage_warm_records(records, crate::resident::core_warm_bytes() / 4);
+                pending.stage_warm_records(records, core_warm_bytes() / 4);
             }
         }
     }
@@ -350,24 +337,21 @@ pub(crate) mod record_warm {
             if latest.is_empty() && staged.is_empty() {
                 continue;
             }
-            for coordinate in request.changed_coordinates() {
-                latest.remove(&coordinate);
+            for coord in request.changed_coordinates() {
+                latest.remove(&coord);
             }
-            for written in staged {
-                let (collection, key) = &written.coordinate;
-                if request.lookup(collection, key).is_some_and(|pending| {
-                    pending.body.as_ref().is_some_and(|body| {
-                        body.len() == written.bytes && digest(body) == written.digest
-                    })
+            for w in staged {
+                let (c, k) = &w.coordinate;
+                if request.lookup(c, k).is_some_and(|p| {
+                    p.body
+                        .as_ref()
+                        .is_some_and(|b| b.len() == w.bytes && digest(b) == w.digest)
                 }) {
-                    latest.insert(written.coordinate, (written.record, written.bytes));
+                    latest.insert(w.coordinate, (w.record, w.bytes));
                 }
             }
         }
-        latest
-            .into_iter()
-            .map(|(coordinate, (record, bytes))| (coordinate, record, bytes))
-            .collect()
+        latest.into_iter().map(|(c, (r, b))| (c, r, b)).collect()
     }
 
     fn digest(value: &[u8]) -> u64 {

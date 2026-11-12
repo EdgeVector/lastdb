@@ -39,13 +39,13 @@ pub(crate) struct RunRange<'a> {
 impl<'a> RunRange<'a> {
     pub(super) fn new(reader: ReaderRef<'a>, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Self {
         let next_index = match lower {
-            Bound::Included(key) | Bound::Excluded(key) => reader.index_for(key).unwrap_or(0),
+            Bound::Included(k) | Bound::Excluded(k) => reader.index_for(k).unwrap_or(0),
             Bound::Unbounded => 0,
         };
         Self {
             reader,
-            lower: owned(lower),
-            upper: owned(upper),
+            lower: lower.map(<[u8]>::to_vec),
+            upper: upper.map(<[u8]>::to_vec),
             next_index,
             index: None,
             next_block: 0,
@@ -57,16 +57,16 @@ impl<'a> RunRange<'a> {
 
     fn below_lower(&self, key: &[u8]) -> bool {
         match &self.lower {
-            Bound::Included(lower) => key < lower.as_slice(),
-            Bound::Excluded(lower) => key <= lower.as_slice(),
+            Bound::Included(l) => key < l.as_slice(),
+            Bound::Excluded(l) => key <= l.as_slice(),
             Bound::Unbounded => false,
         }
     }
 
     fn above_upper(&self, key: &[u8]) -> bool {
         match &self.upper {
-            Bound::Included(upper) => key > upper.as_slice(),
-            Bound::Excluded(upper) => key >= upper.as_slice(),
+            Bound::Included(u) => key > u.as_slice(),
+            Bound::Excluded(u) => key >= u.as_slice(),
             Bound::Unbounded => false,
         }
     }
@@ -83,11 +83,18 @@ impl<'a> RunRange<'a> {
                 }
                 let index = self.reader.read_index(self.next_index, None)?;
                 self.next_index += 1;
-                self.next_block = self.first_block_in(&index);
+                self.next_block = if std::mem::replace(&mut self.positioned, true) {
+                    0
+                } else {
+                    match &self.lower {
+                        Bound::Included(k) | Bound::Excluded(k) => index.block_pos(k).unwrap_or(0),
+                        Bound::Unbounded => 0,
+                    }
+                };
                 self.index = Some(index);
                 continue;
             }
-            let block = &self.index.as_ref().expect("index loaded").blocks[self.next_block];
+            let block = &self.index.as_ref().unwrap().blocks[self.next_block];
             if self.above_upper(&block.first_key) {
                 return Ok(false);
             }
@@ -95,35 +102,6 @@ impl<'a> RunRange<'a> {
             self.next_block += 1;
             return Ok(true);
         }
-    }
-
-    fn first_block_in(&mut self, index: &IndexBlock) -> usize {
-        if std::mem::replace(&mut self.positioned, true) {
-            return 0;
-        }
-        match &self.lower {
-            Bound::Included(key) | Bound::Excluded(key) => index
-                .blocks
-                .partition_point(|b| b.first_key.as_slice() <= key.as_slice())
-                .saturating_sub(1),
-            Bound::Unbounded => 0,
-        }
-    }
-}
-
-fn owned(bound: Bound<&[u8]>) -> Bound<Vec<u8>> {
-    match bound {
-        Bound::Included(k) => Bound::Included(k.to_vec()),
-        Bound::Excluded(k) => Bound::Excluded(k.to_vec()),
-        Bound::Unbounded => Bound::Unbounded,
-    }
-}
-
-fn borrowed(bound: &Bound<Vec<u8>>) -> Bound<&[u8]> {
-    match bound {
-        Bound::Included(k) => Bound::Included(k),
-        Bound::Excluded(k) => Bound::Excluded(k),
-        Bound::Unbounded => Bound::Unbounded,
     }
 }
 
@@ -203,18 +181,17 @@ impl Iterator for RunSequence {
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.failed {
-            if let Some(range) = self.current.as_mut() {
-                if let Some(record) = range.next() {
-                    return Some(record);
-                }
-                self.current = None;
+            if let Some(record) = self.current.as_mut().and_then(Iterator::next) {
+                return Some(record);
             }
+            self.current = None;
             let path = self.paths.next()?;
             match RunReader::open(&path, &self.key) {
-                Ok(reader) => {
-                    self.current = Some(
-                        Arc::new(reader).shared_range(borrowed(&self.lower), borrowed(&self.upper)),
-                    );
+                Ok(r) => {
+                    self.current = Some(Arc::new(r).shared_range(
+                        self.lower.as_ref().map(Vec::as_slice),
+                        self.upper.as_ref().map(Vec::as_slice),
+                    ));
                 }
                 Err(error) => {
                     self.failed = true;
@@ -234,15 +211,10 @@ pub(crate) struct MergeIter<'a> {
 }
 
 impl<'a> MergeIter<'a> {
-    pub(crate) fn new(sources: Vec<RunRange<'a>>) -> Self {
-        Self::from_sources(sources.into_iter().map(MergeSource::Run).collect())
-    }
-
     pub(crate) fn from_sources(sources: Vec<MergeSource<'a>>) -> Self {
-        let heads = vec![None; sources.len()];
         Self {
+            heads: vec![None; sources.len()],
             sources,
-            heads,
             started: false,
             done: false,
         }
@@ -259,20 +231,17 @@ impl<'a> MergeIter<'a> {
                 self.advance(source)?;
             }
         }
-        let mut winner: Option<usize> = None;
-        for (source, head) in self.heads.iter().enumerate() {
-            let Some((key, _)) = head else { continue };
-            if winner
-                .and_then(|w| self.heads[w].as_ref())
-                .is_none_or(|(best, _)| key < best)
-            {
-                winner = Some(source);
-            }
-        }
-        let Some(winner) = winner else {
+        let Some(winner) = self
+            .heads
+            .iter()
+            .enumerate()
+            .filter_map(|(i, h)| h.as_ref().map(|(k, _)| (k, i)))
+            .min_by(|(a, i), (b, j)| a.cmp(b).then(i.cmp(j)))
+            .map(|(_, i)| i)
+        else {
             return Ok(None);
         };
-        let record = self.heads[winner].take().expect("winner has a head");
+        let record = self.heads[winner].take().unwrap();
         for source in winner + 1..self.heads.len() {
             if self.heads[source]
                 .as_ref()
@@ -313,7 +282,7 @@ pub(crate) fn merge_runs(
     keep_tombstones: bool,
 ) -> Result<u64> {
     let mut written = 0;
-    for record in MergeIter::new(sources) {
+    for record in MergeIter::from_sources(sources.into_iter().map(MergeSource::Run).collect()) {
         let (key, found) = record?;
         match found {
             Found::Value(value) => writer.push(&key, Some(&value))?,
