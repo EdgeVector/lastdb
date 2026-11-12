@@ -1,12 +1,9 @@
-"""Local LastDB Share setup, write modes, and Files operations on generated CI homes."""
+"""Local LastDB Files operations on a generated named database."""
 
 import hashlib
 import json
 import os
 import subprocess
-
-from node import Node
-
 
 def require(value, message):
     if not value:
@@ -18,14 +15,14 @@ def subcommands(result):
     return {line.split()[0] for line in result.stdout.splitlines() if line.strip()}
 
 
-def check_addressing(command, cli, owner, publication, publication_id):
+def check_addressing(command, cli, owner, publication_id, missing_id):
     catalog = "lastdb-files/FileCatalog"
-    listed = command(cli, "--data-dir", publication.home, "db", "list", "--json")
+    listed = command(cli, "--data-dir", owner.home, "db", "list", "--json")
     require(listed.returncode == 0, "database list failed: " + listed.stderr)
     databases = json.loads(listed.stdout)["databases"]
-    require(len(databases) == 1 and databases[0]["id"] == publication_id,
-            "the publication did not expose its own database ID")
-    selected = ["--data-dir", publication.home, "--db", publication_id]
+    require(any(db["id"] == publication_id and db["name"] == "files-proof"
+                for db in databases), "the Files database did not expose its own ID")
+    selected = ["--data-dir", owner.home, "--db", publication_id]
     keys = command(cli, *selected, "get-keys", catalog, "--json")
     require(keys.returncode == 0, "selected database key list failed: " + keys.stderr)
     require([key["hash"] for key in json.loads(keys.stdout)["keys"]] == ["files-v1"],
@@ -33,7 +30,7 @@ def check_addressing(command, cli, owner, publication, publication_id):
     read = command(cli, *selected, "get", catalog, "--key-hash", "files-v1", "--json")
     require(read.returncode == 0, "selected database read failed: " + read.stderr)
     require(len(json.loads(read.stdout)["results"]) == 1, "selected database lost the file catalog")
-    request = publication.root / "ordinary-create.json"
+    request = owner.root / "ordinary-create.json"
     request.write_text(json.dumps({
         "type": "mutation", "schema": "lastdb-files/FileChunk",
         "key_value": {"hash": "local-operation", "range": "0000"},
@@ -86,55 +83,17 @@ def check_addressing(command, cli, owner, publication, publication_id):
                        node=owner)
     require(original.returncode == 0 and json.loads(original.stdout)["results"][0]["fields"]["value"] == "v3",
             "explicit personal selection did not read the original record: " + original.stderr)
-    wrong = command(cli, "--db", publication_id, "get", "RecordById", "--key-hash", "one", "--json",
+    wrong = command(cli, "--db", missing_id, "get", "RecordById", "--key-hash", "one", "--json",
                     node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must never read the node's personal records: " + wrong.stderr)
-    wrong = command(cli, "--db", publication_id, "mutate", "--request-file", request, node=owner)
+    wrong = command(cli, "--db", missing_id, "mutate", "--request-file", request, node=owner)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
 
 
-def check_contributor_rules(command, cli, owner, home):
-    """Rule admission is local. Intake needs Exemem, which this home does not have."""
-    contact_path = home.parent / "writer.contact"
-    contact = command(cli, "--data-dir", owner.home, "share", "contact", "--out", contact_path)
-    require(contact.returncode == 0, "share contact failed: " + contact.stderr)
-    writer = json.loads(contact.stdout)["recipient_public_key"]
-    definition = "ab" * 32
-    rules_path = home.parent / "contributor-rules.json"
-    grant_out = home.parent / "contributor-grant.bin"
-
-    def grant(actions, operation):
-        rules_path.write_text(json.dumps([
-            {"schema": "photos/Comment", "definition_id": definition, "action": action}
-            for action in actions
-        ]))
-        return command(
-            cli, "--data-dir", owner.home, "share", "contributors", "grant",
-            "--home", home, "--recipient", contact_path, "--recipient-key", writer,
-            "--rules", rules_path, "--operation-id", operation,
-            "--expected-version", "0", "--out", grant_out,
-        )
-
-    admitted = grant(("create", "replace", "delete"), "11111111-1111-4111-8111-111111111111")
-    require(admitted.returncode != 0
-            and "invalid contributor write rules" not in admitted.stderr
-            and "share publisher has no saved Exemem credentials" in admitted.stderr,
-            "create, replace, and delete were not admitted locally: " + admitted.stderr)
-    print("Contributor create, replace, and delete rules passed local admission:",
-          admitted.stderr.strip(), flush=True)
-    purged = grant(("purge",), "22222222-2222-4222-8222-222222222222")
-    require(purged.returncode != 0 and "invalid contributor write rules" in purged.stderr,
-            "purge was not refused: " + purged.stderr)
-    print("Contributor purge rule refused:", purged.stderr.strip(), flush=True)
-    print("Contributor create, replace-own, and delete-own are not exercised here. "
-          "This generated home has no Exemem credentials, so a writer cannot submit "
-          "and the publisher cannot pull another writer's replace or delete.", flush=True)
-
-
-def check_files(command, cli, publication, publication_id, other_id, source, manifest):
-    home = ["--data-dir", publication.home]
+def check_files(command, cli, owner, publication_id, other_id, source, manifest):
+    home = ["--data-dir", owner.home]
     selected = [*home, "--db", publication_id, "share", "files"]
     listed = command(cli, *selected, "list")
     require(listed.returncode == 0, "selected Files list failed: " + listed.stderr)
@@ -142,7 +101,7 @@ def check_files(command, cli, publication, publication_id, other_id, source, man
     require(listing["database"] == publication_id and listing["files"] == [manifest],
             "selected Files list returned the wrong database or manifest")
 
-    output = publication.root / "saved-file.txt"
+    output = owner.root / "saved-file.txt"
     saved = command(cli, *selected, "save", "--file", manifest["id"], "--out", output)
     require(saved.returncode == 0, "selected Files save failed: " + saved.stderr)
     receipt = json.loads(saved.stdout)
@@ -156,7 +115,7 @@ def check_files(command, cli, publication, publication_id, other_id, source, man
             + refused.stderr)
 
 
-def exercise(cli, owner, root):
+def exercise(cli, owner):
     def command(binary, *arguments, node=None):
         environment = None if node is None else {
             **os.environ, "LASTDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.socket),
@@ -164,70 +123,36 @@ def exercise(cli, owner, root):
         return subprocess.run([binary, *arguments], capture_output=True, text=True, timeout=60,
                               env=environment)
 
-    def create(home, *options):
-        result = command(cli, "--data-dir", owner.home, "share", "create",
-                         "--into", home, "--env", "dev", *options)
-        require(result.returncode == 0, "share create failed: " + result.stderr)
-        return json.loads(result.stdout)
-
-    def revoke(home, publisher_key):
-        return command(cli, "--data-dir", owner.home, "share", "contributors", "revoke",
-                       "--home", home, "--recipient-key", publisher_key, "--expected-version", "1")
-
     daemon_help = command(owner.binary, "--help")
-    require(daemon_help.returncode == 0 and "--share-owner-home" in daemon_help.stdout,
-            "the automatic Share publisher flag is missing")
+    require(daemon_help.returncode == 0 and "--share-owner-home" not in daemon_help.stdout,
+            "the standalone publication flag is still available")
     require({"accept", "contributors"} <= subcommands(command(cli, "share", "--help")),
             "the Share invitation and contributor commands are missing")
-    require({"grant", "revoke", "accept"} <= subcommands(command(cli, "share", "contributors", "--help")),
-            "the Share contributor command group is incomplete")
-    require({"add", "receive", "follow", "list", "save"} <= subcommands(command(cli, "share", "files", "--help")),
-            "the Files CLI command group is incomplete")
-    for retired in ["get", "publish"]:
+    files_commands = subcommands(command(cli, "share", "files", "--help"))
+    require({"add", "receive", "list", "save"} <= files_commands and "follow" not in files_commands,
+            "the Files CLI does not expose only the current commands")
+    for retired in ["create", "get", "publish"]:
         result = command(cli, "share", retired, "--help")
         require(result.returncode == 2 and "unrecognized subcommand" in result.stderr,
                 f"the retired share {retired} command should be refused")
 
-    evidence = owner.output / "share"
-    evidence.mkdir(mode=0o700)
-    publication = Node(owner.binary, owner.revision, evidence, temporary_directory=root,
-                       environment=owner.environment)
-    try:
-        publication.home.rmdir()
-        publication.socket = publication.home / "data" / "folddb.sock"
-        files = create(publication.home)
-        require(files["write_mode"] == "publisher_only", "Files must default to publisher-only")
-        contributor_home = publication.root / "contributor-publication"
-        contributors = create(contributor_home, "--write-mode", "publisher-validated")
-        publisher_key = files["publisher_public_key"]
-        require(contributors["write_mode"] == "publisher_validated"
-                and contributors["publication_id"] != files["publication_id"]
-                and contributors["publisher_public_key"] == publisher_key,
-                "the explicit contributor publication has the wrong write mode or identity")
-        refused = revoke(publication.home, publisher_key)
-        require(refused.returncode == 1 and "share does not allow contributor submissions" in refused.stderr,
-                "the publisher-only mode must refuse contributor grant changes")
-        ungranted = revoke(contributor_home, publisher_key)
-        require(ungranted.returncode == 1 and "contributor grant version conflict" in ungranted.stderr,
-                "the contributor mode must open its local policy and refuse an absent grant")
-        check_contributor_rules(command, cli, owner, contributor_home)
-        publication.start()
-        # The pattern shifts at each 32 KiB chunk boundary and includes a short tail.
-        payload = bytes(range(251)) * 2100 + b"LastDB Files product operation\n"
-        path = publication.root / "file.txt"
-        path.write_bytes(payload)
-        added = command(cli, "--data-dir", publication.home, "share", "files", "add", path)
-        require(added.returncode == 0, "share files add failed: " + added.stderr)
-        receipt = json.loads(added.stdout)
-        require(receipt["name"] == path.name and receipt["size_bytes"] == len(payload)
-                and receipt["chunks"] > 16
-                and receipt["sha256"] == hashlib.sha256(payload).hexdigest(),
-                "share files add returned different file metadata")
-        check_addressing(command, cli, owner, publication, files["publication_id"])
-        check_files(command, cli, publication, files["publication_id"],
-                    contributors["publication_id"], path, receipt)
-    finally:
-        publication.close()
-    print("LastDB Share: write modes, contributor rule admission, owner direct replace and delete, "
-          "multi-batch Files save, database addressing, and retired commands passed",
+    home = ["--data-dir", owner.home]
+    made = command(cli, *home, "db", "create", "files-proof", "--spec-name", "lastdb-files",
+                   "--spec-version", "1", "--json")
+    require(made.returncode == 0, "Files database create failed: " + made.stderr)
+    publication_id = json.loads(made.stdout)["id"]
+    missing_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    payload = bytes(range(251)) * 2300 + b"LastDB Files product operation\n"
+    path = owner.root / "file.txt"
+    path.write_bytes(payload)
+    added = command(cli, *home, "--db", "files-proof", "share", "files", "add", path)
+    require(added.returncode == 0, "share files add failed: " + added.stderr)
+    receipt = json.loads(added.stdout)
+    require(receipt["name"] == path.name and receipt["size_bytes"] == len(payload)
+            and receipt["chunks"] > 16
+            and receipt["sha256"] == hashlib.sha256(payload).hexdigest(),
+            "share files add returned different file metadata")
+    check_addressing(command, cli, owner, publication_id, missing_id)
+    check_files(command, cli, owner, publication_id, missing_id, path, receipt)
+    print("LastDB Files: named database add, list, save, keyed addressing, and retired commands",
           flush=True)

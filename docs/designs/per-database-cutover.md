@@ -1,17 +1,8 @@
 # Per-database cutover
 
-One product operation moves an existing database from legacy bearer reads to signed node-key reads. The operation is the same in `dev` and in `prod`. Exemem stores the committed receipt. The live TLS body is the only authority. This tool can send that request. It does not write a local receipt, deploy the service, or start a migration.
+ExeMem retired the legacy cutover route in #780. The LastDB cutover commands were removed. The evidence format below documents the retired procedure.
 
-```
-lastdb cutover verify --database-id ID --environment dev|prod --evidence DIR [--json]
-lastdb cutover request --database-id ID --evidence DIR [--data-dir HOME] [--json]
-```
-
-`verify` checks the six evidence files and returns the digest they bind. It writes nothing and does not contact the cloud. Success prints `activated=false`. That digest is not a signed-only commit.
-
-`request` runs the same check against the realm of the saved cloud connection, then sends one publisher-signed receipt. The path is `POST /api/cloud/backups/v2/mutation-log/cutover` (`MUTATION_LOG_CUTOVER_PATH`). The body is `CutoverReceipt`. The response is accepted only when it is that same receipt. Success prints the live receipt. It does not print `activated` or `written`.
-
-A fresh named database does not use either command. `lastdb db create` registers it. The success body is `NativeDatabase` (`state: native`). It needs no evidence files, no legacy position, and no cutover. A cutover of a stored native database is `share.cutover.native`. E, D, G, H, and I own that create. K dogfoods it through the normal client.
+`lastdb db create` registers a fresh named database. The success body is `NativeDatabase` (`state: native`). It needs no evidence files, no legacy position, and no cutover. A cutover of a stored native database is `share.cutover.native`. E, D, G, H, and I own that create. K dogfoods it through the normal client.
 
 Approved source: Brain design `lastdb-named-databases-unified-log-sharing-revocation` (2026-11-11). Migrate one existing database at a time. Verify the node-key grants, then switch every read path for that database to signed-only together. That switch is Exemem's commit. Legacy bearer passes stop authorizing reads for that database when the service commits, including on a device that still holds stale local state. Old server rows stay until a later retirement step. This command does not check that step and does not delete rows.
 

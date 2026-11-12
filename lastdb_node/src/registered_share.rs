@@ -103,27 +103,24 @@ pub fn accept(
 
 /// Save the same invitation as [`accept`], marked as a signed log.
 ///
-/// `database_id` must be the invitation stream id. A mismatch writes nothing.
+/// When supplied, `database_id` must match the verified invitation.
 pub(crate) fn accept_signed_log(
     home: &Path,
     sealed: &[u8],
     publisher: &Digest,
     name: Option<&str>,
-    database_id: &str,
+    database_id: Option<&str>,
 ) -> Result<RegisteredShare> {
-    let id = Id::try_from(database_id.to_owned())
+    let id = database_id
+        .map(|id| Id::try_from(id.to_owned()))
+        .transpose()
         .map_err(|_| ShareCacheError::Invalid("database selector"))?;
     if let Some(name) = name {
         require_name(name)?;
     }
-    if crate::host::owned::registry_claims(home, id.as_str(), name)
-        .map_err(|()| ShareCacheError::Unavailable)?
-    {
-        return Err(ShareCacheError::Invalid("database selector already in use"));
-    }
     ShareCache::open_managed(home, true)?
         .ok_or(ShareCacheError::Unavailable)?
-        .register_signed_log(home, sealed, publisher, name, &id)
+        .register_signed_log(home, sealed, publisher, name, id.as_ref())
 }
 
 /// Re-open the invitation stored for this stable stream id.

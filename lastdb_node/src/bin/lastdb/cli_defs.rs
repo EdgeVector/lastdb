@@ -6,8 +6,6 @@ use super::*;
 mod admin;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
-#[path = "cli_defs/cutover.rs"]
-mod cutover;
 #[path = "cli_defs/app/lifecycle.rs"]
 mod lifecycle;
 #[path = "cli_defs/share.rs"]
@@ -15,7 +13,6 @@ mod share;
 
 pub(super) use admin::*;
 pub(super) use cloud::*;
-pub(super) use cutover::*;
 pub(crate) use lifecycle::AppLifecycleCommand;
 pub(super) use share::*;
 
@@ -64,7 +61,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: BackupCommand,
     },
-    /// Publish a separate database, invite readers, and manage contributor grants.
+    /// Invite readers and manage named database sharing.
     #[command(subcommand)]
     Share(ShareCommand),
     /// Create, list, and select databases on this node.
@@ -114,9 +111,6 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: AppCommand,
     },
-    /// Check or send the cutover for one existing database. Exemem commits signed-only.
-    #[command(subcommand)]
-    Cutover(CutoverCommand),
 }
 
 #[derive(Subcommand, Debug)]

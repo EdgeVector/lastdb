@@ -289,23 +289,17 @@ async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRespon
     let Ok(sealed) = decode_sealed(&body.invitation, MAX_SEALED_INVITATION_BYTES) else {
         return error_response(400, "invalid encoded invitation", ctx);
     };
-    let result = match body.database_id.as_deref() {
-        Some(database_id) => registered_share::accept_signed_log(
-            &host.home,
-            &sealed,
-            &body.publisher,
-            body.name.as_deref(),
-            database_id,
-        ),
-        None => {
-            registered_share::accept(&host.home, &sealed, &body.publisher, body.name.as_deref())
-        }
-    };
+    let result = registered_share::accept_signed_log(
+        &host.home,
+        &sealed,
+        &body.publisher,
+        body.name.as_deref(),
+        body.database_id.as_deref(),
+    );
     if let Ok(share) = &result {
-        if share.signed_log
-            && registered_share::receiver_store(host, &share.id)
-                .await
-                .is_err()
+        if registered_share::receiver_store(host, &share.id)
+            .await
+            .is_err()
         {
             return error_response(503, "database store is unavailable", ctx);
         }

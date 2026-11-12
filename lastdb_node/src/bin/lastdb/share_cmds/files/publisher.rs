@@ -1,21 +1,32 @@
 use super::selected::{query, QUERY_BATCH_PATH};
 use super::SCHEMAS;
-use crate::{parse_json_response, socket_client::post_json_admin};
+use crate::{
+    database_cmds, parse_json_response, resolve_client_home_and_socket,
+    socket_client::post_json_admin, DatabaseTarget,
+};
 use fold_db::schema::types::KeyValue;
 use lastdb_node::byte_cloud_backup::share_write_gate;
 use lastdb_node::share_file::{self, CatalogRecord, FileManifest, CATALOG_HASH};
 use serde_json::{json, Value};
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 
 const APP_ID: &str = "lastdb-files";
 
-pub(super) fn add(home: &Path, input: &Path) -> Result<(), String> {
-    lastdb_node::share_publication::require_files_publication(home)?;
-    let socket = publication_socket(home)?;
-    let edit = share_write_gate::begin_edit(home)?;
-    let result = add_file(&socket, input);
-    if result.is_ok() || catalog_is_complete(&socket) {
+pub(super) fn add(data_dir: Option<PathBuf>, selector: &str, input: &Path) -> Result<(), String> {
+    let (home, socket) = resolve_client_home_and_socket(data_dir.clone())?;
+    let database = database_cmds::registered_database(&socket, selector)?;
+    if database["kind"] != "shareable"
+        || database["access"] != "owner"
+        || database["spec"] != json!({"name": APP_ID, "version": 1})
+    {
+        return Err("file import requires an owned lastdb-files database".into());
+    }
+    let id = database["id"].as_str().ok_or("Files database has no ID")?;
+    let target = DatabaseTarget::open(data_dir, Some(id))?;
+    let directory = home.join("databases").join(id);
+    let edit = share_write_gate::begin_edit(&directory)?;
+    let result = add_file(&target, input);
+    if result.is_ok() || catalog_is_complete(&target) {
         edit.finish()?;
     }
     let manifest = result?;
@@ -26,48 +37,27 @@ pub(super) fn add(home: &Path, input: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn publication_socket(home: &Path) -> Result<PathBuf, String> {
-    lastdb_node::offline_home::refuse_primary(home)?;
-    let marker = std::fs::symlink_metadata(home.join(lastdb_node::share_publication::MARKER_FILE))
-        .map_err(|_| "file sharing requires the home created by share create")?;
-    if !marker.is_file()
-        || marker.uid() != unsafe { libc::geteuid() }
-        || marker.mode() & 0o077 != 0
-        || marker.nlink() != 1
-    {
-        return Err("publication marker must be an owner-only regular file".into());
-    }
-    let data = home.join("data");
-    let socket = lastdb_node::lastdb_uds::uds::socket_path(&data);
-    if data.canonicalize().ok().as_ref() != Some(&data)
-        || !std::fs::symlink_metadata(&socket).is_ok_and(|entry| entry.file_type().is_socket())
-    {
-        return Err("start the publication's LastDB daemon before adding files".into());
-    }
-    Ok(socket)
-}
-
-fn add_file(socket: &Path, input: &Path) -> Result<FileManifest, String> {
-    let definitions = declare_schemas(socket)?;
-    let mut row = load_catalog(socket)?;
+fn add_file(target: &DatabaseTarget, input: &Path) -> Result<FileManifest, String> {
+    let definitions = declare_schemas(target)?;
+    let mut row = load_catalog(target)?;
     if let Some(catalog) = catalog(row.as_ref())? {
         let recovered = share_file::recover_pending(
             &SCHEMAS,
             catalog,
-            |keys| read_revisions(socket, keys),
-            |operations| write(socket, &definitions, operations),
+            |keys| read_revisions(target, keys),
+            |operations| write(target, &definitions, operations),
         )?;
         if recovered {
-            row = load_catalog(socket)?;
+            row = load_catalog(target)?;
         }
     }
     share_file::add_file(input, &SCHEMAS, catalog(row.as_ref())?, |operations| {
-        write(socket, &definitions, operations)
+        write(target, &definitions, operations)
     })
 }
 
-fn catalog_is_complete(socket: &Path) -> bool {
-    load_catalog(socket).is_ok_and(|row| {
+fn catalog_is_complete(target: &DatabaseTarget) -> bool {
+    load_catalog(target).is_ok_and(|row| {
         catalog(row.as_ref()).is_ok_and(|value| {
             share_file::require_complete_catalog(value.map(|v| v.entries)).is_ok()
         })
@@ -79,10 +69,10 @@ struct Definitions {
     chunks: String,
 }
 
-fn declare_schemas(socket: &Path) -> Result<Definitions, String> {
+fn declare_schemas(target: &DatabaseTarget) -> Result<Definitions, String> {
     std::thread::scope(|scope| {
-        let catalog = scope.spawn(|| declare(socket, "FileCatalog", "entries", false));
-        let chunks = declare(socket, "FileChunk", "data", true);
+        let catalog = scope.spawn(|| declare(target, "FileCatalog", "entries", false));
+        let chunks = declare(target, "FileChunk", "data", true);
         Ok(Definitions {
             catalog: catalog
                 .join()
@@ -92,7 +82,12 @@ fn declare_schemas(socket: &Path) -> Result<Definitions, String> {
     })
 }
 
-fn declare(socket: &Path, name: &str, field: &str, ranged: bool) -> Result<String, String> {
+fn declare(
+    target: &DatabaseTarget,
+    name: &str,
+    field: &str,
+    ranged: bool,
+) -> Result<String, String> {
     let (schema_type, primary) = if ranged {
         (
             "HashRange",
@@ -102,7 +97,7 @@ fn declare(socket: &Path, name: &str, field: &str, ranged: bool) -> Result<Strin
         ("Hash", json!({"kind":"hash"}))
     };
     let declared = post(
-        socket,
+        target,
         "/api/schemas/declare",
         &json!({
             "namespace": APP_ID,
@@ -129,9 +124,14 @@ fn declare(socket: &Path, name: &str, field: &str, ranged: bool) -> Result<Strin
     Ok(id.to_owned())
 }
 
-fn load_catalog(socket: &Path) -> Result<Option<Value>, String> {
+fn load_catalog(target: &DatabaseTarget) -> Result<Option<Value>, String> {
     let key = KeyValue::new(Some(CATALOG_HASH.to_owned()), None);
-    let mut rows = query(socket, QUERY_BATCH_PATH, SCHEMAS.catalog, &[key])?;
+    let mut rows = query(
+        &target.socket,
+        &target.path(QUERY_BATCH_PATH),
+        SCHEMAS.catalog,
+        &[key],
+    )?;
     Ok(rows.pop().flatten())
 }
 
@@ -150,8 +150,16 @@ fn catalog(row: Option<&Value>) -> Result<Option<CatalogRecord<'_>>, String> {
     .transpose()
 }
 
-fn read_revisions(socket: &Path, keys: &[KeyValue]) -> Result<Vec<(KeyValue, String)>, String> {
-    let rows = query(socket, QUERY_BATCH_PATH, SCHEMAS.chunks, keys)?;
+fn read_revisions(
+    target: &DatabaseTarget,
+    keys: &[KeyValue],
+) -> Result<Vec<(KeyValue, String)>, String> {
+    let rows = query(
+        &target.socket,
+        &target.path(QUERY_BATCH_PATH),
+        SCHEMAS.chunks,
+        keys,
+    )?;
     keys.iter()
         .zip(rows)
         .filter_map(|(key, row)| row.map(|row| (key, row)))
@@ -165,7 +173,7 @@ fn read_revisions(socket: &Path, keys: &[KeyValue]) -> Result<Vec<(KeyValue, Str
 }
 
 fn write(
-    socket: &Path,
+    target: &DatabaseTarget,
     definitions: &Definitions,
     mut operations: Vec<Value>,
 ) -> Result<String, String> {
@@ -180,7 +188,7 @@ fn write(
         operation["definition_id"] = json!(definition);
     }
     let receipt = post(
-        socket,
+        target,
         "/api/mutations/batch",
         &json!({"mutations":operations}),
     )?;
@@ -199,7 +207,7 @@ fn write(
         .ok_or_else(|| "file-sharing write returned no record revision".into())
 }
 
-fn post(socket: &Path, path: &str, body: &Value) -> Result<Value, String> {
-    let response = post_json_admin(socket, path, body)?;
+fn post(target: &DatabaseTarget, path: &str, body: &Value) -> Result<Value, String> {
+    let response = post_json_admin(&target.socket, &target.path(path), body)?;
     parse_json_response(&response, path)
 }
