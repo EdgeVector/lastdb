@@ -114,6 +114,7 @@ fn acknowledged(home: &Path, database_id: &str, revision: u64) -> Result<MemberA
         database_id: database_id.to_owned(),
         revision,
         unchanged: false,
+        local: false,
     })
 }
 

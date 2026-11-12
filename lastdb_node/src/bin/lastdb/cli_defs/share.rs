@@ -150,6 +150,8 @@ pub(crate) enum ShareContributorCommand {
         #[arg(long)]
         expected_version: Option<u64>,
     },
+    /// Show node-key grants stored on this node for the selected database.
+    List,
     /// Attach a contributor grant to a registered database.
     Accept {
         /// Registered database ID or local name.

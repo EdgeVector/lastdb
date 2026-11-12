@@ -34,6 +34,7 @@ pub(crate) fn content_encryption_key(
 
 tokio::task_local! {
     static ACTIVE_STORE: Arc<FoldDB>;
+    static ACTIVE_BINDING: database_policy::SpecBinding;
 }
 
 pub(crate) fn active_store(personal: &Arc<FoldDB>) -> Arc<FoldDB> {
@@ -42,11 +43,31 @@ pub(crate) fn active_store(personal: &Arc<FoldDB>) -> Arc<FoldDB> {
         .unwrap_or_else(|_| Arc::clone(personal))
 }
 
+/// Spec binding of the shareable database whose store is active on this task.
+pub(crate) fn active_binding() -> Option<database_policy::SpecBinding> {
+    ACTIVE_BINDING.try_with(Clone::clone).ok()
+}
+
 pub(crate) async fn with_store<T>(
     store: Arc<FoldDB>,
     future: impl std::future::Future<Output = T>,
 ) -> T {
     ACTIVE_STORE.scope(store, future).await
+}
+
+pub(crate) async fn with_store_binding<T>(
+    store: Arc<FoldDB>,
+    binding: Option<database_policy::SpecBinding>,
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    match binding {
+        Some(binding) => {
+            ACTIVE_STORE
+                .scope(store, ACTIVE_BINDING.scope(binding, future))
+                .await
+        }
+        None => with_store(store, future).await,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +213,23 @@ impl Tables {
             .cloned()
             .ok_or(OwnedError::Unavailable)?;
         Ok((Resolved::Owned, Some(store)))
+    }
+
+    /// Catalog binding for this open shareable store. Personal has none.
+    fn policy_binding(&self, store: &Arc<FoldDB>) -> Option<database_policy::SpecBinding> {
+        let state = self.read().ok()?;
+        let id = state
+            .stores
+            .iter()
+            .find_map(|(id, open)| Arc::ptr_eq(open, store).then(|| id.clone()))?;
+        let entry = state.owned.iter().find(|entry| entry.id == id)?;
+        if entry.kind != Kind::Shareable {
+            return None;
+        }
+        let spec = entry.spec.as_ref()?;
+        database_policy::SpecBinding::admitted(&spec.name, spec.version)
+            .or_else(|_| database_policy::SpecBinding::new(&spec.name, spec.version))
+            .ok()
     }
 
     pub(crate) async fn create(
@@ -343,7 +381,8 @@ impl Host {
         store: Arc<FoldDB>,
         future: impl std::future::Future<Output = T>,
     ) -> T {
-        with_store(store, future).await
+        let binding = self.owned.policy_binding(&store);
+        with_store_binding(store, binding, future).await
     }
 
     /// Flush sibling stores. The daemon binary calls this before the owner store.
