@@ -204,7 +204,12 @@ pub(crate) struct Directory {
     max_bytes: u64,
 }
 
-fn openat(dir: &File, name: impl rustix::path::Arg, flags: OFlags, mode: u32) -> io::Result<File> {
+fn openat(
+    dir: &File,
+    name: impl rustix::path::Arg,
+    flags: OFlags,
+    mode: fs::RawMode,
+) -> io::Result<File> {
     fs::openat(dir, name, flags, Mode::from_bits_truncate(mode))
         .map(File::from)
         .map_err(Into::into)
