@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
+mod adopt;
 mod create;
 mod lookup;
 mod registry;
@@ -361,7 +362,7 @@ fn ensure_free(state: &State, name: &str) -> Result<(), OwnedError> {
     }
 }
 
-fn snapshot(state: &State) -> registry::RegistryFile {
+pub(super) fn snapshot(state: &State) -> registry::RegistryFile {
     registry::RegistryFile {
         format: registry::FORMAT,
         owner: state.registry_owner.clone(),

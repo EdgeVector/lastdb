@@ -40,7 +40,7 @@ pub(super) async fn restore(
     let owned_closed = host.shutdown_owned_databases().await;
     let owner_closed = host.db.shutdown().await;
     drop(host);
-    let through = result?;
+    let restored = result?;
     owned_closed?;
     owner_closed.map_err(|error| error.to_string())?;
     staged.publish(&destination)?;
@@ -48,8 +48,8 @@ pub(super) async fn restore(
         &serde_json::json!({
             "ok": true,
             "database_id": database,
-            "name": "recovered",
-            "through_delivery_seq": through,
+            "name": restored.name,
+            "through_delivery_seq": restored.through,
             "destination": destination,
         }),
         args.json,

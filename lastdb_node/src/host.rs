@@ -21,6 +21,20 @@ pub(crate) mod owned;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
+/// The personal store records accepted writes only when this home can publish them.
+fn personal_log_open(home: &Path) -> bool {
+    match crate::cloud::load_saved_credentials(home) {
+        Ok(saved) => saved.is_some(),
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "personal database stays local until cloud credentials load"
+            );
+            false
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ShutdownFlushReceipt {
     version: u32,
@@ -117,8 +131,9 @@ impl Host {
             fold_db::fold_db_core::factory::FoldDbOptions {
                 offline_maintenance: false,
                 search_outbox_inbox: Some(inbox.clone()),
-                // The owner store is the personal database. Its accepted writes are the signed log.
-                capture_accepted: true,
+                // Join the signed log only when saved credentials can drain it.
+                // A restart after enrollment starts capture at the frontier then current.
+                capture_accepted: personal_log_open(home),
             },
         )
         .await

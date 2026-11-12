@@ -59,6 +59,22 @@ pub(super) async fn install(log: CloudLog) -> Result<u64, LogError> {
     }
 }
 
+/// First sealed entry of a trimmed log. The caller uses it to select the content key.
+pub(super) async fn sample_entry(
+    log: &CloudLog,
+) -> Result<database_replay::SnapshotEntry, LogError> {
+    let manifest = one_manifest(log, None).await?;
+    if manifest.parts == 0 {
+        return Err(LogError::UnexpectedOutcome);
+    }
+    let loaded = part(log, &manifest, 0).await?;
+    loaded
+        .entries
+        .into_iter()
+        .next()
+        .ok_or(LogError::UnexpectedOutcome)
+}
+
 async fn walk(log: &CloudLog) -> Result<Vec<SnapshotManifest>, LogError> {
     let mut chain = Vec::new();
     let mut next: Option<String> = None;

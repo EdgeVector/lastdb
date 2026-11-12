@@ -26,5 +26,5 @@ mod turn;
 mod upload;
 mod wire;
 
-pub use owner_recovery::recover_owned;
+pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub use turn::spawn;
