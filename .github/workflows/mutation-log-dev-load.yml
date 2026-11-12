@@ -1,0 +1,124 @@
+name: Mutation log DEV load
+
+# Manual only. Never on push or pull request. Run it after exemem-infra
+# #778 is deployed to DEV. The OIDC role is the DEV role from
+# exemem-infra #772, ref main, and the cloud-backup-dev environment. This
+# workflow does not create or change an IAM role. The job runs only on
+# main because that role trusts ref main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deployed:
+        description: "Type yes only after exemem-infra #778 is deployed to DEV"
+        required: true
+        type: string
+      level:
+        description: "Writers, the trim case, or all of them under one cap"
+        type: choice
+        options: ["all", "5", "20", "100", "trim"]
+        default: "all"
+      duration:
+        description: "preliminary finishes 10 appends at 5, 20, and 100 writers. scale is the 3-minute 100-writer clock."
+        type: choice
+        options: ["preliminary", "scale"]
+        default: "preliminary"
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install --profile minimal
+      - name: Build the node-read token helper
+        run: cargo build --locked -p cloud_backup_protocol --bin node_read_token
+      - name: Refuse a role outside the DEV account before assuming it
+        env:
+          LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+        working-directory: scripts/mutation_log_load
+        run: |
+          python3 -c 'from guard import allow_region, allow_role; import os; allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"]); allow_region("us-west-2")'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: mutation-log-load-${{ github.run_id }}
+      - name: Load synthetic writers
+        id: load
+        continue-on-error: true
+        env:
+          LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
+          LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          LOAD_LEVEL: ${{ inputs.level }}
+          LOAD_DURATION: ${{ inputs.duration }}
+          CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
+        run: |
+          python3 -m pip install --quiet cryptography==41.0.7
+          set +e
+          scale=
+          if [ "$LOAD_DURATION" = "scale" ]; then
+            scale=--scale
+          fi
+          python3 scripts/mutation_log_load/run.py \
+            --phase load \
+            --level "$LOAD_LEVEL" \
+            $scale \
+            --confirm-deployed "$CONFIRM_DEPLOYED" \
+            --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
+            --summary "$RUNNER_TEMP/mutation-log-load-summary.json"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/mutation-log-load-exit"
+          exit "$code"
+      - name: Delete this run's load rows
+        id: cleanup
+        if: always()
+        continue-on-error: true
+        env:
+          LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
+          LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
+        run: |
+          python3 -m pip install --quiet cryptography==41.0.7
+          set +e
+          python3 scripts/mutation_log_load/run.py \
+            --phase cleanup \
+            --confirm-deployed "$CONFIRM_DEPLOYED" \
+            --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
+            --summary "$RUNNER_TEMP/mutation-log-load-summary.json"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/mutation-log-cleanup-exit"
+          exit "$code"
+      - name: Keep the load status in front of a cleanup failure
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts/mutation_log_load")
+          from stats import combine_exit
+
+          def code(path):
+              try:
+                  return int(open(path, encoding="utf-8").read().strip())
+              except (OSError, ValueError):
+                  return 1
+
+          root = os.environ["RUNNER_TEMP"]
+          # 0 complete, 1 correctness, 2 cap, 3 scaling.
+          sys.exit(combine_exit(
+              code(os.path.join(root, "mutation-log-load-exit")),
+              code(os.path.join(root, "mutation-log-cleanup-exit"))))
+          PY
