@@ -20,6 +20,7 @@ pub mod lastdb_uds;
 pub mod legacy_cutover;
 pub mod log_envelope;
 pub mod log_rotation;
+pub mod named_grant;
 pub mod named_snapshot_restore;
 pub mod node_read;
 pub mod offline_home;

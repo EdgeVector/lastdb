@@ -61,6 +61,10 @@ pub(super) fn row(entry: &Entry) -> Value {
 }
 
 fn share_conflict(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {
+    registered_name(host, name, ctx)
+}
+
+fn registered_name(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {
     match registered_share::list(&host.home) {
         Ok(shares)
             if shares

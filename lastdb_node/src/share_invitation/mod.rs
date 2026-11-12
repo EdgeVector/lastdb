@@ -97,6 +97,25 @@ impl ShareRecipient {
         sealed: &[u8],
         expected_publisher: &Digest,
     ) -> Result<OpenedShareInvitation> {
+        self.open_inner(sealed, expected_publisher, true)
+    }
+
+    /// Same verification as [`Self::open`]. A stored signed log stays readable
+    /// after the invitation bearer expires.
+    pub(crate) fn open_stored(
+        &self,
+        sealed: &[u8],
+        expected_publisher: &Digest,
+    ) -> Result<OpenedShareInvitation> {
+        self.open_inner(sealed, expected_publisher, false)
+    }
+
+    fn open_inner(
+        &self,
+        sealed: &[u8],
+        expected_publisher: &Digest,
+        check_expiry: bool,
+    ) -> Result<OpenedShareInvitation> {
         let invalid = || ShareInvitationError("invalid sealed share invitation");
         let wire = sealed
             .strip_prefix(INVITATION_V1)
@@ -115,13 +134,14 @@ impl ShareRecipient {
         cipher
             .decrypt_in_place(Nonce::from_slice(nonce), &aad, &mut *plaintext)
             .map_err(|_| invalid())?;
-        self.verify_plaintext(&plaintext, expected_publisher)
+        self.verify_plaintext(&plaintext, expected_publisher, check_expiry)
     }
 
     fn verify_plaintext(
         &self,
         plaintext: &[u8],
         expected_publisher: &Digest,
+        check_expiry: bool,
     ) -> Result<OpenedShareInvitation> {
         let invalid = || ShareInvitationError("invalid share invitation body");
         let (body, signature) = plaintext
@@ -145,7 +165,9 @@ impl ShareRecipient {
             .and_then(|bytes| bytes.try_into().ok())
             .ok_or(ShareInvitationError("invalid share invitation publisher"))?;
         verify_signature(&publisher, signature, &signing_bytes(body))?;
-        require_unexpired(&permission)?;
+        if check_expiry {
+            require_unexpired(&permission)?;
+        }
         Ok(OpenedShareInvitation {
             permission,
             publication_key: Zeroizing::new(*publication_key),

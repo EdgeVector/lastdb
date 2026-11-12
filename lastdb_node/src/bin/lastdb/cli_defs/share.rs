@@ -28,9 +28,9 @@ pub(crate) enum ShareCommand {
     },
     /// Create a recipient-encrypted invitation for a published database.
     Invite {
-        /// Absolute path of the publication home.
+        /// Absolute path of the publication home. Omit this when the parent `--db` is set.
         #[arg(long)]
-        home: PathBuf,
+        home: Option<PathBuf>,
         /// Contact file obtained from the intended recipient.
         #[arg(long)]
         recipient: PathBuf,
@@ -40,9 +40,12 @@ pub(crate) enum ShareCommand {
         /// New path for the encrypted invitation file.
         #[arg(long)]
         out: PathBuf,
-        /// Lifetime of the read permission in hours.
+        /// Lifetime of the read permission in hours. The member row does not expire.
         #[arg(long, default_value_t = 24, value_parser = clap::value_parser!(u32).range(1..=168))]
         expires_in_hours: u32,
+        /// Restore a revoked named-database member. A publication invite rejects this.
+        #[arg(long)]
+        regrant: bool,
     },
     /// Register an invitation as a database on this node and start recovery.
     Accept {
@@ -107,39 +110,45 @@ pub(crate) enum ShareQueriesCommand {
 pub(crate) enum ShareContributorCommand {
     /// Authorize a recipient and write their sealed contributor grant.
     Grant {
-        /// Absolute path of the publication home.
+        /// Absolute path of the publication home. Omit this when the parent `--db` is set.
         #[arg(long)]
-        home: PathBuf,
+        home: Option<PathBuf>,
         /// Contact file obtained from the intended recipient.
         #[arg(long)]
         recipient: PathBuf,
         /// Recipient's Ed25519 public key in lowercase hex from a trusted channel.
         #[arg(long)]
         recipient_key: String,
-        /// File containing a JSON array of allowed write rules.
+        /// File containing a JSON array of allowed write rules. Publication grants only.
         #[arg(long)]
-        rules: PathBuf,
-        /// Stable operation UUID for retries.
+        rules: Option<PathBuf>,
+        /// Stable operation UUID for retries. Publication grants only.
         #[arg(long)]
-        operation_id: String,
+        operation_id: Option<String>,
         /// Current grant version. Use zero for a writer who has never had a grant.
         #[arg(long)]
-        expected_version: u64,
+        expected_version: Option<u64>,
         /// New path for the sealed contributor grant.
         #[arg(long)]
         out: PathBuf,
+        /// Restore a revoked named-database member. A publication grant rejects this.
+        #[arg(long)]
+        regrant: bool,
+        /// Bearer lifetime in hours for a named database. The member row does not expire.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=168))]
+        expires_in_hours: Option<u32>,
     },
     /// Revoke the recipient's write grant without changing their read invitation.
     Revoke {
-        /// Absolute path of the publication home.
+        /// Absolute path of the publication home. Omit this when the parent `--db` is set.
         #[arg(long)]
-        home: PathBuf,
+        home: Option<PathBuf>,
         /// Contributor's Ed25519 public key in lowercase hex.
         #[arg(long)]
         recipient_key: String,
-        /// Current grant version.
+        /// Current grant version. Publication revokes only.
         #[arg(long)]
-        expected_version: u64,
+        expected_version: Option<u64>,
     },
     /// Attach a contributor grant to a registered database.
     Accept {

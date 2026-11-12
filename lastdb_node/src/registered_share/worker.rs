@@ -57,7 +57,7 @@ fn refresh(runtime: &Handle, home: &Path, shutdown: &AtomicBool) -> Result<(), S
                 continue;
             }
         };
-        if entry.expires_ms <= fold_db::clock::unix_millis() {
+        if entry.signed_log || entry.expires_ms <= fold_db::clock::unix_millis() {
             continue;
         }
         let outcome = runtime.block_on(async {
