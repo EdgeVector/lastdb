@@ -19,11 +19,11 @@ from support import OperationError, dev_endpoint, failure, require
 
 
 @contextmanager
-def running(node):
+def running(node, *, remove_saved=False):
     try:
         node.start()
         yield
-        node.stop()
+        node.stop(remove_saved=remove_saved)
     finally:
         node.cleanup_stop()
 
@@ -119,7 +119,7 @@ def main():
             "--recovery-phrase-out", str(recipient_home / "recovery-phrase.txt"), "--json",
         ])
         recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
-        with running(publisher), running(recipient):
+        with running(publisher, remove_saved=True), running(recipient):
             transfer(programs, root, publisher, recipient, api_key)
     summary("Both generated DEV daemons stopped cleanly and their temporary homes were removed.")
 

@@ -280,7 +280,9 @@ jobs:
   notify:
     name: Notify on failure
     needs: [recipe-syntax, ownership-readback, build-client, baseline-writer-check, recover-dev]
-    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # The manual Files operation has its own result in Actions. Its outcome
+    # cannot open or close the personal backup recovery incident.
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode != 'signed-files'
     permissions:
       contents: read
       issues: write

@@ -31,8 +31,8 @@ pub(super) fn run(
             invitation,
             publisher,
             name,
-        } => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
-        ShareCommand::Files(ShareFilesCommand::Receive {
+        }
+        | ShareCommand::Files(ShareFilesCommand::Receive {
             invitation,
             publisher,
             name,

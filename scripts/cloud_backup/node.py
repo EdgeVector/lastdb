@@ -163,11 +163,11 @@ class OwnedNode:
                 and os.path.lexists(self.home / CREDENTIALS_FILE),
                 "restored_device_sign_in")
 
-    def disconnect(self):
+    def disconnect(self, *, remove_saved=False):
         """Remove the saved credentials once the daemon is down, so a retained
         runner home never keeps an API key. The device id file stays, so the
         next boot registers the same restored device again."""
-        if self.cloud_credentials is not None or self.device_sign_in:
+        if remove_saved or self.cloud_credentials is not None or self.device_sign_in:
             (self.home / CREDENTIALS_FILE).unlink(missing_ok=True)
 
     def start(self, *, storage_inventory=False, sign_in=True):
@@ -249,7 +249,7 @@ class OwnedNode:
         require(durability["observed"] is True, "daemon_backup_observation")
         return True
 
-    def stop(self):
+    def stop(self, *, remove_saved=False):
         if self.process is None:
             return
         process = self.process
@@ -271,7 +271,7 @@ class OwnedNode:
         self.process = None
         self.start_ts, self.instance_id = None, None
         self.clean_stops += 1
-        self.disconnect()
+        self.disconnect(remove_saved=remove_saved)
         self.offline()
 
     def cleanup_stop(self):
