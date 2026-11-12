@@ -5,7 +5,7 @@ use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::operations::{MutationConvergence, Operation};
 use fold_db::schema::types::{Mutation, Query, QueryCursor};
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 use super::query::QueryResponseFormat;
 use super::reply::content_free;
@@ -100,14 +100,14 @@ impl Reject {
     }
 
     pub(in crate::exec) fn response(&self) -> UdsResponse {
-        let mut map = serde_json::json!({
+        let mut map = json!({
             "ok": false, "kind": self.kind.as_str(), "error": self.kind.message(),
         });
         if let Some((key, rem)) = self.key {
             map["key"] = Value::String(key.into());
-            map["try"] = serde_json::json!([rem]);
+            map["try"] = json!([rem]);
         } else if self.kind == RejectKind::UnknownKey {
-            map["try"] = serde_json::json!([
+            map["try"] = json!([
                 "curl -s --unix-socket ~/.lastdb/data/folddb.sock http://localhost/api/version"
             ]);
         }
@@ -192,9 +192,10 @@ pub fn parse_mutation_body(body: &[u8]) -> Result<ParsedMutation, Reject> {
 }
 
 pub(in crate::exec) fn body_object(req: &UdsRequest) -> Result<Map<String, Value>, UdsResponse> {
-    match serde_json::from_slice::<Value>(&req.body) {
-        Ok(Value::Object(map)) => Ok(map),
-        _ => Err(Reject::malformed_body().response()),
+    if let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&req.body) {
+        Ok(map)
+    } else {
+        Err(Reject::malformed_body().response())
     }
 }
 
@@ -261,22 +262,19 @@ pub(in crate::exec) fn parse_batch_mutation_body(
     let Ok(value) = serde_json::from_slice::<Value>(body) else {
         return Err(content_free(400, "Bad Request"));
     };
-    let (ops, conv) = match value {
-        Value::Array(items) => (
-            items
-                .into_iter()
-                .map(|i| {
-                    serde_json::from_value::<Operation>(i)
-                        .map_err(|e| Reject::from_serde_error(&e, None).response())
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-            None,
-        ),
-        other => {
-            let req = serde_json::from_value::<BatchMutationsRequest>(other)
-                .map_err(|e| Reject::from_serde_error(&e, None).response())?;
-            (req.mutations, req.convergence)
-        }
+    let (ops, conv) = if let Value::Array(items) = value {
+        let ops = items
+            .into_iter()
+            .map(|i| {
+                serde_json::from_value::<Operation>(i)
+                    .map_err(|e| Reject::from_serde_error(&e, None).response())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        (ops, None)
+    } else {
+        let req = serde_json::from_value::<BatchMutationsRequest>(value)
+            .map_err(|e| Reject::from_serde_error(&e, None).response())?;
+        (req.mutations, req.convergence)
     };
     Ok(ops
         .into_iter()

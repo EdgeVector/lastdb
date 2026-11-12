@@ -1,15 +1,13 @@
 //! Publish the clean checkout and the running node's exact app interface.
 
 use super::*;
-use app_identity_crypto::{canonicalize, sign};
+use app_identity_crypto::{canonicalize, sign, SigningKey};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
+use lastdb_node::app_registry_index as registry;
 use lastdb_node::exec::normalize_app_manifest_schema;
-use lastdb_node::{app_publish, app_registry_index as registry};
 use serde_json::{json, Value};
 use std::process::Command;
-
-const NODE_SCHEMAS_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) struct InterfacePublish {
     pub manifest: PathBuf,
@@ -25,6 +23,24 @@ struct SchemaIdentity {
     name: String,
     descriptive_name: Option<String>,
     identity_hash: Option<String>,
+}
+
+fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
+    if path
+        .to_str()
+        .is_some_and(|v| v.starts_with("lastsecrets://"))
+    {
+        return Err("dev key path does not accept a lastsecrets locator".into());
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read dev key {}: {e}", path.display()))?;
+    let bytes = BASE64
+        .decode(raw.trim())
+        .map_err(|e| format!("dev key {} is not valid base64: {e}", path.display()))?;
+    let secret: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| format!("dev key {} is not a 32-byte Ed25519 secret", path.display()))?;
+    Ok(SigningKey::from_bytes(&secret))
 }
 
 fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>, String> {
@@ -87,7 +103,7 @@ fn held_schemas(socket: &Path, app_id: &str) -> Result<Vec<SchemaIdentity>, Stri
         client_headers()
     );
     let value = parse_json_response(
-        &request_readonly_with_retry(socket, req.as_bytes(), NODE_SCHEMAS_TIMEOUT)?,
+        &request_readonly_with_retry(socket, req.as_bytes(), Duration::from_secs(30))?,
         "GET /api/schemas",
     )?;
     let rows = value
@@ -128,14 +144,10 @@ fn require_held_schemas_listed(
                 .filter(|s| {
                     s.name == h.name
                         || (hid.is_some() && s.identity_hash.as_deref() == hid)
-                        || (h.descriptive_name.is_some()
-                            && s.descriptive_name == h.descriptive_name)
+                        || (h.descriptive_name.is_some() && s.descriptive_name == h.descriptive_name)
                 })
                 .collect();
-            if rel
-                .iter()
-                .any(|s| hid.is_some() && s.identity_hash.as_deref() == hid)
-            {
+            if rel.iter().any(|s| hid.is_some() && s.identity_hash.as_deref() == hid) {
                 return None;
             }
             let shown = hid.unwrap_or("none");
@@ -144,9 +156,7 @@ fn require_held_schemas_listed(
                 |s| {
                     format!(
                         "{} has identity {shown} on the node, but the manifest's {} has identity {}",
-                        h.name,
-                        s.name,
-                        s.identity_hash.as_deref().unwrap_or("none")
+                        h.name, s.name, s.identity_hash.as_deref().unwrap_or("none")
                     )
                 },
             ))
@@ -195,7 +205,12 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
         .get("version")
         .and_then(Value::as_str)
         .ok_or("manifest requires version")?;
-    app_publish::validate_version(version)?;
+    if version.trim() != version || version.is_empty() {
+        return Err(
+            "version must be a non-empty SemVer string without surrounding whitespace".into(),
+        );
+    }
+    semver::Version::parse(version).map_err(|e| format!("version must be valid SemVer: {e}"))?;
     let source = git(&root, &["remote", "get-url", "origin"])?;
     if !registry::valid_source(&source) {
         return Err("origin must be a public https://github.com/owner/repo.git URL".into());
@@ -246,10 +261,10 @@ pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }
-    let key = app_publish::load_dev_key(
+    let key = load_dev_key(
         &input
             .key_file
-            .unwrap_or_else(|| app_publish::default_dev_key_path(home)),
+            .unwrap_or_else(|| home.join("dev-signing.key")),
     )?;
     let mut stmt = payload
         .as_object()

@@ -1,8 +1,10 @@
-//! Owner socket serving: request routing, body-byte budget, and deferred mutations.
+//! Owner socket serving, body-byte budget, deferred mutations, and background tasks.
 
 use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 
 use fold_db::access::AccessContext;
 use lastdb_node::exec;
@@ -12,10 +14,99 @@ use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use lastdb_node::lastdb_uds::uds_router;
 use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
 const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
+
+pub(crate) type BackgroundTasks = (
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+    JoinHandle<()>,
+);
+
+pub(crate) fn spawn_background(
+    runtime: &tokio::runtime::Runtime,
+    host: &Arc<Host>,
+    shutdown: &Arc<AtomicBool>,
+    socket: &Path,
+) -> BackgroundTasks {
+    let _guard = runtime.enter();
+    lastdb_node::byte_cloud_backup::register_blob_source(host);
+    let backup =
+        lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown));
+    let (sync_host, sync_shutdown) = (Arc::clone(host), Arc::clone(shutdown));
+    let backup = tokio::spawn(
+        async move {
+            let sync = lastdb_node::log_sync::spawn(sync_host, sync_shutdown);
+            let (backup_res, sync_res) = tokio::join!(backup, sync);
+            if sync_res.is_err() {
+                tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
+            }
+            if let Err(err) = backup_res {
+                if err.is_panic() {
+                    std::panic::resume_unwind(err.into_panic());
+                }
+            }
+        }
+        .in_current_span(),
+    );
+    (
+        lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
+        backup,
+        lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
+        lastdb_node::jobs::saved_query::spawn(
+            Arc::clone(host),
+            socket.to_path_buf(),
+            Arc::clone(shutdown),
+            true,
+        ),
+    )
+}
+
+pub(crate) fn drain_background(
+    runtime: &tokio::runtime::Runtime,
+    host: &Arc<Host>,
+    (ttl_sweep_task, automatic_backup_task, received_shares_task, saved_queries_task): BackgroundTasks,
+) -> Result<(), String> {
+    runtime.block_on(async {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+        let drain = async {
+            let (ttl_sweep, automatic, received_shares, saved_queries, byte_backup) = tokio::join!(
+                ttl_sweep_task,
+                automatic_backup_task,
+                received_shares_task,
+                saved_queries_task,
+                host.byte_backup.drain(deadline),
+            );
+            let mut errors = Vec::new();
+            for (name, res) in [
+                ("ttl sweep", ttl_sweep),
+                ("automatic backup", automatic),
+                ("received shares", received_shares),
+                ("saved queries", saved_queries),
+            ] {
+                if let Err(e) = res {
+                    errors.push(format!("{name} task failed: {e}"));
+                }
+            }
+            if let Err(e) = byte_backup {
+                errors.push(format!("byte backup did not drain: {e}"));
+            }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors.join("; "))
+            }
+        };
+        tokio::time::timeout_at(deadline, drain)
+            .await
+            .map_err(|_| "background writers did not drain within 180 seconds".to_string())?
+    })
+}
 
 #[derive(Clone)]
 struct BodyBudget(Arc<Semaphore>);
@@ -24,10 +115,11 @@ struct BodyLease(OwnedSemaphorePermit);
 
 impl BodyBudget {
     fn new(workers: usize) -> Self {
-        let bytes = workers
-            .saturating_mul(MAX_PARSE_BYTES)
-            .min(Semaphore::MAX_PERMITS);
-        Self(Arc::new(Semaphore::new(bytes)))
+        Self(Arc::new(Semaphore::new(
+            workers
+                .saturating_mul(MAX_PARSE_BYTES)
+                .min(Semaphore::MAX_PERMITS),
+        )))
     }
 
     fn try_reserve(&self) -> Option<BodyLease> {
@@ -160,15 +252,17 @@ fn serve_reserved(
         _ => None,
     };
     if let Some(route) = route.filter(|_| body.retain_request(&request)) {
-        let host = Arc::clone(&server.host);
-        let replies = Arc::clone(&server.mutation_replies);
+        let (host, replies) = (
+            Arc::clone(&server.host),
+            Arc::clone(&server.mutation_replies),
+        );
         server.handle.spawn(async move {
             let Ok(reply_slot) = replies.acquire_owned().await else {
                 return;
             };
             let response = match route {
-                MutationRoute::Default(route) => {
-                    exec::execute_deferred_mutation(route, &request, &context, &host).await
+                MutationRoute::Default(r) => {
+                    exec::execute_deferred_mutation(r, &request, &context, &host).await
                 }
                 MutationRoute::Scoped => {
                     exec::execute_deferred_database_mutation(&mut request, &context, &host).await

@@ -22,8 +22,7 @@ pub use schema_types::{
 pub use types::{Schema, SchemaError};
 
 pub mod mutation_author {
-    use crate::schema::types::author_clock::mutation_author_canonical_bytes;
-    use crate::schema::types::Mutation;
+    use crate::schema::types::{author_clock::mutation_author_canonical_bytes, Mutation};
     use crate::security::{Ed25519KeyPair, KeyUtils};
 
     #[must_use]
@@ -128,25 +127,21 @@ impl SchemaCore {
     }
 
     pub fn get_schemas_with_states(&self) -> Result<Vec<SchemaWithState>, SchemaError> {
-        let catalog = self.merged_catalog()?;
-        Ok(catalog
-            .schemas
+        let c = self.merged_catalog()?;
+        Ok(c.schemas
             .into_iter()
-            .map(|(n, s)| {
-                SchemaWithState::new(s, catalog.states.get(&n).copied().unwrap_or_default())
-            })
+            .map(|(n, s)| SchemaWithState::new(s, c.states.get(&n).copied().unwrap_or_default()))
             .collect())
     }
 
     pub fn get_active_schema_list_entries_with_states(
         &self,
     ) -> Result<Vec<SchemaListEntry>, SchemaError> {
-        let catalog = self.catalog_snapshot()?;
-        Ok(catalog
-            .schemas
+        let c = self.catalog_snapshot()?;
+        Ok(c.schemas
             .values()
             .filter_map(|s| {
-                let state = catalog.states.get(&s.name).copied().unwrap_or_default();
+                let state = c.states.get(&s.name).copied().unwrap_or_default();
                 (state != SchemaState::Blocked).then(|| SchemaListEntry::from_schema(s, state))
             })
             .collect())
@@ -167,10 +162,10 @@ impl SchemaCore {
         )? {
             return Ok((Some(staged.schema.clone()), staged.state));
         }
-        let catalog = self.catalog_snapshot()?;
+        let c = self.catalog_snapshot()?;
         Ok((
-            catalog.schemas.get(schema_name).cloned(),
-            catalog.states.get(schema_name).copied().unwrap_or_default(),
+            c.schemas.get(schema_name).cloned(),
+            c.states.get(schema_name).copied().unwrap_or_default(),
         ))
     }
 
@@ -266,8 +261,7 @@ impl SchemaCore {
                 || schema.alternate_keys != stored.alternate_keys
             {
                 return Err(SchemaError::InvalidData(
-                    "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly"
-                        .into(),
+                    "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly".into(),
                 ));
             }
             schema.validate()?;
@@ -306,9 +300,7 @@ fn stamp_identity_for_load(schema: &mut Schema, existing: Option<&Schema>) {
         schema.recompute_identity_hash_unless_newer()
     {
         tracing::warn!(
-            schema = %schema.name,
-            stored_algo_version = stored,
-            binary_algo_version = binary,
+            schema = %schema.name, stored_algo_version = stored, binary_algo_version = binary,
             identity_hash = %schema.identity_hash.as_deref().unwrap_or("<none>"),
             "refusing to downgrade schema identity minted by a newer algorithm",
         );
@@ -323,8 +315,7 @@ fn stamp_identity_for_load(schema: &mut Schema, existing: Option<&Schema>) {
         schema.identity_hash.clone_from(&s.identity_hash);
         schema.identity_hash_algo_version = s.identity_hash_algo_version;
         tracing::warn!(
-            schema = %schema.name,
-            stored_algo_version = stored,
+            schema = %schema.name, stored_algo_version = stored,
             binary_algo_version = ::schema_types::IDENTITY_HASH_ALGO_VERSION,
             "refusing to overwrite a stored schema identity minted by a newer algorithm",
         );

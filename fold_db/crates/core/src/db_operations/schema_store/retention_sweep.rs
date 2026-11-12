@@ -1,6 +1,6 @@
 //! TTL sweep floors, format checks, and paged age/partition reads.
 
-use super::SchemaStore;
+use super::{retention::latest_keys, SchemaStore};
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
@@ -38,7 +38,11 @@ pub struct RetentionFloors {
 impl RetentionFloors {
     pub fn start(&self, schema: &str, hash: &str) -> Option<KeyValue> {
         let mut schemas = self.lock();
-        let floor = Self::floor_mut(&mut schemas, schema, hash);
+        let floor = schemas
+            .entry(schema.to_owned())
+            .or_default()
+            .entry(hash.to_owned())
+            .or_default();
         floor.low = None;
         if floor.after.is_some() {
             floor.passes += 1;
@@ -51,7 +55,11 @@ impl RetentionFloors {
 
     pub fn keep(&self, schema: &str, hash: &str, after: &KeyValue) {
         let mut schemas = self.lock();
-        let floor = Self::floor_mut(&mut schemas, schema, hash);
+        let floor = schemas
+            .entry(schema.to_owned())
+            .or_default()
+            .entry(hash.to_owned())
+            .or_default();
         if floor
             .low
             .as_deref()
@@ -61,18 +69,6 @@ impl RetentionFloors {
         } else {
             floor.after = Some(after.clone());
         }
-    }
-
-    fn floor_mut<'a>(
-        schemas: &'a mut HashMap<String, HashMap<String, Floor>>,
-        schema: &str,
-        hash: &str,
-    ) -> &'a mut Floor {
-        schemas
-            .entry(schema.to_owned())
-            .or_default()
-            .entry(hash.to_owned())
-            .or_default()
     }
 
     pub fn end(&self, schema: &str, hash: &str) {
@@ -93,18 +89,17 @@ impl RetentionFloors {
             return;
         };
         for (hash, range) in keys {
-            let Some(floor) = hashes.get_mut(hash) else {
-                continue;
-            };
-            if floor
-                .after
-                .as_ref()
-                .is_some_and(|after| range.as_str() <= range_of(after))
-            {
-                floor.clear();
-            }
-            if floor.low.as_ref().is_none_or(|low| range < low) {
-                floor.low = Some(range.clone());
+            if let Some(floor) = hashes.get_mut(hash) {
+                if floor
+                    .after
+                    .as_ref()
+                    .is_some_and(|a| range.as_str() <= range_of(a))
+                {
+                    floor.clear();
+                }
+                if floor.low.as_ref().is_none_or(|low| range < low) {
+                    floor.low = Some(range.clone());
+                }
             }
         }
     }
@@ -136,19 +131,20 @@ impl SchemaStore {
         };
         let keys: Vec<(String, String)> = live
             .map(|k| {
-                let hash = if partitioned {
-                    k.hash.clone().unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                (hash, range_of(k).to_owned())
+                (
+                    if partitioned {
+                        k.hash.clone().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
+                    range_of(k).to_owned(),
+                )
             })
             .collect();
         if keys.is_empty() {
             return Ok(());
         }
-        let floors = Arc::clone(&self.retention_floors);
-        let name = schema.name.clone();
+        let (floors, name) = (Arc::clone(&self.retention_floors), schema.name.clone());
         crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
             floors.note_written(&name, &keys);
             Ok(())
@@ -211,13 +207,13 @@ impl SchemaStore {
             .scan_items_in_range_paged::<SchemaRetentionAgeEntry>(&start, &end, limit.clamp(1, 256))
             .await?;
         let next = rows.last().map(|(k, _)| k.clone());
-        let latest_keys: Vec<_> = rows
+        let lks: Vec<_> = rows
             .iter()
             .map(|(_, e)| retention_age_latest_key(schema_name, &e.key))
             .collect();
         let latest = self
             .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
+            .get_items::<SchemaRetentionAgeEntry>(&lks)
             .await?;
         let keys = rows
             .into_iter()
@@ -233,18 +229,16 @@ impl SchemaStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<String>, Option<String>), SchemaError> {
-        let invalid = |e: &dyn std::fmt::Display| {
+        let bad = |e: &dyn std::fmt::Display| {
             SchemaError::InvalidData(format!("retention partition page: {e}"))
         };
         let (first, end) = exact_prefix_bounds(&retention_hash_partition_prefix(schema));
         let start = match cursor {
-            Some(c) => URL_SAFE_NO_PAD.decode(c).map_err(|e| invalid(&e))?,
+            Some(c) => URL_SAFE_NO_PAD.decode(c).map_err(|e| bad(&e))?,
             None => first.as_bytes().to_vec(),
         };
         if start.as_slice() < first.as_bytes() || start.as_slice() >= end.as_bytes() {
-            return Err(invalid(
-                &"partition cursor differs from its retention anchor",
-            ));
+            return Err(bad(&"partition cursor differs from its retention anchor"));
         }
         let mut walk = RangeWalk::new(&start, end.as_bytes(), limit.clamp(1, 256));
         while let Some((start, end, asked)) = walk.request() {
@@ -262,7 +256,7 @@ impl SchemaStore {
                         .map(|(_, b)| {
                             serde_json::from_slice::<SchemaRetentionHashPartition>(&b)
                                 .map(|e| e.hash)
-                                .map_err(|e| invalid(&e))
+                                .map_err(|e| bad(&e))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     return Ok((
@@ -306,13 +300,9 @@ impl SchemaStore {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let latest_keys: Vec<_> = keys
-            .iter()
-            .map(|k| retention_age_latest_key(schema_name, k))
-            .collect();
         let latest = self
             .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
+            .get_items::<SchemaRetentionAgeEntry>(&latest_keys(schema_name, keys))
             .await?;
         Ok(keys
             .iter()

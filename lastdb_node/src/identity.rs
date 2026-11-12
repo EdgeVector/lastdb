@@ -13,7 +13,6 @@ use sha2::{Digest, Sha256};
 pub const IDENTITY_KEY_FILE: &str = "identity.key";
 
 /// Load `<home>/identity.key`, or generate and persist a fresh seed on first boot.
-/// Returns `(seed, true)` when a new seed was written.
 pub fn load_or_generate_seed_with_meta(home: &Path) -> Result<([u8; 32], bool), String> {
     let key_path = home.join(IDENTITY_KEY_FILE);
     if key_path.exists() {
@@ -28,9 +27,9 @@ pub fn load_or_generate_seed_with_meta(home: &Path) -> Result<([u8; 32], bool), 
         })?;
         return Ok((seed, false));
     }
-    let keypair = fold_db::security::Ed25519KeyPair::generate()
-        .map_err(|e| format!("identity generation failed: {e}"))?;
-    let seed = keypair.secret_key_bytes();
+    let seed = fold_db::security::Ed25519KeyPair::generate()
+        .map_err(|e| format!("identity generation failed: {e}"))?
+        .secret_key_bytes();
     write_seed(home, &seed)?;
     Ok((seed, true))
 }
@@ -54,6 +53,5 @@ pub fn user_hash_from_pubkey(pubkey_b64: &str) -> Result<String, String> {
     let raw = base64::engine::general_purpose::STANDARD
         .decode(pubkey_b64)
         .map_err(|e| format!("node public key is not valid base64: {e}"))?;
-    let digest = Sha256::digest(&raw);
-    Ok(fold_db::hex::hex_lower(&digest[..16]))
+    Ok(fold_db::hex::hex_lower(&Sha256::digest(&raw)[..16]))
 }

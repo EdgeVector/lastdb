@@ -1,4 +1,4 @@
-//! Single, batch, and deferred mutation routes and executors.
+//! Single, batch, file-delete, and deferred mutation routes and executors.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -7,14 +7,16 @@ use std::pin::Pin;
 use fold_db::access::AccessContext;
 use fold_db::fold_db_core::mutation_manager::{MutationManager, ResidentCommitReceipt};
 use fold_db::record_value::InlineWrite;
-use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
-use serde_json::Value;
+use fold_db::schema::types::operations::Operation;
+use fold_db::schema::types::{FileWrite, Mutation, MutationType, SchemaError};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
-use super::reply::{content_free, render, HostError};
+use super::file_blob::Placement;
+use super::reply::{content_free, error_response, render, HostError};
 use super::schema_resolve::resolve_schema_name;
-use super::timeouts::{data_route_budget, with_handler_timeout_budget};
 use super::wire::{parse_batch_mutation_body, parse_mutation_body, ParsedMutation};
-use super::ErasedRoute;
+use super::{data_route_budget, with_handler_timeout_budget, ErasedRoute};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::DataRoute;
@@ -42,16 +44,55 @@ pub(in crate::exec) async fn execute_mutation_route(
     render(commit_parsed_mutation(host, parsed).await, ctx)
 }
 
+pub(in crate::exec) async fn execute_db_delete_blob_route(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "file delete is owner-only", ctx);
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        mutation: Operation,
+        #[serde(default)]
+        placement: Placement,
+    }
+    let delete = async {
+        let body: Body = serde_json::from_slice(&req.body)
+            .map_err(|e| HostError::new(400, format!("invalid delete-blob request: {e}")))?;
+        let mut parsed = ParsedMutation::from_operation(body.mutation, None);
+        if parsed.mutation.mutation_type != MutationType::Replace {
+            return Err(HostError::new(
+                400,
+                "delete-blob requires a complete replacement",
+            ));
+        }
+        match body.placement {
+            Placement::Inline => parsed.mutation.inline_write = Some(InlineWrite::Clear),
+            Placement::Blob if parsed.mutation.file.is_some() => {
+                return Err(HostError::new(
+                    400,
+                    "delete-blob requires a complete replacement without a file marker",
+                ));
+            }
+            Placement::Blob => parsed.mutation.file_write = Some(FileWrite::Clear),
+        }
+        commit_parsed_mutation(host, parsed).await
+    };
+    render(delete.await, ctx)
+}
+
 pub(in crate::exec) async fn execute_mutations_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let batch = match parse_batch_mutation_body(&req.body) {
-        Ok(batch) => batch,
-        Err(resp) => return resp,
-    };
-    render(execute_mutations_batch(host, batch).await, ctx)
+    match parse_batch_mutation_body(&req.body) {
+        Ok(batch) => render(execute_mutations_batch(host, batch).await, ctx),
+        Err(resp) => resp,
+    }
 }
 
 pub fn execute_deferred_mutation<'a>(
@@ -70,14 +111,26 @@ pub fn execute_deferred_mutation<'a>(
     })
 }
 
-pub(in crate::exec) async fn commit_parsed_mutation(
+async fn stamp_and_validate_mutation(
     host: &Host,
-    mut parsed: ParsedMutation,
-) -> Result<Value, HostError> {
+    parsed: &mut ParsedMutation,
+    pub_key: String,
+) -> Result<(), HostError> {
     let requested = parsed.mutation.schema_name.clone();
     let canonical = resolve_schema_name(host, &requested)?
         .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
     validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields).await?;
+    parsed.mutation.schema_name = canonical;
+    parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
+    parsed.mutation.pub_key = pub_key;
+    Ok(())
+}
+
+pub(in crate::exec) async fn commit_parsed_mutation(
+    host: &Host,
+    mut parsed: ParsedMutation,
+) -> Result<Value, HostError> {
+    stamp_and_validate_mutation(host, &mut parsed, host.public_key()).await?;
     let payload_bytes: usize = parsed
         .mutation
         .record_fields
@@ -97,12 +150,6 @@ pub(in crate::exec) async fn commit_parsed_mutation(
             Some(InlineWrite::Clear) | None => 0,
         };
 
-    parsed.mutation.schema_name = canonical;
-    parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
-    parsed.mutation.pub_key = host.public_key();
-
-    // The native commit is the durable capture. Named sync does not copy it
-    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.records().mutation_manager(), vec![parsed.mutation])
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
@@ -114,7 +161,7 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     let drained = parsed.convergence.waits();
     Ok(commit_json(
         &receipt,
-        serde_json::json!({
+        json!({
             "mutation_id": mutation_id,
             "record_revision": receipt.record_revisions.get(&mutation_id),
             "success": true,
@@ -139,25 +186,16 @@ async fn execute_mutations_batch(
     let public_key = host.public_key();
     let mut mutations = Vec::with_capacity(batch.len());
     for mut parsed in batch {
-        let requested = parsed.mutation.schema_name.clone();
-        let canonical = resolve_schema_name(host, &requested)?
-            .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
-        validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields)
-            .await?;
-        parsed.mutation.schema_name = canonical;
-        parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
-        parsed.mutation.pub_key.clone_from(&public_key);
+        stamp_and_validate_mutation(host, &mut parsed, public_key.clone()).await?;
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();
-    // The native commit is the durable capture. Named sync does not copy it
-    // into a side queue after this acknowledgement.
     let receipt = start_core_commit(host.records().mutation_manager(), mutations)
         .await
         .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
     Ok(commit_json(
         &receipt,
-        serde_json::json!({
+        json!({
             "mutation_ids": &receipt.mutation_ids,
             "count": count,
             "background_tasks_drained": drained,
@@ -167,9 +205,9 @@ async fn execute_mutations_batch(
 }
 
 fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {
-    if let SchemaError::InvalidData(message) = &error {
-        if message == POISONED_READ_VIEW {
-            return HostError::new(503, message.clone());
+    if let SchemaError::InvalidData(msg) = &error {
+        if msg == POISONED_READ_VIEW {
+            return HostError::new(503, msg.clone());
         }
     }
     let mapped = HostError::from(error);
@@ -233,45 +271,33 @@ async fn validate_mutation_fields(
     };
     let message =
         format!("Field{plural} {quoted} not writable on schema '{requested}'. Available: {avail}");
-    let body = serde_json::json!({
-        "ok": false,
-        "error": "unknown_fields",
-        "message": message,
-        "schema_name": requested,
-        "unknown_fields": unknown,
-        "available_fields": available,
-    });
-    Err(HostError::new(400, body.to_string()))
+    Err(HostError::new(
+        400,
+        json!({
+            "ok": false, "error": "unknown_fields", "message": message,
+            "schema_name": requested, "unknown_fields": unknown, "available_fields": available,
+        })
+        .to_string(),
+    ))
 }
 
 fn commit_json(receipt: &ResidentCommitReceipt, extra: Value) -> Value {
-    let mut map = serde_json::Map::new();
-    map.insert("revision".into(), serde_json::json!(receipt.revision));
-    map.insert(
-        "record_revisions".into(),
-        serde_json::json!(receipt.record_revisions),
-    );
-    map.insert(
-        "operations".into(),
-        serde_json::json!({
+    let mut base = json!({
+        "revision": receipt.revision,
+        "record_revisions": receipt.record_revisions,
+        "operations": {
             "created": receipt.operations.created,
             "updated": receipt.operations.updated,
             "deleted": receipt.operations.deleted,
             "total": receipt.operations.total(),
-        }),
-    );
-    map.insert(
-        "durability".into(),
-        serde_json::json!(receipt.durability.as_str()),
-    );
-    map.insert(
-        "resident_stages_us".into(),
-        serde_json::json!({ "prepare": receipt.stages.prepare_us, "ack": receipt.stages.ack_us }),
-    );
-    if let Value::Object(extra_map) = extra {
+        },
+        "durability": receipt.durability.as_str(),
+        "resident_stages_us": { "prepare": receipt.stages.prepare_us, "ack": receipt.stages.ack_us },
+    });
+    if let (Some(map), Value::Object(extra_map)) = (base.as_object_mut(), extra) {
         map.extend(extra_map);
     }
-    Value::Object(map)
+    base
 }
 
 type CoreCommitFuture<'a> =

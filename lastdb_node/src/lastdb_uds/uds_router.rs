@@ -10,7 +10,6 @@ use super::uds_http::{UdsRequest, UdsResponse};
 pub const API_VERSION: u32 = 34;
 
 static BUILD_VERSION: OnceLock<&'static str> = OnceLock::new();
-
 const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true}"#;
 
 /// Install the baked build string once at startup.
@@ -151,7 +150,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
     }
     if path
         .strip_prefix("/api/schema/")
-        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
+        .is_some_and(|r| !r.is_empty() && !r.contains('/'))
     {
         return allow_only(method, "GET", ControlRoute::Data(DataRoute::GetSchema));
     }

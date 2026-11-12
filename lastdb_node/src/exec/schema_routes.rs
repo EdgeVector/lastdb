@@ -131,8 +131,8 @@ pub(in crate::exec) async fn execute_seed_system_schema_route(
             ctx,
         );
     }
-    if let Some(response) = logical_layout_error(ctx, &request.schema) {
-        return response;
+    if let Some(resp) = logical_layout_error(ctx, &request.schema) {
+        return resp;
     }
     if let Err(e) = request.schema.validate() {
         return mapped_error_response("system seed setup failed", e.into(), ctx);
@@ -175,9 +175,8 @@ pub(in crate::exec) async fn execute_drop_schema_route(
     }
     let mgr = host.records().schema_manager();
     if !owner_app.is_empty() {
-        let names = match mgr.schema_names_owned_by(owner_app) {
-            Ok(names) => names,
-            Err(e) => return error_response(500, &format!("schema drop failed: {e}"), ctx),
+        let Ok(names) = mgr.schema_names_owned_by(owner_app) else {
+            return error_response(500, "schema drop failed", ctx);
         };
         let mut dropped = Vec::new();
         for name in names {
@@ -201,7 +200,7 @@ pub(in crate::exec) async fn execute_drop_schema_route(
         ));
     }
     let target = match resolve_schema_name(host, schema) {
-        Ok(target) => target,
+        Ok(t) => t,
         Err(e) => match blocked_drop_target(host, schema, &e) {
             Some(c) => Some(c),
             None => return render(Err(e), ctx),
@@ -222,8 +221,10 @@ pub(in crate::exec) async fn execute_drop_schema_route(
         );
     }
     let dropped: Vec<String> = existed.then(|| canonical.clone()).into_iter().collect();
-    let p = json!({ "dropped": dropped, "existed": existed, "schema": canonical });
-    json_ok(&envelope(&p, ctx.user_id.as_str()))
+    json_ok(&envelope(
+        &json!({ "dropped": dropped, "existed": existed, "schema": canonical }),
+        ctx.user_id.as_str(),
+    ))
 }
 
 fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Option<String> {
@@ -272,9 +273,10 @@ pub(in crate::exec) fn resolve_captured_schema_alias(
     name: &str,
     entries: &[SchemaWithState],
 ) -> Result<Option<String>, HostError> {
-    match resolve_exact_alias(name, entries)? {
-        Some(c) => Ok(Some(c)),
-        None => resolve_folded(name.trim(), entries),
+    if let Some(c) = resolve_exact_alias(name, entries)? {
+        Ok(Some(c))
+    } else {
+        resolve_folded(name.trim(), entries)
     }
 }
 
@@ -298,12 +300,10 @@ fn resolve_exact_alias(
     req: &str,
     schemas: &[SchemaWithState],
 ) -> Result<Option<String>, HostError> {
-    if let Some(c) = resolve_matches(
-        req,
-        schemas
-            .iter()
-            .filter(|e| e.schema.identity_hash.as_deref() == Some(req)),
-    )? {
+    let by_hash = schemas
+        .iter()
+        .filter(|e| e.schema.identity_hash.as_deref() == Some(req));
+    if let Some(c) = resolve_matches(req, by_hash)? {
         return Ok(Some(c));
     }
     if let Some((owner, local)) = req
@@ -318,12 +318,10 @@ fn resolve_exact_alias(
             return Ok(Some(c));
         }
     }
-    resolve_matches(
-        req,
-        schemas
-            .iter()
-            .filter(|e| e.schema.descriptive_name.as_deref() == Some(req)),
-    )
+    let by_desc = schemas
+        .iter()
+        .filter(|e| e.schema.descriptive_name.as_deref() == Some(req));
+    resolve_matches(req, by_desc)
 }
 
 fn resolve_matches<'a>(
@@ -344,7 +342,6 @@ fn resolve_matches<'a>(
             .split_once(':')
             .is_none_or(|(_, base)| !names.contains(base))
     });
-
     match candidates.len() {
         0 if blocked => Err(HostError::new(
             400,
@@ -357,11 +354,11 @@ fn resolve_matches<'a>(
             let details = candidates
                 .iter()
                 .map(|s| {
+                    let desc = s.descriptive_name.as_deref().unwrap_or("<none>");
+                    let owner = s.owner_app_id.as_deref().unwrap_or("<none>");
                     format!(
-                        "canonical={} descriptive_name={} owner_app_id={}",
-                        s.name,
-                        s.descriptive_name.as_deref().unwrap_or("<none>"),
-                        s.owner_app_id.as_deref().unwrap_or("<none>"),
+                        "canonical={} descriptive_name={desc} owner_app_id={owner}",
+                        s.name
                     )
                 })
                 .collect::<Vec<_>>()

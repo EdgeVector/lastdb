@@ -1,12 +1,17 @@
-//! Owner-socket response envelope and I4 error mapping.
+//! Owner-socket response envelope, I4 error mapping, and `GET /api/list` helpers.
 
-use crate::lastdb_uds::uds_http::UdsResponse;
+use base64::Engine as _;
 use fold_db::access::AccessContext;
+use fold_db::db_operations::SchemaRecordKey;
 use fold_db::error::FoldDbError;
+use fold_db::schema::types::{KeyValue, QueryCursor, Schema};
 use fold_db::schema::SchemaError;
 use fold_db::storage::StorageError;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
+
+use super::wire::query_value;
+use crate::lastdb_uds::uds_http::UdsResponse;
 
 const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 423, 503, 507];
 
@@ -94,7 +99,7 @@ impl HostError {
 impl From<FoldDbError> for HostError {
     fn from(err: FoldDbError) -> Self {
         match err {
-            FoldDbError::Schema(schema_err) => Self::from(schema_err),
+            FoldDbError::Schema(s) => Self::from(s),
             FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => Self::new(400, msg),
             FoldDbError::InProgress(msg) => Self::new(503, msg),
             other => Self::internal(other.to_string()),
@@ -104,54 +109,42 @@ impl From<FoldDbError> for HostError {
 
 impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
+        let json_or_empty = |v: Option<Value>| v.unwrap_or_else(|| json!({})).to_string();
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
             SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
             SchemaError::Blocked(msg) | SchemaError::InvalidCursor(msg) => {
                 Self::new(400, msg.clone())
             }
-            s @ SchemaError::CasConflict { .. } => Self::new(
-                409,
-                s.cas_conflict_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
-            s @ SchemaError::RecordTooLarge { .. } => Self::new(
-                413,
-                s.field_value_too_large_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
+            s @ SchemaError::CasConflict { .. } => {
+                Self::new(409, json_or_empty(s.cas_conflict_body()))
+            }
+            s @ SchemaError::RecordTooLarge { .. } => {
+                Self::new(413, json_or_empty(s.field_value_too_large_body()))
+            }
             SchemaError::ReadResourceLimit { detail } => Self::new(
                 503,
-                serde_json::json!({
-                    "error": "read_resource_limit",
-                    "retryable": false,
-                    "message": detail,
-                    "hint": "request fewer records or fields",
+                json!({
+                    "error": "read_resource_limit", "retryable": false,
+                    "message": detail, "hint": "request fewer records or fields",
                 })
                 .to_string(),
             ),
-            SchemaError::WriteResourceLimit { detail } => Self::new(
-                503,
-                serde_json::json!({
-                    "error": if detail.starts_with("compaction_behind:") {
-                        "compaction_behind"
-                    } else {
-                        "write_resource_limit"
-                    },
-                    "retryable": true,
-                    "retry_after_secs": 2,
-                    "message": detail,
-                })
-                .to_string(),
-            ),
-            s @ SchemaError::StorageFull { .. } => Self::new(
-                507,
-                s.storage_full_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
+            SchemaError::WriteResourceLimit { detail } => {
+                let kind = if detail.starts_with("compaction_behind:") {
+                    "compaction_behind"
+                } else {
+                    "write_resource_limit"
+                };
+                Self::new(
+                    503,
+                    json!({ "error": kind, "retryable": true, "retry_after_secs": 2, "message": detail })
+                        .to_string(),
+                )
+            }
+            s @ SchemaError::StorageFull { .. } => {
+                Self::new(507, json_or_empty(s.storage_full_body()))
+            }
             other => Self::new(400, other.to_string()),
         }
     }
@@ -222,4 +215,109 @@ pub(in crate::exec) fn mapped_error_response(
         mapped.message = format!("{operation}: {}", mapped.message);
     }
     render(Err(mapped), ctx)
+}
+
+pub(in crate::exec) struct ListRecordKeysRequest {
+    pub(in crate::exec) requested: String,
+    pub(in crate::exec) limit: usize,
+    pub(in crate::exec) cursor: Option<String>,
+    pub(in crate::exec) hash_filter: Option<String>,
+    pub(in crate::exec) key_name: Option<String>,
+}
+
+impl ListRecordKeysRequest {
+    pub(in crate::exec) fn parse(target: &str) -> Result<Self, &'static str> {
+        let requested = query_value(target, "schema")
+            .filter(|s| !s.is_empty())
+            .ok_or("schema query parameter is required")?;
+        let limit = match query_value(target, "limit") {
+            None => 100,
+            Some(raw) => match raw.parse::<usize>() {
+                Ok(0) => return Err("limit must be at least 1"),
+                Ok(limit) => limit.min(1000),
+                Err(_) => return Err("limit must be a positive integer"),
+            },
+        };
+        let key_name = match query_value(target, "key_name") {
+            Some(name) if name.is_empty() => return Err("key_name must not be empty"),
+            name => name,
+        };
+        Ok(Self {
+            requested,
+            limit,
+            cursor: query_value(target, "cursor").filter(|c| !c.is_empty()),
+            hash_filter: query_value(target, "hash"),
+            key_name,
+        })
+    }
+}
+
+pub(in crate::exec) fn decode_alternate_cursor(
+    raw: Option<&str>,
+) -> Result<Option<QueryCursor>, HostError> {
+    raw.map(|encoded| {
+        let bytes = encoded
+            .strip_prefix("ak2_")
+            .and_then(|s| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(s)
+                    .ok()
+            })
+            .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
+        serde_json::from_slice::<QueryCursor>(&bytes)
+            .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
+    })
+    .transpose()
+}
+
+pub(in crate::exec) fn alternate_list_report(
+    request: &ListRecordKeysRequest,
+    schema: &Schema,
+    page: &Value,
+) -> Result<Value, HostError> {
+    let name = request.key_name.as_deref().expect("named branch");
+    let definition = schema
+        .require_record_keys()?
+        .alternates
+        .get(name)
+        .ok_or_else(|| HostError::new(400, "alternate key is not declared"))?;
+    let rows = page["results"]
+        .as_array()
+        .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
+    let record_key = |value: &Value| -> Result<SchemaRecordKey, HostError> {
+        let key: KeyValue = serde_json::from_value(value.clone())
+            .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
+        Ok(SchemaRecordKey {
+            hash: key
+                .hash
+                .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
+            range: key.range.unwrap_or_default(),
+        })
+    };
+    let keys: Vec<_> = rows
+        .iter()
+        .map(|r| record_key(&r["matched_key"]))
+        .collect::<Result<_, _>>()?;
+    let primary_keys: Vec<_> = rows
+        .iter()
+        .map(|r| record_key(&r["key"]))
+        .collect::<Result<_, _>>()?;
+    let next = (!page["next_cursor"].is_null())
+        .then(|| {
+            serde_json::to_vec(&page["next_cursor"]).map(|b| {
+                format!(
+                    "ak2_{}",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
+                )
+            })
+        })
+        .transpose()
+        .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?;
+    Ok(json!({
+        "schema": request.requested, "schema_id": schema.name, "key_name": name,
+        "key_definition": definition, "hash_filter": request.hash_filter,
+        "field_key": fold_db::alternate_keys::field_key(schema, name),
+        "keys": keys, "primary_keys": primary_keys,
+        "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next,
+    }))
 }

@@ -13,7 +13,7 @@ fn invalid(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
 }
 
-fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
+pub(super) fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
     keys.iter()
         .map(|key| retention_age_latest_key(schema_name, key))
         .collect()
@@ -114,8 +114,7 @@ impl SchemaStore {
             .await?;
         if plan.shortened && !allow_shorter {
             return Err(invalid(format!(
-                "the manifest TTL of {schema_name} would be shortened to {ttl_seconds}s, and \
-                 records between the two TTLs would expire. Confirm it explicitly"
+                "the manifest TTL of {schema_name} would be shortened to {ttl_seconds}s, and records between the two TTLs would expire. Confirm it explicitly"
             )));
         }
         let effective = match plan.next {
@@ -192,8 +191,7 @@ impl SchemaStore {
             .schema_states_store
             .get_items::<SchemaRetentionAgeEntry>(&latest_keys(schema_name, &unique))
             .await?;
-        let mut puts = Vec::with_capacity(unique.len() * 2);
-        let mut stale = Vec::new();
+        let (mut puts, mut stale) = (Vec::with_capacity(unique.len() * 2), Vec::new());
         for (key, old) in unique.iter().zip(previous) {
             let written_at = clocks[key];
             let entry = SchemaRetentionAgeEntry {

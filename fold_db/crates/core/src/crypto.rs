@@ -30,7 +30,6 @@ pub type CryptoResult<T> = Result<T, CryptoError>;
 const HKDF_SALT: &[u8] = b"fold:e2e:v1";
 const CONTENT_KEY_INFO: &[u8] = b"fold:content-key";
 
-/// E2E AES-256-GCM content key derived from an identity secret and zeroized on drop.
 #[derive(Clone, Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct E2eKeys {
     encryption_key: [u8; 32],
@@ -55,12 +54,10 @@ impl E2eKeys {
         self.encryption_key
     }
 
-    /// Use an AES key that was already derived. This does not run HKDF.
     pub fn from_content_key(encryption_key: [u8; 32]) -> CryptoResult<Self> {
-        if encryption_key == [0u8; 32] {
-            return Err(CryptoError::KeyError("content key is empty".into()));
-        }
-        Ok(Self { encryption_key })
+        (encryption_key != [0u8; 32])
+            .then_some(Self { encryption_key })
+            .ok_or_else(|| CryptoError::KeyError("content key is empty".into()))
     }
 }
 
@@ -81,8 +78,6 @@ pub mod envelope {
         encrypt_envelope_with_aad(key, b"", plaintext)
     }
 
-    /// Same envelope as `encrypt_envelope`, with associated data authenticated
-    /// and left outside the ciphertext.
     pub fn encrypt_envelope_with_aad(
         key: &[u8; 32],
         aad: &[u8],
@@ -111,7 +106,6 @@ pub mod envelope {
         decrypt_envelope_with_aad(key, b"", envelope)
     }
 
-    /// Open an envelope produced by `encrypt_envelope_with_aad`.
     pub fn decrypt_envelope_with_aad(
         key: &[u8; 32],
         aad: &[u8],
@@ -123,9 +117,8 @@ pub mod envelope {
                 envelope.len()
             )));
         }
-        let version = envelope[0];
-        if version != ENVELOPE_VERSION {
-            return Err(CryptoError::UnsupportedVersion(version));
+        if envelope[0] != ENVELOPE_VERSION {
+            return Err(CryptoError::UnsupportedVersion(envelope[0]));
         }
         let (nonce_bytes, ciphertext) = envelope[VERSION_SIZE..].split_at(NONCE_SIZE);
         let cipher = Aes256Gcm::new_from_slice(key)
@@ -182,11 +175,8 @@ pub mod at_rest {
             )));
         }
         let plain = decrypt_envelope(key, ciphertext)?;
-        if plain.len() as u64 > max {
-            return Err(CryptoError::InvalidFormat(
-                "decoded value exceeds explicit bound".into(),
-            ));
-        }
-        Ok(plain)
+        (plain.len() as u64 <= max).then_some(plain).ok_or_else(|| {
+            CryptoError::InvalidFormat("decoded value exceeds explicit bound".into())
+        })
     }
 }

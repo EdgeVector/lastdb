@@ -1,13 +1,11 @@
-//! Unambiguous canonical byte framing (`u32` big-endian length prefixes) and
-//! deterministic JSON object serialization for hashing and signing.
+//! Canonical `u32` big-endian length-prefixed framing and deterministic JSON serialization.
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// Borrowed JSON value wrapper that serializes nested objects in sorted key order.
 pub struct CanonicalValue<'a>(pub &'a Value);
 
 impl Serialize for CanonicalValue<'_> {
@@ -27,7 +25,6 @@ impl Serialize for CanonicalValue<'_> {
     }
 }
 
-/// Sink that canonical framing can be written into (`Vec<u8>` or [`Sha256`]).
 pub trait ByteSink {
     fn put(&mut self, bytes: &[u8]);
 }
@@ -42,12 +39,10 @@ impl ByteSink for Vec<u8> {
 impl ByteSink for Sha256 {
     #[inline]
     fn put(&mut self, bytes: &[u8]) {
-        use sha2::Digest;
         self.update(bytes);
     }
 }
 
-/// Write `field` into `sink` preceded by its length as a 4-byte big-endian `u32`.
 #[inline]
 pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
     let len: u32 = field
@@ -58,7 +53,6 @@ pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
     sink.put(field);
 }
 
-/// Builder for assembling canonical framed bytes into a `Vec<u8>`.
 #[derive(Debug, Default, Clone)]
 pub struct CanonicalWriter {
     buf: Vec<u8>,

@@ -1,14 +1,13 @@
 //! Preconditions, field validation, and complete record replacements for native commits.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
 use lastdb_model::record_value::{InlineWrite, StoredRecord};
 
-use super::write_effects::ChangedRecord;
-use super::{AuthoredMutation, MutationManager};
+use super::{AuthoredMutation, ChangedRecord, MutationManager, ResidentCommitStages};
 use crate::db_operations::record_store::{RecordChange, RecordStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{
@@ -19,7 +18,45 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::records::RecordAddress;
 
 impl MutationManager {
-    pub(super) fn resolve_mutation_key_value(
+    pub(super) async fn stage_record_groups(
+        &self,
+        mutations: Vec<AuthoredMutation>,
+        stages: &mut ResidentCommitStages,
+        runtime: &Arc<PackRuntime>,
+    ) -> Result<usize, SchemaError> {
+        let mut grouped: Vec<(String, Vec<AuthoredMutation>)> = Vec::new();
+        let mut seen: HashMap<String, (usize, Schema, HashSet<KeyValue>)> = HashMap::new();
+        for authored in mutations {
+            let name = &authored.mutation.schema_name;
+            if !seen.contains_key(name) {
+                let schema = self.schema_manager.require_schema_metadata(name)?;
+                seen.insert(name.clone(), (grouped.len(), schema, HashSet::new()));
+                grouped.push((name.clone(), Vec::new()));
+            }
+            let (idx, schema, keys) = seen.get_mut(name).expect("inserted schema group");
+            if !keys.insert(Self::resolve_mutation_key_value(
+                schema,
+                &authored.mutation,
+            )?) {
+                return Err(SchemaError::InvalidData(
+                    "a batch cannot replace the same record twice".into(),
+                ));
+            }
+            grouped[*idx].1.push(authored);
+        }
+        let group_count = grouped.len();
+        let mut elapsed = std::time::Duration::ZERO;
+        for (schema_name, group) in grouped {
+            let started = std::time::Instant::now();
+            self.stage_record_group(&schema_name, group, runtime)
+                .await?;
+            elapsed += started.elapsed();
+        }
+        stages.prepare_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
+        Ok(group_count)
+    }
+
+    fn resolve_mutation_key_value(
         schema: &Schema,
         mutation: &Mutation,
     ) -> Result<KeyValue, SchemaError> {
@@ -42,8 +79,7 @@ impl MutationManager {
         &self,
         mutations: &[Mutation],
     ) -> Result<(), SchemaError> {
-        let mut identities = HashSet::new();
-        let mut schemas = BTreeMap::new();
+        let (mut identities, mut schemas) = (HashSet::new(), BTreeMap::new());
         for mutation in mutations {
             if !identities.insert(&mutation.uuid) {
                 return Err(SchemaError::InvalidData(format!(
@@ -90,7 +126,7 @@ impl MutationManager {
         Ok(schema)
     }
 
-    pub(super) async fn stage_record_group(
+    async fn stage_record_group(
         &self,
         schema_name: &str,
         mut mutations: Vec<AuthoredMutation>,
@@ -105,8 +141,10 @@ impl MutationManager {
             require_contribution_definition(&schema, &adm.definition_id)?;
         }
         let records = self.db_ops.records();
-        let mut keys = Vec::with_capacity(mutations.len());
-        let mut addresses = Vec::with_capacity(mutations.len());
+        let (mut keys, mut addresses) = (
+            Vec::with_capacity(mutations.len()),
+            Vec::with_capacity(mutations.len()),
+        );
         for AuthoredMutation { mutation, .. } in &mut mutations {
             let key = Self::resolve_mutation_key_value(&schema, mutation)?;
             mutation.key_value = key.clone();
@@ -122,14 +160,15 @@ impl MutationManager {
             keys.push(key);
         }
         let stored = read_write_preimages(records, &addresses, &mutations).await?;
-        let mut changes = Vec::with_capacity(mutations.len());
-        let mut changed = Vec::with_capacity(mutations.len());
+        let (mut changes, mut changed) = (
+            Vec::with_capacity(mutations.len()),
+            Vec::with_capacity(mutations.len()),
+        );
         for (AuthoredMutation { mutation, stamp }, (key, (address, before))) in mutations
             .iter_mut()
             .zip(keys.iter().zip(addresses.into_iter().zip(stored)))
         {
             check_expectation(mutation, before.as_deref())?;
-            require_contribution_author(mutation, before.as_deref())?;
             let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
             changes.push(RecordChange {
                 key: address,
@@ -149,7 +188,7 @@ impl MutationManager {
                 .record_schema_retention_hash_partitions(schema_name, &keys)
                 .await?;
         }
-        if let Some(batch) = Self::build_index_change_batch(
+        if let Some(batch) = crate::db_operations::search_index::build_index_change_batch(
             schema_name,
             &schema,
             mutations.iter().map(|a| &a.mutation),
@@ -171,7 +210,7 @@ async fn read_write_preimages(
     mutations: &[AuthoredMutation],
 ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
     let mut stored = records.read_records(addresses).await?;
-    let purge_misses: Vec<_> = mutations
+    let misses: Vec<_> = mutations
         .iter()
         .zip(&stored)
         .enumerate()
@@ -179,11 +218,11 @@ async fn read_write_preimages(
             (m.mutation.mutation_type == MutationType::Purge && r.is_none()).then_some(i)
         })
         .collect();
-    if !purge_misses.is_empty() {
-        let miss_addrs: Vec<_> = purge_misses.iter().map(|&i| &addresses[i]).collect();
-        for (idx, stamp) in purge_misses
+    if !misses.is_empty() {
+        let addrs: Vec<_> = misses.iter().map(|&i| &addresses[i]).collect();
+        for (idx, stamp) in misses
             .into_iter()
-            .zip(records.format.applied_deletes(&miss_addrs).await?)
+            .zip(records.format.applied_deletes(&addrs).await?)
         {
             stored[idx] = stamp.map(|s| Arc::new(StoredRecord::erased(s)));
         }
@@ -249,37 +288,24 @@ fn check_expectation(
             "record is newer than the erasure cutoff".into(),
         ));
     }
-    Ok(())
-}
-
-fn require_contribution_author(
-    mutation: &Mutation,
-    record: Option<&StoredRecord>,
-) -> Result<(), SchemaError> {
-    if !matches!(
+    if matches!(
         mutation.mutation_type,
         MutationType::Replace | MutationType::Delete
     ) {
-        return Ok(());
+        if let (Some(adm), Some(live)) = (&mutation.contribution, record.filter(|r| r.is_live())) {
+            let author = live
+                .meta
+                .as_ref()
+                .and_then(|m| m.metadata.get("share_author"))
+                .map(String::as_str);
+            if author != Some(adm.writer.as_str()) {
+                return Err(SchemaError::InvalidField(
+                    "share contribution can change only a record its writer created".into(),
+                ));
+            }
+        }
     }
-    let (Some(adm), Some(live)) = (&mutation.contribution, record) else {
-        return Ok(());
-    };
-    if !live.is_live() {
-        return Ok(());
-    }
-    let author = live
-        .meta
-        .as_ref()
-        .and_then(|m| m.metadata.get("share_author"))
-        .map(String::as_str);
-    (author == Some(adm.writer.as_str()))
-        .then_some(())
-        .ok_or_else(|| {
-            SchemaError::InvalidField(
-                "share contribution can change only a record its writer created".into(),
-            )
-        })
+    Ok(())
 }
 
 fn replace_record(

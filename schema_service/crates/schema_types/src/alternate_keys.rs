@@ -1,4 +1,4 @@
-//! Named alternate keys and compound range validation for owned schemas.
+//! Record key addresses, named alternate keys, and key-field validation.
 
 use crate::declarative_schemas::DeclarativeSchemaDefinition;
 use crate::field_range_profile::FieldRangeProfile;
@@ -10,6 +10,92 @@ pub const MAX_ALTERNATE_KEYS: usize = 16;
 
 pub(crate) fn is_false(value: &bool) -> bool {
     !*value
+}
+
+/// Explicit record addresses independent of payload field definitions.
+pub mod record_keys {
+    use super::{is_false, MAX_ALTERNATE_KEYS};
+    use crate::field_range_profile::FieldRangeProfile;
+    use crate::{DeclarativeSchemaDefinition, FieldValueType};
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RecordKeyKind {
+        Hash,
+        HashRange,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordKeyDefinition {
+        pub kind: RecordKeyKind,
+        #[serde(default, skip_serializing_if = "is_false")]
+        pub allow_absent: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub range_type: Option<FieldValueType>,
+    }
+
+    impl RecordKeyDefinition {
+        pub fn range_profile(&self) -> Result<FieldRangeProfile, String> {
+            if matches!(
+                (self.kind, &self.range_type),
+                (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_))
+            ) {
+                FieldRangeProfile::for_field_type(self.range_type.as_ref())
+            } else {
+                Err("hash keys have no range type; hash_range keys require one".into())
+            }
+        }
+
+        pub fn validate_coordinates(
+            &self,
+            hash: Option<&str>,
+            range: Option<&str>,
+        ) -> Result<(), String> {
+            if hash.is_none_or(str::is_empty) {
+                return Err("a record address requires a nonempty hash".into());
+            }
+            match (self.kind, range) {
+                (RecordKeyKind::Hash, None) => (),
+                (RecordKeyKind::HashRange, Some(v)) if !v.is_empty() => (),
+                _ => return Err("record address differs from the declared key shape".into()),
+            }
+            self.range_profile()?
+                .encode_value(range.unwrap_or_default())?;
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordKeys {
+        pub primary: RecordKeyDefinition,
+        pub alternates: BTreeMap<String, RecordKeyDefinition>,
+    }
+
+    impl RecordKeys {
+        pub fn validate(&self) -> Result<(), String> {
+            if self.primary.allow_absent {
+                return Err("a primary key cannot allow an absent address".into());
+            }
+            self.primary.range_profile()?;
+            if self.alternates.len() > MAX_ALTERNATE_KEYS {
+                return Err(format!(
+                    "a schema permits at most {MAX_ALTERNATE_KEYS} alternate keys"
+                ));
+            }
+            for (name, key) in &self.alternates {
+                DeclarativeSchemaDefinition::validate_field_name(name)?;
+                if name == "primary" {
+                    return Err("primary is reserved as an alternate key name".into());
+                }
+                key.range_profile()?;
+            }
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +149,7 @@ impl AlternateKey {
             .then_some(self.hash_field.as_str())
             .into_iter()
             .chain(self.range_field.as_deref())
-            .chain(self.range_parts.iter().map(|part| part.field.as_str()))
+            .chain(self.range_parts.iter().map(|p| p.field.as_str()))
     }
 }
 
@@ -123,14 +209,11 @@ impl DeclarativeSchemaDefinition {
         if let Some(keys) = &self.record_keys {
             keys.validate()?;
             let kind = match keys.primary.kind {
-                crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
-                crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
+                record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
+                record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
             };
             if self.schema_type != kind || self.key.is_some() || !self.alternate_keys.is_empty() {
-                return Err(
-                    "record_keys require one owned Hash/HashRange layout without field-derived keys"
-                        .into(),
-                );
+                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys".into());
             }
             return Ok(());
         }
@@ -144,7 +227,7 @@ impl DeclarativeSchemaDefinition {
             return Err("an owned schema must be a Hash or HashRange schema".into());
         }
         let fields = self.fields.as_deref().unwrap_or_default();
-        let primary = self.key.as_ref().and_then(|key| key.hash_field.as_deref());
+        let primary = self.key.as_ref().and_then(|k| k.hash_field.as_deref());
         if primary.is_none()
             && self.alternate_keys.is_empty()
             && self.schema_type == DeclarativeSchemaType::Hash
@@ -196,5 +279,88 @@ impl DeclarativeSchemaDefinition {
                 .expect("alternate key declarations serialize"),
         };
         format!("{:x}", Sha256::digest(bytes))
+    }
+
+    #[must_use]
+    pub fn key_field_type(&self, path: &str) -> FieldValueType {
+        self.field_types
+            .get(path)
+            .cloned()
+            .or_else(|| {
+                let (root, child) = path.split_once('.')?;
+                nested_type(self.field_types.get(root)?, child)
+            })
+            .unwrap_or(FieldValueType::Any)
+    }
+
+    pub fn validate_key_field_types(&self) -> Result<(), String> {
+        for path in self.key.iter().filter_map(|k| k.hash_field.as_deref()) {
+            let temporal = if let Some(ty) = self.field_types.get(path) {
+                temporal_at_path(ty, None)
+            } else if let Some((root, child)) = path.split_once('.') {
+                self.field_types
+                    .get(root)
+                    .is_some_and(|ty| temporal_at_path(ty, Some(child)))
+            } else {
+                false
+            };
+            if temporal {
+                return Err(format!(
+                    "key field '{path}' uses Date or DateTime outside a typed range contract"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn nested_type(field_type: &FieldValueType, path: &str) -> Option<FieldValueType> {
+    match field_type {
+        FieldValueType::Object(fields) => Some(
+            fields
+                .get(path)
+                .cloned()
+                .or_else(|| {
+                    let (root, child) = path.split_once('.')?;
+                    nested_type(fields.get(root)?, child)
+                })
+                .unwrap_or(FieldValueType::Any),
+        ),
+        FieldValueType::Map(v) => Some((**v).clone()),
+        FieldValueType::Any => Some(FieldValueType::Any),
+        FieldValueType::OneOf(variants) => {
+            let mut types: Vec<_> = variants
+                .iter()
+                .filter_map(|ty| nested_type(ty, path))
+                .collect();
+            match types.len() {
+                0 => None,
+                1 => types.pop(),
+                _ => Some(FieldValueType::OneOf(types)),
+            }
+        }
+        _ => None,
+    }
+}
+
+fn temporal_at_path(field_type: &FieldValueType, child: Option<&str>) -> bool {
+    match (field_type, child) {
+        (FieldValueType::Date | FieldValueType::DateTime, None) => true,
+        (FieldValueType::OneOf(variants), _) => variants.iter().any(|v| temporal_at_path(v, child)),
+        (FieldValueType::Object(fields), Some(path)) => match fields.get(path) {
+            Some(ty) => temporal_at_path(ty, None),
+            None => path.split_once('.').is_some_and(|(r, sub)| {
+                fields
+                    .get(r)
+                    .is_some_and(|ty| temporal_at_path(ty, Some(sub)))
+            }),
+        },
+        (FieldValueType::Map(v), Some(path)) => {
+            temporal_at_path(v, None)
+                || path
+                    .split_once('.')
+                    .is_some_and(|(_, sub)| temporal_at_path(v, Some(sub)))
+        }
+        _ => false,
     }
 }

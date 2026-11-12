@@ -1,34 +1,40 @@
-//! Record domain store: key codecs, paged hash spans, write/read scopes, replay fence, and writer watch.
+//! Record domain store: codecs, paged hash spans, warm-set reads, and delete ledger.
 
 mod accepted;
 mod reads;
-mod writes;
 
 pub(crate) use reads::{KeyedRecord, RangeWalk};
-pub(crate) use writes::RecordChange;
-pub use writes::{RecordDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 
-use crate::schema::types::field::FilterUtils;
-use crate::schema::types::key_comparison::KeyComparisonContext;
-use crate::schema::types::{KeyValue, Schema, SchemaError};
-use crate::storage::disk_pack::transaction::blocked::write_scopes;
-use crate::storage::disk_pack::PackRuntime;
-use crate::storage::error::{StorageError, StorageResult};
-use crate::storage::format::control::{
-    validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY,
+use crate::error::FoldDbError;
+use crate::schema::types::{
+    field::FilterUtils, key_comparison::KeyComparisonContext, FileWrite, KeyValue, Schema,
+    SchemaError,
 };
-use crate::storage::format::{read::ReadStore, records::RecordFormat};
+use crate::storage::disk_pack::{
+    transaction::{self, blocked::write_scopes},
+    PackReadScope, PackRuntime,
+};
+use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::format::{
+    control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY},
+    read::ReadStore,
+    records::{self as format, RecordAddress, RecordFormat},
+};
 use futures::{future::BoxFuture, FutureExt};
-use lastdb_model::field_key_codec::FieldKeyCodec;
-use lastdb_model::record_space::{record_hash_prefix, record_space_uuid};
-use lastdb_model::record_value::StoredRecord;
+use lastdb_model::{
+    field_key_codec::FieldKeyCodec,
+    record_space::{record_hash_prefix, record_space_uuid},
+    record_value::StoredRecord,
+};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub const QUIET_SECS_ENV: &str = "LASTDB_MAINTENANCE_QUIET_SECS";
-pub const DEFAULT_QUIET_SECS: u64 = 60;
+const READ_CHUNK: usize = 10_000;
 
-/// Tracks other tasks' write scopes so background maintenance yields when writers are active.
+pub(crate) use format::RecordChange;
+pub use format::RecordDeleteLedgerEntry;
+
 #[derive(Debug)]
 pub struct WriterWatch {
     mark: u64,
@@ -38,23 +44,21 @@ pub struct WriterWatch {
 
 impl Default for WriterWatch {
     fn default() -> Self {
-        Self::new()
+        Self {
+            mark: write_scopes(),
+            last_other: None,
+            quiet: Duration::from_secs(crate::env_flag::var_or(
+                "LASTDB_MAINTENANCE_QUIET_SECS",
+                60,
+            )),
+        }
     }
 }
 
 impl WriterWatch {
-    pub async fn measure<F: std::future::Future>(work: F) -> (F::Output, Duration, u64) {
-        let (output, cost) = crate::storage::disk_pack::transaction::blocked::measure(work).await;
+    pub async fn measure<F: Future>(work: F) -> (F::Output, Duration, u64) {
+        let (output, cost) = transaction::blocked::measure(work).await;
         (output, cost.blocked, cost.scopes)
-    }
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            mark: write_scopes(),
-            last_other: None,
-            quiet: Duration::from_secs(crate::env_flag::var_or(QUIET_SECS_ENV, DEFAULT_QUIET_SECS)),
-        }
     }
 
     pub fn writer_present(&mut self, own: u64) -> bool {
@@ -80,11 +84,11 @@ pub(crate) enum RecordBound<'a> {
 }
 
 pub(crate) struct RecordSpan {
-    hash: String,
-    codec: FieldKeyCodec,
-    base: String,
-    start: String,
-    end: String,
+    pub(super) hash: String,
+    pub(super) codec: FieldKeyCodec,
+    pub(super) base: String,
+    pub(super) start: String,
+    pub(super) end: String,
 }
 
 pub(crate) struct SpanKey {
@@ -105,7 +109,6 @@ impl RecordSpan {
     }
 }
 
-/// Record store for a home: one record at each primary key in the `main` namespace.
 #[derive(Clone)]
 pub struct RecordStore {
     main_store: ReadStore,
@@ -134,15 +137,15 @@ impl RecordStore {
     }
 
     pub(crate) fn primary_codec(&self, schema: &Schema) -> Result<FieldKeyCodec, SchemaError> {
-        let profile = schema
+        let p = schema
             .require_record_keys()?
             .primary
             .range_profile()
-            .map_err(SchemaError::InvalidData)?;
+            .map_err(invalid)?;
         Ok(FieldKeyCodec::from_node_key(
             &self.node_key,
             &record_space_uuid(&schema.name),
-            profile,
+            p,
         ))
     }
 
@@ -151,15 +154,17 @@ impl RecordStore {
         schema: &Schema,
         name: &str,
     ) -> Result<FieldKeyCodec, SchemaError> {
-        let profile = schema
+        let def = schema
             .require_record_keys()?
             .alternates
             .get(name)
-            .ok_or_else(|| SchemaError::InvalidData("alternate key is not declared".into()))?
-            .range_profile()
-            .map_err(SchemaError::InvalidData)?;
+            .ok_or_else(|| invalid("alternate key is not declared"))?;
         let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
-        Ok(FieldKeyCodec::from_node_key(&self.node_key, &id, profile))
+        Ok(FieldKeyCodec::from_node_key(
+            &self.node_key,
+            &id,
+            def.range_profile().map_err(invalid)?,
+        ))
     }
 
     pub(crate) fn reader(&self) -> &ReadStore {
@@ -172,23 +177,23 @@ impl RecordStore {
 
     pub(crate) fn in_write_scope<'a, T: Send + 'a>(
         &'a self,
-        work: impl std::future::Future<Output = Result<T, SchemaError>> + Send + 'a,
+        work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, SchemaError>> {
-        crate::storage::disk_pack::transaction::scope(self.runtime.clone(), work).boxed()
+        transaction::scope(self.runtime.clone(), work).boxed()
     }
 
     pub fn in_background_scope<'a, T: Send + 'a>(
         &'a self,
-        work: impl std::future::Future<Output = Result<T, SchemaError>> + Send + 'a,
+        work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, SchemaError>> {
-        crate::storage::disk_pack::transaction::background_scope(self.runtime.clone(), work).boxed()
+        transaction::background_scope(self.runtime.clone(), work).boxed()
     }
 
     pub(super) async fn record_read_scope<T>(
         &self,
-        future: impl std::future::Future<Output = Result<T, SchemaError>>,
+        future: impl Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
-        crate::storage::disk_pack::PackReadScope::for_runtime(&self.runtime)
+        PackReadScope::for_runtime(&self.runtime)
             .await?
             .run_result(future)
             .await
@@ -238,10 +243,10 @@ impl RecordStore {
         let space = record_space_uuid(&schema.name);
         let codec = self.primary_codec(schema)?;
         let base = record_hash_prefix(&space, &codec.storage_hash(&space, hash).map_err(invalid)?);
-        let stored = |range: &str| {
+        let stored = |r: &str| {
             codec
-                .storage_range(&space, range)
-                .map(|r| format!("{base}{r}"))
+                .storage_range(&space, r)
+                .map(|s| format!("{base}{s}"))
                 .map_err(invalid)
         };
         let (mut start, end) = match bound {
@@ -252,7 +257,7 @@ impl RecordStore {
                 let end = FilterUtils::create_prefix_end(&start)?;
                 (start, end)
             }
-            RecordBound::Between(start, end) => (stored(start)?, stored(end)?),
+            RecordBound::Between(s, e) => (stored(s)?, stored(e)?),
         };
         if let Some(from) = from_range.and_then(|r| stored(r).ok()) {
             start = start.max(from);
@@ -266,54 +271,96 @@ impl RecordStore {
         }))
     }
 
-    pub(crate) async fn record_span_page(
+    pub(crate) fn record_key(
         &self,
-        span: &RecordSpan,
-        after: Option<&str>,
-        limit: usize,
-    ) -> Result<SpanPage, SchemaError> {
-        let start = after.map_or_else(|| span.start.clone(), |c| format!("{c}\0"));
-        let page = self
-            .main_store
-            .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("read record keys: {e}")))?;
-        let text =
-            |k: Vec<u8>| String::from_utf8(k).map_err(|_| invalid("a record key is not text"));
-        let keys = page
-            .rows
-            .into_iter()
-            .map(|(physical, value)| {
-                let physical = text(physical)?;
-                Ok(SpanKey {
-                    key: self.span_key(span, &physical)?,
-                    range: physical[span.base.len()..].to_owned(),
-                    physical,
-                    record: reads::decode(&value)?,
-                })
-            })
-            .collect::<Result<_, SchemaError>>()?;
-        Ok(SpanPage {
-            keys,
-            next: page.resume.map(text).transpose()?,
-        })
+        schema: &Schema,
+        key: &KeyValue,
+    ) -> Result<String, SchemaError> {
+        self.record_address(schema, key)
+            .map(RecordAddress::into_string)
     }
 
-    pub(crate) fn span_key(
+    pub(crate) fn record_address(
         &self,
-        span: &RecordSpan,
-        physical: &str,
-    ) -> Result<KeyValue, SchemaError> {
-        let range = physical
-            .get(span.base.len()..)
-            .ok_or_else(|| invalid("a record key has no range"))?;
-        Ok(KeyValue::new(
-            Some(span.hash.clone()),
-            Some(span.codec.api_range(range).map_err(invalid)?),
-        ))
+        schema: &Schema,
+        key: &KeyValue,
+    ) -> Result<RecordAddress, SchemaError> {
+        RecordAddress::new(
+            &self.primary_codec(schema)?,
+            &record_space_uuid(&schema.name),
+            key,
+        )
+    }
+
+    pub(crate) async fn read_records<K: AsRef<str> + Sync>(
+        &self,
+        keys: &[K],
+    ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
+        self.record_read_scope(
+            async move {
+                let mut warm = self
+                    .runtime
+                    .warm_records(keys)
+                    .map_err(|e| invalid(format!("read records: {e}")))?;
+                let mut out = match &mut warm {
+                    Some(r) => r.take_found(),
+                    None => vec![None; keys.len()],
+                };
+                let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
+                let mut admitted = Vec::new();
+                for chunk in misses.chunks(READ_CHUNK) {
+                    let req = chunk
+                        .iter()
+                        .map(|&at| keys[at].as_ref().as_bytes().to_vec())
+                        .collect();
+                    let rows = self
+                        .main_store
+                        .get_many(req)
+                        .await
+                        .map_err(|e| invalid(format!("read records: {e}")))?;
+                    if rows.len() != chunk.len() {
+                        return Err(invalid("the record read batch is incomplete"));
+                    }
+                    for (&at, row) in chunk.iter().zip(rows) {
+                        let Some(bytes) = row else { continue };
+                        let record = Arc::new(reads::decode(&bytes)?);
+                        if warm.is_some() {
+                            admitted.push((at, Arc::clone(&record), bytes.len()));
+                        }
+                        out[at] = Some(record);
+                    }
+                }
+                if let Some(read) = &warm {
+                    self.runtime.admit_read_records(read, admitted);
+                }
+                Ok(out)
+            }
+            .boxed(),
+        )
+        .await
+    }
+
+    pub fn seal_record_file(
+        &self,
+        plaintext: &[u8],
+        name: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<FileWrite, FoldDbError> {
+        self.format.seal_record_file(plaintext, name, media_type)
+    }
+
+    pub async fn reference_local_file(
+        &self,
+        path: &std::path::Path,
+        name: Option<String>,
+        media_type: Option<String>,
+    ) -> Result<FileWrite, FoldDbError> {
+        self.format
+            .reference_local_file(path, name, media_type)
+            .await
     }
 }
 
-fn invalid(error: impl std::fmt::Display) -> SchemaError {
+pub(super) fn invalid(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(error.to_string())
 }

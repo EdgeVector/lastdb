@@ -121,12 +121,12 @@ pub(super) fn mutate_command(
         return Err("--mutation-id requires --db".into());
     }
     let text = if request_file == Path::new("-") {
-        let mut text = String::new();
+        let mut s = String::new();
         std::io::stdin()
             .lock()
-            .read_to_string(&mut text)
+            .read_to_string(&mut s)
             .map_err(|e| format!("read mutation: {e}"))?;
-        text
+        s
     } else {
         std::fs::read_to_string(request_file).map_err(|e| format!("read mutation: {e}"))?
     };
