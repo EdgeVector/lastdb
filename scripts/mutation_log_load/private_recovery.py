@@ -16,7 +16,7 @@ from node_auth import NodeKey, account_id
 from programs import Programs
 from routes import ROOT, decimal
 from signed_files import retry, running, summary
-from support import OperationError, require
+from support import OperationError, failure, require
 
 SCHEMA = "PrivateRecovery"
 FIELDS = {"id": "signed-recovery", "note": "owner-only DEV record"}
@@ -98,6 +98,8 @@ def verify_snapshot(call, entries, through):
 
 
 def recover(post, endpoint, database, owner, api_key, generation, ledger):
+    os.umask(0o077)
+
     def call(operation, fields, *, key=owner, scope_generation=generation, allowed=True):
         body = json.dumps({"database_id": database, **fields}, separators=(",", ":")).encode()
         status, response, _ = post(
@@ -125,7 +127,7 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger):
     try:
         check_restore(programs, call, database, owner, api_key)
     except OperationError as error:
-        raise LoadError(f"LastDB private recovery: {error}") from None
+        raise LoadError(f"LastDB private recovery: {json.dumps(failure(error))}") from None
 
     other = NodeKey.generate()
     for operation, fields in (
