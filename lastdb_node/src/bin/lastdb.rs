@@ -276,12 +276,16 @@ fn run(cli: Cli) -> Result<(), String> {
             Command::Get { .. }
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
+                | Command::Share(ShareCommand::Invite { .. } | ShareCommand::Accept { .. })
+                | Command::Share(ShareCommand::Contributors(
+                    ShareContributorCommand::Grant { .. } | ShareContributorCommand::Revoke { .. },
+                ))
                 | Command::Share(ShareCommand::Files(
                     ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
                 ))
         )
     {
-        return Err("--db requires get, get-keys, mutate, or Files list/save".into());
+        return Err("--db requires a record command or a database-scoped share command".into());
     }
     match command {
         Command::Status { json, timeout } => match status(cli.data_dir, json, timeout)? {
