@@ -4,20 +4,12 @@
 # layer that lists the longest prefix of its module path. A file may use its
 # own layer and the layers below it. A reference to a higher layer fails CI.
 # Cycles inside one layer are allowed.
-#
-# State sits below the host and work over the host sits above it: the host
-# holds the sampler state, request telemetry and backup runtime (ops, leaf),
-# and the jobs that take `&Host` (sampler, TTL sweep, footprint relief) live
-# in `jobs`, above the node features they report on.
 
-# The daemon binary (main.rs with its private lastdbd module) and the bin/
-# tools are separate crates. They reach this library through `lastdb_node::`
-# paths, so the library layer order does not cover them.
-exclude = ["main.rs", "lastdbd", "bin"]
+exclude = ["main.rs", "lastdbd.rs", "bin"]
 
 [[layer]]
 name = "leaf"
-doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, shutdown receipts, and versions."
+doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, and versions."
 modules = [
   "accepted_writes",
   "backup_runtime",
@@ -26,14 +18,12 @@ modules = [
   "cloud_backup_client",
   "identity",
   "lastdb_uds",
-  "log_rotation",
   "node_read",
   "profile",
   "seal",
   "saved_query",
   "saved_query_run",
   "service_home",
-  "shutdown_receipt",
   "version",
 ]
 
@@ -79,9 +69,8 @@ modules = [
 
 [[layer]]
 name = "surface"
-doc = "Owner-socket routes (exec), app publication, and the crate root re-exports."
+doc = "Owner-socket routes (exec) and the crate root re-exports."
 modules = [
-  "app_publish",
   "crate",
   "exec",
 ]

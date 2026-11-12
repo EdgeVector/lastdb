@@ -1,200 +1,226 @@
-//! Pure wire/domain schema types shared across Schema Service and LastDB.
+//! Pure wire/domain schema types, field scalar profiles, and portable schema IDs.
 
+use chrono::{DateTime, Datelike, NaiveDate, Timelike};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fmt;
+use std::{collections::BTreeMap, fmt, str::FromStr};
 
 pub mod alternate_keys;
 pub mod declarative_schemas;
-pub mod field_value_type;
-pub mod range_storage_profile;
+mod range_profile;
 
-pub mod field_range_profile {
-    pub use crate::range_storage_profile::FieldRangeProfile;
+pub mod field_value_type {
+    pub use crate::FieldValueType;
+}
+pub mod range_storage_profile {
+    pub use crate::field_range_profile::RangeStorageProfile;
 }
 
-/// Explicit record addresses independent of payload field definitions.
-pub mod record_keys {
-    use crate::alternate_keys::MAX_ALTERNATE_KEYS;
-    use crate::field_range_profile::FieldRangeProfile;
-    use crate::{DeclarativeSchemaDefinition, FieldValueType};
-    use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
+pub use alternate_keys::{record_keys, AlternateKey, MissingAlternateKey};
+pub use declarative_schemas::DeclarativeSchemaDefinition;
+pub use range_profile::{field_range_profile, key_comparison};
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    pub enum RecordKeyKind {
-        Hash,
-        HashRange,
-    }
+pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub struct RecordKeyDefinition {
-        pub kind: RecordKeyKind,
-        #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
-        pub allow_absent: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub range_type: Option<FieldValueType>,
-    }
-
-    impl RecordKeyDefinition {
-        pub fn range_profile(&self) -> Result<FieldRangeProfile, String> {
-            match (self.kind, &self.range_type) {
-                (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_)) => {
-                    FieldRangeProfile::for_field_type(self.range_type.as_ref())
-                }
-                _ => Err("hash keys have no range type; hash_range keys require one".into()),
-            }
-        }
-
-        pub fn validate_coordinates(
-            &self,
-            hash: Option<&str>,
-            range: Option<&str>,
-        ) -> Result<(), String> {
-            if hash.is_none_or(str::is_empty) {
-                return Err("a record address requires a nonempty hash".into());
-            }
-            match (self.kind, range) {
-                (RecordKeyKind::Hash, None) => (),
-                (RecordKeyKind::HashRange, Some(v)) if !v.is_empty() => (),
-                _ => return Err("record address differs from the declared key shape".into()),
-            }
-            self.range_profile()?
-                .encode_value(range.unwrap_or_default())?;
-            Ok(())
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub struct RecordKeys {
-        pub primary: RecordKeyDefinition,
-        pub alternates: BTreeMap<String, RecordKeyDefinition>,
-    }
-
-    impl RecordKeys {
-        pub fn validate(&self) -> Result<(), String> {
-            if self.primary.allow_absent {
-                return Err("a primary key cannot allow an absent address".into());
-            }
-            self.primary.range_profile()?;
-            if self.alternates.len() > MAX_ALTERNATE_KEYS {
-                return Err(format!(
-                    "a schema permits at most {MAX_ALTERNATE_KEYS} alternate keys"
-                ));
-            }
-            for (name, key) in &self.alternates {
-                DeclarativeSchemaDefinition::validate_field_name(name)?;
-                if name == "primary" {
-                    return Err("primary is reserved as an alternate key name".into());
-                }
-                key.range_profile()?;
-            }
-            Ok(())
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedDeclaration {
+    pub namespace: String,
+    pub local_schema_id: String,
 }
 
-/// Field semantics and typed scalar range comparison.
-pub mod key_comparison {
-    use crate::field_value_type::{date_day, datetime_nanos};
-    use crate::FieldValueType;
-    use serde::Serialize;
-    use std::cmp::Ordering;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentityRecompute {
+    Recomputed,
+    RefusedDowngrade { stored: u32, binary: u32 },
+}
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-    pub struct RangeKeyComparison {
-        pub field_type: FieldValueType,
-    }
+#[must_use]
+pub fn refuses_identity_downgrade(
+    stored_hash: Option<&str>,
+    stored_version: Option<u32>,
+) -> Option<u32> {
+    stored_version.filter(|stored| {
+        stored_hash.is_some_and(|h| !h.is_empty()) && *stored > IDENTITY_HASH_ALGO_VERSION
+    })
+}
 
-    impl RangeKeyComparison {
-        pub fn typed(field_type: FieldValueType) -> Result<Self, String> {
-            ordered_type(&field_type)?;
-            Ok(Self { field_type })
-        }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum FieldValueType {
+    String,
+    Integer,
+    Float,
+    Number,
+    Boolean,
+    Null,
+    Array(Box<Self>),
+    Map(Box<Self>),
+    Object(BTreeMap<String, Self>),
+    OneOf(Vec<Self>),
+    Any,
+    Date,
+    DateTime,
+}
 
-        pub fn compare(&self, left: &str, right: &str) -> Result<Ordering, String> {
-            self.canonical_value(left)?
-                .compare(self.canonical_value(right)?)
-        }
-
-        pub fn validate_value(&self, text: &str) -> Result<(), String> {
-            self.canonical_value(text).map(|_| ())
-        }
-
-        pub fn canonical_value<'a>(&self, text: &'a str) -> Result<CanonicalRange<'a>, String> {
-            match ordered_type(&self.field_type)? {
-                FieldValueType::String => Ok(CanonicalRange::Text(text)),
-                FieldValueType::Integer => text
-                    .parse::<i64>()
-                    .map(CanonicalRange::Integer)
-                    .map_err(|_| "expected a signed 64-bit range key".into()),
-                FieldValueType::Date => date_day(text).map(CanonicalRange::Date),
-                FieldValueType::DateTime => datetime_nanos(text).map(CanonicalRange::DateTime),
-                FieldValueType::Boolean => text
-                    .parse::<bool>()
-                    .map(CanonicalRange::Boolean)
-                    .map_err(|_| "expected a Boolean range key".into()),
-                _ => Err("this field type has no approved typed range comparison".into()),
+impl FieldValueType {
+    pub fn validate(&self, value: &Value) -> Result<(), String> {
+        let check = |ok: bool, exp: &str| ok.then_some(()).ok_or_else(|| type_err(exp, value));
+        match self {
+            Self::Any => Ok(()),
+            Self::Date => value
+                .as_str()
+                .ok_or_else(|| type_err("Date", value))
+                .and_then(|s| date_day(s).map(|_| ())),
+            Self::DateTime => value
+                .as_str()
+                .ok_or_else(|| type_err("DateTime", value))
+                .and_then(|s| datetime_nanos(s).map(|_| ())),
+            Self::Null => check(value.is_null(), "Null"),
+            Self::String => check(value.is_string(), "String"),
+            Self::Boolean => check(value.is_boolean(), "Boolean"),
+            Self::Integer => check(value.as_i64().is_some(), "Integer"),
+            Self::Float => check(value.as_f64().is_some(), "Float"),
+            Self::Number => check(value.is_number(), "Number"),
+            Self::Array(elem_ty) => value
+                .as_array()
+                .ok_or_else(|| type_err("Array", value))?
+                .iter()
+                .enumerate()
+                .try_for_each(|(i, v)| elem_ty.validate(v).map_err(|e| format!("Array[{i}]: {e}"))),
+            Self::Map(val_ty) => value
+                .as_object()
+                .ok_or_else(|| type_err("Map", value))?
+                .iter()
+                .try_for_each(|(k, v)| {
+                    val_ty.validate(v).map_err(|e| format!("Map[\"{k}\"]: {e}"))
+                }),
+            Self::Object(fields) => {
+                let obj = value.as_object().ok_or_else(|| type_err("Object", value))?;
+                fields.iter().try_for_each(|(name, ty)| {
+                    ty.validate(obj.get(name).unwrap_or(&Value::Null))
+                        .map_err(|e| format!(".{name}: {e}"))
+                })
             }
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum CanonicalRange<'a> {
-        Text(&'a str),
-        Integer(i64),
-        Date(i32),
-        DateTime(i128),
-        Boolean(bool),
-    }
-
-    impl CanonicalRange<'_> {
-        pub fn compare(self, other: Self) -> Result<Ordering, String> {
-            match (self, other) {
-                (Self::Text(a), Self::Text(b)) => Ok(a.cmp(b)),
-                (Self::Integer(a), Self::Integer(b)) => Ok(a.cmp(&b)),
-                (Self::Date(a), Self::Date(b)) => Ok(a.cmp(&b)),
-                (Self::DateTime(a), Self::DateTime(b)) => Ok(a.cmp(&b)),
-                (Self::Boolean(a), Self::Boolean(b)) => Ok(a.cmp(&b)),
-                _ => Err("a typed range cannot compare different scalar domains".into()),
-            }
-        }
-    }
-
-    pub(crate) fn ordered_type(field_type: &FieldValueType) -> Result<&FieldValueType, String> {
-        if let FieldValueType::OneOf(variants) = field_type {
-            let mut non_null = variants.iter().filter(|v| **v != FieldValueType::Null);
-            let first = ordered_type(non_null.next().ok_or("a required key cannot be null")?)?;
-            for variant in non_null {
-                if ordered_type(variant)? != first {
-                    return Err("a typed range requires one unambiguous scalar domain".into());
-                }
-            }
-            return Ok(first);
-        }
-        match field_type {
-            FieldValueType::String
-            | FieldValueType::Integer
-            | FieldValueType::Date
-            | FieldValueType::DateTime
-            | FieldValueType::Boolean => Ok(field_type),
-            _ => Err("this field type has no approved typed range comparison".into()),
+            Self::OneOf(variants) => variants
+                .iter()
+                .any(|v| v.validate(value).is_ok())
+                .then_some(())
+                .ok_or_else(|| {
+                    format!(
+                        "value does not match any variant of OneOf({self}), got {}",
+                        json_type_name(value)
+                    )
+                }),
         }
     }
 }
 
-pub use alternate_keys::{AlternateKey, MissingAlternateKey};
-pub use declarative_schemas::{
-    refuses_identity_downgrade, DeclarativeSchemaDefinition, IdentityRecompute, OwnedDeclaration,
-    PortableSchemaId, IDENTITY_HASH_ALGO_VERSION,
-};
-pub use field_value_type::FieldValueType;
+fn type_err(expected: &str, got: &Value) -> String {
+    format!("expected {expected}, got {}", json_type_name(got))
+}
 
-pub type Schema = DeclarativeSchemaDefinition;
-pub type SchemaType = DeclarativeSchemaType;
+fn json_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "Null",
+        Value::Bool(_) => "Boolean",
+        Value::Number(_) => "Number",
+        Value::String(_) => "String",
+        Value::Array(_) => "Array",
+        Value::Object(_) => "Object",
+    }
+}
+
+impl fmt::Display for FieldValueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::String => f.write_str("String"),
+            Self::Date => f.write_str("Date"),
+            Self::DateTime => f.write_str("DateTime"),
+            Self::Integer => f.write_str("Integer"),
+            Self::Float => f.write_str("Float"),
+            Self::Number => f.write_str("Number"),
+            Self::Boolean => f.write_str("Boolean"),
+            Self::Null => f.write_str("Null"),
+            Self::Any => f.write_str("Any"),
+            Self::Array(t) => write!(f, "Array<{t}>"),
+            Self::Map(v) => write!(f, "Map<String, {v}>"),
+            Self::Object(fields) => {
+                let parts: Vec<_> = fields.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                write!(f, "{{{}}}", parts.join(", "))
+            }
+            Self::OneOf(variants) => {
+                let parts: Vec<_> = variants.iter().map(ToString::to_string).collect();
+                f.write_str(&parts.join(" | "))
+            }
+        }
+    }
+}
+
+pub(crate) fn date_day(text: &str) -> Result<i32, String> {
+    let err = || "expected Date in YYYY-MM-DD form with a valid calendar date".to_string();
+    if !date_shape(text.as_bytes()) {
+        return Err(err());
+    }
+    NaiveDate::parse_from_str(text, "%Y-%m-%d")
+        .map(|d| d.num_days_from_ce())
+        .map_err(|_| err())
+}
+
+pub(crate) fn datetime_nanos(text: &str) -> Result<i128, String> {
+    let err = || {
+        "expected DateTime in RFC 3339 form with an offset, years 0000..9999, at most nine fractional digits, and no leap second".to_string()
+    };
+    if !datetime_shape(text.as_bytes()) {
+        return Err(err());
+    }
+    let instant = DateTime::parse_from_rfc3339(text).map_err(|_| err())?;
+    if instant.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&instant.to_utc().year()) {
+        return Err(err());
+    }
+    Ok(i128::from(instant.timestamp()) * 1_000_000_000 + i128::from(instant.nanosecond()))
+}
+
+fn date_shape(b: &[u8]) -> bool {
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if matches!(i, 4 | 7) {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
+}
+
+fn datetime_shape(b: &[u8]) -> bool {
+    if !(20..=35).contains(&b.len())
+        || !date_shape(&b[..10])
+        || !matches!(b[10], b'T' | b't')
+        || b[13] != b':'
+        || b[16] != b':'
+        || ![11, 12, 14, 15, 17, 18]
+            .iter()
+            .all(|&i| b[i].is_ascii_digit())
+    {
+        return false;
+    }
+    let mut off = &b[19..];
+    if off.first() == Some(&b'.') {
+        let digits = off[1..]
+            .iter()
+            .copied()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        if !(1..=9).contains(&digits) {
+            return false;
+        }
+        off = &off[1 + digits..];
+    }
+    matches!(off, [b'Z' | b'z'])
+        || (off.len() == 6
+            && matches!(off[0], b'+' | b'-')
+            && off[3] == b':'
+            && [1, 2, 4, 5].iter().all(|&i| off[i].is_ascii_digit()))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeclarativeSchemaType {
@@ -242,4 +268,75 @@ pub fn compute_field_hash(
         quote(name),
     );
     app_identity_crypto::hex_lower(&Sha256::digest(payload.as_bytes()))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
+pub struct PortableSchemaId(String);
+
+impl PortableSchemaId {
+    pub fn from_catalog(
+        catalog_id: &str,
+        mut definition: DeclarativeSchemaDefinition,
+    ) -> Result<Self, String> {
+        if !is_digest(catalog_id) {
+            return Err("schema catalog ID must be a lowercase SHA-256".into());
+        }
+        if definition.identity_hash.as_deref() != Some(catalog_id) {
+            return Err("definition lacks the exact supported catalog identity".into());
+        }
+        if definition.record_keys.is_none() {
+            return Err("portable schemas require explicit record keys".into());
+        }
+        definition.validate_definition()?;
+        definition.require_typed_fields()?;
+        let ver = definition.identity_hash_algo_version;
+        definition.compute_identity_hash();
+        if definition.identity_hash.as_deref() != Some(catalog_id)
+            || definition.identity_hash_algo_version != ver
+        {
+            return Err("schema catalog identity does not match its declaration".into());
+        }
+        definition.normalize_wire();
+        definition.ensure_field_hashes();
+        let val = serde_json::to_value(&definition)
+            .map_err(|_| "cannot encode portable schema definition")?;
+        let bytes = app_identity_crypto::canonicalize(&val)
+            .map_err(|_| "cannot canonicalize portable schema definition")?;
+        let mut digest = Sha256::new();
+        digest.update(b"lastdb:portable-schema-definition:v1\0");
+        digest.update(bytes);
+        Ok(Self(app_identity_crypto::hex_lower(&digest.finalize())))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PortableSchemaId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for PortableSchemaId {
+    type Err = String;
+    fn from_str(v: &str) -> Result<Self, Self::Err> {
+        Self::try_from(v.to_owned())
+    }
+}
+
+impl TryFrom<String> for PortableSchemaId {
+    type Error = String;
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        is_digest(&v)
+            .then_some(Self(v))
+            .ok_or_else(|| "portable schema ID must be a lowercase SHA-256".into())
+    }
+}
+
+fn is_digest(v: &str) -> bool {
+    v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

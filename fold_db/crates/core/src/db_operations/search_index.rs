@@ -1,6 +1,7 @@
 //! Search-plane outbox delivery helpers and bounded queue policy.
 
-use crate::schema::types::{KeyValue, Schema, SchemaError};
+use crate::schema::types::operations::MutationType;
+use crate::schema::types::{KeyValue, Mutation, Schema, SchemaError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -42,7 +43,6 @@ fn is_version_one(v: &u32) -> bool {
     *v == 1
 }
 
-/// Inbox directory for a node home, by layout alone (no environment reads).
 pub fn search_inbox_dir_for_home(home: &Path) -> PathBuf {
     home.join("apps/search/inbox")
 }
@@ -59,7 +59,44 @@ fn resolve_search_inbox_dir() -> Option<PathBuf> {
         .or_else(|| env_str("LASTDB_HOME").map(|h| search_inbox_dir_for_home(Path::new(&h))))
 }
 
-/// Deliver one Search change batch to the configured or environment-resolved inbox.
+pub(crate) fn build_index_change_batch<'a>(
+    schema_name: &str,
+    schema: &Schema,
+    schema_mutations: impl ExactSizeIterator<Item = &'a Mutation>,
+    mutation_key_values: &[KeyValue],
+) -> Option<IndexChangeBatch> {
+    if !queue_policy::enabled() {
+        return None;
+    }
+    let searchable = searchable_fields(schema);
+    let changes: Vec<_> = schema_mutations
+        .zip(mutation_key_values)
+        .map(|(m, kv)| {
+            let (kind, record_fields) = match m.mutation_type {
+                MutationType::Create | MutationType::Replace => (
+                    IndexChangeKind::Upsert,
+                    inbox_fields(&m.record_fields, searchable.as_ref()),
+                ),
+                MutationType::Delete | MutationType::Purge => {
+                    (IndexChangeKind::Tombstone, HashMap::default())
+                }
+            };
+            IndexChange {
+                mutation_id: m.uuid.clone(),
+                kind,
+                key_value: kv.clone(),
+                record_fields,
+            }
+        })
+        .collect();
+    (!changes.is_empty()).then(|| IndexChangeBatch {
+        format_version: 1,
+        schema_name: schema_name.to_string(),
+        searchable_fields: searchable,
+        changes,
+    })
+}
+
 pub(crate) fn deliver_outbox(
     inbox: Option<PathBuf>,
     batch: &IndexChangeBatch,
@@ -88,7 +125,7 @@ pub(crate) fn deliver_outbox(
     Ok(())
 }
 
-pub(crate) fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
+fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
     (!schema.field_classifications.is_empty()).then(|| {
         schema
             .field_classifications
@@ -105,7 +142,7 @@ pub(crate) fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
     })
 }
 
-pub(crate) fn inbox_fields(
+fn inbox_fields(
     fields: &HashMap<String, Value>,
     searchable: Option<&HashSet<String>>,
 ) -> HashMap<String, Value> {

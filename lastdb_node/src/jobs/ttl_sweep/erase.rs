@@ -24,17 +24,17 @@ const TTL_SWEEP_VERB_ENV: &str = "LASTDB_TTL_SWEEP_VERB";
 
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, is_delete: bool) -> usize {
     let limit = host.db.db_ops().batch_operation_limit();
-    let shape = backlog.shape;
+    let s = backlog.shape;
     let (op_f, rd_f) = if is_delete { (5, 13) } else { (4, 12) };
-    let width = shape.fields.max(1);
+    let width = s.fields.max(1);
     let mut keys = (limit / width.saturating_mul(op_f))
         .min(40_000 / width.saturating_mul(rd_f))
-        .min(MAX_ALTERNATE_ENTRIES / shape.alternates.max(1));
+        .min(MAX_ALTERNATE_ENTRIES / s.alternates.max(1));
     while keys > 0 {
-        let chunk_ops = keys.div_ceil(64).saturating_mul(shape.fields + 8);
-        let ops = keys * shape.fields * op_f + chunk_ops + keys * (shape.alternates + 2);
-        let reads = keys * shape.fields * rd_f + chunk_ops + keys * (shape.alternates * 4 + 2);
-        if ops <= limit && reads <= 40_000 && keys * shape.alternates <= MAX_ALTERNATE_ENTRIES {
+        let chunk_ops = keys.div_ceil(64).saturating_mul(s.fields + 8);
+        let ops = keys * s.fields * op_f + chunk_ops + keys * (s.alternates + 2);
+        let reads = keys * s.fields * rd_f + chunk_ops + keys * (s.alternates * 4 + 2);
+        if ops <= limit && reads <= 40_000 && keys * s.alternates <= MAX_ALTERNATE_ENTRIES {
             break;
         }
         keys -= 1;
@@ -61,11 +61,14 @@ struct Pace {
 
 impl Pace {
     fn from_env() -> Self {
-        let min_ms = fold_db::env_flag::var_or("LASTDB_TTL_SWEEP_MIN_PAUSE_MS", 25u64);
         Self {
             batch: fold_db::env_flag::var_or("LASTDB_TTL_SWEEP_BATCH", 16usize).clamp(1, 64),
             duty_pct: fold_db::env_flag::var_or("LASTDB_TTL_SWEEP_DUTY_PCT", 25u64).clamp(1, 100),
-            min_pause: Duration::from_millis(min_ms).min(MAX_PAUSE),
+            min_pause: Duration::from_millis(fold_db::env_flag::var_or(
+                "LASTDB_TTL_SWEEP_MIN_PAUSE_MS",
+                25u64,
+            ))
+            .min(MAX_PAUSE),
         }
     }
 
@@ -74,8 +77,8 @@ impl Pace {
             return self.min_pause;
         }
         let work_ms = u64::try_from(blocked.as_millis()).unwrap_or(u64::MAX);
-        let rest_ms = work_ms.saturating_mul(100 - self.duty_pct) / self.duty_pct;
-        Duration::from_millis(rest_ms).clamp(self.min_pause, MAX_PAUSE)
+        Duration::from_millis(work_ms.saturating_mul(100 - self.duty_pct) / self.duty_pct)
+            .clamp(self.min_pause, MAX_PAUSE)
     }
 }
 
@@ -184,8 +187,7 @@ async fn erase_page(
                 }
                 tracing::debug!(
                     target: "lastdbd::ttl_sweep", schema = %backlog.schema_name, keys = erased,
-                    dropped, missing, took_ms = started.elapsed().as_millis() as u64,
-                    "ttl sweep batch erased"
+                    dropped, missing, took_ms = started.elapsed().as_millis() as u64, "ttl sweep batch erased"
                 );
             }
             Err(error)
@@ -248,10 +250,7 @@ async fn erase_batch(
         .map_err(|e| e.to_string())?
     else {
         backlog.clear();
-        tracing::info!(
-            target: "lastdbd::ttl_sweep", schema = %backlog.schema_name,
-            "retention policy is gone; dropping rest of schema"
-        );
+        tracing::info!(target: "lastdbd::ttl_sweep", schema = %backlog.schema_name, "retention policy is gone; dropping rest of schema");
         return Ok((0, listed, 0));
     };
     let cutoff = backlog
@@ -288,7 +287,6 @@ async fn erase_batch(
         }
         let absent = host
             .db
-            .mutation_manager()
             .absent_erase_targets(&backlog.schema_name, &keys)
             .await
             .map_err(|c| format!("{error}; the absent-key check failed: {c}"))?;

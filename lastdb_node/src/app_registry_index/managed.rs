@@ -1,12 +1,11 @@
-//! Registry-owned app trees, atomic activation, and retained rollback versions.
+//! Registry-owned app trees, atomic activation, LaunchAgent updater, and retained rollback versions.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::managed_manifest::{self, InstallPlan};
-use super::managed_poll::steps;
+use super::managed_manifest::{self, steps, InstallPlan};
 use super::{ListEntry, Resolution, RECEIPT_FILE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,8 +148,7 @@ fn stage_version(
     let plan = InstallPlan::load(&source, &entry.app_id)?;
     let hash = plan.consent_hash()?;
     if prior.is_some_and(|r| {
-        r.publisher != entry.publisher_key
-            && !managed_manifest::authorized_transition(r, resolution)
+        r.publisher != entry.publisher_key && !super::authorized_transition(r, resolution)
     }) {
         return Err("publisher key changed; explicit owner rotation is required".into());
     }
@@ -201,8 +199,12 @@ pub fn verify_active(root: &Path, home: &Path, current: &ManagedReceipt) -> Resu
     verify_state(root, current)?;
     if !current.inactive {
         let src = root.join("current/source");
-        let plan = InstallPlan::load(&src, &current.app_id)?;
-        steps(&src, home, &current.app_id, &plan.probe)?;
+        steps(
+            &src,
+            home,
+            &current.app_id,
+            &InstallPlan::load(&src, &current.app_id)?.probe,
+        )?;
     }
     Ok(())
 }

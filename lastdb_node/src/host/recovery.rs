@@ -41,9 +41,7 @@ pub(super) fn ensure_node_home(home: &Path) -> io::Result<()> {
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
             Err(e) => tracing::warn!(
-                target: "lastdb_node::host",
-                path = %marker.display(),
-                error = %e,
+                target: "lastdb_node::host", path = %marker.display(), error = %e,
                 "could not exclude node home from Spotlight indexing"
             ),
         }
@@ -51,9 +49,14 @@ pub(super) fn ensure_node_home(home: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn is_decrypt_boot_failure(msg: &str) -> bool {
-    let lower = msg.to_ascii_lowercase();
-    [
+pub(super) fn map_and_record_boot_error(
+    home: &Path,
+    existing_store: bool,
+    err: impl std::fmt::Display,
+) -> String {
+    let raw = err.to_string();
+    let lower = raw.to_ascii_lowercase();
+    let decrypt_err = [
         "cannot decrypt existing store",
         "aead",
         "aes-gcm",
@@ -64,23 +67,12 @@ fn is_decrypt_boot_failure(msg: &str) -> bool {
         "undecryptable",
     ]
     .iter()
-    .any(|needle| lower.contains(needle))
-}
-
-pub(super) fn map_and_record_boot_error(
-    home: &Path,
-    existing_store: bool,
-    err: impl std::fmt::Display,
-) -> String {
-    let raw = err.to_string();
-    let msg = if is_decrypt_boot_failure(&raw) {
+    .any(|n| lower.contains(n));
+    let msg = if decrypt_err {
         if raw.contains("cannot decrypt existing store") {
             raw
         } else {
-            format!(
-                "cannot decrypt existing store — wrong master key or incompatible build; \
-                 refusing to start fresh: {raw}"
-            )
+            format!("cannot decrypt existing store — wrong master key or incompatible build; refusing to start fresh: {raw}")
         }
     } else if existing_store {
         format!(
@@ -92,12 +84,7 @@ pub(super) fn map_and_record_boot_error(
     };
     let path = home.join(LAST_BOOT_ERROR_FILE);
     if let Err(e) = std::fs::write(&path, format!("{}\n", msg.lines().next().unwrap_or(&msg))) {
-        tracing::warn!(
-            target: "lastdbd::boot",
-            error = %e,
-            path = %path.display(),
-            "failed to write last_boot_error.txt"
-        );
+        tracing::warn!(target: "lastdbd::boot", error = %e, path = %path.display(), "failed to write last_boot_error.txt");
     }
     msg
 }

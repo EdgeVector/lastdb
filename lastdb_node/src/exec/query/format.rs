@@ -8,7 +8,7 @@ use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::execute_query;
 use crate::exec::reply::{error_response, render, HostError};
@@ -78,7 +78,7 @@ pub(in crate::exec) async fn execute_query_batch_route(
         .await;
     let results = batch_results(finished);
     render(
-        Ok(serde_json::json!({ "count": results.len(), "results": results })),
+        Ok(json!({ "count": results.len(), "results": results })),
         ctx,
     )
 }
@@ -91,7 +91,7 @@ pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) ->
             let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
                 Value::String(String::from_utf8_lossy(&response.body).into_owned())
             });
-            serde_json::json!({ "status": response.status, "response": body })
+            json!({ "status": response.status, "response": body })
         })
         .collect()
 }
@@ -134,7 +134,7 @@ fn page_payload(
 ) -> Value {
     let returned_count = page.len();
     let next_cursor = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
-    serde_json::json!({
+    json!({
         "results": Value::Array(page), "total_count": total_count, "returned_count": returned_count,
         "limit": limit, "offset": offset, "has_more": has_more,
         "next_cursor": next_cursor, "key_form": key_form,
@@ -204,16 +204,16 @@ fn format_row(
     compact: bool,
 ) -> Value {
     let mut row = serde_json::Map::from_iter([
-        ("key".into(), serde_json::json!(key)),
+        ("key".into(), json!(key)),
         ("revision".into(), Value::String(record.revision)),
-        ("alternates".into(), serde_json::json!(record.alternates)),
+        ("alternates".into(), json!(record.alternates)),
         (
             "fields".into(),
             Value::Object(record.fields.into_iter().collect()),
         ),
     ]);
     if !compact {
-        row.insert("metadata".into(), serde_json::json!(record.metadata));
+        row.insert("metadata".into(), json!(record.metadata));
     }
     Value::Object(row)
 }
@@ -252,7 +252,7 @@ pub(in crate::exec) fn format_alternate_page(
     for entry in &page.entries {
         let mut row = page.values.remove(&entry.primary).map_or_else(
             || {
-                let mut row = serde_json::json!({ "key": entry.primary, "fields": {} });
+                let mut row = json!({ "key": entry.primary, "fields": {} });
                 if !compact {
                     row["metadata"] = Value::Null;
                 }
@@ -299,7 +299,7 @@ pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema
     let message = format!(
         "full_schema_scan_not_allowed: unfiltered query on product schema '{schema_name}' is not supported; add a keyed filter using the structured remediation"
     );
-    let body = serde_json::json!({
+    let body = json!({
         "ok": false,
         "kind": "full_schema_scan_not_allowed",
         "error": "product apps are keyed-access only; unfiltered schema queries are not supported",

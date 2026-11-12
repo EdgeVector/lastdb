@@ -12,7 +12,6 @@ use serde_json::Value;
 
 pub mod managed;
 mod managed_manifest;
-pub mod managed_poll;
 
 pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
@@ -25,8 +24,6 @@ pub const DEFAULT_INDEX_BASE_URL: &str =
     crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
 pub const INDEX_LOCATION_ENV: &str = "LASTDB_REGISTRY_INDEX";
 pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
-
-const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexLocation {
@@ -62,7 +59,7 @@ impl IndexLocation {
                 }
                 // trace-egress: propagate (anonymous static registry list endpoint)
                 let client = reqwest::Client::builder()
-                    .timeout(HTTP_TIMEOUT)
+                    .timeout(Duration::from_secs(30))
                     .no_proxy()
                     .redirect(reqwest::redirect::Policy::none())
                     .build()
@@ -196,8 +193,9 @@ pub async fn fetch_list(
     let root = if matches!(location, IndexLocation::Url(base) if base == DEFAULT_INDEX_BASE_URL) {
         base_root
     } else {
-        let hash = fold_db::hex::sha256_hex(location.describe_interface(channel, api).as_bytes());
-        base_root.join("sources").join(hash)
+        base_root.join("sources").join(fold_db::hex::sha256_hex(
+            location.describe_interface(channel, api).as_bytes(),
+        ))
     };
     let path = root.join(channel).join("api").join(format!("{api}.json"));
     let parent = path.parent().ok_or("registry cache parent missing")?;
@@ -333,4 +331,45 @@ fn socket_version(socket: &Path) -> Option<Value> {
     (raw.split_whitespace().nth(1)?.parse::<u16>().ok()? == 200).then_some(())?;
     let body = raw.split_once("\r\n\r\n")?.1.trim();
     serde_json::from_str(&body[body.find('{')?..=body.rfind('}')?]).ok()
+}
+
+pub(crate) fn authorized_transition(
+    prior: &managed::ManagedReceipt,
+    resolution: &Resolution,
+) -> bool {
+    use crate::profile::endpoints::{
+        registry_ci_publisher_keys_for, registry_index_url_for, Environment,
+    };
+    let e = &resolution.entry;
+    if !prior.trust.starts_with("pinned:")
+        || !resolution.trust.starts_with("pinned:")
+        || prior.app_id != e.app_id
+        || prior.publisher != prior.listing.publisher_key
+        || prior.listing.source != e.source
+    {
+        return false;
+    }
+    [Environment::Dev, Environment::Prod]
+        .into_iter()
+        .any(|env| {
+            let source = match (env, e.app_id.as_str()) {
+                (Environment::Prod, "brain" | "lastsecrets" | "search") => {
+                    format!("https://github.com/EdgeVector/{}.git", e.app_id)
+                }
+                (Environment::Dev, "registry-daily-dev") => {
+                    "https://github.com/EdgeVector/lastdb-app-registry.git".to_owned()
+                }
+                _ => return false,
+            };
+            let base = registry_index_url_for(env);
+            let (owner, delegate) = registry_ci_publisher_keys_for(env);
+            let ok_keys = (prior.publisher == owner && e.publisher_key == delegate)
+                || (prior.publisher == delegate && e.publisher_key == owner);
+            !delegate.is_empty()
+                && !owner.is_empty()
+                && ok_keys
+                && e.source == source
+                && prior.index == base
+                && resolution.index == format!("{base}/{}/api/{}.json", e.channel, e.api_version)
+        })
 }
