@@ -10,8 +10,8 @@
 //! the log does not call it. The payload stays opaque there.
 //!
 //! `spec/index.json` records the same catalog. Social schemas live in
-//! `spec/social/`. `social-graph` stays in `personal` and is not the
-//! reserved `graph` database.
+//! `spec/social/`. A database name does not select a spec. The stored
+//! `{ "name", "version" }` binding does. `social-graph` stays in `personal`.
 
 mod catalog;
 
@@ -105,16 +105,6 @@ pub enum DatabaseClass {
     Shareable,
 }
 
-/// What a reserved database name means in the catalog.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Reservation {
-    /// The name is reserved and create refuses it. `graph` is this case.
-    Unprovisioned,
-    /// The name can be stored only with `spec.name` equal to the database name.
-    /// Only `social` has a schema body. The others are [`PolicyError::UnknownSpec`].
-    RequiresOwnSpec,
-}
-
 /// A database the catalog accepts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Admission {
@@ -161,10 +151,6 @@ pub enum PolicyError {
     UnknownSpec,
     /// The spec name exists and this version does not.
     UnsupportedVersion,
-    /// The name is reserved and has no spec.
-    Unprovisioned,
-    /// A reserved provisioned name was given a different binding.
-    ReservedBindingMismatch,
     /// Personal data was offered as a share, or a second personal database was asked for.
     PersonalNotShareable,
     /// The database name or spec name is outside the selector alphabet.
@@ -180,8 +166,6 @@ impl PolicyError {
             Self::BindingAbsent => "share creation requires a spec binding",
             Self::UnknownSpec => "unknown database spec",
             Self::UnsupportedVersion => "unsupported database spec version",
-            Self::Unprovisioned => "database name is reserved and unprovisioned",
-            Self::ReservedBindingMismatch => "reserved database name requires its catalog spec",
             Self::PersonalNotShareable => "personal database is not shareable",
             Self::InvalidName => "invalid database or spec name",
             Self::InvalidNamespace => "invalid namespace",
@@ -189,17 +173,8 @@ impl PolicyError {
     }
 }
 
-/// `Some` when `name` is one of the reserved database names.
-pub fn reserved_name(name: &str) -> Option<Reservation> {
-    match name {
-        "graph" => Some(Reservation::Unprovisioned),
-        "social" | "medical" | "finance" | "work" => Some(Reservation::RequiresOwnSpec),
-        _ => None,
-    }
-}
-
-/// Admit one named database. `personal` takes no binding. A share without a
-/// binding is [`PolicyError::BindingAbsent`].
+/// Admit one named database. `personal` takes no binding. Any other valid
+/// name is a label. A share without a binding is [`PolicyError::BindingAbsent`].
 pub fn admit_database(
     name: &str,
     class: DatabaseClass,
@@ -211,11 +186,7 @@ pub fn admit_database(
     if name.eq_ignore_ascii_case(PERSONAL) {
         return admit_personal(name, class, binding);
     }
-    match reserved_name(name) {
-        Some(Reservation::Unprovisioned) => Err(PolicyError::Unprovisioned),
-        Some(Reservation::RequiresOwnSpec) => admit_own_spec(name, class, binding),
-        None => admit_named_instance(class, binding),
-    }
+    admit_named_instance(class, binding)
 }
 
 /// Admit a share binding. `None` is [`PolicyError::BindingAbsent`].
@@ -336,23 +307,6 @@ fn admit_personal(
     } else {
         Err(PolicyError::PersonalNotShareable)
     }
-}
-
-fn admit_own_spec(
-    name: &str,
-    class: DatabaseClass,
-    binding: Option<&SpecBinding>,
-) -> Result<Admission, PolicyError> {
-    if class != DatabaseClass::Shareable {
-        return Err(PolicyError::PersonalNotShareable);
-    }
-    let Some(binding) = binding else {
-        return Err(PolicyError::BindingAbsent);
-    };
-    if binding.name() != name {
-        return Err(PolicyError::ReservedBindingMismatch);
-    }
-    admit_share(Some(binding)).map(Admission::Share)
 }
 
 fn admit_named_instance(
