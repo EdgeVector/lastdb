@@ -7,7 +7,9 @@ use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
 pub use at_rest::{seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
-pub use envelope::{decrypt_envelope, encrypt_envelope};
+pub use envelope::{
+    decrypt_envelope, decrypt_envelope_with_aad, encrypt_envelope, encrypt_envelope_with_aad,
+};
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
@@ -57,12 +59,20 @@ impl E2eKeys {
     pub fn encryption_key(&self) -> [u8; 32] {
         self.encryption_key
     }
+
+    /// Use an AES key that was already derived. This does not run HKDF.
+    pub fn from_content_key(encryption_key: [u8; 32]) -> CryptoResult<Self> {
+        if encryption_key == [0u8; 32] {
+            return Err(CryptoError::KeyError("content key is empty".into()));
+        }
+        Ok(Self { encryption_key })
+    }
 }
 
 pub mod envelope {
     use super::{CryptoError, CryptoResult};
     use aes_gcm::{
-        aead::{Aead, AeadCore, KeyInit, OsRng},
+        aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
         Aes256Gcm, Nonce,
     };
 
@@ -78,6 +88,33 @@ pub mod envelope {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher
             .encrypt(&nonce, plaintext)
+            .map_err(|e| CryptoError::EncryptionFailed(format!("AES-GCM encrypt: {e}")))?;
+        let mut envelope = Vec::with_capacity(VERSION_SIZE + NONCE_SIZE + ciphertext.len());
+        envelope.push(ENVELOPE_VERSION);
+        envelope.extend_from_slice(&nonce);
+        envelope.extend_from_slice(&ciphertext);
+        Ok(envelope)
+    }
+
+    /// Same envelope as `encrypt_envelope`, with associated data authenticated
+    /// and left outside the ciphertext. The caller must present the same bytes
+    /// to `decrypt_envelope_with_aad`.
+    pub fn encrypt_envelope_with_aad(
+        key: &[u8; 32],
+        aad: &[u8],
+        plaintext: &[u8],
+    ) -> CryptoResult<Vec<u8>> {
+        let cipher = Aes256Gcm::new_from_slice(key)
+            .map_err(|e| CryptoError::EncryptionFailed(format!("Invalid key: {e}")))?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|e| CryptoError::EncryptionFailed(format!("AES-GCM encrypt: {e}")))?;
         let mut envelope = Vec::with_capacity(VERSION_SIZE + NONCE_SIZE + ciphertext.len());
         envelope.push(ENVELOPE_VERSION);
@@ -103,6 +140,37 @@ pub mod envelope {
             .map_err(|e| CryptoError::DecryptionFailed(format!("Invalid key: {e}")))?;
         cipher
             .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+            .map_err(|e| CryptoError::DecryptionFailed(format!("AES-GCM decrypt: {e}")))
+    }
+
+    /// Open an envelope produced by `encrypt_envelope_with_aad`.
+    pub fn decrypt_envelope_with_aad(
+        key: &[u8; 32],
+        aad: &[u8],
+        envelope: &[u8],
+    ) -> CryptoResult<Vec<u8>> {
+        if envelope.len() < MIN_ENVELOPE_SIZE {
+            return Err(CryptoError::InvalidFormat(format!(
+                "Envelope too short: {} bytes (minimum {MIN_ENVELOPE_SIZE})",
+                envelope.len()
+            )));
+        }
+        let version = envelope[0];
+        if version != ENVELOPE_VERSION {
+            return Err(CryptoError::UnsupportedVersion(version));
+        }
+        let nonce_bytes = &envelope[VERSION_SIZE..VERSION_SIZE + NONCE_SIZE];
+        let ciphertext = &envelope[VERSION_SIZE + NONCE_SIZE..];
+        let cipher = Aes256Gcm::new_from_slice(key)
+            .map_err(|e| CryptoError::DecryptionFailed(format!("Invalid key: {e}")))?;
+        cipher
+            .decrypt(
+                Nonce::from_slice(nonce_bytes),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|e| CryptoError::DecryptionFailed(format!("AES-GCM decrypt: {e}")))
     }
 }

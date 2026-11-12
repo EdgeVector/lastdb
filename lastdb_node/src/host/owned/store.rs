@@ -81,6 +81,17 @@ fn content_keys(node_seed: &[u8; 32], id: &str) -> Result<E2eKeys, String> {
     E2eKeys::from_ed25519_seed(&seed).map_err(|_| "cannot derive owned database content key".into())
 }
 
+/// AES key that opens this owned database. Not the node seed and not the
+/// intermediate HKDF seed.
+pub(super) fn content_encryption_key(
+    node_seed: &[u8; 32],
+    id: &str,
+) -> Result<Zeroizing<[u8; 32]>, String> {
+    Ok(Zeroizing::new(
+        content_keys(node_seed, id)?.encryption_key(),
+    ))
+}
+
 pub(super) fn remove(home: &Path, id: &str) -> Result<(), String> {
     let root = home.join("databases").join(id);
     if root.is_dir() {

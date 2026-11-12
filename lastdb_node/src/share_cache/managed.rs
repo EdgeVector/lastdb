@@ -23,6 +23,13 @@ pub(super) struct ManagedRegistration {
     grant_version: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     grant_expires_ms: Option<u64>,
+    /// Named-database signed log. Publication shares omit this.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(super) signed_log: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl ShareCache {
@@ -89,8 +96,37 @@ impl ShareCache {
         publisher: &Digest,
         name: Option<&str>,
     ) -> Result<RegisteredShare> {
+        self.register(home, invitation, publisher, name, None)
+    }
+
+    /// Same sealed registration as [`Self::register_managed`], marked as a signed log.
+    ///
+    /// `expected` is the stable database id. It must equal the invitation stream.
+    /// A mismatch writes nothing.
+    pub(crate) fn register_signed_log(
+        &self,
+        home: &Path,
+        invitation: &[u8],
+        publisher: &Digest,
+        name: Option<&str>,
+        expected: &Id,
+    ) -> Result<RegisteredShare> {
+        self.register(home, invitation, publisher, name, Some(expected))
+    }
+
+    fn register(
+        &self,
+        home: &Path,
+        invitation: &[u8],
+        publisher: &Digest,
+        name: Option<&str>,
+        expected: Option<&Id>,
+    ) -> Result<RegisteredShare> {
         let opened = self.recipient.open(invitation, publisher)?;
         let id = &opened.permission.stream().stream_id;
+        if expected.is_some_and(|expected| expected.as_str() != id.as_str()) {
+            return Err(ShareCacheError::Invalid("database id"));
+        }
         if crate::registered_share::local_publication_id(home)?.as_ref() == Some(id) {
             return Err(ShareCacheError::Invalid(
                 "invitation names the local publication",
@@ -116,11 +152,18 @@ impl ShareCache {
             grant: None,
             grant_version: None,
             grant_expires_ms: None,
+            signed_log: false,
         });
         if let Some(name) = name {
             state.name = Some(name.to_owned());
         }
         state.expires_ms = opened.permission.expires_ms();
+        state.signed_log |= expected.is_some();
+        if state.signed_log {
+            state.grant = None;
+            state.grant_version = None;
+            state.grant_expires_ms = None;
+        }
         publish(
             &entry,
             previous.as_deref().map(Vec::as_slice),
@@ -170,6 +213,9 @@ impl ShareCache {
             .managed
             .as_mut()
             .ok_or(ShareCacheError::Invalid("managed registration"))?;
+        if state.signed_log {
+            return Err(ShareCacheError::Invalid("contributor grant"));
+        }
         if state
             .grant_version
             .is_some_and(|version| version > binding.version)
@@ -216,5 +262,6 @@ fn describe(home: &Path, id: &Id, registration: &Registration) -> Result<Registe
         environment: registration.environment,
         contributor_grant,
         contributor_expires_ms: state.grant_expires_ms,
+        signed_log: state.signed_log,
     })
 }

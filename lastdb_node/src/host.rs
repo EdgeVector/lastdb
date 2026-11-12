@@ -1,5 +1,6 @@
 //! Minimal-host boot: identity keyfile, E2E keys, and `FoldDB` construction.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -27,6 +28,8 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     pub(crate) owned: owned::Tables,
+    /// Open signed-log receiver stores, keyed by stable database id.
+    pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
 }
 
 impl Host {
@@ -99,6 +102,7 @@ impl Host {
             uds_workers: OnceLock::new(),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             owned,
+            received: tokio::sync::Mutex::new(HashMap::new()),
         })
     }
 
