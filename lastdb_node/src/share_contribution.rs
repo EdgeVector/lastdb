@@ -11,10 +11,8 @@ pub(crate) use crypto::inbox_key;
 pub(crate) use outbox::{submit_registered, validate_grant, SubmitError};
 
 use crate::cloud_backup_client::byte_backup::{ByteBackupClient, GuestAppendPermission};
-use crate::host::Host;
 use crate::share_invitation::ShareContact;
 use crate::share_publication::{self, PublicationIdentity, WriteMode};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::v2::{
     context::ContextReadRequest, contributions::ReadAudience, Stream, Version,
 };
@@ -23,12 +21,7 @@ use fold_db::canonical::CanonicalWriter;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use std::path::Path;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::time::Duration;
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::PublicKey;
 
 const MAX_WRITERS: usize = 12;
 const MAX_RULES: usize = 8;
@@ -259,111 +252,4 @@ async fn public_stream(
         scope: response.scope,
         stream_id: id.clone(),
     })
-}
-
-pub(crate) async fn follow(
-    host: Arc<Host>,
-    shutdown: Arc<AtomicBool>,
-    owner: &Path,
-    account: &AccountId,
-    publication: &Id,
-    inbox: &StaticSecret,
-    client: impl Fn() -> Result<ByteBackupClient, String>,
-) {
-    let mut registered = false;
-    while !shutdown.load(Ordering::Relaxed) {
-        let result = if registered {
-            pull(&host, owner, publication, inbox, &client).await
-        } else {
-            match register(&client, account, publication).await {
-                Ok(()) => {
-                    registered = true;
-                    Ok(())
-                }
-                Err(error) => Err(error),
-            }
-        };
-        if let Err(error) = result {
-            tracing::warn!(%error, "share contribution intake deferred");
-        }
-        tokio::time::sleep(Duration::from_secs(3)).await;
-    }
-}
-
-async fn register(
-    client: &impl Fn() -> Result<ByteBackupClient, String>,
-    account: &AccountId,
-    publication: &Id,
-) -> Result<(), String> {
-    let client = client()?;
-    let stream = public_stream(&client, account, publication).await?;
-    client
-        .set_read_audience(&stream, ReadAudience::PublicationReaders)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-async fn pull(
-    host: &Host,
-    owner: &Path,
-    publication: &Id,
-    inbox: &StaticSecret,
-    client: &impl Fn() -> Result<ByteBackupClient, String>,
-) -> Result<(), String> {
-    // Leave submissions queued until this home's signed accepted stream is open.
-    let runtime = host.db.db_ops().native_runtime();
-    let accepted = runtime.accepted_status();
-    if !runtime.captures_accepted() || accepted.snapshot_required || accepted.gap {
-        return Ok(());
-    }
-    let state = State::open(owner, "contributor-policy", publication)?;
-    let (mut policy, mut saved) = state.load::<Policy>()?;
-    if policy.writers.is_empty() {
-        return Ok(());
-    }
-    let client = client()?;
-    for index in 0..policy.writers.len() {
-        let grant = &policy.writers[index];
-        let stream = grant.stream.clone();
-        if grant.through != 0 {
-            client
-                .ack_contributions(&stream, grant.through)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        let entries = client
-            .read_contributions(&stream, grant.through)
-            .await
-            .map_err(|e| e.to_string())?;
-        for entry in entries {
-            let grant = &policy.writers[index];
-            let accepted = match URL_SAFE_NO_PAD
-                .decode(entry.ciphertext)
-                .map_err(|_| "invalid contribution encoding".to_owned())
-                .and_then(|bytes| {
-                    crypto::open::<Submission>(&bytes, inbox, &grant.writer, crypto::MUTATION)
-                }) {
-                Ok(submission)
-                    if &submission.publication == publication
-                        && submission.stream == stream
-                        && submission.version == grant.version
-                        && submission.sequence == entry.sequence
-                        && grant.operation.is_some() =>
-                {
-                    apply::apply(host, &grant.writer, &grant.rules, submission.request).await?
-                }
-                _ => false,
-            };
-            policy.writers[index].through = entry.sequence;
-            saved = Some(state.save(&policy, saved.as_deref().map(Vec::as_slice))?);
-            tracing::info!(publication = %publication.as_str(), sequence = entry.sequence, accepted, "share contribution decided");
-        }
-        if policy.writers[index].through != 0 {
-            client
-                .ack_contributions(&stream, policy.writers[index].through)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-    }
-    Ok(())
 }

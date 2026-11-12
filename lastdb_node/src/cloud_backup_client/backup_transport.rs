@@ -245,15 +245,6 @@ impl BackupTransport {
             .await
     }
 
-    /// Read exactly `bytes` bytes with no stored SHA-256 (record blob objects).
-    pub(crate) async fn open_exact_length(
-        &self,
-        bytes: u64,
-        grant: TemporaryGrant<'_>,
-    ) -> Result<ObjectStream> {
-        self.open_bounded(bytes, None, grant).await
-    }
-
     async fn open_bounded(
         &self,
         bytes: u64,

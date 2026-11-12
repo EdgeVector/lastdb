@@ -15,6 +15,7 @@ use lastdb_node::lastdb_uds::uds_router;
 use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;

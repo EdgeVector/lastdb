@@ -70,7 +70,6 @@ impl std::error::Error for DrainError {}
 
 #[derive(Default)]
 struct State {
-    next_token: u64,
     pause: Option<Arc<AtomicBool>>,
     thread: Option<JoinHandle<()>>,
     panicked: bool,
@@ -112,58 +111,6 @@ impl BackupRuntime {
     }
     pub fn wake(&self) {
         self.changed.send_modify(|_| {});
-    }
-    pub(crate) fn acknowledge_completion(&self, request: &Id) {
-        self.changed.send_modify(|s| {
-            if s.last_completion
-                .as_ref()
-                .is_some_and(|d| &d.invocation.request_id == request)
-            {
-                s.last_completion = None;
-            }
-        });
-    }
-
-    pub(crate) fn check_admission(&self) -> Result<()> {
-        (!self.changed.borrow().shutting_down)
-            .then_some(())
-            .ok_or(BackupError::Shutdown)
-    }
-
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        request_id: Id,
-        run: impl FnOnce(Arc<AtomicBool>) -> InvocationOutcome + Send + 'static,
-    ) -> Result<()> {
-        self.check_admission()?;
-        let mut state = self.state.lock().map_err(|_| BackupError::WorkerPanic)?;
-        if self.changed.borrow().active.is_some() {
-            return Err(BackupError::Busy);
-        }
-        state.join_prev();
-        state.next_token = state.next_token.checked_add(1).ok_or(BackupError::Limit)?;
-        let inv = Invocation {
-            request_id,
-            token: state.next_token,
-        };
-        let pause = Arc::new(AtomicBool::new(false));
-        let (rt, done_inv, wp) = (Arc::clone(self), inv.clone(), Arc::clone(&pause));
-        let thread = std::thread::Builder::new()
-            .name("lastdb-native-backup".into())
-            .spawn(move || {
-                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(wp)))
-                    .unwrap_or(InvocationOutcome::Paused(BackupError::WorkerPanic.pause_state()));
-                let mut st = lock_unpoisoned(&rt.state);
-                st.pause = None;
-                st.panicked |= matches!(outcome, InvocationOutcome::Paused(p) if p.reason == PauseReason::WorkerPanic);
-                rt.changed.send_modify(|s| {
-                    (s.active, s.last_completion) = (None, Some(Completion { invocation: done_inv, outcome }));
-                });
-            })
-            .map_err(|_| BackupError::Source)?;
-        (state.pause, state.thread) = (Some(pause), Some(thread));
-        self.changed.send_modify(|s| s.active = Some(inv));
-        Ok(())
     }
 
     pub fn begin_shutdown(&self) {

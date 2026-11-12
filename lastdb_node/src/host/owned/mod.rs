@@ -354,7 +354,7 @@ fn ensure_free(state: &State, name: &str) -> Result<(), OwnedError> {
     }
 }
 
-pub(super) fn snapshot(state: &State) -> registry::RegistryFile {
+fn snapshot(state: &State) -> registry::RegistryFile {
     registry::RegistryFile {
         format: registry::FORMAT,
         owner: state.registry_owner.clone(),
