@@ -76,9 +76,9 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
     if inner.blocked || inner.state.as_ref().is_some_and(|state| state.gap) {
         return Err(Error::Gap);
     }
-    let head = inner.state.as_ref().map(|state| state.head).unwrap_or(0);
-    let acked = inner.state.as_ref().map(|state| state.acked).unwrap_or(0);
-    let last = pending.notes.last().map(|note| note.sequence).unwrap_or(0);
+    let head = inner.state.as_ref().map_or(0, |state| state.head);
+    let acked = inner.state.as_ref().map_or(0, |state| state.acked);
+    let last = pending.notes.last().map_or(0, |note| note.sequence);
     if head >= last {
         return match files::require_installed(root, head, acked, &pending.notes) {
             Ok(()) => files::retire_files(root),
@@ -117,28 +117,21 @@ pub(super) fn read_page(
     let mut items = Vec::new();
     let mut held = 0u64;
     for sequence in (after + 1)..=last {
-        let weight = match files::entry_weight(root, sequence) {
-            Ok(weight) => weight,
-            Err(_) => {
-                let _ = files::gap(root, inner);
-                return Err(Error::Gap);
-            }
+        let Ok(weight) = files::entry_weight(root, sequence) else {
+            let _ = files::gap(root, inner);
+            return Err(Error::Gap);
         };
         if !items.is_empty() && held.saturating_add(weight) > files::page_budget() {
             break;
         }
-        match load_entry(root, sequence) {
-            Ok(entry) => {
-                held = held.saturating_add(weight);
-                items.push(entry);
-            }
-            Err(_) => {
-                let _ = files::gap(root, inner);
-                return Err(Error::Gap);
-            }
-        }
+        let Ok(entry) = load_entry(root, sequence) else {
+            let _ = files::gap(root, inner);
+            return Err(Error::Gap);
+        };
+        held = held.saturating_add(weight);
+        items.push(entry);
     }
-    let through = items.last().map(|entry| entry.sequence).unwrap_or(after);
+    let through = items.last().map_or(after, |entry| entry.sequence);
     Ok((through, items))
 }
 
@@ -197,7 +190,7 @@ pub(super) fn release_acked(root: &Path, through: u64) -> Result<(), Error> {
 }
 
 pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<PendingNote>, Error> {
-    let mut next = inner.state.as_ref().map(|state| state.head).unwrap_or(0);
+    let mut next = inner.state.as_ref().map_or(0, |state| state.head);
     let mut added = 0u64;
     let mut planned = Vec::new();
     for note in notes {
@@ -216,18 +209,14 @@ pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<Pen
             None => {}
         }
         next = next.checked_add(1).ok_or(Error::Unavailable)?;
-        let file_len = note.file.as_ref().map(Vec::len).unwrap_or(0) as u64;
+        let file_len = note.file.as_ref().map_or(0, Vec::len) as u64;
         added = added
             .checked_add(note.envelope.len() as u64)
             .and_then(|sum| sum.checked_add(file_len))
             .ok_or(Error::Spool)?;
         planned.push(files::pending_note(next, note));
     }
-    let retained = inner
-        .state
-        .as_ref()
-        .map(|state| state.retained_bytes)
-        .unwrap_or(0);
+    let retained = inner.state.as_ref().map_or(0, |state| state.retained_bytes);
     if retained
         .checked_add(added)
         .is_none_or(|total| total > super::spool_cap())

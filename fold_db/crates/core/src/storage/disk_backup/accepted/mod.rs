@@ -100,13 +100,16 @@ impl PackRuntime {
 
     /// Cursor of this home. A home without capture has an empty cursor and does not block writes.
     pub fn accepted_status(&self) -> Status {
-        self.accepted.as_ref().map(Log::status).unwrap_or(Status {
-            head: 0,
-            acked: 0,
-            opened_frontier: 0,
-            snapshot_required: false,
-            gap: false,
-        })
+        self.accepted.as_ref().map_or(
+            Status {
+                head: 0,
+                acked: 0,
+                opened_frontier: 0,
+                snapshot_required: false,
+                gap: false,
+            },
+            Log::status,
+        )
     }
 
     /// Sealed entries with sequence greater than `after`, at most `limit`.

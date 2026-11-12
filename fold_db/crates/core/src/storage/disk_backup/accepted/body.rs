@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 const BODY_MAX: usize = 1024 * 1024;
 
 #[derive(Serialize)]
-struct Body<'a> {
+pub(super) struct Body<'a> {
     version: u16,
     mutation_id: &'a str,
     kind: &'a str,

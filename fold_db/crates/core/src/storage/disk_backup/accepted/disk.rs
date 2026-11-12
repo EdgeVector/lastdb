@@ -99,16 +99,16 @@ impl Log {
     }
 
     pub(super) fn status(&self) -> Status {
-        self.inner
-            .lock()
-            .map(|inner| inner.status())
-            .unwrap_or(Status {
+        self.inner.lock().map_or(
+            Status {
                 head: 0,
                 acked: 0,
                 opened_frontier: 0,
                 snapshot_required: true,
                 gap: true,
-            })
+            },
+            |inner| inner.status(),
+        )
     }
 
     pub(super) fn prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
@@ -189,12 +189,10 @@ impl Inner {
     fn status(&self) -> Status {
         let state = self.state.as_ref();
         Status {
-            head: state.map(|state| state.head).unwrap_or(0),
-            acked: state.map(|state| state.acked).unwrap_or(0),
-            opened_frontier: state.map(|state| state.opened_frontier).unwrap_or(0),
-            snapshot_required: state
-                .map(|state| state.snapshot_required)
-                .unwrap_or(self.history),
+            head: state.map_or(0, |state| state.head),
+            acked: state.map_or(0, |state| state.acked),
+            opened_frontier: state.map_or(0, |state| state.opened_frontier),
+            snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
             gap: self.blocked || state.is_some_and(|state| state.gap),
         }
     }
@@ -246,8 +244,7 @@ impl Inner {
         let needed = self
             .state
             .as_ref()
-            .map(|state| state.opened_frontier)
-            .unwrap_or(self.frontier);
+            .map_or(self.frontier, |state| state.opened_frontier);
         if covered < needed {
             return Err(Error::Snapshot);
         }
