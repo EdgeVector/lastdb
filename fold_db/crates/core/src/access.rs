@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 pub use peer_cred::{PeerCredVerdict, PeerCredential};
 
-/// Request identity context for local callers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessContext {
     pub user_id: String,
@@ -23,7 +22,6 @@ impl AccessContext {
 pub mod peer_cred {
     use serde::{Deserialize, Serialize};
 
-    /// OS peer credentials read from a connected Unix-domain socket.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct PeerCredential {
         uid: u32,
@@ -43,7 +41,6 @@ pub mod peer_cred {
         }
     }
 
-    /// Outcome of the [`PeerCredential::evaluate`] same-user gate.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case", tag = "verdict")]
     pub enum PeerCredVerdict {
@@ -68,10 +65,9 @@ pub mod peer_cred {
                 &mut len,
             )
         };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(val)
+        (rc == 0)
+            .then_some(val)
+            .ok_or_else(std::io::Error::last_os_error)
     }
 
     #[cfg(target_os = "linux")]

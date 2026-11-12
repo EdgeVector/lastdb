@@ -9,7 +9,7 @@ use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, Query, QueryCursor};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::reply::{render, HostError};
 use super::schema_resolve::resolve_schema_name;
@@ -96,7 +96,7 @@ async fn execute_query_scoped(
     cursor: Option<QueryCursor>,
     response_format: QueryResponseFormat,
 ) -> Result<Value, HostError> {
-    let requested_schema = query.schema_name.clone();
+    let requested = query.schema_name.clone();
     if let Some(canonical) = resolve_schema_name(host, &query.schema_name)? {
         query.schema_name = canonical;
     } else if query
@@ -120,10 +120,7 @@ async fn execute_query_scoped(
             .schema_manager()
             .get_schema_metadata(&query.schema_name)
             .map_err(|e| HostError::internal(e.to_string()))?;
-        return Err(full_schema_scan_rejection(
-            &requested_schema,
-            schema.as_ref(),
-        ));
+        return Err(full_schema_scan_rejection(&requested, schema.as_ref()));
     }
     if query.key_name.is_some() {
         return alternate_execute(host, query, limit, offset, cursor, response_format).await;
@@ -134,9 +131,9 @@ async fn execute_query_scoped(
             "Query cursors require ascending keyed reads; use an offset for descending reads",
         ));
     }
-    let comparison = capture_key_comparison(host, &query.schema_name).await?;
-    let (query, cursor, binding) = prepare_comparison(query, cursor, comparison.as_deref())?;
-    let future = execute_primary_query(
+    let cmp = capture_key_comparison(host, &query.schema_name).await?;
+    let (query, cursor, binding) = prepare_comparison(query, cursor, cmp.as_deref())?;
+    let fut = execute_primary_query(
         host,
         query,
         clamp_request_limit(limit),
@@ -145,9 +142,10 @@ async fn execute_query_scoped(
         binding,
         response_format,
     );
-    match comparison {
-        Some(comparison) => comparison.run(future).await,
-        None => future.await,
+    if let Some(cmp) = cmp {
+        cmp.run(fut).await
+    } else {
+        fut.await
     }
 }
 
@@ -180,7 +178,7 @@ async fn alternate_execute(
             .query_executor()
             .count_alternate_rows(&query)
             .await?;
-        return Ok(serde_json::json!({"total_count": count, "exact": true}));
+        return Ok(json!({"total_count": count, "exact": true}));
     }
     let limit = clamp_request_limit(limit);
     let page = host
@@ -237,7 +235,7 @@ async fn execute_primary_query(
                 "expected_total_count differs from the exact keyed count",
             ));
         }
-        return Ok(serde_json::json!({"total_count": count, "exact": true}));
+        return Ok(json!({"total_count": count, "exact": true}));
     }
     let desc = matches!(query.sort_order, Some(SortOrder::Desc));
     let total = if query.expected_total_count.is_some() || (cursor.is_none() && desc) {
@@ -249,14 +247,13 @@ async fn execute_primary_query(
         None
     };
     let Some(window) = keyed_window(&query, limit, offset, cursor.as_ref(), total)? else {
-        let (all_results, _) =
-            execute_query_rows_windowed(host, query, None, response_format).await?;
-        return Ok(materialized_page_payload(all_results, limit, offset));
+        let (all, _) = execute_query_rows_windowed(host, query, None, response_format).await?;
+        return Ok(materialized_page_payload(all, limit, offset));
     };
     let (page, end) =
         execute_query_rows_windowed(host, query, Some(window), response_format).await?;
-    Ok(match (!desc, total) {
-        (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset),
+    Ok(match (desc, total) {
+        (true, Some(total)) => overfetched_offset_payload(page, total, limit, offset),
         (_, total) => cursor_payload(
             page,
             total,

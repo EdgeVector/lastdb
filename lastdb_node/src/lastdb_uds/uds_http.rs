@@ -14,7 +14,6 @@ pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 
 const MAX_HEADER_COUNT: usize = 256;
-const BUSY_ERROR_QUEUE_FULL: &str = "uds_worker_queue_full";
 const UDS_CONN_BUDGET: Duration = Duration::from_secs(10);
 
 /// A request read off the control socket.
@@ -105,8 +104,12 @@ fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, 
         .ok_or(UdsHttpError::HeadersTooLarge)
 }
 
-fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
-    let [method, target, version] = std::str::from_utf8(line)
+fn read_request<R: BufRead>(
+    mut reader: R,
+    allow_owner_blob: bool,
+) -> Result<UdsRequest, UdsHttpError> {
+    let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::Silent)?;
+    let [method, target, version] = std::str::from_utf8(&line)
         .map_err(|_| UdsHttpError::BadRequest)?
         .split(' ')
         .collect::<Vec<_>>()[..]
@@ -119,15 +122,7 @@ fn parse_request_line(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     if version != "HTTP/1.0" && version != "HTTP/1.1" {
         return Err(UdsHttpError::UnsupportedHttpVersion);
     }
-    Ok((method.to_string(), target.to_string()))
-}
-
-fn read_request<R: BufRead>(
-    mut reader: R,
-    allow_owner_blob: bool,
-) -> Result<UdsRequest, UdsHttpError> {
-    let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::Silent)?;
-    let (method, target) = parse_request_line(&line)?;
+    let (method, target) = (method.to_string(), target.to_string());
     let (mut headers, mut header_bytes) = (Vec::new(), 0usize);
     loop {
         let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::BadRequest)?;
@@ -216,10 +211,13 @@ fn read_body(
 }
 
 pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
-    let body = format!(r#"{{"status":"busy","error":"{BUSY_ERROR_QUEUE_FULL}"}}"#);
-    let resp = UdsResponse::new(503, "Service Unavailable", body.into_bytes())
-        .with_header("Content-Type", "application/json")
-        .with_header("Retry-After", "1");
+    let resp = UdsResponse::new(
+        503,
+        "Service Unavailable",
+        br#"{"status":"busy","error":"uds_worker_queue_full"}"#.to_vec(),
+    )
+    .with_header("Content-Type", "application/json")
+    .with_header("Retry-After", "1");
     write_with_budget(stream, &resp, Duration::from_secs(2))
 }
 
@@ -230,14 +228,14 @@ struct DeadlineStream<'a> {
 
 impl DeadlineStream<'_> {
     fn arm(&self, set: impl Fn(Option<Duration>) -> io::Result<()>) -> io::Result<()> {
-        let remaining = self.deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        let rem = self.deadline.saturating_duration_since(Instant::now());
+        if rem.is_zero() {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "uds: aggregate per-connection deadline exhausted",
             ));
         }
-        set(Some(remaining))
+        set(Some(rem))
     }
 }
 

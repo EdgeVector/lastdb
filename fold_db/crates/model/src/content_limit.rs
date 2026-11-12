@@ -1,30 +1,9 @@
-//! The fixed numbers and text of the field value size limit.
-//!
-//! These are data. The shell reads the environment once and passes the parsed
-//! usize to core (`fold_db::content_limit`). The status reports that limit.
-//!
-//! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
-//! writes.
+//! Fixed numbers and hint text for field-value and record size limits.
 
-/// Product default hard limit (256 KiB). Prefer core's
-/// `max_field_value_bytes` at runtime so env overrides apply.
 pub const DEFAULT_MAX_FIELD_VALUE_BYTES: usize = 256 * 1024;
-
-/// Absolute ceiling even if `LASTDB_MAX_FIELD_VALUE_BYTES` is set higher.
-/// Keeps the abuse fence while allowing limited ops headroom.
 pub const ABSOLUTE_MAX_FIELD_VALUE_BYTES: usize = 1024 * 1024;
-
-/// Floor for the configured limit (reject absurdly small ops knobs).
 pub const MIN_MAX_FIELD_VALUE_BYTES: usize = 1024;
-
-/// Env var name that raises/lowers the field value limit within
-/// \[`MIN_MAX_FIELD_VALUE_BYTES`, `ABSOLUTE_MAX_FIELD_VALUE_BYTES`\].
-/// The model only names it. The shell reads it once and passes the usize to core.
 pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
-
-/// Guidance for a record of a home above its 64 KiB cap
-/// (`record_value::MAX_RECORD_BYTES`). The `413` body `hint` and the error
-/// message both carry this text.
 pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
     encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
     (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \

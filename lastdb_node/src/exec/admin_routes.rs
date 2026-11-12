@@ -7,6 +7,7 @@ use serde_json::json;
 
 use super::reply::{envelope, error_response, json_ok, mapped_error_response};
 use super::wire::query_value;
+use crate::byte_cloud_backup::{self, ByteBackupRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -26,15 +27,17 @@ pub(in crate::exec) fn execute_status_route(ctx: &AccessContext, host: &Host) ->
             "queue_full_rejects": s.queue_full_rejects,
         })
     });
-    let durability = match crate::byte_cloud_backup::status(host) {
-        Ok(s) => json!({
-            "observed": true, "automatic_enabled": s.automatic_backup_enabled,
-            "running": s.running, "phase": s.phase,
-            "degraded": s.blocked_reason.is_some()
-                || s.automatic_backup.as_ref().is_some_and(|a| a.paused.is_some()),
-        }),
-        Err(_) => json!({ "observed": false, "automatic_enabled": false, "running": false }),
-    };
+    let durability = crate::byte_cloud_backup::status(host).map_or_else(
+        |_| json!({ "observed": false, "automatic_enabled": false, "running": false }),
+        |s| {
+            json!({
+                "observed": true, "automatic_enabled": s.automatic_backup_enabled,
+                "running": s.running, "phase": s.phase,
+                "degraded": s.blocked_reason.is_some()
+                    || s.automatic_backup.as_ref().is_some_and(|a| a.paused.is_some()),
+            })
+        },
+    );
     let status = json!({
         "build": { "version": crate::version::build_version() },
         "process_start_ts": host.process_start_ts, "uptime_secs": uptime_secs,
@@ -250,7 +253,7 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
                 400,
                 &format!("invalid /api/db/schema-retention body: {e}"),
                 ctx,
-            );
+            )
         }
     };
     if body.schema.is_empty() {
@@ -311,5 +314,47 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             &ctx.user_id,
         )),
         Err(e) => error_response(400, &format!("schema retention failed: {e}"), ctx),
+    }
+}
+
+pub(in crate::exec) async fn execute_byte_backup(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "byte backup is owner-only", ctx);
+    }
+    if req.body.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
+        return error_response(413, "byte backup request exceeds its byte limit", ctx);
+    }
+    let Ok(request) = serde_json::from_slice::<ByteBackupRequest>(&req.body) else {
+        return error_response(400, "invalid byte backup request", ctx);
+    };
+    match byte_cloud_backup::request(host, request).await {
+        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
+        Err(error) => error_response(409, &error.to_string(), ctx),
+    }
+}
+
+pub(in crate::exec) async fn connect_byte_backup(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "byte backup connection is owner-only", ctx);
+    }
+    if req.body.len() > 8192 {
+        return error_response(413, "byte backup connection exceeds its byte limit", ctx);
+    }
+    let Ok(request) =
+        serde_json::from_slice::<byte_cloud_backup::SensitiveConnectionRequest>(&req.body)
+    else {
+        return error_response(400, "invalid byte backup connection", ctx);
+    };
+    match byte_cloud_backup::connect_existing(host, request).await {
+        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
+        Err(error) => error_response(409, &error.to_string(), ctx),
     }
 }

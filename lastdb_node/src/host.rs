@@ -1,6 +1,7 @@
-//! Minimal-host boot: identity keyfile, E2E keys, and `FoldDB` construction.
+//! Minimal-host boot, shutdown flush proof, identity keyfile, E2E keys, and `FoldDB` construction.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -8,6 +9,7 @@ use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
+use serde::Serialize;
 
 pub use crate::identity::{
     load_or_generate_seed_with_meta, user_hash_from_pubkey, IDENTITY_KEY_FILE,
@@ -16,6 +18,53 @@ pub use crate::identity::{
 mod recovery;
 pub use recovery::LAST_BOOT_ERROR_FILE;
 pub(crate) mod owned;
+
+const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
+
+#[derive(Serialize)]
+struct ShutdownFlushReceipt {
+    version: u32,
+    pid: u32,
+    start_ts: u64,
+    flush_ok: bool,
+}
+
+fn clear_shutdown_flush_receipt(home: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(home.join(SHUTDOWN_FLUSH_READY_FILE)) {
+        Ok(()) => std::fs::File::open(home)?.sync_all(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Write proof after request and background writers stop and the final flush succeeds.
+pub fn write_shutdown_flush_receipt(home: &Path, pid: u32, start_ts: u64) -> std::io::Result<()> {
+    if pid == 0 || start_ts == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid shutdown flush receipt",
+        ));
+    }
+    let receipt = ShutdownFlushReceipt {
+        version: 1,
+        pid,
+        start_ts,
+        flush_ok: true,
+    };
+    let tmp = home.join(format!(
+        ".shutdown_flush_ready.tmp.{pid}.{}",
+        fold_db::clock::unix_nanos_wide()
+    ));
+    let bytes = serde_json::to_vec(&receipt).map_err(std::io::Error::other)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    std::fs::rename(&tmp, home.join(SHUTDOWN_FLUSH_READY_FILE))?;
+    std::fs::File::open(home)?.sync_all()
+}
 
 /// The booted minimal host: core database plus node identity and runtime handles.
 pub struct Host {
@@ -28,17 +77,15 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     pub(crate) owned: owned::Tables,
-    /// Open signed-log receiver stores, keyed by stable database id.
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
 }
 
 impl Host {
-    /// Boot the minimal host under `home` (`<home>/data`). Refuses to start fresh over
-    /// an existing store if opening or decrypting fails.
+    /// Boot the minimal host under `home` (`<home>/data`).
     pub async fn boot(home: &Path) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
-        crate::shutdown_receipt::clear_shutdown_flush_receipt(home)
+        clear_shutdown_flush_receipt(home)
             .map_err(|e| format!("could not clear prior shutdown proof: {e}"))?;
         let data_dir = home.join("data");
         std::fs::create_dir_all(&data_dir)

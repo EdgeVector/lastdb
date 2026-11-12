@@ -1,17 +1,15 @@
-//! Install instructions, atomic command links, and publisher transitions.
+//! Install instructions, step execution, atomic command links, and publisher transitions.
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command as ProcessCommand;
+use std::process::{Command as ProcessCommand, Stdio};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{managed::ManagedReceipt, ListEntry, Resolution};
-use crate::profile::endpoints::{
-    registry_ci_publisher_keys_for, registry_index_url_for, Environment,
-};
+use super::ListEntry;
 
 fn default_timeout() -> u64 {
     30
@@ -64,8 +62,10 @@ fn relative(path: &str) -> Result<PathBuf, String> {
 
 impl InstallPlan {
     pub fn load(source: &Path, app: &str) -> Result<Self, String> {
-        let raw = fs::read(source.join("lastdb-app.json")).map_err(|e| e.to_string())?;
-        let value: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+        let value: serde_json::Value = serde_json::from_slice(
+            &fs::read(source.join("lastdb-app.json")).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         if value["app_id"].as_str() != Some(app) {
             return Err("source manifest app_id differs from signed listing".into());
         }
@@ -125,6 +125,81 @@ impl InstallPlan {
         let value = serde_json::to_value(self).map_err(|e| e.to_string())?;
         let bytes = app_identity_crypto::canonicalize(&value).map_err(|e| e.to_string())?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
+    }
+}
+
+pub(crate) fn steps(
+    source: &Path,
+    home: &Path,
+    app: &str,
+    list: &[InstallStep],
+) -> Result<(), String> {
+    list.iter()
+        .try_for_each(|step| run_step(source, home, app, step))
+}
+
+fn run_step(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {
+    let mut cmd = ProcessCommand::new(&step.argv[0]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.args(&step.argv[1..])
+        .current_dir(source)
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(std::io::stderr()))
+        .stderr(Stdio::inherit());
+    for key in [
+        "HOME",
+        "PATH",
+        "TMPDIR",
+        "USER",
+        "LOGNAME",
+        "SSH_AUTH_SOCK",
+        "LASTDB_APPS_ROOT",
+        "LANG",
+        "LAST_STACK_APPS_OFF",
+    ] {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
+    }
+    cmd.env("LASTDB_HOME", home)
+        .env("LASTDB_DATA_DIR", home.join("data"))
+        .env(
+            "LASTDB_SOCKET",
+            crate::lastdb_uds::uds::socket_path(&home.join("data")),
+        )
+        .env("LASTDB_APP_ID", app)
+        .env("LASTDB_APP_SOURCE_DIR", source)
+        .env("LAST_STACK_SETUP_PRESERVE_SERVICES", "1");
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot run {}: {e}", step.argv[0]))?;
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return if status.code().is_some_and(|c| step.accept_exit.contains(&c)) {
+                Ok(())
+            } else {
+                Err(format!("install step {} exited {status}", step.argv[0]))
+            };
+        }
+        if start.elapsed() >= Duration::from_secs(step.timeout_s) {
+            #[cfg(unix)]
+            let _ = ProcessCommand::new("/bin/kill")
+                .args(["-KILL", &format!("-{}", child.id())])
+                .output();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "install step {} exceeded {} seconds",
+                step.argv[0], step.timeout_s
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -291,39 +366,4 @@ fn git_head(source: &Path) -> Result<String, String> {
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .ok_or_else(|| "git rev-parse HEAD failed".into())
-}
-
-pub(crate) fn authorized_transition(prior: &ManagedReceipt, resolution: &Resolution) -> bool {
-    let e = &resolution.entry;
-    if !prior.trust.starts_with("pinned:")
-        || !resolution.trust.starts_with("pinned:")
-        || prior.app_id != e.app_id
-        || prior.publisher != prior.listing.publisher_key
-        || prior.listing.source != e.source
-    {
-        return false;
-    }
-    [Environment::Dev, Environment::Prod]
-        .into_iter()
-        .any(|env| {
-            let source = match (env, e.app_id.as_str()) {
-                (Environment::Prod, "brain" | "lastsecrets" | "search") => {
-                    format!("https://github.com/EdgeVector/{}.git", e.app_id)
-                }
-                (Environment::Dev, "registry-daily-dev") => {
-                    "https://github.com/EdgeVector/lastdb-app-registry.git".to_owned()
-                }
-                _ => return false,
-            };
-            let base = registry_index_url_for(env);
-            let (owner, delegate) = registry_ci_publisher_keys_for(env);
-            let ok_keys = (prior.publisher == owner && e.publisher_key == delegate)
-                || (prior.publisher == delegate && e.publisher_key == owner);
-            !delegate.is_empty()
-                && !owner.is_empty()
-                && ok_keys
-                && e.source == source
-                && prior.index == base
-                && resolution.index == format!("{base}/{}/api/{}.json", e.channel, e.api_version)
-        })
 }

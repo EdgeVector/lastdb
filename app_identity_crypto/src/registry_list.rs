@@ -16,8 +16,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    canonicalize, hex_lower, key_id, sign, verify, verifying_key_from_base64, SigningKey,
-    VerifyingKey, SIGNATURE_LEN,
+    canonicalize, hex_lower, key_id, verify, verifying_key_from_base64, VerifyingKey, SIGNATURE_LEN,
 };
 
 /// Registry KMS Ed25519 public key. The private half never leaves AWS KMS.
@@ -32,7 +31,7 @@ pub const MAX_LIST_BYTES: usize = 2_097_152;
 /// The most apps one list may name.
 pub const MAX_LIST_APPS: usize = 500;
 
-/// The detached signature file next to a list (or a legacy index).
+/// The detached signature file next to a list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexSignature {
     /// Signature algorithm. Only `ed25519` is accepted.
@@ -43,23 +42,6 @@ pub struct IndexSignature {
     pub payload_sha256: String,
     /// Base64 Ed25519 signature over the ASCII bytes of `payload_sha256`.
     pub sig: String,
-}
-
-/// Sign the exact bytes of a list or index file.
-///
-/// The digest covers the bytes; the signature covers the digest. A reader
-/// hashes what it downloaded and refuses on either mismatch, so a signature
-/// cannot be moved onto a different file.
-#[must_use]
-pub fn sign_index_bytes(key: &SigningKey, index_bytes: &[u8]) -> IndexSignature {
-    let payload_sha256 = sha256_hex(index_bytes);
-    let sig = sign(key, payload_sha256.as_bytes());
-    IndexSignature {
-        alg: "ed25519".to_string(),
-        key_id: key_id(&key.verifying_key()),
-        payload_sha256,
-        sig: BASE64.encode(sig),
-    }
 }
 
 /// Verify a detached signature against the exact bytes under `trust`.

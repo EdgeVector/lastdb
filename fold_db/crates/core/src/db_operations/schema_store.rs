@@ -27,22 +27,23 @@ pub struct SchemaStore {
     schemas_store: ReadStore,
     pub(super) schema_states_store: ReadStore,
     pub(super) format: SchemaFormat,
-    runtime: Arc<crate::storage::disk_pack::PackRuntime>,
+    pub(super) runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     content_key: [u8; 32],
-    retention_floors: Arc<RetentionFloors>,
+    pub(super) retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
     pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32]) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
+        let retention_floors = Arc::default();
         Self {
             schemas_store,
             schema_states_store,
             format,
             runtime,
             content_key,
-            retention_floors: Arc::default(),
+            retention_floors,
         }
     }
 
@@ -266,8 +267,7 @@ async fn read_catalog_range<T: DeserializeOwned>(
     start: &[u8],
     end: &[u8],
 ) -> Result<Vec<(String, T)>, SchemaError> {
-    let mut cursor = start.to_vec();
-    let mut out = Vec::new();
+    let (mut cursor, mut out) = (start.to_vec(), Vec::new());
     loop {
         let page = store
             .scan_range_paged(&cursor, end, CATALOG_PAGE_ROWS)

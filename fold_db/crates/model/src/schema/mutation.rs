@@ -1,5 +1,4 @@
-use super::cas::CasExpectation;
-use super::{key_value::KeyValue, operations::MutationType};
+use super::types::{cas::CasExpectation, key_value::KeyValue, operations::MutationType};
 use crate::canonical::{push_field, CanonicalValue};
 use crate::record_replacement::RecordTarget;
 use crate::record_value::FileMarker;
@@ -14,7 +13,6 @@ fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
 }
 
-/// Format instance authority to issue and admit sealed or local-path file data.
 #[derive(Default)]
 pub struct FileWriteIssuer {
     identity: Arc<()>,
@@ -52,7 +50,6 @@ impl LocalFileReference {
     pub fn marker(&self) -> &FileMarker {
         &self.0.marker
     }
-
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.0.data
@@ -102,7 +99,6 @@ impl FileWrite {
     pub fn row_len(&self) -> usize {
         self.sealed_row().map_or(0, <[u8]>::len)
     }
-
     #[must_use]
     pub fn sealed_row(&self) -> Option<&[u8]> {
         match self {
@@ -110,7 +106,6 @@ impl FileWrite {
             Self::LocalPath(_) | Self::Clear => None,
         }
     }
-
     #[must_use]
     pub fn local_reference(&self) -> Option<&LocalFileReference> {
         match self {
@@ -137,7 +132,6 @@ impl std::fmt::Debug for FileWrite {
     }
 }
 
-/// Native preconditions supplied after verifying a signed share contribution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContributionAdmission {
     pub definition_id: String,

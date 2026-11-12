@@ -1,13 +1,8 @@
 //! Tiny socket-only LastDB operator CLI.
 
-#[path = "lastdb/admin_cmds.rs"]
-mod admin_cmds;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
 use app_cmds::*;
-#[path = "lastdb/schema_record_cmds.rs"]
-mod schema_record_cmds;
-use schema_record_cmds::*;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 use record_get_cmds::*;
@@ -36,6 +31,14 @@ use clap::{Args, Parser, Subcommand};
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;
 use cli_defs::*;
+
+pub(crate) fn durable_mutation_client_timeout() -> Duration {
+    lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
+}
+
+pub(crate) fn admin_scan_client_timeout() -> Duration {
+    lastdb_node::exec::admin_handler_timeout()
+}
 
 mod socket_client {
     use super::*;
@@ -74,15 +77,15 @@ mod socket_client {
         id: Option<uuid::Uuid>,
     ) -> Result<String, String> {
         let body = serde_json::to_vec(body).map_err(|e| format!("failed to encode JSON: {e}"))?;
-        let id_header = id.map_or_else(String::new, |id| format!("Idempotency-Key: {id}\r\n"));
-        let mut request = format!(
-            "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}{id_header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        let id_hdr = id.map_or_else(String::new, |id| format!("Idempotency-Key: {id}\r\n"));
+        let mut req = format!(
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\n{}{id_hdr}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             client_headers(),
             body.len()
         )
         .into_bytes();
-        request.extend_from_slice(&body);
-        request_with_timeout(socket, &request, timeout)
+        req.extend_from_slice(&body);
+        request_with_timeout(socket, &req, timeout)
     }
 
     pub(crate) fn request_with_timeout(
@@ -99,9 +102,9 @@ mod socket_client {
         bytes: &[u8],
         timeout: Duration,
     ) -> SocketRequestResult {
-        let response = request_with_timeout_raw_bytes(socket, bytes, timeout)?;
+        let resp = request_with_timeout_raw_bytes(socket, bytes, timeout)?;
         let started = Instant::now();
-        String::from_utf8(response).map_err(|e| {
+        String::from_utf8(resp).map_err(|e| {
             (
                 "decode response",
                 std::io::Error::new(ErrorKind::InvalidData, e),
@@ -126,12 +129,12 @@ mod socket_client {
         stream
             .write_all(bytes)
             .map_err(|e| ("write request", e, Duration::ZERO))?;
-        let mut response = Vec::new();
+        let mut resp = Vec::new();
         let started = Instant::now();
         stream
-            .read_to_end(&mut response)
+            .read_to_end(&mut resp)
             .map_err(|e| ("read response", e, started.elapsed()))?;
-        Ok(response)
+        Ok(resp)
     }
 
     pub(crate) fn request_readonly_with_retry(
@@ -141,14 +144,14 @@ mod socket_client {
     ) -> Result<String, String> {
         let started = Instant::now();
         for attempt in 1..=3usize {
-            let attempt_timeout = timeout
+            let budget = timeout
                 .saturating_sub(started.elapsed())
                 .max(Duration::from_millis(1));
-            match request_with_timeout_raw(socket, bytes, attempt_timeout) {
-                Ok(response) => return Ok(response),
+            match request_with_timeout_raw(socket, bytes, budget) {
+                Ok(resp) => return Ok(resp),
                 Err(("read response", err, elapsed))
                     if err.kind() == ErrorKind::WouldBlock
-                        && elapsed < attempt_timeout
+                        && elapsed < budget
                         && elapsed < Duration::from_secs(1) =>
                 {
                     if attempt == 3 {
@@ -188,11 +191,11 @@ mod socket_client {
             b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
             Duration::from_secs(2),
         )?;
-        let first_line = raw.lines().next().unwrap_or("");
-        if first_line.starts_with("HTTP/1.1 200") || first_line.starts_with("HTTP/1.0 200") {
+        let line = raw.lines().next().unwrap_or("");
+        if line.starts_with("HTTP/1.1 200") || line.starts_with("HTTP/1.0 200") {
             Ok(())
         } else {
-            Err(format!("unexpected /health status: {first_line}"))
+            Err(format!("unexpected /health status: {line}"))
         }
     }
 
@@ -246,19 +249,23 @@ fn main() {
         }
         observability::crash::write_panic_marker();
     }));
-    let cli = Cli::parse();
-    if let Err(error) = run(cli) {
+    if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
 fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf, PathBuf), String> {
-    let explicit_data_dir = data_dir.is_some();
+    let explicit = data_dir.is_some();
     let home = lastdb_node::host::resolve_home(data_dir)?;
-    let socket = match std::env::var_os("LASTDB_SOCKET_PATH").filter(|v| !v.is_empty()) {
-        Some(path) if !explicit_data_dir => lastdb_node::profile::paths::expand_tilde_path(path)?,
-        _ => lastdb_node::lastdb_uds::uds::socket_path(&home.join("data")),
+    let env_sock = (!explicit)
+        .then(|| std::env::var_os("LASTDB_SOCKET_PATH"))
+        .flatten()
+        .filter(|v| !v.is_empty());
+    let socket = if let Some(path) = env_sock {
+        lastdb_node::profile::paths::expand_tilde_path(path)?
+    } else {
+        lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"))
     };
     Ok((home, socket))
 }
@@ -314,7 +321,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 select_database(cli.data_dir, &selector, json)
             }
         },
-        Command::Admin { action } => admin_cmds::run(cli.data_dir, action),
+        Command::Admin { action } => run_admin(cli.data_dir, action),
         cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
             record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
         }

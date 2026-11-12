@@ -111,10 +111,7 @@ async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     }
     let elapsed_ms = started.elapsed().as_millis() as u64;
     if totals.schemas > 0 && totals.schemas_failed >= totals.schemas {
-        tracing::warn!(
-            target: "lastdbd::ttl_sweep", schemas = totals.schemas, elapsed_ms,
-            "ttl sweep failed: no schema succeeded"
-        );
+        tracing::warn!(target: "lastdbd::ttl_sweep", schemas = totals.schemas, elapsed_ms, "ttl sweep failed: no schema succeeded");
     } else if totals.erased > 0 || totals.dropped > 0 {
         tracing::info!(
             target: "lastdbd::ttl_sweep", removed = totals.erased,

@@ -192,7 +192,9 @@ pub(super) async fn finish_declare_retention(
         warnings.push(existing_warning(binding, ttl_seconds));
     }
     let notes = match outcome.status {
-        ManifestRetentionStatus::Applied => vec![format!("a new manifest TTL of {ttl_seconds}s is in force")],
+        ManifestRetentionStatus::Applied => {
+            vec![format!("a new manifest TTL of {ttl_seconds}s is in force")]
+        }
         ManifestRetentionStatus::Updated => vec![format!(
             "the manifest TTL changed from {}s to {ttl_seconds}s ({change})",
             prev_ttl.unwrap_or(0),
@@ -204,19 +206,12 @@ pub(super) async fn finish_declare_retention(
         )],
     };
     Ok(Some(json!({
-        "ttl_seconds": ttl_seconds,
-        "source": RetentionSource::Manifest.as_str(),
-        "anchor": anchor,
-        "change": change,
-        "previous_ttl_seconds": prev_ttl,
-        "age_rule": a.layout.age_rule,
-        "warnings": warnings,
+        "ttl_seconds": ttl_seconds, "source": RetentionSource::Manifest.as_str(),
+        "anchor": anchor, "change": change, "previous_ttl_seconds": prev_ttl,
+        "age_rule": a.layout.age_rule, "warnings": warnings,
         "existing_records_may_expire": a.existing_records_may_expire,
-        "shortened": shortened,
-        "confirmed_expire_existing": retention.confirmed(),
-        "status": outcome.status,
-        "effective": outcome.effective,
-        "notes": notes,
+        "shortened": shortened, "confirmed_expire_existing": retention.confirmed(),
+        "status": outcome.status, "effective": outcome.effective, "notes": notes,
     })))
 }
 
@@ -260,16 +255,17 @@ async fn assess(
     let new_policy = plan
         .as_ref()
         .is_ok_and(|p| p.status == ManifestRetentionStatus::Applied);
-    let existing_records_may_expire = match (layout.range_keyed && new_policy, metadata.as_ref()) {
-        (true, Some(schema)) => host
-            .records()
-            .db_ops()
-            .records()
-            .schema_may_hold_records(schema)
-            .await
-            .map_err(|e| format!("failed to probe the records of {anchor}: {e}"))?,
-        _ => false,
-    };
+    let existing_records_may_expire =
+        if let (true, Some(schema)) = (layout.range_keyed && new_policy, metadata.as_ref()) {
+            host.records()
+                .db_ops()
+                .records()
+                .schema_may_hold_records(schema)
+                .await
+                .map_err(|e| format!("failed to probe the records of {anchor}: {e}"))?
+        } else {
+            false
+        };
     Ok(Assessment {
         ttl_seconds,
         layout,

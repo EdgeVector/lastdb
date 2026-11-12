@@ -35,7 +35,7 @@ pub use error::{CanonicalizeError, DevCertVerifyError, KeyParseError, SignError,
 pub use hex::hex_lower;
 pub use jcs::canonicalize;
 pub use registry_list::{
-    github_repo, interface_list_path, sign_index_bytes, valid_app_id, valid_source,
-    validate_channel, verify_index_bytes, IndexSignature, InterfaceList, ListEntry, LIST_CHANNELS,
-    MAX_LIST_APPS, MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
+    github_repo, interface_list_path, valid_app_id, valid_source, validate_channel,
+    verify_index_bytes, IndexSignature, InterfaceList, ListEntry, LIST_CHANNELS, MAX_LIST_APPS,
+    MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
 };

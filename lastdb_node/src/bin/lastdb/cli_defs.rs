@@ -2,19 +2,85 @@
 
 use super::*;
 
-#[path = "cli_defs/admin.rs"]
-mod admin;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
-#[path = "cli_defs/app/lifecycle.rs"]
-mod lifecycle;
 #[path = "cli_defs/share.rs"]
 mod share;
 
-pub(super) use admin::*;
 pub(super) use cloud::*;
-pub(crate) use lifecycle::AppLifecycleCommand;
 pub(super) use share::*;
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AdminCommand {
+    /// Reclaim deleted space in active stores.
+    #[command(subcommand)]
+    Storage(AdminStorageCommand),
+    /// Prepare recovery credentials and operate on exact backup jobs.
+    #[command(subcommand)]
+    Backup(AdminBackupCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AdminStorageCommand {
+    /// Reclaim already-deleted v2 data in both active stores.
+    Cleanup {
+        #[arg(long)]
+        status: bool,
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        timeout: u64,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AdminBackupCommand {
+    /// Create one fresh DEV identity without starting a daemon.
+    Init(BackupInitArgs),
+    /// Resume the exact saved backup job on the owner daemon.
+    Resume(BackupJsonArgs),
+    /// Fence the saved job while retaining uncertain cloud byte obligations.
+    Close(BackupJsonArgs),
+    /// Inspect the exact recovery dependency closure without deleting anything.
+    InspectDependencies(BackupDependenciesArgs),
+    /// Register a credentials-only recovery device without opening a store.
+    RecoverCredentialsHome {
+        #[command(flatten)]
+        args: RecoverCredentialsArgs,
+        #[arg(long, conflicts_with = "invite_code_file")]
+        existing_dev: bool,
+    },
+    /// Prepare recovery credentials from an existing account without registering.
+    PrepareRecoveryHome(PrepareRecoveryArgs),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AppLifecycleCommand {
+    /// Publish this clean git commit for the running node's exact API version.
+    Publish {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Target registry environment (dev | prod). Default: prod.
+        #[arg(long)]
+        env: Option<String>,
+        #[arg(long)]
+        key_file: Option<PathBuf>,
+        /// Developer API key (default: $EXEMEM_DEV_API_KEY).
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Registry HTTP API base URL (default: $LASTDB_APP_REGISTRY_URL).
+        #[arg(long)]
+        registry_url: Option<String>,
+        /// Signed-list channel. Default: stable.
+        #[arg(long)]
+        channel: Option<String>,
+        /// Validate this checkout against the running node and write an unsigned declaration.
+        #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
+        prepare: Option<PathBuf>,
+    },
+}
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct RecordListArgs {
@@ -29,14 +95,6 @@ pub(crate) struct RecordListArgs {
     pub cursor: Option<String>,
     #[arg(long)]
     pub json: bool,
-}
-
-pub(super) fn durable_mutation_client_timeout() -> Duration {
-    lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
-}
-
-pub(super) fn admin_scan_client_timeout() -> Duration {
-    lastdb_node::exec::admin_handler_timeout()
 }
 
 #[derive(Parser, Debug)]
@@ -121,10 +179,8 @@ pub(super) enum DatabaseCommand {
         /// Allow only the owner to sync or read this database.
         #[arg(long, conflicts_with_all = ["spec_name", "spec_version"])]
         private: bool,
-        /// Spec catalog name. Required together with --spec-version.
         #[arg(long, requires = "spec_version")]
         spec_name: Option<String>,
-        /// Spec catalog version, an integer >= 1.
         #[arg(long, requires = "spec_name")]
         spec_version: Option<u32>,
         #[arg(long)]
@@ -243,12 +299,12 @@ pub(crate) enum BackupCommand {
 impl BackupCommand {
     pub(crate) fn into_cloud(self) -> Result<CloudCommand, String> {
         let action = match self {
-            Self::Status(args) => ByteBackupCommand::Status(args),
-            Self::Connect(args) => ByteBackupCommand::Connect(args),
-            Self::Policy(args) => args.into_action()?,
-            Self::Start(args) => ByteBackupCommand::Start(args),
-            Self::List(args) => ByteBackupCommand::Discover(args),
-            Self::Restore(selection) => ByteBackupCommand::Restore(selection.validate()?),
+            Self::Status(a) => ByteBackupCommand::Status(a),
+            Self::Connect(a) => ByteBackupCommand::Connect(a),
+            Self::Policy(a) => a.into_action()?,
+            Self::Start(a) => ByteBackupCommand::Start(a),
+            Self::List(a) => ByteBackupCommand::Discover(a),
+            Self::Restore(sel) => ByteBackupCommand::Restore(sel.validate()?),
         };
         Ok(CloudCommand::BackupV2 { action })
     }
@@ -264,16 +320,16 @@ pub(crate) struct BackupRestoreSelection {
 
 impl BackupRestoreSelection {
     fn validate(self) -> Result<BackupRestoreArgs, String> {
-        let args = self.args;
-        if args.resume.is_none()
+        let a = self.args;
+        if a.resume.is_none()
             && !self.latest
-            && (args.generation.is_none() || args.commit.is_none() || args.commit_sha256.is_none())
+            && (a.generation.is_none() || a.commit.is_none() || a.commit_sha256.is_none())
         {
             return Err(
                 "select --generation, --commit and --commit-sha256, or use --latest".into(),
             );
         }
-        Ok(args)
+        Ok(a)
     }
 }
 

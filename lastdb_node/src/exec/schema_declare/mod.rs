@@ -1,13 +1,13 @@
 //! App schema declarations own local values and reuse canonical definitions.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use fold_db::access::AccessContext;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema};
 use fold_db::schema::ManifestRetention;
 use schema_types::FieldValueType;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::reply::{envelope, error_response, json_ok};
 use crate::host::Host;
@@ -25,11 +25,11 @@ static DECLARE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
 
 #[derive(Debug)]
-pub(crate) struct DirectDeclareProposal {
-    pub(crate) namespace: String,
-    pub(crate) local_schema_id: String,
-    pub(crate) catalog_schema: DeclarativeSchemaDefinition,
-    pub(crate) retention: Option<ManifestRetention>,
+pub(super) struct DirectDeclareProposal {
+    pub(super) namespace: String,
+    pub(super) local_schema_id: String,
+    pub(super) catalog_schema: DeclarativeSchemaDefinition,
+    pub(super) retention: Option<ManifestRetention>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -109,7 +109,7 @@ fn declare_resolution_payload(
         .ok_or("declared schema has no catalog identity")?;
     let definition_id =
         schema_types::PortableSchemaId::from_catalog(catalog_id, declare.catalog_schema.to_wire())?;
-    Ok(serde_json::json!({
+    Ok(json!({
         "app_id": declare.namespace,
         "namespace": declare.namespace,
         "schema": declare.local_schema_id,
@@ -272,11 +272,7 @@ fn check_local(
     Ok(installed)
 }
 
-fn copy_missing<V: Clone>(
-    dst: &mut std::collections::HashMap<String, V>,
-    src: &std::collections::HashMap<String, V>,
-    field: &str,
-) {
+fn copy_missing<V: Clone>(dst: &mut HashMap<String, V>, src: &HashMap<String, V>, field: &str) {
     if let Some(val) = src.get(field) {
         dst.entry(field.to_string()).or_insert_with(|| val.clone());
     }
@@ -288,41 +284,39 @@ fn owned_schema(
 ) -> Result<Schema, String> {
     let mut schema = declare.catalog_schema.clone();
     schema.field_hashes.clear();
-    if let Some(installed) = installed {
-        let fields = schema.fields.clone().unwrap_or_default();
-        for field in fields {
-            let unchanged = installed.field_types.get(&field) == schema.field_types.get(&field)
-                && installed.field_descriptions.get(&field)
-                    == schema.field_descriptions.get(&field)
+    if let Some(inst) = installed {
+        for field in schema.fields.clone().unwrap_or_default() {
+            let unchanged = inst.field_types.get(&field) == schema.field_types.get(&field)
+                && inst.field_descriptions.get(&field) == schema.field_descriptions.get(&field)
                 && schema
                     .field_versions
                     .get(&field)
-                    .is_none_or(|v| installed.field_versions.get(&field) == Some(v));
+                    .is_none_or(|v| inst.field_versions.get(&field) == Some(v));
             if unchanged {
-                if let Some(hash) = installed.field_hashes.get(&field) {
-                    schema.field_hashes.insert(field.clone(), hash.clone());
+                if let Some(h) = inst.field_hashes.get(&field) {
+                    schema.field_hashes.insert(field.clone(), h.clone());
                 }
-                if let Some(version) = installed.field_versions.get(&field) {
-                    schema.field_versions.insert(field.clone(), *version);
+                if let Some(&v) = inst.field_versions.get(&field) {
+                    schema.field_versions.insert(field.clone(), v);
                 }
                 copy_missing(
                     &mut schema.field_declarations,
-                    &installed.field_declarations,
+                    &inst.field_declarations,
                     &field,
                 );
                 copy_missing(
                     &mut schema.field_classifications,
-                    &installed.field_classifications,
+                    &inst.field_classifications,
                     &field,
                 );
                 copy_missing(
                     &mut schema.field_interest_categories,
-                    &installed.field_interest_categories,
+                    &inst.field_interest_categories,
                     &field,
                 );
             }
         }
-        schema.name.clone_from(&installed.name);
+        schema.name.clone_from(&inst.name);
     }
     schema.ensure_field_hashes();
     schema.validate().map_err(|e| e.to_string())?;
@@ -342,10 +336,10 @@ async fn load_owned(
             reused: true,
         });
     }
-    let installed_schema = installed.as_ref().map(|(s, _)| s);
-    let runtime = installed_schema.map_or(declare.local_schema_id.as_str(), |s| s.name.as_str());
+    let inst = installed.as_ref().map(|(s, _)| s);
+    let runtime = inst.map_or(declare.local_schema_id.as_str(), |s| s.name.as_str());
     precheck_declare_retention(host, declare, runtime).await?;
-    let schema = owned_schema(declare, installed_schema)?;
+    let schema = owned_schema(declare, inst)?;
     host.records()
         .schema_manager()
         .load_schema_internal(schema)
@@ -353,7 +347,6 @@ async fn load_owned(
         .map_err(|e| e.to_string())?;
     Ok(DirectDeclareResolution {
         runtime_schema: runtime.to_string(),
-        reused: installed_schema
-            .is_some_and(|s| s.identity_hash == declare.catalog_schema.identity_hash),
+        reused: inst.is_some_and(|s| s.identity_hash == declare.catalog_schema.identity_hash),
     })
 }

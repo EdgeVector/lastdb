@@ -1,10 +1,6 @@
 //! Library surface of the minimal `lastdbd` daemon.
-//!
-//! The binary delegates host boot and owner-socket data routes to this library.
-//! Administrative modules share those product types without a second daemon.
 
 pub mod accepted_writes;
-pub mod app_publish;
 pub mod app_registry_index;
 pub mod backup_runtime;
 pub mod byte_cloud_backup;
@@ -20,7 +16,6 @@ pub mod identity;
 pub mod jobs;
 pub mod lastdb_uds;
 pub mod log_envelope;
-pub mod log_rotation;
 pub mod log_sync;
 pub mod named_grant;
 pub mod node_read;
@@ -37,7 +32,6 @@ pub mod share_file;
 pub mod share_invitation;
 pub mod share_publication;
 pub mod share_spec;
-pub mod shutdown_receipt;
 pub mod version;
 
 pub use host::Host;

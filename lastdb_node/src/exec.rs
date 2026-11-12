@@ -1,14 +1,15 @@
-//! Data-route executor for the `lastdbd` owner control socket.
+//! Data-route executor and wall-clock timeout budgets for the `lastdbd` owner control socket.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::schema::types::Schema;
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::{Query, Schema};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
-use crate::byte_cloud_backup::{self, ByteBackupRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::DataRoute;
@@ -47,15 +48,18 @@ mod database_read;
 mod database_routes;
 mod database_signed;
 mod file_blob;
-mod file_blob_put;
-mod list_keys_route;
 mod mutation;
 mod query;
 mod reply;
 mod schema_declare;
 mod schema_routes;
-mod timeouts;
 mod wire;
+
+mod list_keys_route {
+    pub(in crate::exec) use super::reply::{
+        alternate_list_report, decode_alternate_cursor, ListRecordKeysRequest,
+    };
+}
 
 mod schema_resolve {
     pub(in crate::exec) use super::schema_routes::{
@@ -63,9 +67,9 @@ mod schema_resolve {
     };
 }
 
-use file_blob::is_media_type;
-use reply::{content_free, envelope, error_response, json_ok, render, HostError};
-use timeouts::{data_route_budget, execute_data_route_with_timeout, with_handler_timeout_budget};
+use reply::{
+    content_free, envelope, error_response, json_ok, mapped_error_response, render, HostError,
+};
 use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
 pub use database_routes::{
@@ -73,11 +77,123 @@ pub use database_routes::{
 };
 pub use mutation::execute_deferred_mutation;
 pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
-pub use timeouts::{
-    admin_handler_timeout, admin_handler_timeout_override, block_on_admin_route,
-    block_on_data_route, block_on_route, handler_timeout, DEFAULT_CLI_UDS_TIMEOUT_SECS,
-};
 pub use wire::{parse_mutation_body, ParsedMutation, Reject};
+
+const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
+const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
+pub const DEFAULT_CLI_UDS_TIMEOUT_SECS: u64 = 30;
+
+fn secs_override(var: &str) -> Option<Duration> {
+    fold_db::env_flag::var_parsed::<u64>(var)
+        .filter(|&n| n > 0)
+        .map(Duration::from_secs)
+}
+
+#[must_use]
+pub fn handler_timeout() -> Duration {
+    secs_override("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
+        .unwrap_or(Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS))
+}
+
+#[must_use]
+pub fn admin_handler_timeout_override() -> Option<Duration> {
+    secs_override("LASTDB_UDS_ADMIN_TIMEOUT_SECS")
+}
+
+#[must_use]
+pub fn admin_handler_timeout() -> Duration {
+    admin_handler_timeout_override()
+        .unwrap_or(Duration::from_secs(DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS))
+}
+
+pub(in crate::exec) async fn with_handler_timeout_budget<F>(
+    ctx: &AccessContext,
+    budget: Duration,
+    fut: F,
+) -> UdsResponse
+where
+    F: std::future::Future<Output = UdsResponse>,
+{
+    if let Ok(resp) = tokio::time::timeout(budget, fut).await {
+        resp
+    } else {
+        tracing::warn!(
+            timeout_secs = budget.as_secs(),
+            "uds handler deadline exceeded; returning 503"
+        );
+        error_response(
+            503,
+            "node is busy: handler deadline exceeded; retry after 1s",
+            ctx,
+        )
+    }
+}
+
+pub fn block_on_route<Fut>(
+    handle: &tokio::runtime::Handle,
+    ctx: &AccessContext,
+    fut: Fut,
+) -> UdsResponse
+where
+    Fut: std::future::Future<Output = UdsResponse>,
+{
+    handle.block_on(with_handler_timeout_budget(ctx, handler_timeout(), fut))
+}
+
+pub fn block_on_admin_route<Fut>(
+    handle: &tokio::runtime::Handle,
+    ctx: &AccessContext,
+    fut: Fut,
+) -> UdsResponse
+where
+    Fut: std::future::Future<Output = UdsResponse>,
+{
+    handle.block_on(with_handler_timeout_budget(
+        ctx,
+        admin_handler_timeout(),
+        fut,
+    ))
+}
+
+pub fn block_on_data_route(
+    handle: &tokio::runtime::Handle,
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    handle.block_on(execute_data_route_with_timeout(route, req, ctx, host))
+}
+
+pub(in crate::exec) async fn execute_data_route_with_timeout(
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    with_handler_timeout_budget(
+        ctx,
+        data_route_budget(route),
+        execute_data_route(route, req, ctx, host),
+    )
+    .await
+}
+
+#[must_use]
+pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
+    match route {
+        DataRoute::DbSchemas
+        | DataRoute::DbDeleteLedger
+        | DataRoute::SyncByteBackupV2
+        | DataRoute::SyncByteBackupV2Connect
+        | DataRoute::DeclareSchema
+        | DataRoute::DropSchema => admin_handler_timeout(),
+        DataRoute::Status => Duration::from_secs(2),
+        DataRoute::AdminShed => Duration::from_secs(60),
+        DataRoute::BootIdentity => Duration::from_secs(1),
+        _ => handler_timeout(),
+    }
+}
 
 pub(in crate::exec) async fn execute_data_route(
     route: DataRoute,
@@ -96,13 +212,7 @@ pub(in crate::exec) async fn execute_data_route(
         }
         DataRoute::ListSchemas => schema_routes::execute_list_schemas_route(req, ctx, host),
         DataRoute::ListRecordKeys => {
-            heap_route!(
-                list_keys_route::execute_list_record_keys_route,
-                req,
-                ctx,
-                host
-            )
-            .await
+            heap_route!(execute_list_record_keys_route, req, ctx, host).await
         }
         DataRoute::GetSchema => schema_routes::execute_get_schema_route(req, ctx, host),
         DataRoute::DeclareSchema => {
@@ -126,8 +236,10 @@ pub(in crate::exec) async fn execute_data_route(
         }
         DataRoute::AutoIdentity => admin_routes::execute_auto_identity_route(host),
         DataRoute::BootIdentity => admin_routes::execute_boot_identity_route(host),
-        DataRoute::SyncByteBackupV2 => execute_byte_backup(req, ctx, host).await,
-        DataRoute::SyncByteBackupV2Connect => connect_byte_backup(req, ctx, host).await,
+        DataRoute::SyncByteBackupV2 => admin_routes::execute_byte_backup(req, ctx, host).await,
+        DataRoute::SyncByteBackupV2Connect => {
+            admin_routes::connect_byte_backup(req, ctx, host).await
+        }
         DataRoute::DbSchemas => {
             heap_route_ctx_host!(admin_routes::execute_db_schemas_route, ctx, host).await
         }
@@ -153,47 +265,84 @@ pub(in crate::exec) async fn execute_data_route(
             .await
         }
         DataRoute::DbPutBlob => {
-            heap_route!(file_blob_put::execute_db_put_blob_route, req, ctx, host).await
+            heap_route!(file_blob::execute_db_put_blob_route, req, ctx, host).await
         }
         DataRoute::DbFetchBlob => {
             heap_route!(file_blob::execute_db_fetch_blob_route, req, ctx, host).await
         }
         DataRoute::DbDeleteBlob => {
-            heap_route!(file_blob::execute_db_delete_blob_route, req, ctx, host).await
+            heap_route!(mutation::execute_db_delete_blob_route, req, ctx, host).await
         }
     }
 }
 
-async fn execute_byte_backup(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    if !ctx.is_owner {
-        return error_response(403, "byte backup is owner-only", ctx);
-    }
-    if req.body.len() as u64 > cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES {
-        return error_response(413, "byte backup request exceeds its byte limit", ctx);
-    }
-    let Ok(request) = serde_json::from_slice::<ByteBackupRequest>(&req.body) else {
-        return error_response(400, "invalid byte backup request", ctx);
+async fn execute_list_record_keys_route(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    let request = match list_keys_route::ListRecordKeysRequest::parse(&req.target) {
+        Ok(r) => r,
+        Err(msg) => return error_response(400, msg, ctx),
     };
-    match byte_cloud_backup::request(host, request).await {
-        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
-        Err(error) => error_response(409, &error.to_string(), ctx),
-    }
-}
-
-async fn connect_byte_backup(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    if !ctx.is_owner {
-        return error_response(403, "byte backup connection is owner-only", ctx);
-    }
-    if req.body.len() > 8192 {
-        return error_response(413, "byte backup connection exceeds its byte limit", ctx);
-    }
-    let Ok(request) =
-        serde_json::from_slice::<byte_cloud_backup::SensitiveConnectionRequest>(&req.body)
-    else {
-        return error_response(400, "invalid byte backup connection", ctx);
+    let canonical = match schema_resolve::resolve_schema_name(host, &request.requested) {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return error_response(
+                404,
+                &format!("schema not found: {}", request.requested),
+                ctx,
+            )
+        }
+        Err(e) => return render(Err(e), ctx),
     };
-    match byte_cloud_backup::connect_existing(host, request).await {
-        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
-        Err(error) => error_response(409, &error.to_string(), ctx),
+    if let Some(name) = request.key_name.as_deref() {
+        let page_fut = async {
+            let hash = request
+                .hash_filter
+                .as_deref()
+                .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
+            let schema = host
+                .records()
+                .schema_manager()
+                .get_schema_metadata(&canonical)
+                .map_err(HostError::from)?
+                .ok_or_else(|| HostError::new(404, "schema is absent"))?;
+            let mut q = Query::new_with_filter(
+                canonical.clone(),
+                Some(HashRangeFilter::HashKey(hash.to_owned())),
+            );
+            q.key_name = Some(name.to_owned());
+            let cursor = list_keys_route::decode_alternate_cursor(request.cursor.as_deref())?;
+            let page = query::execute_query(
+                host,
+                q,
+                Some(request.limit),
+                None,
+                cursor,
+                query::QueryResponseFormat::Full,
+            )
+            .await?;
+            list_keys_route::alternate_list_report(&request, &schema, &page)
+        };
+        let result = match host.records().db_ops().read_scope().await {
+            Ok(scope) => scope.run_result(Box::pin(page_fut)).await,
+            Err(e) => Err(HostError::from(e)),
+        };
+        return render(result.map(|report| json!({ "list": report })), ctx);
+    }
+    match host
+        .records()
+        .list_schema_record_keys(
+            &request.requested,
+            &canonical,
+            request.limit,
+            request.cursor.as_deref(),
+            request.hash_filter.as_deref(),
+        )
+        .await
+    {
+        Ok(report) => json_ok(&envelope(&json!({ "list": report }), ctx.user_id.as_str())),
+        Err(e) => mapped_error_response("list failed", e, ctx),
     }
 }
