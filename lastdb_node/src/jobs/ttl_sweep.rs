@@ -174,7 +174,7 @@ async fn prepare_backlog(
     };
     Ok(Some(Backlog {
         schema_name: schema_name.to_string(),
-        schema_type: schema.schema_type,
+        schema_type: schema.schema_type.clone(),
         shape: EraseShape {
             fields: schema.fields.as_ref().map_or(1, |f| f.len().max(1)),
             alternates: schema

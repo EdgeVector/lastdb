@@ -40,9 +40,13 @@ pub fn max_field_value_bytes() -> usize {
 /// Parse env value → clamped limit. `None` / empty / unparseable → default.
 #[must_use]
 pub fn parse_max_field_value_bytes(raw: Option<String>) -> usize {
-    let Some(s) = raw.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(raw) = raw else {
         return DEFAULT_MAX_FIELD_VALUE_BYTES;
     };
+    let s = raw.trim();
+    if s.is_empty() {
+        return DEFAULT_MAX_FIELD_VALUE_BYTES;
+    }
     let Some(parsed) = parse_byte_size(s) else {
         tracing::warn!(
             raw = %s,

@@ -114,7 +114,9 @@ impl InstallPlan {
                 return Err("invalid install step or timeout (1..600 seconds)".into());
             }
         }
-        (!self.requires.iter().any(|app| !super::valid_app_id(app)))
+        self.requires
+            .iter()
+            .all(|app| super::valid_app_id(app))
             .then_some(())
             .ok_or_else(|| "invalid required app".into())
     }

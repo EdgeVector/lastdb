@@ -136,12 +136,12 @@ impl SchemaStore {
         };
         let keys: Vec<(String, String)> = live
             .map(|k| {
-                (
-                    partitioned
-                        .then(|| k.hash.clone().unwrap_or_default())
-                        .unwrap_or_default(),
-                    range_of(k).to_owned(),
-                )
+                let hash = if partitioned {
+                    k.hash.clone().unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                (hash, range_of(k).to_owned())
             })
             .collect();
         if keys.is_empty() {

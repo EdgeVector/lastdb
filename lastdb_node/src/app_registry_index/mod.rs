@@ -243,7 +243,7 @@ fn accept_list(
     let (value, list) = match download {
         Ok(v) => v,
         Err(error) => {
-            let (_, prior) = cached.ok_or(error.clone())?;
+            let (_, prior) = cached.ok_or_else(|| error.clone())?;
             eprintln!(
                 "note: registry download rejected; using stored seq {}: {error}",
                 prior.seq

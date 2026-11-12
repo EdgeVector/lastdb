@@ -166,7 +166,7 @@ pub(super) fn mutate_command(
     };
     let id = (target.is_explicit() && route == "/api/mutation")
         .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
-    let with_id = |err: String| id.map_or(err.clone(), |id| format!("{err} (mutation ID {id})"));
+    let with_id = |err: String| id.map_or_else(|| err, |id| format!("{err} (mutation ID {id})"));
     let timeout = if durable {
         durable_mutation_client_timeout()
     } else {

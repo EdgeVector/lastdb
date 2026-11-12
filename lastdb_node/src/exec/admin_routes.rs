@@ -243,13 +243,15 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
     if !ctx.is_owner {
         return error_response(403, "schema retention is owner-only", ctx);
     }
-    let Ok(body) = serde_json::from_slice::<RetentionBody>(&req.body) else {
-        let e = serde_json::from_slice::<RetentionBody>(&req.body).unwrap_err();
-        return error_response(
-            400,
-            &format!("invalid /api/db/schema-retention body: {e}"),
-            ctx,
-        );
+    let body = match serde_json::from_slice::<RetentionBody>(&req.body) {
+        Ok(body) => body,
+        Err(e) => {
+            return error_response(
+                400,
+                &format!("invalid /api/db/schema-retention body: {e}"),
+                ctx,
+            );
+        }
     };
     if body.schema.is_empty() {
         return error_response(400, "schema is required", ctx);

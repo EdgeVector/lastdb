@@ -142,7 +142,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
                 all,
                 accept_install,
                 app_ids,
-                RegistrySource {
+                &RegistrySource {
                     channel,
                     index,
                     trust_key,

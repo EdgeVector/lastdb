@@ -1,6 +1,6 @@
 //! Manifest-declared retention: validation, assessment, precheck, apply, and preview.
 
-use fold_db::schema::types::FieldValueType;
+use fold_db::schema::types::{FieldValueType, SchemaType};
 use fold_db::schema::{
     ManifestRetention, ManifestRetentionPlan, ManifestRetentionStatus, RetentionSource,
     SchemaError, SchemaRetentionPolicy,

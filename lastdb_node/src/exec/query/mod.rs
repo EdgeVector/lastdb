@@ -275,7 +275,8 @@ async fn execute_query_rows_windowed(
     response_format: QueryResponseFormat,
 ) -> Result<(Vec<Value>, PageEnd), HostError> {
     let sort_order = query.sort_order.clone();
-    let executor = host.records().query_executor();
+    let db = host.records();
+    let executor = db.query_executor();
     let resumable = window.is_some() && !matches!(sort_order, Some(SortOrder::Desc));
     let (result, end) = match window {
         Some(w) if resumable => {

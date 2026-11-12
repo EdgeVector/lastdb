@@ -153,14 +153,14 @@ pub(super) fn upgrade(
     all: bool,
     accept_install: bool,
     ids: Vec<String>,
-    source: RegistrySource,
+    source: &RegistrySource,
 ) -> Result<(), String> {
     let names = if all { installed_app_ids()? } else { ids };
     let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1");
     let (mut lists, mut results, mut failed) =
         (std::collections::HashMap::new(), Vec::new(), false);
     for app in names {
-        match upgrade_one(home, accept_install, &source, polling, &mut lists, &app) {
+        match upgrade_one(home, accept_install, source, polling, &mut lists, &app) {
             Ok(Some(res)) => results.push(res),
             Ok(None) => {}
             Err(error) => {

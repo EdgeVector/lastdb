@@ -177,6 +177,13 @@ impl RecordStore {
         crate::storage::disk_pack::transaction::scope(self.runtime.clone(), work).boxed()
     }
 
+    pub fn in_background_scope<'a, T: Send + 'a>(
+        &'a self,
+        work: impl std::future::Future<Output = Result<T, SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, SchemaError>> {
+        crate::storage::disk_pack::transaction::background_scope(self.runtime.clone(), work).boxed()
+    }
+
     pub(super) async fn record_read_scope<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,

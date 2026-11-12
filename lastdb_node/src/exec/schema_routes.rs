@@ -239,7 +239,7 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
                 || e.schema.identity_hash.as_deref() == Some(requested))
     });
     let first = blocked.next()?;
-    blocked.next().is_none().then(|| first.schema.name)
+    blocked.next().is_none().then(|| first.schema.name.clone())
 }
 
 pub(in crate::exec) fn resolve_schema_name(
