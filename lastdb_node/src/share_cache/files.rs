@@ -1,5 +1,5 @@
 use super::{Registration, Result, ShareCacheError, MANAGED_DIRECTORY};
-use crate::byte_cloud_backup::connection::files::Directory;
+use crate::offline_home::Directory;
 use cloud_backup_protocol::Id;
 use fold_db::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
 use std::fs::{self, File, OpenOptions};

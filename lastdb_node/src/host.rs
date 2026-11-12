@@ -75,7 +75,6 @@ pub struct Host {
     pub keypair: Arc<Ed25519KeyPair>,
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
-    pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
 }
@@ -118,7 +117,8 @@ impl Host {
             fold_db::fold_db_core::factory::FoldDbOptions {
                 offline_maintenance: false,
                 search_outbox_inbox: Some(inbox.clone()),
-                capture_accepted: false,
+                // The owner store is the personal database. Its accepted writes are the signed log.
+                capture_accepted: true,
             },
         )
         .await
@@ -141,7 +141,6 @@ impl Host {
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
-            byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
         })

@@ -6,7 +6,7 @@ pub(crate) use store::receiver_store;
 
 use crate::cloud_backup_client::byte_backup::ShareEnvironment;
 use crate::share_cache::{ShareCache, ShareCacheError, ShareReader, ShareSnapshot};
-use crate::{byte_cloud_backup::connection::files::Directory, share_publication};
+use crate::{offline_home::Directory, share_publication};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use serde::Serialize;
 use std::path::{Path, PathBuf};

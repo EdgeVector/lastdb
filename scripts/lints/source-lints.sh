@@ -16,7 +16,6 @@ CRATES=(
   mutation_log
   mutation_log_mem
   mutation_log_sync
-  database_cutover
   app_identity_crypto
 )
 scopes=()

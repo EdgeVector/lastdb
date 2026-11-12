@@ -35,28 +35,21 @@ pub(crate) fn spawn_background(
     socket: &Path,
 ) -> BackgroundTasks {
     let _guard = runtime.enter();
-    lastdb_node::byte_cloud_backup::register_blob_source(host);
-    let backup =
-        lastdb_node::byte_cloud_backup::spawn_automatic(Arc::clone(host), Arc::clone(shutdown));
     let (sync_host, sync_shutdown) = (Arc::clone(host), Arc::clone(shutdown));
-    let backup = tokio::spawn(
+    let sync = tokio::spawn(
         async move {
-            let sync = lastdb_node::log_sync::spawn(sync_host, sync_shutdown);
-            let (backup_res, sync_res) = tokio::join!(backup, sync);
-            if sync_res.is_err() {
+            if lastdb_node::log_sync::spawn(sync_host, sync_shutdown)
+                .await
+                .is_err()
+            {
                 tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
-            }
-            if let Err(err) = backup_res {
-                if err.is_panic() {
-                    std::panic::resume_unwind(err.into_panic());
-                }
             }
         }
         .in_current_span(),
     );
     (
         lastdb_node::jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(shutdown)),
-        backup,
+        sync,
         lastdb_node::registered_share::spawn(host.home.clone(), Arc::clone(shutdown)),
         lastdb_node::jobs::saved_query::spawn(
             Arc::clone(host),
@@ -69,32 +62,27 @@ pub(crate) fn spawn_background(
 
 pub(crate) fn drain_background(
     runtime: &tokio::runtime::Runtime,
-    host: &Arc<Host>,
-    (ttl_sweep_task, automatic_backup_task, received_shares_task, saved_queries_task): BackgroundTasks,
+    (ttl_sweep_task, sync_task, received_shares_task, saved_queries_task): BackgroundTasks,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
         let drain = async {
-            let (ttl_sweep, automatic, received_shares, saved_queries, byte_backup) = tokio::join!(
+            let (ttl_sweep, sync, received_shares, saved_queries) = tokio::join!(
                 ttl_sweep_task,
-                automatic_backup_task,
+                sync_task,
                 received_shares_task,
                 saved_queries_task,
-                host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
             for (name, res) in [
                 ("ttl sweep", ttl_sweep),
-                ("automatic backup", automatic),
+                ("log sync", sync),
                 ("received shares", received_shares),
                 ("saved queries", saved_queries),
             ] {
                 if let Err(e) = res {
                     errors.push(format!("{name} task failed: {e}"));
                 }
-            }
-            if let Err(e) = byte_backup {
-                errors.push(format!("byte backup did not drain: {e}"));
             }
             if errors.is_empty() {
                 Ok(())

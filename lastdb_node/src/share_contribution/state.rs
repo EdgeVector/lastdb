@@ -1,5 +1,5 @@
 //! Publisher grant and contributor outbox state use private atomic files.
-use crate::byte_cloud_backup::connection::files::Directory;
+use crate::offline_home::Directory;
 use cloud_backup_protocol::Id;
 use rustix::fs::{flock, FlockOperation};
 use serde::{de::DeserializeOwned, Serialize};

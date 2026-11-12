@@ -204,14 +204,11 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
 }
 
 fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
-    use AdminBackupCommand::{
-        Close, Init, InspectDependencies, PrepareRecoveryHome, RecoverCredentialsHome, Resume,
-    };
-    let action = match action {
-        Init(a) => ByteBackupCommand::Init(a),
-        Resume(a) => ByteBackupCommand::Resume(a),
-        Close(a) => ByteBackupCommand::Close(a),
-        InspectDependencies(a) => ByteBackupCommand::InspectDependencies(a),
+    use AdminBackupCommand::{Init, PrepareRecoveryHome, RecoverCredentialsHome};
+    match action {
+        Init(a) => Ok(CloudCommand::BackupV2 {
+            action: ByteBackupCommand::Init(a),
+        }),
         RecoverCredentialsHome { args, existing_dev } => {
             if !existing_dev {
                 return Ok(CloudCommand::RecoverCredentialsHome(args));
@@ -226,9 +223,8 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
                 json: args.json,
             });
         }
-        PrepareRecoveryHome(a) => return Ok(CloudCommand::PrepareRecoveryHome(a)),
-    };
-    Ok(CloudCommand::BackupV2 { action })
+        PrepareRecoveryHome(a) => Ok(CloudCommand::PrepareRecoveryHome(a)),
+    }
 }
 
 fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {

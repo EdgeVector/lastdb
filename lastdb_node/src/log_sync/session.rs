@@ -19,13 +19,20 @@ struct PrefixFile<'a> {
     through: u64,
 }
 
+pub(super) fn label_ok(value: &str) -> bool {
+    (1..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
 pub(crate) fn device_id(home: &Path) -> Result<String, String> {
     let path = device_path(home);
     if let Some(bytes) = disk::read_limited(&path, LIMIT).map_err(|_| "cannot read device id")? {
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| "device id is not text")?
             .trim();
-        if super::cutover::label_ok(text) {
+        if label_ok(text) {
             return Ok(text.to_owned());
         }
         return Err("device id is not a log label".into());

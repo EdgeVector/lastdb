@@ -8,12 +8,12 @@ use mutation_log::{ListPage, LogError, MutationLog};
 
 use crate::database_replay;
 use crate::host::Host;
+use crate::node_read::CanonicalPost;
 
 use super::cloud::{CloudLog, LogOpen};
-use super::cutover::ServiceView;
-use super::http::{self, Endpoint};
-use super::registry::Database;
-use super::{apply, restore, session};
+use super::http::{self, Endpoint, Proof};
+use super::status::NativeView;
+use super::{apply, paths, restore, session, status, wire};
 
 /// Restore an owned log into a private store with the same cloud id.
 /// The caller publishes the isolated home after successful shutdown.
@@ -38,13 +38,15 @@ pub async fn recover_owned(
         member_revision: 0,
         environment_label: selected.label,
     })?;
-    let database = Database {
-        id: log.database_id().to_owned(),
-        kind: "personal".to_owned(),
-        spec: None,
-        native: true,
-    };
-    if !matches!(log.service_view(&database).await, ServiceView::Native) {
+    let body = wire::database_body(log.database_id())
+        .map_err(|_| "signed recovery could not name the database")?;
+    let (status_code, bytes) = log
+        .post_status(paths::ACCESS, body, Proof::Canonical(CanonicalPost::Access))
+        .await
+        .map_err(|_| "the signed cloud database is unavailable to this owner".to_owned())?;
+    if !(200..300).contains(&status_code)
+        || status::native_body(&bytes, log.database_id(), log.environment()) != NativeView::Live
+    {
         return Err("the signed cloud database is unavailable to this owner".into());
     }
     let through = head(&log).await?;

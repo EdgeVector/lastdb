@@ -11,8 +11,8 @@ use crate::database_replay::{DeliveredEntry, IncorporatedFrom, SnapshotEntry};
 use crate::host::Host;
 
 use super::cloud::CloudLog;
-use super::cutover;
 use super::disk;
+use super::session;
 
 const MARKER_LIMIT: usize = 64;
 
@@ -62,7 +62,7 @@ pub(crate) async fn apply_page(
 
 fn mark_local(host: &Host, database_id: &str, entry: &Entry) -> Result<bool, String> {
     let name = format!("{}-{}", entry.writer.device.as_str(), entry.writer_seq);
-    if !cutover::label_ok(entry.writer.device.as_str()) {
+    if !session::label_ok(entry.writer.device.as_str()) {
         return Ok(false);
     }
     let marker = marker_path(&host.home, database_id, &name);

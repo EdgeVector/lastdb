@@ -1,16 +1,15 @@
 //! `LastDBNode` authorization for one canonical POST.
 //!
 //! H verifies [`NodeReadToken::digest`] of the exact HTTP body. The token JSON
-//! includes `database_id`. Create, cutover, access, and the member-list read
-//! use [`authorization`]. [`authorization_post`] is the same token for a POST
+//! includes `database_id`. Create, access, and the member-list read use
+//! [`authorization`]. [`authorization_post`] is the same token for a POST
 //! path that enum does not name: a shareable data route, or a delivery fetch.
 //! Dev and prod use this helper for database sync and delivery.
-//! The daemon does not post cutover.
 
 use base64::Engine as _;
 use cloud_backup_protocol::v2::share_access::{
     NodeReadToken, ShareEnvironment, ShareHttpMethod, MUTATION_LOG_ACCESS_PATH,
-    MUTATION_LOG_CREATE_DATABASE_PATH, MUTATION_LOG_CUTOVER_PATH, SHARE_MEMBER_LIST_READ_PATH,
+    MUTATION_LOG_CREATE_DATABASE_PATH, SHARE_MEMBER_LIST_READ_PATH,
     SHARE_NODE_AUTHORIZATION_SCHEME,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
@@ -28,8 +27,6 @@ use rand::RngCore;
 pub enum CanonicalPost {
     /// Fresh database create.
     CreateDatabase,
-    /// One existing database.
-    Cutover,
     /// Open, native, or committed state.
     Access,
     /// Publisher member-list read.
@@ -42,7 +39,6 @@ impl CanonicalPost {
     pub const fn path(self) -> &'static str {
         match self {
             Self::CreateDatabase => MUTATION_LOG_CREATE_DATABASE_PATH,
-            Self::Cutover => MUTATION_LOG_CUTOVER_PATH,
             Self::Access => MUTATION_LOG_ACCESS_PATH,
             Self::MemberRead => SHARE_MEMBER_LIST_READ_PATH,
         }

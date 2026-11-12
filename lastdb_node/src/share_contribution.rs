@@ -310,15 +310,10 @@ async fn pull(
     inbox: &StaticSecret,
     client: &impl Fn() -> Result<ByteBackupClient, String>,
 ) -> Result<(), String> {
-    // Leave submissions queued until a native snapshot cut has anchored
-    // the publisher's journal. The first approval must have a log position.
-    let journal = host
-        .db
-        .db_ops()
-        .native_runtime()
-        .mutation_log_status()
-        .map_err(|error| error.to_string())?;
-    if !journal.enabled || journal.anchor.is_none() || journal.snapshot_required {
+    // Leave submissions queued until this home's signed accepted stream is open.
+    let runtime = host.db.db_ops().native_runtime();
+    let accepted = runtime.accepted_status();
+    if !runtime.captures_accepted() || accepted.snapshot_required || accepted.gap {
         return Ok(());
     }
     let state = State::open(owner, "contributor-policy", publication)?;

@@ -1,4 +1,4 @@
-//! Explicit byte-backup and credentials-only recovery-home commands.
+//! Explicit cloud connection and signed database restore commands.
 use super::*;
 
 pub(crate) enum CloudCommand {
@@ -46,14 +46,6 @@ pub(crate) struct PrepareRecoveryArgs {
 pub(crate) enum ByteBackupCommand {
     Init(BackupInitArgs),
     Connect(BackupConnectArgs),
-    Start(BackupStartArgs),
-    Resume(BackupJsonArgs),
-    Status(BackupJsonArgs),
-    Close(BackupJsonArgs),
-    EnableAutomatic(BackupEnableArgs),
-    DisableAutomatic(BackupJsonArgs),
-    Discover(BackupListArgs),
-    InspectDependencies(BackupDependenciesArgs),
     Restore(BackupRestoreArgs),
 }
 
@@ -92,76 +84,17 @@ pub(crate) struct BackupConnectArgs {
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct BackupStartArgs {
-    #[arg(long)]
-    pub(crate) request_id: Option<String>,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupJsonArgs {
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupEnableArgs {
-    #[arg(long, default_value_t = 60)]
-    pub(crate) log_interval_seconds: u64,
-    #[arg(long, default_value_t = 86400)]
-    pub(crate) snapshot_interval_seconds: u64,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupListArgs {
+pub(crate) struct BackupRestoreArgs {
+    /// Recover an owned database from the signed cloud log.
     #[arg(long, required = true)]
     pub(crate) recovery_phrase_stdin: bool,
-    #[arg(long)]
-    pub(crate) generation: Option<u64>,
-    #[arg(long)]
-    pub(crate) cursor: Option<String>,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupDependenciesArgs {
-    #[arg(long, required = true)]
-    pub(crate) recovery_phrase_stdin: bool,
+    /// Database id of the signed cloud log.
     #[arg(long)]
     pub(crate) stream: String,
     #[arg(long)]
     pub(crate) generation: Option<u64>,
     #[arg(long)]
-    pub(crate) commit: String,
-    #[arg(long)]
-    pub(crate) commit_sha256: String,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct BackupRestoreArgs {
-    /// Recover an owned database from the signed cloud log.
-    #[arg(long, conflicts_with_all = ["resume", "commit", "commit_sha256"])]
-    pub(crate) signed: bool,
-    #[arg(long, required = true)]
-    pub(crate) recovery_phrase_stdin: bool,
-    #[arg(long, required_unless_present = "resume", conflicts_with = "resume")]
-    pub(crate) stream: Option<String>,
-    #[arg(long, conflicts_with = "resume")]
-    pub(crate) generation: Option<u64>,
-    #[arg(long, conflicts_with = "resume")]
-    pub(crate) commit: Option<String>,
-    #[arg(long, conflicts_with = "resume")]
-    pub(crate) commit_sha256: Option<String>,
-    #[arg(long, required_unless_present = "resume", conflicts_with = "resume")]
-    pub(crate) into: Option<PathBuf>,
-    #[arg(long)]
-    pub(crate) resume: Option<PathBuf>,
+    pub(crate) into: PathBuf,
     #[arg(long)]
     pub(crate) json: bool,
 }
