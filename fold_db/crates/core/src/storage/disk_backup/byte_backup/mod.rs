@@ -1,75 +1,63 @@
-//! The Mini format and retained source of a byte backup of a disk format v2
-//! home: its run files, unchanged.
+//! The Mini format and retained source of a byte backup of a disk format v2 home.
 
 mod capture;
 mod codec;
 mod planner;
 mod run_capture;
-mod run_source;
 mod store;
 
-use crate::storage::cloud_backup_plan::ClientNativeFile;
+use crate::storage::cloud_backup_plan::{expected_receipt, PlanSegment};
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 use cloud_backup_protocol::v2::{
     jobs::{JobResult, JobStatus},
+    limits::{MAX_PAGES, MAX_PAGE_ENTRIES},
     transfer::{ObjectReceipt, TransferInput},
     Begin,
 };
-use cloud_backup_protocol::{Digest, NativeRoot, ProtocolError, RecoveryDescriptor, RelativePath};
+use cloud_backup_protocol::{Digest, NativeRoot, ProtocolError, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
-
-/// The backup capture source inside [`laststore::disk_run::home::BACKUP_DIR`].
-pub const SOURCE_DIR: &str = "source";
-/// The run holds inside [`laststore::disk_run::home::BACKUP_DIR`], one directory per paired capture.
-pub const HOLDS_DIR: &str = "holds";
-/// The saved capture intent inside [`SOURCE_DIR`].
-pub const RUN_INTENT_FILE: &str = "run-intent.json";
-/// The hard link to the node marker inside one run hold.
-pub const HELD_NODE_FILE: &str = "node";
+use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc, Mutex, MutexGuard};
 
 pub use codec::*;
-pub use store::ByteBackupReader;
 
-pub(in crate::storage::disk_backup::byte_backup) const STATE_FORMAT: u16 = 5;
-pub(in crate::storage::disk_backup::byte_backup) const MAX_OBJECTS: u64 =
-    (cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES
-        * cloud_backup_protocol::v2::limits::MAX_PAGES) as u64;
+pub(super) const RUN_INTENT_FILE: &str = "run-intent.json";
+pub(super) const HELD_NODE_FILE: &str = "node";
+pub(super) const STATE_FORMAT: u16 = 6;
+pub(super) const MAX_OBJECTS: u64 = (MAX_PAGE_ENTRIES * MAX_PAGES) as u64;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::byte_backup) struct State {
-    pub format: u16,
-    pub begin: Begin,
-    pub reference_id: uuid::Uuid,
-    pub native_root: NativeRoot,
-    pub key_sha256: Digest,
-    pub ready: bool,
-    pub objects: u64,
-    pub verified: u64,
-    pub native_files: u64,
-    pub native_bytes: u64,
-    pub metadata_pack_objects: u64,
-    pub multi_file_pack_objects: u64,
-    pub terminal: Option<JobResult>,
-    pub local_cancelled: bool,
-    pub released: bool,
-    pub recovery: RecoveryDescriptor,
-    pub run: RunBackupProfile,
+struct State {
+    format: u16,
+    begin: Begin,
+    reference_id: uuid::Uuid,
+    native_root: NativeRoot,
+    key_sha256: Digest,
+    ready: bool,
+    objects: u64,
+    verified: u64,
+    native_files: u64,
+    native_bytes: u64,
+    metadata_pack_objects: u64,
+    multi_file_pack_objects: u64,
+    terminal: Option<JobResult>,
+    local_cancelled: bool,
+    released: bool,
+    recovery: RecoveryDescriptor,
+    run: RunBackupProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub journal_anchor: Option<super::mutation_log::LogAnchor>,
+    journal_anchor: Option<super::mutation_log::LogAnchor>,
 }
 
 impl State {
-    pub(in crate::storage::disk_backup::byte_backup) fn validate(&self) -> StorageResult<()> {
+    fn validate(&self) -> StorageResult<()> {
         self.begin.validate().map_err(protocol)?;
-        let run = &self.run;
-        run.validate_root(&self.native_root)?;
-        if let Some(anchor) = &self.journal_anchor {
-            anchor.position()?;
-            if anchor.main_home != run.main.home_id
-                || anchor.frontiers.main != run.main.frontier.get()
+        self.run.validate_root(&self.native_root)?;
+        if let Some(a) = &self.journal_anchor {
+            a.position()?;
+            if a.main_home != self.run.main.home_id
+                || a.frontiers.main != self.run.main.frontier.get()
             {
                 return Err(invalid("snapshot mutation log anchor differs"));
             }
@@ -82,90 +70,65 @@ impl State {
             || self.metadata_pack_objects > self.objects
             || (self.ready
                 && (self.objects < 2 || self.native_files == 0 || self.native_bytes == 0))
+            || !self.begin.descriptor.as_value().is_null()
+            || (self.local_cancelled && self.terminal.is_some())
         {
             return Err(invalid("byte source state bounds"));
-        }
-        if !self.begin.descriptor.as_value().is_null() {
-            return Err(invalid("byte source recovery profile differs"));
         }
         self.recovery
             .validate_for(&self.begin.job.stream.scope)
             .map_err(protocol)?;
-        if let Some(result) = &self.terminal {
-            result.validate_for_begin(&self.begin).map_err(protocol)?;
-            if matches!(result.status, JobStatus::Active) {
-                return Err(invalid("byte source terminal active"));
+        match &self.terminal {
+            Some(res) => {
+                res.validate_for_begin(&self.begin).map_err(protocol)?;
+                if matches!(res.status, JobStatus::Active) {
+                    return Err(invalid("byte source terminal active"));
+                }
             }
-        } else if self.released && !self.local_cancelled {
-            return Err(invalid("byte source release without terminal"));
-        }
-        if self.local_cancelled && self.terminal.is_some() {
-            return Err(invalid("byte source cancel authority differs"));
+            None if self.released && !self.local_cancelled => {
+                return Err(invalid("byte source release without terminal"));
+            }
+            None => {}
         }
         Ok(())
     }
-}
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::byte_backup) struct Segment {
-    pub path: RelativePath,
-    pub offset: u64,
-    pub bytes: u64,
+    fn is_active(&self) -> bool {
+        self.terminal.is_none() && !self.local_cancelled && !self.released
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::byte_backup) struct ObjectRecord {
-    pub input: TransferInput,
-    pub segments: Vec<Segment>,
-    pub native_files: Vec<ClientNativeFile>,
-    pub metadata_pack: bool,
-    pub ciphertext: Option<String>,
-    pub receipt: Option<ObjectReceipt>,
+struct ObjectRecord {
+    input: TransferInput,
+    segments: Vec<PlanSegment>,
+    ciphertext: Option<String>,
+    receipt: Option<ObjectReceipt>,
 }
 
 impl ObjectRecord {
-    pub(in crate::storage::disk_backup::byte_backup) fn validate(
-        &self,
-        begin: &Begin,
-    ) -> StorageResult<()> {
+    fn validate(&self, state: &State) -> StorageResult<()> {
         self.input.validate().map_err(protocol)?;
-        if self.input.job != begin.job
-            || self.segments.len()
-                > lastdb_model::storage_policy::backup_transport::MAX_PACK_MEMBERS
+        if self.input.job != state.begin.job
             || self.segments.is_empty() != self.ciphertext.is_some()
-            || (self.metadata_pack && self.segments.is_empty())
-            || (!self.metadata_pack && self.segments.len() > 1)
         {
             return Err(invalid("byte source object identity"));
         }
-        let mut total = 0u64;
-        for part in &self.segments {
-            if part.bytes == 0 || part.offset.checked_add(part.bytes).is_none() {
-                return Err(invalid("byte source segment bounds"));
-            }
-            total = total
-                .checked_add(part.bytes)
-                .ok_or_else(|| invalid("byte source segment overflow"))?;
-        }
+        let total = crate::storage::cloud_backup_plan::sum_segments(&self.segments, |i| {
+            ((i as u64) < state.native_files).then_some(u64::MAX)
+        })
+        .ok_or_else(|| invalid("byte source segment bounds"))?;
         if !self.segments.is_empty() && total != self.input.object.bytes.get() {
             return Err(invalid("byte source object exact bytes"));
         }
-        for file in &self.native_files {
-            file.validate()?;
-        }
-        if let Some(receipt) = &self.receipt {
-            check_receipt(&self.input, receipt)?;
-        }
-        Ok(())
+        self.receipt
+            .as_ref()
+            .map_or(Ok(()), |r| check_receipt(&self.input, r))
     }
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn check_receipt(
-    input: &TransferInput,
-    receipt: &ObjectReceipt,
-) -> StorageResult<()> {
+fn check_receipt(input: &TransferInput, receipt: &ObjectReceipt) -> StorageResult<()> {
     receipt.validate().map_err(protocol)?;
     if receipt.scope != input.job.stream.scope || receipt.object != input.object {
         return Err(invalid("byte source verified receipt identity"));
@@ -173,7 +136,7 @@ pub(in crate::storage::disk_backup::byte_backup) fn check_receipt(
     Ok(())
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn object_name(index: u64) -> String {
+fn object_name(index: u64) -> String {
     format!("object-{index:08}.json")
 }
 
@@ -197,13 +160,13 @@ pub struct ByteBackupCapture {
     inner: Arc<Inner>,
 }
 
-pub(in crate::storage::disk_backup::byte_backup) struct Inner {
-    pub(in crate::storage::disk_backup::byte_backup) runtime: Arc<PackRuntime>,
-    pub(in crate::storage::disk_backup::byte_backup) store: store::Store,
-    pub(in crate::storage::disk_backup::byte_backup) state: Mutex<State>,
-    pub(in crate::storage::disk_backup::byte_backup) run: Option<run_source::RunSource>,
-    pub(in crate::storage::disk_backup::byte_backup) readers: std::sync::atomic::AtomicUsize,
-    pub(in crate::storage::disk_backup::byte_backup) _admission: super::NativeCloudWorkGuard,
+struct Inner {
+    runtime: Arc<PackRuntime>,
+    store: store::Store,
+    state: Mutex<State>,
+    run: Option<planner::RunSource>,
+    readers: AtomicUsize,
+    _admission: super::NativeCloudWorkGuard,
 }
 
 impl ByteBackupCapture {
@@ -217,160 +180,132 @@ impl ByteBackupCapture {
         Ok(self.lock()?.begin.clone())
     }
     pub fn object_count(&self) -> StorageResult<u64> {
-        let state = self.lock()?;
-        self.require_export(&state)?;
-        Ok(state.objects)
+        let s = self.lock()?;
+        self.require_export(&s).map(|()| s.objects)
     }
     pub fn status(&self) -> StorageResult<ByteBackupCaptureStatus> {
-        let state = self.lock()?;
-        self.require_export(&state)?;
+        let s = self.lock()?;
+        self.require_export(&s)?;
         Ok(ByteBackupCaptureStatus {
-            native_files: state.native_files,
-            native_bytes: state.native_bytes,
-            verified_objects: state.verified,
-            retained_source_bytes: if state.released {
-                0
-            } else {
-                state.native_bytes
-            },
-            metadata_pack_objects: state.metadata_pack_objects,
-            multi_file_pack_objects: state.multi_file_pack_objects,
+            native_files: s.native_files,
+            native_bytes: s.native_bytes,
+            verified_objects: s.verified,
+            retained_source_bytes: if s.released { 0 } else { s.native_bytes },
+            metadata_pack_objects: s.metadata_pack_objects,
+            multi_file_pack_objects: s.multi_file_pack_objects,
         })
     }
     pub fn object(&self, index: u64) -> StorageResult<ByteBackupObject> {
-        let state = self.lock()?;
-        self.require_export(&state)?;
-        let object = self.inner.object(&state, index)?;
+        let s = self.lock()?;
+        self.require_export(&s)?;
+        let obj = self.inner.object(&s, index)?;
         Ok(ByteBackupObject {
-            input: object.input,
-            receipt: object.receipt,
+            input: obj.input,
+            receipt: obj.receipt,
         })
     }
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> StorageResult<()> {
-        let mut state = self.lock()?;
+        let mut s = self.lock()?;
         self.inner.require_idle()?;
-        if !state.ready || state.terminal.is_some() || state.local_cancelled {
+        if !s.ready || !s.is_active() {
             return Err(invalid("byte source confirmation phase"));
         }
-        let mut object = self.inner.object(&state, index)?;
-        check_receipt(&object.input, receipt)?;
-        if object
-            .receipt
-            .as_ref()
-            .is_some_and(|prior| prior != receipt)
-        {
+        let mut obj = self.inner.object(&s, index)?;
+        check_receipt(&obj.input, receipt)?;
+        if obj.receipt.as_ref().is_some_and(|prior| prior != receipt) {
             return Err(invalid("byte source receipt changed"));
         }
-        object.receipt = Some(receipt.clone());
-        self.inner.store.write(&object_name(index), &object)?;
-        self.inner.advance(&mut state)
+        obj.receipt = Some(receipt.clone());
+        self.inner.store.write(&object_name(index), &obj)?;
+        self.inner.advance(&mut s)
     }
     pub fn root_receipt_id(&self) -> StorageResult<Digest> {
-        let state = self.lock()?;
+        let s = self.lock()?;
         if let Some(JobResult {
             status: JobStatus::Published { backup },
             ..
-        }) = &state.terminal
+        }) = &s.terminal
         {
             return Ok(backup.root_receipt_id.clone());
         }
-        if !state.ready {
+        if !s.ready {
             return Err(invalid("byte source is not ready"));
         }
-        crate::storage::cloud_backup_plan::expected_receipt(
-            &self.inner.object(&state, state.objects - 1)?.input,
-        )
-        .map(|r| r.receipt_id)
-        .map_err(protocol)
+        expected_receipt(&self.inner.object(&s, s.objects - 1)?.input)
+            .map(|r| r.receipt_id)
+            .map_err(protocol)
     }
     pub fn set_coordinator_spool_bytes(&self, bytes: u64) -> StorageResult<()> {
         self.inner.store.coordinator(bytes)
     }
-    pub(in crate::storage::disk_backup::byte_backup) fn lock(
-        &self,
-    ) -> StorageResult<std::sync::MutexGuard<'_, State>> {
+    fn lock(&self) -> StorageResult<MutexGuard<'_, State>> {
         self.inner
             .state
             .lock()
             .map_err(|_| invalid("byte source state lock"))
     }
-    pub(in crate::storage::disk_backup::byte_backup) fn require_export(
-        &self,
-        state: &State,
-    ) -> StorageResult<()> {
-        if !state.released && !state.local_cancelled && state.terminal.is_none() {
-            self.inner.require_available()?;
-        }
-        Ok(())
+    fn require_export(&self, state: &State) -> StorageResult<()> {
+        (!state.is_active() || self.inner.run.is_some())
+            .then_some(())
+            .ok_or_else(|| invalid("byte retained source unavailable"))
     }
 }
 
 impl Inner {
-    pub(in crate::storage::disk_backup::byte_backup) fn new(
+    fn new(
         runtime: Arc<PackRuntime>,
         store: store::Store,
         state: State,
-        run: Option<run_source::RunSource>,
-        admission: super::NativeCloudWorkGuard,
+        run: Option<planner::RunSource>,
+        _admission: super::NativeCloudWorkGuard,
     ) -> Self {
         Self {
             runtime,
             store,
             state: Mutex::new(state),
             run,
-            readers: std::sync::atomic::AtomicUsize::new(0),
-            _admission: admission,
+            readers: AtomicUsize::new(0),
+            _admission,
         }
     }
-
-    pub(in crate::storage::disk_backup::byte_backup) fn require_idle(&self) -> StorageResult<()> {
-        if self.readers.load(std::sync::atomic::Ordering::Acquire) != 0 {
-            return Err(invalid("byte source readers are active"));
-        }
-        Ok(())
+    fn require_idle(&self) -> StorageResult<()> {
+        (self.readers.load(Ordering::Acquire) == 0)
+            .then_some(())
+            .ok_or_else(|| invalid("byte source readers are active"))
     }
-    pub(in crate::storage::disk_backup::byte_backup) fn object(
-        &self,
-        state: &State,
-        index: u64,
-    ) -> StorageResult<ObjectRecord> {
+    fn object(&self, state: &State, index: u64) -> StorageResult<ObjectRecord> {
         if index >= state.objects {
             return Err(invalid("byte source object index"));
         }
-        let object: ObjectRecord = self.store.read(&object_name(index))?;
-        object.validate(&state.begin)?;
-        if object
+        let obj: ObjectRecord = self.store.read(&object_name(index))?;
+        obj.validate(state)?;
+        if obj
             .ciphertext
             .as_ref()
-            .is_some_and(|name| *name != format!("payload-{index:08}.enc"))
+            .is_some_and(|n| *n != format!("payload-{index:08}.enc"))
         {
             return Err(invalid("byte source ciphertext coordinate"));
         }
-        Ok(object)
+        Ok(obj)
     }
-    pub(in crate::storage::disk_backup::byte_backup) fn advance(
-        &self,
-        state: &mut State,
-    ) -> StorageResult<()> {
-        if state.released {
-            return Ok(());
+    fn advance(&self, state: &mut State) -> StorageResult<()> {
+        if !state.released {
+            while state.verified < state.objects
+                && self.object(state, state.verified)?.receipt.is_some()
+            {
+                state.verified += 1;
+            }
+            state.validate()?;
+            self.store.write("job.json", state)?;
         }
-        while state.verified < state.objects
-            && self.object(state, state.verified)?.receipt.is_some()
-        {
-            state.verified += 1;
-        }
-        state.validate()?;
-        self.store.write("job.json", state)
+        Ok(())
     }
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn invalid(reason: &str) -> StorageError {
+fn invalid(reason: &str) -> StorageError {
     StorageError::InvalidOperation(reason.into())
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn protocol(
-    _error: ProtocolError,
-) -> StorageError {
+fn protocol(_error: ProtocolError) -> StorageError {
     invalid("byte protocol validation")
 }

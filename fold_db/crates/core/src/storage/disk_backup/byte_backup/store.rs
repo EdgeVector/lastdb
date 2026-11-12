@@ -1,11 +1,11 @@
 //! Bounded private sidecar store and streaming backup object reader.
 
 use super::{
-    invalid, protocol, ByteBackupCapture, Inner, ObjectRecord, Segment, StorageResult, MAX_OBJECTS,
-    SOURCE_DIR,
+    invalid, protocol, run_backup_destination, ByteBackupCapture, Inner, PlanSegment,
+    StorageResult, MAX_OBJECTS,
 };
+use lastdb_model::storage_policy::{backup_transport::METADATA_PACK_BYTES, BACKUP_RESOURCES};
 use serde::{de::DeserializeOwned, Serialize};
-use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 const RECORD_MAX: u64 = 256 * 1024;
 const MAX_FILES: usize = 2 * MAX_OBJECTS as usize + 16;
 
-pub(in crate::storage::disk_backup::byte_backup) struct Store {
+pub(super) struct Store {
     pub root: PathBuf,
     bytes: AtomicU64,
     coordinator: AtomicU64,
@@ -24,17 +24,16 @@ pub(in crate::storage::disk_backup::byte_backup) struct Store {
     space_root: PathBuf,
 }
 
-pub(in crate::storage::disk_backup::byte_backup) fn private_directory(
-    path: &Path,
-) -> StorageResult<()> {
+pub(super) fn private_directory(path: &Path) -> StorageResult<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
-        Ok(()) => File::open(
-            path.parent()
-                .ok_or_else(|| invalid("byte backup directory parent"))?,
-        )?
-        .sync_all()?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
+        Ok(()) => {
+            let parent = path
+                .parent()
+                .ok_or_else(|| invalid("byte backup directory parent"))?;
+            File::open(parent)?.sync_all()?;
+        }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.into()),
     }
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
@@ -46,12 +45,12 @@ pub(in crate::storage::disk_backup::byte_backup) fn private_directory(
 impl Store {
     pub fn open(home: &Path, policy: &laststore::space::SpacePolicy) -> StorageResult<Self> {
         let backup = home.join(laststore::disk_run::home::BACKUP_DIR);
-        let root = backup.join(SOURCE_DIR);
+        let root = backup.join("source");
         private_directory(&backup)?;
         private_directory(&root)?;
         let mut total = 0u64;
-        for (index, entry) in fs::read_dir(&root)?.enumerate() {
-            if index >= MAX_FILES {
+        for (i, entry) in fs::read_dir(&root)?.enumerate() {
+            if i >= MAX_FILES {
                 return Err(invalid("byte source file count"));
             }
             let meta = fs::symlink_metadata(entry?.path())?;
@@ -67,12 +66,7 @@ impl Store {
             policy: policy.clone(),
             space_root: home.to_path_buf(),
         };
-        store.admit(0)?;
-        Ok(store)
-    }
-
-    pub fn bytes(&self) -> u64 {
-        self.bytes.load(Ordering::Acquire)
+        store.admit(0).map(|()| store)
     }
 
     pub fn coordinator(&self, bytes: u64) -> StorageResult<()> {
@@ -82,28 +76,26 @@ impl Store {
 
     fn admit(&self, extra: u64) -> StorageResult<()> {
         let total = self
-            .bytes()
+            .bytes
+            .load(Ordering::Acquire)
             .checked_add(self.coordinator.load(Ordering::Acquire))
-            .and_then(|bytes| bytes.checked_add(extra))
+            .and_then(|b| b.checked_add(extra))
             .ok_or_else(|| invalid("byte source combined spool overflow"))?;
-        if total > lastdb_model::storage_policy::BACKUP_RESOURCES.durable_spool_bytes {
-            return Err(invalid("byte source combined spool bound"));
-        }
-        Ok(())
+        (total <= BACKUP_RESOURCES.durable_spool_bytes)
+            .then_some(())
+            .ok_or_else(|| invalid("byte source combined spool bound"))
     }
 
     pub fn exists(&self, name: &str) -> StorageResult<bool> {
         Ok(file_size(&self.root.join(name))?.is_some())
     }
 
-    pub fn raw(&self, name: &str, max: u64) -> StorageResult<Vec<u8>> {
+    pub fn read_bytes(&self, name: &str, max: u64) -> StorageResult<Vec<u8>> {
         let mut file = input(&self.root.join(name))?;
-        if file.metadata()?.len() > max {
-            return Err(invalid("byte source value bound"));
-        }
         let mut bytes = Vec::new();
-        (&mut file).take(max + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > max {
+        if file.metadata()?.len() > max
+            || (&mut file).take(max + 1).read_to_end(&mut bytes)? as u64 > max
+        {
             return Err(invalid("byte source value bound"));
         }
         file.sync_all()?;
@@ -112,12 +104,12 @@ impl Store {
     }
 
     pub fn read<T: DeserializeOwned>(&self, name: &str) -> StorageResult<T> {
-        let record: SavedValue = serde_json::from_slice(&self.raw(name, RECORD_MAX)?)
+        let rec: SavedValue = serde_json::from_slice(&self.read_bytes(name, RECORD_MAX)?)
             .map_err(|_| invalid("byte source saved value format"))?;
-        if record.sha256 != checksum(&record.value)? {
+        if rec.sha256 != checksum(&rec.value)? {
             return Err(invalid("byte source saved value checksum"));
         }
-        serde_json::from_value(record.value).map_err(|_| invalid("byte source saved value format"))
+        serde_json::from_value(rec.value).map_err(|_| invalid("byte source saved value format"))
     }
 
     pub fn write(&self, name: &str, value: &impl Serialize) -> StorageResult<()> {
@@ -134,19 +126,22 @@ impl Store {
     }
 
     pub fn write_raw(&self, name: &str, bytes: &[u8]) -> StorageResult<()> {
-        let maximum = if name.starts_with("payload-") && name.ends_with(".enc") {
-            lastdb_model::storage_policy::backup_transport::METADATA_PACK_BYTES + 29
+        let is_enc = name.starts_with("payload-") && name.ends_with(".enc");
+        let max = if is_enc {
+            METADATA_PACK_BYTES
         } else {
-            RECORD_MAX + 29
-        };
-        if bytes.len() as u64 > maximum {
+            RECORD_MAX
+        } + 29;
+        if bytes.len() as u64 > max {
             return Err(invalid("byte source value bound"));
         }
-        let path = self.root.join(name);
-        let pending = self.root.join(format!("{name}.pending"));
+        let (path, pending) = (
+            self.root.join(name),
+            self.root.join(format!("{name}.pending")),
+        );
         self.remove_path(&pending)?;
         self.admit(bytes.len() as u64)?;
-        let previous = file_size(&path)?.unwrap_or(0);
+        let prev = file_size(&path)?.unwrap_or(0);
         let _space =
             laststore::space::reserve_space(&self.space_root, &self.policy, bytes.len() as u64)
                 .map_err(crate::storage::disk_pack::map)?;
@@ -156,17 +151,13 @@ impl Store {
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
             .open(&pending)?;
-        let written = (|| {
-            file.write_all(bytes)?;
-            file.sync_all()
-        })();
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
         self.bytes
             .fetch_add(file.metadata()?.len(), Ordering::AcqRel);
         written?;
         fs::rename(&pending, &path)?;
-        self.bytes.fetch_sub(previous, Ordering::AcqRel);
-        File::open(&self.root)?.sync_all()?;
-        Ok(())
+        self.bytes.fetch_sub(prev, Ordering::AcqRel);
+        Ok(File::open(&self.root)?.sync_all()?)
     }
 
     pub fn remove(&self, name: &str) -> StorageResult<()> {
@@ -178,23 +169,19 @@ impl Store {
             fs::remove_file(path)?;
             self.bytes.fetch_sub(len, Ordering::AcqRel);
         }
-        File::open(&self.root)?.sync_all()?;
-        Ok(())
+        Ok(File::open(&self.root)?.sync_all()?)
     }
 }
 
 fn file_size(path: &Path) -> StorageResult<Option<u64>> {
     match fs::symlink_metadata(path) {
-        Ok(meta) => {
-            private(&meta)?;
-            Ok(Some(meta.len()))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
+        Ok(meta) => private(&meta).map(|()| Some(meta.len())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SavedValue {
     value: serde_json::Value,
@@ -211,170 +198,85 @@ fn input(path: &Path) -> StorageResult<File> {
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
-    private(&file.metadata()?)?;
-    Ok(file)
+    private(&file.metadata()?).map(|()| file)
 }
 
-fn private(meta: &fs::Metadata) -> StorageResult<()> {
-    if !meta.is_file()
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.mode() & 0o077 != 0
-        || meta.nlink() != 1
-    {
-        return Err(invalid("byte source private regular file required"));
-    }
-    Ok(())
+pub(super) fn private(meta: &fs::Metadata) -> StorageResult<()> {
+    (meta.is_file()
+        && meta.uid() == unsafe { libc::geteuid() }
+        && meta.mode() & 0o077 == 0
+        && meta.nlink() == 1)
+        .then_some(())
+        .ok_or_else(|| invalid("byte source private regular file required"))
 }
 
 impl ByteBackupCapture {
-    pub fn reader(&self, index: u64) -> StorageResult<ByteBackupReader> {
+    pub fn reader(&self, index: u64) -> StorageResult<Box<dyn Read + Send>> {
         let state = self.lock()?;
-        if !state.ready
-            || state.terminal.is_some()
-            || state.local_cancelled
-            || state.released
-            || !self.inner.available()
-        {
+        if !state.ready || !state.is_active() || self.inner.run.is_none() {
             return Err(invalid("byte source reader phase"));
         }
-        self.require_export(&state)?;
-        if self.inner.readers.load(Ordering::Acquire)
-            >= lastdb_model::storage_policy::BACKUP_RESOURCES.concurrent_streams
-        {
+        if self.inner.readers.load(Ordering::Acquire) >= BACKUP_RESOURCES.concurrent_streams {
             return Err(invalid("byte source stream admission"));
         }
         let object = self.inner.object(&state, index)?;
-        let payload = object
-            .ciphertext
-            .as_ref()
-            .map(|name| input(&self.inner.store.root.join(name)))
-            .transpose()?;
-        if let Some(file) = &payload {
-            if file.metadata()?.len() != object.input.object.bytes.get() {
+        let expected = object.input.object;
+        let source: Box<dyn Read + Send> = if let Some(name) = &object.ciphertext {
+            let b = self.inner.store.read_bytes(name, expected.bytes.get())?;
+            if b.len() as u64 != expected.bytes.get()
+                || cloud_backup_protocol::bytes_sha256(&b) != expected.sha256
+            {
                 return Err(invalid("byte source encrypted metadata length"));
             }
-        }
-        self.inner.readers.fetch_add(1, Ordering::AcqRel);
-        Ok(ByteBackupReader {
-            inner: Arc::clone(&self.inner),
-            object,
-            payload,
-            reader: None,
-            position: 0,
-            remaining: 0,
-            bytes: 0,
-            hash: Sha256::new(),
-            failed: false,
-        })
-    }
-}
-
-pub struct ByteBackupReader {
-    inner: Arc<Inner>,
-    object: ObjectRecord,
-    payload: Option<File>,
-    reader: Option<File>,
-    position: usize,
-    remaining: u64,
-    bytes: u64,
-    hash: Sha256,
-    failed: bool,
-}
-
-impl ByteBackupReader {
-    fn open_segment(&mut self, part: &Segment) -> io::Result<()> {
-        if self
-            .inner
-            .destination(Path::new(part.path.as_str()))
-            .map_err(|_| io::Error::other("byte source destination"))?
-            != self.object.input.object.destination
-        {
-            return Err(io::Error::other("byte source destination differs"));
-        }
-        let mut reader = self
-            .inner
-            .file_reader(Path::new(part.path.as_str()))
-            .map_err(|_| io::Error::other("byte source generation read"))?;
-        reader.seek(SeekFrom::Start(part.offset))?;
-        self.reader = Some(reader);
-        self.remaining = part.bytes;
-        Ok(())
-    }
-
-    fn next(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        if self.failed {
-            return Err(io::Error::other("byte source reader failed"));
-        }
-        if buffer.is_empty() {
-            return Ok(0);
-        }
-        let maximum = buffer
-            .len()
-            .min(lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize);
-        let count = if let Some(payload) = &mut self.payload {
-            payload.read(&mut buffer[..maximum])?
+            Box::new(io::Cursor::new(b))
         } else {
-            loop {
-                if self.position == self.object.segments.len() {
-                    break 0;
-                }
-                if self.reader.is_none() {
-                    self.open_segment(&self.object.segments[self.position].clone())?;
-                }
-                if self.remaining == 0 {
-                    self.reader = None;
-                    self.position += 1;
-                    continue;
-                }
-                let maximum = maximum.min(self.remaining as usize);
-                let reader = self
-                    .reader
-                    .as_mut()
-                    .ok_or_else(|| io::Error::other("byte native reader missing"))?;
-                let count = reader.read(&mut buffer[..maximum])?;
-                if count == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "byte native source truncated",
-                    ));
-                }
-                self.remaining -= count as u64;
-                break count;
-            }
+            let (inner, dest) = (Arc::clone(&self.inner), expected.destination);
+            Box::new(super::SegmentReader::new(
+                object.segments,
+                move |part: PlanSegment| {
+                    let run = inner
+                        .run
+                        .as_ref()
+                        .ok_or_else(|| io::Error::other("byte retained source unavailable"))?;
+                    let src = run
+                        .files
+                        .get(part.file)
+                        .ok_or_else(|| io::Error::other("byte source segment index"))?;
+                    let path = src
+                        .path
+                        .to_str()
+                        .ok_or_else(|| io::Error::other("byte native UTF8 path"))?;
+                    if run_backup_destination(path).ok() != Some(dest) {
+                        return Err(io::Error::other("byte source destination differs"));
+                    }
+                    let mut r = run
+                        .reader(&src.path)
+                        .map_err(|_| io::Error::other("byte source generation read"))?;
+                    r.seek(SeekFrom::Start(part.offset))?;
+                    Ok((r, part.bytes))
+                },
+            ))
         };
-        self.bytes = self
-            .bytes
-            .checked_add(count as u64)
-            .ok_or_else(|| io::Error::other("byte source stream overflow"))?;
-        self.hash.update(&buffer[..count]);
-        let expected = self.object.input.object.bytes.get();
-        if self.bytes > expected || (count == 0 && self.bytes != expected) {
-            return Err(io::Error::other("byte source exact stream length"));
-        }
-        if self.bytes == expected
-            && lastdb_model::hex::hex_lower(self.hash.clone().finalize())
-                != self.object.input.object.sha256.as_str()
-        {
-            return Err(io::Error::other("byte source stream checksum"));
-        }
-        Ok(count)
+        self.inner.readers.fetch_add(1, Ordering::AcqRel);
+        Ok(Box::new(ReaderGuard(Some(source), Arc::clone(&self.inner))))
     }
 }
 
-impl Read for ByteBackupReader {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let result = self.next(buffer);
-        if result.is_err() {
-            self.failed = true;
-        }
-        result
+struct ReaderGuard(Option<Box<dyn Read + Send>>, Arc<Inner>);
+
+impl Read for ReaderGuard {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let cap = buf.len().min(BACKUP_RESOURCES.stream_buffer_bytes as usize);
+        self.0
+            .as_mut()
+            .expect("active reader")
+            .read(&mut buf[..cap])
     }
 }
 
-impl Drop for ByteBackupReader {
+impl Drop for ReaderGuard {
     fn drop(&mut self) {
-        self.reader = None;
-        self.payload = None;
-        self.inner.readers.fetch_sub(1, Ordering::AcqRel);
+        self.0 = None;
+        self.1.readers.fetch_sub(1, Ordering::AcqRel);
     }
 }

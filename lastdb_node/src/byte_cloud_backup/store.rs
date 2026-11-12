@@ -1,19 +1,22 @@
 //! Private, bounded V2 checkpoints.
 use super::{model::Saved, BackupError, Result};
-use cloud_backup_protocol::Id;
+use crate::offline_home::{is_owned_dir, is_private_file};
+use cloud_backup_protocol::{
+    limits::DURABLE_LOCAL_SPOOL_MAX_BYTES, v2::hash::canonical_bytes,
+    v2::limits::CONTROL_JSON_MAX_BYTES, Id,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
 
-/// The automatic backup policy inside [`Store::base`].
 pub(crate) const AUTOMATIC_FILE: &str = "automatic.json";
-const MAX_JSON: u64 = cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
+const MAX_JSON: u64 = CONTROL_JSON_MAX_BYTES;
 static WRITE: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize)]
@@ -29,6 +32,7 @@ pub(super) struct Store {
     id: Id,
     bytes: Arc<AtomicU64>,
 }
+
 impl Store {
     pub fn base(home: &Path) -> PathBuf {
         home.join("data/cloud-byte-backup-v2")
@@ -36,13 +40,8 @@ impl Store {
     pub fn publication_base(home: &Path) -> PathBuf {
         home.join("data/cloud-share-backup-v2")
     }
-    pub fn write_configuration<T: Serialize>(home: &Path, name: &str, value: &T) -> Result<()> {
-        Self::write_configuration_at(&Self::base(home), name, value)
-    }
     pub fn write_configuration_at<T: Serialize>(base: &Path, name: &str, value: &T) -> Result<()> {
         directory(base)?;
-        // Policy/disable uses the reserved control allowance, including while a
-        // worker renames its separate checkpoints. No concurrent tree walk.
         let path = base.join(name);
         write(&path, value, &AtomicU64::new(pair_size(&path)?))
     }
@@ -56,16 +55,16 @@ impl Store {
         Self::open_at(&Self::base(home), id)
     }
     pub fn open_at(base: &Path, id: &Id) -> Result<Self> {
-        directory(base)?;
-        directory(&base.join("jobs"))?;
-        let root = base.join("jobs").join(id.as_str());
-        directory(&root)?;
-        let bytes = Arc::new(AtomicU64::new(count(base, 0, &mut 0)?));
+        let jobs = base.join("jobs");
+        let root = jobs.join(id.as_str());
+        for dir in [base, jobs.as_path(), root.as_path()] {
+            directory(dir)?;
+        }
         Ok(Self {
             base: base.to_path_buf(),
             root,
             id: id.clone(),
-            bytes,
+            bytes: Arc::new(AtomicU64::new(count(base, 0, &mut 0)?)),
         })
     }
     pub fn lock(home: &Path) -> Result<File> {
@@ -89,9 +88,9 @@ impl Store {
         Self::open_at(&self.base, &self.id)
     }
     pub fn select(&self, id: &Id) -> Result<()> {
-        if id != &self.id {
-            return Err(BackupError::Identity);
-        }
+        (id == &self.id)
+            .then_some(())
+            .ok_or(BackupError::Identity)?;
         write(
             &self.base.join("active.json"),
             &Active {
@@ -106,20 +105,8 @@ impl Store {
     pub fn write<T: Serialize>(&self, name: &str, value: &T) -> Result<()> {
         write(&self.root.join(name), value, &self.bytes)
     }
-    /// Remove one owned checkpoint of this job and its pending copy, and
-    /// return their bytes to the job's allowance. An absent file is removed.
-    pub fn remove(&self, name: &str) -> Result<()> {
-        let path = self.root.join(name);
-        let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
-        let freed = remove_pair(&path)?;
-        File::open(&self.root)?.sync_all()?;
-        let used = self.bytes.load(Ordering::Relaxed);
-        self.bytes
-            .store(used.saturating_sub(freed), Ordering::Relaxed);
-        Ok(())
-    }
     pub fn raw(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        raw(&self.root.join(name))
+        read_raw(&self.root.join(name))
     }
     pub fn write_raw(&self, name: &str, bytes: &[u8]) -> Result<()> {
         write_bytes(&self.root.join(name), bytes, &self.bytes)
@@ -135,9 +122,9 @@ impl Store {
     }
     pub fn save(&self, value: &Saved) -> Result<()> {
         value.validate()?;
-        if value.request_id != self.id {
-            return Err(BackupError::Identity);
-        }
+        (value.request_id == self.id)
+            .then_some(())
+            .ok_or(BackupError::Identity)?;
         self.write("state.json", value)
     }
     pub fn bytes(&self) -> u64 {
@@ -155,18 +142,13 @@ pub(super) fn state_at(base: &Path, id: &Id) -> Result<Option<Saved>> {
 
 fn read_state_at(path: &Path, id: &Id) -> Result<Option<Saved>> {
     let value: Option<Saved> = read(path)?;
-    if let Some(saved) = &value {
-        saved.validate()?;
-        if &saved.request_id != id {
-            return Err(BackupError::Identity);
-        }
+    if let Some(s) = &value {
+        s.validate()?;
+        (&s.request_id == id)
+            .then_some(())
+            .ok_or(BackupError::Identity)?;
     }
     Ok(value)
-}
-
-/// A bounded close marker remains writable without a job-directory walk.
-pub(super) fn close(home: &Path, id: &Id) -> Result<()> {
-    close_at(&Store::base(home), id)
 }
 
 pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
@@ -177,21 +159,18 @@ pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
 }
 
 pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    raw(path)?
-        .map(|bytes| serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid))
+    read_raw(path)?
+        .map(|b| serde_json::from_slice(&b).map_err(|_| BackupError::Invalid))
         .transpose()
 }
 
-fn raw(path: &Path) -> Result<Option<Vec<u8>>> {
-    match fs::symlink_metadata(path) {
-        Ok(info) => {
-            private_file(&info)?;
-            if info.len() > MAX_JSON + 29 {
-                return Err(BackupError::Limit);
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
+fn read_raw(path: &Path) -> Result<Option<Vec<u8>>> {
+    let len = size(path)?;
+    if len == 0 && !path.try_exists()? {
+        return Ok(None);
+    }
+    if len > MAX_JSON + 29 {
+        return Err(BackupError::Limit);
     }
     let file = OpenOptions::new()
         .read(true)
@@ -206,34 +185,32 @@ fn raw(path: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
-    let bytes = cloud_backup_protocol::v2::hash::canonical_bytes(value)?;
-    if bytes.len() as u64 > MAX_JSON {
-        return Err(BackupError::Limit);
-    }
-    write_bytes(path, &bytes, used)
+    let bytes = canonical_bytes(value)?;
+    (bytes.len() as u64 <= MAX_JSON)
+        .then_some(())
+        .ok_or(BackupError::Limit)
+        .and_then(|()| write_bytes(path, &bytes, used))
 }
 
 fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
-    if bytes.len() as u64 > MAX_JSON + 29 {
-        return Err(BackupError::Limit);
-    }
+    let reserve = 2 * MAX_JSON + 65536;
+    (bytes.len() as u64 <= MAX_JSON + 29)
+        .then_some(())
+        .ok_or(BackupError::Limit)?;
     let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
     if used
         .load(Ordering::Relaxed)
-        .checked_add(2 * MAX_JSON + 65536)
-        .is_none_or(|n| n > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES)
+        .checked_add(reserve)
+        .is_none_or(|n| n > DURABLE_LOCAL_SPOOL_MAX_BYTES)
     {
         return Err(BackupError::Limit);
     }
     let parent = path.parent().ok_or(BackupError::Disk)?;
     let pending = path.with_extension("pending");
     let previous = pair_size(path)?;
-    let _space = laststore::space::reserve_space(
-        parent,
-        &laststore::space::SpacePolicy::default(),
-        2 * MAX_JSON + 65536,
-    )
-    .map_err(|_| BackupError::Disk)?;
+    let _space =
+        laststore::space::reserve_space(parent, &laststore::space::SpacePolicy::default(), reserve)
+            .map_err(|_| BackupError::Disk)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -257,12 +234,9 @@ fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
 
 pub(super) fn size(path: &Path) -> Result<u64> {
     match fs::symlink_metadata(path) {
-        Ok(info) => {
-            private_file(&info)?;
-            Ok(info.len())
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(error.into()),
+        Ok(info) => private_file(&info).map(|()| info.len()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -272,75 +246,52 @@ fn pair_size(path: &Path) -> Result<u64> {
         .ok_or(BackupError::Limit)
 }
 
-pub(super) fn remove_pair(path: &Path) -> Result<u64> {
-    let freed = pair_size(path)?;
-    remove_owned(&path.with_extension("pending"))?;
-    remove_owned(path)?;
-    Ok(freed)
-}
-
 pub(super) fn remove_owned(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
-        Ok(info) => {
-            private_file(&info)?;
-            fs::remove_file(path)?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+        Ok(info) => private_file(&info).and_then(|()| Ok(fs::remove_file(path)?)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
     }
-    Ok(())
 }
 
 fn owned_dir(info: &fs::Metadata) -> Result<()> {
-    if !info.is_dir() || info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
-        return Err(BackupError::Invalid);
-    }
-    Ok(())
+    is_owned_dir(info).then_some(()).ok_or(BackupError::Invalid)
 }
 
 fn private_file(info: &fs::Metadata) -> Result<()> {
-    if !info.is_file()
-        || info.uid() != unsafe { libc::geteuid() }
-        || info.mode() & 0o077 != 0
-        || info.nlink() != 1
-    {
-        return Err(BackupError::Invalid);
-    }
-    Ok(())
+    is_private_file(info)
+        .then_some(())
+        .ok_or(BackupError::Invalid)
 }
 
 fn directory(path: &Path) -> Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => File::open(path.parent().ok_or(BackupError::Disk)?)?.sync_all()?,
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error.into()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.into()),
     }
     owned_dir(&fs::symlink_metadata(path)?)
 }
 
 fn count(path: &Path, depth: u8, entries: &mut u64) -> Result<u64> {
-    if depth > 3 {
-        return Err(BackupError::Limit);
-    }
+    (depth <= 3).then_some(()).ok_or(BackupError::Limit)?;
     let mut bytes = 0u64;
     for entry in fs::read_dir(path)? {
-        *entries = entries.checked_add(1).ok_or(BackupError::Limit)?;
-        if *entries > 524_288 {
-            return Err(BackupError::Limit);
-        }
-        let path = entry?.path();
-        let info = fs::symlink_metadata(&path)?;
+        *entries = entries
+            .checked_add(1)
+            .filter(|&n| n <= 524_288)
+            .ok_or(BackupError::Limit)?;
+        let p = entry?.path();
+        let info = fs::symlink_metadata(&p)?;
         let extra = if info.is_dir() {
-            owned_dir(&info)?;
-            count(&path, depth + 1, entries)?
+            owned_dir(&info).and_then(|()| count(&p, depth + 1, entries))?
         } else {
-            private_file(&info)?;
-            info.len()
+            private_file(&info).map(|()| info.len())?
         };
-        bytes = bytes.checked_add(extra).ok_or(BackupError::Limit)?;
-        if bytes > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES {
-            return Err(BackupError::Limit);
-        }
+        bytes = bytes
+            .checked_add(extra)
+            .filter(|&n| n <= DURABLE_LOCAL_SPOOL_MAX_BYTES)
+            .ok_or(BackupError::Limit)?;
     }
     Ok(bytes)
 }

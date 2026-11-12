@@ -1,18 +1,50 @@
 use super::work::{self, Capture};
 use super::{
-    model::Saved, publication, source::Source, store::Store, transfer, BackupError, Phase, Result,
+    connection, model::Saved, publication, source::Source, store::Store, transfer, BackupError,
+    Phase, Result,
 };
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
-use cloud_backup_protocol::v2::context::ContextReadRequest;
-use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
-use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
 use cloud_backup_protocol::v2::{
+    jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus},
+    limits::MAX_BATCH_ITEMS,
+    publication::{HeadReadRequest, HeadReadResult},
     AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
 use std::sync::atomic::AtomicBool;
 
-pub(super) use publication::{source_unavailable, validate_terminal};
+pub(super) fn source_unavailable(result: &JobResult) -> bool {
+    matches!(
+        result.status,
+        JobStatus::Closed {
+            reason: CloseReason::SourceUnavailable
+        }
+    )
+}
+
+pub(super) fn validate_terminal(saved: &Saved, result: &JobResult) -> Result<()> {
+    saved.validate()?;
+    if !saved.begin_submitted {
+        return Err(BackupError::Invalid);
+    }
+    let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+    result.validate_for_begin(begin)?;
+    match &result.status {
+        JobStatus::Published { backup } => {
+            backup.validate_for(begin, saved.commit.as_ref().ok_or(BackupError::Invalid)?)?;
+            (!saved
+                .accepted
+                .as_ref()
+                .is_some_and(|old| old != backup.as_ref()))
+            .then_some(())
+            .ok_or(BackupError::Identity)
+        }
+        JobStatus::Closed { .. } => (saved.accepted.is_none() && saved.phase != Phase::Published)
+            .then_some(())
+            .ok_or(BackupError::Identity),
+        JobStatus::Active => Err(BackupError::Invalid),
+    }
+}
 
 pub(super) async fn reconcile(source: &Source, store: &Store, saved: &mut Saved) -> Result<()> {
     source.validate(saved)?;
@@ -31,14 +63,10 @@ pub(super) async fn run(
 ) -> Result<()> {
     source.validate(saved)?;
     if saved.begin.is_some() {
-        publication::validate_saved_stream(source, store, saved)?;
+        connection::validate_saved_stream(source, store, saved)?;
     }
     if saved.local_action.is_some() {
-        source.cancel_replacement(saved)?;
-        saved.phase = Phase::Closed;
-        saved.retained_source_bytes = Some(0);
-        saved.blocked_reason = None;
-        return store.save(saved);
+        return source.finish_replacement(store, saved);
     }
     if store.read::<JobResult>("terminal.json")?.is_some() {
         return reconcile(source, store, saved).await;
@@ -57,12 +85,12 @@ pub(super) async fn run(
     let result = drive(source, &capture, store, saved, client, pause).await;
     source.validate(saved)?;
     match result {
-        Ok(result) => finish(source, &capture, store, saved, &result).await,
+        Ok(res) => finish(source, &capture, store, saved, &res).await,
         Err(BackupError::Closing) => {
             drop(capture);
             close(source, store, saved, client, pause).await
         }
-        Err(error) => Err(error),
+        Err(e) => Err(e),
     }
 }
 
@@ -76,58 +104,46 @@ async fn setup(
     if saved.begin.is_some() {
         return Ok(());
     }
-    let context_request = ContextReadRequest {
-        version: Version::V2,
-        account_id: source.account.clone(),
-        required_destinations: vec![Destination::R2, Destination::B2],
-    };
-    let context = work::control("context_read", pause, || async {
-        Ok(client.context(&context_request).await?)
+    let req = connection::context_request(source.account.clone());
+    let ctx = work::control("context_read", pause, || async {
+        Ok(client.context(&req).await?)
     })
     .await?;
-    if !context.new_work_allowed {
-        if source.publication_stream.is_some()
+    if !ctx.new_work_allowed {
+        let pending = source.publication_stream.is_some()
             || (saved.automatic_revision.is_some()
-                && publication::same_scope(source, store, &context.scope)?)
-        {
-            return Err(BackupError::AdmissionPending);
-        }
-        return Err(BackupError::Authority);
+                && connection::same_scope(source, store, &ctx.scope)?);
+        return Err(if pending {
+            BackupError::AdmissionPending
+        } else {
+            BackupError::Authority
+        });
     }
-    let stream = publication::select_stream(source, store, context.scope)?;
-    let head_request = HeadReadRequest {
+    let stream = connection::select_stream(source, store, ctx.scope)?;
+    let head_req = HeadReadRequest {
         version: Version::V2,
         stream: stream.clone(),
     };
-    let head = work::control("head_read", pause, || async {
-        match client.head(&head_request).await? {
-            HeadReadResult::Error { error }
-                if error.code != ErrorCode::NotFound || error.field.as_str() != "stream" =>
-            {
-                Err(transfer::cloud_error(error))
+    let predecessor = work::control("head_read", pause, || async {
+        match client.head(&head_req).await? {
+            HeadReadResult::Ok { response: r } => {
+                if r.active_commit_id
+                    .as_ref()
+                    .is_some_and(|id| id != &saved.request_id)
+                {
+                    return Err(BackupError::Busy);
+                }
+                Ok(r.accepted.as_ref().map(AcceptedBackup::head))
             }
-            result => Ok(result),
+            HeadReadResult::Error { error: e }
+                if e.code == ErrorCode::NotFound && e.field.as_str() == "stream" =>
+            {
+                Ok(None)
+            }
+            HeadReadResult::Error { error } => Err(transfer::cloud_error(error)),
         }
     })
     .await?;
-    let predecessor = match head {
-        HeadReadResult::Ok { response } => {
-            if response
-                .active_commit_id
-                .as_ref()
-                .is_some_and(|id| id != &saved.request_id)
-            {
-                return Err(BackupError::Busy);
-            }
-            response.accepted.map(|a| a.head())
-        }
-        HeadReadResult::Error { error }
-            if error.code == ErrorCode::NotFound && error.field.as_str() == "stream" =>
-        {
-            None
-        }
-        HeadReadResult::Error { error } => return Err(transfer::cloud_error(error)),
-    };
     let covered_logs = saved
         .work
         .covered_logs(source, &stream.stream_id, predecessor.as_ref());
@@ -145,10 +161,9 @@ async fn setup(
         covered_logs,
     };
     begin.validate()?;
-    saved.begin = Some(begin);
-    saved.phase = Phase::Capturing;
+    (saved.begin, saved.phase) = (Some(begin), Phase::Capturing);
     store.save(saved)?;
-    source.runtime().flush_native().await?;
+    source.runtime.flush_native().await?;
     Ok(())
 }
 
@@ -164,7 +179,12 @@ async fn drive(
     publication::check_work(store, saved, pause)?;
     saved.begin_submitted = true;
     store.save(saved)?;
-    let begun = begin_exact(client, &begin, pause).await?;
+    let call_begin = || {
+        work::control("job_begin", pause, || async {
+            Ok(client.begin(&begin).await?)
+        })
+    };
+    let begun = call_begin().await?;
     match &begun.status {
         JobStatus::Published { .. } => return Ok(begun),
         JobStatus::Closed { .. } if source_unavailable(&begun) => return Ok(begun),
@@ -178,29 +198,18 @@ async fn drive(
             },
             ..begun
         }),
-        Err(BackupError::Cloud(BackupTransportError::Protocol(error)))
-            if error.code == ErrorCode::JobClosed =>
+        Err(BackupError::Cloud(BackupTransportError::Protocol(e)))
+            if e.code == ErrorCode::JobClosed =>
         {
-            let result = begin_exact(client, &begin, pause).await?;
-            if source_unavailable(&result) || matches!(result.status, JobStatus::Published { .. }) {
-                Ok(result)
+            let res = call_begin().await?;
+            if source_unavailable(&res) || matches!(res.status, JobStatus::Published { .. }) {
+                Ok(res)
             } else {
-                Err(transfer::cloud_error(error))
+                Err(transfer::cloud_error(e))
             }
         }
-        Err(error) => Err(error),
+        Err(e) => Err(e),
     }
-}
-
-async fn begin_exact(
-    client: &ByteBackupClient,
-    begin: &Begin,
-    pause: &AtomicBool,
-) -> Result<JobResult> {
-    work::control("job_begin", pause, || async {
-        Ok(client.begin(begin).await?)
-    })
-    .await
 }
 
 async fn upload_and_publish(
@@ -218,37 +227,34 @@ async fn upload_and_publish(
     }
     let parallelism = fold_db::storage_policy::BACKUP_RESOURCES
         .concurrent_streams
-        .min(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS);
-    let mut next = 0;
-    while next < capture.object_count()? {
+        .min(MAX_BATCH_ITEMS);
+    let (total, mut next) = (capture.object_count()?, 0);
+    while next < total {
         publication::check_work(store, saved, pause)?;
-        capture.set_coordinator_spool_bytes(
-            store.bytes() + fold_db::storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES,
-        )?;
+        publication::budget(capture, store)?;
         let mut batch = Vec::new();
-        while next < capture.object_count()? && batch.len() < parallelism {
-            let object = capture.object(next)?;
-            if object.receipt.is_none() {
-                batch.push((next, object.input));
+        while next < total && batch.len() < parallelism {
+            let obj = capture.object(next)?;
+            if obj.receipt.is_none() {
+                batch.push((next, obj.input));
             }
             next += 1;
         }
-        if batch.is_empty() {
-            continue;
-        }
-        let inputs: Vec<_> = batch.iter().map(|(_, input)| input.clone()).collect();
-        let context = work::Context::new(store, saved, pause);
-        let failure = transfer::upload_batch(
-            client,
-            &inputs,
-            &context,
-            |pos| capture.reader(batch[pos].0),
-            |pos, receipt| capture.confirm(batch[pos].0, &receipt),
-        )
-        .await?;
-        refresh(capture, store, saved)?;
-        if let Some(error) = failure {
-            return Err(error);
+        if !batch.is_empty() {
+            let inputs: Vec<_> = batch.iter().map(|(_, input)| input.clone()).collect();
+            let ctx = work::Context::new(store, saved, pause);
+            let failure = transfer::upload_batch(
+                client,
+                &inputs,
+                &ctx,
+                |pos| capture.reader(batch[pos].0),
+                |pos, receipt| capture.confirm(batch[pos].0, &receipt),
+            )
+            .await?;
+            refresh(capture, store, saved)?;
+            if let Some(error) = failure {
+                return Err(error);
+            }
         }
     }
     if source.publication_stream.is_none() {
@@ -259,13 +265,15 @@ async fn upload_and_publish(
 }
 
 fn refresh(capture: &Capture, store: &Store, saved: &mut Saved) -> Result<()> {
-    let status = capture.status()?;
-    saved.objects_verified = status.verified_objects;
-    saved.metadata_pack_objects = status.metadata_pack_objects;
-    saved.multi_file_pack_objects = status.multi_file_pack_objects;
-    saved.native_files = status.native_files;
-    saved.native_bytes = status.native_bytes;
-    saved.retained_source_bytes = Some(status.retained_source_bytes);
+    let st = capture.status()?;
+    (saved.objects_verified, saved.metadata_pack_objects) =
+        (st.verified_objects, st.metadata_pack_objects);
+    (
+        saved.multi_file_pack_objects,
+        saved.native_files,
+        saved.native_bytes,
+    ) = (st.multi_file_pack_objects, st.native_files, st.native_bytes);
+    saved.retained_source_bytes = Some(st.retained_source_bytes);
     store.save(saved)
 }
 
@@ -280,25 +288,26 @@ async fn finish(
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
-    if let JobStatus::Published { backup } = &result.status {
-        if capture.root_receipt_id()? != backup.root_receipt_id {
-            return Err(BackupError::Identity);
+    let published = match &result.status {
+        JobStatus::Published { backup } => {
+            if capture.root_receipt_id()? != backup.root_receipt_id {
+                return Err(BackupError::Identity);
+            }
+            saved.accepted = Some((**backup).clone());
+            Some(backup.as_ref())
         }
-        saved.accepted = Some((**backup).clone());
-    }
+        JobStatus::Closed { .. } => None,
+        JobStatus::Active => return Err(BackupError::Invalid),
+    };
     store.write("terminal.json", result)?;
-    if let JobStatus::Published { backup } = &result.status {
+    if let Some(backup) = published {
         store.write_base("accepted.json", backup)?;
         let point = capture.recovery_point(backup)?;
         store.write("recovery.json", &point)?;
         store.write_base("recovery.json", &point)?;
     }
     capture.terminal(result)?;
-    saved.phase = match result.status {
-        JobStatus::Published { .. } => Phase::Published,
-        JobStatus::Closed { .. } => Phase::Closed,
-        JobStatus::Active => return Err(BackupError::Invalid),
-    };
+    saved.phase = published.map_or(Phase::Closed, |_| Phase::Published);
     saved.blocked_reason = None;
     refresh(capture, store, saved)?;
     if source.publication_stream.is_none() {
@@ -318,8 +327,7 @@ async fn close(
         if saved.begin.is_some() {
             source.cancel(saved).await?;
         }
-        saved.phase = Phase::Closed;
-        saved.retained_source_bytes = Some(0);
+        (saved.phase, saved.retained_source_bytes) = (Phase::Closed, Some(0));
         return store.save(saved);
     }
     let capture = source.resume(saved, store).await?;
@@ -327,14 +335,14 @@ async fn close(
     if capture.begin()? != *begin {
         return Err(BackupError::Identity);
     }
-    let request = JobCloseRequest {
+    let req = JobCloseRequest {
         version: Version::V2,
         job: begin.job.clone(),
         begin_sha256: begin.input_sha256()?,
         reason: CloseReason::UserRequested,
     };
     let result = work::control("job_close", pause, || async {
-        Ok(client.close(&request).await?)
+        Ok(client.close(&req).await?)
     })
     .await?;
     finish(source, &capture, store, saved, &result).await

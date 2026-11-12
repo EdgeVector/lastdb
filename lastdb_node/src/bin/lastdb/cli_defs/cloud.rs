@@ -2,26 +2,16 @@
 use super::*;
 
 pub(crate) enum CloudCommand {
-    /// Explicit V2 byte backup and source-free restore.
-    BackupV2 { action: ByteBackupCommand },
-    /// Register a credentials-only device from stdin; never open a source home.
+    BackupV2 {
+        action: ByteBackupCommand,
+    },
     RecoverCredentialsHome(RecoverCredentialsArgs),
-    /// Recover credentials for an existing DEV account from a protected seed on stdin.
-    /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
     RecoverDevCredentialsHome {
-        /// Absent child of an empty owner-only lastdb-dev-recovery.* parent.
-        /// Create the parent under /private/tmp on macOS, or /tmp elsewhere.
-        /// The fixed root does not use TMPDIR or HOME overrides.
         into: PathBuf,
-        /// Require this exact public account hash before any target or network change.
         expected_user_hash: String,
-        /// Read one base64-encoded 32-byte identity seed from stdin.
         identity_seed_stdin: bool,
-        /// Emit a receipt without credential values.
         json: bool,
     },
-    /// Prepare a source-free recovery home from this home's existing credentials.
-    /// Reads credentials only; no daemon, store, registration, or cloud calls.
     PrepareRecoveryHome(PrepareRecoveryArgs),
 }
 
@@ -35,7 +25,6 @@ pub(crate) struct RecoverCredentialsArgs {
     pub(crate) expected_user_hash: String,
     #[arg(long, required = true)]
     pub(crate) identity_seed_stdin: bool,
-    /// Optional invite in a private owner file; stdin is reserved for the seed.
     #[arg(long)]
     pub(crate) invite_code_file: Option<PathBuf>,
     #[arg(long)]
@@ -44,52 +33,34 @@ pub(crate) struct RecoverCredentialsArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct PrepareRecoveryArgs {
-    /// Absent, absolute destination home; its parent must already exist.
     #[arg(long)]
     pub(crate) into: PathBuf,
-    /// Require the saved URL to equal the compiled endpoint for this environment.
     #[arg(long, value_parser = ["dev", "prod"])]
     pub(crate) env: String,
-    /// Read the existing account API key from stdin; must match the saved key.
     #[arg(long, required = true)]
     pub(crate) api_key_stdin: bool,
-    /// Emit a value-free receipt.
     #[arg(long)]
     pub(crate) json: bool,
 }
 
 pub(crate) enum ByteBackupCommand {
-    /// Create one fresh DEV identity without a daemon, store, or cloud request.
     Init(BackupInitArgs),
-    /// Connect explicit backup credentials; keep automatic backup and Cloud Sync Off.
     Connect(BackupConnectArgs),
-    /// Save one manual V2 backup on the owner daemon. Automatic backup stays off.
     Start(BackupStartArgs),
-    /// Resume the exact saved capture and transfer identities.
     Resume(BackupJsonArgs),
-    /// Read local V2 status without a cloud request or activation.
     Status(BackupJsonArgs),
-    /// Fence the saved job while retaining uncertain cloud byte obligations.
     Close(BackupJsonArgs),
-    /// Enable native mutation-log updates and independent periodic snapshots.
     EnableAutomatic(BackupEnableArgs),
-    /// Stop new automatic requests and retries. Active work can finish safely.
     DisableAutomatic(BackupJsonArgs),
-    /// Read one account-scoped page of V2 streams and accepted heads.
     Discover(BackupListArgs),
-    /// Inspect the exact accepted recovery dependency closure. Deletes nothing.
     InspectDependencies(BackupDependenciesArgs),
-    /// Restore one frozen V2 accepted backup into an absent home.
-    /// Requires saved cloud credentials and a recovery phrase. Starts no daemon.
     Restore(BackupRestoreArgs),
 }
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupInitArgs {
-    /// Absent absolute home; its real parent must already exist.
     #[arg(long)]
     pub(crate) into: PathBuf,
-    /// New protected file at <into>/recovery-phrase.txt; never print the phrase.
     #[arg(long)]
     pub(crate) recovery_phrase_out: PathBuf,
     #[arg(long)]
@@ -98,29 +69,22 @@ pub(crate) struct BackupInitArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupConnectArgs {
-    /// Use only the compiled DEV auth endpoint.
     #[arg(
         long,
         required_unless_present = "existing",
         conflicts_with = "existing"
     )]
     pub(crate) dev: bool,
-    /// Import a verified API key on the current owner daemon without enrollment.
     #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin", "restored"], requires_all = ["env", "api_key_stdin"])]
     pub(crate) existing: bool,
     #[arg(long, value_parser = ["dev", "prod"], requires = "existing")]
     pub(crate) env: Option<String>,
-    /// Read the existing account API key only from bounded stdin.
     #[arg(long, requires = "existing")]
     pub(crate) api_key_stdin: bool,
-    /// Refuse a daemon whose existing identity differs from this account.
     #[arg(long, requires = "existing")]
     pub(crate) expected_user_hash: Option<String>,
-    /// Read the first-account invite from bounded stdin, never from an argument.
     #[arg(long)]
     pub(crate) invite_code_stdin: bool,
-    /// Reconnect an inactive native restore without changing its identity or data.
-    /// Existing accounts need no new invitation. Backup remains off.
     #[arg(long, conflicts_with = "invite_code_stdin")]
     pub(crate) restored: bool,
     #[arg(long)]
@@ -143,10 +107,8 @@ pub(crate) struct BackupJsonArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupEnableArgs {
-    /// Time between automatic upload and download checks, in seconds.
     #[arg(long, default_value_t = 60)]
     pub(crate) log_interval_seconds: u64,
-    /// Time between full snapshots, in seconds (60 through 604800).
     #[arg(long, default_value_t = 86400)]
     pub(crate) snapshot_interval_seconds: u64,
     #[arg(long)]

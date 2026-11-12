@@ -1,11 +1,13 @@
 use super::{work, BackupError, Result};
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupClient};
 use async_trait::async_trait;
-use cloud_backup_protocol::v2::blobs::{BlobPath, BlobReadItem, BlobReadRequest};
-use cloud_backup_protocol::v2::context::ContextReadRequest;
-use cloud_backup_protocol::v2::transfer::*;
-use cloud_backup_protocol::v2::{Destination, Version};
-use cloud_backup_protocol::{AccountId, CloudScope};
+use cloud_backup_protocol::v2::{
+    blobs::{BlobPath, BlobReadItem, BlobReadRequest},
+    context::ContextReadRequest,
+    transfer::*,
+    Destination, Version,
+};
+use cloud_backup_protocol::{AccountId, CloudScope, ProtocolError};
 use fold_db::fold_db_core::{BlobFetch, RecordBlobSource, SIGN_IN_TO_FETCH_FILE};
 use std::cell::RefCell;
 use std::io::Read;
@@ -29,17 +31,35 @@ pub(super) async fn upload_batch(
         }
         return Ok(Some(error));
     }
-    let mut futures = Vec::with_capacity(inputs.len());
+    let mut futs = Vec::with_capacity(inputs.len());
     for (pos, (input, item)) in inputs.iter().zip(items).enumerate() {
-        futures.push(complete(client, input, item, open_reader(pos)?, context));
+        let reader = open_reader(pos)?;
+        futs.push(async move {
+            let res = complete_one(client, input, item, reader, context).await;
+            if res.is_err() {
+                context.stopped.store(true, Ordering::Release);
+            }
+            res
+        });
     }
-    let results = futures::future::join_all(futures).await;
-    let mut failure = None;
-    for (pos, (input, result)) in inputs.iter().zip(results).enumerate() {
-        match result {
-            Ok(receipt) if receipt.object == input.object => on_receipt(pos, receipt)?,
-            Ok(_) => work::record_error(&mut failure, BackupError::Identity),
-            Err(error) => work::record_error(&mut failure, error),
+    let results = futures::future::join_all(futs).await;
+    let rank = |e: &BackupError| match e {
+        BackupError::Waiting => 0,
+        e if work::temporary(e) => 1,
+        _ => 2,
+    };
+    let mut failure: Option<BackupError> = None;
+    for (pos, (input, res)) in inputs.iter().zip(results).enumerate() {
+        let err = match res {
+            Ok(r) if r.object == input.object => {
+                on_receipt(pos, r)?;
+                continue;
+            }
+            Ok(_) => BackupError::Identity,
+            Err(e) => e,
+        };
+        if failure.as_ref().is_none_or(|old| rank(&err) > rank(old)) {
+            failure = Some(err);
         }
     }
     Ok(failure)
@@ -50,82 +70,66 @@ async fn prepare(
     inputs: &[TransferInput],
     pause: &AtomicBool,
 ) -> Result<(Vec<TransferItemResult>, Option<BackupError>)> {
-    let request = TransferPrepareRequest {
+    let req = TransferPrepareRequest {
         version: Version::V2,
         items: inputs.to_vec(),
     };
-    let observed = RefCell::new(None);
-    let result = work::control("transfer_prepare", pause, || async {
-        let response = client.prepare(&request).await?;
-        let error = batch_error(&response.items);
-        let items = remember(&mut observed.borrow_mut(), response.items)?;
+    let observed: RefCell<Option<Vec<TransferItemResult>>> = RefCell::new(None);
+    let res = work::control("transfer_prepare", pause, || async {
+        let mut items = client.prepare(&req).await?.items;
+        let error = batch_error(&items);
+        if let Some(prev) = observed.borrow().as_ref() {
+            for (old, item) in prev.iter().zip(&mut items) {
+                if is_settled(old) {
+                    if is_settled(item) && item != old {
+                        return Err(BackupError::Identity);
+                    }
+                    *item = old.clone();
+                }
+            }
+        }
+        *observed.borrow_mut() = Some(items.clone());
         error.map_or(Ok(items), Err)
     })
     .await;
-    match result {
+    match res {
         Ok(items) => Ok((items, None)),
-        Err(error) => {
+        Err(e) => {
             if let Some(items) = observed.into_inner() {
-                Ok((items, Some(error)))
+                Ok((items, Some(e)))
             } else {
-                Err(error)
+                Err(e)
             }
         }
     }
+}
+
+fn is_settled(item: &TransferItemResult) -> bool {
+    matches!(
+        item,
+        TransferItemResult::Ok { transfer }
+            if matches!(transfer.state, TransferStatus::Verified { .. } | TransferStatus::Rejected { .. })
+    )
 }
 
 fn batch_error(items: &[TransferItemResult]) -> Option<BackupError> {
-    let mut errors: Vec<_> = items
-        .iter()
-        .filter_map(|item| match item {
-            TransferItemResult::Error { error, .. } => Some(cloud_error(error.clone())),
+    let mut first = None;
+    for item in items {
+        let err = match item {
+            TransferItemResult::Error { error, .. } => cloud_error(error.clone()),
             TransferItemResult::Ok { transfer }
                 if matches!(transfer.state, TransferStatus::Rejected { .. }) =>
             {
-                Some(BackupError::Source)
+                BackupError::Source
             }
-            TransferItemResult::Ok { .. } => None,
-        })
-        .collect();
-    let index = errors
-        .iter()
-        .position(|error| !work::temporary(error))
-        .unwrap_or(0);
-    (!errors.is_empty()).then(|| errors.swap_remove(index))
-}
-
-fn remember(
-    observed: &mut Option<Vec<TransferItemResult>>,
-    mut items: Vec<TransferItemResult>,
-) -> Result<Vec<TransferItemResult>> {
-    if let Some(previous) = observed.as_ref() {
-        for (old, item) in previous.iter().zip(&mut items) {
-            if matches!(old, TransferItemResult::Ok { transfer } if matches!(transfer.state, TransferStatus::Verified { .. } | TransferStatus::Rejected { .. }))
-            {
-                if matches!(item, TransferItemResult::Ok { transfer } if matches!(transfer.state, TransferStatus::Verified { .. } | TransferStatus::Rejected { .. }))
-                    && item != old
-                {
-                    return Err(BackupError::Identity);
-                }
-                *item = old.clone();
-            }
+            TransferItemResult::Ok { .. } => continue,
+        };
+        if !work::temporary(&err) {
+            return Some(err);
         }
+        first.get_or_insert(err);
     }
-    *observed = Some(items.clone());
-    Ok(items)
-}
-
-/// An explicit invocation makes at most one conditional PUT for this frozen input.
-async fn complete(
-    client: &ByteBackupClient,
-    input: &TransferInput,
-    prepared: TransferItemResult,
-    reader: Box<dyn Read + Send>,
-    context: &work::Context<'_>,
-) -> Result<ObjectReceipt> {
-    let result = complete_one(client, input, prepared, reader, context).await;
-    context.note_result(&result);
-    result
+    first
 }
 
 async fn complete_one(
@@ -145,15 +149,18 @@ async fn complete_one(
         context.check()?;
         match client.resume(input).await? {
             TransferResumeResult::Error { error, .. } => Err(cloud_error(error)),
-            result => Ok(result),
+            res => Ok(res),
         }
     })
     .await?;
     match resumed {
         TransferResumeResult::Grant { response } => {
             context.check()?;
-            context.check_upload(input, &response.grant)?;
-            let _observation = client.upload(input, &response, reader).await;
+            let begin = context.saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+            if begin.job != input.job || response.grant.transfer_mode.is_some() {
+                return Err(BackupError::Identity);
+            }
+            let _obs = client.upload(input, &response, reader).await;
         }
         TransferResumeResult::State { transfer } => {
             drop(reader);
@@ -176,14 +183,14 @@ async fn complete_one(
     if let Some(receipt) = verified(completed)? {
         return Ok(receipt);
     }
-    let request = TransferStatusRequest {
+    let req = TransferStatusRequest {
         version: Version::V2,
         job: input.job.clone(),
         request_ids: vec![input.request_id.clone()],
     };
     work::poll(context, "transfer_status", || async {
         let reply = client
-            .transfer_status(&request, std::slice::from_ref(input))
+            .transfer_status(&req, std::slice::from_ref(input))
             .await?;
         verified(reply.items.into_iter().next().ok_or(BackupError::Invalid)?)
     })
@@ -202,55 +209,43 @@ fn verified(value: TransferItemResult) -> Result<Option<ObjectReceipt>> {
 }
 
 pub(super) fn check_pause(pause: &AtomicBool) -> Result<()> {
-    if pause.load(Ordering::Acquire) {
-        Err(BackupError::Shutdown)
-    } else {
-        Ok(())
-    }
+    (!pause.load(Ordering::Acquire))
+        .then_some(())
+        .ok_or(BackupError::Shutdown)
 }
 
-pub(super) fn cloud_error(error: cloud_backup_protocol::ProtocolError) -> BackupError {
+pub(super) fn cloud_error(error: ProtocolError) -> BackupError {
     BackupTransportError::Protocol(error).into()
 }
 
 /// Register the cloud source a personal home uses for non-local record blobs.
 pub fn register_blob_source(host: &crate::host::Host) {
-    let source: Arc<dyn RecordBlobSource> = match blob_source(host) {
-        Ok(source) => Arc::new(source),
-        Err(reason) => {
-            if matches!(crate::cloud::load_saved_credentials(&host.home), Ok(None)) {
-                Arc::new(SignInRequired)
-            } else {
-                tracing::debug!(
-                    target: "lastdbd::blob_source",
-                    %reason,
-                    "record files download on request is off"
-                );
-                return;
-            }
+    let has_saved = !matches!(crate::cloud::load_saved_credentials(&host.home), Ok(None));
+    let acct = AccountId::try_from(host.user_hash.clone())
+        .map_err(|_| "the node account id is not a cloud account id".to_owned());
+    let source: Arc<dyn RecordBlobSource> = match super::client_from_home(&host.home)
+        .and_then(|c| Ok((c, acct?)))
+    {
+        Ok((client, account)) => Arc::new(CloudBlobSource {
+            client,
+            account,
+            scope: tokio::sync::Mutex::new(None),
+        }),
+        Err(reason) if has_saved => {
+            tracing::debug!(target: "lastdbd::blob_source", %reason, "record files download on request is off");
+            return;
         }
+        Err(_) => Arc::new(SignInRequired),
     };
     host.db.set_record_blob_source(Some(source));
 }
 
 struct SignInRequired;
-
 #[async_trait]
 impl RecordBlobSource for SignInRequired {
     async fn fetch(&self, _path: &BlobPath, _sealed_bytes: u64) -> BlobFetch {
         BlobFetch::Unavailable(SIGN_IN_TO_FETCH_FILE.to_owned())
     }
-}
-
-fn blob_source(host: &crate::host::Host) -> std::result::Result<CloudBlobSource, String> {
-    let client = super::client_from_home(&host.home)?;
-    let account = AccountId::try_from(host.user_hash.clone())
-        .map_err(|_| "the node account id is not a cloud account id".to_owned())?;
-    Ok(CloudBlobSource {
-        client,
-        account,
-        scope: tokio::sync::Mutex::new(None),
-    })
 }
 
 struct CloudBlobSource {
@@ -262,10 +257,9 @@ struct CloudBlobSource {
 #[async_trait]
 impl RecordBlobSource for CloudBlobSource {
     async fn fetch(&self, path: &BlobPath, sealed_bytes: u64) -> BlobFetch {
-        match self.read(path, sealed_bytes).await {
-            Ok(fetch) => fetch,
-            Err(reason) => BlobFetch::Unavailable(reason),
-        }
+        self.read(path, sealed_bytes)
+            .await
+            .unwrap_or_else(BlobFetch::Unavailable)
     }
 }
 
@@ -275,17 +269,18 @@ impl CloudBlobSource {
         if let Some(scope) = cached.as_ref() {
             return Ok(scope.clone());
         }
-        let context = self
+        let req = ContextReadRequest {
+            version: Version::V2,
+            account_id: self.account.clone(),
+            required_destinations: vec![Destination::B2],
+        };
+        let ctx = self
             .client
-            .context(&ContextReadRequest {
-                version: Version::V2,
-                account_id: self.account.clone(),
-                required_destinations: vec![Destination::B2],
-            })
+            .context(&req)
             .await
-            .map_err(|error| format!("cloud account context: {error}"))?;
-        *cached = Some(context.scope.clone());
-        Ok(context.scope)
+            .map_err(|e| format!("cloud account context: {e}"))?;
+        *cached = Some(ctx.scope.clone());
+        Ok(ctx.scope)
     }
 
     async fn read(
@@ -293,23 +288,23 @@ impl CloudBlobSource {
         path: &BlobPath,
         sealed_bytes: u64,
     ) -> std::result::Result<BlobFetch, String> {
-        let request = BlobReadRequest {
+        let req = BlobReadRequest {
             version: Version::V2,
             scope: self.scope().await?,
             paths: vec![path.clone()],
         };
-        let response = match self.client.blob_read(&request).await {
-            Ok(response) => response,
-            Err(error) => {
+        let resp = match self.client.blob_read(&req).await {
+            Ok(r) => r,
+            Err(e) => {
                 *self.scope.lock().await = None;
-                return Err(format!("cloud blob read: {error}"));
+                return Err(format!("cloud blob read: {e}"));
             }
         };
-        let item = response
+        let item = resp
             .items
             .into_iter()
             .next()
-            .ok_or_else(|| "cloud blob read returned no result".to_owned())?;
+            .ok_or("cloud blob read returned no result")?;
         match &item {
             BlobReadItem::Absent { .. } => return Ok(BlobFetch::Absent),
             BlobReadItem::Grant { bytes, .. } if bytes.get() != sealed_bytes => {
@@ -324,12 +319,12 @@ impl CloudBlobSource {
             .client
             .open_blob(&item)
             .await
-            .map_err(|error| format!("cloud blob download: {error}"))?;
+            .map_err(|e| format!("cloud blob download: {e}"))?;
         let mut row = Vec::with_capacity(usize::try_from(sealed_bytes).unwrap_or(0));
         stream
             .read_to_end(&mut row)
             .await
-            .map_err(|error| format!("cloud blob download: {error}"))?;
+            .map_err(|e| format!("cloud blob download: {e}"))?;
         Ok(BlobFetch::Bytes(row))
     }
 }
