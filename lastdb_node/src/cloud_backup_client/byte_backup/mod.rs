@@ -23,11 +23,13 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Read;
 
 mod contributions;
+mod exact_upload;
 mod guest_permission;
 mod reader;
 
 pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};
 pub use contributions::GuestContributionWriter;
+pub use exact_upload::ExactUpload;
 pub use guest_permission::{GuestAppendPermission, GuestReadPermission, ShareEnvironment};
 pub use reader::ByteBackupReader;
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
