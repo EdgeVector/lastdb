@@ -94,6 +94,7 @@ pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
     pub(in crate::storage) cleanup_job: Arc<crate::storage::disk_cleanup::CleanupJob>,
     pub(in crate::storage) mutation_log: mutation_log::MutationLog,
+    pub(in crate::storage) accepted: crate::storage::disk_backup::accepted::Log,
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
@@ -165,6 +166,7 @@ impl PackRuntime {
                 ));
             }
             if runtime.fresh_initialization_pending() {
+                runtime.mark_accepted_born(runtime.physical.current_root().frontier())?;
                 run_node::complete_initialization(runtime.physical.path())?;
                 runtime.initializing.store(false, Ordering::Release);
             }
@@ -269,11 +271,16 @@ impl PackNamespacedStore {
         let last_root = Arc::new(view::LastRoot::new(&current));
         let cleanup_job = Arc::new(crate::storage::disk_cleanup::CleanupJob::open(&physical));
         let mutation_log = mutation_log::MutationLog::new(&physical);
+        let accepted = crate::storage::disk_backup::accepted::Log::open(
+            physical.path(),
+            physical.current_root().frontier(),
+        );
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
                 cleanup_job,
                 mutation_log,
+                accepted,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,

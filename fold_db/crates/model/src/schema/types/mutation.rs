@@ -148,6 +148,22 @@ impl FileWrite {
             Self::LocalPath(_) | Self::Clear => 0,
         }
     }
+
+    #[must_use]
+    pub fn sealed_row(&self) -> Option<&[u8]> {
+        match self {
+            Self::Put(file) => Some(file.payload.row.as_slice()),
+            Self::LocalPath(_) | Self::Clear => None,
+        }
+    }
+
+    #[must_use]
+    pub fn local_reference(&self) -> Option<&LocalFileReference> {
+        match self {
+            Self::LocalPath(file) => Some(file),
+            Self::Put(_) | Self::Clear => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for FileWrite {

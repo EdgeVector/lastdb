@@ -272,7 +272,13 @@ impl PackRuntime {
         };
         if let Some(prepared) = prepared {
             self.commit_prepared(prepared, &hidden, &requests)?;
+        } else if transaction::has_accepted(&requests) {
+            return Err(StorageError::InvalidOperation(
+                "accepted notes require a native commit".into(),
+            ));
         } else {
+            let frontier = self.physical.current_root().frontier();
+            self.prepare_accepted(frontier, &[])?;
             let current = self
                 .view
                 .read()

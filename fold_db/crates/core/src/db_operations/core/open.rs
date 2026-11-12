@@ -19,7 +19,7 @@ impl DbOperations {
         } = bind::open(store, node_key).await?;
         Ok(Self {
             runtime,
-            schema_store: SchemaStore::new(schemas),
+            schema_store: SchemaStore::new(schemas, node_key),
             record_store: RecordStore::new(records, node_key),
             metadata,
         })
