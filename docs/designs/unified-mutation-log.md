@@ -3,7 +3,8 @@
 Status: accepted. Tom Tang, 10 November 2026.
 `mutation_log` is the pure core. `mutation_log_mem` is the `MutationLog`
 port and the in-memory adapter. `mutation_log_sync::drive` is the only
-shared-sync step. There is no flag. The daemon does not call the log yet.
+shared-sync step. There is no flag. `lastdbd` calls the log through
+`log_sync::spawn`.
 
 ## Decision
 
@@ -230,10 +231,10 @@ owner database. Any other registered id is a received share. An unknown id
 is 404. The code is `lastdb_node/src/exec/database_routes.rs` and
 `lastdb_uds/src/database_path.rs`.
 
-A locally owned shareable database is still a separate home and daemon, not
-a second database beside `personal` on the same node. The SDK can already
-select a second registered database. It cannot create the owned shareable
-sibling. That registration is a follow-up. This change does not edit the SDK.
+`lastdb db create` registers an owned named database beside `personal` on
+the same node. The SDK selects it with `databaseId`. That registration is
+not a follow-up. `MAX_WRITERS = 12` remains on the old contribution inbox
+until that path is drained.
 
 ## Code that supports this
 
@@ -261,8 +262,10 @@ creates the PROD table, and imports a mandatory fresh full snapshot per
 database with a receipt.
 
 The client cutover then makes the log the only path and deletes the legacy
-V2 mutation-log chain and the per-writer share sync. There is no flag. The
-daemon does not call this log yet, so its behavior is unchanged.
+V2 mutation-log chain and the per-writer share sync. There is no flag.
+`lastdbd` sends and catches up a named database through `log_sync`. Backup
+V2 and the contributor inboxes stay until a database is cut over.
+`MAX_WRITERS = 12` is still live.
 
 Old server rows stay until a second device acks and keyed reads match.
 
