@@ -99,7 +99,8 @@ pub(super) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
     descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
     descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
     descriptor[16..32].copy_from_slice(identity.as_bytes());
-    descriptor[60..].copy_from_slice(&crc32fast::hash(&descriptor[..60]).to_le_bytes());
+    let crc = crc32fast::hash(&descriptor[..60]).to_le_bytes();
+    descriptor[60..].copy_from_slice(&crc);
     write_private_file(&dir.join(RUN_HOME_MARKER), &descriptor)?;
     let staged = Manifest::empty(identity).stage(dir, key, None)?;
     Manifest::replace(dir, &staged)?;
@@ -243,6 +244,38 @@ impl RunRead {
         budget: ReadBudget,
         maximum: u64,
     ) -> Result<Self> {
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            maximum,
+            FlockOperation::NonBlockingLockExclusive,
+        )
+    }
+
+    /// Open an existing root alongside other readers while excluding writers.
+    pub fn open_existing_shared_bounded(
+        root: &Path,
+        key: &[u8; 32],
+        budget: ReadBudget,
+        maximum: u64,
+    ) -> Result<Self> {
+        Self::open_existing_inner(
+            root,
+            key,
+            budget,
+            maximum,
+            FlockOperation::NonBlockingLockShared,
+        )
+    }
+
+    fn open_existing_inner(
+        root: &Path,
+        key: &[u8; 32],
+        budget: ReadBudget,
+        maximum: u64,
+        operation: FlockOperation,
+    ) -> Result<Self> {
         let root = root.canonicalize()?;
         let lock = OpenOptions::new()
             .read(true)
@@ -253,7 +286,7 @@ impl RunRead {
                 "disk run snapshot: LOCK is not a file".into(),
             ));
         }
-        rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive)
+        rustix::fs::flock(&lock, operation)
             .map_err(|_| Error::Config("disk run snapshot: another owner holds the home".into()))?;
         require_path(&root, &lock)?;
         let identity = read_descriptor_file(&root.join(RUN_HOME_MARKER))?;

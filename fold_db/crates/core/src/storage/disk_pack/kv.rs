@@ -186,7 +186,7 @@ fn prepare(
     let bodies = runtime.raw_many(context, &del_coords, pending)?;
     let mut present: BTreeMap<_, _> = del_coords
         .into_iter()
-        .zip(bodies.into_iter().map(|b| b.is_some()))
+        .zip(bodies.iter().map(Option::is_some))
         .collect();
     let mut out = Vec::new();
     for (m, (collection, key)) in mutations.into_iter().zip(targets) {

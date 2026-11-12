@@ -137,12 +137,15 @@ impl CleanupJob {
     fn get(&self) -> NativeCleanupStatus {
         self.status
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
     fn set(&self, status: NativeCleanupStatus) {
-        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = status;
+        *self
+            .status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = status;
     }
 }
 

@@ -47,7 +47,8 @@ impl Footer {
         out[40..48].copy_from_slice(&self.records.to_le_bytes());
         out[48..52].copy_from_slice(&self.max_payload.to_le_bytes());
         out[52..56].copy_from_slice(&self.data_blocks.to_le_bytes());
-        out[60..64].copy_from_slice(&crc32fast::hash(&out[..60]).to_le_bytes());
+        let crc = crc32fast::hash(&out[..60]).to_le_bytes();
+        out[60..64].copy_from_slice(&crc);
         out
     }
 

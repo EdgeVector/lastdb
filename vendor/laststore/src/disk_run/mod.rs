@@ -178,11 +178,8 @@ pub(crate) mod codec {
         let (mut records, mut at, mut key) = (Vec::new(), 0, Vec::new());
         while at < payload.len() {
             let shared = get_len(payload, &mut at, key.len())?;
-            let suffix = get_slice(
-                payload,
-                &mut at,
-                get_len(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?,
-            )?;
+            let suffix_len = get_len(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?;
+            let suffix = get_slice(payload, &mut at, suffix_len)?;
             key.truncate(shared);
             key.extend_from_slice(suffix);
             if !records

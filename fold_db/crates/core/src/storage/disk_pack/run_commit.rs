@@ -325,7 +325,8 @@ fn merge_until_settled(
         let needed = !stop.load(Ordering::Acquire)
             && homes
                 .iter()
-                .any(|h| h.upgrade().is_some_and(|h| h.needs_merge()));
+                .filter_map(Weak::upgrade)
+                .any(|h| h.needs_merge());
         if !needed || merging.swap(true, Ordering::AcqRel) {
             return;
         }

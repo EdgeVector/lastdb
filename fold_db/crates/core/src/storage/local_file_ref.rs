@@ -169,7 +169,7 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
     }
     let file_name = canonical
         .file_name()
-        .and_then(|n| n.to_str())
+        .and_then(std::ffi::OsStr::to_str)
         .map(str::to_string);
     Ok(DescribedFile {
         path: canonical,
