@@ -184,7 +184,6 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
     match route {
         DataRoute::DbSchemas
         | DataRoute::DbDeleteLedger
-        | DataRoute::SyncByteBackupV2
         | DataRoute::CloudConnection
         | DataRoute::DeclareSchema
         | DataRoute::DropSchema => admin_handler_timeout(),
