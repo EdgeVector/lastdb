@@ -3,8 +3,7 @@
 Status: accepted. Tom Tang, 10 November 2026.
 `mutation_log` is the pure core. `mutation_log_mem` is the `MutationLog`
 port and the in-memory adapter. `mutation_log_sync::drive` is the only
-shared-sync step. There is no flag. `lastdbd` calls the log through
-`log_sync::spawn`.
+shared-sync step. There is no flag. The daemon does not call the log yet.
 
 ## Decision
 
@@ -170,15 +169,9 @@ as well as the reader, because a slice of entries does not carry them.
 
 ## Namespaces
 
-A named database admits a share through its registered spec binding
-(`SpecBinding::admitted` in `lastdb_node/src/share_spec.rs` and
-`lastdb_node/src/saved_query/policy.rs`). The binding is the catalog from
-the named-database spec. `graph` stays reserved and unpublished.
-
-`mutation_log::classify_shareable` is still the interim list the pure
-`drive` step receives: `social` and `lastdb-files`. That list is not the
-named-database admission rule. The old schema-prefix reservation plan is
-superseded.
+Shareable databases accept one interim list: `social` and `lastdb-files`.
+This list is interim. The real reservation of official names moves to named
+databases later. The old schema-prefix reservation plan is superseded.
 
 `social` is lastdb-std 1.0 and shareable (`spec/index.json`,
 `spec/README.md`, `spec/social/`). `social-graph` is the lastdb-std 1.0
@@ -237,11 +230,10 @@ owner database. Any other registered id is a received share. An unknown id
 is 404. The code is `lastdb_node/src/exec/database_routes.rs` and
 `lastdb_uds/src/database_path.rs`.
 
-One node keeps an owned named database beside `personal`. `lastdb db create`
-registers it, and the SDK selects it with `databaseId`. The owner id stays
-`personal`. A received share is still a registered id, and an unknown id is
-404. `MAX_WRITERS = 12` remains on the old contribution inbox until that
-path is drained.
+A locally owned shareable database is still a separate home and daemon, not
+a second database beside `personal` on the same node. The SDK can already
+select a second registered database. It cannot create the owned shareable
+sibling. That registration is a follow-up. This change does not edit the SDK.
 
 ## Code that supports this
 
@@ -269,10 +261,8 @@ creates the PROD table, and imports a mandatory fresh full snapshot per
 database with a receipt.
 
 The client cutover then makes the log the only path and deletes the legacy
-V2 mutation-log chain and the per-writer share sync. There is no flag.
-`lastdbd` sends and catches up a named database through `log_sync`. Backup
-V2 and the contributor inboxes stay until a database is cut over.
-`MAX_WRITERS = 12` is still live.
+V2 mutation-log chain and the per-writer share sync. There is no flag. The
+daemon does not call this log yet, so its behavior is unchanged.
 
 Old server rows stay until a second device acks and keyed reads match.
 
@@ -283,6 +273,6 @@ A pull returns the page or `Reset { snapshot_ref, through, at_ms }` plus the
 suffix, and does not ack. The caller acks after it applies and persists.
 Neither crate reads the process environment, opens a socket, or calls Exemem.
 
-Exemem's read path enforces `can_read` for stored bytes. The owned named
-database beside `personal` is the registry from the named-database create
-path. The SDK selects it with `databaseId`.
+Exemem's read path enforces `can_read` for stored bytes. One node registers
+an owned shareable database beside `personal`. The SDK already selects it
+with `databaseId`.
