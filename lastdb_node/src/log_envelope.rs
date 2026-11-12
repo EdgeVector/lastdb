@@ -112,7 +112,8 @@ impl DatabaseContentKey {
                 Ok(Some((Arc::clone(&host.db), key)))
             }
             (Resolved::Owned, Some(store)) => {
-                let key = Self::owned(&seed, database_id)?;
+                let mut key = Self::owned(&seed, database_id)?;
+                key.invite = false;
                 Ok(Some((store, key)))
             }
             (Resolved::Absent, None) => Ok(None),

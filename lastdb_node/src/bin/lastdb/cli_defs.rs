@@ -118,6 +118,9 @@ pub(super) enum DatabaseCommand {
     /// Create an owned database. Personal stays the unscoped default.
     Create {
         name: String,
+        /// Allow only the owner to sync or read this database.
+        #[arg(long, conflicts_with_all = ["spec_name", "spec_version"])]
+        private: bool,
         /// Spec catalog name. Required together with --spec-version.
         #[arg(long, requires = "spec_version")]
         spec_name: Option<String>,

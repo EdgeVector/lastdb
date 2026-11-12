@@ -69,7 +69,7 @@ async fn one_turn(host: &Arc<Host>) -> Pause {
 }
 
 fn fresh_native(database: &Database) -> bool {
-    database.native && database.kind == "shareable" && database.spec.is_some()
+    database.native && (database.kind == "personal" || database.spec.is_some())
 }
 
 async fn receipt_turn(host: &Arc<Host>, database: &Database) -> Pause {
@@ -154,7 +154,7 @@ pub(super) async fn open_native(
     log: CloudLog,
     device: &str,
 ) -> Pause {
-    if !native_publisher(host, &database.id) {
+    if database.kind == "shareable" && !native_publisher(host, &database.id) {
         warn_once(
             &AUTHORITY_WARNED,
             "named database authority is not this node and sync stays closed",

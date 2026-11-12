@@ -83,9 +83,6 @@ fn accept(row: &EntryRow, native: bool) -> Option<Database> {
     if !valid_id(&row.id) || !valid_kind(&row.kind) {
         return None;
     }
-    if native && row.kind != "shareable" {
-        return None;
-    }
     let spec = match &row.spec {
         Some(spec) if valid_spec(spec) => Some(Spec {
             name: spec.name.clone(),

@@ -36,9 +36,10 @@ export interface ListedDatabase {
   expires_ms?: number;
 }
 
-/** Body of `POST /api/databases`. Kind is always shareable. */
+/** Body of `POST /api/databases`. Omit kind for a shareable database. */
 export interface CreateDatabaseRequest {
   name: string;
+  kind?: 'personal' | 'shareable';
   spec?: DatabaseSpec | null;
 }
 
@@ -75,7 +76,7 @@ export async function createNodeDatabase(
   return parseListedDatabase(res.body['database']);
 }
 
-function createBody(request: CreateDatabaseRequest): { name: string; spec?: DatabaseSpec } {
+function createBody(request: CreateDatabaseRequest): CreateDatabaseRequest {
   const name = request.name;
   if (!SELECTOR.test(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
     throw new RequestRejectedError('invalid_request', 'invalid database name');
@@ -90,7 +91,15 @@ function createBody(request: CreateDatabaseRequest): { name: string; spec?: Data
   if (RESERVED_SPEC_NAMES.has(name) && spec?.name !== name) {
     throw new RequestRejectedError('conflict', 'reserved database name requires its spec');
   }
-  return spec === null ? { name } : { name, spec };
+  const kind = request.kind;
+  if (kind !== undefined && kind !== 'personal' && kind !== 'shareable') {
+    throw new RequestRejectedError('invalid_request', 'invalid database access policy');
+  }
+  if (kind === 'personal' && spec !== null) {
+    throw new RequestRejectedError('invalid_request', 'private databases cannot bind a share spec');
+  }
+  const body = kind === undefined ? { name } : { name, kind };
+  return spec === null ? body : { ...body, spec };
 }
 
 function validSpec(spec: DatabaseSpec): boolean {

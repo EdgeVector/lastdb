@@ -298,12 +298,14 @@ fn run(cli: Cli) -> Result<(), String> {
             DatabaseCommand::List { json } => list_databases(cli.data_dir, json),
             DatabaseCommand::Create {
                 name,
+                private,
                 spec_name,
                 spec_version,
                 json,
             } => create_database(
                 cli.data_dir,
                 &name,
+                private,
                 spec_name.as_deref(),
                 spec_version,
                 json,

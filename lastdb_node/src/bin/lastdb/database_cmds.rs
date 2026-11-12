@@ -8,6 +8,7 @@ const RESERVED_SPEC_NAMES: &[&str] = &["social", "medical", "finance", "work"];
 pub(super) fn create_database(
     data_dir: Option<PathBuf>,
     name: &str,
+    private: bool,
     spec_name: Option<&str>,
     spec_version: Option<u32>,
     json: bool,
@@ -15,6 +16,9 @@ pub(super) fn create_database(
     let spec = create_spec(name, spec_name, spec_version)?;
     let target = DatabaseTarget::open(data_dir, None)?;
     let mut body = serde_json::json!({ "name": name });
+    if private {
+        body["kind"] = serde_json::Value::String("personal".into());
+    }
     if let Some(spec) = spec {
         body["spec"] = spec;
     }
