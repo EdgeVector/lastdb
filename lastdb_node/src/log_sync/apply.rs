@@ -84,9 +84,15 @@ async fn received_page(
 ) -> Result<PagePlan, String> {
     let delivered: Vec<DeliveredEntry> = entries.iter().map(delivered_entry).collect();
     let mut files = super::restore::file_source(log.clone());
-    crate::database_replay::replay_delivered(host, database_id, publisher, &delivered, &mut files)
-        .await
-        .map_err(|error| error.to_string())?;
+    crate::database_replay::replay_delivered(
+        host,
+        log.database_id(),
+        publisher,
+        &delivered,
+        &mut files,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     Ok(PagePlan::Ack(cursor))
 }
 

@@ -32,14 +32,10 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) {
     let material = Zeroizing::new(*key.encryption_bytes());
     let reader = Arc::clone(&runtime);
     let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
-    let Ok(Some(prepared)) = joined else {
+    let Ok(Some(page)) = joined else {
         return;
     };
-    let _ = send_page(host, log, &runtime, &key, prepared).await;
-}
-
-struct Prepared {
-    page: Page,
+    let _ = send_page(host, log, &runtime, &key, &page).await;
 }
 
 enum PublishPolicy {
@@ -47,7 +43,7 @@ enum PublishPolicy {
     Share(SpecBinding),
 }
 
-fn read_page(runtime: &PackRuntime, key: &[u8; 32], policy: &PublishPolicy) -> Option<Prepared> {
+fn read_page(runtime: &PackRuntime, key: &[u8; 32], policy: &PublishPolicy) -> Option<Page> {
     let status = accepted_writes::status(runtime);
     if status.gap {
         tracing::warn!(target: "lastdbd::log_sync", "accepted prefix has a gap");
@@ -61,7 +57,7 @@ fn read_page(runtime: &PackRuntime, key: &[u8; 32], policy: &PublishPolicy) -> O
         PublishPolicy::Share(spec) => Publication::Share(spec),
     };
     match accepted_writes::prefix(runtime, key, publication, status.acked, PAGE_LIMIT) {
-        Ok(page) if !page.snapshot_required => Some(Prepared { page }),
+        Ok(page) if !page.snapshot_required => Some(page),
         Ok(_) | Err(Blocked::Snapshot | Blocked::Gap) => None,
         Err(blocked) => {
             tracing::warn!(target: "lastdbd::log_sync", reason = ?blocked, "accepted prefix was not read");
@@ -75,21 +71,21 @@ async fn send_page(
     log: &CloudLog,
     runtime: &Arc<PackRuntime>,
     key: &DatabaseContentKey,
-    prepared: Prepared,
+    page: &Page,
 ) -> bool {
-    if prepared.page.items.is_empty() {
+    if page.items.is_empty() {
         return false;
     }
     let Some(tip) = writer_tip(log).await else {
         return false;
     };
     let mut next = tip.saturating_add(1);
-    for item in &prepared.page.items {
+    for item in &page.items {
         if !send_item(host, log, key, item, &mut next).await {
             return false;
         }
     }
-    let through = prepared.page.through;
+    let through = page.through;
     let runtime = Arc::clone(runtime);
     let acked =
         tokio::task::spawn_blocking(move || accepted_writes::acknowledge(&runtime, through)).await;

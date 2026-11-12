@@ -20,7 +20,7 @@ use serde::Serialize;
 use crate::host::Host;
 
 use super::disk;
-use super::registry::{self, Database};
+use super::registry::Database;
 use super::session;
 
 pub(crate) const SCHEMA: &str = "lastdb.database_cutover/v1";

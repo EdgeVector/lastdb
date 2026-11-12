@@ -27,7 +27,7 @@ mod payload;
 mod types;
 mod wire;
 
-pub use payload::{parse_accepted, AcceptedBody, FileObject, FileSection};
+pub use payload::{AcceptedBody, FileObject, FileSection};
 pub use types::{
     IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest, SnapshotFileSource,
     SnapshotInstall, SnapshotManifest, SnapshotObject, SnapshotPart,
