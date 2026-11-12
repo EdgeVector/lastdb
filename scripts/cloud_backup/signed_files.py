@@ -114,10 +114,10 @@ def main():
         write_private(publisher.home / "identity.key", baseline_data.seed(phrase))
         del phrase
         recipient_home = root / "recipient"
-        initialized = programs.command(publisher.home, [
+        initialized = programs.command(None, [
             "admin", "backup", "init", "--into", str(recipient_home),
             "--recovery-phrase-out", str(recipient_home / "recovery-phrase.txt"), "--json",
-        ])
+        ], timeout=20)
         recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
         with running(publisher, remove_saved=True), running(recipient):
             transfer(programs, root, publisher, recipient, api_key)
