@@ -226,8 +226,10 @@ class Programs:
         self.verify()
         environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
         environment.update(extra or {})
-        command = [str(self.directory / "lastdb"), "--data-dir", str(home),
-                   *self.cli_arguments(arguments)]
+        command = [str(self.directory / "lastdb")]
+        if home is not None:
+            command.extend(("--data-dir", str(home)))
+        command.extend(self.cli_arguments(arguments))
         return decode_json(execute(command, environment, input_bytes, timeout))
 
     def restore(self, home, destination, baseline, phrase):
