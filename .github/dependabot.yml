@@ -19,6 +19,27 @@ updates:
       cargo:
         patterns:
           - "*"
+    # sha2 0.11 and ed25519-dalek 3 dropped feature flags these manifests still
+    # request. The catch-all cargo group rewrites the requirement, cargo then
+    # fails to resolve, and the weekly job exits 1 (dependency_file_not_resolvable)
+    # after it has already updated the rest of the group.
+    #
+    # sha2 >= 0.11 removed `asm` (and `std`). vendor/laststore enables `asm` on
+    # aarch64; the workspace and lastdb_node stay on 0.10.
+    # ed25519-dalek >= 3 removed `std`. app_identity_crypto requests it.
+    # fold_db/crates/core still pins 2.x (`rand_core`, `serde`).
+    #
+    # Ranges, not semver-major: Dependabot treats 0.10 -> 0.11 as a minor bump,
+    # so a major-only ignore would still attempt sha2 0.11. Updates below these
+    # floors (sha2 0.10.x, ed25519-dalek 2.x) still apply. Drop the ignores in
+    # the change that stops requesting the removed features.
+    ignore:
+      - dependency-name: sha2
+        versions:
+          - ">= 0.11"
+      - dependency-name: ed25519-dalek
+        versions:
+          - ">= 3"
 
   - package-ecosystem: npm
     directory: /lastdb_app_sdk
