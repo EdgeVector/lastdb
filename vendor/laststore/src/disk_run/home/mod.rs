@@ -37,8 +37,8 @@ use uuid::Uuid;
 
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
-pub(super) const NODE_CLEANUP: &str = "NODE_CLEANUP";
-pub(super) const CAS_DELETE: &str = "CAS_DELETE";
+const NODE_CLEANUP: &str = "NODE_CLEANUP";
+const CAS_DELETE: &str = "CAS_DELETE";
 /// Directory of the home owner's mutation log, beside `runs/`.
 pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 /// Directory of the home owner's cloud backup: the capture source and the run holds.
@@ -46,7 +46,7 @@ pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 
-pub(super) fn invalid(msg: &str) -> Error {
+fn invalid(msg: &str) -> Error {
     Error::Config(msg.into())
 }
 
@@ -173,11 +173,7 @@ impl RunHome {
         })
     }
 
-    pub(super) fn install_merge(
-        &self,
-        next: Manifest,
-        space: &MergeSpace,
-    ) -> Result<Arc<Manifest>> {
+    fn install_merge(&self, next: Manifest, space: &MergeSpace) -> Result<Arc<Manifest>> {
         let res = next
             .stage(&self.root, &self.key, Some(space))
             .and_then(|s| self.publish_staged(next, &s));
@@ -187,11 +183,7 @@ impl RunHome {
         res
     }
 
-    pub(super) fn install_prepared(
-        &self,
-        file: Arc<RunFile>,
-        run: PreparedRun,
-    ) -> Result<Arc<Manifest>> {
+    fn install_prepared(&self, file: Arc<RunFile>, run: PreparedRun) -> Result<Arc<Manifest>> {
         let slot = Mutex::new(Some(run));
         let finish = || slot.lock().unwrap().take().unwrap().finish().map(|_| ());
         std::thread::scope(|scope| {
@@ -212,7 +204,7 @@ impl RunHome {
                     let _ = fs::remove_file(p);
                     Err(e)
                 }
-                (Err(e), _) | (_, Err(e)) => Err(e),
+                (Err(e), _) => Err(e),
                 (Ok((next, p)), Ok(())) => self.publish_staged(next, &p),
             }
         })
@@ -286,14 +278,14 @@ fn build_inventory(key: &[u8; 32], root: &Manifest, deadline: Instant) -> Logica
     }
 }
 
-pub(super) fn open_nofollow(path: &Path) -> std::io::Result<File> {
+fn open_nofollow(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
         .read(true)
         .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
         .open(path)
 }
 
-pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
+fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
     let len = u16::try_from(collection.len())
         .map_err(|_| invalid("disk run home: collection name too long"))?;
     if 2 + collection.len() + key.len() > MAX_RUN_KEY_BYTES {
@@ -304,7 +296,7 @@ pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
     Ok([&len.to_be_bytes()[..], collection.as_bytes(), key].concat())
 }
 
-pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
+fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     let at = 2 + collection.len();
     if rk.len() < at
         || rk[..2] != (collection.len() as u16).to_be_bytes()
@@ -315,14 +307,14 @@ pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     String::from_utf8(rk[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
 }
 
-pub(super) fn is_removable_run(name: &str, keep: &HashSet<Uuid>) -> bool {
+fn is_removable_run(name: &str, keep: &HashSet<Uuid>) -> bool {
     name.strip_suffix(RUN_SUFFIX)
         .and_then(|id| Uuid::parse_str(id).ok())
         .is_some_and(|id| !keep.contains(&id))
         || (name.starts_with('.') && name.ends_with(".tmp"))
 }
 
-pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -334,7 +326,7 @@ pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
         .inspect_err(|_| drop(fs::remove_file(path)))
 }
 
-pub(super) fn verified_hard_link(
+fn verified_hard_link(
     source: &Path,
     target: &Path,
     bytes: u64,

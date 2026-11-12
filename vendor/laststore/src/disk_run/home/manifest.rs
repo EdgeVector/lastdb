@@ -241,7 +241,7 @@ fn run_list(
 ) -> Result<Vec<Arc<RunFile>>> {
     let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
     let mut runs = budget.array(count)?;
-    let mut read_key = |at: &mut usize, adm: &mut Admission| -> Result<Vec<u8>> {
+    let read_key = |at: &mut usize, adm: &mut Admission| -> Result<Vec<u8>> {
         adm.copy(get_bytes(bytes, at, MAX_RUN_KEY_BYTES)?)
     };
     for _ in 0..count {

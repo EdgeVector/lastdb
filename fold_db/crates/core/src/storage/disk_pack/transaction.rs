@@ -130,8 +130,7 @@ impl PendingBatch {
         }
         batch_bytes(&operations, self.operation_limit).map_err(|e| self.remember_limit(e))?;
         let mut data = self.data.lock().expect("native pending batch");
-        let count = data
-            .operations
+        data.operations
             .len()
             .checked_add(operations.len())
             .filter(|&c| c <= self.operation_limit)
@@ -147,7 +146,7 @@ impl PendingBatch {
         )
         .map_err(|e| self.remember_limit(e))?;
         data.operations
-            .try_reserve(count - data.operations.len())
+            .try_reserve(operations.len())
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
         for op in operations {
             let at = data.operations.len();

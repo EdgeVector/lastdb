@@ -175,8 +175,8 @@ pub(crate) enum ReleaseKind {
 }
 
 pub(crate) struct ReleaseFamily {
-    pub(super) prefix: String,
-    pub(super) kind: ReleaseKind,
+    prefix: String,
+    kind: ReleaseKind,
 }
 
 impl ReleaseFamily {
@@ -210,7 +210,7 @@ pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, Sc
     Ok(out)
 }
 
-pub(super) fn encode_alternates(
+fn encode_alternates(
     schema: &Schema,
     changes: &[RecordChange],
     node_key: &[u8; 32],
@@ -268,9 +268,9 @@ pub(crate) struct RecordChange {
     pub inline_write: Option<InlineWrite>,
 }
 
-pub(super) type EncodedFile = (RecordAddress, Arc<StoredRecord>, Option<FileWrite>);
+type EncodedFile = (RecordAddress, Arc<StoredRecord>, Option<FileWrite>);
 
-pub(super) fn encode(
+fn encode(
     changes: Vec<RecordChange>,
     alternates: Vec<KvMutation>,
 ) -> Result<(Vec<KvMutation>, Vec<EncodedFile>, Vec<WrittenRecord>), SchemaError> {
@@ -338,7 +338,7 @@ pub(in crate::storage) fn require_final_record_sizes<'a>(
     Ok(())
 }
 
-pub(super) fn record_value_error(error: RecordValueError) -> SchemaError {
+fn record_value_error(error: RecordValueError) -> SchemaError {
     match error {
         RecordValueError::TooLarge { bytes } => SchemaError::RecordTooLarge {
             size: bytes,

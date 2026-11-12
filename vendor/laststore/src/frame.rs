@@ -13,16 +13,16 @@ use zeroize::Zeroize;
 
 const MAGIC: [u8; 4] = *b"LSF1";
 const VERSION: u8 = 2;
-pub(self) const FLAG_ZSTD: u8 = 1;
-pub(self) const UNCOMPRESSED_LEN_SIZE: usize = 8;
+const FLAG_ZSTD: u8 = 1;
+const UNCOMPRESSED_LEN_SIZE: usize = 8;
 pub(crate) const MAX_DECOMPRESSED_FRAME_BYTES: usize = 64 * 1024 * 1024;
-pub(self) const ZSTD_WINDOW_BYTES: usize = MAX_DECOMPRESSED_FRAME_BYTES.next_power_of_two();
-pub(self) const HEADER_SIZE: usize = 48;
-pub(self) const TAG_SIZE: usize = 16;
+const ZSTD_WINDOW_BYTES: usize = MAX_DECOMPRESSED_FRAME_BYTES.next_power_of_two();
+const HEADER_SIZE: usize = 48;
+const TAG_SIZE: usize = 16;
 pub(crate) const MIN_ENCODED_LEN: usize = HEADER_SIZE + TAG_SIZE;
 const HKDF_INFO: &[u8] = b"laststore/frame/aes-256-gcm/v1";
 
-pub(self) fn corrupt(msg: &str) -> Error {
+fn corrupt(msg: &str) -> Error {
     Error::Corrupt(msg.into())
 }
 
@@ -151,7 +151,7 @@ fn decompress_bounded(
         .ok_or_else(|| corrupt("decompressed len mismatch"))
 }
 
-pub(self) fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]> {
+fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]> {
     let mut out = [0u8; 32];
     Hkdf::<Sha256>::new(Some(chunk_uuid.as_bytes()), data_key)
         .expand(HKDF_INFO, &mut out)
@@ -159,7 +159,7 @@ pub(self) fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]
     Ok(out)
 }
 
-pub(self) fn decode_header_prefix(bytes: &[u8]) -> Result<(Uuid, u64, usize, u8)> {
+fn decode_header_prefix(bytes: &[u8]) -> Result<(Uuid, u64, usize, u8)> {
     if bytes.len() != HEADER_SIZE {
         return Err(corrupt("bad frame header length"));
     }
@@ -173,6 +173,6 @@ pub(self) fn decode_header_prefix(bytes: &[u8]) -> Result<(Uuid, u64, usize, u8)
     Ok((id, counter, len, bytes[5]))
 }
 
-pub(self) fn counter_nonce(counter: u64) -> [u8; 12] {
+fn counter_nonce(counter: u64) -> [u8; 12] {
     u128::from(counter).to_be_bytes()[4..16].try_into().unwrap()
 }

@@ -220,7 +220,7 @@ impl PackRuntime {
                 .iter()
                 .flat_map(|(p, _)| p.changed_coordinates())
                 .collect::<Vec<_>>();
-            let reqs = q.requests.iter().map(|(p, _)| Arc::clone(p)).collect();
+            let reqs: Vec<_> = q.requests.iter().map(|(p, _)| Arc::clone(p)).collect();
             (q.prepared.take(), hidden, reqs)
         };
         if let Some(prepared) = prepared {
