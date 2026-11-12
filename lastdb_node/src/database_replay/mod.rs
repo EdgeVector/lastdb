@@ -1,11 +1,8 @@
-//! Install one named-database snapshot chain into its registered store.
+//! Install one database snapshot chain into its registered store.
 //!
-//! An owned database uses its sibling store. A received database uses
-//! `registered_share::receiver_store` after the chain check. A completed
-//! journal does not create a missing store. E fetches `delivery/snapshot`
-//! and calls [`install`]. This module does not send HTTP and does not
-//! acknowledge the cloud log. E acknowledges only after `install` returns
-//! and any still-stored suffix is durable.
+//! Resolve the registered store by database id. Verify the chain before
+//! opening a new receiver store. The caller acknowledges the cloud cursor
+//! after the installed prefix and any delivered suffix are durable.
 //!
 //! A received log page calls [`replay_delivered`]. It uses this same decode
 //! and apply path, flushes the receiver store, and does not rewrite a
@@ -18,9 +15,7 @@
 //! the marker, and seals it with `seal_record_file`. A marker that requires
 //! bytes and has no object is refused. Schema put and drop use the opened
 //! store's schema manager and keep the captured schema id. The content key
-//! is the owned sibling key, or the key from the verified registered-share
-//! invitation. This module does not call `accept`, does not write the
-//! registry, and does not open the personal store.
+//! comes from the selected local store or its verified share invitation.
 
 mod accepted_record;
 mod apply;
@@ -32,13 +27,10 @@ mod payload;
 mod types;
 mod wire;
 
-pub use payload::{
-    parse_accepted, AcceptedBody, ContributionSection, FileObject, FileSection, InlineSection,
-};
+pub use payload::{AcceptedBody, FileObject, FileSection};
 pub use types::{
-    IncorporatedFrom, InstalledPrefix, NoSnapshotFiles, RestoreError, SnapshotEntry,
-    SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest, SnapshotObject,
-    SnapshotPart,
+    IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest, SnapshotFileSource,
+    SnapshotInstall, SnapshotManifest, SnapshotObject, SnapshotPart,
 };
 pub use wire::{manifest_from_json, part_from_json};
 
@@ -51,36 +43,34 @@ use std::sync::Arc;
 use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::storage::disk_pack::NODE_MARKER;
-use zeroize::Zeroizing;
 
-use crate::host::owned::Resolved;
 use crate::log_envelope::DatabaseContentKey;
 use crate::Host;
 
 use journal::Resume;
 
-/// Apply one verified snapshot chain to the named database `request` selects.
+/// Apply one verified snapshot chain to the database `request` selects.
 ///
 /// The returned prefix is durable. It is not an acknowledgement.
 pub async fn install(
     host: &Host,
     request: &SnapshotInstall,
     files: &mut (dyn SnapshotFileSource + Send),
-) -> Result<InstalledPrefix, RestoreError> {
-    let named = open_named(host, &request.database_id)?;
+) -> Result<u64, RestoreError> {
+    let target = resolve_target(host, &request.database_id)?;
     let chain = chain::order(
         &request.database_id,
         &request.snapshot_ref,
         &request.objects,
     )?;
-    decode::check_chain(&named.key, &request.database_id, &chain)?;
+    decode::check_chain(&target.key, &request.database_id, &chain)?;
     let mut journal = journal::load(&host.home, &request.database_id)?
         .unwrap_or_else(|| journal::Journal::fresh(&request.database_id, &request.snapshot_ref));
     let plan = journal::plan(&journal, request, &chain)?;
     let store = open_store(
         host,
         &request.database_id,
-        &named,
+        &target,
         matches!(&plan, Resume::Continue { .. }),
     )
     .await?;
@@ -90,19 +80,23 @@ pub async fn install(
             journal.tip_ref.clone_from(&request.snapshot_ref);
             journal::save(&host.home, &journal)?;
         }
-        apply::replay(
+        let replay = apply::replay(
             store.as_ref(),
-            &named.key,
+            &target.key,
             &host.home,
             &request.database_id,
             &chain,
             &mut journal,
             files,
-        )
-        .await?;
+        );
+        store
+            .db_ops()
+            .native_runtime()
+            .replay_accepted(replay)
+            .await?;
         return finish(store.as_ref(), &host.home, request, &chain, &mut journal).await;
     }
-    prefix(request, &chain)
+    prefix(&chain)
 }
 
 /// Apply one received log page into the registered receiver store.
@@ -118,7 +112,7 @@ pub(crate) async fn replay_delivered(
     page::replay(host, database_id, publisher, delivered, files).await
 }
 
-struct Named {
+struct RestoreTarget {
     key: DatabaseContentKey,
     place: Place,
 }
@@ -128,15 +122,19 @@ enum Place {
     Received,
 }
 
-fn open_named(host: &Host, database_id: &str) -> Result<Named, RestoreError> {
+fn resolve_target(host: &Host, database_id: &str) -> Result<RestoreTarget, RestoreError> {
     require_id(database_id)?;
-    if owned_claim(host, database_id)? {
-        owned_target(host, database_id)
-    } else {
-        Ok(Named {
+    match DatabaseContentKey::local_store(host, database_id)
+        .map_err(|_| RestoreError::Scope("database registry"))?
+    {
+        Some((store, key)) => Ok(RestoreTarget {
+            key,
+            place: Place::Owned(store),
+        }),
+        None => Ok(RestoreTarget {
             key: received_key(host, database_id)?,
             place: Place::Received,
-        })
+        }),
     }
 }
 
@@ -187,35 +185,6 @@ fn require_id(database_id: &str) -> Result<(), RestoreError> {
     }
 }
 
-fn owned_claim(host: &Host, database_id: &str) -> Result<bool, RestoreError> {
-    let entries = host
-        .owned
-        .owned_entries()
-        .map_err(|_| RestoreError::Scope("database registry"))?;
-    Ok(entries.iter().any(|entry| entry.id == database_id))
-}
-
-fn owned_target(host: &Host, database_id: &str) -> Result<Named, RestoreError> {
-    let store = match host.owned.resolve(database_id) {
-        Ok((Resolved::Owned, Some(store))) => store,
-        Ok(_) => return Err(RestoreError::Scope("named database")),
-        Err(_) => return Err(RestoreError::Scope("database registry")),
-    };
-    if !store_marker(host, database_id) {
-        return Err(RestoreError::Scope("database store"));
-    }
-    let seed = Zeroizing::new(host.keypair.secret_key_bytes());
-    let key = DatabaseContentKey::owned(&seed, database_id)
-        .map_err(|_| RestoreError::Scope("database store"))?;
-    if key.database_id() != database_id {
-        return Err(RestoreError::Scope("database id"));
-    }
-    Ok(Named {
-        key,
-        place: Place::Owned(store),
-    })
-}
-
 /// Check the stored invitation. The store opens only after the chain check.
 ///
 /// A publication registration has no signed log, so it does not get this
@@ -245,10 +214,10 @@ fn received_key(host: &Host, database_id: &str) -> Result<DatabaseContentKey, Re
 async fn open_store(
     host: &Host,
     database_id: &str,
-    named: &Named,
+    target: &RestoreTarget,
     create: bool,
 ) -> Result<Arc<FoldDB>, RestoreError> {
-    match &named.place {
+    match &target.place {
         Place::Owned(store) => Ok(Arc::clone(store)),
         Place::Received => received_store(host, database_id, create).await,
     }
@@ -281,23 +250,13 @@ fn log_ready(home: &std::path::Path, id: &Id) -> bool {
         && fs::symlink_metadata(directory.join(NODE_MARKER)).is_ok_and(|meta| meta.is_file())
 }
 
-fn store_marker(host: &Host, database_id: &str) -> bool {
-    let marker = host
-        .home
-        .join("databases")
-        .join(database_id)
-        .join("data")
-        .join(NODE_MARKER);
-    fs::symlink_metadata(marker).is_ok_and(|metadata| metadata.is_file())
-}
-
 async fn finish(
     store: &FoldDB,
     home: &std::path::Path,
     request: &SnapshotInstall,
     chain: &[chain::Link],
     journal: &mut journal::Journal,
-) -> Result<InstalledPrefix, RestoreError> {
+) -> Result<u64, RestoreError> {
     if journal.applied_refs.len() != chain.len() {
         return Err(RestoreError::Conflict("snapshot journal"));
     }
@@ -316,20 +275,12 @@ async fn finish(
     journal.attempt = None;
     journal.current_ref = None;
     journal::save(home, journal)?;
-    prefix(request, chain)
+    prefix(chain)
 }
 
-fn prefix(
-    request: &SnapshotInstall,
-    chain: &[chain::Link],
-) -> Result<InstalledPrefix, RestoreError> {
-    let through = chain
+fn prefix(chain: &[chain::Link]) -> Result<u64, RestoreError> {
+    chain
         .last()
         .map(|link| link.manifest.through_delivery_seq)
-        .ok_or(RestoreError::Chain("snapshot chain"))?;
-    Ok(types::InstalledPrefix {
-        database_id: request.database_id.clone(),
-        snapshot_ref: request.snapshot_ref.clone(),
-        through_delivery_seq: through,
-    })
+        .ok_or(RestoreError::Chain("snapshot chain"))
 }

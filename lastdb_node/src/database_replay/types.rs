@@ -1,4 +1,4 @@
-//! Values E passes into one named-database snapshot install.
+//! Values used to install a database snapshot.
 //!
 //! Parsers live in [`super::wire`]. This module does not open a socket and
 //! does not acknowledge a delivery cursor.
@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::CloudScope;
 
-/// One snapshot chain for one named database.
+/// One snapshot chain for one database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotInstall {
     /// Stable database id. Every part must carry this same id.
@@ -89,21 +89,10 @@ pub struct IncorporatedFrom {
     pub writer_seq: u64,
 }
 
-/// Durable prefix E may acknowledge only after its own suffix is durable.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InstalledPrefix {
-    /// Database that received the chain.
-    pub database_id: String,
-    /// Tip ref that is now durable.
-    pub snapshot_ref: String,
-    /// Delivery sequence of that tip. This is not an acknowledgement.
-    pub through_delivery_seq: u64,
-}
-
 /// File bytes E fetches with I's `delivery/object` route.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotFileRequest {
-    /// Named database that owns the blob.
+    /// Database that owns the blob.
     pub database_id: String,
     /// Account scope from the record payload.
     pub scope: CloudScope,
@@ -122,20 +111,10 @@ pub trait SnapshotFileSource: Send {
     async fn read_blob(&mut self, request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError>;
 }
 
-/// Refuses every file entry. Use it when the chain has no record files.
-pub struct NoSnapshotFiles;
-
-#[async_trait]
-impl SnapshotFileSource for NoSnapshotFiles {
-    async fn read_blob(&mut self, _request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError> {
-        Err(RestoreError::File("snapshot file"))
-    }
-}
-
 /// Static install failure. The text is a class, never record bytes or a path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestoreError {
-    /// The database id is not an open named database with a verified content key.
+    /// The database id is not a registered database with a verified content key.
     Scope(&'static str),
     /// The chain, manifest, or part bytes are not acceptable.
     Chain(&'static str),

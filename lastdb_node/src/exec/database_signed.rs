@@ -31,5 +31,5 @@ pub(super) async fn read(
 }
 
 fn replay_durable(host: &Host, share: &RegisteredShare) -> bool {
-    crate::named_snapshot_restore::prefix_durable(&host.home, share.id.as_str())
+    crate::database_replay::prefix_durable(&host.home, share.id.as_str())
 }

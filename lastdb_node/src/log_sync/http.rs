@@ -16,23 +16,15 @@ use reqwest::Url;
 use crate::node_read::{self, CanonicalPost, SignedPostTarget};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
-use super::sign;
 use super::wire;
 
-/// Which node-read token a POST carries.
-///
-/// Create and access always use [`Proof::Canonical`]. A shareable data or
-/// delivery POST uses [`Proof::Named`] so the token includes `database_id`.
-/// A personal data POST stays [`Proof::Legacy`].
 #[derive(Clone, Copy)]
 pub(crate) enum Proof {
-    Legacy,
     Canonical(CanonicalPost),
-    Named,
+    Data,
 }
 
 const JSON_LIMIT: usize = 8 * 1024 * 1024;
-const SNAPSHOT_LIMIT: u64 = 1024 * 1024 * 1024;
 
 /// One signed log POST. The limit on the reply is not part of the request.
 #[derive(Clone, Copy)]
@@ -129,13 +121,6 @@ impl Endpoint {
             .and_then(|(status, bytes)| self.accepted(path, status, bytes))
     }
 
-    pub(crate) async fn post_bytes(&self, request: LogRequest<'_>) -> Result<Vec<u8>, LogError> {
-        let path = request.path;
-        self.exchange(request, SNAPSHOT_LIMIT)
-            .await
-            .and_then(|(status, bytes)| self.accepted(path, status, bytes))
-    }
-
     pub(crate) async fn post_exchange(
         &self,
         request: LogRequest<'_>,
@@ -193,16 +178,6 @@ impl Endpoint {
 
     fn authorize(&self, request: &LogRequest<'_>, now_ms: u64) -> Result<String, String> {
         match request.proof {
-            Proof::Legacy => sign::authorization(sign::Authority {
-                keypair: request.keypair,
-                scope: request.scope,
-                database_id: request.database_id,
-                path: request.path,
-                body: request.body,
-                member_revision: request.member_revision,
-                now_ms,
-                environment: self.environment,
-            }),
             Proof::Canonical(route) => {
                 let environment = ShareEnvironment::parse(self.environment)
                     .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
@@ -219,7 +194,7 @@ impl Endpoint {
                     now_ms,
                 )
             }
-            Proof::Named => {
+            Proof::Data => {
                 let environment = ShareEnvironment::parse(self.environment)
                     .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
                 node_read::authorization_post(

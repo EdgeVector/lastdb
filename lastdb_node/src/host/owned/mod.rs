@@ -173,7 +173,9 @@ impl Tables {
         selector: &str,
     ) -> Result<(Resolved, Option<Arc<FoldDB>>), OwnedError> {
         let state = self.read()?;
-        if selector == state.registry_owner.id || owner_name_hit(&state, selector) {
+        if selector == state.registry_owner.id
+            || state.registry_owner.name.as_deref() == Some(selector)
+        {
             return Ok((Resolved::Owner, None));
         }
         if let Some(store) = state.stores.get(selector) {
@@ -192,6 +194,20 @@ impl Tables {
             .cloned()
             .ok_or(OwnedError::Unavailable)?;
         Ok((Resolved::Owned, Some(store)))
+    }
+
+    pub(crate) fn registered_store(
+        &self,
+        database_id: &str,
+    ) -> Result<(Resolved, Option<Arc<FoldDB>>), OwnedError> {
+        let state = self.read()?;
+        if state.registry_owner.id == database_id {
+            return Ok((Resolved::Owner, None));
+        }
+        Ok(match state.stores.get(database_id) {
+            Some(store) => (Resolved::Owned, Some(Arc::clone(store))),
+            None => (Resolved::Absent, None),
+        })
     }
 
     pub(crate) async fn create(
@@ -350,10 +366,6 @@ impl Host {
     pub async fn shutdown_owned_databases(&self) -> Result<(), String> {
         self.owned.shutdown().await
     }
-}
-
-fn owner_name_hit(state: &State, selector: &str) -> bool {
-    state.registry_owner.name.as_deref() == Some("personal") && selector == "personal"
 }
 
 fn ensure_free(state: &State, name: &str) -> Result<(), OwnedError> {

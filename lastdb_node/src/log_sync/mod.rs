@@ -1,16 +1,8 @@
-//! Daemon adapter for the cloud mutation log.
+//! Daemon adapter for the encrypted cloud mutation log.
 //!
-//! Exemem's authenticated mutation-log reply is the only signed-only switch.
-//! Each owned database has its own reply. A local file does not start sync or
-//! stop byte backup. This module does not change backup policy. A named
-//! database installs a snapshot with `named_snapshot_restore` after
-//! `delivery/snapshot`. That install does not acknowledge. A received page
-//! replays through `replay_delivered` and flushes before the existing ack.
-//! Local capture
-//! is read with `accepted_writes` and published from `accepted`.
-//! `byte_cloud_restore::native::restore_at` restores an owner byte-backup
-//! file set and is not the named installer. This module does not edit
-//! `registry.json`.
+//! Resolve a database by its registered id. Authorization determines the
+//! permitted writes. Snapshot recovery installs into that database and the
+//! sync loop acknowledges only after the delivered prefix is durable.
 
 mod accepted;
 mod account;
@@ -23,18 +15,16 @@ mod http;
 mod members;
 mod native;
 mod paths;
-mod payload;
 mod received;
 mod registry;
 mod restore;
 mod retry;
 mod run;
 mod session;
-mod sign;
 mod status;
 mod turn;
 mod upload;
 mod wire;
 
-pub use cutover::legacy_resume_forbidden;
+pub(crate) use cutover::legacy_resume_forbidden;
 pub use turn::spawn;

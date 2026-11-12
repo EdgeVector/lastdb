@@ -4,7 +4,7 @@
 //! includes `database_id`. Create, cutover, access, and the member-list read
 //! use [`authorization`]. [`authorization_post`] is the same token for a POST
 //! path that enum does not name: a shareable data route, or a delivery fetch.
-//! Personal data routes stay on `log_sync::sign`. Dev and prod use this helper.
+//! Dev and prod use this helper for database sync and delivery.
 //! The daemon does not post cutover.
 
 use base64::Engine as _;
@@ -106,7 +106,7 @@ pub struct PathPostTarget<'a> {
 
 /// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
 ///
-/// Shareable append, head, list, ack, snapshot, and `delivery/snapshot` or
+/// Signed append, head, list, ack, snapshot, and `delivery/snapshot` or
 /// `delivery/object` use this. The path in the token is `target.path`.
 pub fn authorization_post(
     keypair: &Ed25519KeyPair,

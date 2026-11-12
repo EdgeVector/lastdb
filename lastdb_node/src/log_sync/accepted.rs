@@ -11,10 +11,8 @@ use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, MutationLog, N
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Blocked, Item, Page, Publication};
-use crate::host::owned::Resolved;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
-use crate::named_snapshot_restore;
 
 use super::cloud::CloudLog;
 use super::registry;
@@ -24,81 +22,43 @@ use super::upload;
 const PAGE_LIMIT: u32 = 8;
 
 pub(super) async fn publish_owned(host: &Host, log: &CloudLog) {
-    let Some(runtime) = owned_runtime(host, log.database_id()) else {
+    let Ok(Some((store, key))) = DatabaseContentKey::local_store(host, log.database_id()) else {
         return;
     };
-    let Some(spec) = spec_binding(host, log.database_id()) else {
-        return;
-    };
-    let Some(key) = content_key(host, log.database_id()) else {
+    let runtime = store.db_ops().native_runtime();
+    let Some(policy) = publication(host, log.database_id()) else {
         return;
     };
     let material = Zeroizing::new(*key.encryption_bytes());
-    let Some(prepared) = prepare(
-        runtime.clone(),
-        material,
-        spec,
-        log.database_id(),
-        &host.home,
-    )
-    .await
-    else {
+    let reader = Arc::clone(&runtime);
+    let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
+    let Ok(Some(page)) = joined else {
         return;
     };
-    let _ = send_page(host, log, &runtime, prepared).await;
+    let _ = send_page(host, log, &runtime, &key, &page).await;
 }
 
-struct Prepared {
-    page: Page,
+enum PublishPolicy {
+    Private,
+    Share(SpecBinding),
 }
 
-async fn prepare(
-    runtime: Arc<PackRuntime>,
-    key: Zeroizing<[u8; 32]>,
-    spec: SpecBinding,
-    database_id: &str,
-    home: &std::path::Path,
-) -> Option<Prepared> {
-    let database_id = database_id.to_owned();
-    let home = home.to_owned();
-    let joined =
-        tokio::task::spawn_blocking(move || read_page(&runtime, &key, &spec, &database_id, &home))
-            .await;
-    joined.ok().flatten()
-}
-
-fn read_page(
-    runtime: &Arc<PackRuntime>,
-    key: &[u8; 32],
-    spec: &SpecBinding,
-    database_id: &str,
-    home: &std::path::Path,
-) -> Option<Prepared> {
+fn read_page(runtime: &PackRuntime, key: &[u8; 32], policy: &PublishPolicy) -> Option<Page> {
     let status = accepted_writes::status(runtime);
     if status.gap {
         tracing::warn!(target: "lastdbd::log_sync", "accepted prefix has a gap");
         return None;
     }
     if status.snapshot_required {
-        note_if_installed(runtime, home, database_id, status.opened_frontier);
         return None;
     }
-    match accepted_writes::prefix(
-        runtime,
-        key,
-        Publication::Share(spec),
-        status.acked,
-        PAGE_LIMIT,
-    ) {
-        Ok(page) if page.snapshot_required => {
-            note_if_installed(runtime, home, database_id, status.opened_frontier);
-            None
-        }
-        Ok(page) => Some(Prepared { page }),
-        Err(Blocked::Snapshot | Blocked::Gap) => {
-            note_if_installed(runtime, home, database_id, status.opened_frontier);
-            None
-        }
+    let publication = match policy {
+        PublishPolicy::Private => Publication::Personal,
+        PublishPolicy::Share(spec) => Publication::Share(spec),
+    };
+    match accepted_writes::prefix(runtime, key, publication, status.acked, PAGE_LIMIT) {
+        Ok(page) if !page.snapshot_required => Some(page),
+        Ok(_) | Err(Blocked::Snapshot | Blocked::Gap) => None,
         Err(blocked) => {
             tracing::warn!(target: "lastdbd::log_sync", reason = ?blocked, "accepted prefix was not read");
             None
@@ -106,36 +66,26 @@ fn read_page(
     }
 }
 
-fn note_if_installed(
-    runtime: &PackRuntime,
-    home: &std::path::Path,
-    database_id: &str,
-    frontier: u64,
-) {
-    if named_snapshot_restore::prefix_durable(home, database_id) {
-        let _ = accepted_writes::note_snapshot(runtime, frontier);
-    }
-}
-
 async fn send_page(
     host: &Host,
     log: &CloudLog,
     runtime: &Arc<PackRuntime>,
-    prepared: Prepared,
+    key: &DatabaseContentKey,
+    page: &Page,
 ) -> bool {
-    if prepared.page.items.is_empty() {
+    if page.items.is_empty() {
         return false;
     }
     let Some(tip) = writer_tip(log).await else {
         return false;
     };
     let mut next = tip.saturating_add(1);
-    for item in &prepared.page.items {
-        if !send_item(host, log, item, &mut next).await {
+    for item in &page.items {
+        if !send_item(host, log, key, item, &mut next).await {
             return false;
         }
     }
-    let through = prepared.page.through;
+    let through = page.through;
     let runtime = Arc::clone(runtime);
     let acked =
         tokio::task::spawn_blocking(move || accepted_writes::acknowledge(&runtime, through)).await;
@@ -147,7 +97,13 @@ async fn send_page(
     }
 }
 
-async fn send_item(host: &Host, log: &CloudLog, item: &Item, next: &mut u64) -> bool {
+async fn send_item(
+    host: &Host,
+    log: &CloudLog,
+    key: &DatabaseContentKey,
+    item: &Item,
+    next: &mut u64,
+) -> bool {
     let Item::Publish {
         mutation_id,
         kind,
@@ -181,7 +137,7 @@ async fn send_item(host: &Host, log: &CloudLog, item: &Item, next: &mut u64) -> 
                 authored_at_ms: fold_db::clock::unix_millis(),
                 namespace,
             };
-            prepare_payload(host, log, mutation_id, kind, source, seal).await
+            prepare_payload(host, log, key, mutation_id, kind, source, seal).await
         }
     };
     let Some((seal, payload)) = sealed else {
@@ -200,21 +156,21 @@ async fn send_item(host: &Host, log: &CloudLog, item: &Item, next: &mut u64) -> 
 async fn prepare_payload(
     host: &Host,
     log: &CloudLog,
+    key: &DatabaseContentKey,
     mutation_id: &str,
     kind: &str,
     source: upload::FileSource<'_>,
     seal: Seal,
 ) -> Option<(Seal, Vec<u8>)> {
     let (canonical, seal) = if source.row.is_some() || source.reference.is_some() {
-        upload::cloud_body(host, log, mutation_id, source, seal).await?
+        upload::cloud_body(host, log, key, mutation_id, source, seal).await?
     } else if kind == "file" {
         return None;
     } else {
         (source.canonical.to_vec(), seal)
     };
-    let key = content_key(host, log.database_id())?;
     let envelope = log_envelope::seal(
-        &key,
+        key,
         &LogBinding {
             database_id: log.database_id(),
             writer_key: log.principal().as_str(),
@@ -274,24 +230,20 @@ async fn writer_tip(log: &CloudLog) -> Option<u64> {
     joined.ok()?.ok()
 }
 
-fn owned_runtime(host: &Host, database_id: &str) -> Option<Arc<PackRuntime>> {
-    match host.owned.resolve(database_id) {
-        Ok((Resolved::Owned, Some(store))) => Some(store.db_ops().native_runtime()),
+fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {
+    let database = registry::databases(&host.home)
+        .into_iter()
+        .find(|database| database.id == database_id)?;
+    match database.kind.as_str() {
+        "personal" => Some(PublishPolicy::Private),
+        "shareable" => {
+            let spec = database.spec?;
+            SpecBinding::new(&spec.name, spec.version)
+                .ok()
+                .map(PublishPolicy::Share)
+        }
         _ => None,
     }
-}
-
-fn spec_binding(host: &Host, database_id: &str) -> Option<SpecBinding> {
-    let spec = registry::databases(&host.home)
-        .into_iter()
-        .find(|database| database.id == database_id)?
-        .spec?;
-    SpecBinding::new(&spec.name, spec.version).ok()
-}
-
-fn content_key(host: &Host, database_id: &str) -> Option<DatabaseContentKey> {
-    let seed = host.keypair.secret_key_bytes();
-    DatabaseContentKey::owned(&seed, database_id).ok()
 }
 
 fn namespace_of(canonical: &[u8]) -> Option<String> {

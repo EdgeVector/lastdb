@@ -61,7 +61,7 @@ modules = [
   "log_envelope",
   "named_grant",
   "log_sync",
-  "named_snapshot_restore",
+  "database_replay",
   "offline_home",
   "registered_share",
   "share_cache",

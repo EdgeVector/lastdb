@@ -11,6 +11,19 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+tokio::task_local! {
+    pub(super) static REPLAY_STORE: Arc<PackRuntime>;
+}
+
+fn capture_enabled(runtime: &PackRuntime) -> bool {
+    runtime.captures_accepted()
+        && !runtime.fresh_initialization_pending()
+        && !REPLAY_STORE
+            .try_with(|store| std::ptr::eq(store.as_ref(), runtime))
+            .unwrap_or(false)
+}
 
 struct External<'a> {
     present: bool,
@@ -27,7 +40,7 @@ pub(crate) async fn stage_records(
     admit: impl Fn(&LocalFileReference) -> Option<PathBuf>,
     mutations: &[Mutation],
 ) -> StorageResult<()> {
-    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
+    if !capture_enabled(runtime) {
         return Ok(());
     }
     let mut seen = BTreeSet::new();
@@ -47,7 +60,7 @@ pub(crate) fn stage_schema_put(
     name: &str,
     schema: &Schema,
 ) -> StorageResult<()> {
-    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
+    if !capture_enabled(runtime) {
         return Ok(());
     }
     let wire = schema.to_wire();
@@ -65,7 +78,7 @@ pub(crate) fn stage_schema_drop(
     content_key: &[u8; 32],
     name: &str,
 ) -> StorageResult<()> {
-    if !runtime.captures_accepted() || runtime.fresh_initialization_pending() {
+    if !capture_enabled(runtime) {
         return Ok(());
     }
     let mutation_id = body::schema_id(name, "drop");

@@ -7,8 +7,8 @@
 use base64::Engine as _;
 use cloud_backup_protocol::{canonical_bytes, DecimalU64};
 use mutation_log::{
-    AppendBatch, AppendOutcome, Capability, Entry, Incorporation, ListPage, LogError, ScopedHead,
-    Snapshot, SnapshotRef, Stamp, StoredEntry, Writer,
+    AppendBatch, AppendOutcome, Entry, Incorporation, ListPage, LogError, ScopedHead, Snapshot,
+    SnapshotRef, Stamp, StoredEntry, Writer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -118,13 +118,6 @@ struct HeadBody {
     entries: Vec<StoredWire>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct RevokeRequest<'a> {
-    pub database_id: &'a str,
-    pub principal: &'a str,
-    pub capability: &'a str,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SnapshotResponse {
@@ -132,12 +125,6 @@ struct SnapshotResponse {
     through_delivery_seq: DecimalU64,
     at_ms: DecimalU64,
     snapshot_ref: String,
-}
-
-#[derive(Serialize)]
-pub(crate) struct SnapshotBytesRequest<'a> {
-    pub database_id: &'a str,
-    pub snapshot_ref: &'a str,
 }
 
 pub(crate) fn database_body(database_id: &str) -> Result<Vec<u8>, LogError> {
@@ -295,14 +282,6 @@ pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
     }
 }
 
-pub(crate) fn capability_name(capability: &Capability) -> &'static str {
-    match capability {
-        Capability::Owner => "owner",
-        Capability::Receive => "receive",
-        Capability::Submit => "submit",
-    }
-}
-
 pub(crate) fn operation(path: &str) -> &'static str {
     match path {
         paths::CREATE => "create-database",
@@ -311,9 +290,7 @@ pub(crate) fn operation(path: &str) -> &'static str {
         paths::HEAD => "head",
         paths::LIST => "list",
         paths::ACK => "ack",
-        paths::REVOKE => "revoke",
         paths::SNAPSHOT => "snapshot",
-        paths::SNAPSHOT_BYTES => "snapshot-bytes",
         paths::DELIVERY_SNAPSHOT => "delivery-snapshot",
         paths::DELIVERY_OBJECT => "delivery-object",
         _ => "log",

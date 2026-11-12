@@ -1,6 +1,6 @@
 use std::sync::{mpsc, Arc};
 
-use cloud_backup_protocol::{canonical_bytes, CloudScope, Id};
+use cloud_backup_protocol::{CloudScope, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, MutationLog, PrincipalId, Recovery,
@@ -30,7 +30,6 @@ pub(crate) struct CloudLog {
     principal: PrincipalId,
     device: mutation_log::DeviceId,
     pub(super) member_revision: u64,
-    named: bool,
     environment_label: &'static str,
 }
 
@@ -42,7 +41,6 @@ pub(super) struct LogOpen<'a> {
     pub database_id: Id,
     pub device: &'a str,
     pub member_revision: u64,
-    pub named: bool,
     pub environment_label: &'static str,
 }
 
@@ -52,7 +50,6 @@ impl CloudLog {
         database_id: &str,
         device: &str,
         member_revision: u64,
-        named: bool,
     ) -> Result<Self, String> {
         let database_id =
             Id::try_from(database_id.to_owned()).map_err(|_| "database id is not a UUID")?;
@@ -64,7 +61,6 @@ impl CloudLog {
             database_id,
             device,
             member_revision,
-            named,
             environment_label,
         })
     }
@@ -82,13 +78,8 @@ impl CloudLog {
             device: mutation_log::DeviceId::new(parts.device)
                 .map_err(|_| "device id is not a log label")?,
             member_revision: parts.member_revision,
-            named: parts.named,
             environment_label: parts.environment_label,
         })
-    }
-
-    pub(super) fn named(&self) -> bool {
-        self.named
     }
 
     pub(super) fn host(&self) -> &Host {
@@ -146,10 +137,6 @@ impl CloudLog {
             .map_err(|_| ())
     }
 
-    pub(super) async fn post_named(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
-        self.post(path, body).await
-    }
-
     pub(crate) fn reader(&self) -> Writer {
         Writer {
             key: self.principal.clone(),
@@ -192,20 +179,9 @@ impl CloudLog {
         }
     }
 
-    pub(crate) async fn snapshot_bytes(&self, snapshot_ref: &str) -> Result<Vec<u8>, LogError> {
-        let body = canonical_bytes(&wire::SnapshotBytesRequest {
-            database_id: self.database_id.as_str(),
-            snapshot_ref,
-        })
-        .map_err(|_| LogError::InvalidEntry)?;
+    pub(super) async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
         self.endpoint
-            .post_bytes(self.signed(paths::SNAPSHOT_BYTES, &body, self.data_proof()))
-            .await
-    }
-
-    async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
-        self.endpoint
-            .post_json(self.signed(path, &body, self.data_proof()))
+            .post_json(self.signed(path, &body, Proof::Data))
             .await
     }
 
@@ -229,7 +205,6 @@ impl CloudLog {
         let scope = self.scope.clone();
         let database_id = self.database_id.clone();
         let revision = self.member_revision;
-        let proof = self.data_proof();
         self.wait(async move {
             endpoint
                 .post_json(http::LogRequest {
@@ -239,7 +214,7 @@ impl CloudLog {
                     path,
                     body: &body,
                     member_revision: revision,
-                    proof,
+                    proof: Proof::Data,
                 })
                 .await
         })?
@@ -254,14 +229,6 @@ impl CloudLog {
             body,
             member_revision: self.member_revision,
             proof,
-        }
-    }
-
-    fn data_proof(&self) -> Proof {
-        if self.named {
-            Proof::Named
-        } else {
-            Proof::Legacy
         }
     }
 }
@@ -328,20 +295,11 @@ impl MutationLog for CloudLog {
 
     fn revoke(
         &mut self,
-        caller: &PrincipalId,
-        principal: &PrincipalId,
-        capability: &Capability,
+        _caller: &PrincipalId,
+        _principal: &PrincipalId,
+        _capability: &Capability,
     ) -> Result<(), LogError> {
-        if self.named {
-            return Err(LogError::UnexpectedOutcome);
-        }
-        self.same_reader(caller)?;
-        let body = account::json_body(&wire::RevokeRequest {
-            database_id: self.database_id.as_str(),
-            principal: principal.as_str(),
-            capability: wire::capability_name(capability),
-        })?;
-        self.call(paths::REVOKE, body).map(|_| ())
+        Err(LogError::UnexpectedOutcome)
     }
 
     fn snapshot(
