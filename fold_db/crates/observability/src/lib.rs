@@ -13,6 +13,12 @@ use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFie
 use tracing_subscriber::{layer::SubscriberExt, registry::LookupSpan, EnvFilter, Registry};
 
 static INIT_ONCE: OnceCell<()> = OnceCell::new();
+
+#[cfg(feature = "sentry")]
+mod fault_tags;
+#[cfg(feature = "sentry")]
+pub use fault_tags::{fault_tags, function_name_tag, function_version_tag, service_tag};
+
 const STATIC_DENY_LIST: &str =
     "auth_token,auth.token,password,api_key,api.key,secret,email,phone,ssn";
 
@@ -72,9 +78,10 @@ pub mod layers {
         #[cfg(feature = "sentry")]
         mod imp {
             use super::{SentryGuard, OBS_SENTRY_RELEASE_ENV};
+            use crate::fault_tags;
             use sentry::protocol::Event as SentryEvent;
             use sentry_tracing::EventMapping;
-            use std::{borrow::Cow, collections::BTreeMap, env, sync::Arc};
+            use std::{borrow::Cow, env, sync::Arc};
             use tracing::{Level, Metadata, Subscriber};
             use tracing_subscriber::{
                 filter::{filter_fn, FilterFn, Filtered},
@@ -209,10 +216,7 @@ pub mod layers {
                         .and_then(numeric_version)
                         .map(|v| v.to_owned().into()),
                     environment: env_tag.map(|v| v.to_owned().into()),
-                    tags: BTreeMap::from([
-                        ("fault_category".into(), cat.into()),
-                        ("os".into(), env::consts::OS.into()),
-                    ]),
+                    tags: fault_tags(cat),
                     ..SentryEvent::default()
                 }
             }
@@ -257,6 +261,8 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     INIT_ONCE
         .set(())
         .map_err(|()| ObsError::AlreadyInitialized)?;
+    #[cfg(feature = "sentry")]
+    fault_tags::remember_lambda_service(service_name);
     let _ = LogTracer::init();
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
