@@ -22,8 +22,7 @@ use super::{
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
-use open::build_empty;
-pub(super) use open::read_descriptor_file;
+use open::{build_empty, read_descriptor_file};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
@@ -258,8 +257,12 @@ fn build_inventory(key: &[u8; 32], root: &Manifest, deadline: Instant) -> Logica
         }
         if !root.base.is_empty() {
             let paths = root.base.iter().map(|r| r.path.clone()).collect();
-            let u = Bound::Unbounded;
-            sources.push(RunRange::sequence(paths, key, u, u));
+            sources.push(RunRange::sequence(
+                paths,
+                key,
+                Bound::Unbounded,
+                Bound::Unbounded,
+            ));
         }
         for item in MergeIter::new(sources) {
             if merged_keys >= 50_000_000 || Instant::now() >= deadline {

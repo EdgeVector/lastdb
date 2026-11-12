@@ -63,21 +63,21 @@ impl PackRuntime {
 
     pub(in crate::storage) fn stage_record_file_deletes(
         self: &Arc<Self>,
-        keys: Vec<Vec<u8>>,
+        keys: &[Vec<u8>],
     ) -> StorageResult<()> {
         let inv = |m: &str| StorageError::InvalidOperation(m.into());
         let pending = transaction::PendingBatch::current(self)
             .ok_or_else(|| inv("file retirement requires a native write request"))?;
         let ops = keys
-            .into_iter()
+            .iter()
             .map(|key| {
-                std::str::from_utf8(&key)
+                std::str::from_utf8(key)
                     .ok()
                     .and_then(record_file_space)
                     .ok_or_else(|| inv("file retirement requires a record file key"))?;
                 Ok(HomeMutation {
                     collection: CAS_COLLECTION.into(),
-                    key: native_routing::encode(&key),
+                    key: native_routing::encode(key),
                     body: None,
                 })
             })

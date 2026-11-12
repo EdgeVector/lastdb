@@ -189,7 +189,7 @@ impl PackRuntime {
         if transaction::PendingBatch::current(self).is_some() {
             return Err(invalid("native cleanup requires its own request scope"));
         }
-        let req = request_id.map(|id| id.to_string());
+        let req = request_id.as_ref().map(Uuid::to_string);
         let owner = Arc::clone(&self.cleanup_job.gate).lock_owned().await;
         let prior = self.cleanup_job.get();
         if prior.active() || (req.is_some() && prior.request_id == req) {

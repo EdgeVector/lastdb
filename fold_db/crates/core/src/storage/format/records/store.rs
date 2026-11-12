@@ -310,7 +310,7 @@ impl RecordFormat {
                     .zip(present)
                     .filter_map(|(k, p)| p.map(|_| k)),
             );
-            self.runtime.stage_record_file_deletes(deletes)?;
+            self.runtime.stage_record_file_deletes(&deletes)?;
         }
         Ok(())
     }

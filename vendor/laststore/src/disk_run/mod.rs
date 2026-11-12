@@ -61,7 +61,7 @@ impl RunMeta {
 }
 
 pub(crate) mod footer {
-    use super::codec::{corrupt, get_len, get_slice, get_varint, put_key, put_varint};
+    use super::codec::{corrupt, get_bytes, get_len, get_varint, put_key, put_varint};
     use super::{MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES};
     use crate::{Error, Result};
     use uuid::Uuid;
@@ -103,7 +103,8 @@ pub(crate) mod footer {
             out[40..48].copy_from_slice(&self.records.to_le_bytes());
             out[48..52].copy_from_slice(&self.max_payload.to_le_bytes());
             out[52..56].copy_from_slice(&self.data_blocks.to_le_bytes());
-            out[60..64].copy_from_slice(&crc32fast::hash(&out[..60]).to_le_bytes());
+            let crc = crc32fast::hash(&out[..60]).to_le_bytes();
+            out[60..64].copy_from_slice(&crc);
             out
         }
 
@@ -168,7 +169,7 @@ pub(crate) mod footer {
         for _ in 0..count {
             let prev = refs.last().map_or(&[][..], |e| e.first_key.as_slice());
             let shared = get_len(bytes, at, prev.len())?;
-            let suffix = get_slice(bytes, at, get_len(bytes, at, MAX_RUN_KEY_BYTES - shared)?)?;
+            let suffix = get_bytes(bytes, at, MAX_RUN_KEY_BYTES - shared)?;
             let (number, offset) = (get_varint(bytes, at)?, get_varint(bytes, at)?);
             let len = u32::try_from(get_varint(bytes, at)?).map_err(|_| corrupt("block length"))?;
             let mut first_key = try_vec(shared + suffix.len())?;
@@ -217,7 +218,7 @@ pub(crate) mod footer {
                 get_varint(bytes, &mut at)?,
             );
             let (indexes, used) = get_refs_bounded(bytes, &mut at, max)?;
-            let last = get_slice(bytes, &mut at, get_len(bytes, &mut at, MAX_RUN_KEY_BYTES)?)?;
+            let last = get_bytes(bytes, &mut at, MAX_RUN_KEY_BYTES)?;
             if at != bytes.len() {
                 return Err(corrupt("trailing bytes in top block"));
             }
@@ -281,6 +282,11 @@ pub(crate) mod codec {
         Ok(slice)
     }
 
+    pub(crate) fn get_bytes<'a>(bytes: &'a [u8], at: &mut usize, limit: usize) -> Result<&'a [u8]> {
+        let len = get_len(bytes, at, limit)?;
+        get_slice(bytes, at, len)
+    }
+
     fn shared_prefix(a: &[u8], b: &[u8]) -> usize {
         a.iter().zip(b).take_while(|(x, y)| x == y).count()
     }
@@ -312,11 +318,7 @@ pub(crate) mod codec {
         let (mut records, mut at, mut key) = (Vec::new(), 0, Vec::new());
         while at < payload.len() {
             let shared = get_len(payload, &mut at, key.len())?;
-            let suffix = get_slice(
-                payload,
-                &mut at,
-                get_len(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?,
-            )?;
+            let suffix = get_bytes(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?;
             key.truncate(shared);
             key.extend_from_slice(suffix);
             if !records

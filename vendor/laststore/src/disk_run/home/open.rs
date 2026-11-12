@@ -117,7 +117,8 @@ pub(super) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
     desc[..8].copy_from_slice(DESCRIPTOR_MAGIC);
     desc[8..12].copy_from_slice(&1u32.to_le_bytes());
     desc[16..32].copy_from_slice(identity.as_bytes());
-    desc[60..].copy_from_slice(&crc32fast::hash(&desc[..60]).to_le_bytes());
+    let crc = crc32fast::hash(&desc[..60]).to_le_bytes();
+    desc[60..].copy_from_slice(&crc);
     write_private_file(&dir.join(RUN_HOME_MARKER), &desc)?;
     let staged = Manifest::empty(identity).stage(dir, key, None)?;
     Manifest::replace(dir, &staged)?;

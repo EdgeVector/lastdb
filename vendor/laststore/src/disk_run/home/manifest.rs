@@ -1,7 +1,7 @@
 //! CURRENT: the one sealed file that names the readable runs and its bounded loaders.
 
 use super::write_private_file;
-use crate::disk_run::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
+use crate::disk_run::codec::{corrupt, get_bytes, get_len, get_slice, get_varint, put_varint};
 use crate::disk_run::{MergeSpace, RunMeta, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::sync_directory;
 use crate::frame::{encode_frame, MIN_ENCODED_LEN};
@@ -242,11 +242,7 @@ fn run_list(
     let count = get_len(bytes, at, MAX_LEVEL_RUNS)?;
     let mut runs = budget.array(count)?;
     let mut read_key = |at: &mut usize, adm: &mut Admission| -> Result<Vec<u8>> {
-        adm.copy(get_slice(
-            bytes,
-            at,
-            get_len(bytes, at, MAX_RUN_KEY_BYTES)?,
-        )?)
+        adm.copy(get_bytes(bytes, at, MAX_RUN_KEY_BYTES)?)
     };
     for _ in 0..count {
         let run_id = Uuid::from_slice(get_slice(bytes, at, 16)?)

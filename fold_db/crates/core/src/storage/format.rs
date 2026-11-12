@@ -269,12 +269,12 @@ pub(crate) mod read {
     }
 
     fn decode_rows<T: DeserializeOwned>(
-        rows: Vec<(Vec<u8>, Vec<u8>)>,
+        rows: &[(Vec<u8>, Vec<u8>)],
     ) -> StorageResult<Vec<(String, T)>> {
-        rows.into_iter()
+        rows.iter()
             .map(|(k, v)| {
-                let key = String::from_utf8_lossy(&k).into_owned();
-                parse_item(&key, &v).map(|val| (key, val))
+                let key = String::from_utf8_lossy(k).into_owned();
+                parse_item(&key, v).map(|val| (key, val))
             })
             .collect()
     }
@@ -315,7 +315,7 @@ pub(crate) mod read {
             &self,
             p: &str,
         ) -> StorageResult<Vec<(String, T)>> {
-            decode_rows(self.scan_prefix(p.as_bytes()).await?)
+            decode_rows(&self.scan_prefix(p.as_bytes()).await?)
         }
         pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(
             &self,
@@ -323,7 +323,7 @@ pub(crate) mod read {
             e: &str,
             n: usize,
         ) -> StorageResult<Vec<(String, T)>> {
-            decode_rows(self.scan_range_paged(s.as_bytes(), e.as_bytes(), n).await?)
+            decode_rows(&self.scan_range_paged(s.as_bytes(), e.as_bytes(), n).await?)
         }
     }
 }

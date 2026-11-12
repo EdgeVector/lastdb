@@ -196,47 +196,9 @@ impl SchemaFormat {
     pub(crate) async fn batch_states(&self, changes: Vec<StateChange<'_>>) -> StorageResult<()> {
         let (mut entries, mut owners) = (Vec::with_capacity(changes.len()), Vec::new());
         for change in changes {
-            let (schema, entry, tracked) = match change {
-                StateChange::State { schema, state } => {
-                    (schema, put_json(schema.into(), state)?, false)
-                }
-                StateChange::Policy { schema, policy } => {
-                    if policy.ttl_seconds == 0
-                        || policy.hash_partitions.iter().any(String::is_empty)
-                    {
-                        return Err(StorageError::InvalidOperation(
-                            "invalid schema retention policy".into(),
-                        ));
-                    }
-                    let k = retention_policy_key(schema);
-                    (schema, put_json(k, policy)?, false)
-                }
-                StateChange::Age {
-                    schema,
-                    entry,
-                    latest,
-                } => {
-                    let k = if latest {
-                        retention_age_latest_key(schema, &entry.key)
-                    } else {
-                        retention_age_key(schema, entry.written_at, &entry.key)
-                    };
-                    (schema, put_json(k, &entry)?, true)
-                }
-                StateChange::Partition { schema, entry } => {
-                    let k = format!(
-                        "{}{}",
-                        retention_hash_partition_prefix(schema),
-                        fp(&entry.hash)
-                    );
-                    (schema, put_json(k, &entry)?, true)
-                }
-            };
-            require_name(schema)?;
+            let (entry, owner) = encode_state(change)?;
             entries.push(entry);
-            if tracked {
-                owners.push(schema.to_owned());
-            }
+            owners.extend(owner);
         }
         owners.sort();
         owners.dedup();
@@ -275,7 +237,7 @@ impl SchemaFormat {
                                 .filter(|(c, _)| c.len() == 20 && c.parse::<u64>().is_ok())
                                 .map(|(_, d)| d)
                                 .ok_or_else(bad)?,
-                            _ => sfx,
+                            Tracking::Latest | Tracking::Partition => sfx,
                         };
                         if dig.len() != 64 || !dig.bytes().all(|b| b.is_ascii_hexdigit()) {
                             return Err(bad());
@@ -328,6 +290,46 @@ impl SchemaFormat {
         })
         .await
     }
+}
+
+fn encode_state(change: StateChange<'_>) -> StorageResult<(KvMutation, Option<String>)> {
+    let (schema, entry, tracked) = match change {
+        StateChange::State { schema, state } => (schema, put_json(schema.into(), state)?, false),
+        StateChange::Policy { schema, policy } => {
+            if policy.ttl_seconds == 0 || policy.hash_partitions.iter().any(String::is_empty) {
+                return Err(StorageError::InvalidOperation(
+                    "invalid schema retention policy".into(),
+                ));
+            }
+            (
+                schema,
+                put_json(retention_policy_key(schema), policy)?,
+                false,
+            )
+        }
+        StateChange::Age {
+            schema,
+            entry,
+            latest,
+        } => {
+            let k = if latest {
+                retention_age_latest_key(schema, &entry.key)
+            } else {
+                retention_age_key(schema, entry.written_at, &entry.key)
+            };
+            (schema, put_json(k, &entry)?, true)
+        }
+        StateChange::Partition { schema, entry } => {
+            let k = format!(
+                "{}{}",
+                retention_hash_partition_prefix(schema),
+                fp(&entry.hash)
+            );
+            (schema, put_json(k, &entry)?, true)
+        }
+    };
+    require_name(schema)?;
+    Ok((entry, tracked.then(|| schema.to_owned())))
 }
 
 fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
