@@ -20,6 +20,7 @@ mod cutover;
 mod disk;
 mod files;
 mod http;
+mod members;
 mod native;
 mod paths;
 mod payload;
