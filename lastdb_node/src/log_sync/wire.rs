@@ -315,7 +315,10 @@ fn head_stamp(entries: &[StoredWire]) -> Result<Option<Stamp>, LogError> {
     match entries {
         [] => Ok(None),
         [entry] => Ok(Some(Stamp {
-            authored_at_ms: entry.entry.authored_at_ms.get(),
+            authored_at_ms: Stamp::ordering_millis(
+                entry.entry.authored_at_ms.get(),
+                entry.accepted_at_ms.get(),
+            ),
             writer: writer_of(&entry.entry.node_public_key, &entry.entry.device_id)?,
             sequence: entry.entry.writer_seq.get(),
         })),
