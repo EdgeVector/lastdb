@@ -55,11 +55,11 @@ impl CanonicalPost {
 /// and the grant revision. Those values are not fields of this target.
 #[derive(Clone, Copy)]
 pub struct SignedPostTarget<'a> {
-    /// Account scope from the saved connection.
+    /// Scope that signs this post. A receiver uses the invitation stream scope.
     pub scope: &'a CloudScope,
     /// Database id. The token sets `stream.stream_id` to this same id.
     pub database_id: &'a Id,
-    /// Saved connection realm.
+    /// Realm of this signature. A receiver uses the invitation environment.
     pub environment: ShareEnvironment,
     /// Canonical route. [`CanonicalPost::path`] is the path in the token.
     pub route: CanonicalPost,

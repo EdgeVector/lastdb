@@ -15,13 +15,15 @@ use mutation_log::{DatabaseId, DatabaseKind, DeviceId, PrincipalId};
 use mutation_log_sync::{SyncRole, SyncState};
 use serde::{Deserialize, Serialize};
 
+use crate::cloud_backup_client::byte_backup::ShareEnvironment;
 use crate::host::Host;
 use crate::node_read::CanonicalPost;
+use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use crate::registered_share::{self, RegisteredShare};
 
-use super::cloud::CloudLog;
+use super::cloud::{CloudLog, LogOpen};
 use super::disk;
-use super::http::Proof;
+use super::http::{Endpoint, Proof};
 use super::run::{self, Ready};
 use super::session;
 use super::turn::{self, Pause};
@@ -45,7 +47,7 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
     };
     let database_id = share.id.as_str();
     let stored = member_revision(&host.home, database_id);
-    let log = match CloudLog::connect(host, database_id, &device, stored, true).await {
+    let log = match connect_received(host, share, &device, stored) {
         Ok(log) => log,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "received log is unavailable");
@@ -89,21 +91,56 @@ async fn refresh(
     if store_member(&host.home, share.id.as_str(), fresh).is_err() {
         return None;
     }
-    CloudLog::connect(host, share.id.as_str(), device, fresh, true)
-        .await
-        .ok()
+    connect_received(host, share, device, fresh).ok()
+}
+
+/// Open the publisher stream from the verified invitation. No account context and no API key.
+fn connect_received(
+    host: &Arc<Host>,
+    share: &RegisteredShare,
+    device: &str,
+    revision: u64,
+) -> Result<CloudLog, String> {
+    let stream = share.stream();
+    if stream.stream_id != share.id {
+        return Err("registered invitation stream does not match the database".into());
+    }
+    stream
+        .validate()
+        .map_err(|_| "registered invitation stream was refused")?;
+    let (label, api_url) = profile_service(share.environment());
+    let endpoint = Endpoint::open(api_url, label)?;
+    CloudLog::open(LogOpen {
+        host,
+        endpoint,
+        scope: stream.scope.clone(),
+        database_id: stream.stream_id.clone(),
+        device,
+        member_revision: revision,
+        named: true,
+        environment_label: label,
+    })
+}
+
+fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str) {
+    let profile = match environment {
+        ShareEnvironment::Dev => Environment::Dev,
+        ShareEnvironment::Prod => Environment::Prod,
+    };
+    (profile.as_str(), exemem_api_url_for(profile))
 }
 
 async fn read_revision(log: &CloudLog, share: &RegisteredShare) -> Option<u64> {
-    let stream = Stream {
-        scope: log.scope.clone(),
-        stream_id: share.id.clone(),
-    };
-    let body = canonical_bytes(&MemberListReadRequest {
+    let stream = share.stream().clone();
+    if stream.scope != log.scope || stream.stream_id.as_str() != log.database_id() {
+        return None;
+    }
+    let request = MemberListReadRequest {
         version: Version::V2,
         stream,
-    })
-    .ok()?;
+    };
+    request.validate().ok()?;
+    let body = canonical_bytes(&request).ok()?;
     let (status, bytes) = log
         .post_status(
             CanonicalPost::MemberRead.path(),
@@ -115,18 +152,18 @@ async fn read_revision(log: &CloudLog, share: &RegisteredShare) -> Option<u64> {
     if !(200..300).contains(&status) {
         return None;
     }
-    revision_of(&bytes, share.id.as_str())
+    revision_of(&bytes, &request.stream)
 }
 
-fn revision_of(bytes: &[u8], database_id: &str) -> Option<u64> {
+fn revision_of(bytes: &[u8], stream: &Stream) -> Option<u64> {
     if let Ok(view) = serde_json::from_slice::<MemberListRevision>(bytes) {
-        if view.version != Version::V2 || view.database_id.as_str() != database_id {
+        if view.version != Version::V2 || view.database_id != stream.stream_id {
             return None;
         }
         return Some(view.revision.get());
     }
     let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;
-    if view.version != Version::V2 || view.stream.stream_id.as_str() != database_id {
+    if view.version != Version::V2 || view.stream != *stream {
         return None;
     }
     Some(view.revision.get())

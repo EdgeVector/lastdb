@@ -1,7 +1,5 @@
 use std::sync::{mpsc, Arc};
 
-use cloud_backup_protocol::v2::context::ContextReadRequest;
-use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
@@ -13,7 +11,7 @@ use mutation_log_sync::{Outcome, SyncEvent, SyncState};
 use crate::host::Host;
 use crate::node_read::CanonicalPost;
 
-use super::account::{self, account_of, node_key};
+use super::account::{self, node_key};
 use super::cutover;
 use super::http::{self, Endpoint, Proof};
 use super::paths;
@@ -36,6 +34,18 @@ pub(crate) struct CloudLog {
     environment_label: &'static str,
 }
 
+/// Inputs of [`CloudLog::open`]. Publishers and receivers use this one constructor.
+pub(super) struct LogOpen<'a> {
+    pub host: &'a Arc<Host>,
+    pub endpoint: Endpoint,
+    pub scope: CloudScope,
+    pub database_id: Id,
+    pub device: &'a str,
+    pub member_revision: u64,
+    pub named: bool,
+    pub environment_label: &'static str,
+}
+
 impl CloudLog {
     pub(crate) async fn connect(
         host: &Arc<Host>,
@@ -44,38 +54,36 @@ impl CloudLog {
         member_revision: u64,
         named: bool,
     ) -> Result<Self, String> {
-        let selected = http::selected_service(&host.home)?;
-        let wire_id =
+        let database_id =
             Id::try_from(database_id.to_owned()).map_err(|_| "database id is not a UUID")?;
-        let account = account_of(host)?;
-        let endpoint =
-            Endpoint::open(&selected.api_url, selected.label)?.load_owner_key(&host.home);
-        let backup = crate::byte_cloud_backup::client_from_home(&host.home)?;
-        let context = backup
-            .context(&ContextReadRequest {
-                version: Version::V2,
-                account_id: account.clone(),
-                required_destinations: Vec::new(),
-            })
-            .await
-            .map_err(|_| "cloud account context failed")?;
-        if context.scope.account_id != account {
-            return Err("cloud account does not match this node key".into());
-        }
-        Ok(Self {
-            handle: tokio::runtime::Handle::current(),
-            host: Arc::clone(host),
-            endpoint: Arc::new(endpoint),
-            keypair: Arc::clone(&host.keypair),
-            scope: context.scope,
-            database_id: wire_id,
-            principal: PrincipalId::new(&node_key(host))
-                .map_err(|_| "node key is not a log label")?,
-            device: mutation_log::DeviceId::new(device)
-                .map_err(|_| "device id is not a log label")?,
+        let (scope, endpoint, environment_label) = account::publisher_scope(host).await?;
+        Self::open(LogOpen {
+            host,
+            endpoint,
+            scope,
+            database_id,
+            device,
             member_revision,
             named,
-            environment_label: selected.label,
+            environment_label,
+        })
+    }
+
+    pub(super) fn open(parts: LogOpen<'_>) -> Result<Self, String> {
+        Ok(Self {
+            handle: tokio::runtime::Handle::current(),
+            host: Arc::clone(parts.host),
+            endpoint: Arc::new(parts.endpoint),
+            keypair: Arc::clone(&parts.host.keypair),
+            scope: parts.scope,
+            database_id: parts.database_id,
+            principal: PrincipalId::new(&node_key(parts.host))
+                .map_err(|_| "node key is not a log label")?,
+            device: mutation_log::DeviceId::new(parts.device)
+                .map_err(|_| "device id is not a log label")?,
+            member_revision: parts.member_revision,
+            named: parts.named,
+            environment_label: parts.environment_label,
         })
     }
 
