@@ -14,7 +14,7 @@ pub(crate) const ACK: &str = "/api/cloud/backups/v2/mutation-log/ack";
 pub(crate) const REVOKE: &str = "/api/cloud/backups/v2/mutation-log/revoke";
 pub(crate) const SNAPSHOT: &str = "/api/cloud/backups/v2/mutation-log/snapshot";
 pub(crate) const SNAPSHOT_BYTES: &str = "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
-/// Signed chain walk and part fetch. Not the snapshot cut.
-pub(crate) const DELIVERY_SNAPSHOT: &str = "/api/cloud/backups/v2/mutation-log/delivery/snapshot";
-/// One ciphertext range of a record file. Standard base64, not URL-safe.
-pub(crate) const DELIVERY_OBJECT: &str = "/api/cloud/backups/v2/mutation-log/delivery/object";
+pub(crate) use cloud_backup_protocol::v2::share_access::{
+    MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT,
+    MUTATION_LOG_DELIVERY_SNAPSHOT_PATH as DELIVERY_SNAPSHOT,
+};
