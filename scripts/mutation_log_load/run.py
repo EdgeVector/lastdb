@@ -150,7 +150,7 @@ def main(argv):
     parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
     parser.add_argument("--level", choices=("5", "20", "100", "trim", "all"))
     parser.add_argument("--scale", action="store_true",
-                        help="3-minute 100-writer tier, for the bounded-read re-run")
+                        help="3-minute 100-writer clock. The default 100-writer tier appends 10 times and finishes.")
     parser.add_argument("--confirm-deployed", required=True)
     parser.add_argument("--ledger", required=True)
     parser.add_argument("--summary", required=True)

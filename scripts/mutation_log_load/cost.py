@@ -1,16 +1,17 @@
 """One ledger for every phase, with a six-dollar hard cap.
 
-#769 today loads a request with one strongly consistent query of the main
-partition and one of ``{id}#sub``. ``load_reads`` is that pair. Head and
-list do not conflict, so they are not charged three reloads. An ack
-overwrites its row and does not grow the partition. When #769's bounded
-reads land, set ``FULL_PARTITION_LOAD`` false and ``load_reads`` charges
-the head row plus the submission query instead of the whole main partition.
+This harness calls the #778 mutation-log routes. An append's happy path
+reads the head, the writer tip, the grant prefix, and that writer's
+submission rows. A list still reads every entry after the cursor:
+``load_for`` calls ``query_bounded`` with no page limit. ``load_reads``
+therefore still charges the main partition and ``{id}#sub``. Head and list
+do not conflict, so they are not charged three reloads. An ack overwrites
+its row and does not grow the partition.
 
 A mutating call is one ``TransactWriteItems``, charged at twice the
 on-demand write price. Appends and acks are charged ``SERVER_ATTEMPTS``
-loads and transactions, because #769 retries the load and the commit up
-to 3 times (mod.rs ``ATTEMPTS``). Head and list stay one load. An append
+loads and transactions, because the server retries the load and the commit
+up to 3 times (mod.rs ``ATTEMPTS``). Head and list stay one load. An append
 adds an entry row of 350 bytes plus 150 bytes of item overhead once, not
 once per attempt. Cleanup Query and BatchWriteItem are counted on their
 own.
@@ -63,7 +64,7 @@ def stored_growth(nbytes):
 
 
 def load_reads(main_bytes, sub_bytes):
-    """Reads for one #769 load of the main partition and ``{id}#sub``."""
+    """Reads for one #778 load of the main partition and ``{id}#sub``."""
     sub = read_units(sub_bytes)
     if FULL_PARTITION_LOAD:
         return read_units(main_bytes) + sub

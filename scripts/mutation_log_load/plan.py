@@ -1,19 +1,18 @@
 """How many writers run, and which calls each level makes.
 
-Five and twenty writers each append ten times, then ack the head cursor.
-The default 100-writer tier is a preliminary correctness-and-contention run:
-each writer stops after about 38 rounds, under the $6 ledger. The 3-minute
-scale run stays behind ``scale=True`` until bounded reads land. Trim uses
-128 devices. They append, then ack the head cursor, then snapshot and trim.
-``through`` is a delivery sequence from head, never a writer sequence.
+Five, twenty, and one hundred writers each append ten times, then ack the
+head cursor. The 100-writer tier finishes that work. It does not stop after
+38 rounds. ``--scale`` still runs the 100-writer tier on a three-minute
+clock. Trim uses 128 devices. They append, then ack the head cursor, then
+snapshot and trim. ``through`` is a delivery sequence from head, never a
+writer sequence.
 """
 
 APPENDS = 10
-PRELIMINARY_ROUNDS = 38
 STEADY_MS = 3 * 60 * 1000
 TRIM_WRITERS = 128
 LEVELS = ("5", "20", "100", "trim", "all")
-PRELIMINARY_LABEL = "preliminary correctness-and-contention run"
+PRELIMINARY_LABEL = "finished 10-append run"
 SCALE_LABEL = "3-minute scale run"
 
 
@@ -34,7 +33,7 @@ def scenario(level, scale=False):
     if level == "100":
         if scale:
             return Scenario("steady", 100, STEADY_MS, False)
-        return Scenario("steady", 100, None, False, PRELIMINARY_ROUNDS)
+        return Scenario("full", 100, None, False)
     raise ValueError("level")
 
 
@@ -45,7 +44,7 @@ def phases(level, scale=False):
 
 
 def still_running(spec, elapsed_ms, completed=0):
-    """Rounds stop the preliminary tier. The scale option stops on the clock."""
+    """A steady tier with a round limit stops at that limit. The scale option stops on the clock."""
     if spec.steady_rounds is not None:
         return completed < spec.steady_rounds
     if spec.steady_ms is None:

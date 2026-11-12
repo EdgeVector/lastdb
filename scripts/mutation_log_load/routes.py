@@ -1,10 +1,14 @@
 """Mutation-log routes and the bodies those routes accept.
 
-Every path is under ``/api/cloud/backups/v2/mutation-log/``. Every action,
-including head, snapshot, and trim, sends ``{"database_id": ...}``. The
-server dispatch reads that field. Counters are JSON numbers. The payload
-is the base64url (no padding) of the bytes ``load``, not the literal word.
-Snapshot bytes stay in the table; the snapshot ref is a label.
+These are the exemem-infra #778 routes. Every path is under
+``/api/cloud/backups/v2/mutation-log/``. The server also serves ``access``,
+``reject``, ``writer-tip``, and ``cutover``. This load calls
+``create-database``, ``append``, ``head``, ``list``, and ``ack``. The trim
+tier also calls ``snapshot`` and ``trim``. Every action, including head,
+snapshot, and trim, sends ``{"database_id": ...}``. The server dispatch
+reads that field. Counters are JSON numbers. The payload is the base64url
+(no padding) of the bytes ``load``, not the literal word. Snapshot bytes
+stay in the table; the snapshot ref is a label.
 """
 
 import base64

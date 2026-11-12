@@ -1,15 +1,16 @@
 name: Mutation log DEV load
 
 # Manual only. Never on push or pull request. Run it after exemem-infra
-# #769 is deployed to DEV. The OIDC role is the new DEV role from
+# #778 is deployed to DEV. The OIDC role is the DEV role from
 # exemem-infra #772, ref main, and the cloud-backup-dev environment. This
-# workflow does not create or change an IAM role.
+# workflow does not create or change an IAM role. The job runs only on
+# main because that role trusts ref main.
 
 on:
   workflow_dispatch:
     inputs:
       confirm_deployed:
-        description: "Type yes only after exemem-infra #769 is deployed to DEV"
+        description: "Type yes only after exemem-infra #778 is deployed to DEV"
         required: true
         type: string
       level:
@@ -18,7 +19,7 @@ on:
         options: ["all", "5", "20", "100", "trim"]
         default: "all"
       duration:
-        description: "preliminary is about 38 rounds. scale is the 3-minute re-run after bounded reads land."
+        description: "preliminary finishes 10 appends at 5, 20, and 100 writers. scale is the 3-minute 100-writer clock."
         type: choice
         options: ["preliminary", "scale"]
         default: "preliminary"
