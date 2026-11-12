@@ -215,8 +215,12 @@ impl Tables {
         home: &Path,
         signer: Arc<Ed25519KeyPair>,
         name: &str,
+        kind: Kind,
         spec: Option<SpecBinding>,
     ) -> Result<Entry, OwnedError> {
+        if kind == Kind::Personal && spec.is_some() {
+            return Err(OwnedError::InvalidSpec);
+        }
         validate_create(name, spec.as_ref())?;
         let id = self.allocate(name)?;
         let store = store::open(home, &id, signer, true)
@@ -225,7 +229,7 @@ impl Tables {
         let entry = Entry {
             id: id.clone(),
             name: Some(name.to_owned()),
-            kind: Kind::Shareable,
+            kind,
             spec,
         };
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
@@ -253,11 +257,14 @@ impl Tables {
             .iter()
             .position(|entry| entry.id == id)
             .ok_or(OwnedError::NotOwned)?;
+        if state.owned[index].kind == Kind::Personal && spec.is_some() {
+            return Err(OwnedError::InvalidSpec);
+        }
         let name = state.owned[index]
             .name
             .clone()
             .ok_or(OwnedError::Unavailable)?;
-        validate_binding(&name, spec.as_ref())?;
+        registry::validate_binding(&name, spec.as_ref())?;
         let previous = state.owned[index].spec.clone();
         state.owned[index].spec = spec;
         let file = snapshot(&state);
@@ -387,8 +394,4 @@ fn snapshot(state: &State) -> registry::RegistryFile {
         owner: state.registry_owner.clone(),
         owned: state.owned.clone(),
     }
-}
-
-fn validate_binding(name: &str, spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
-    registry::validate_binding(name, spec)
 }

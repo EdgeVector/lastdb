@@ -12,9 +12,11 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     let Some(body) = decode::<CreateBody>(req) else {
         return error_response(400, create_decode_message(req), ctx);
     };
-    if let Some(response) = reject_kind(body.kind.as_deref(), ctx) {
-        return response;
-    }
+    let kind = match body.kind.as_deref() {
+        None | Some("shareable") => Kind::Shareable,
+        Some("personal") => Kind::Personal,
+        Some(_) => return error_response(400, "invalid database access policy", ctx),
+    };
     let spec = body.spec.map(spec_binding);
     if let Err(error) = owned::validate_create(&body.name, spec.as_ref()) {
         return fail(error, ctx);
@@ -24,7 +26,13 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     }
     match host
         .owned
-        .create(&host.home, Arc::clone(&host.keypair), &body.name, spec)
+        .create(
+            &host.home,
+            Arc::clone(&host.keypair),
+            &body.name,
+            kind,
+            spec,
+        )
         .await
     {
         Ok(entry) => json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id)),
@@ -79,14 +87,6 @@ fn registered_name(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsRe
         }
         Ok(_) => None,
         Err(_) => Some(error_response(503, "database registry is unavailable", ctx)),
-    }
-}
-
-fn reject_kind(kind: Option<&str>, ctx: &AccessContext) -> Option<UdsResponse> {
-    match kind {
-        None | Some("shareable") => None,
-        Some("personal") => Some(fail(OwnedError::ReservedUnprovisioned, ctx)),
-        Some(_) => Some(fail(OwnedError::InvalidName, ctx)),
     }
 }
 

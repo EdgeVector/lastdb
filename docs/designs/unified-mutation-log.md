@@ -271,11 +271,11 @@ cutover receipt and a local accepted stream with verified coverage of the
 pre-migration frontier. Receiving a log page or installing a cloud snapshot
 alone does not establish coverage of local writes.
 
-ExeMem currently serves the signed path for shareable databases. Private
-database admission, recovery of the registered id on another device, and
-ordered owner replay alongside independent local writes still need
-end-to-end verification before a private database can cut over. The old
-contributor inbox still has `MAX_WRITERS = 12`.
+ExeMem admits newly registered private and shareable databases on the
+same signed API. Create an owner-only database with
+`lastdb db create NAME --private`. The owner key and cloud account scope
+are bound at registration. The database accepts no share grants.
+The old contributor inbox still has `MAX_WRITERS = 12`.
 
 Old server rows stay until a second device acks and keyed reads match.
 

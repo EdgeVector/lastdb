@@ -30,6 +30,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
                    load_partitions, refuse_prod_environment, unprocessed_ids)
 from plan import PRELIMINARY_LABEL, SCALE_LABEL, phases
+from private_recovery import recover as recover_private
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
@@ -199,7 +200,7 @@ def target():
 def main(argv):
     parser = argparse.ArgumentParser(description="DEV mutation-log load")
     parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
-    parser.add_argument("--level", choices=("5", "20", "100", "trim", "all"))
+    parser.add_argument("--level", choices=("5", "20", "100", "trim", "all", "private"))
     parser.add_argument("--scale", action="store_true",
                         help="3-minute 100-writer clock. The default 100-writer tier appends 10 times and finishes.")
     parser.add_argument("--confirm-deployed", required=True)
@@ -226,6 +227,12 @@ def main(argv):
         print(text)
         return 0
     key, api_key, account_generation = load_ci_key()
+    if args.level == "private":
+        try:
+            recover_private(post, endpoint, database_id, key, api_key, account_generation, ledger)
+        finally:
+            Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")
+        return 0
     ident = account_id(key.public)
     reports = []
 

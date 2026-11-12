@@ -217,10 +217,12 @@ fn accept_sibling(
         .name
         .clone()
         .ok_or_else(|| format!("owned database {} has no name", entry.id))?;
-    if entry.kind != Kind::Shareable || !ids.insert(entry.id.clone()) || !names.insert(name.clone())
+    if (entry.kind == Kind::Personal && entry.spec.is_some())
+        || !ids.insert(entry.id.clone())
+        || !names.insert(name.clone())
     {
         return Err(format!(
-            "owned database {} is not a unique shareable sibling",
+            "owned database {} has a duplicate identity or an invalid spec",
             entry.id
         ));
     }

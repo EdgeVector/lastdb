@@ -1,11 +1,4 @@
-//! A shareable database with a registry spec uses signed create, then sync.
-//!
-//! The registry spec is the create body. A local file does not activate the
-//! database. Activation is the live `NativeDatabase` body from
-//! `mutation-log/create-database` for this id and realm. An equal retry
-//! returns that same body. `{created:true, kind}` and HTTP 409
-//! `identity_conflict` do not activate. This path does not read a receipt
-//! and does not write legacy evidence.
+//! Register a database on the signed cloud log, then sync its accepted writes.
 
 use std::sync::Arc;
 
@@ -23,14 +16,6 @@ use super::status;
 use super::turn::{self, Pause};
 
 pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
-    let Some(spec) = database.spec.as_ref() else {
-        cutover::observe_native(&database.id, NativeView::Unavailable);
-        return turn::paused_for(&database.id);
-    };
-    if database.kind != "shareable" {
-        cutover::observe_native(&database.id, NativeView::Unavailable);
-        return turn::paused_for(&database.id);
-    }
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
         Err(error) => {
@@ -51,7 +36,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
     if matches!(cutover::gate_for(&database.id), cutover::Gate::Native) {
         return turn::open_native(host, database, log, &device).await;
     }
-    let view = match create_body(&database.id, &database.kind, spec) {
+    let view = match create_body(&database.id, &database.kind, database.spec.as_ref()) {
         Ok(body) => create_view(&log, body, &database.id).await,
         Err(()) => NativeView::Unavailable,
     };
@@ -79,14 +64,14 @@ async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> Native
     status::native_body(&bytes, database_id, log.environment())
 }
 
-fn create_body(database_id: &str, kind: &str, spec: &Spec) -> Result<Vec<u8>, ()> {
+fn create_body(database_id: &str, kind: &str, spec: Option<&Spec>) -> Result<Vec<u8>, ()> {
     cloud_backup_protocol::canonical_bytes(&CreateBody {
         database_id,
         kind,
-        spec: SpecBody {
+        spec: spec.map(|spec| SpecBody {
             name: &spec.name,
             version: spec.version,
-        },
+        }),
     })
     .map_err(|_| ())
 }
@@ -95,7 +80,8 @@ fn create_body(database_id: &str, kind: &str, spec: &Spec) -> Result<Vec<u8>, ()
 struct CreateBody<'a> {
     database_id: &'a str,
     kind: &'a str,
-    spec: SpecBody<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spec: Option<SpecBody<'a>>,
 }
 
 #[derive(Serialize)]
