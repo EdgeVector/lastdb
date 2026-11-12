@@ -1,9 +1,8 @@
 //! Commits (one level-0 run each), merge planning, and tiered/base compaction.
 
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
-use super::stream::run_key;
-use super::{RunHome, RunRoot};
-use crate::disk_run::space::MergeSpace;
+use super::{run_key, RunHome, RunRoot};
+use crate::disk_run::footer::MergeSpace;
 use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter, MAX_RUN_VALUE_BYTES};
 use crate::space::SpacePolicy;
 use crate::{Error, Result};
@@ -11,8 +10,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub(in crate::disk_run::home) const MERGE_WIDTH: usize = 8;
-pub(in crate::disk_run::home) const MAX_MERGE_INPUTS: usize = 64;
+const MERGE_WIDTH: usize = 8;
+pub(super) const MAX_MERGE_INPUTS: usize = 64;
 const TIER_SHARE: u64 = 16;
 const STALE_SHARE: u64 = 8;
 const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
@@ -45,10 +44,10 @@ fn plan(held: &Manifest) -> Option<Plan> {
     let tier: u64 = tiered.iter().map(|run| run.meta.record_bytes).sum();
     let stale: u64 = tiered
         .iter()
-        .map(|run| {
-            run.hidden()
+        .map(|r| {
+            r.hidden()
                 .unwrap_or(0)
-                .saturating_add(run.meta.tombstone_bytes)
+                .saturating_add(r.meta.tombstone_bytes)
         })
         .sum();
     let over = |b: u64, share: u64, min: u64| b > min && b.saturating_mul(share) > total;
@@ -57,8 +56,19 @@ fn plan(held: &Manifest) -> Option<Plan> {
     {
         return None;
     }
-    let oldest = &tiered[tiered.len().saturating_sub(MAX_MERGE_INPUTS)..];
-    Some(Plan::Base(Some(oldest.iter().copied().cloned().collect())))
+    Some(Plan::Base(Some(
+        tiered[tiered.len().saturating_sub(MAX_MERGE_INPUTS)..]
+            .iter()
+            .copied()
+            .cloned()
+            .collect(),
+    )))
+}
+
+fn trim_levels(levels: &mut Vec<Vec<Arc<RunFile>>>) {
+    while levels.last().is_some_and(Vec::is_empty) {
+        levels.pop();
+    }
 }
 
 /// Complete native stored mutation. The home derives its physical group.
@@ -89,7 +99,25 @@ pub struct RunCommit {
     pub run_bytes: u64,
 }
 
-pub(in crate::disk_run::home) fn meta(summary: RunSummary) -> Result<RunMeta> {
+impl RunCommit {
+    pub(super) fn from_manifest(
+        run_id: Uuid,
+        records: u64,
+        run_bytes: u64,
+        installed: Arc<Manifest>,
+    ) -> Self {
+        Self {
+            run_id,
+            generation: installed.generation,
+            frontier: installed.frontier,
+            root: RunRoot(installed),
+            records,
+            run_bytes,
+        }
+    }
+}
+
+pub(super) fn meta(summary: RunSummary) -> Result<RunMeta> {
     let (Some(first_key), Some(last_key)) = (summary.first_key, summary.last_key) else {
         return Err(Error::Config(
             "disk run home: an empty run has no place".into(),
@@ -139,29 +167,9 @@ impl RunHome {
         if installed.is_err() && !self.is_poisoned() {
             file.retire();
         }
-        let installed = installed?;
-        Ok(RunCommit {
-            run_id,
-            root: RunRoot(Arc::clone(&installed)),
-            generation: installed.generation,
-            frontier: installed.frontier,
-            records,
-            run_bytes,
-        })
-    }
-
-    pub(in crate::disk_run::home) fn install_or_discard(
-        &self,
-        next: Manifest,
-        fresh: &[Arc<RunFile>],
-    ) -> Result<Arc<Manifest>> {
-        let installed = self.install(next);
-        if installed.is_err() && !self.is_poisoned() {
-            for run in fresh {
-                run.retire();
-            }
-        }
-        installed
+        Ok(RunCommit::from_manifest(
+            run_id, records, run_bytes, installed?,
+        ))
     }
 
     /// Refuse a batch that [`RunHome::commit`] would refuse for its key or value sizes.
@@ -213,10 +221,10 @@ impl RunHome {
             ));
         }
         let space = MergeSpace::new(self.path(), policy)?;
-        let readers = inputs
+        let readers: Vec<_> = inputs
             .iter()
             .map(|r| RunReader::open(&r.path, &self.key))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<_>>()?;
         let mut writer = RunWriter::create_reserved(&self.runs, &self.key, &space)?;
         let output = match merge_runs(
             readers.iter().map(RunReader::iter).collect(),
@@ -226,22 +234,19 @@ impl RunHome {
             0 => None,
             _ => Some(meta(writer.finish()?)?),
         };
-        let input_bytes: u64 = inputs.iter().map(|run| run.meta.record_bytes).sum();
+        let input_bytes: u64 = inputs.iter().map(|r| r.meta.record_bytes).sum();
+        let out_bytes = output.as_ref().map_or(0, |r| r.record_bytes);
         let hidden = inputs
             .iter()
-            .map(|run| run.hidden())
+            .map(|r| r.hidden())
             .sum::<Option<u64>>()
-            .map(|h| {
-                h.saturating_sub(
-                    input_bytes.saturating_sub(output.as_ref().map_or(0, |r| r.record_bytes)),
-                )
-            });
+            .map(|h| h.saturating_sub(input_bytes.saturating_sub(out_bytes)));
         let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
-        let merged: HashSet<Uuid> = inputs.iter().map(|run| run.meta.run_id).collect();
-        next.levels[level].retain(|run| !merged.contains(&run.meta.run_id));
+        let merged: HashSet<Uuid> = inputs.iter().map(|r| r.meta.run_id).collect();
+        next.levels[level].retain(|r| !merged.contains(&r.meta.run_id));
         if let Some(run) = output {
             if next.levels.len() <= level + 1 {
                 next.levels.push(Vec::new());
@@ -250,20 +255,15 @@ impl RunHome {
             if let Some(h) = hidden {
                 file.set_hidden(h);
             }
-            next.levels[level + 1].insert(0, Arc::clone(&file));
+            next.levels[level + 1].insert(0, file);
         }
-        while next.levels.last().is_some_and(Vec::is_empty) {
-            next.levels.pop();
-        }
+        trim_levels(&mut next.levels);
         self.install_merge(next, &space)?;
-        for run in &inputs {
-            run.retire();
-        }
-        self.note_retired(&inputs);
+        self.retire_runs(&inputs);
         Ok(())
     }
 
-    pub(in crate::disk_run::home) fn base_step(
+    pub(super) fn base_step(
         &self,
         start: Option<Vec<Arc<RunFile>>>,
         policy: &SpacePolicy,
@@ -273,9 +273,9 @@ impl RunHome {
             Some(runs) => (runs.clone(), None),
             None => (held.merging.clone(), held.merge_cut.clone()),
         };
-        let done = cut.as_ref().map_or(0, |cut| {
-            held.base.partition_point(|run| run.meta.last_key <= *cut)
-        });
+        let done = cut
+            .as_ref()
+            .map_or(0, |c| held.base.partition_point(|r| r.meta.last_key <= *c));
         let bytes: u64 = merging
             .iter()
             .chain(&held.base)
@@ -295,7 +295,7 @@ impl RunHome {
         let upper = taken
             .last()
             .filter(|_| !last)
-            .map(|run| run.meta.last_key.clone());
+            .map(|r| r.meta.last_key.clone());
         let space = MergeSpace::new(self.path(), policy)?;
         let pieces = self.write_base_pieces(
             &merging,
@@ -310,42 +310,34 @@ impl RunHome {
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
         if let Some(runs) = &start {
-            let moved: HashSet<Uuid> = runs.iter().map(|run| run.meta.run_id).collect();
+            let moved: HashSet<Uuid> = runs.iter().map(|r| r.meta.run_id).collect();
             for level in &mut next.levels {
-                level.retain(|run| !moved.contains(&run.meta.run_id));
+                level.retain(|r| !moved.contains(&r.meta.run_id));
             }
-            while next.levels.last().is_some_and(Vec::is_empty) {
-                next.levels.pop();
-            }
+            trim_levels(&mut next.levels);
             next.merging = runs.clone();
         }
         let mut base = next.base[..done].to_vec();
         base.extend(pieces.as_deref().unwrap_or(taken).iter().cloned());
         base.extend(next.base[done + take..].iter().cloned());
         next.base = base;
-        if last {
+        next.merge_cut = if last {
             next.merging.clear();
-            next.merge_cut = None;
+            None
         } else {
-            next.merge_cut = upper;
-        }
+            upper
+        };
         self.install_merge(next, &space)?;
         if pieces.is_some() {
-            for run in taken {
-                run.retire();
-            }
-            self.note_retired(taken);
+            self.retire_runs(taken);
         }
         if last {
-            for run in &merging {
-                run.retire();
-            }
-            self.note_retired(&merging);
+            self.retire_runs(&merging);
         }
         Ok(())
     }
 }
 
-pub(in crate::disk_run::home) fn overflow() -> Error {
+pub(super) fn overflow() -> Error {
     Error::WriteCapacity("disk run home: generation counter is full".into())
 }

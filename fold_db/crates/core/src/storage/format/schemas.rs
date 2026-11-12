@@ -1,11 +1,5 @@
 //! Schema/state format capability and catalog key framing.
 
-use std::sync::Arc;
-
-use lastdb_model::hex::sha256_hex as fp;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-
 use super::read::ReadStore;
 use crate::schema::types::KeyValue;
 use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
@@ -16,6 +10,10 @@ pub(crate) use crate::storage::format::{
     RETENTION_POLICY_KEY_PREFIX,
 };
 use crate::storage::{KvMutation, StorageError};
+use lastdb_model::hex::sha256_hex as fp;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub(crate) const CATALOG_PAGE_ROWS: usize = 256;
 pub(crate) const CATALOG_SCAN_END: &[u8] = &[0xff];
@@ -95,16 +93,12 @@ pub(crate) fn retention_hash_partition_prefix(schema: &str) -> String {
     format!("{RETENTION_HASH_PARTITION_KEY_PREFIX}{}\0", fp(schema))
 }
 
-pub(crate) fn retention_hash_partition_key(schema: &str, hash: &str) -> String {
-    format!("{}{}", retention_hash_partition_prefix(schema), fp(hash))
-}
-
 pub(crate) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
     a == b
 }
 
 pub(crate) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
-    serde_json::from_slice::<T>(bytes).map_err(|error| error.to_string())
+    serde_json::from_slice::<T>(bytes).map_err(|e| e.to_string())
 }
 
 pub(crate) fn decode_catalog_schema(bytes: &[u8]) -> Result<Schema, String> {
@@ -137,13 +131,9 @@ fn encode_deletes(changes: Vec<StateDelete<'_>>) -> StorageResult<Vec<Staged>> {
                     let suffix = key.strip_prefix(&prefix).ok_or_else(bad)?;
                     let digest = if matches!(kind, Tracking::Age) {
                         let (c, d) = suffix.split_once('\0').ok_or_else(bad)?;
-                        if c.len() != 20
-                            || !c.bytes().all(|b| b.is_ascii_digit())
-                            || c.parse::<u64>().is_err()
-                        {
-                            return Err(bad());
-                        }
-                        d
+                        (c.len() == 20 && c.parse::<u64>().is_ok())
+                            .then_some(d)
+                            .ok_or_else(bad)?
                     } else {
                         suffix
                     };
@@ -214,13 +204,16 @@ pub(crate) enum StateChange<'a> {
 }
 
 fn encode_state(change: StateChange<'_>) -> StorageResult<(Staged, Option<String>)> {
+    let schema = match &change {
+        StateChange::State { schema, .. }
+        | StateChange::Policy { schema, .. }
+        | StateChange::Age { schema, .. }
+        | StateChange::Partition { schema, .. } => *schema,
+    };
+    require_name(schema)?;
     match change {
-        StateChange::State { schema, state } => {
-            require_name(schema)?;
-            Ok((put_json(schema.to_owned(), state)?, None))
-        }
-        StateChange::Policy { schema, policy } => {
-            require_name(schema)?;
+        StateChange::State { state, .. } => Ok((put_json(schema.to_owned(), state)?, None)),
+        StateChange::Policy { policy, .. } => {
             if policy.ttl_seconds == 0 || policy.hash_partitions.iter().any(String::is_empty) {
                 return Err(StorageError::InvalidOperation(
                     "invalid schema retention policy".into(),
@@ -228,12 +221,7 @@ fn encode_state(change: StateChange<'_>) -> StorageResult<(Staged, Option<String
             }
             Ok((put_json(retention_policy_key(schema), policy)?, None))
         }
-        StateChange::Age {
-            schema,
-            entry,
-            latest,
-        } => {
-            require_name(schema)?;
+        StateChange::Age { entry, latest, .. } => {
             let key = if latest {
                 retention_age_latest_key(schema, &entry.key)
             } else {
@@ -241,12 +229,13 @@ fn encode_state(change: StateChange<'_>) -> StorageResult<(Staged, Option<String
             };
             Ok((put_json(key, &entry)?, Some(schema.to_owned())))
         }
-        StateChange::Partition { schema, entry } => {
-            require_name(schema)?;
-            Ok((
-                put_json(retention_hash_partition_key(schema, &entry.hash), &entry)?,
-                Some(schema.to_owned()),
-            ))
+        StateChange::Partition { entry, .. } => {
+            let key = format!(
+                "{}{}",
+                retention_hash_partition_prefix(schema),
+                fp(&entry.hash)
+            );
+            Ok((put_json(key, &entry)?, Some(schema.to_owned())))
         }
     }
 }
@@ -272,8 +261,10 @@ impl SchemaFormat {
     }
 
     pub(crate) fn readers(&self) -> (ReadStore, ReadStore) {
-        let (s, st) = (self.schemas_store.clone(), self.schema_states_store.clone());
-        (ReadStore::new(s), ReadStore::new(st))
+        (
+            ReadStore::new(self.schemas_store.clone()),
+            ReadStore::new(self.schema_states_store.clone()),
+        )
     }
 
     pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
@@ -326,16 +317,14 @@ impl SchemaFormat {
     ) -> StorageResult<()> {
         transaction::scope(self.runtime(), async {
             if !transaction::publication::active(&self.runtime) {
-                let msg = "schema write requires its native scope";
-                return Err(StorageError::InvalidOperation(msg.into()));
+                return Err(StorageError::InvalidOperation(
+                    "schema write requires its native scope".into(),
+                ));
             }
             self.require_tracking_writable(owners).await?;
             let mutations = entries
                 .into_iter()
-                .map(|(k, v)| match v {
-                    Some(b) => KvMutation::put(k, b),
-                    None => KvMutation::delete(k),
-                })
+                .map(|(k, v)| v.map_or_else(|| KvMutation::delete(k), |b| KvMutation::put(k, b)))
                 .collect();
             let store = if schemas {
                 &self.schemas_store
@@ -353,16 +342,16 @@ impl SchemaFormat {
         }
         let keys = schemas.iter().map(|n| n.as_bytes().to_vec()).collect();
         let reader = ReadStore::new(self.schema_states_store.clone());
-        let (states, definitions) = tokio::try_join!(
+        let (states, defs) = tokio::try_join!(
             reader.get_items::<SchemaState>(schemas),
             self.schemas_store.get_many(keys),
         )?;
-        if states.len() != schemas.len() || definitions.len() != schemas.len() {
+        if states.len() != schemas.len() || defs.len() != schemas.len() {
             return Err(StorageError::BackendError(
                 "tracking owner read is incomplete".into(),
             ));
         }
-        for ((schema, state), def) in schemas.iter().zip(states).zip(definitions) {
+        for ((schema, state), def) in schemas.iter().zip(states).zip(defs) {
             if def.is_none() || state == Some(SchemaState::Blocked) {
                 return Err(StorageError::InvalidOperation(format!(
                     "expiry tracking owner {schema} is blocked or not installed"
@@ -374,16 +363,15 @@ impl SchemaFormat {
 }
 
 fn put_json(key: String, value: &impl Serialize) -> StorageResult<Staged> {
-    let bytes = serde_json::to_vec(value)
-        .map_err(|error| StorageError::SerializationError(error.to_string()))?;
-    Ok((key, Some(bytes)))
+    serde_json::to_vec(value)
+        .map(|bytes| (key, Some(bytes)))
+        .map_err(|e| StorageError::SerializationError(e.to_string()))
 }
 
 fn require_name(name: &str) -> StorageResult<()> {
-    if name.is_empty() || name.contains('\0') {
-        return Err(StorageError::InvalidOperation(
-            "schema keys require a nonempty name without NUL".into(),
-        ));
-    }
-    Ok(())
+    (!(name.is_empty() || name.contains('\0')))
+        .then_some(())
+        .ok_or_else(|| {
+            StorageError::InvalidOperation("schema keys require a nonempty name without NUL".into())
+        })
 }

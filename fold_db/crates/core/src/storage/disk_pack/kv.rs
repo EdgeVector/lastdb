@@ -1,5 +1,6 @@
 use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
+use std::collections::BTreeMap;
 
 pub(in crate::storage) mod native_routing {
     use crate::storage::error::{StorageError, StorageResult};
@@ -16,21 +17,19 @@ pub(in crate::storage) mod native_routing {
     }
 
     pub(in crate::storage) fn encode(key: &[u8]) -> String {
-        if let Ok(key) = std::str::from_utf8(key) {
-            if !key.starts_with("b64:") {
-                return key.to_string();
-            }
+        match std::str::from_utf8(key) {
+            Ok(s) if !s.starts_with("b64:") => s.to_string(),
+            _ => format!("b64:{}", STANDARD.encode(key)),
         }
-        format!("b64:{}", STANDARD.encode(key))
     }
 
     pub(in crate::storage) fn decode(key: &str) -> StorageResult<Vec<u8>> {
-        let Some(encoded) = key.strip_prefix("b64:") else {
-            return Ok(key.as_bytes().to_vec());
-        };
-        STANDARD
-            .decode(encoded)
-            .map_err(|e| StorageError::BackendError(format!("laststore key decode failed: {e}")))
+        match key.strip_prefix("b64:") {
+            Some(enc) => STANDARD.decode(enc).map_err(|e| {
+                StorageError::BackendError(format!("laststore key decode failed: {e}"))
+            }),
+            None => Ok(key.as_bytes().to_vec()),
+        }
     }
 }
 
@@ -42,7 +41,6 @@ impl PackRuntime {
         }
     }
 
-    /// One cas row. Backup skips a local file whose sealed row is already valid.
     pub(in crate::storage) async fn cas_get(
         self: &Arc<Self>,
         key: &[u8],
@@ -51,7 +49,6 @@ impl PackRuntime {
         self.cas_kv().get(key).await
     }
 
-    /// Put one sealed cas row. The caller already checked the envelope.
     pub(in crate::storage) async fn cas_put(
         self: &Arc<Self>,
         key: &[u8],
@@ -60,7 +57,6 @@ impl PackRuntime {
         self.cas_kv().put(key, value).await
     }
 
-    /// Delete cas rows. An empty list publishes nothing.
     pub(in crate::storage) async fn cas_delete(
         self: &Arc<Self>,
         keys: Vec<Vec<u8>>,
@@ -75,7 +71,15 @@ impl PackRuntime {
 }
 
 impl PackKvStore {
-    async fn values(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
+    pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
+        Ok(self
+            .get_many(vec![key.to_vec()])
+            .await?
+            .pop()
+            .expect("one native key"))
+    }
+
+    pub(crate) async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
@@ -87,48 +91,19 @@ impl PackKvStore {
         for key in &keys {
             super::super::current_keys::validate(&self.namespace, key)?;
         }
-        let runtime = Arc::clone(&self.runtime);
-        let context = read::ReadContext::current(&runtime).await?;
-        let pending = transaction::PendingBatch::current(&runtime);
-        let namespace = self.namespace.clone();
+        let rt = Arc::clone(&self.runtime);
+        let ctx = read::ReadContext::current(&rt).await?;
+        let pending = transaction::PendingBatch::current(&rt);
+        let ns = self.namespace.clone();
         run_blocking(move || {
-            let addresses: Vec<_> = keys.iter().map(|key| coordinate(&namespace, key)).collect();
-            runtime.raw_many(&context, &addresses, pending.as_ref())
+            let coords: Vec<_> = keys.iter().map(|k| coordinate(&ns, k)).collect();
+            rt.raw_many(&ctx, &coords, pending.as_ref())
         })
         .await
-    }
-
-    async fn change(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
-        let runtime = Arc::clone(&self.runtime);
-        transaction::scope(Arc::clone(&runtime), async {
-            runtime.ensure_namespace(&self.namespace).await?;
-            let context = read::ReadContext::current(&runtime).await?;
-            let pending = transaction::PendingBatch::current(&runtime);
-            let namespace = self.namespace.clone();
-            let planning = Arc::clone(&runtime);
-            let operations = run_blocking(move || {
-                prepare(&planning, &context, pending.as_ref(), &namespace, mutations)
-            })
-            .await?;
-            runtime.mutate(operations).await
-        })
-        .await
-    }
-
-    pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
-        Ok(self
-            .values(vec![key.to_vec()])
-            .await?
-            .pop()
-            .expect("one native key"))
-    }
-
-    pub(crate) async fn get_many(&self, keys: Vec<Vec<u8>>) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        self.values(keys).await
     }
 
     pub(crate) async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
-        self.change(vec![KvMutation::put(key, value)]).await
+        self.batch_mutate(vec![KvMutation::put(key, value)]).await
     }
 
     pub(crate) async fn scan_prefix(
@@ -136,14 +111,6 @@ impl PackKvStore {
         prefix: &[u8],
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         self.prefix_rows(prefix, 10000, true).await
-    }
-
-    pub(crate) async fn scan_prefix_paged(
-        &self,
-        prefix: &[u8],
-        limit: usize,
-    ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        self.prefix_rows(prefix, limit, false).await
     }
 
     pub(crate) async fn scan_range_paged(
@@ -169,7 +136,18 @@ impl PackKvStore {
     }
 
     pub(crate) async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
-        self.change(mutations).await
+        let rt = Arc::clone(&self.runtime);
+        transaction::scope(Arc::clone(&rt), async {
+            rt.ensure_namespace(&self.namespace).await?;
+            let ctx = read::ReadContext::current(&rt).await?;
+            let pending = transaction::PendingBatch::current(&rt);
+            let (ns, planning) = (self.namespace.clone(), Arc::clone(&rt));
+            let ops =
+                run_blocking(move || prepare(&planning, &ctx, pending.as_ref(), &ns, mutations))
+                    .await?;
+            rt.mutate(ops).await
+        })
+        .await
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {
@@ -184,49 +162,47 @@ fn prepare(
     namespace: &str,
     mutations: Vec<KvMutation>,
 ) -> StorageResult<Vec<HomeMutation>> {
-    let operation_limit = pending.map_or(4096, |pending| pending.operation_limit());
-    if mutations.len() > operation_limit {
+    let limit = pending.map_or(4096, |p| p.operation_limit);
+    if mutations.len() > limit {
         return Err(StorageError::InvalidOperation(format!(
-            "native mutation exceeds {operation_limit} operation admission limit"
+            "native mutation exceeds {limit} operation admission limit"
         )));
     }
-    for mutation in &mutations {
-        super::super::current_keys::validate(namespace, mutation.key())?;
+    for m in &mutations {
+        super::super::current_keys::validate(namespace, m.key())?;
     }
     let targets: Vec<_> = mutations
         .iter()
-        .map(|mutation| coordinate(namespace, mutation.key()))
+        .map(|m| coordinate(namespace, m.key()))
         .collect();
-    let mut addresses: Vec<_> = mutations
+    let mut del_coords: Vec<_> = mutations
         .iter()
         .zip(&targets)
         .filter(|(m, _)| matches!(m, KvMutation::Delete { .. }))
-        .map(|(_, target)| target.clone())
+        .map(|(_, t)| t.clone())
         .collect();
-    addresses.sort();
-    addresses.dedup();
-    context.record_stage("write-probes-start", addresses.len());
-    let bodies = runtime.raw_many(context, &addresses, pending)?;
-    context.record_stage("write-probes-done", addresses.len());
-    let mut present: std::collections::BTreeMap<_, _> = addresses
+    del_coords.sort();
+    del_coords.dedup();
+    let bodies = runtime.raw_many(context, &del_coords, pending)?;
+    let mut present: BTreeMap<_, _> = del_coords
         .into_iter()
-        .zip(bodies.into_iter().map(|body| body.is_some()))
+        .zip(bodies.into_iter().map(|b| b.is_some()))
         .collect();
     let mut out = Vec::new();
-    for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
-        match mutation {
+    for (m, (collection, key)) in mutations.into_iter().zip(targets) {
+        match m {
             KvMutation::Put { value, .. } => {
-                present.insert((target.clone(), key.clone()), true);
+                present.insert((collection.clone(), key.clone()), true);
                 out.push(HomeMutation {
-                    collection: target,
+                    collection,
                     key,
                     body: Some(value),
                 });
             }
             KvMutation::Delete { .. } => {
-                if present.insert((target.clone(), key.clone()), false) == Some(true) {
+                if present.insert((collection.clone(), key.clone()), false) == Some(true) {
                     out.push(HomeMutation {
-                        collection: target,
+                        collection,
                         key,
                         body: None,
                     });

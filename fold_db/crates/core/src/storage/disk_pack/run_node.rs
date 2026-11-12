@@ -14,8 +14,8 @@ use crate::storage::format::{
 };
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunHome, RunRead};
-use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 
 pub use crate::storage::format::{CAS_DIR, RUN_DIR};
@@ -23,6 +23,27 @@ pub use crate::storage::format::{CAS_DIR, RUN_DIR};
 /// The backup profile version of a node marker. Only the current marker has one.
 pub(in crate::storage) fn profile(bytes: &[u8]) -> Option<u16> {
     (bytes == RECORD_NODE_BYTES).then_some(RECORD_PROFILE)
+}
+
+fn policy_from_env() -> StorageResult<SpacePolicy> {
+    let mut policy = SpacePolicy::default();
+    match std::env::var("LASTDB_DISK_CAP_BYTES") {
+        Ok(raw) => {
+            policy.disk_cap_bytes =
+                raw.parse::<u64>().ok().filter(|&n| n > 0).ok_or_else(|| {
+                    StorageError::ConfigurationError(
+                        "LASTDB_DISK_CAP_BYTES must be a positive integer byte count".into(),
+                    )
+                })?;
+        }
+        Err(std::env::VarError::NotPresent) => {}
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(StorageError::ConfigurationError(
+                "LASTDB_DISK_CAP_BYTES must contain a positive integer byte count".into(),
+            ));
+        }
+    }
+    Ok(policy)
 }
 
 fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
@@ -38,23 +59,24 @@ fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     crate::storage::retired::refuse_shared_home(root, &bytes)?;
     let version =
         profile(&bytes).ok_or_else(|| admission_invalid("the node range format is unsupported"))?;
-    let admit_budget = ReadBudget {
+    let budget = ReadBudget {
         pages: 16384,
         blocks: 65536,
-        bytes: 8 * 1024 * 1024,
+        bytes: 8 << 20,
         keys: 64,
     };
     let mut main =
-        RunRead::open_existing(&root.join(RUN_DIR), &home_key(key), admit_budget).map_err(map)?;
-    let _cas =
-        RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), admit_budget).map_err(map)?;
+        RunRead::open_existing_bounded(&root.join(RUN_DIR), &home_key(key), budget, 64 << 20)
+            .map_err(map)?;
+    let _cas = RunRead::open_existing_bounded(&root.join(CAS_DIR), &cas_key(key), budget, 64 << 20)
+        .map_err(map)?;
     verify_proofs(&mut main, key)?;
     crate::storage::retired::refuse_journal(&mut main)?;
     Ok(version)
 }
 
 fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
-    let coordinates = vec![
+    let coords = [
         (RECORDS_COLLECTION.into(), CURRENT_KEY_FORMAT_KEY.into()),
         (RECORDS_COLLECTION.into(), DELETE_REPLAY_CUTOFF_KEY.into()),
         (
@@ -67,12 +89,12 @@ fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
         ),
     ];
     let values = main
-        .get_many_bounded(&coordinates, 8192)
+        .get_many_bounded(&coords, 8192)
         .map_err(map)?
         .into_iter()
         .collect::<laststore::Result<Vec<_>>>()
         .map_err(map)?;
-    if values.len() != coordinates.len() {
+    if values.len() != coords.len() {
         return Err(admission_invalid(
             "the account/format proof batch is incomplete",
         ));
@@ -97,21 +119,21 @@ fn admission_invalid(text: &str) -> StorageError {
     StorageError::InvalidOperation(format!("node range admission: {text}"))
 }
 
-pub(in crate::storage::disk_pack) fn is_new_home(path: &Path) -> StorageResult<bool> {
-    match std::fs::read_dir(path) {
+pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
+    match fs::read_dir(path) {
         Ok(mut entries) => Ok(entries.next().is_none()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
-        Err(error) => Err(error.into()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e.into()),
     }
 }
 
-pub(in crate::storage::disk_pack) fn creation_stopped(path: &Path) -> StorageResult<bool> {
+pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
     Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
 }
 
 fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     let mut partial = Vec::new();
-    for entry in std::fs::read_dir(path)? {
+    for entry in fs::read_dir(path)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         let file_name = entry.file_name();
@@ -119,11 +141,11 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
         if kind.is_file() && name == INTENT {
             continue;
         }
-        let run_home = [RUN_DIR, CAS_DIR].into_iter().any(|home| {
-            name == home
+        let run_home = [RUN_DIR, CAS_DIR].into_iter().any(|h| {
+            name == h
                 || name
                     .strip_prefix('.')
-                    .and_then(|r| r.strip_prefix(home))
+                    .and_then(|r| r.strip_prefix(h))
                     .is_some_and(|r| r.starts_with(".create-"))
         });
         if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
@@ -138,9 +160,9 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     }
     for (entry, is_dir) in partial {
         if is_dir {
-            std::fs::remove_dir_all(&entry)?;
+            fs::remove_dir_all(&entry)?;
         } else {
-            std::fs::remove_file(&entry)?;
+            fs::remove_file(&entry)?;
         }
     }
     Ok(())
@@ -155,16 +177,14 @@ pub(in crate::storage) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8
 }
 
 fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
-    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, node_key);
     let mut key = zeroize::Zeroizing::new([0u8; 32]);
-    hkdf.expand(label, key.as_mut())
+    hkdf::Hkdf::<sha2::Sha256>::new(None, node_key)
+        .expand(label, key.as_mut())
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     key
 }
 
-pub(in crate::storage::disk_pack) fn require_key(
-    node_key: Option<&[u8; 32]>,
-) -> StorageResult<&[u8; 32]> {
+pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
             "a format v2 node home needs the node encryption key; every new node home is v2".into(),
@@ -181,7 +201,7 @@ fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'stati
             body: Some(body),
         }
     };
-    let rows = vec![
+    home.commit(vec![
         row(
             MAIN_NAMESPACE,
             CURRENT_KEY_FORMAT_KEY.as_bytes(),
@@ -202,19 +222,19 @@ fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'stati
             FILE_RETENTION_KEY.as_bytes(),
             FILE_RETENTION_COMPLETE.to_vec(),
         ),
-    ];
-    home.commit(rows).map_err(map)?;
+    ])
+    .map_err(map)?;
     Ok(RECORD_NODE_BYTES)
 }
 
 impl PackNamespacedStore {
-    pub fn create_run(
+    pub(super) fn create_run(
         path: &Path,
         node_key: &[u8; 32],
         capture_accepted: bool,
     ) -> StorageResult<Self> {
-        std::fs::create_dir_all(path)?;
-        let folder = std::fs::File::open(path)?;
+        fs::create_dir_all(path)?;
+        let folder = File::open(path)?;
         folder.try_lock().map_err(|error| {
             StorageError::InvalidOperation(format!(
                 "another owner is creating this format v2 node home or its lock failed: {error}"
@@ -223,12 +243,12 @@ impl PackNamespacedStore {
         if !path.join(NODE_MARKER).try_exists()? {
             if creation_stopped(path)? {
                 clear_stopped_creation(path)?;
-            } else if std::fs::read_dir(path)?.next().is_some() {
+            } else if fs::read_dir(path)?.next().is_some() {
                 return Err(StorageError::InvalidOperation(
                     "format v2 creation requires an empty node home".into(),
                 ));
             }
-            drop(std::fs::File::create(path.join(INTENT))?);
+            drop(File::create(path.join(INTENT))?);
             folder.sync_all()?;
             let main = RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?;
             drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
@@ -241,7 +261,7 @@ impl PackNamespacedStore {
                 .open(&staged)?;
             file.write_all(marker)?;
             file.sync_all()?;
-            std::fs::rename(&staged, path.join(NODE_MARKER))?;
+            fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;
         }
         let store = Self::open_run(path, Some(node_key), capture_accepted);
@@ -249,7 +269,7 @@ impl PackNamespacedStore {
         store
     }
 
-    pub(in crate::storage::disk_pack) fn open_run(
+    pub(super) fn open_run(
         path: &Path,
         node_key: Option<&[u8; 32]>,
         capture_accepted: bool,
@@ -260,13 +280,12 @@ impl PackNamespacedStore {
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut v2 = physical::V2Home::new(home, cas);
         v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
-        let policy = space::policy_from_env()?;
         let root = v2.current_root();
         let store = Self::assemble(
             v2,
             root,
             path.join(INTENT).try_exists()?,
-            policy,
+            policy_from_env()?,
             capture_accepted,
         );
         store.runtime.resume_merges();
@@ -278,11 +297,10 @@ pub(in crate::storage::disk_pack) fn complete_initialization(run_home: &Path) ->
     let node = run_home.parent().ok_or_else(|| {
         StorageError::InvalidOperation("a format v2 run home has no node home".into())
     })?;
-    match std::fs::remove_file(node.join(INTENT)) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    match fs::remove_file(node.join(INTENT)) {
+        Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
+        _ => {}
     }
-    std::fs::File::open(node)?.sync_all()?;
+    File::open(node)?.sync_all()?;
     Ok(())
 }

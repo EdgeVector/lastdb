@@ -23,10 +23,12 @@ pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
+use super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
 use open::build_empty;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -37,9 +39,7 @@ use uuid::Uuid;
 
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
-/// File name of the authenticated node-cleanup checkpoint.
 pub(super) const NODE_CLEANUP: &str = "NODE_CLEANUP";
-/// File name of the authenticated cross-home deletion intent.
 pub(super) const CAS_DELETE: &str = "CAS_DELETE";
 /// Directory of the home owner's mutation log, beside `runs/`.
 pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
@@ -47,7 +47,6 @@ pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-/// `LDRHOME4`: every value is stored as given.
 pub(super) const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
 pub(super) const DESCRIPTOR_BYTES: usize = 64;
 
@@ -146,11 +145,14 @@ impl RunHome {
         retired
             .iter()
             .filter_map(Weak::upgrade)
-            .map(|run| run.meta.file_bytes)
+            .map(|r| r.meta.file_bytes)
             .sum()
     }
 
-    fn note_retired(&self, runs: &[Arc<RunFile>]) {
+    pub(super) fn retire_runs(&self, runs: &[Arc<RunFile>]) {
+        for run in runs {
+            run.retire();
+        }
         let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
         retired.retain(|run| run.strong_count() > 0);
         retired.extend(runs.iter().map(Arc::downgrade));
@@ -171,20 +173,63 @@ impl RunHome {
     }
 }
 
+pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
+    let len = u16::try_from(collection.len())
+        .map_err(|_| Error::Config("disk run home: collection name too long".into()))?;
+    let total = 2 + collection.len() + key.len();
+    if total > MAX_RUN_KEY_BYTES {
+        return Err(Error::Config(
+            "disk run home: storage key exceeds the run key limit".into(),
+        ));
+    }
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(collection.as_bytes());
+    out.extend_from_slice(key);
+    Ok(out)
+}
+
+pub(super) fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.pop() {
+        if last < 0xff {
+            end.push(last + 1);
+            return Some(end);
+        }
+    }
+    None
+}
+
+pub(super) fn storage_key(collection: &str, run_key: &[u8]) -> Result<String> {
+    let at = 2 + collection.len();
+    if run_key.len() < at
+        || run_key[..2] != (collection.len() as u16).to_be_bytes()
+        || &run_key[2..at] != collection.as_bytes()
+    {
+        return Err(corrupt("run key outside its collection"));
+    }
+    String::from_utf8(run_key[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
+}
+
+pub(super) fn is_removable_run(name: &str, keep: &HashSet<Uuid>) -> bool {
+    name.strip_suffix(RUN_SUFFIX)
+        .and_then(|id| Uuid::parse_str(id).ok())
+        .is_some_and(|id| !keep.contains(&id))
+        || (name.starts_with('.') && name.ends_with(".tmp"))
+}
+
 pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    let res = file
-        .write_all(bytes)
+    file.write_all(bytes)
         .map_err(Error::from)
-        .and_then(|()| sync_dirty_file(&file));
-    if res.is_err() {
-        let _ = fs::remove_file(path);
-    }
-    res
+        .and_then(|()| sync_dirty_file(&file))
+        .inspect_err(|_| {
+            let _ = fs::remove_file(path);
+        })
 }
 
 pub(super) fn verified_hard_link(
@@ -205,10 +250,6 @@ pub(super) fn verified_hard_link(
         return Err(Error::Config(reason.into()));
     }
     Ok(())
-}
-
-pub(super) fn read_descriptor(root: &Path) -> Result<Uuid> {
-    read_descriptor_file(&root.join(RUN_HOME_MARKER))
 }
 
 pub(super) fn read_descriptor_file(path: &Path) -> Result<Uuid> {

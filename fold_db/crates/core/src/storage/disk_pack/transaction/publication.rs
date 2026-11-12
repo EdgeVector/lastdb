@@ -4,6 +4,7 @@ use super::{
     Arc, BTreeMap, HomeMutation, Mutex, PackRuntime, PendingBatch, PendingData, StorageError,
     StorageResult,
 };
+use lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES;
 use std::any::Any;
 use std::collections::BTreeSet;
 
@@ -116,11 +117,9 @@ pub(crate) fn publish<T: Any + Send + Sync>(
     action: impl FnOnce() -> StorageResult<()> + Send + 'static,
 ) -> StorageResult<()> {
     match PendingBatch::current(runtime) {
-        Some(pending) => {
-            pending
-                .publications
-                .stage((cache, name), Arc::new(value), Box::new(action))
-        }
+        Some(p) => p
+            .publications
+            .stage((cache, name), Arc::new(value), Box::new(action)),
         None => action(),
     }
 }
@@ -130,15 +129,13 @@ pub(crate) fn get<T: Any + Send + Sync>(
     cache: usize,
     name: &str,
 ) -> StorageResult<Option<Arc<T>>> {
+    let key = (cache, name.to_string());
     for pending in write_views(runtime).into_iter().rev() {
-        let value = pending
-            .publications
-            .lock()?
-            .entries
-            .get(&(cache, name.to_string()))
-            .map(|(value, _)| Arc::clone(value));
-        if let Some(value) = value {
-            return value.downcast::<T>().map(Some).map_err(|_| type_mismatch());
+        if let Some((val, _)) = pending.publications.lock()?.entries.get(&key) {
+            return Arc::clone(val)
+                .downcast::<T>()
+                .map(Some)
+                .map_err(|_| type_mismatch());
         }
     }
     Ok(None)
@@ -148,21 +145,20 @@ pub(crate) fn entries<T: Any + Send + Sync>(
     runtime: &PackRuntime,
     cache: usize,
 ) -> StorageResult<Vec<(String, Arc<T>)>> {
-    let mut entries = BTreeMap::new();
+    let mut out = BTreeMap::new();
     for pending in write_views(runtime) {
-        let changes = pending.publications.lock()?;
-        for ((owner, name), (value, _)) in &changes.entries {
+        for ((owner, name), (val, _)) in &pending.publications.lock()?.entries {
             if *owner == cache {
-                entries.insert(
+                out.insert(
                     name.clone(),
-                    Arc::clone(value)
+                    Arc::clone(val)
                         .downcast::<T>()
                         .map_err(|_| type_mismatch())?,
                 );
             }
         }
     }
-    Ok(entries.into_iter().collect())
+    Ok(out.into_iter().collect())
 }
 
 fn write_views(runtime: &PackRuntime) -> Vec<Arc<PendingBatch>> {
@@ -170,7 +166,7 @@ fn write_views(runtime: &PackRuntime) -> Vec<Arc<PendingBatch>> {
         return Vec::new();
     };
     let mut views = super::super::read::ReadContext::captured(runtime)
-        .map_or_else(Vec::new, |context| context.accepted.as_ref().clone());
+        .map_or_else(Vec::new, |ctx| ctx.accepted.as_ref().clone());
     views.push(pending);
     views
 }
@@ -179,7 +175,11 @@ fn type_mismatch() -> StorageError {
     StorageError::BackendError("native metadata cache type differs".into())
 }
 
-fn counts(data: &PendingData, operations: &[HomeMutation]) -> (usize, usize, usize, usize) {
+pub(in crate::storage::disk_pack::transaction) fn refusal(
+    data: &PendingData,
+    operations: &[HomeMutation],
+    limit: usize,
+) -> StorageError {
     let mut unique: BTreeSet<_> = data
         .latest
         .keys()
@@ -190,115 +190,14 @@ fn counts(data: &PendingData, operations: &[HomeMutation]) -> (usize, usize, usi
             .iter()
             .map(|op| (op.collection.as_str(), op.key.as_str())),
     );
-    (
-        data.operations.len(),
-        operations.len(),
-        data.operations.len().saturating_add(operations.len()),
-        unique.len(),
-    )
-}
-
-pub(in crate::storage::disk_pack::transaction) fn refusal(
-    data: &PendingData,
-    operations: &[HomeMutation],
-    limit: usize,
-) -> StorageError {
-    let (current, incoming, projected, unique) = counts(data, operations);
+    let (cur, inc) = (data.operations.len(), operations.len());
     StorageError::MutationLimit {
         detail: format!(
-            "complete native mutation exceeds {limit} storage operations: current={current}, incoming={incoming}, projected={projected}, projected_unique={unique}"
+            "complete native mutation exceeds {limit} storage operations: current={cur}, incoming={inc}, projected={}, projected_unique={}",
+            cur.saturating_add(inc),
+            unique.len()
         ),
     }
-}
-
-pub(in crate::storage::disk_pack::transaction) fn record_stage(
-    data: &PendingData,
-    operations: &[HomeMutation],
-    limit: usize,
-) {
-    if !tracing::enabled!(target: "lastdb::native_write_budget", tracing::Level::DEBUG) {
-        return;
-    }
-    let (current, incoming, projected, unique) = counts(data, operations);
-    tracing::debug!(
-        target: "lastdb::native_write_budget",
-        current_operations = current,
-        incoming_operations = incoming,
-        projected_operations = projected,
-        projected_unique_operations = unique,
-        operation_limit = limit,
-        "native preparation cumulative stored operations"
-    );
-}
-
-#[derive(Default)]
-pub(in crate::storage::disk_pack::transaction) struct BatchShape {
-    record_puts: u32,
-    record_deletes: u32,
-    alternate_puts: u32,
-    alternate_deletes: u32,
-    file_puts: u32,
-    file_deletes: u32,
-}
-
-impl BatchShape {
-    pub(in crate::storage::disk_pack::transaction) fn of(operations: &[HomeMutation]) -> Self {
-        let mut shape = Self::default();
-        if !tracing::enabled!(target: "fold_db::write_gate", tracing::Level::DEBUG) {
-            return shape;
-        }
-        for op in operations {
-            let key = op.key.as_str();
-            let (puts, deletes) =
-                if op.collection == crate::storage::disk_pack::physical::CAS_COLLECTION {
-                    (&mut shape.file_puts, &mut shape.file_deletes)
-                } else if key.starts_with(lastdb_model::record_space::RECORD_PREFIX) {
-                    (&mut shape.record_puts, &mut shape.record_deletes)
-                } else if key.starts_with(lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX) {
-                    (&mut shape.alternate_puts, &mut shape.alternate_deletes)
-                } else {
-                    continue;
-                };
-            if op.body.is_some() {
-                *puts += 1;
-            } else {
-                *deletes += 1;
-            }
-        }
-        shape
-    }
-
-    pub(in crate::storage::disk_pack::transaction) fn log(
-        &self,
-        held_from: std::time::Instant,
-        operations: usize,
-        sequence: u64,
-    ) -> std::time::Duration {
-        let held = held_from.elapsed();
-        tracing::debug!(
-            target: "fold_db::write_gate",
-            hold_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX),
-            operations,
-            sequence,
-            record_puts = self.record_puts,
-            record_deletes = self.record_deletes,
-            alternate_puts = self.alternate_puts,
-            alternate_deletes = self.alternate_deletes,
-            file_puts = self.file_puts,
-            file_deletes = self.file_deletes,
-            "native write gate released"
-        );
-        held
-    }
-}
-
-pub(in crate::storage::disk_pack::transaction) fn note_gate_hold(
-    held_from: std::time::Instant,
-    operations: usize,
-    sequence: u64,
-    ops: &[HomeMutation],
-) -> std::time::Duration {
-    BatchShape::of(ops).log(held_from, operations, sequence)
 }
 
 impl PendingBatch {
@@ -321,14 +220,12 @@ impl PendingBatch {
         self.preparation_limit
             .lock()
             .expect("native complete mutation limit")
-            .as_ref()
-            .map(|detail| StorageError::MutationLimit {
-                detail: detail.clone(),
-            })
+            .clone()
+            .map(|detail| StorageError::MutationLimit { detail })
     }
 }
 
-pub(in crate::storage) fn batch_bytes(
+pub(in crate::storage::disk_pack) fn batch_bytes(
     operations: &[HomeMutation],
     operation_limit: usize,
 ) -> StorageResult<u64> {
@@ -344,13 +241,10 @@ pub(in crate::storage) fn batch_bytes(
                 "native collection or key exceeds format bounds".into(),
             ));
         }
+        let body = op.body.as_ref().map_or(0, Vec::len);
         bytes = bytes
-            .checked_add(
-                (160 + op.collection.len()
-                    + 2 * op.key.len()
-                    + op.body.as_ref().map_or(0, Vec::len)) as u64,
-            )
-            .filter(|&b| b <= lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES)
+            .checked_add((160 + op.collection.len() + 2 * op.key.len() + body) as u64)
+            .filter(|&b| b <= PENDING_MEMORY_BYTES)
             .ok_or_else(|| StorageError::MutationLimit {
                 detail: "complete native batch exceeds pending memory allowance".into(),
             })?;

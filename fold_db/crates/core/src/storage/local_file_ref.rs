@@ -1,8 +1,4 @@
 //! Local file references for record file blobs.
-//!
-//! The record stores a normal file marker while the external path stays in
-//! `<node>/local-file-refs.json` beside `disk-run` and `disk-cas`, so backup
-//! holds never hard-link it and the cloud never sees the local path.
 
 use super::disk_pack::{run_blocking, PackRuntime};
 use super::error::{StorageError, StorageResult};
@@ -10,11 +6,12 @@ use super::format::records::{require_row, seal_file_row};
 use crate::error::FoldDbError;
 use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::FileMarker;
+use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -36,7 +33,6 @@ struct Catalog {
     files: BTreeMap<String, Entry>,
 }
 
-/// One sidecar update applied after the record commit succeeds.
 #[derive(Default)]
 pub(crate) struct SidecarPlan {
     pub(crate) remember: Vec<Remember>,
@@ -56,7 +52,6 @@ pub(crate) struct Remember {
     pub(crate) size_bytes: u64,
 }
 
-/// A canonical regular file outside the node home, hashed without a size cap.
 pub(crate) struct DescribedFile {
     pub(crate) path: PathBuf,
     pub(crate) file_name: Option<String>,
@@ -89,14 +84,11 @@ fn load(path: &Path) -> StorageResult<Catalog> {
         Ok(bytes) => {
             let catalog: Catalog = serde_json::from_slice(&bytes)
                 .map_err(|e| invalid(format!("local file reference catalog is unreadable: {e}")))?;
-            if catalog.version != CATALOG_VERSION {
-                return Err(invalid(
-                    "local file reference catalog version is unsupported",
-                ));
-            }
-            Ok(catalog)
+            (catalog.version == CATALOG_VERSION)
+                .then_some(catalog)
+                .ok_or_else(|| invalid("local file reference catalog version is unsupported"))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Catalog {
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(Catalog {
             version: CATALOG_VERSION,
             files: BTreeMap::new(),
         }),
@@ -112,22 +104,17 @@ fn load_files(runtime: &PackRuntime) -> StorageResult<BTreeMap<String, Entry>> {
 fn save(path: &Path, catalog: &Catalog) -> StorageResult<()> {
     if catalog.files.is_empty() {
         return match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.into()),
+            Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
         };
     }
-    let temporary = path.with_extension("json.tmp");
-    let mut file = File::create(&temporary)?;
-    serde_json::to_writer(&mut file, catalog).map_err(|e| {
-        invalid(format!(
-            "local file reference catalog could not be written: {e}"
-        ))
-    })?;
+    let tmp = path.with_extension("json.tmp");
+    let mut file = File::create(&tmp)?;
+    serde_json::to_writer(&mut file, catalog)
+        .map_err(|e| invalid(format!("local file reference catalog write failed: {e}")))?;
     file.sync_all()?;
     drop(file);
-    fs::rename(&temporary, path)?;
-    Ok(())
+    Ok(fs::rename(&tmp, path)?)
 }
 
 fn resolve_regular(
@@ -143,39 +130,36 @@ fn resolve_regular(
             "a local file reference must stay outside the node home",
         ));
     }
-    let metadata = fs::metadata(&canonical)?;
-    if !metadata.is_file() {
+    let meta = fs::metadata(&canonical)?;
+    if !meta.is_file() {
         return Err(invalid(format!(
             "local file {} is not a regular file",
             canonical.display()
         )));
     }
-    if expected_size.is_some_and(|size| metadata.len() != size) {
+    if expected_size.is_some_and(|size| meta.len() != size) {
         return Err(invalid(format!(
             "local file {} does not match its record marker",
             canonical.display()
         )));
     }
-    Ok((canonical, metadata.len()))
+    Ok((canonical, meta.len()))
 }
 
-/// Canonicalize `path`, require a regular file outside the node, and hash it.
 pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {
     let (canonical, expected_len) =
         resolve_regular(&node_dir(runtime)?, path, None, "is not available")?;
     let mut file = File::open(&canonical)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut size_bytes = 0u64;
+    let (mut hasher, mut buf, mut size_bytes) = (Sha256::new(), [0u8; 64 * 1024], 0u64);
     loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
             break;
         }
         size_bytes = size_bytes
-            .checked_add(count as u64)
+            .checked_add(n as u64)
             .ok_or_else(|| invalid("local file length overflow"))?;
-        hasher.update(&buffer[..count]);
+        hasher.update(&buf[..n]);
     }
     if size_bytes != expected_len {
         return Err(invalid(format!(
@@ -185,7 +169,7 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
     }
     let file_name = canonical
         .file_name()
-        .and_then(|name| name.to_str())
+        .and_then(|n| n.to_str())
         .map(str::to_string);
     Ok(DescribedFile {
         path: canonical,
@@ -229,15 +213,16 @@ pub(crate) fn remember(
     sha256: &str,
     size_bytes: u64,
 ) -> StorageResult<()> {
+    let item = Remember {
+        cas_key: cas_key.to_string(),
+        path: path.to_path_buf(),
+        sha256: sha256.to_string(),
+        size_bytes,
+    };
     apply(
         runtime,
         SidecarPlan {
-            remember: vec![Remember {
-                cas_key: cas_key.to_string(),
-                path: path.to_path_buf(),
-                sha256: sha256.to_string(),
-                size_bytes,
-            }],
+            remember: vec![item],
             forget: Vec::new(),
         },
     )
@@ -263,7 +248,7 @@ pub(crate) async fn read_referenced(
 }
 
 fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<Vec<u8>> {
-    if size_bytes > lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if size_bytes > LOCAL_FILE_INPUT_MEMORY_BYTES {
         return Err(StorageError::WriteResourceLimit {
             detail: "local file reference exceeds the in-memory file cap".into(),
         });
@@ -300,13 +285,42 @@ pub(crate) async fn materialize(
     runtime: &Arc<PackRuntime>,
     account_key: &[u8; 32],
 ) -> StorageResult<Vec<Vec<u8>>> {
+    let node = node_dir(runtime)?;
     let entries = load_files(runtime)?;
-    let mut release_keys = Vec::with_capacity(entries.len());
-    let mut put_keys = Vec::new();
+    let (mut release_keys, mut put_keys) = (Vec::with_capacity(entries.len()), Vec::new());
     for (cas_key, entry) in entries {
         let key = cas_key.into_bytes();
         release_keys.push(key.clone());
-        match materialize_one(runtime, account_key, &key, &entry).await {
+        let step = async {
+            let (n, path, size) = (node.clone(), PathBuf::from(&entry.path), entry.size_bytes);
+            let (canonical, _) = run_blocking(move || {
+                resolve_regular(&n, &path, Some(size), "is not available for backup")
+            })
+            .await?;
+            if let Some(row) = runtime.cas_get(&key).await? {
+                let marker = FileMarker {
+                    name: None,
+                    media_type: None,
+                    size_bytes: size,
+                    sha256: entry.sha256.clone(),
+                };
+                if require_row(account_key, &marker, &row).is_ok() {
+                    return Ok(false);
+                }
+            }
+            let sha = entry.sha256.clone();
+            let plain = run_blocking(move || read_plaintext(&canonical, size, &sha)).await?;
+            let (row, sealed_sha) = seal_file_row(account_key, &plain)
+                .map_err(|e| invalid(format!("local file seal failed: {e}")))?;
+            if sealed_sha != entry.sha256 {
+                return Err(invalid(
+                    "sealed local file does not match its record marker",
+                ));
+            }
+            runtime.cas_put(&key, row).await?;
+            Ok(true)
+        };
+        match step.await {
             Ok(true) => put_keys.push(key),
             Ok(false) => {}
             Err(error) => {
@@ -316,48 +330,6 @@ pub(crate) async fn materialize(
         }
     }
     Ok(release_keys)
-}
-
-async fn materialize_one(
-    runtime: &Arc<PackRuntime>,
-    account_key: &[u8; 32],
-    key: &[u8],
-    entry: &Entry,
-) -> StorageResult<bool> {
-    let node = node_dir(runtime)?;
-    let path = PathBuf::from(&entry.path);
-    let size_bytes = entry.size_bytes;
-    let (canonical, _) = run_blocking(move || {
-        resolve_regular(
-            &node,
-            &path,
-            Some(size_bytes),
-            "is not available for backup",
-        )
-    })
-    .await?;
-    if let Some(row) = runtime.cas_get(key).await? {
-        let marker = FileMarker {
-            name: None,
-            media_type: None,
-            size_bytes,
-            sha256: entry.sha256.clone(),
-        };
-        if require_row(account_key, &marker, &row).is_ok() {
-            return Ok(false);
-        }
-    }
-    let sha256 = entry.sha256.clone();
-    let plaintext = run_blocking(move || read_plaintext(&canonical, size_bytes, &sha256)).await?;
-    let (row, sealed_sha) = seal_file_row(account_key, &plaintext)
-        .map_err(|e| invalid(format!("local file seal failed: {e}")))?;
-    if sealed_sha != entry.sha256 {
-        return Err(invalid(
-            "sealed local file does not match its record marker",
-        ));
-    }
-    runtime.cas_put(key, row).await?;
-    Ok(true)
 }
 
 pub(crate) async fn release(runtime: &Arc<PackRuntime>, keys: &[Vec<u8>]) -> StorageResult<()> {

@@ -1,16 +1,24 @@
 //! Disk space policy, write reservations, and the bounded native-root inventory.
 
-use crate::Result;
+use crate::{Error, Result};
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 static LEDGER: OnceLock<Mutex<Ledger>> = OnceLock::new();
 
-fn corrupt(reason: &'static str) -> crate::Error {
-    crate::Error::Corrupt(reason.into())
+fn corrupt(reason: &'static str) -> Error {
+    Error::Corrupt(reason.into())
+}
+
+fn lock_ledger() -> Result<MutexGuard<'static, Ledger>> {
+    LEDGER
+        .get_or_init(Mutex::default)
+        .lock()
+        .map_err(|_| corrupt("space reservation lock is poisoned"))
 }
 
 /// One policy governs write headroom, replacement space, and the file inventory bound.
@@ -37,13 +45,6 @@ impl Default for SpacePolicy {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct SpaceUsage {
-    files: u64,
-    bytes: u64,
-    available_bytes: u64,
-}
-
 /// Capacity owned through publication, cancellation, or explicit failed-work release.
 pub struct SpaceReservation {
     root: PathBuf,
@@ -62,7 +63,7 @@ impl SpaceReservation {
         let added = total_bytes
             .checked_sub(self.bytes)
             .ok_or_else(|| corrupt("space reservation extension shrank its prefix"))?;
-        reserve(&self.root, policy, added)
+        reserve_space(&self.root, policy, added)
     }
 
     /// Transfer an already reserved prefix without reserving its bytes again.
@@ -94,22 +95,18 @@ impl Drop for SpaceReservation {
 
 /// Reserve a complete native write, including replacement headroom.
 pub fn reserve_space(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReservation> {
-    reserve(root, policy, bytes)
-}
-
-fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReservation> {
     let root = std::fs::canonicalize(root)?;
     let device = std::fs::metadata(&root)?.dev();
     let inventory = Inventory::start(&root, device)?;
-    let mut usage = SpaceUsage::default();
+    let mut counted = (0u64, 0u64);
     if policy.disk_cap_bytes != 0 {
-        count(&root, 6, policy.max_files, &mut usage)?; // walk-ok: exact native root, depth six and finite file budget
+        count(&root, 6, policy.max_files, &mut counted)?; // walk-ok: exact native root, depth six and finite file budget
     }
     let stats = rustix::fs::statvfs(&root).map_err(std::io::Error::from)?;
-    usage.available_bytes = (stats.f_bavail as u64)
+    let avail = (stats.f_bavail as u64)
         .checked_mul(stats.f_frsize as u64)
         .ok_or_else(|| corrupt("filesystem capacity overflow"))?;
-    inventory.reserve(policy, usage, bytes)
+    inventory.reserve(policy, counted.1, avail, bytes)
 }
 
 fn opt_io<T>(res: std::io::Result<T>) -> Result<Option<T>> {
@@ -120,7 +117,7 @@ fn opt_io<T>(res: std::io::Result<T>) -> Result<Option<T>> {
     }
 }
 
-fn count(path: &Path, depth: usize, limit: usize, out: &mut SpaceUsage) -> Result<()> {
+fn count(path: &Path, depth: usize, limit: usize, out: &mut (u64, u64)) -> Result<()> {
     if depth == 0 {
         return Err(corrupt("native file inventory exceeds layout depth"));
     }
@@ -129,23 +126,23 @@ fn count(path: &Path, depth: usize, limit: usize, out: &mut SpaceUsage) -> Resul
     };
     for entry in entries {
         let entry = entry?;
-        let (Some(metadata), Some(kind)) = (opt_io(entry.metadata())?, opt_io(entry.file_type())?)
+        let (Some(meta), Some(kind)) = (opt_io(entry.metadata())?, opt_io(entry.file_type())?)
         else {
             continue;
         };
         if kind.is_symlink() {
             return Err(corrupt("native inventory refuses symlinks"));
         }
-        if metadata.is_dir() {
+        if meta.is_dir() {
             count(&entry.path(), depth - 1, limit, out)?;
-        } else if metadata.is_file() {
-            out.files += 1;
-            if out.files > limit as u64 {
-                return Err(crate::Error::ReadBudgetExceeded);
+        } else if meta.is_file() {
+            out.0 += 1;
+            if out.0 > limit as u64 {
+                return Err(Error::ReadBudgetExceeded);
             }
-            out.bytes = out
-                .bytes
-                .checked_add(metadata.len())
+            out.1 = out
+                .1
+                .checked_add(meta.len())
                 .ok_or_else(|| corrupt("native byte count overflow"))?;
         } else {
             return Err(corrupt("native inventory requires regular files"));
@@ -190,16 +187,16 @@ impl State {
     }
 
     fn accounted(&self, bytes: u64, before: u64) -> Result<(u64, u64)> {
-        let required = self
+        let req = self
             .bytes
             .checked_add(bytes)
             .ok_or_else(|| corrupt("space reservation overflow"))?;
-        let accounted = self
+        let acc = self
             .released
             .and_then(|n| n.checked_sub(before))
-            .and_then(|n| n.checked_add(required))
+            .and_then(|n| n.checked_add(req))
             .ok_or_else(|| corrupt("space inventory charge overflow"))?;
-        Ok((required, accounted))
+        Ok((req, acc))
     }
 
     fn release(&mut self, bytes: u64) {
@@ -210,14 +207,14 @@ impl State {
     }
 }
 
-fn mutate_state<K: Eq + Hash + ?Sized, Q: Eq + Hash + std::borrow::Borrow<K>>(
+fn mutate_state<K: Eq + Hash + ?Sized, Q: Eq + Hash + Borrow<K>>(
     map: &mut HashMap<Q, State>,
     key: &K,
     f: impl FnOnce(&mut State),
 ) {
-    if let Some(state) = map.get_mut(key) {
-        f(state);
-        if state.bytes == 0 && state.inventories == 0 {
+    if let Some(s) = map.get_mut(key) {
+        f(s);
+        if s.bytes == 0 && s.inventories == 0 {
             map.remove(key);
         }
     }
@@ -225,22 +222,20 @@ fn mutate_state<K: Eq + Hash + ?Sized, Q: Eq + Hash + std::borrow::Borrow<K>>(
 
 impl Inventory {
     fn start(root: &Path, device: u64) -> Result<Self> {
-        let mut ledger = LEDGER
-            .get_or_init(Mutex::default)
-            .lock()
-            .map_err(|_| corrupt("space reservation lock is poisoned"))?;
+        let mut ledger = lock_ledger()?;
         let root_released = ledger
             .roots
             .entry(root.to_path_buf())
             .or_default()
             .start()?;
-        let device_released = match ledger.devices.entry(device).or_default().start() {
-            Ok(released) => released,
-            Err(error) => {
+        let device_released = ledger
+            .devices
+            .entry(device)
+            .or_default()
+            .start()
+            .inspect_err(|_| {
                 mutate_state(&mut ledger.roots, root, |s| s.inventories -= 1);
-                return Err(error);
-            }
-        };
+            })?;
         Ok(Self {
             root: root.to_path_buf(),
             device,
@@ -252,19 +247,17 @@ impl Inventory {
     fn reserve(
         &self,
         policy: &SpacePolicy,
-        usage: SpaceUsage,
+        used: u64,
+        avail: u64,
         bytes: u64,
     ) -> Result<SpaceReservation> {
-        let mut ledger = LEDGER
-            .get_or_init(Mutex::default)
-            .lock()
-            .map_err(|_| corrupt("space reservation lock is poisoned"))?;
-        let (root_required, root_accounted) = ledger
+        let mut ledger = lock_ledger()?;
+        let (root_req, root_acc) = ledger
             .roots
             .get(&self.root)
             .ok_or_else(|| corrupt("space inventory lost its root"))?
             .accounted(bytes, self.root_released)?;
-        let (device_required, device_accounted) = ledger
+        let (dev_req, dev_acc) = ledger
             .devices
             .get(&self.device)
             .ok_or_else(|| corrupt("space inventory lost its filesystem"))?
@@ -272,29 +265,19 @@ impl Inventory {
         let headroom = policy
             .free_space_reserve_bytes
             .checked_add(policy.replacement_reserve_bytes)
-            .and_then(|n| n.checked_add(device_accounted))
+            .and_then(|n| n.checked_add(dev_acc))
             .ok_or_else(|| corrupt("space headroom overflow"))?;
-        let cap_required = root_accounted
+        let cap_req = root_acc
             .checked_add(policy.replacement_reserve_bytes)
-            .and_then(|n| n.checked_add(usage.bytes))
+            .and_then(|n| n.checked_add(used))
             .ok_or_else(|| corrupt("space cap headroom overflow"))?;
-        if usage.available_bytes < headroom
-            || (policy.disk_cap_bytes != 0 && cap_required > policy.disk_cap_bytes)
-        {
-            return Err(crate::Error::Io(std::io::Error::from_raw_os_error(
+        if avail < headroom || (policy.disk_cap_bytes != 0 && cap_req > policy.disk_cap_bytes) {
+            return Err(Error::Io(std::io::Error::from_raw_os_error(
                 rustix::io::Errno::NOSPC.raw_os_error(),
             )));
         }
-        ledger
-            .roots
-            .get_mut(&self.root)
-            .expect("checked root")
-            .bytes = root_required;
-        ledger
-            .devices
-            .get_mut(&self.device)
-            .expect("checked filesystem")
-            .bytes = device_required;
+        ledger.roots.get_mut(&self.root).expect("root").bytes = root_req;
+        ledger.devices.get_mut(&self.device).expect("device").bytes = dev_req;
         Ok(SpaceReservation {
             root: self.root.clone(),
             device: self.device,
@@ -305,7 +288,7 @@ impl Inventory {
 
 impl Drop for Inventory {
     fn drop(&mut self) {
-        if let Ok(mut ledger) = LEDGER.get_or_init(Mutex::default).lock() {
+        if let Ok(mut ledger) = lock_ledger() {
             mutate_state(&mut ledger.roots, self.root.as_path(), |s| {
                 s.inventories -= 1
             });
@@ -315,7 +298,7 @@ impl Drop for Inventory {
 }
 
 fn release(root: &Path, device: u64, bytes: u64) {
-    if let Ok(mut ledger) = LEDGER.get_or_init(Mutex::default).lock() {
+    if let Ok(mut ledger) = lock_ledger() {
         mutate_state(&mut ledger.roots, root, |s| s.release(bytes));
         mutate_state(&mut ledger.devices, &device, |s| s.release(bytes));
     }

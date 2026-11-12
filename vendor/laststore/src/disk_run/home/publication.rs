@@ -2,8 +2,8 @@
 
 use super::commit::{meta, overflow, RunCommit};
 use super::manifest::{Manifest, RunFile, CURRENT, MAX_CURRENT_BYTES, MAX_LEVELS, MAX_LEVEL_RUNS};
-use super::{verified_hard_link, write_private_file, RunHome, RunRoot};
-use crate::disk_run::space::MergeSpace;
+use super::{verified_hard_link, write_private_file, RunHome};
+use crate::disk_run::footer::MergeSpace;
 use crate::disk_run::{
     Found, MergeIter, MergeSource, PreparedRun, RunReader, RunSequence, RunWriter,
 };
@@ -54,14 +54,11 @@ impl RunHome {
         {
             return Err(invalid("log source file"));
         }
-        let summary = RunReader::open_bounded(
-            source,
-            &self.key,
-            lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes,
-        )?
-        .verified_summary(source)?;
-        let run_id = summary.run_id;
+        let working = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+        let summary =
+            RunReader::open_bounded(source, &self.key, working)?.verified_summary(source)?;
         let run = meta(summary)?;
+        let (run_id, records, run_bytes) = (run.run_id, run.records, run.file_bytes);
         let (_commit, _publish) = (self.commit_lock()?, self.publish_lock()?);
         self.refuse_if_poisoned()?;
         let held = self.held();
@@ -73,14 +70,7 @@ impl RunHome {
             if old.meta != run || !equal_files(&old.path, source)? {
                 return Err(invalid("replayed log bytes differ"));
             }
-            return Ok(RunCommit {
-                run_id,
-                root: RunRoot(Arc::clone(&held)),
-                generation: held.generation,
-                frontier: after,
-                records: run.records,
-                run_bytes: run.file_bytes,
-            });
+            return Ok(RunCommit::from_manifest(run_id, records, run_bytes, held));
         }
         if held.frontier != before || held.newest_first().any(|file| file.meta.run_id == run_id) {
             return Err(invalid("log replay frontier or run identity"));
@@ -91,7 +81,7 @@ impl RunHome {
                 return Err(invalid("log staged run differs"));
             }
         } else {
-            link(source, &target, run.file_bytes)?;
+            link(source, &target, run_bytes)?;
         }
         let mut next = (*held).clone();
         next.generation = next
@@ -102,50 +92,34 @@ impl RunHome {
         if next.levels.is_empty() {
             next.levels.push(Vec::new());
         }
-        let (records, run_bytes) = (run.records, run.file_bytes);
         let file = RunFile::new(&self.runs, run);
         next.levels[0].insert(0, Arc::clone(&file));
-        let installed = self.install_or_discard(next, &[file])?;
-        Ok(RunCommit {
-            run_id,
-            root: RunRoot(Arc::clone(&installed)),
-            generation: installed.generation,
-            frontier: installed.frontier,
-            records,
-            run_bytes,
-        })
+        let installed = next
+            .stage(&self.root, &self.key, None)
+            .and_then(|staged| self.publish_staged(next, &staged));
+        if installed.is_err() && !self.is_poisoned() {
+            file.retire();
+        }
+        Ok(RunCommit::from_manifest(
+            run_id, records, run_bytes, installed?,
+        ))
     }
 
-    pub(in crate::disk_run::home) fn install(&self, next: Manifest) -> Result<Arc<Manifest>> {
-        self.install_with_space(next, None)
-    }
-
-    pub(in crate::disk_run::home) fn install_merge(
+    pub(super) fn install_merge(
         &self,
         next: Manifest,
         space: &MergeSpace,
     ) -> Result<Arc<Manifest>> {
-        let installed = self.install_with_space(next, Some(space));
+        let installed = next
+            .stage(&self.root, &self.key, Some(space))
+            .and_then(|staged| self.publish_staged(next, &staged));
         if installed.is_ok() || self.is_poisoned() {
             space.keep_outputs();
         }
         installed
     }
 
-    fn install_with_space(
-        &self,
-        next: Manifest,
-        space: Option<&MergeSpace>,
-    ) -> Result<Arc<Manifest>> {
-        let staged = next.stage_with_space(&self.root, &self.key, space)?;
-        self.publish_staged(next, &staged)
-    }
-
-    pub(in crate::disk_run::home) fn publish_staged(
-        &self,
-        next: Manifest,
-        staged: &Path,
-    ) -> Result<Arc<Manifest>> {
+    fn publish_staged(&self, next: Manifest, staged: &Path) -> Result<Arc<Manifest>> {
         if let Err(error) = Manifest::replace(&self.root, staged) {
             self.poisoned.store(true, Ordering::Release);
             return Err(error);
@@ -155,7 +129,7 @@ impl RunHome {
         Ok(next)
     }
 
-    pub(in crate::disk_run::home) fn install_prepared(
+    pub(super) fn install_prepared(
         &self,
         file: Arc<RunFile>,
         run: PreparedRun,
@@ -209,11 +183,11 @@ impl RunHome {
             next.levels.push(Vec::new());
         }
         next.levels[0].insert(0, Arc::clone(file));
-        let path = next.stage(&self.root, &self.key)?;
+        let path = next.stage(&self.root, &self.key, None)?;
         Ok((next, path))
     }
 
-    pub(in crate::disk_run::home) fn write_base_pieces(
+    pub(super) fn write_base_pieces(
         &self,
         merging: &[Arc<RunFile>],
         taken: &[Arc<RunFile>],
@@ -286,11 +260,7 @@ impl RunHome {
 }
 
 impl Manifest {
-    pub(in crate::disk_run::home) fn stage(&self, root: &Path, key: &[u8; 32]) -> Result<PathBuf> {
-        self.stage_with_space(root, key, None)
-    }
-
-    fn stage_with_space(
+    pub(super) fn stage(
         &self,
         root: &Path,
         key: &[u8; 32],
@@ -323,7 +293,7 @@ impl Manifest {
         Ok(tmp)
     }
 
-    pub(in crate::disk_run::home) fn replace(root: &Path, staged: &Path) -> Result<()> {
+    pub(super) fn replace(root: &Path, staged: &Path) -> Result<()> {
         fs::rename(staged, root.join(CURRENT))?;
         sync_directory(root)
     }
@@ -350,16 +320,15 @@ fn link(source: &Path, target: &Path, bytes: u64) -> Result<()> {
 }
 
 fn equal_files(left: &Path, right: &Path) -> Result<bool> {
-    for path in [left, right] {
-        if !fs::symlink_metadata(path)?.is_file() {
-            return Err(invalid("log regular file"));
-        }
+    let (ml, mr) = (fs::symlink_metadata(left)?, fs::symlink_metadata(right)?);
+    if !ml.is_file() || !mr.is_file() {
+        return Err(invalid("log regular file"));
     }
-    if fs::metadata(left)?.len() != fs::metadata(right)?.len() {
+    if ml.len() != mr.len() {
         return Ok(false);
     }
     let (mut left, mut right) = (File::open(left)?, File::open(right)?);
-    let (mut a, mut b) = ([0u8; 65536], [0u8; 65536]);
+    let (mut a, mut b) = ([0u8; 8192], [0u8; 8192]);
     loop {
         let count = left.read(&mut a)?;
         if count == 0 {

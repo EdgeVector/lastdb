@@ -8,16 +8,17 @@ use crate::schema::types::{field::HashRangeFilter, KeyValue, Schema};
 use crate::schema::SchemaError;
 use crate::storage::format::{
     control, CURRENT_KEY_FORMAT_KEY, DELETE_AUDIT_FAMILY, DELETE_REPLAY_CUTOFF_KEY, MAIN_NAMESPACE,
+    SCHEMA_RELEASE_ROWS,
 };
 use crate::storage::{KvMutation, StorageError};
-use lastdb_model::field_key_codec::FieldKeyCodec;
+use lastdb_model::field_key_codec::{current_key_format, FieldKeyCodec};
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
+use lastdb_model::kind_partition::{anchored, exact_prefix_bounds};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// One audit row per erase batch. The row joins the native erase atomically,
-/// so a stored row always names a committed erase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordDeleteLedgerEntry {
     pub verb: String,
@@ -29,7 +30,6 @@ pub struct RecordDeleteLedgerEntry {
     pub file_records_erased: u64,
 }
 
-/// A primary record address. No caller can supply an arbitrary storage string.
 #[derive(Clone, Debug)]
 pub(crate) struct RecordAddress {
     storage: String,
@@ -59,7 +59,7 @@ impl RecordAddress {
                 storage,
                 api: key.clone(),
             })
-            .map_err(|error| SchemaError::InvalidData(format!("invalid record key: {error}")))
+            .map_err(|e| SchemaError::InvalidData(format!("invalid record key: {e}")))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -81,8 +81,6 @@ impl AsRef<str> for RecordAddress {
     }
 }
 
-/// An alternate entry address. The family prefix and coordinate encoding are
-/// selected here rather than supplied by the change producer.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct AlternateAddress(String);
 
@@ -93,7 +91,6 @@ impl AlternateAddress {
         key: &KeyValue,
         primary: &RecordAddress,
     ) -> Result<Self, SchemaError> {
-        use sha2::{Digest, Sha256};
         let base = alternate_range_key(codec, field_key, key)?;
         Ok(Self(format!(
             "{base}\0{:x}",
@@ -123,19 +120,17 @@ fn alternate_range_key(
     Ok(format!("{ALTERNATE_ENTRY_PREFIX}{encoded}"))
 }
 
-/// Storage bounds for a declared alternate key under exactly one hash.
 pub(crate) fn alternate_bounds(
     codec: &FieldKeyCodec,
     field_key: &str,
     filter: &HashRangeFilter,
 ) -> Result<(String, String), SchemaError> {
-    use lastdb_model::kind_partition::exact_prefix_bounds;
-    let invalid = |message: &str| SchemaError::InvalidData(message.into());
-    let encode = |hash: &str, range: &str| {
+    let invalid = |m: &str| SchemaError::InvalidData(m.into());
+    let encode = |h: &str, r: &str| {
         alternate_range_key(
             codec,
             field_key,
-            &KeyValue::new(Some(hash.to_owned()), Some(range.to_owned())),
+            &KeyValue::new(Some(h.into()), Some(r.into())),
         )
     };
     match filter {
@@ -179,34 +174,30 @@ pub(crate) struct ReleaseFamily {
 }
 
 pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, SchemaError> {
-    let space = record_space_uuid(&schema.name);
+    let base = format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name));
     let mut families = vec![
         ReleaseFamily {
-            prefix: format!("{RECORD_PREFIX}{space}:"),
+            prefix: base.clone(),
             kind: ReleaseKind::Records,
         },
         ReleaseFamily {
-            prefix: format!("{APPLIED_DELETE_FAMILY}:{RECORD_PREFIX}{space}:"),
+            prefix: format!("{APPLIED_DELETE_FAMILY}:{base}"),
             kind: ReleaseKind::AppliedDeletes,
         },
         ReleaseFamily {
-            prefix: format!("{INLINE_FILE_FAMILY}:{RECORD_PREFIX}{space}:"),
+            prefix: format!("{INLINE_FILE_FAMILY}:{base}"),
             kind: ReleaseKind::InlineFiles,
         },
     ];
-    families.extend(
-        schema
-            .require_record_keys()?
-            .alternates
-            .keys()
-            .map(|name| ReleaseFamily {
-                prefix: format!(
-                    "{ALTERNATE_ENTRY_PREFIX}{}:",
-                    alternate_field_key_id(schema, name)
-                ),
-                kind: ReleaseKind::Alternates,
-            }),
-    );
+    for name in schema.require_record_keys()?.alternates.keys() {
+        families.push(ReleaseFamily {
+            prefix: format!(
+                "{ALTERNATE_ENTRY_PREFIX}{}:",
+                alternate_field_key_id(schema, name)
+            ),
+            kind: ReleaseKind::Alternates,
+        });
+    }
     Ok(families)
 }
 
@@ -216,15 +207,6 @@ impl ReleaseFamily {
     }
     pub(crate) fn kind(&self) -> ReleaseKind {
         self.kind
-    }
-
-    fn require_key(&self, key: &[u8]) -> Result<(), SchemaError> {
-        if !key.starts_with(self.prefix.as_bytes()) {
-            return Err(SchemaError::InvalidData(
-                "schema release key has a different owner or family".into(),
-            ));
-        }
-        Ok(crate::storage::current_keys::validate(MAIN_NAMESPACE, key)?)
     }
 }
 
@@ -242,10 +224,7 @@ impl RecordFormat {
         if controls.len() != 2 {
             return Err(control::invalid("incomplete fence read"));
         }
-        if !controls[0]
-            .as_deref()
-            .is_some_and(lastdb_model::field_key_codec::current_key_format)
-        {
+        if !controls[0].as_deref().is_some_and(current_key_format) {
             return Err(StorageError::InvalidOperation(
                 "the logical key format does not match this node home".into(),
             ));
@@ -260,32 +239,36 @@ impl RecordFormat {
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
-        let key = lastdb_model::kind_partition::anchored(
+        let key = anchored(
             DELETE_AUDIT_FAMILY,
             &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
         );
         let bytes = serde_json::to_vec(&entry)
-            .map_err(|error| StorageError::SerializationError(error.to_string()))?;
+            .map_err(|e| StorageError::SerializationError(e.to_string()))?;
         self.main_store
             .put(key.as_bytes(), bytes)
             .await
-            .map_err(|error| SchemaError::InvalidData(format!("stage erase audit: {error}")))
+            .map_err(|e| SchemaError::InvalidData(format!("stage erase audit: {e}")))
     }
 
-    /// Re-read selected keys under the same gate, then stage the exact child deletes.
     pub(crate) async fn release_schema_batch(
         &self,
         keys: Vec<Vec<u8>>,
         family: &ReleaseFamily,
     ) -> Result<u64, SchemaError> {
         self.require_scope()?;
-        if keys.len() > super::super::SCHEMA_RELEASE_ROWS {
+        if keys.len() > SCHEMA_RELEASE_ROWS {
             return Err(SchemaError::InvalidData(
                 "schema release exceeds its row bound".into(),
             ));
         }
         for key in &keys {
-            family.require_key(key)?;
+            if !key.starts_with(family.prefix.as_bytes()) {
+                return Err(SchemaError::InvalidData(
+                    "schema release key has a different owner or family".into(),
+                ));
+            }
+            crate::storage::current_keys::validate(MAIN_NAMESPACE, key)?;
         }
         let stored = self.main_store.get_many(keys.clone()).await?;
         if stored.len() != keys.len() {
@@ -296,7 +279,7 @@ impl RecordFormat {
         let rows: Vec<_> = keys
             .into_iter()
             .zip(stored)
-            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .filter_map(|(k, v)| v.map(|v| (k, v)))
             .collect();
         if rows.is_empty() {
             return Ok(0);
@@ -307,24 +290,20 @@ impl RecordFormat {
         } else {
             Vec::new()
         };
-        self.main_store
-            .batch_mutate(
-                rows.into_iter()
-                    .map(|(key, _)| KvMutation::delete(key))
-                    .collect(),
-            )
-            .await?;
-        let references: BTreeMap<String, bool> = files
+        let deletes = rows
             .into_iter()
-            .map(|key| {
-                String::from_utf8(key)
-                    .map(|path| (path, false))
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("released file key: {error}"))
-                    })
+            .map(|(k, _)| KvMutation::delete(k))
+            .collect();
+        self.main_store.batch_mutate(deletes).await?;
+        let refs: BTreeMap<String, bool> = files
+            .into_iter()
+            .map(|k| {
+                String::from_utf8(k)
+                    .map(|p| (p, false))
+                    .map_err(|e| SchemaError::InvalidData(format!("released file key: {e}")))
             })
-            .collect::<Result<_, SchemaError>>()?;
-        let files = self.metadata.stage_file_references(references).await?;
+            .collect::<Result<_, _>>()?;
+        let files = self.metadata.stage_file_references(refs).await?;
         self.stage_files(files.into_iter().map(KvMutation::delete).collect())
             .await?;
         Ok(count)

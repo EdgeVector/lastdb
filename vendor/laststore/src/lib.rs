@@ -44,10 +44,10 @@ impl fmt::Display for Error {
         match self {
             Self::Io(e) => write!(f, "io: {e}"),
             Self::Corrupt(s) => write!(f, "corrupt: {s}"),
-            Self::AeadAuthFail => write!(f, "aead authentication failed"),
+            Self::AeadAuthFail => f.write_str("aead authentication failed"),
             Self::Config(s) => write!(f, "config: {s}"),
-            Self::ReadBudgetExceeded => write!(f, "read resource limit exceeded"),
-            Self::WriteCapacity(reason) => write!(f, "write capacity unavailable: {reason}"),
+            Self::ReadBudgetExceeded => f.write_str("read resource limit exceeded"),
+            Self::WriteCapacity(s) => write!(f, "write capacity unavailable: {s}"),
         }
     }
 }

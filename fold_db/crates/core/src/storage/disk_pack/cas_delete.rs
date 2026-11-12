@@ -1,11 +1,8 @@
 //! One authenticated deletion intent across the paired native homes.
-//!
-//! The owner saves the keys and both exact frontiers before CAS puts or main
-//! publication. A reopen finishes deletion before any reader or writer can
-//! reuse those keys.
 
 use super::physical::{V2Home, CAS_COLLECTION};
 use super::*;
+use crate::storage::current_keys::families::record_file_space;
 use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
 use crate::storage::format::{
     METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
@@ -46,18 +43,16 @@ struct Intent {
     keys: Vec<String>,
 }
 
-/// Variable encoded bytes only; the accepted prefix adds fixed overhead once.
 pub(in crate::storage::disk_pack) fn key_bytes(operations: &[HomeMutation]) -> StorageResult<u64> {
     operations
         .iter()
         .filter(|op| op.collection == CAS_COLLECTION && op.body.is_none())
-        .try_fold(0u64, |bytes, op| {
-            bytes.checked_add((op.key.len() as u64).saturating_mul(6) + 4)
+        .try_fold(0u64, |b, op| {
+            b.checked_add((op.key.len() as u64).saturating_mul(6) + 4)
         })
         .ok_or_else(|| invalid("CAS deletion intent size overflow"))
 }
 
-/// Conservative encoded size; admission reserves this before accepting a batch.
 pub(in crate::storage::disk_pack) fn space(bytes: u64) -> StorageResult<u64> {
     if bytes == 0 {
         return Ok(0);
@@ -65,12 +60,11 @@ pub(in crate::storage::disk_pack) fn space(bytes: u64) -> StorageResult<u64> {
     let reserved = bytes
         .checked_add(8192)
         .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
-    if reserved > MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
-        return Err(StorageError::WriteResourceLimit {
+    (reserved <= MAX_CAS_DELETE_CHECKPOINT_BYTES as u64)
+        .then_some(reserved)
+        .ok_or_else(|| StorageError::WriteResourceLimit {
             detail: "CAS deletion intent exceeds its byte bound".into(),
-        });
-    }
-    Ok(reserved)
+        })
 }
 
 pub(in crate::storage::disk_pack) fn save(
@@ -106,21 +100,14 @@ pub(in crate::storage::disk_pack) fn save(
 }
 
 pub(in crate::storage) fn require_clear(v2: &V2Home) -> StorageResult<()> {
-    if v2
-        .home
+    v2.home
         .load_checkpoint(CheckpointKind::CasDelete)
         .map_err(map)?
-        .is_some()
-    {
-        return Err(invalid(
-            "pending CAS deletion requires native recovery before backup",
-        ));
-    }
-    Ok(())
+        .is_none()
+        .then_some(())
+        .ok_or_else(|| invalid("pending CAS deletion requires native recovery before backup"))
 }
 
-/// Caller owns both homes before any reader, writer or worker can start.
-/// A frontier outside the exact intent is refused, never guessed or replayed.
 pub(in crate::storage::disk_pack) fn recover(
     v2: &V2Home,
 ) -> StorageResult<Option<CasDeleteRecovery>> {
@@ -145,11 +132,15 @@ pub(in crate::storage::disk_pack) fn recover(
         || intent.main_home != v2.home.identity()
         || intent.cas_home != v2.cas.identity()
         || intent.keys.is_empty()
-        || intent.keys.windows(2).any(|pair| pair[0] >= pair[1])
-        || intent.main_after < intent.main_before
-        || intent.main_after - intent.main_before > 1
-        || intent.cas_after_add < intent.cas_before
-        || intent.cas_after_add - intent.cas_before > 1
+        || intent.keys.windows(2).any(|w| w[0] >= w[1])
+        || intent
+            .main_after
+            .checked_sub(intent.main_before)
+            .is_none_or(|d| d > 1)
+        || intent
+            .cas_after_add
+            .checked_sub(intent.cas_before)
+            .is_none_or(|d| d > 1)
         || ![intent.main_before, intent.main_after].contains(&main)
         || cas < intent.cas_before
         || cas > deleted
@@ -196,8 +187,6 @@ fn invalid(message: &str) -> StorageError {
 }
 
 impl PackRuntime {
-    /// A guest snapshot can carry inline files only. The main reference index
-    /// also detects a local-path or restored reference whose CAS bytes are absent.
     pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
         let metadata = PackKvStore {
             runtime: Arc::clone(self),
@@ -212,7 +201,7 @@ impl PackRuntime {
             (&cas, RECORD_FILE_PREFIX),
         ] {
             if !store
-                .scan_prefix_paged(prefix.as_bytes(), 1)
+                .prefix_rows(prefix.as_bytes(), 1, false)
                 .await?
                 .is_empty()
             {
@@ -222,20 +211,17 @@ impl PackRuntime {
         Ok(false)
     }
 
-    /// Which of these `cas_blobs` marker keys are present.
     pub(in crate::storage) async fn markers_present(
         self: &Arc<Self>,
         keys: Vec<Vec<u8>>,
     ) -> StorageResult<Vec<bool>> {
         let wanted = keys.len();
         let present = self.cas_kv().get_many(keys).await?;
-        if present.len() != wanted {
-            return Err(invalid("incomplete marker presence read"));
-        }
-        Ok(present.iter().map(Option::is_some).collect())
+        (present.len() == wanted)
+            .then(|| present.iter().map(Option::is_some).collect())
+            .ok_or_else(|| invalid("incomplete marker presence read"))
     }
 
-    /// Stage a tombstone without loading the retired payload into the write request.
     pub(in crate::storage) fn stage_record_file_deletes(
         self: &Arc<Self>,
         keys: Vec<Vec<u8>>,
@@ -245,13 +231,10 @@ impl PackRuntime {
         let ops = keys
             .into_iter()
             .map(|key| {
-                if std::str::from_utf8(&key)
+                std::str::from_utf8(&key)
                     .ok()
-                    .and_then(crate::storage::current_keys::families::record_file_space)
-                    .is_none()
-                {
-                    return Err(invalid("file retirement requires a record file key"));
-                }
+                    .and_then(record_file_space)
+                    .ok_or_else(|| invalid("file retirement requires a record file key"))?;
                 Ok(HomeMutation {
                     collection: CAS_COLLECTION.into(),
                     key: super::native_routing::encode(&key),

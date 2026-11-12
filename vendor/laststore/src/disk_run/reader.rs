@@ -2,7 +2,7 @@
 
 use super::bloom::{key_hash, Filter};
 use super::codec::{corrupt, decode_block, BlockRecords};
-use super::footer::{get_refs_bounded, BlockRef, Footer, Top};
+use super::footer::{get_refs_bounded, refs_footprint, BlockRef, Footer, Top};
 use super::merge::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE};
 use crate::frame::{decode_frame_bounded, min_encoded_len, DecodeScratch, PreparedFrameKey};
@@ -51,23 +51,25 @@ impl MetadataMemo {
         number: usize,
         scratch: &mut DecodeScratch,
     ) -> Result<Arc<IndexBlock>> {
-        if let Some(entry) = self
+        let run = reader.footer.run_id;
+        if let Some(e) = self
             .entries
             .iter()
-            .find(|e| e.run == reader.run_id() && e.number == number)
+            .find(|e| e.run == run && e.number == number)
         {
-            return Ok(Arc::clone(&entry.block));
+            return Ok(Arc::clone(&e.block));
         }
         let block = Arc::new(reader.read_index(number, Some(scratch))?);
-        self.retain(reader.run_id(), number, &block);
+        self.retain(run, number, &block);
         Ok(block)
     }
 
     fn retain(&mut self, run: Uuid, number: usize, block: &Arc<IndexBlock>) {
         let bytes = (std::mem::size_of::<IndexBlock>() + 2 * std::mem::size_of::<usize>()) as u64
             + block.footprint();
-        let slots = MAX_MEMO_ENTRIES * std::mem::size_of::<MemoEntry>();
-        if bytes.saturating_add(slots as u64) > self.maximum {
+        if bytes.saturating_add((MAX_MEMO_ENTRIES * std::mem::size_of::<MemoEntry>()) as u64)
+            > self.maximum
+        {
             return;
         }
         if self.entries.capacity() == 0 {
@@ -115,7 +117,7 @@ impl IndexBlock {
         available: Option<u64>,
     ) -> Result<Self> {
         let mut at = 0;
-        let blocks = get_refs_bounded(&payload, &mut at, available.unwrap_or(u64::MAX))?;
+        let (blocks, _) = get_refs_bounded(&payload, &mut at, available.unwrap_or(u64::MAX))?;
         if blocks.first().map(|b| b.first_key.as_slice()) != Some(first_key) {
             return Err(corrupt("index block does not start at its top entry"));
         }
@@ -125,9 +127,10 @@ impl IndexBlock {
             return Err(corrupt("trailing bytes in index block"));
         }
         if let Some(limit) = available {
-            let allocated = blocks.capacity() * std::mem::size_of::<BlockRef>()
-                + blocks.iter().map(|b| b.first_key.capacity()).sum::<usize>();
-            if (payload.capacity() + allocated + payload.len() - start) as u64 > limit {
+            let used =
+                payload.capacity() + refs_footprint(&blocks, blocks.capacity()) + payload.len()
+                    - start;
+            if used as u64 > limit {
                 return Err(Error::ReadBudgetExceeded);
             }
         }
@@ -141,34 +144,18 @@ impl IndexBlock {
         Ok(Filter::read(&self.filter_bytes, &mut 0)?.may_hold(hash))
     }
 
+    pub(super) fn block_pos(&self, key: &[u8]) -> Option<usize> {
+        self.blocks
+            .partition_point(|b| b.first_key.as_slice() <= key)
+            .checked_sub(1)
+    }
+
     pub(super) fn footprint(&self) -> u64 {
-        (self.blocks.capacity() * std::mem::size_of::<BlockRef>()
-            + self
-                .blocks
-                .iter()
-                .map(|b| b.first_key.capacity())
-                .sum::<usize>()
-            + self.filter_bytes.capacity()) as u64
+        (refs_footprint(&self.blocks, self.blocks.capacity()) + self.filter_bytes.capacity()) as u64
     }
 }
 
 impl RunReader {
-    pub(crate) fn run_id(&self) -> Uuid {
-        self.footer.run_id
-    }
-
-    pub(crate) fn records(&self) -> u64 {
-        self.footer.records
-    }
-
-    pub(crate) fn last_key(&self) -> Option<&[u8]> {
-        (self.footer.records > 0).then_some(self.top.last_key.as_slice())
-    }
-
-    pub(crate) fn first_key(&self) -> Option<&[u8]> {
-        self.top.indexes.first().map(|i| i.first_key.as_slice())
-    }
-
     pub(super) fn read_frame(
         &self,
         offset: u64,
@@ -266,13 +253,16 @@ impl RunReader {
     pub(crate) fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
         let sizes = self.lookup_many(
             keys,
-            |found| found.value().map_or(0, <[u8]>::len),
+            |found| match found {
+                Found::Value(v) => v.len(),
+                Found::Tombstone => 0,
+            },
             &mut MetadataMemo::new(0),
         )?;
         Ok(sizes
             .into_iter()
             .zip(keys)
-            .map(|(size, key)| size.map(|size| (size + key.len()) as u64))
+            .map(|(s, k)| s.map(|s| (s + k.len()) as u64))
             .collect())
     }
 
@@ -284,7 +274,7 @@ impl RunReader {
     ) -> Result<Vec<Option<T>>> {
         let mut order: Vec<usize> = (0..keys.len()).collect();
         order.sort_by(|a, b| keys[*a].cmp(keys[*b]));
-        let mut out: Vec<Option<T>> = keys.iter().map(|_| None).collect();
+        let mut out: Vec<Option<T>> = (0..keys.len()).map(|_| None).collect();
         let mut index: Option<(usize, Arc<IndexBlock>)> = None;
         let mut data: Option<(u64, BlockRecords)> = None;
         let mut scratch = DecodeScratch::default();
@@ -296,17 +286,22 @@ impl RunReader {
             if index.as_ref().map(|(n, _)| *n) != Some(number) {
                 index = Some((number, metadata.read(self, number, &mut scratch)?));
             }
-            let (_, block_index) = index.as_ref().expect("index loaded");
+            let block_index = &index.as_ref().expect("index loaded").1;
             if !block_index.may_hold(key_hash(key))? {
                 continue;
             }
-            let Some(block) = block_for(block_index, key) else {
+            let Some(pos) = block_index.block_pos(key) else {
                 continue;
             };
+            let block = &block_index.blocks[pos];
             if data.as_ref().map(|(n, _)| *n) != Some(block.number) {
                 data = Some((block.number, self.read_data(block, Some(&mut scratch))?));
             }
-            out[slot] = find(&data.as_ref().expect("block loaded").1, key, &pick);
+            let records = &data.as_ref().expect("block loaded").1;
+            out[slot] = records
+                .binary_search_by(|(k, _)| k.as_slice().cmp(key))
+                .ok()
+                .map(|n| pick(&records[n].1));
         }
         Ok(out)
     }
@@ -326,19 +321,4 @@ impl RunReader {
     pub(crate) fn iter(&self) -> RunRange<'_> {
         self.range(Bound::Unbounded, Bound::Unbounded)
     }
-}
-
-fn block_for<'a>(index: &'a IndexBlock, key: &[u8]) -> Option<&'a BlockRef> {
-    index
-        .blocks
-        .partition_point(|b| b.first_key.as_slice() <= key)
-        .checked_sub(1)
-        .map(|n| &index.blocks[n])
-}
-
-fn find<T>(records: &[(Vec<u8>, Found)], key: &[u8], pick: impl Fn(&Found) -> T) -> Option<T> {
-    records
-        .binary_search_by(|(k, _)| k.as_slice().cmp(key))
-        .ok()
-        .map(|n| pick(&records[n].1))
 }

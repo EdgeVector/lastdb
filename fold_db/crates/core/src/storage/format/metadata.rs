@@ -1,16 +1,16 @@
 //! The metadata namespace's typed capability and its only staging writer.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
+use lastdb_model::hex::hex_lower;
 use lastdb_model::portable_mutation::{Position, Stamp, StreamId, StreamProgress};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
 pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
@@ -37,12 +37,12 @@ struct LocalAuthor {
 }
 
 pub(in crate::storage) fn initial_local_author(home: uuid::Uuid) -> StorageResult<Vec<u8>> {
-    let state = LocalAuthor {
+    serde_json::to_vec(&LocalAuthor {
         stream: StreamId::try_from(home.to_string()).map_err(invalid_author)?,
         progress: StreamProgress::default(),
         clock_floor_ms: None,
-    };
-    serde_json::to_vec(&state).map_err(invalid_author)
+    })
+    .map_err(invalid_author)
 }
 
 pub(in crate::storage) fn validate_local_author(bytes: Option<&[u8]>) -> StorageResult<()> {
@@ -61,13 +61,16 @@ impl LocalAuthor {
     }
 
     fn author(&mut self, now_ms: u64) -> StorageResult<Stamp> {
-        let now_ms = now_ms.max(self.clock_floor_ms.unwrap_or_default());
         let sequence = self
             .progress
             .applied_through
             .checked_add(1)
             .ok_or_else(|| invalid_author("local stream sequence exhausted"))?;
-        let authored_at_ms = now_ms.max(self.progress.applied_through_ms.unwrap_or_default());
+        let floor = self
+            .clock_floor_ms
+            .unwrap_or_default()
+            .max(self.progress.applied_through_ms.unwrap_or_default());
+        let authored_at_ms = now_ms.max(floor);
         self.progress.applied_through = sequence;
         self.progress.applied_through_ms = Some(authored_at_ms);
         Ok(Stamp {
@@ -106,19 +109,18 @@ impl Metadata {
         writer: &str,
     ) -> Result<Option<MutationAuthorClockState>, SchemaError> {
         let key = super::mutation_author_clock_key(writer);
-        let raw = self
-            .metadata_store
+        self.metadata_store
             .get(key.as_bytes())
             .await
-            .map_err(|error| SchemaError::InvalidData(format!("metadata get {key}: {error}")))?;
-        raw.map(|bytes| {
-            serde_json::from_slice(&bytes).map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "metadata get {key}: Serialization error: {error}"
-                ))
+            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))?
+            .map(|b| {
+                serde_json::from_slice(&b).map_err(|e| {
+                    SchemaError::InvalidData(format!(
+                        "metadata get {key}: Serialization error: {e}"
+                    ))
+                })
             })
-        })
-        .transpose()
+            .transpose()
     }
 
     pub(crate) async fn stage_author_clock(
@@ -127,8 +129,8 @@ impl Metadata {
         state: &MutationAuthorClockState,
     ) -> Result<(), SchemaError> {
         let key = super::mutation_author_clock_key(writer);
-        let bytes = serde_json::to_vec(state).map_err(|error| {
-            SchemaError::InvalidData(format!("metadata put {key}: Serialization error: {error}"))
+        let bytes = serde_json::to_vec(state).map_err(|e| {
+            SchemaError::InvalidData(format!("metadata put {key}: Serialization error: {e}"))
         })?;
         self.stage(vec![(key.clone(), Some(bytes))])
             .await
@@ -140,35 +142,30 @@ impl Metadata {
             })
     }
 
-    /// Return true for a replay, or stage the opaque acceptance in this native request.
     pub(crate) async fn stage_contribution_receipt(
         &self,
         receipt_id: &[u8; 32],
         intent_digest: &[u8; 32],
     ) -> Result<bool, SchemaError> {
-        self.require_scope().map_err(contribution_storage_error)?;
-        let key = format!(
-            "share-contribution-receipt:{}",
-            lastdb_model::hex::hex_lower(receipt_id)
-        );
-        let saved = self
+        self.require_scope().map_err(read_err)?;
+        let key = format!("share-contribution-receipt:{}", hex_lower(receipt_id));
+        if let Some(saved) = self
             .metadata_store
             .get(key.as_bytes())
             .await
-            .map_err(contribution_storage_error)?;
-        if let Some(saved) = saved {
-            if saved.as_slice() == intent_digest {
-                return Ok(true);
-            }
-            return Err(SchemaError::InvalidField("share mutation ID reused".into()));
+            .map_err(read_err)?
+        {
+            return (saved.as_slice() == intent_digest)
+                .then_some(true)
+                .ok_or_else(|| SchemaError::InvalidField("share mutation ID reused".into()));
         }
         self.stage(vec![(key, Some(intent_digest.to_vec()))])
             .await
-            .map_err(contribution_storage_error)?;
+            .map_err(read_err)?;
         Ok(false)
     }
 
-    pub(crate) async fn stage_file_references(
+    pub(in crate::storage::format) async fn stage_file_references(
         &self,
         changes: BTreeMap<String, bool>,
     ) -> StorageResult<Vec<Vec<u8>>> {
@@ -178,31 +175,26 @@ impl Metadata {
         self.require_scope()?;
         let keys: Vec<_> = changes
             .keys()
-            .map(|path| format!("{FILE_REFERENCE_PREFIX}{path}"))
+            .map(|p| format!("{FILE_REFERENCE_PREFIX}{p}"))
             .collect();
         let rows = self
             .metadata_store
-            .get_many(keys.iter().map(|key| key.as_bytes().to_vec()).collect())
+            .get_many(keys.iter().map(|k| k.as_bytes().to_vec()).collect())
             .await?;
         if rows.len() != keys.len() {
             return Err(invalid_file_ref("incomplete file reference read"));
         }
-        let mut entries = Vec::new();
-        let mut retired = Vec::new();
+        let (mut entries, mut retired) = (Vec::new(), Vec::new());
         for (((path, live), key), row) in changes.into_iter().zip(keys).zip(rows) {
-            let mut reference: Reference = row
+            let mut r: Reference = row
                 .as_deref()
                 .map(serde_json::from_slice)
                 .transpose()
                 .map_err(invalid_file_ref)?
                 .unwrap_or_default();
-            reference.live = live;
-            reference.pending_through = 0;
-            if reference.live {
-                entries.push((
-                    key,
-                    Some(serde_json::to_vec(&reference).map_err(invalid_file_ref)?),
-                ));
+            (r.live, r.pending_through) = (live, 0);
+            if r.live {
+                entries.push((key, Some(serde_json::to_vec(&r).map_err(invalid_file_ref)?)));
             } else {
                 if row.is_some() {
                     entries.push((key, None));
@@ -219,13 +211,10 @@ impl Metadata {
         if schemas.is_empty() {
             return Ok(Vec::new());
         }
-        let now_ms = u64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(invalid_author)?
-                .as_millis(),
-        )
-        .map_err(invalid_author)?;
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(invalid_author)?;
+        let now_ms = u64::try_from(elapsed.as_millis()).map_err(invalid_author)?;
         let raw = self.metadata_store.get(LOCAL_AUTHOR_KEY.as_bytes()).await?;
         let mut state = LocalAuthor::decode(raw.as_deref())?;
         let stamps = schemas
@@ -242,12 +231,13 @@ impl Metadata {
     }
 
     fn require_scope(&self) -> StorageResult<()> {
-        if !transaction::publication::active(&self.runtime) {
-            return Err(StorageError::InvalidOperation(
-                "a metadata write requires a complete native write scope".into(),
-            ));
-        }
-        Ok(())
+        transaction::publication::active(&self.runtime)
+            .then_some(())
+            .ok_or_else(|| {
+                StorageError::InvalidOperation(
+                    "a metadata write requires a complete native write scope".into(),
+                )
+            })
     }
 
     async fn stage(&self, entries: Vec<Staged>) -> StorageResult<()> {
@@ -255,10 +245,7 @@ impl Metadata {
         if !entries.is_empty() {
             let mutations = entries
                 .into_iter()
-                .map(|(k, v)| match v {
-                    Some(b) => KvMutation::put(k, b),
-                    None => KvMutation::delete(k),
-                })
+                .map(|(k, v)| v.map_or_else(|| KvMutation::delete(k), |b| KvMutation::put(k, b)))
                 .collect();
             self.metadata_store.batch_mutate(mutations).await?;
         }
@@ -274,7 +261,7 @@ fn invalid_author(error: impl std::fmt::Display) -> StorageError {
     StorageError::InvalidOperation(format!("portable author state: {error}"))
 }
 
-fn contribution_storage_error(error: impl std::fmt::Display) -> SchemaError {
+fn read_err(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::StorageRead {
         detail: error.to_string(),
     }

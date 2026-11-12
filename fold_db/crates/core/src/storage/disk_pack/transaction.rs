@@ -2,15 +2,21 @@
 
 use super::record_warm::WrittenRecord;
 use super::*;
-use std::collections::BTreeMap;
+use crate::storage::format::records::require_final_record_sizes;
+use lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES;
+use std::collections::{BTreeMap, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::AtomicU64;
+use std::time::{Duration, Instant};
 
 mod accepted_slot;
 pub(crate) mod publication;
 pub(in crate::storage) use accepted_slot::{has_accepted, stage_accepted, take_accepted_notes};
-pub(in crate::storage) use publication::batch_bytes;
+pub(in crate::storage::disk_pack) use publication::batch_bytes;
 pub(crate) use publication::blocked;
 
-type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
+type AfterCommit = Pin<Box<dyn Future<Output = StorageResult<()>> + Send>>;
 
 /// One serialized operation in the existing private preparation and flush log.
 #[derive(Debug)]
@@ -41,9 +47,9 @@ pub(in crate::storage) struct PendingBatch {
     accepted: Mutex<Vec<crate::storage::disk_backup::accepted::Note>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
-    flush_blocked_us: std::sync::atomic::AtomicU64,
+    flush_blocked_us: AtomicU64,
     pub(in crate::storage::disk_pack::transaction) preparation_limit: Mutex<Option<String>>,
-    operation_limit: usize,
+    pub(in crate::storage::disk_pack) operation_limit: usize,
     warm_records: Mutex<WarmRecords>,
 }
 
@@ -54,13 +60,13 @@ tokio::task_local! {
 impl PendingBatch {
     fn new(runtime: &PackRuntime) -> Self {
         Self {
-            identity: runtime.home_identity(),
+            identity: runtime.native_home_id(),
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             accepted: Mutex::new(Vec::new()),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
-            flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
+            flush_blocked_us: AtomicU64::new(0),
             preparation_limit: Mutex::new(None),
             operation_limit: runtime.batch_operation_limit(),
             warm_records: Mutex::new(WarmRecords::default()),
@@ -71,7 +77,7 @@ impl PendingBatch {
         WRITE
             .try_with(Arc::clone)
             .ok()
-            .filter(|batch| batch.identity == runtime.home_identity())
+            .filter(|batch| batch.identity == runtime.native_home_id())
     }
 
     fn is_empty(&self) -> StorageResult<bool> {
@@ -126,10 +132,6 @@ impl PendingBatch {
             .map(|&at| Arc::clone(&data.operations[at]))
     }
 
-    pub(in crate::storage::disk_pack) fn operation_limit(&self) -> usize {
-        self.operation_limit
-    }
-
     pub(in crate::storage::disk_pack) fn matching(
         &self,
         collection: &str,
@@ -148,13 +150,15 @@ impl PendingBatch {
 
     fn require_final_format(&self) -> StorageResult<()> {
         let data = self.data.lock().expect("native final format admission");
-        crate::storage::format::records::require_final_record_sizes(
+        require_final_record_sizes(
             data.max_body_bytes,
             data.latest.values().filter_map(|&at| {
                 let r = &data.operations[at];
-                r.body
-                    .as_ref()
-                    .map(|body| (r.collection.as_str(), r.key.as_str(), body.len()))
+                Some((
+                    r.collection.as_str(),
+                    r.key.as_str(),
+                    r.body.as_ref()?.len(),
+                ))
             }),
         )
     }
@@ -169,7 +173,7 @@ impl PendingBatch {
             ));
         }
         batch_bytes(&operations, self.operation_limit)
-            .map_err(|error| self.remember_preparation_limit(error))?;
+            .map_err(|e| self.remember_preparation_limit(e))?;
         let mut data = self.data.lock().expect("native pending batch");
         let count = data
             .operations
@@ -177,19 +181,14 @@ impl PendingBatch {
             .checked_add(operations.len())
             .filter(|&c| c <= self.operation_limit)
             .ok_or_else(|| {
-                self.remember_preparation_limit(publication::refusal(
-                    &data,
-                    &operations,
-                    self.operation_limit,
-                ))
+                let err = publication::refusal(&data, &operations, self.operation_limit);
+                self.remember_preparation_limit(err)
             })?;
-        publication::record_stage(&data, &operations, self.operation_limit);
-        let mut bytes = data.bytes;
-        let mut max_body_bytes = data.max_body_bytes;
-        let cap = lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES - 256;
+        let (mut bytes, mut max_body) = (data.bytes, data.max_body_bytes);
+        let cap = PENDING_MEMORY_BYTES - 256;
         for op in &operations {
             let body_bytes = op.body.as_ref().map_or(0, Vec::len);
-            max_body_bytes = max_body_bytes.max(body_bytes);
+            max_body = max_body.max(body_bytes);
             bytes = bytes
                 .checked_add((160 + op.collection.len() + 2 * op.key.len() + body_bytes) as u64)
                 .filter(|&b| b <= cap)
@@ -199,9 +198,8 @@ impl PendingBatch {
                     })
                 })?;
         }
-        let additional = count - data.operations.len();
         data.operations
-            .try_reserve(additional)
+            .try_reserve(count - data.operations.len())
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
         for op in operations {
             let at = data.operations.len();
@@ -213,8 +211,7 @@ impl PendingBatch {
                 body: op.body,
             }));
         }
-        data.bytes = bytes;
-        data.max_body_bytes = max_body_bytes;
+        (data.bytes, data.max_body_bytes) = (bytes, max_body);
         Ok(())
     }
 
@@ -243,15 +240,11 @@ impl PendingBatch {
             .collect()
     }
 
-    pub(in crate::storage::disk_pack) fn note_flush_blocked(&self, took: std::time::Duration) {
+    pub(in crate::storage::disk_pack) fn note_flush_blocked(&self, took: Duration) {
         self.flush_blocked_us.store(
             took.as_micros().try_into().unwrap_or(u64::MAX),
             Ordering::Release,
         );
-    }
-
-    fn flush_blocked(&self) -> std::time::Duration {
-        std::time::Duration::from_micros(self.flush_blocked_us.load(Ordering::Acquire))
     }
 
     pub(in crate::storage::disk_pack) fn finish_publications(&self) -> StorageResult<()> {
@@ -259,7 +252,7 @@ impl PendingBatch {
     }
 
     pub(in crate::storage::disk_pack) async fn deliver(&self) -> StorageResult<()> {
-        let mut actions: std::collections::VecDeque<_> =
+        let mut actions: VecDeque<_> =
             std::mem::take(&mut *self.after_commit.lock().expect("native post-commit work")).into();
         while let Some(action) = actions.pop_front() {
             if let Err(error) = action.await {
@@ -276,7 +269,7 @@ impl PendingBatch {
 
 pub(crate) async fn scope<T, E>(
     runtime: Arc<PackRuntime>,
-    future: impl std::future::Future<Output = Result<T, E>>,
+    future: impl Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
@@ -286,7 +279,7 @@ where
 
 pub(crate) async fn request_scope<T, E>(
     runtime: Arc<PackRuntime>,
-    future: impl std::future::Future<Output = Result<T, E>>,
+    future: impl Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
@@ -296,7 +289,7 @@ where
 
 pub(crate) async fn background_scope<T, E>(
     runtime: Arc<PackRuntime>,
-    future: impl std::future::Future<Output = Result<T, E>>,
+    future: impl Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
@@ -306,7 +299,7 @@ where
 
 async fn scope_inner<T, E>(
     runtime: Arc<PackRuntime>,
-    future: impl std::future::Future<Output = Result<T, E>>,
+    future: impl Future<Output = Result<T, E>>,
     background: bool,
 ) -> Result<T, E>
 where
@@ -316,7 +309,7 @@ where
         return future.await;
     }
     let gate = runtime.enter_prepare().await;
-    let held_from = std::time::Instant::now();
+    let held_from = Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
@@ -335,27 +328,23 @@ where
     if pending.is_empty()? {
         let target = runtime.seal_queue();
         drop(gate);
-        publication::note_gate_hold(held_from, 0, 0, &[]);
         runtime.wait_for_queue(target).await?;
         blocked::note(held_from.elapsed());
         return Ok(result);
     }
     let operations = pending.freeze_operations();
-    let operations_len = operations.len();
     let pub_gate = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
-    let (prepared, gate, pub_gate, hold) = run_blocking(move || {
-        let shape = publication::BatchShape::of(&operations);
-        Ok((owner.prepare_queued(operations)?, gate, pub_gate, shape))
-    })
-    .await?;
-    let pending_timing = Arc::clone(&pending);
+    let (prepared, gate, pub_gate) =
+        run_blocking(move || Ok((owner.prepare_queued(operations)?, gate, pub_gate))).await?;
+    let timing = Arc::clone(&pending);
     let sequence = runtime.accept_queued(pending, prepared)?;
     drop((pub_gate, gate));
-    let held = hold.log(held_from, operations_len, sequence);
+    let held = held_from.elapsed();
     runtime.wait_for_queue(sequence).await?;
+    let flush_wait = Duration::from_micros(timing.flush_blocked_us.load(Ordering::Acquire));
     blocked::note(if background {
-        held.saturating_add(pending_timing.flush_blocked())
+        held.saturating_add(flush_wait)
     } else {
         held_from.elapsed()
     });
@@ -364,7 +353,7 @@ where
 
 pub(crate) fn after_commit(
     runtime: &PackRuntime,
-    action: impl std::future::Future<Output = StorageResult<()>> + Send + 'static,
+    action: impl Future<Output = StorageResult<()>> + Send + 'static,
 ) -> StorageResult<()> {
     let pending = PendingBatch::current(runtime).ok_or_else(|| {
         StorageError::InvalidOperation(

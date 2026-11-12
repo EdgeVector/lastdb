@@ -1,12 +1,10 @@
 //! The physical home under one node store: the disk format v2 run homes.
 
 use super::*;
-pub(in crate::storage) use laststore::disk_run::home::RunReadCosts as PhysicalCosts;
-use laststore::disk_run::home::{RangeBounds, RunHashRange, RunHome, RunRead, RunRoot};
+use laststore::disk_run::home::{RunHome, RunRead, RunReadCosts, RunRoot};
+use std::sync::PoisonError;
 
 pub use crate::storage::format::CAS_COLLECTION;
-
-pub(in crate::storage) const V2_BATCH_OPERATIONS: usize = 16_384;
 
 /// The v2 run homes (main and CAS) and their background merge thread.
 pub(in crate::storage) struct V2Home {
@@ -36,6 +34,17 @@ impl V2Home {
         V2Root {
             main: self.home.current_root(),
             cas: self.cas.current_root(),
+        }
+    }
+
+    pub(in crate::storage) fn read(&self, root: &V2Root, write_prep: bool) -> V2Read {
+        let mut limits = budget();
+        if write_prep {
+            limits.keys = 40_000;
+        }
+        V2Read {
+            main: self.home.read_root(&root.main, limits),
+            cas: self.cas.read_root(&root.cas, limits),
         }
     }
 
@@ -71,17 +80,8 @@ pub(in crate::storage) struct V2Read {
     pub(in crate::storage) cas: RunRead,
 }
 
-#[derive(Clone, Copy)]
-pub(in crate::storage) enum ReadMode {
-    Ordinary(ReadBudget),
-    WritePreparation,
-}
-
-pub(in crate::storage) type PhysicalRoot = V2Root;
-pub(in crate::storage) type PhysicalRead = V2Read;
-
 impl V2Read {
-    fn home_for(&mut self, collection: &str) -> &mut RunRead {
+    pub(in crate::storage::disk_pack) fn home_for(&mut self, collection: &str) -> &mut RunRead {
         if collection == CAS_COLLECTION {
             &mut self.cas
         } else {
@@ -98,8 +98,8 @@ impl V2Read {
             return self.main.get_many(coordinates);
         }
         let (mut records, mut files) = (Vec::new(), Vec::new());
-        for (slot, (collection, _)) in coordinates.iter().enumerate() {
-            if collection == CAS_COLLECTION {
+        for (slot, (col, _)) in coordinates.iter().enumerate() {
+            if col == CAS_COLLECTION {
                 files.push(slot);
             } else {
                 records.push(slot);
@@ -125,92 +125,17 @@ impl V2Read {
             .collect())
     }
 
-    pub(in crate::storage) fn costs(&self) -> PhysicalCosts {
+    pub(in crate::storage) fn costs(&self) -> RunReadCosts {
         let (main, cas) = (self.main.costs(), self.cas.costs());
-        PhysicalCosts {
+        RunReadCosts {
             examined_keys: main.examined_keys + cas.examined_keys,
             budget_bytes: main.budget_bytes + cas.budget_bytes,
         }
     }
-
-    pub(in crate::storage) fn budget(&self) -> ReadBudget {
-        self.main.budget()
-    }
-
-    pub(in crate::storage) fn account_memory_record(
-        &mut self,
-        key_bytes: usize,
-        body_bytes: usize,
-    ) -> laststore::Result<()> {
-        self.main.account_memory_record(key_bytes, body_bytes)
-    }
-
-    pub(in crate::storage) fn hash_range(
-        &mut self,
-        collection: &str,
-        prefix: &str,
-        bounds: RangeBounds,
-    ) -> laststore::Result<RunHashRange<'_>> {
-        self.home_for(collection)
-            .hash_range(collection, prefix, bounds)
-    }
-
-    pub(in crate::storage) fn administrative_range(
-        &mut self,
-        collection: &str,
-        start: &[u8],
-        end: &[u8],
-    ) -> laststore::Result<RunHashRange<'_>> {
-        self.home_for(collection)
-            .administrative_range(collection, start, end)
-    }
 }
 
 impl PackRuntime {
-    pub(in crate::storage) fn physical_read(
-        &self,
-        root: &PhysicalRoot,
-        mode: ReadMode,
-    ) -> PhysicalRead {
-        let limits = match mode {
-            ReadMode::Ordinary(limits) => limits,
-            ReadMode::WritePreparation => ReadBudget {
-                keys: 40_000,
-                ..budget()
-            },
-        };
-        V2Read {
-            main: self.physical.home.read_root(&root.main, limits),
-            cas: self.physical.cas.read_root(&root.cas, limits),
-        }
-    }
-
-    pub(in crate::storage) fn home_identity(&self) -> uuid::Uuid {
-        self.physical.identity()
-    }
-
-    pub(crate) fn record_read_stage(&self, stage: &'static str, items: usize) {
-        if let Some(context) = read::ReadContext::captured(self) {
-            context.record_stage(stage, items);
-        }
-    }
-
-    pub(in crate::storage::disk_pack) fn raw_get(
-        &self,
-        context: &Arc<read::ReadContext>,
-        collection: &str,
-        key: &str,
-        pending: Option<&Arc<transaction::PendingBatch>>,
-    ) -> StorageResult<Option<Vec<u8>>> {
-        Ok(self
-            .raw_many(
-                context,
-                &[(collection.to_string(), key.to_string())],
-                pending,
-            )?
-            .pop()
-            .expect("one native coordinate"))
-    }
+    pub(crate) fn record_read_stage(&self, _stage: &'static str, _items: usize) {}
 
     pub(in crate::storage::disk_pack) fn raw_many(
         &self,
@@ -218,23 +143,19 @@ impl PackRuntime {
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-        trace_families(coordinates);
         let result = (|| {
             context.validate_owner(pending)?;
-            let maximum = if context.owns_write(pending) {
+            let max = if context.owns_write(pending) {
                 40_000
             } else {
                 10_000
             };
-            if coordinates.len() > maximum {
+            if coordinates.len() > max {
                 return Err(StorageError::ReadResourceLimit {
-                    detail: format!("native batch exceeds {maximum} keys"),
+                    detail: format!("native batch exceeds {max} keys"),
                 });
             }
-            let mut call = context
-                .call
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut call = context.call.lock().unwrap_or_else(PoisonError::into_inner);
             context.require_room(&call, coordinates.len() as u64, 0)?;
             let mut out = Vec::with_capacity(coordinates.len());
             for chunk in coordinates.chunks(10_000) {
@@ -248,73 +169,43 @@ impl PackRuntime {
     fn read_chunk(
         &self,
         context: &read::ReadContext,
-        call: &mut PhysicalRead,
+        call: &mut V2Read,
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let (mut out, mut misses) = (vec![None; coordinates.len()], Vec::new());
-        for (slot, coordinate) in coordinates.iter().enumerate() {
-            let (collection, key) = coordinate;
-            if let Some(record) = context.overlay_record(pending, collection, key) {
-                context.account_memory_record(
-                    call,
-                    key.len(),
-                    record.body.as_ref().map_or(0, Vec::len),
-                )?;
-                out[slot] = record.body.clone();
-            } else if let Some(value) = context.reuse_disk_value(call, coordinate)? {
-                out[slot] = value;
+        for (slot, coord) in coordinates.iter().enumerate() {
+            let (col, key) = coord;
+            if let Some(rec) = context.overlay_record(pending, col, key) {
+                let len = rec.body.as_ref().map_or(0, Vec::len);
+                context.account_memory_record(call, key.len(), len)?;
+                out[slot] = rec.body.clone();
+            } else if let Some(val) = context.reuse_disk_value(call, coord)? {
+                out[slot] = val;
             } else {
                 misses.push(slot);
             }
         }
-        let addresses: Vec<_> = misses.iter().map(|&s| coordinates[s].clone()).collect();
-        let results = call.get_many(&addresses).map_err(|e| call_error(e, call))?;
-        for (slot, result) in misses.into_iter().zip(results) {
-            let value = result.map_err(|e| call_error(e, call))?;
-            context.remember_disk_value(&coordinates[slot], value.as_deref());
-            out[slot] = value;
+        let wanted: Vec<_> = misses.iter().map(|&s| coordinates[s].clone()).collect();
+        let results = call.get_many(&wanted).map_err(|e| call_error(e, call))?;
+        for (slot, res) in misses.into_iter().zip(results) {
+            let val = res.map_err(|e| call_error(e, call))?;
+            context.remember_disk_value(&coordinates[slot], val.as_deref());
+            out[slot] = val;
         }
         Ok(out)
     }
 }
 
-pub(super) fn call_error(error: laststore::Error, call: &PhysicalRead) -> StorageError {
+pub(super) fn call_error(error: laststore::Error, call: &V2Read) -> StorageError {
     if !matches!(error, laststore::Error::ReadBudgetExceeded) {
         return map(error);
     }
-    let (costs, limits) = (call.costs(), call.budget());
+    let (costs, limits) = (call.costs(), call.main.budget());
     StorageError::ReadResourceLimit {
         detail: format!(
             "native call: examined_keys={}/{}, charged_bytes={}/{}",
             costs.examined_keys, limits.keys, costs.budget_bytes, limits.bytes,
         ),
-    }
-}
-
-fn trace_families(coordinates: &[(String, String)]) {
-    if !tracing::enabled!(target: "lastdb::native_read_family", tracing::Level::DEBUG) {
-        return;
-    }
-    let mut counts = std::collections::BTreeMap::new();
-    for (collection, key) in coordinates {
-        let family = match collection.as_str() {
-            crate::storage::format::SCHEMAS_NAMESPACE => "schema",
-            crate::storage::format::SCHEMA_STATES_NAMESPACE => "schema_state",
-            _ => match native_routing::decode(key)
-                .ok()
-                .and_then(|raw| String::from_utf8(raw).ok())
-                .as_deref()
-                .and_then(|k| k.split([':', '\0']).next())
-            {
-                Some("rk") => "record",
-                Some("ak") => "alternate_key",
-                _ => "other",
-            },
-        };
-        *counts.entry(family).or_insert(0usize) += 1;
-    }
-    for (family, keys) in counts {
-        tracing::debug!(target: "lastdb::native_read_family", family, keys, "native exact read families");
     }
 }
