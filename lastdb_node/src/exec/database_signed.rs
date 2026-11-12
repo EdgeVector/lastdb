@@ -15,9 +15,8 @@ pub(super) async fn read(
     if !replay_durable(host, share) {
         return error_response(503, "database snapshot is not durable", ctx);
     }
-    let store = match registered_share::receiver_store(host, &share.id).await {
-        Ok(store) => store,
-        Err(_) => return error_response(503, "database store is unavailable", ctx),
+    let Ok(store) = registered_share::receiver_store(host, &share.id).await else {
+        return error_response(503, "database store is unavailable", ctx);
     };
     let response = host
         .with_records(

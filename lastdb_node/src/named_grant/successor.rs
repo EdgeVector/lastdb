@@ -136,8 +136,7 @@ fn active_match(member: &ShareMember, role: ShareMemberRole) -> Result<bool, Str
 fn refuse_regrant(member: Option<&ShareMember>) -> Result<bool, String> {
     match member.map(|member| member.state) {
         Some(ShareMemberState::Revoked) => Ok(false),
-        Some(ShareMemberState::Active) => Err("share.grant.regrant".into()),
-        None => Err("share.grant.regrant".into()),
+        Some(ShareMemberState::Active) | None => Err("share.grant.regrant".into()),
     }
 }
 
