@@ -23,36 +23,31 @@ pub(super) fn run(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(),
 }
 
 fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
-    Ok(match action {
-        AdminBackupCommand::Init(a) => CloudCommand::BackupV2 {
-            action: ByteBackupCommand::Init(a),
-        },
-        AdminBackupCommand::Resume(a) => CloudCommand::BackupV2 {
-            action: ByteBackupCommand::Resume(a),
-        },
-        AdminBackupCommand::Close(a) => CloudCommand::BackupV2 {
-            action: ByteBackupCommand::Close(a),
-        },
-        AdminBackupCommand::InspectDependencies(a) => CloudCommand::BackupV2 {
-            action: ByteBackupCommand::InspectDependencies(a),
-        },
-        AdminBackupCommand::RecoverCredentialsHome { args, existing_dev } => {
-            if existing_dev {
-                if args.env != "dev" {
-                    return Err("--existing-dev requires --env dev".into());
-                }
-                CloudCommand::RecoverDevCredentialsHome {
-                    into: args.into,
-                    expected_user_hash: args.expected_user_hash,
-                    identity_seed_stdin: args.identity_seed_stdin,
-                    json: args.json,
-                }
-            } else {
-                CloudCommand::RecoverCredentialsHome(args)
+    use AdminBackupCommand::{
+        Close, Init, InspectDependencies, PrepareRecoveryHome, RecoverCredentialsHome, Resume,
+    };
+    let action = match action {
+        Init(a) => ByteBackupCommand::Init(a),
+        Resume(a) => ByteBackupCommand::Resume(a),
+        Close(a) => ByteBackupCommand::Close(a),
+        InspectDependencies(a) => ByteBackupCommand::InspectDependencies(a),
+        RecoverCredentialsHome { args, existing_dev } => {
+            if !existing_dev {
+                return Ok(CloudCommand::RecoverCredentialsHome(args));
             }
+            if args.env != "dev" {
+                return Err("--existing-dev requires --env dev".into());
+            }
+            return Ok(CloudCommand::RecoverDevCredentialsHome {
+                into: args.into,
+                expected_user_hash: args.expected_user_hash,
+                identity_seed_stdin: args.identity_seed_stdin,
+                json: args.json,
+            });
         }
-        AdminBackupCommand::PrepareRecoveryHome(a) => CloudCommand::PrepareRecoveryHome(a),
-    })
+        PrepareRecoveryHome(a) => return Ok(CloudCommand::PrepareRecoveryHome(a)),
+    };
+    Ok(CloudCommand::BackupV2 { action })
 }
 
 fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {

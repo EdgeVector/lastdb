@@ -46,9 +46,10 @@ pub(crate) fn get_query_body(
     key_hash: &str,
     key_range: Option<&str>,
 ) -> serde_json::Value {
-    let filter = match key_range.filter(|s| !s.is_empty()) {
-        Some(range) => serde_json::json!({ "HashRangeKey": { "hash": key_hash, "range": range } }),
-        None => serde_json::json!({ "HashKey": key_hash }),
+    let filter = if let Some(range) = key_range.filter(|s| !s.is_empty()) {
+        serde_json::json!({ "HashRangeKey": { "hash": key_hash, "range": range } })
+    } else {
+        serde_json::json!({ "HashKey": key_hash })
     };
     serde_json::json!({ "schema_name": schema, "filter": filter })
 }

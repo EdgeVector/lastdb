@@ -69,14 +69,14 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>,
             })?;
             let s = normalize_app_manifest_schema(app_id, raw)
                 .map_err(|e| format!("manifest schema '{label}' cannot be declared: {e}"))?;
-            s.identity_hash
-                .is_some()
-                .then_some(SchemaIdentity {
-                    name: s.name,
-                    descriptive_name: s.descriptive_name,
-                    identity_hash: s.identity_hash,
-                })
-                .ok_or_else(|| format!("manifest schema '{label}' has no identity hash"))
+            if s.identity_hash.is_none() {
+                return Err(format!("manifest schema '{label}' has no identity hash"));
+            }
+            Ok(SchemaIdentity {
+                name: s.name.clone(),
+                descriptive_name: s.descriptive_name.clone(),
+                identity_hash: s.identity_hash.clone(),
+            })
         })
         .collect()
 }

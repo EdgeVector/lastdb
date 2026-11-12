@@ -115,20 +115,19 @@ pub mod endpoints {
                 .ok()
                 .filter(|v| !v.is_empty())
                 .or_else(|| std::env::var("EXEMEM_ENV").ok());
-            match raw.as_deref() {
-                Some(raw) => Some(Self::try_from_str(raw).unwrap_or_else(|_| {
+            if let Some(raw) = raw.as_deref() {
+                Some(Self::try_from_str(raw).unwrap_or_else(|_| {
                     tracing::error!(
                         "ENVIRONMENT/EXEMEM_ENV has unknown value '{raw}', defaulting to dev"
                     );
                     Self::Dev
-                })),
-                None => {
-                    tracing::info!(
-                        "ENVIRONMENT/EXEMEM_ENV not set; using pinned home env or build default ({})",
-                        Self::build_default()
-                    );
-                    None
-                }
+                }))
+            } else {
+                tracing::info!(
+                    "ENVIRONMENT/EXEMEM_ENV not set; using pinned home env or build default ({})",
+                    Self::build_default()
+                );
+                None
             }
         }
     }

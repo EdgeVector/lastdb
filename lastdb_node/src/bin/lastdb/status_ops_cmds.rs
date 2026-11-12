@@ -15,13 +15,14 @@ impl DatabaseTarget {
     }
 
     pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        match self.selector.as_deref() {
-            Some(sel) => Cow::Owned(format!(
+        if let Some(sel) = self.selector.as_deref() {
+            Cow::Owned(format!(
                 "{DATABASE_SCOPE_PREFIX}{sel}{}",
                 path.strip_prefix("/api")
                     .expect("database path starts with /api")
-            )),
-            None => Cow::Borrowed(path),
+            ))
+        } else {
+            Cow::Borrowed(path)
         }
     }
 
@@ -119,10 +120,10 @@ pub(super) fn status(
             .and_then(|s| s.pointer("/build/version"))
             .and_then(serde_json::Value::as_str);
         let cli_build = lastdb_node::version::build_version();
-        let daemon_status = match &health {
-            Ok(()) => "serving".to_string(),
-            Err(e) => format!("lastdbd: not reachable — {e}"),
-        };
+        let daemon_status = health.as_ref().map_or_else(
+            |e| format!("lastdbd: not reachable — {e}"),
+            |()| "serving".to_string(),
+        );
         let payload = serde_json::json!({
             "home": home.display().to_string(),
             "socket": socket.display().to_string(),
@@ -143,9 +144,10 @@ pub(super) fn status(
                 .map_err(|e| format!("serialize status json: {e}"))?
         );
     } else {
-        match &health {
-            Ok(()) => println!("lastdbd: serving"),
-            Err(e) => println!("lastdbd: not reachable — {e}"),
+        if let Err(e) = &health {
+            println!("lastdbd: not reachable — {e}");
+        } else {
+            println!("lastdbd: serving");
         }
         println!("Home: {}", home.display());
         println!("Socket: {}", socket.display());

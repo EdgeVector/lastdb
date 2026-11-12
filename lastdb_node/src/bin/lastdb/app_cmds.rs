@@ -91,64 +91,59 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
                 prepare,
             },
         ),
-        AppCommand::Catalog(action) => match action {
-            AppCatalogCommand::List {
-                app_id,
-                catalog_entry,
+        AppCommand::Catalog(action) => {
+            let src = |channel, index, trust_key| RegistrySource {
                 channel,
                 index,
                 trust_key,
-                json,
-            } => app_list_command(
-                &home,
-                app_id.as_deref(),
-                catalog_entry,
-                &RegistrySource {
+            };
+            match action {
+                AppCatalogCommand::List {
+                    app_id,
+                    catalog_entry,
                     channel,
                     index,
                     trust_key,
-                },
-                json,
-            ),
-            AppCatalogCommand::Install {
-                accept_install,
-                inactive,
-                app_ids,
-                channel,
-                index,
-                trust_key,
-                json: _,
-            } => managed::install(
-                &home,
-                accept_install,
-                inactive,
-                &app_ids,
-                &RegistrySource {
+                    json,
+                } => app_list_command(
+                    &home,
+                    app_id.as_deref(),
+                    catalog_entry,
+                    &src(channel, index, trust_key),
+                    json,
+                ),
+                AppCatalogCommand::Install {
+                    accept_install,
+                    inactive,
+                    app_ids,
                     channel,
                     index,
                     trust_key,
-                },
-            ),
-            AppCatalogCommand::Upgrade {
-                all,
-                accept_install,
-                app_ids,
-                channel,
-                index,
-                trust_key,
-                json: _,
-            } => managed::upgrade(
-                &home,
-                all,
-                accept_install,
-                app_ids,
-                &RegistrySource {
+                    json: _,
+                } => managed::install(
+                    &home,
+                    accept_install,
+                    inactive,
+                    &app_ids,
+                    &src(channel, index, trust_key),
+                ),
+                AppCatalogCommand::Upgrade {
+                    all,
+                    accept_install,
+                    app_ids,
                     channel,
                     index,
                     trust_key,
-                },
-            ),
-        },
+                    json: _,
+                } => managed::upgrade(
+                    &home,
+                    all,
+                    accept_install,
+                    app_ids,
+                    &src(channel, index, trust_key),
+                ),
+            }
+        }
     }
 }
 
@@ -159,12 +154,8 @@ fn app_list_command(
     src: &RegistrySource,
     json: bool,
 ) -> Result<(), String> {
-    let (ch, idx, tk) = (
-        src.channel.as_deref(),
-        src.index.as_deref(),
-        src.trust_key.as_deref(),
-    );
-    let list = public_list(home, ch, idx, tk)?;
+    let ch = src.channel.as_deref();
+    let list = public_list(home, ch, src.index.as_deref(), src.trust_key.as_deref())?;
     let Some(app_id) = app_id else {
         if json {
             print_pretty_json(&list);
@@ -194,8 +185,8 @@ fn app_list_command(
         return Ok(());
     }
     let channel = ch.unwrap_or(registry::DEFAULT_CHANNEL);
-    let location = registry::IndexLocation::resolve(idx)?;
-    let (trust, trust_source) = registry::resolve_list_trust_key(tk)?;
+    let location = registry::IndexLocation::resolve(src.index.as_deref())?;
+    let (trust, trust_source) = registry::resolve_list_trust_key(src.trust_key.as_deref())?;
     let (node, node_src, _) = registry::running_node(&lastdb_node::lastdb_uds::uds::socket_path(
         &home.join("data"),
     ));

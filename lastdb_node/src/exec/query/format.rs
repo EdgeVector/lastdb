@@ -132,8 +132,10 @@ fn page_payload(
     next_cursor: Option<QueryCursor>,
     key_form: Option<&'static str>,
 ) -> Value {
+    let returned_count = page.len();
+    let next_cursor = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     serde_json::json!({
-        "results": page, "total_count": total_count, "returned_count": page.len(),
+        "results": Value::Array(page), "total_count": total_count, "returned_count": returned_count,
         "limit": limit, "offset": offset, "has_more": has_more,
         "next_cursor": next_cursor, "key_form": key_form,
     })
@@ -336,7 +338,7 @@ pub(super) fn sort_rows(
             Some(cmp) => match cmp.compare(ar, br) {
                 Ok(order) => order,
                 Err(detail) => {
-                    error.get_or_insert_with(|| SchemaError::InvalidData(detail));
+                    error.get_or_insert(SchemaError::InvalidData(detail));
                     return Ordering::Equal;
                 }
             },

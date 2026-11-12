@@ -91,7 +91,7 @@ fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, 
         return Ok(None);
     }
     if buf.pop() != Some(b'\n') {
-        return Err(if buf.len() >= max + 1 {
+        return Err(if buf.len() > max {
             UdsHttpError::HeadersTooLarge
         } else {
             UdsHttpError::BadRequest

@@ -121,7 +121,9 @@ fn upgrade_one(
         host::verify_or_restore(&root, home, &installed(app)?)?;
         return Ok(None);
     }
-    source.index = source.index.or_else(|| Some(current.index.clone()));
+    if source.index.is_none() {
+        source.index = Some(current.index);
+    }
     let key = (
         source.index.as_deref().unwrap_or_default().to_owned(),
         channel.to_owned(),

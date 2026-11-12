@@ -55,17 +55,14 @@ fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), 
     } else {
         parse_json_response(response, "mutation")?;
     }
-    output
-        .write_all(body.as_bytes())
-        .and_then(|()| {
-            if body.ends_with('\n') {
-                Ok(())
-            } else {
-                output.write_all(b"\n")
-            }
-        })
-        .and_then(|()| output.flush())
-        .map_err(|e| format!("write mutation receipt: {e}"))
+    (|| {
+        output.write_all(body.as_bytes())?;
+        if !body.ends_with('\n') {
+            output.write_all(b"\n")?;
+        }
+        output.flush()
+    })()
+    .map_err(|e| format!("write mutation receipt: {e}"))
 }
 
 fn submit_input_file(
@@ -83,16 +80,15 @@ fn submit_input_file(
         return Err("a local file reference cannot be an inline file".into());
     }
     let source = base.join(&file.source);
-    let thumb = match &file.thumbnail {
-        Some(t) => {
-            let p = base.join(&t.source);
-            let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-            serde_json::json!({
-                "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
-                "name": t.name, "media_type": t.media_type,
-            })
-        }
-        None => serde_json::Value::Null,
+    let thumb = if let Some(t) = &file.thumbnail {
+        let p = base.join(&t.source);
+        let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
+        serde_json::json!({
+            "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
+            "name": t.name, "media_type": t.media_type,
+        })
+    } else {
+        serde_json::Value::Null
     };
     let mut metadata = serde_json::json!({
         "mutation": body, "name": file.name, "media_type": file.media_type,
@@ -166,7 +162,13 @@ pub(super) fn mutate_command(
     };
     let id = (target.is_explicit() && route == "/api/mutation")
         .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
-    let with_id = |err: String| id.map_or_else(|| err, |id| format!("{err} (mutation ID {id})"));
+    let with_id = |err: String| {
+        if let Some(id) = id {
+            format!("{err} (mutation ID {id})")
+        } else {
+            err
+        }
+    };
     let timeout = if durable {
         durable_mutation_client_timeout()
     } else {
