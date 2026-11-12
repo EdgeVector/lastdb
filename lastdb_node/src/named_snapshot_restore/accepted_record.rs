@@ -1,9 +1,8 @@
 //! Record, file, inline, and contribution changes inside one accepted body.
 //!
-//! A file clear stays on kind `record` or `inline`. Kind `file` is a local
-//! marker. A sealed row has no snapshot address and is refused. An inline
-//! put together with that marker is refused. The bytes of a local marker
-//! stay in the sender's custody.
+//! A file clear stays on kind `record` or `inline`. Kind `file` names an
+//! uploaded object. A content hash without that object is not a present
+//! file. An inline put together with an uploaded file is refused.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -12,10 +11,15 @@ use fold_db::schema::types::mutation::ContributionAdmission;
 use fold_db::schema::types::{KeyValue, Mutation, MutationType};
 use serde_json::Value;
 
-use super::payload::{self, AcceptedBody, FileSection, RecordChange, RecordFile};
+use super::payload::{
+    self, AcceptedBody, FileFetch, FileObject, FileSection, RecordChange, RecordFile,
+};
 use super::RestoreError;
 
-pub(super) fn record_change(body: &AcceptedBody) -> Result<RecordChange, RestoreError> {
+pub(super) fn record_change(
+    body: &AcceptedBody,
+    database_id: &str,
+) -> Result<RecordChange, RestoreError> {
     if body.definition.is_some() || !payload::qualified(&body.schema) {
         return Err(RestoreError::Entry("snapshot entry"));
     }
@@ -32,7 +36,7 @@ pub(super) fn record_change(body: &AcceptedBody) -> Result<RecordChange, Restore
         .clone()
         .ok_or(RestoreError::Entry("snapshot entry"))?;
     let mutation_type = record_action(&body.action)?;
-    let file = record_file(body)?;
+    let file = record_file(body, database_id)?;
     let inline = record_inline(body, &file)?;
     let contribution = record_contribution(body)?;
     if matches!(mutation_type, MutationType::Delete | MutationType::Purge)
@@ -57,7 +61,7 @@ fn record_action(action: &str) -> Result<MutationType, RestoreError> {
     }
 }
 
-fn record_file(body: &AcceptedBody) -> Result<RecordFile, RestoreError> {
+fn record_file(body: &AcceptedBody, database_id: &str) -> Result<RecordFile, RestoreError> {
     let Some(section) = &body.file else {
         return if body.kind == "file" {
             Err(RestoreError::Entry("snapshot entry"))
@@ -65,18 +69,16 @@ fn record_file(body: &AcceptedBody) -> Result<RecordFile, RestoreError> {
             Ok(RecordFile::Keep)
         };
     };
-    if section.sealed_sha256.is_some() {
-        return Err(RestoreError::File("snapshot file"));
-    }
     if section.cleared {
         cleared_file(body, section)
     } else {
-        stored_file(body, section)
+        uploaded_file(body, section, database_id)
     }
 }
 
 fn cleared_file(body: &AcceptedBody, section: &FileSection) -> Result<RecordFile, RestoreError> {
     if body.kind == "file"
+        || section.object.is_some()
         || section.content_sha256.is_some()
         || section.size.is_some()
         || section.name.is_some()
@@ -88,10 +90,25 @@ fn cleared_file(body: &AcceptedBody, section: &FileSection) -> Result<RecordFile
     }
 }
 
-fn stored_file(body: &AcceptedBody, section: &FileSection) -> Result<RecordFile, RestoreError> {
+fn uploaded_file(
+    body: &AcceptedBody,
+    section: &FileSection,
+    database_id: &str,
+) -> Result<RecordFile, RestoreError> {
     if matches!(body.kind.as_str(), "record" | "inline") {
         return Err(RestoreError::Entry("snapshot entry"));
     }
+    let marker = file_marker(section)?;
+    let Some(object) = section.object.clone() else {
+        return Err(RestoreError::File("snapshot file"));
+    };
+    if !same_database(&object, database_id) {
+        return Err(RestoreError::File("snapshot file"));
+    }
+    Ok(RecordFile::Fetch(FileFetch { marker, object }))
+}
+
+fn file_marker(section: &FileSection) -> Result<FileMarker, RestoreError> {
     let sha256 = section
         .content_sha256
         .clone()
@@ -103,10 +120,16 @@ fn stored_file(body: &AcceptedBody, section: &FileSection) -> Result<RecordFile,
         sha256,
     };
     if marker.has_valid_hash() {
-        Ok(RecordFile::Marker(marker))
+        Ok(marker)
     } else {
         Err(RestoreError::Entry("snapshot file"))
     }
+}
+
+fn same_database(object: &FileObject, database_id: &str) -> bool {
+    object.path.database.as_str() == database_id
+        && object.path.validate().is_ok()
+        && object.scope.validate().is_ok()
 }
 
 fn record_inline(
@@ -130,7 +153,7 @@ fn record_inline(
             Err(RestoreError::Entry("snapshot file"))
         };
     }
-    if matches!(file, RecordFile::Marker(_)) {
+    if matches!(file, RecordFile::Fetch(_)) {
         return Err(RestoreError::Entry("snapshot entry"));
     }
     let marker = section

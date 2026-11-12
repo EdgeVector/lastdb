@@ -60,7 +60,7 @@ pub(super) fn decode_entry(
     Ok(Prepared {
         id: body.mutation_id.clone(),
         hash: bytes_sha256(&opened).as_str().to_owned(),
-        change: payload::classify(&body)?,
+        change: payload::classify(&body, database_id)?,
     })
 }
 

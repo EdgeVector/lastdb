@@ -9,11 +9,14 @@
 //!
 //! Each entry is a `log_envelope` around one accepted body. That body is a
 //! schema put, a schema drop, a record, a file, an inline file, or a
-//! contribution. Schema put and drop use the opened store's schema manager
-//! and keep the captured schema id. The content key is the owned sibling
-//! key, or the key from the verified registered-share invitation. This
-//! module does not call `accept`, does not write the registry, and does not
-//! open the personal store.
+//! contribution. An external file is the uploaded envelope named by
+//! `file.object`. Install opens that envelope with the same binding, checks
+//! the marker, and seals it with `seal_record_file`. A marker that requires
+//! bytes and has no object is refused. Schema put and drop use the opened
+//! store's schema manager and keep the captured schema id. The content key
+//! is the owned sibling key, or the key from the verified registered-share
+//! invitation. This module does not call `accept`, does not write the
+//! registry, and does not open the personal store.
 
 mod accepted_record;
 mod apply;
@@ -24,7 +27,9 @@ mod payload;
 mod types;
 mod wire;
 
-pub use payload::{parse_accepted, AcceptedBody, ContributionSection, FileSection, InlineSection};
+pub use payload::{
+    parse_accepted, AcceptedBody, ContributionSection, FileObject, FileSection, InlineSection,
+};
 pub use types::{
     IncorporatedFrom, InstalledPrefix, NoSnapshotFiles, RestoreError, SnapshotEntry,
     SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest, SnapshotObject,

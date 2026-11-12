@@ -2,21 +2,26 @@
 //!
 //! Schema put and drop use the open store's schema manager. A record replace,
 //! delete, or purge uses the revision already stored by the preceding entry.
+//! An uploaded file is fetched, opened, checked, and sealed before that write.
 
 use std::path::Path;
 
 use fold_db::fold_db_core::FoldDB;
+use fold_db::record_value::FileMarker;
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{
     CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query, SchemaError,
 };
+use sha2::{Digest, Sha256};
 
 use super::chain::Link;
 use super::decode;
 use super::journal::{self, Journal};
-use super::payload::{self, RecordFile, SchemaChange};
-use super::types::SnapshotEntry;
+use super::payload::{self, FileFetch, RecordFile, SchemaChange};
+use super::types::{SnapshotEntry, SnapshotFileRequest};
 use super::RestoreError;
+
+const HEX: &[u8; 16] = b"0123456789abcdef";
 
 pub(super) async fn replay(
     store: &FoldDB,
@@ -27,14 +32,12 @@ pub(super) async fn replay(
     journal: &mut Journal,
     files: &mut (dyn super::SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
-    // The accepted body does not name a sealed-row blob. E still passes this source.
-    let _ = files;
     while journal.applied_refs.len() < chain.len() {
         let index = journal.applied_refs.len();
         let link = &chain[index];
         pin_object(home, journal, link)?;
         if !object_closed(journal, link) {
-            drive_object(store, key, home, database_id, link, journal).await?;
+            drive_object(store, key, home, database_id, link, journal, files).await?;
         }
         journal
             .applied_refs
@@ -55,6 +58,7 @@ async fn drive_object(
     database_id: &str,
     link: &Link,
     journal: &mut Journal,
+    files: &mut (dyn super::SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
     loop {
         if object_closed(journal, link) {
@@ -70,7 +74,16 @@ async fn drive_object(
             continue;
         }
         let entry = journal.next_entry as usize;
-        apply_one(store, key, home, database_id, journal, &entries[entry]).await?;
+        apply_one(
+            store,
+            key,
+            home,
+            database_id,
+            journal,
+            &entries[entry],
+            files,
+        )
+        .await?;
         journal.next_entry += 1;
         journal.attempt = None;
         if journal.next_entry as usize == entries.len() {
@@ -87,6 +100,7 @@ async fn apply_one(
     database_id: &str,
     journal: &mut Journal,
     entry: &SnapshotEntry,
+    files: &mut (dyn super::SnapshotFileSource + Send),
 ) -> Result<(), RestoreError> {
     let prepared = decode::decode_entry(key, database_id, entry)?;
     let hash = prepared.hash.clone();
@@ -106,13 +120,96 @@ async fn apply_one(
     match prepared.change {
         payload::Change::Schema(change) => apply_schema(store, change).await?,
         payload::Change::Record(mut change) => {
-            attach(&mut change.mutation, change.file, change.inline);
+            stage_file(store, key, database_id, entry, &mut change, files).await?;
             if bind_expected(store, &mut change.mutation, resumed).await? {
                 write_record(store, home, journal, change.mutation, resumed).await?;
             }
         }
     }
     journal::write_marker(home, database_id, &prepared.id, &hash)
+}
+
+async fn stage_file(
+    store: &FoldDB,
+    key: &crate::log_envelope::DatabaseContentKey,
+    database_id: &str,
+    entry: &SnapshotEntry,
+    change: &mut payload::RecordChange,
+    files: &mut (dyn super::SnapshotFileSource + Send),
+) -> Result<(), RestoreError> {
+    match &change.file {
+        RecordFile::Keep => {}
+        RecordFile::Clear => change.mutation.file_write = Some(FileWrite::Clear),
+        RecordFile::Fetch(fetch) => {
+            let write = load_file(store, key, database_id, entry, fetch, files).await?;
+            attach_put(&mut change.mutation, write)?;
+        }
+    }
+    change.mutation.inline_write = change.inline.take();
+    Ok(())
+}
+
+async fn load_file(
+    store: &FoldDB,
+    key: &crate::log_envelope::DatabaseContentKey,
+    database_id: &str,
+    entry: &SnapshotEntry,
+    fetch: &FileFetch,
+    files: &mut (dyn super::SnapshotFileSource + Send),
+) -> Result<FileWrite, RestoreError> {
+    let sealed = files
+        .read_blob(&SnapshotFileRequest {
+            database_id: database_id.to_owned(),
+            scope: fetch.object.scope.clone(),
+            path: fetch.object.path.clone(),
+        })
+        .await?;
+    let plain = decode::open_sealed(
+        key,
+        database_id,
+        entry,
+        &sealed,
+        RestoreError::File("snapshot file"),
+    )?;
+    if !plain_matches(&plain, &fetch.marker) {
+        return Err(RestoreError::File("snapshot file"));
+    }
+    let write = store
+        .db_ops()
+        .records()
+        .seal_record_file(
+            &plain,
+            fetch.marker.name.clone(),
+            fetch.marker.media_type.clone(),
+        )
+        .map_err(|_| RestoreError::Apply("snapshot file"))?;
+    match &write {
+        FileWrite::Put(sealed) if sealed.marker() == &fetch.marker => Ok(write),
+        _ => Err(RestoreError::File("snapshot file")),
+    }
+}
+
+fn attach_put(mutation: &mut Mutation, write: FileWrite) -> Result<(), RestoreError> {
+    let FileWrite::Put(sealed) = &write else {
+        return Err(RestoreError::File("snapshot file"));
+    };
+    mutation.file = Some(sealed.marker().clone());
+    mutation.file_write = Some(write);
+    Ok(())
+}
+
+fn plain_matches(bytes: &[u8], marker: &FileMarker) -> bool {
+    marker.size_bytes == bytes.len() as u64 && sha256_hex(bytes) == marker.sha256
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        hex.push(HEX[(byte >> 4) as usize] as char);
+        hex.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    hex
 }
 
 async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), RestoreError> {
@@ -128,19 +225,6 @@ async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), Restor
             .map(|_| ())
             .map_err(|_| RestoreError::Apply("snapshot schema")),
     }
-}
-
-fn attach(
-    mutation: &mut Mutation,
-    file: RecordFile,
-    inline: Option<fold_db::record_value::InlineWrite>,
-) {
-    match file {
-        RecordFile::Keep => {}
-        RecordFile::Clear => mutation.file_write = Some(FileWrite::Clear),
-        RecordFile::Marker(marker) => mutation.file = Some(marker),
-    }
-    mutation.inline_write = inline;
 }
 
 async fn bind_expected(
