@@ -276,13 +276,17 @@ fn run(cli: Cli) -> Result<(), String> {
             Command::Get { .. }
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
-                | Command::Share(ShareCommand::Invite { .. } | ShareCommand::Accept { .. })
-                | Command::Share(ShareCommand::Contributors(
-                    ShareContributorCommand::Grant { .. } | ShareContributorCommand::Revoke { .. },
-                ))
-                | Command::Share(ShareCommand::Files(
-                    ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
-                ))
+                | Command::Share(
+                    ShareCommand::Invite { .. }
+                        | ShareCommand::Accept { .. }
+                        | ShareCommand::Contributors(
+                            ShareContributorCommand::Grant { .. }
+                                | ShareContributorCommand::Revoke { .. },
+                        )
+                        | ShareCommand::Files(
+                            ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
+                        ),
+                )
         )
     {
         return Err("--db requires a record command or a database-scoped share command".into());
