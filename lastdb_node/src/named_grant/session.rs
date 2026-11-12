@@ -38,7 +38,15 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
         .ok_or("share publisher has no saved account connection")?;
     let (environment, guest_environment, profile) = realms(&connection.environment)?;
     let endpoint = exemem_api_url_for(profile);
-    if saved.api_url != endpoint || connection.endpoint != endpoint || saved.api_key.is_empty() {
+    if saved.api_url != endpoint {
+        return Err("saved credentials do not match the share publisher and environment".into());
+    }
+    let backup = ByteBackupClient::from_auth(AuthClient::new(
+        endpoint.to_owned(),
+        saved.api_key.as_str().to_owned(),
+    ))
+    .map_err(|_| "share publisher credentials were refused")?;
+    if connection.endpoint != backup.canonical_endpoint() {
         return Err("saved credentials do not match the share publisher and environment".into());
     }
     let seed = read_seed(home)?;
@@ -50,7 +58,7 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
     if connection.account_id != account {
         return Err("saved credentials do not match the share publisher and environment".into());
     }
-    let scope = read_scope(&saved.api_url, saved.api_key.as_str(), &account).await?;
+    let scope = read_scope(&backup, &account).await?;
     if scope.account_id != account {
         return Err("share.grant.identity".into());
     }
@@ -89,10 +97,8 @@ fn account_id(signer: &Ed25519KeyPair) -> Result<AccountId, String> {
     AccountId::try_from(hash).map_err(|_| "invalid share publisher account".into())
 }
 
-async fn read_scope(url: &str, api_key: &str, account: &AccountId) -> Result<CloudScope, String> {
-    let client = ByteBackupClient::from_auth(AuthClient::new(url.to_owned(), api_key.to_owned()))
-        .map_err(|_| "share publisher credentials were refused")?;
-    let response = client
+async fn read_scope(backup: &ByteBackupClient, account: &AccountId) -> Result<CloudScope, String> {
+    let response = backup
         .context(&ContextReadRequest {
             version: Version::V2,
             account_id: account.clone(),
