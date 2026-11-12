@@ -82,6 +82,14 @@ pub const MUTATION_LOG_SNAPSHOT_PATH: &str = "/api/cloud/backups/v2/mutation-log
 /// Read published snapshot bytes by `snapshot_ref`.
 pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
+/// Read a signed delivery page.
+pub const MUTATION_LOG_DELIVERY_LOG_PATH: &str = "/api/cloud/backups/v2/mutation-log/delivery/log";
+/// Read a signed snapshot manifest or part.
+pub const MUTATION_LOG_DELIVERY_SNAPSHOT_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/delivery/snapshot";
+/// Read one signed ciphertext range of a record file.
+pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/delivery/object";
 /// Advance the trim floor.
 pub const MUTATION_LOG_TRIM_PATH: &str = "/api/cloud/backups/v2/mutation-log/trim";
 /// Create one fresh signed database. The success body is [`NativeDatabase`].
@@ -106,6 +114,9 @@ pub fn is_mutation_log_path(path: &str) -> bool {
             | MUTATION_LOG_ACK_PATH
             | MUTATION_LOG_SNAPSHOT_PATH
             | MUTATION_LOG_SNAPSHOT_BYTES_PATH
+            | MUTATION_LOG_DELIVERY_LOG_PATH
+            | MUTATION_LOG_DELIVERY_SNAPSHOT_PATH
+            | MUTATION_LOG_DELIVERY_OBJECT_PATH
             | MUTATION_LOG_TRIM_PATH
     )
 }
