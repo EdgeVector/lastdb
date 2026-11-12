@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use fold_db::access::AccessContext;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
+use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema};
 use fold_db::schema::ManifestRetention;
 use schema_types::FieldValueType;
 use serde::Deserialize;

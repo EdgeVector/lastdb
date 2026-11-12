@@ -153,6 +153,7 @@ impl SchemaStore {
             floors.note_written(&name, &keys);
             Ok(())
         })
+        .map_err(SchemaError::from)
     }
 
     pub(in crate::db_operations) async fn require_retention_format(

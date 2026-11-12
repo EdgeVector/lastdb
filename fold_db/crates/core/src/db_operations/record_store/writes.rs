@@ -6,7 +6,7 @@ use crate::error::FoldDbError;
 use crate::schema::types::field::FilterUtils;
 use crate::schema::types::{FileWrite, KeyValue, Schema, SchemaError};
 use crate::storage::format::records::{
-    self as format, release_families, RecordAddress, ReleaseKind,
+    self as format, release_families, RecordAddress, ReleaseFamily, ReleaseKind,
 };
 use chrono::Utc;
 use futures::FutureExt;
@@ -161,7 +161,8 @@ impl RecordStore {
         schema: &Schema,
     ) -> Result<SchemaRelease, SchemaError> {
         let mut out = SchemaRelease::default();
-        for family in release_families(schema)? {
+        let families: Vec<ReleaseFamily> = release_families(schema)?;
+        for family in families {
             let (start, end) = exact_prefix_bounds(family.prefix());
             let mut walk = RangeWalk::new(
                 start.as_bytes(),

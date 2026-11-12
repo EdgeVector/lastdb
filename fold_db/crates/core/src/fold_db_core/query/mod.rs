@@ -143,8 +143,8 @@ impl QueryExecutor {
         let filter = cmp.canonical_filter(filter)?.ok_or_else(|| {
             SchemaError::InvalidData("LastDB requires a Hash or HashRange key selector".into())
         })?;
-        cmp.run(self.select_rows(schema, &filter, cmp.canonical_window(window)?))
-            .await
+        let window = cmp.canonical_window(window)?;
+        cmp.run(self.select_rows(schema, &filter, window)).await
     }
 
     async fn select_rows(

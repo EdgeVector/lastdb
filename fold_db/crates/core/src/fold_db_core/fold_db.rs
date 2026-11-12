@@ -148,14 +148,9 @@ impl FoldDB {
                 crate::schema::require_logical_layout(&schema.schema_type)?;
                 let key_definition = schema.require_record_keys()?.primary.clone();
                 let records = self.db_ops().records();
+                let ctx = records.key_comparison_context(&schema)?;
                 let (pairs, next_cursor, has_more) = records
-                    .list_record_keys(
-                        &schema,
-                        &records.key_comparison_context(&schema)?,
-                        limit,
-                        cursor,
-                        hash_filter,
-                    )
+                    .list_record_keys(&schema, &ctx, limit, cursor, hash_filter)
                     .await?;
                 Ok(SchemaRecordKeysReport {
                     schema: requested.to_string(),
@@ -210,6 +205,7 @@ impl FoldDB {
                     &marker.sha256,
                     marker.size_bytes,
                 )
+                .map_err(FoldDbError::from)
             })
             .await
     }
