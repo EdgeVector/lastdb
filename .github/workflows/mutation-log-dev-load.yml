@@ -11,13 +11,13 @@ on:
   workflow_dispatch:
     inputs:
       confirm_deployed:
-        description: "Type yes only after exemem-infra #778 is deployed to DEV"
+        description: "Type yes after the ExeMem revision needed for this operation is deployed to DEV"
         required: true
         type: string
       level:
-        description: "Writers, the trim case, or all of them under one cap"
+        description: "Writer load, trim, or owner-only private recovery"
         type: choice
-        options: ["all", "5", "20", "100", "trim"]
+        options: ["all", "5", "20", "100", "trim", "private"]
         default: "all"
       duration:
         description: "preliminary finishes 10 appends at 5, 20, and 100 writers. scale is the 3-minute 100-writer clock."
