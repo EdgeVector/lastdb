@@ -276,12 +276,21 @@ fn run(cli: Cli) -> Result<(), String> {
             Command::Get { .. }
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
-                | Command::Share(ShareCommand::Files(
-                    ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
-                ))
+                | Command::Share(
+                    ShareCommand::Files(
+                        ShareFilesCommand::List(_) | ShareFilesCommand::Save { .. },
+                    ) | ShareCommand::Invite { .. }
+                        | ShareCommand::Contributors(
+                            ShareContributorCommand::Grant { .. }
+                                | ShareContributorCommand::Revoke { .. }
+                                | ShareContributorCommand::List,
+                        )
+                )
         )
     {
-        return Err("--db requires get, get-keys, mutate, or Files list/save".into());
+        return Err(
+            "--db requires get, get-keys, mutate, Files list/save, or a named share command".into(),
+        );
     }
     match command {
         Command::Status { json, timeout } => match status(cli.data_dir, json, timeout)? {

@@ -154,6 +154,20 @@ fn named_grant(selector: &str, args: GrantOptions<'_>) -> Result<(), String> {
             regrant: args.regrant,
         },
     )?;
+    if ack.local {
+        let receipt = json!({
+            "database_id": ack.database_id,
+            "revision": ack.revision.to_string(),
+            "node_key": contact.identity_public_key().as_str(),
+            "status": "granted",
+            "local": true,
+        });
+        let bytes =
+            serde_json::to_vec(&receipt).map_err(|_| "cannot encode local contributor grant")?;
+        write_file(args.out, &bytes)?;
+        print_member("grant", Some(args.out), &ack);
+        return Ok(());
+    }
     let sealed = seal(
         args.identity_home,
         &ack,
@@ -235,6 +249,13 @@ fn legacy_revoke(
     let writer = Digest::try_from(recipient_key).map_err(|_| "invalid recipient public key")?;
     share_contribution::revoke(home, identity_home, &writer, expected_version)?;
     println!("{}", json!({"revoked": true}));
+    Ok(())
+}
+
+pub(super) fn list(identity_home: &Path, db: Option<&str>) -> Result<(), String> {
+    let selector = db.ok_or("contributor list requires --db")?;
+    let value = named_grant::list(identity_home, selector)?;
+    println!("{value}");
     Ok(())
 }
 

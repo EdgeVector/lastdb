@@ -54,6 +54,7 @@ pub(super) fn unchanged(
         database_id: database_id.to_owned(),
         revision: document.revision.get(),
         unchanged: true,
+        local: false,
     }))
 }
 

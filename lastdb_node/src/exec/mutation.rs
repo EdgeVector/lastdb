@@ -77,6 +77,7 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     let requested = parsed.mutation.schema_name.clone();
     let canonical = resolve_schema_name(host, &requested)?
         .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
+    refuse_private_namespace(&canonical)?;
     validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields).await?;
     let payload_bytes: usize = parsed
         .mutation
@@ -142,6 +143,7 @@ async fn execute_mutations_batch(
         let requested = parsed.mutation.schema_name.clone();
         let canonical = resolve_schema_name(host, &requested)?
             .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
+        refuse_private_namespace(&canonical)?;
         validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields)
             .await?;
         parsed.mutation.schema_name = canonical;
@@ -164,6 +166,25 @@ async fn execute_mutations_batch(
             "convergence_pending": !drained,
         }),
     ))
+}
+
+/// A declared app-private schema still cannot be stored on a shareable database.
+fn refuse_private_namespace(schema_name: &str) -> Result<(), HostError> {
+    let Some(binding) = crate::host::owned::active_binding() else {
+        return Ok(());
+    };
+    let namespace = schema_name
+        .split_once('/')
+        .map(|(namespace, _)| namespace)
+        .unwrap_or(schema_name);
+    match database_policy::admit_namespace(Some(&binding), namespace) {
+        Ok(database_policy::NamespaceClass::Official) => Ok(()),
+        Ok(database_policy::NamespaceClass::AppPrivate) => Err(HostError::new(
+            403,
+            "app-private namespace cannot enter a shareable database",
+        )),
+        Err(error) => Err(HostError::new(403, error.as_str())),
+    }
 }
 
 fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {

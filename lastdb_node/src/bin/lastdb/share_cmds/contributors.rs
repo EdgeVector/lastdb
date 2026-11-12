@@ -42,6 +42,7 @@ pub(super) fn run(
             recipient_key,
             expected_version,
         ),
+        ShareContributorCommand::List => named::list(identity_home, db),
         ShareContributorCommand::Accept { .. } => {
             unreachable!("grant attachment is routed to the node")
         }
