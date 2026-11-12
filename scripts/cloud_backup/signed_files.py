@@ -3,6 +3,7 @@
 import argparse
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 from pathlib import Path
 import secrets
@@ -14,7 +15,7 @@ import baseline_data
 from fresh_source import write_private
 from node import OwnedNode
 from programs import Programs
-from support import OperationError, dev_endpoint, require
+from support import OperationError, dev_endpoint, failure, require
 
 
 @contextmanager
@@ -29,16 +30,17 @@ def running(node):
 
 def retry(stage, command, complete):
     deadline = time.monotonic() + 150
+    last_error = None
     while time.monotonic() < deadline:
         try:
             result = command()
-        except OperationError:
-            pass
+        except OperationError as error:
+            last_error = error
         else:
             if complete(result):
                 return result
         time.sleep(2)
-    raise OperationError(stage)
+    raise OperationError(stage, cli_refusal=last_error.cli_refusal if last_error else None)
 
 
 def summary(message):
@@ -126,5 +128,5 @@ if __name__ == "__main__":
     try:
         main()
     except OperationError as error:
-        print(f"Signed Files DEV operation stopped at {error}.", flush=True)
+        print(json.dumps(failure(error)), flush=True)
         raise SystemExit(1) from None

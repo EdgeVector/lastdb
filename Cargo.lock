@@ -1860,7 +1860,6 @@ dependencies = [
  "chrono",
  "clap",
  "cloud_backup_protocol",
- "database_cutover",
  "database_policy",
  "dirs",
  "fold_db",
