@@ -216,12 +216,12 @@ fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
             if args.env != "dev" {
                 return Err("--existing-dev requires --env dev".into());
             }
-            return Ok(CloudCommand::RecoverDevCredentialsHome {
+            Ok(CloudCommand::RecoverDevCredentialsHome {
                 into: args.into,
                 expected_user_hash: args.expected_user_hash,
                 identity_seed_stdin: args.identity_seed_stdin,
                 json: args.json,
-            });
+            })
         }
         PrepareRecoveryHome(a) => Ok(CloudCommand::PrepareRecoveryHome(a)),
     }
