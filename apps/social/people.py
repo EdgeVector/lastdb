@@ -15,7 +15,7 @@ BOOK = {
     "name": "AddressBookEntry", "descriptive_name": "Address Book Entry",
     "purpose_statement": "A keyed reference to a verified Social contact.",
     "schema_type": "HashRange",
-    "record_keys": {"primary": {"kind": "hash_range"}, "alternates": {}},
+    "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
     "fields": ["person_id"], "field_types": {"person_id": "String"},
     "field_descriptions": {"person_id": "Primary key of the private Social Person record."},
 }
