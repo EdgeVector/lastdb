@@ -24,27 +24,21 @@ use crate::lastdb_uds::uds_router::DataRoute;
 const POISONED_READ_VIEW: &str =
     "Storage backend error: native read view lock is poisoned; restart the process to reopen the home";
 
-pub(in crate::exec) async fn execute_mutation_route(
+pub(in crate::exec) async fn mutation_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let parsed = match parse_mutation_body(&req.body) {
-        Ok(parsed) => parsed,
+    match parse_mutation_body(&req.body) {
+        Ok(parsed) => render(commit_parsed_mutation(host, parsed).await, ctx),
         Err(reject) => {
-            tracing::warn!(
-                target: "fold_node::http",
-                route = "/api/mutation",
-                kind = reject.kind().as_str(),
-                "mutation request refused on shape"
-            );
-            return reject.response();
+            tracing::warn!(target: "fold_node::http", route = "/api/mutation", kind = reject.kind.as_str(), "mutation request refused on shape");
+            reject.response()
         }
-    };
-    render(commit_parsed_mutation(host, parsed).await, ctx)
+    }
 }
 
-pub(in crate::exec) async fn execute_db_delete_blob_route(
+pub(in crate::exec) async fn db_delete_blob(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -84,7 +78,7 @@ pub(in crate::exec) async fn execute_db_delete_blob_route(
     render(delete.await, ctx)
 }
 
-pub(in crate::exec) async fn execute_mutations_batch_route(
+pub(in crate::exec) async fn batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -103,23 +97,23 @@ pub fn execute_deferred_mutation<'a>(
 ) -> ErasedRoute<'a> {
     Box::pin(async move {
         let work = match route {
-            DataRoute::Mutation => heap_route!(execute_mutation_route, req, ctx, host),
-            DataRoute::MutationBatch => heap_route!(execute_mutations_batch_route, req, ctx, host),
+            DataRoute::Mutation => heap_route!(mutation_route, req, ctx, host),
+            DataRoute::MutationBatch => heap_route!(batch_route, req, ctx, host),
             _ => return content_free(404, "Not Found"),
         };
         with_handler_timeout_budget(ctx, data_route_budget(route), work).await
     })
 }
 
-async fn stamp_and_validate_mutation(
+async fn stamp_and_validate(
     host: &Host,
     parsed: &mut ParsedMutation,
     pub_key: String,
 ) -> Result<(), HostError> {
-    let requested = parsed.mutation.schema_name.clone();
-    let canonical = resolve_schema_name(host, &requested)?
-        .ok_or_else(|| HostError::new(404, format!("Schema not found: {requested}")))?;
-    validate_mutation_fields(host, &requested, &canonical, &parsed.mutation.record_fields).await?;
+    let req = parsed.mutation.schema_name.clone();
+    let canonical = resolve_schema_name(host, &req)?
+        .ok_or_else(|| HostError::new(404, format!("Schema not found: {req}")))?;
+    validate_mutation_fields(host, &req, &canonical, &parsed.mutation.record_fields).await?;
     parsed.mutation.schema_name = canonical;
     parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
     parsed.mutation.pub_key = pub_key;
@@ -130,44 +124,37 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {
-    stamp_and_validate_mutation(host, &mut parsed, host.public_key()).await?;
-    let payload_bytes: usize = parsed
+    stamp_and_validate(host, &mut parsed, host.public_key()).await?;
+    let field_bytes: usize = parsed
         .mutation
         .record_fields
         .values()
-        .map(|v| match v {
-            Value::String(s) => s.len(),
-            other => other.to_string().len(),
-        })
-        .sum::<usize>()
+        .map(|v| v.as_str().map_or_else(|| v.to_string().len(), str::len))
+        .sum();
+    let inline_bytes = if let Some(InlineWrite::Put(f)) = &parsed.mutation.inline_write {
+        f.data.len()
+    } else {
+        0
+    };
+    let size = field_bytes
         + parsed
             .mutation
             .file_write
             .as_ref()
             .map_or(0, FileWrite::row_len)
-        + match &parsed.mutation.inline_write {
-            Some(InlineWrite::Put(file)) => file.data.len(),
-            Some(InlineWrite::Clear) | None => 0,
-        };
-
-    let receipt = start_core_commit(host.records().mutation_manager(), vec![parsed.mutation])
-        .await
-        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
-    let mutation_id = receipt
+        + inline_bytes;
+    let drained = parsed.convergence.waits();
+    let r = run_core_commit(host, vec![parsed.mutation], "Mutation execution failed").await?;
+    let id = r
         .mutation_ids
         .last()
         .cloned()
         .ok_or_else(|| HostError::internal("Mutation returned no IDs"))?;
-    let drained = parsed.convergence.waits();
     Ok(commit_json(
-        &receipt,
+        &r,
         json!({
-            "mutation_id": mutation_id,
-            "record_revision": receipt.record_revisions.get(&mutation_id),
-            "success": true,
-            "background_tasks_drained": drained,
-            "convergence_pending": !drained,
-            "size": payload_bytes,
+            "mutation_id": id, "record_revision": r.record_revisions.get(&id), "success": true,
+            "background_tasks_drained": drained, "convergence_pending": !drained, "size": size,
         }),
     ))
 }
@@ -182,40 +169,50 @@ async fn execute_mutations_batch(
             "Mutation batch must contain at least one mutation",
         ));
     }
-    let drained = batch.iter().any(|item| item.convergence.waits());
-    let public_key = host.public_key();
+    let (drained, pk) = (
+        batch.iter().any(|i| i.convergence.waits()),
+        host.public_key(),
+    );
     let mut mutations = Vec::with_capacity(batch.len());
     for mut parsed in batch {
-        stamp_and_validate_mutation(host, &mut parsed, public_key.clone()).await?;
+        stamp_and_validate(host, &mut parsed, pk.clone()).await?;
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();
-    let receipt = start_core_commit(host.records().mutation_manager(), mutations)
-        .await
-        .map_err(|e| prefix_core_failure(e, "Mutation batch failed"))?;
+    let r = run_core_commit(host, mutations, "Mutation batch failed").await?;
     Ok(commit_json(
-        &receipt,
+        &r,
         json!({
-            "mutation_ids": &receipt.mutation_ids,
-            "count": count,
-            "background_tasks_drained": drained,
-            "convergence_pending": !drained,
+            "mutation_ids": &r.mutation_ids, "count": count,
+            "background_tasks_drained": drained, "convergence_pending": !drained,
         }),
     ))
 }
 
-fn prefix_core_failure(error: SchemaError, failed: &str) -> HostError {
-    if let SchemaError::InvalidData(msg) = &error {
-        if msg == POISONED_READ_VIEW {
-            return HostError::new(503, msg.clone());
-        }
+async fn run_core_commit(
+    host: &Host,
+    mutations: Vec<Mutation>,
+    failed: &str,
+) -> Result<ResidentCommitReceipt, HostError> {
+    #[inline(never)]
+    fn start(
+        mgr: &MutationManager,
+        m: Vec<Mutation>,
+    ) -> Pin<Box<dyn Future<Output = Result<ResidentCommitReceipt, SchemaError>> + Send + '_>> {
+        Box::pin(mgr.write_mutations_receipt(m))
     }
-    let mapped = HostError::from(error);
-    if mapped.status == 500 {
-        HostError::internal(format!("{failed}: {}", mapped.message))
-    } else {
-        mapped
-    }
+    start(host.records().mutation_manager(), mutations)
+        .await
+        .map_err(|error| {
+            if matches!(&error, SchemaError::InvalidData(m) if m == POISONED_READ_VIEW) {
+                return HostError::new(503, POISONED_READ_VIEW);
+            }
+            let mut mapped = HostError::from(error);
+            if mapped.status == 500 {
+                mapped.message = format!("{failed}: {}", mapped.message);
+            }
+            mapped
+        })
 }
 
 async fn validate_mutation_fields(
@@ -241,7 +238,7 @@ async fn validate_mutation_fields(
             !schema
                 .fields
                 .as_ref()
-                .is_some_and(|plain| plain.iter().any(|n| n == *f))
+                .is_some_and(|p| p.iter().any(|n| n == *f))
         })
         .cloned()
         .collect();
@@ -249,64 +246,46 @@ async fn validate_mutation_fields(
         return Ok(());
     }
     unknown.sort();
-    let mut available = schema.fields.clone().unwrap_or_default();
-    available.sort();
-    available.dedup();
-    tracing::info!(
-        target: "lastdb_node::exec",
-        schema = %requested,
-        unknown_fields = ?unknown,
-        "execute_mutation: rejecting unknown fields"
-    );
+    let mut avail = schema.fields.clone().unwrap_or_default();
+    avail.sort();
+    avail.dedup();
+    tracing::info!(target: "lastdb_node::exec", schema = %requested, unknown_fields = ?unknown, "execute_mutation: rejecting unknown fields");
     let quoted = unknown
         .iter()
         .map(|f| format!("'{f}'"))
         .collect::<Vec<_>>()
         .join(", ");
-    let plural = if unknown.len() == 1 { "" } else { "s" };
-    let avail = if available.is_empty() {
-        "<none>".to_string()
-    } else {
-        available.join(", ")
-    };
-    let message =
-        format!("Field{plural} {quoted} not writable on schema '{requested}'. Available: {avail}");
+    let msg = format!(
+        "Field{} {quoted} not writable on schema '{requested}'. Available: {}",
+        if unknown.len() == 1 { "" } else { "s" },
+        if avail.is_empty() {
+            "<none>".into()
+        } else {
+            avail.join(", ")
+        }
+    );
     Err(HostError::new(
         400,
         json!({
-            "ok": false, "error": "unknown_fields", "message": message,
-            "schema_name": requested, "unknown_fields": unknown, "available_fields": available,
+            "ok": false, "error": "unknown_fields", "message": msg,
+            "schema_name": requested, "unknown_fields": unknown, "available_fields": avail,
         })
         .to_string(),
     ))
 }
 
-fn commit_json(receipt: &ResidentCommitReceipt, extra: Value) -> Value {
+fn commit_json(r: &ResidentCommitReceipt, extra: Value) -> Value {
     let mut base = json!({
-        "revision": receipt.revision,
-        "record_revisions": receipt.record_revisions,
+        "revision": r.revision, "record_revisions": r.record_revisions,
         "operations": {
-            "created": receipt.operations.created,
-            "updated": receipt.operations.updated,
-            "deleted": receipt.operations.deleted,
-            "total": receipt.operations.total(),
+            "created": r.operations.created, "updated": r.operations.updated,
+            "deleted": r.operations.deleted, "total": r.operations.total(),
         },
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": { "prepare": receipt.stages.prepare_us, "ack": receipt.stages.ack_us },
+        "durability": r.durability.as_str(),
+        "resident_stages_us": { "prepare": r.stages.prepare_us, "ack": r.stages.ack_us },
     });
     if let (Some(map), Value::Object(extra_map)) = (base.as_object_mut(), extra) {
         map.extend(extra_map);
     }
     base
-}
-
-type CoreCommitFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<ResidentCommitReceipt, SchemaError>> + Send + 'a>>;
-
-#[inline(never)]
-fn start_core_commit<'a>(
-    manager: &'a MutationManager,
-    mutations: Vec<Mutation>,
-) -> CoreCommitFuture<'a> {
-    Box::pin(manager.write_mutations_receipt(mutations))
 }

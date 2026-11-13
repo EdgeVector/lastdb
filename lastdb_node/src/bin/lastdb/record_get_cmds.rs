@@ -2,34 +2,6 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::os::unix::fs::OpenOptionsExt;
 
-pub(super) fn record_command(target: &DatabaseTarget, command: Command) -> Result<(), String> {
-    match command {
-        Command::Mutate {
-            request_file,
-            durable,
-            mutation_id,
-        } => mutate_command(target, &request_file, durable, mutation_id),
-        Command::GetKeys(args) => list_record_keys(target, &args),
-        Command::Get {
-            schema,
-            key_hash,
-            key_range,
-            json,
-            hydrate,
-            hydrate_inline,
-        } => get_record(
-            target,
-            &schema,
-            key_hash.as_deref(),
-            key_range.as_deref(),
-            json,
-            hydrate.as_deref(),
-            hydrate_inline.as_deref(),
-        ),
-        _ => unreachable!("run() routes only record commands here"),
-    }
-}
-
 fn percent_encode_query(value: &str) -> String {
     value
         .bytes()
@@ -43,18 +15,9 @@ fn percent_encode_query(value: &str) -> String {
         })
 }
 
-fn require_reachable(socket: &Path) -> Result<(), String> {
-    probe_health(socket).map_err(|_| {
-        format!(
-            "lastdbd not reachable at {} — start the daemon first",
-            socket.display()
-        )
-    })
-}
-
-pub(crate) fn list_record_keys(
+pub(super) fn list_record_keys(
     target: &DatabaseTarget,
-    args: &crate::cli_defs::RecordListArgs,
+    args: &RecordListArgs,
 ) -> Result<(), String> {
     require_reachable(&target.socket)?;
     let mut path = format!(
@@ -62,21 +25,21 @@ pub(crate) fn list_record_keys(
         percent_encode_query(&args.schema),
         args.limit.max(1)
     );
-    for (param, opt) in [
+    for (p, opt) in [
         ("key_name", args.key_name.as_deref()),
         ("hash", args.key_hash.as_deref()),
         ("cursor", args.cursor.as_deref()),
     ] {
-        if let Some(val) = opt {
-            path.push_str(&format!("&{param}={}", percent_encode_query(val)));
+        if let Some(v) = opt {
+            path.push_str(&format!("&{p}={}", percent_encode_query(v)));
         }
     }
-    let response = get_path(
+    let raw = get_path(
         &target.socket,
         &target.path(&path),
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
-    let report = parse_json_response(&response, "list")?
+    let report = parse_json_response(&raw, "list")?
         .get("list")
         .cloned()
         .ok_or("response missing list field")?;
@@ -90,10 +53,7 @@ pub(crate) fn list_record_keys(
         }
     }
     if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
-        );
+        print_pretty_json(&report);
     } else {
         print_list_record_keys_human(&report);
     }
@@ -103,67 +63,45 @@ pub(crate) fn list_record_keys(
 fn print_list_record_keys_human(report: &serde_json::Value) {
     let empty = Vec::new();
     let keys = report["keys"].as_array().unwrap_or(&empty);
-    let has_more = report["has_more"].as_bool().unwrap_or(false);
-    let schema = report["schema"].as_str().unwrap_or("?");
+    let (has_more, schema) = (
+        report["has_more"].as_bool().unwrap_or(false),
+        report["schema"].as_str().unwrap_or("?"),
+    );
     let ranged = report
         .pointer("/key_definition/kind")
         .and_then(serde_json::Value::as_str)
         == Some("hash_range");
-    let hash_filter = report["hash_filter"].as_str();
-    let partition = hash_filter.map_or_else(String::new, |h| format!(" --key-hash {h:?}"));
-    let key_flag = report["key_name"]
+    let hf = report["hash_filter"].as_str();
+    let part = hf.map_or_else(String::new, |h| format!(" --key-hash {h:?}"));
+    let kf = report["key_name"]
         .as_str()
         .map_or_else(String::new, |n| format!(" --key-name {n}"));
     eprintln!(
-        "lastdb get-keys {schema}{key_flag}{partition} — {} key{}{}{}",
+        "lastdb get-keys {schema}{kf}{part} — {} key{}{}{}",
         keys.len(),
         if keys.len() == 1 { "" } else { "s" },
         if ranged { " hash+range" } else { " hash" },
         if has_more { " (more)" } else { "" }
     );
-    if !key_flag.is_empty() {
+    if !kf.is_empty() {
         eprintln!("For writes, use primary_keys from --json.");
     }
     eprintln!("{}", if ranged { "hash\trange" } else { "hash" });
-    for key in keys {
-        let (hash, range) = (
-            key["hash"].as_str().unwrap_or(""),
-            key["range"].as_str().unwrap_or(""),
+    for k in keys {
+        let (h, r) = (
+            k["hash"].as_str().unwrap_or(""),
+            k["range"].as_str().unwrap_or(""),
         );
-        if range.is_empty() {
-            println!("{hash}");
+        if r.is_empty() {
+            println!("{h}");
         } else {
-            println!("{hash}\t{range}");
+            println!("{h}\t{r}");
         }
     }
-    if let Some(cursor) = report["next_cursor"].as_str().filter(|_| has_more) {
-        let hash_flag = hash_filter.map_or_else(String::new, |h| format!(" --key-hash '{h}'"));
-        eprintln!("next: lastdb get-keys {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
+    if let Some(cur) = report["next_cursor"].as_str().filter(|_| has_more) {
+        let h_flag = hf.map_or_else(String::new, |h| format!(" --key-hash '{h}'"));
+        eprintln!("next: lastdb get-keys {schema}{kf}{h_flag} --cursor '{cur}'");
     }
-}
-
-pub(crate) fn fetch_schema(
-    target: &DatabaseTarget,
-    name: &str,
-) -> Result<serde_json::Value, String> {
-    require_reachable(&target.socket)?;
-    let path = format!("/api/schema/{}", percent_encode_query(name));
-    let response = get_path(&target.socket, &target.path(&path), Duration::from_secs(10))?;
-    parse_json_response(&response, "schema")?
-        .get("schema")
-        .cloned()
-        .ok_or_else(|| "response missing schema field".into())
-}
-
-fn schema_is_hash_range(schema: &serde_json::Value) -> bool {
-    let has = |p| {
-        schema
-            .pointer(p)
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|s| !s.is_empty())
-    };
-    schema["schema_type"].as_str() == Some("HashRange")
-        || (has("/key/range_field") && has("/key/hash_field"))
 }
 
 pub(crate) fn get_query_body(
@@ -179,51 +117,63 @@ pub(crate) fn get_query_body(
     serde_json::json!({ "schema_name": schema, "filter": filter })
 }
 
-fn get_record(
+pub(super) fn get_record(
     target: &DatabaseTarget,
     schema_name: &str,
-    key_hash: Option<&str>,
-    key_range: Option<&str>,
+    (key_hash, key_range): (Option<&str>, Option<&str>),
     json_only: bool,
-    hydrate: Option<&Path>,
-    hydrate_inline: Option<&Path>,
+    (hydrate, hydrate_inline): (Option<&Path>, Option<&Path>),
 ) -> Result<(), String> {
     let Some(hash) = key_hash.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
     };
-    let schema = fetch_schema(target, schema_name)?;
-    if schema_is_hash_range(&schema) && key_range.map(str::trim).filter(|s| !s.is_empty()).is_none()
+    require_reachable(&target.socket)?;
+    let schema_route = format!("/api/schema/{}", percent_encode_query(schema_name));
+    let s_raw = get_path(
+        &target.socket,
+        &target.path(&schema_route),
+        Duration::from_secs(10),
+    )?;
+    let schema = parse_json_response(&s_raw, "schema")?
+        .get("schema")
+        .cloned()
+        .ok_or("response missing schema field")?;
+    let has = |p| {
+        schema
+            .pointer(p)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| !s.is_empty())
+    };
+    if (schema["schema_type"].as_str() == Some("HashRange")
+        || (has("/key/range_field") && has("/key/hash_field")))
+        && key_range.map(str::trim).filter(|s| !s.is_empty()).is_none()
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
-    let response = post_json_with_timeout(
+    let resp = post_json_with_timeout(
         &target.socket,
         &target.path("/api/query"),
         &get_query_body(schema_name, hash, key_range),
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
-    let mut value = parse_json_response(&response, "query")?;
+    let mut val = parse_json_response(&resp, "query")?;
     if let Some(out) = hydrate {
-        let req = schema["file_required"].as_bool().unwrap_or(false);
-        hydrate_record_file(target, schema_name, &mut value, out, req, Placement::Blob)?;
-    }
-    if let Some(out) = hydrate_inline {
         hydrate_record_file(
             target,
             schema_name,
-            &mut value,
+            &mut val,
             out,
+            schema["file_required"].as_bool().unwrap_or(false),
             false,
-            Placement::Inline,
         )?;
     }
+    if let Some(out) = hydrate_inline {
+        hydrate_record_file(target, schema_name, &mut val, out, false, true)?;
+    }
     if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?
-        );
+        print_pretty_json(&val);
     } else {
-        print_get_human(&value);
+        print_get_human(&val);
     }
     Ok(())
 }
@@ -237,37 +187,31 @@ fn print_get_human(value: &serde_json::Value) {
         if results.len() > 1 {
             eprintln!("--- row {} ---", i + 1);
         }
-        match row.get("key") {
-            Some(serde_json::Value::String(s)) => println!("key {s}"),
-            Some(serde_json::Value::Object(map)) => {
-                let hash = map
-                    .get("hash")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let range = map
-                    .get("range")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                if range.is_empty() {
-                    println!("key {hash}");
-                } else {
-                    println!("key {hash}\t{range}");
-                }
+        if let Some(s) = row["key"].as_str() {
+            println!("key {s}");
+        } else if row["key"].is_object() {
+            let (h, r) = (
+                row["key"]["hash"].as_str().unwrap_or(""),
+                row["key"]["range"].as_str().unwrap_or(""),
+            );
+            if r.is_empty() {
+                println!("key {h}");
+            } else {
+                println!("key {h}\t{r}");
             }
-            _ => {}
         }
         if let Some(fields) = row["fields"].as_object() {
             let mut names: Vec<_> = fields.keys().collect();
             names.sort();
-            for name in names {
-                let val = &fields[name];
+            for n in names {
+                let v = &fields[n];
                 println!(
-                    "{name} {}",
-                    val.as_str().map_or_else(|| val.to_string(), str::to_owned)
+                    "{n} {}",
+                    v.as_str().map_or_else(|| v.to_string(), str::to_owned)
                 );
             }
         }
-        for (hydrated, meta_ptr, prefix) in [
+        for (hyd, ptr, pfx) in [
             ("hydrated_file", "/metadata/file", "file"),
             (
                 "hydrated_inline_file",
@@ -275,27 +219,13 @@ fn print_get_human(value: &serde_json::Value) {
                 "inline_file",
             ),
         ] {
-            if let Some(path) = row.get(hydrated).and_then(serde_json::Value::as_str) {
-                println!("{prefix} {path}");
-            } else if let Some(file) = row.pointer(meta_ptr) {
-                println!("{prefix} {file}");
+            if let Some(p) = row.get(hyd).and_then(serde_json::Value::as_str) {
+                println!("{pfx} {p}");
+            } else if let Some(f) = row.pointer(ptr) {
+                println!("{pfx} {f}");
             }
         }
     }
-}
-
-pub(super) fn get_path(socket: &Path, path: &str, timeout: Duration) -> Result<String, String> {
-    let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    request_with_timeout(socket, req.as_bytes(), timeout)
-}
-
-#[derive(Clone, Copy)]
-enum Placement {
-    Blob,
-    Inline,
 }
 
 fn hydrate_record_file(
@@ -304,36 +234,34 @@ fn hydrate_record_file(
     value: &mut serde_json::Value,
     out: &Path,
     file_required: bool,
-    placement: Placement,
+    inline: bool,
 ) -> Result<(), String> {
-    let (marker_ptr, name, output_field) = match placement {
-        Placement::Blob => ("/metadata/file", "blob", "hydrated_file"),
-        Placement::Inline => ("/metadata/inline_file", "inline", "hydrated_inline_file"),
+    let (ptr, name, field) = if inline {
+        ("/metadata/inline_file", "inline", "hydrated_inline_file")
+    } else {
+        ("/metadata/file", "blob", "hydrated_file")
     };
-    let records = value["results"]
+    let [rec] = value["results"]
         .as_array_mut()
-        .ok_or("missing query records")?;
-    let [record] = records.as_mut_slice() else {
+        .ok_or("missing query records")?
+        .as_mut_slice()
+    else {
         return Err("hydration requires exactly one record".into());
     };
-    let Some(marker) = record.pointer(marker_ptr).filter(|v| !v.is_null()) else {
-        return match placement {
-            Placement::Blob if !file_required => Ok(()),
-            Placement::Blob => Err("record is missing its required file".into()),
-            Placement::Inline => Err("record has no inline file".into()),
+    let Some(m) = rec.pointer(ptr).filter(|v| !v.is_null()) else {
+        return if inline {
+            Err("record has no inline file".into())
+        } else if file_required {
+            Err("record is missing its required file".into())
+        } else {
+            Ok(())
         };
     };
-    let size = marker["size_bytes"]
-        .as_u64()
-        .ok_or("file marker has no size")?;
-    let digest = marker["sha256"]
-        .as_str()
-        .ok_or("file marker has no digest")?;
-    let revision = record["revision"]
-        .as_str()
-        .ok_or("record has no revision")?;
+    let size = m["size_bytes"].as_u64().ok_or("file marker has no size")?;
+    let digest = m["sha256"].as_str().ok_or("file marker has no digest")?;
+    let rev = rec["revision"].as_str().ok_or("record has no revision")?;
     let body = serde_json::to_vec(&serde_json::json!({
-        "schema": schema, "key": record["key"], "expected_revision": revision, "placement": name,
+        "schema": schema, "key": rec["key"], "expected_revision": rev, "placement": name,
     }))
     .map_err(|e| format!("encode hydrate request: {e}"))?;
     let mut req = format!(
@@ -344,26 +272,28 @@ fn hydrate_record_file(
     )
     .into_bytes();
     req.extend_from_slice(&body);
-    let timeout = admin_scan_client_timeout();
-    let response = request_with_timeout_raw_bytes(&target.socket, &req, timeout)
-        .map_err(|(op, err, _)| format_socket_io_error(op, &err, timeout))?;
-    let bytes = parse_binary_response(&response, "record hydration")?;
-    if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != digest {
+    let resp = request_with_timeout_bytes(
+        &target.socket,
+        &req,
+        lastdb_node::exec::admin_handler_timeout(),
+    )?;
+    let bytes = split_http_200(&resp, "record hydration")?;
+    if bytes.len() as u64 != size || hex::encode(Sha256::digest(bytes)) != digest {
         return Err("hydrated file differs from the queried record version".into());
     }
-    let temp = out.with_file_name(format!(".lastdb-hydrate-{}", uuid::Uuid::new_v4()));
-    let mut file = std::fs::OpenOptions::new()
+    let tmp = out.with_file_name(format!(".lastdb-hydrate-{}", uuid::Uuid::new_v4()));
+    let mut f = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .mode(0o600)
-        .open(&temp)
+        .open(&tmp)
         .map_err(|e| format!("create hydration output: {e}"))?;
-    let result = file
-        .write_all(&bytes)
-        .and_then(|()| std::fs::hard_link(&temp, out));
-    let cleanup = std::fs::remove_file(&temp);
-    result.map_err(|e| format!("publish hydration output: {e}"))?;
-    cleanup.map_err(|e| format!("clean up hydration output: {e}"))?;
-    record[output_field] = serde_json::json!(out);
+    let res = f
+        .write_all(bytes)
+        .and_then(|()| std::fs::hard_link(&tmp, out));
+    let clean = std::fs::remove_file(&tmp);
+    res.map_err(|e| format!("publish hydration output: {e}"))?;
+    clean.map_err(|e| format!("clean up hydration output: {e}"))?;
+    rec[field] = serde_json::json!(out);
     Ok(())
 }

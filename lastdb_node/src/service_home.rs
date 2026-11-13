@@ -1,7 +1,7 @@
 //! Persistent service-home configuration for `lastdbd` when no CLI/env home override is set.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub fn explicit_home_override_present() -> bool {
     std::env::var_os(crate::profile::paths::LASTDB_HOME_ENV).is_some()
@@ -11,28 +11,29 @@ pub fn configured_home() -> Result<Option<PathBuf>, String> {
     let path = if let Some(p) = std::env::var_os("LASTDBD_SERVICE_HOME_CONFIG") {
         PathBuf::from(p)
     } else {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or("Cannot locate lastdb admin service-home config: HOME is not set")?;
-        home.join(if cfg!(target_os = "macos") {
+        let sub = if cfg!(target_os = "macos") {
             "Library/Application Support/LastDB/lastdbd-service-home"
         } else {
             ".config/lastdb/lastdbd-service-home"
-        })
+        };
+        PathBuf::from(
+            std::env::var_os("HOME")
+                .ok_or("Cannot locate lastdb admin service-home config: HOME is not set")?,
+        )
+        .join(sub)
     };
-    match fs::read_to_string(&path) {
-        Ok(raw) if raw.trim().is_empty() => Ok(None),
-        Ok(raw) => validate_service_home(raw.trim()).map(Some),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!(
-            "Failed to read lastdb admin service-home config {}: {e}",
-            path.display()
-        )),
-    }
-}
-
-fn validate_service_home(raw: impl AsRef<Path>) -> Result<PathBuf, String> {
-    let home = crate::profile::paths::expand_tilde_path(raw)?;
+    let raw = match fs::read_to_string(&path) {
+        Ok(r) if r.trim().is_empty() => return Ok(None),
+        Ok(r) => r,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(format!(
+                "Failed to read lastdb admin service-home config {}: {e}",
+                path.display()
+            ));
+        }
+    };
+    let home = crate::profile::paths::expand_tilde_path(raw.trim())?;
     if !home.is_absolute() {
         return Err(format!(
             "lastdbd service home must be absolute after ~ expansion (got {})",
@@ -51,5 +52,5 @@ fn validate_service_home(raw: impl AsRef<Path>) -> Result<PathBuf, String> {
             ));
         }
     }
-    Ok(home)
+    Ok(Some(home))
 }

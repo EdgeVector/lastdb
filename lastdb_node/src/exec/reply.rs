@@ -25,10 +25,7 @@ pub(in crate::exec) fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Valu
         );
     } else {
         debug_assert!(false, "handler payload did not serialize to a JSON object");
-        map.insert(
-            "contract_violation".into(),
-            Value::String("non_object_payload".into()),
-        );
+        map.insert("contract_violation".into(), "non_object_payload".into());
     }
     map.insert("ok".into(), Value::Bool(true));
     map.insert("user_hash".into(), Value::String(user_hash.to_string()));
@@ -109,18 +106,16 @@ impl From<FoldDbError> for HostError {
 
 impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
-        let json_or_empty = |v: Option<Value>| v.unwrap_or_else(|| json!({})).to_string();
+        let or_empty = |v: Option<Value>| v.unwrap_or_else(|| json!({})).to_string();
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
             SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
             SchemaError::Blocked(msg) | SchemaError::InvalidCursor(msg) => {
                 Self::new(400, msg.clone())
             }
-            s @ SchemaError::CasConflict { .. } => {
-                Self::new(409, json_or_empty(s.cas_conflict_body()))
-            }
+            s @ SchemaError::CasConflict { .. } => Self::new(409, or_empty(s.cas_conflict_body())),
             s @ SchemaError::RecordTooLarge { .. } => {
-                Self::new(413, json_or_empty(s.field_value_too_large_body()))
+                Self::new(413, or_empty(s.field_value_too_large_body()))
             }
             SchemaError::ReadResourceLimit { detail } => Self::new(
                 503,
@@ -138,13 +133,10 @@ impl From<SchemaError> for HostError {
                 };
                 Self::new(
                     503,
-                    json!({ "error": kind, "retryable": true, "retry_after_secs": 2, "message": detail })
-                        .to_string(),
+                    json!({ "error": kind, "retryable": true, "retry_after_secs": 2, "message": detail }).to_string(),
                 )
             }
-            s @ SchemaError::StorageFull { .. } => {
-                Self::new(507, json_or_empty(s.storage_full_body()))
-            }
+            s @ SchemaError::StorageFull { .. } => Self::new(507, or_empty(s.storage_full_body())),
             other => Self::new(400, other.to_string()),
         }
     }
@@ -168,32 +160,32 @@ pub(in crate::exec) fn render(
     result: Result<Value, HostError>,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    match result {
-        Ok(payload) => json_ok(&envelope(&payload, ctx.user_id.as_str())),
-        Err(e) => {
-            if e.status == 507 {
-                tracing::warn!(target: "lastdb_node::exec", status = e.status, "handler storage full: {}", e.message);
-            } else if e.status >= 500 && e.status != 503 {
-                tracing::error!(target: "lastdb_node::exec", status = e.status, "handler error: {}", e.message);
-            }
-            if !ctx.is_owner {
-                return content_free(e.status, status_reason(e.status));
-            }
-            if !OWNER_VISIBLE_STATUSES.contains(&e.status) {
-                return content_free(500, "Internal Server Error");
-            }
-            if let Some(body) = e.structured_body.as_ref() {
-                serde_json::to_vec(body).map_or_else(
-                    |_| content_free(500, "Internal Server Error"),
-                    |bytes| {
-                        UdsResponse::new(e.status, status_reason(e.status), bytes)
-                            .with_header("Content-Type", "application/json")
-                    },
-                )
-            } else {
-                UdsResponse::new(e.status, status_reason(e.status), e.message.into_bytes())
-            }
-        }
+    let e = match result {
+        Ok(payload) => return json_ok(&envelope(&payload, ctx.user_id.as_str())),
+        Err(e) => e,
+    };
+    if e.status == 507 {
+        tracing::warn!(target: "lastdb_node::exec", status = e.status, "handler storage full: {}", e.message);
+    } else if e.status >= 500 && e.status != 503 {
+        tracing::error!(target: "lastdb_node::exec", status = e.status, "handler error: {}", e.message);
+    }
+    if !ctx.is_owner {
+        return content_free(e.status, status_reason(e.status));
+    }
+    if !OWNER_VISIBLE_STATUSES.contains(&e.status) {
+        return content_free(500, "Internal Server Error");
+    }
+    let reason = status_reason(e.status);
+    if let Some(body) = e.structured_body.as_ref() {
+        serde_json::to_vec(body).map_or_else(
+            |_| content_free(500, "Internal Server Error"),
+            |b| {
+                UdsResponse::new(e.status, reason, b)
+                    .with_header("Content-Type", "application/json")
+            },
+        )
+    } else {
+        UdsResponse::new(e.status, reason, e.message.into_bytes())
     }
 }
 
@@ -205,16 +197,12 @@ pub(in crate::exec) fn error_response(
     render(Err(HostError::new(status, message)), ctx)
 }
 
-pub(in crate::exec) fn mapped_error_response(
-    operation: &str,
-    err: FoldDbError,
-    ctx: &AccessContext,
-) -> UdsResponse {
+pub(in crate::exec) fn map_host_err(operation: &str, err: FoldDbError) -> HostError {
     let mut mapped = HostError::from(err);
     if mapped.status == 500 {
         mapped.message = format!("{operation}: {}", mapped.message);
     }
-    render(Err(mapped), ctx)
+    mapped
 }
 
 pub(in crate::exec) struct ListRecordKeysRequest {
@@ -230,18 +218,16 @@ impl ListRecordKeysRequest {
         let requested = query_value(target, "schema")
             .filter(|s| !s.is_empty())
             .ok_or("schema query parameter is required")?;
-        let limit = match query_value(target, "limit") {
-            None => 100,
-            Some(raw) => match raw.parse::<usize>() {
-                Ok(0) => return Err("limit must be at least 1"),
-                Ok(limit) => limit.min(1000),
-                Err(_) => return Err("limit must be a positive integer"),
-            },
-        };
-        let key_name = match query_value(target, "key_name") {
-            Some(name) if name.is_empty() => return Err("key_name must not be empty"),
-            name => name,
-        };
+        let limit =
+            query_value(target, "limit").map_or(Ok(100), |raw| match raw.parse::<usize>() {
+                Ok(0) => Err("limit must be at least 1"),
+                Ok(n) => Ok(n.min(1000)),
+                Err(_) => Err("limit must be a positive integer"),
+            })?;
+        let key_name = query_value(target, "key_name");
+        if key_name.as_deref() == Some("") {
+            return Err("key_name must not be empty");
+        }
         Ok(Self {
             requested,
             limit,
@@ -255,8 +241,8 @@ impl ListRecordKeysRequest {
 pub(in crate::exec) fn decode_alternate_cursor(
     raw: Option<&str>,
 ) -> Result<Option<QueryCursor>, HostError> {
-    raw.map(|encoded| {
-        let bytes = encoded
+    raw.map(|enc| {
+        let bytes = enc
             .strip_prefix("ak2_")
             .and_then(|s| {
                 base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -264,7 +250,7 @@ pub(in crate::exec) fn decode_alternate_cursor(
                     .ok()
             })
             .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
-        serde_json::from_slice::<QueryCursor>(&bytes)
+        serde_json::from_slice(&bytes)
             .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
     })
     .transpose()
@@ -276,7 +262,7 @@ pub(in crate::exec) fn alternate_list_report(
     page: &Value,
 ) -> Result<Value, HostError> {
     let name = request.key_name.as_deref().expect("named branch");
-    let definition = schema
+    let def = schema
         .require_record_keys()?
         .alternates
         .get(name)
@@ -284,24 +270,22 @@ pub(in crate::exec) fn alternate_list_report(
     let rows = page["results"]
         .as_array()
         .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
-    let record_key = |value: &Value| -> Result<SchemaRecordKey, HostError> {
-        let key: KeyValue = serde_json::from_value(value.clone())
+    let rk = |v: &Value| -> Result<SchemaRecordKey, HostError> {
+        let k: KeyValue = serde_json::from_value(v.clone())
             .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
         Ok(SchemaRecordKey {
-            hash: key
+            hash: k
                 .hash
                 .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
-            range: key.range.unwrap_or_default(),
+            range: k.range.unwrap_or_default(),
         })
     };
-    let keys: Vec<_> = rows
-        .iter()
-        .map(|r| record_key(&r["matched_key"]))
-        .collect::<Result<_, _>>()?;
-    let primary_keys: Vec<_> = rows
-        .iter()
-        .map(|r| record_key(&r["key"]))
-        .collect::<Result<_, _>>()?;
+    let map_keys = |f| {
+        rows.iter()
+            .map(|r| rk(&r[f]))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let (keys, primary_keys) = (map_keys("matched_key")?, map_keys("key")?);
     let next = (!page["next_cursor"].is_null())
         .then(|| {
             serde_json::to_vec(&page["next_cursor"]).map(|b| {
@@ -315,7 +299,7 @@ pub(in crate::exec) fn alternate_list_report(
         .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?;
     Ok(json!({
         "schema": request.requested, "schema_id": schema.name, "key_name": name,
-        "key_definition": definition, "hash_filter": request.hash_filter,
+        "key_definition": def, "hash_filter": request.hash_filter,
         "field_key": fold_db::alternate_keys::field_key(schema, name),
         "keys": keys, "primary_keys": primary_keys,
         "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next,

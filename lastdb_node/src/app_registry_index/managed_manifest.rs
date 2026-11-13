@@ -1,4 +1,4 @@
-//! Install instructions, step execution, atomic command links, and publisher transitions.
+//! Install instructions, step execution, atomic command links, and git source verification.
 
 use std::collections::HashSet;
 use std::fs;
@@ -11,17 +11,16 @@ use sha2::{Digest, Sha256};
 
 use super::ListEntry;
 
-fn default_timeout() -> u64 {
+const fn default_timeout() -> u64 {
     30
 }
-
 fn default_exits() -> Vec<i32> {
     vec![0]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InstallStep {
+pub(super) struct InstallStep {
     pub argv: Vec<String>,
     #[serde(default = "default_timeout")]
     pub timeout_s: u64,
@@ -31,14 +30,14 @@ pub struct InstallStep {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InstallLink {
+pub(super) struct InstallLink {
     pub source: String,
     pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InstallPlan {
+pub(super) struct InstallPlan {
     #[serde(default, skip_deserializing)]
     pub uses: Vec<String>,
     #[serde(default)]
@@ -61,146 +60,139 @@ fn relative(path: &str) -> Result<PathBuf, String> {
 }
 
 impl InstallPlan {
-    pub fn load(source: &Path, app: &str) -> Result<Self, String> {
-        let value: serde_json::Value = serde_json::from_slice(
+    pub(super) fn load(source: &Path, app: &str) -> Result<Self, String> {
+        let val: serde_json::Value = serde_json::from_slice(
             &fs::read(source.join("lastdb-app.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        if value["app_id"].as_str() != Some(app) {
+        if val["app_id"].as_str() != Some(app) {
             return Err("source manifest app_id differs from signed listing".into());
         }
-        let mut plan: Self = serde_json::from_value(value["install"].clone())
+        let mut plan: Self = serde_json::from_value(val["install"].clone())
             .map_err(|e| format!("app needs an install manifest: {e}"))?;
         plan.uses = serde_json::from_value(
-            value
-                .get("uses")
+            val.get("uses")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([])),
         )
         .map_err(|_| "manifest uses must be an array of strings")?;
-        plan.validate()?;
-        Ok(plan)
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        if self.probe.is_empty() || self.links.is_empty() {
+        if plan.probe.is_empty() || plan.links.is_empty() {
             return Err("install needs links and at least one probe".into());
         }
         let mut commands = HashSet::new();
-        for link in &self.links {
-            relative(&link.source)?;
-            let ok = !link.command.is_empty()
-                && !link.command.starts_with('-')
-                && link
-                    .command
+        for l in &plan.links {
+            relative(&l.source)?;
+            let valid = !l.command.is_empty()
+                && !l.command.starts_with('-')
+                && l.command
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                && commands.insert(&link.command);
-            if !ok {
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
+            if !valid || !commands.insert(&l.command) {
                 return Err("invalid or duplicate install command".into());
             }
         }
-        for step in self
+        for s in plan
             .prepare
             .iter()
-            .chain(&self.post_install)
-            .chain(&self.probe)
+            .chain(&plan.post_install)
+            .chain(&plan.probe)
         {
-            if step.argv.is_empty()
-                || step.argv[0].is_empty()
-                || !(1..=600).contains(&step.timeout_s)
-                || step.accept_exit.is_empty()
+            if s.argv.is_empty()
+                || s.argv[0].is_empty()
+                || !(1..=600).contains(&s.timeout_s)
+                || s.accept_exit.is_empty()
             {
                 return Err("invalid install step or timeout (1..600 seconds)".into());
             }
         }
-        self.requires
+        plan.requires
             .iter()
-            .all(|app| super::valid_app_id(app))
-            .then_some(())
+            .all(|a| super::valid_app_id(a))
+            .then_some(plan)
             .ok_or_else(|| "invalid required app".into())
     }
 
-    pub fn consent_hash(&self) -> Result<String, String> {
-        let value = serde_json::to_value(self).map_err(|e| e.to_string())?;
-        let bytes = app_identity_crypto::canonicalize(&value).map_err(|e| e.to_string())?;
+    pub(super) fn consent_hash(&self) -> Result<String, String> {
+        let bytes = app_identity_crypto::canonicalize(
+            &serde_json::to_value(self).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
 }
 
-pub(crate) fn steps(
+pub(super) fn steps(
     source: &Path,
     home: &Path,
     app: &str,
     list: &[InstallStep],
 ) -> Result<(), String> {
-    list.iter()
-        .try_for_each(|step| run_step(source, home, app, step))
+    let pass =
+        "HOME PATH TMPDIR USER LOGNAME SSH_AUTH_SOCK LASTDB_APPS_ROOT LANG LAST_STACK_APPS_OFF";
+    let data = home.join("data");
+    for step in list {
+        let mut cmd = ProcessCommand::new(&step.argv[0]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        cmd.args(&step.argv[1..])
+            .current_dir(source)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(std::io::stderr()))
+            .stderr(Stdio::inherit())
+            .envs(
+                pass.split_whitespace()
+                    .filter_map(|k| Some((k, std::env::var_os(k)?))),
+            )
+            .env("LASTDB_HOME", home)
+            .env("LASTDB_DATA_DIR", &data)
+            .env("LASTDB_SOCKET", crate::lastdb_uds::uds::socket_path(&data))
+            .env("LASTDB_APP_ID", app)
+            .env("LASTDB_APP_SOURCE_DIR", source)
+            .env("LAST_STACK_SETUP_PRESERVE_SERVICES", "1");
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("cannot run {}: {e}", step.argv[0]))?;
+        let start = Instant::now();
+        loop {
+            if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
+                if st.code().is_some_and(|c| step.accept_exit.contains(&c)) {
+                    break;
+                }
+                return Err(format!("install step {} exited {st}", step.argv[0]));
+            }
+            if start.elapsed() >= Duration::from_secs(step.timeout_s) {
+                #[cfg(unix)]
+                let _ = ProcessCommand::new("/bin/kill")
+                    .args(["-KILL", &format!("-{}", child.id())])
+                    .output();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "install step {} exceeded {} seconds",
+                    step.argv[0], step.timeout_s
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    Ok(())
 }
 
-fn run_step(source: &Path, home: &Path, app: &str, step: &InstallStep) -> Result<(), String> {
-    let mut cmd = ProcessCommand::new(&step.argv[0]);
-    #[cfg(unix)]
+fn bin_link_path(bin: &Path, command: &str) -> Result<PathBuf, String> {
+    let p = bin.join(command);
+    if p.symlink_metadata()
+        .is_ok_and(|m| !m.file_type().is_symlink())
     {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+        return Err(format!(
+            "refusing to replace a regular file: {}",
+            p.display()
+        ));
     }
-    cmd.args(&step.argv[1..])
-        .current_dir(source)
-        .env_clear()
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(std::io::stderr()))
-        .stderr(Stdio::inherit());
-    for key in [
-        "HOME",
-        "PATH",
-        "TMPDIR",
-        "USER",
-        "LOGNAME",
-        "SSH_AUTH_SOCK",
-        "LASTDB_APPS_ROOT",
-        "LANG",
-        "LAST_STACK_APPS_OFF",
-    ] {
-        if let Some(v) = std::env::var_os(key) {
-            cmd.env(key, v);
-        }
-    }
-    cmd.env("LASTDB_HOME", home)
-        .env("LASTDB_DATA_DIR", home.join("data"))
-        .env(
-            "LASTDB_SOCKET",
-            crate::lastdb_uds::uds::socket_path(&home.join("data")),
-        )
-        .env("LASTDB_APP_ID", app)
-        .env("LASTDB_APP_SOURCE_DIR", source)
-        .env("LAST_STACK_SETUP_PRESERVE_SERVICES", "1");
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("cannot run {}: {e}", step.argv[0]))?;
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return if status.code().is_some_and(|c| step.accept_exit.contains(&c)) {
-                Ok(())
-            } else {
-                Err(format!("install step {} exited {status}", step.argv[0]))
-            };
-        }
-        if start.elapsed() >= Duration::from_secs(step.timeout_s) {
-            #[cfg(unix)]
-            let _ = ProcessCommand::new("/bin/kill")
-                .args(["-KILL", &format!("-{}", child.id())])
-                .output();
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "install step {} exceeded {} seconds",
-                step.argv[0], step.timeout_s
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    Ok(p)
 }
 
 fn bin_root() -> Result<PathBuf, String> {
@@ -209,18 +201,13 @@ fn bin_root() -> Result<PathBuf, String> {
         .ok_or_else(|| "HOME is required".into())
 }
 
-fn check_replaceable(path: &Path) -> Result<(), String> {
-    (!path
-        .symlink_metadata()
-        .is_ok_and(|m| !m.file_type().is_symlink()))
-    .then_some(())
-    .ok_or_else(|| format!("refusing to replace a regular file: {}", path.display()))
-}
-
-pub(crate) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), String> {
+pub(super) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), String> {
     let source = fs::canonicalize(source).map_err(|e| e.to_string())?;
     for link in &plan.links {
-        if ["lastdb", "lastdbd", "folddb", "host-track"].contains(&link.command.as_str()) {
+        if matches!(
+            link.command.as_str(),
+            "lastdb" | "lastdbd" | "folddb" | "host-track"
+        ) {
             return Err("app links cannot replace the primary program pair or host-track".into());
         }
         let path =
@@ -232,7 +219,7 @@ pub(crate) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn flip(link: &Path, target: &Path) -> Result<(), String> {
+pub(super) fn flip(link: &Path, target: &Path) -> Result<(), String> {
     let tmp = link.with_extension(format!("new-{}", std::process::id()));
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, &tmp).map_err(|e| e.to_string())?;
@@ -244,46 +231,41 @@ pub(crate) fn flip(link: &Path, target: &Path) -> Result<(), String> {
     })
 }
 
-pub(crate) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    let src = root.join("current/source");
+fn validated_bins(root: &Path, plan: &InstallPlan) -> Result<(PathBuf, PathBuf), String> {
+    let (src, bin) = (root.join("current/source"), bin_root()?);
     validate_sources(&src, plan)?;
-    let bin = bin_root()?;
+    Ok((src, bin))
+}
+
+pub(super) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
+    let (src, bin) = validated_bins(root, plan)?;
     fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
-    for link in &plan.links {
-        let target = bin.join(&link.command);
-        check_replaceable(&target)?;
-        flip(&target, &src.join(&link.source))?;
-    }
-    Ok(())
+    plan.links
+        .iter()
+        .try_for_each(|l| flip(&bin_link_path(&bin, &l.command)?, &src.join(&l.source)))
 }
 
-pub(crate) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
-    let src = root.join("current/source");
-    validate_sources(&src, plan)?;
-    let bin = bin_root()?;
-    for link in &plan.links {
-        if fs::read_link(bin.join(&link.command)).map_err(|e| e.to_string())?
-            != src.join(&link.source)
-        {
-            return Err(format!("command link drift: {}", link.command));
-        }
-    }
-    Ok(())
+pub(super) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
+    let (src, bin) = validated_bins(root, plan)?;
+    plan.links.iter().try_for_each(|l| {
+        (fs::read_link(bin.join(&l.command)).map_err(|e| e.to_string())? == src.join(&l.source))
+            .then_some(())
+            .ok_or_else(|| format!("command link drift: {}", l.command))
+    })
 }
 
-pub(crate) fn snapshot(plan: &InstallPlan) -> Result<Vec<(PathBuf, Option<PathBuf>)>, String> {
+pub(super) fn snapshot(plan: &InstallPlan) -> Result<Vec<(PathBuf, Option<PathBuf>)>, String> {
     let bin = bin_root()?;
     plan.links
         .iter()
-        .map(|link| {
-            let path = bin.join(&link.command);
-            check_replaceable(&path)?;
-            Ok((path.clone(), fs::read_link(&path).ok()))
+        .map(|l| {
+            let p = bin_link_path(&bin, &l.command)?;
+            Ok((p.clone(), fs::read_link(&p).ok()))
         })
         .collect()
 }
 
-pub(crate) fn restore(snapshot: &[(PathBuf, Option<PathBuf>)]) -> Result<(), String> {
+pub(super) fn restore(snapshot: &[(PathBuf, Option<PathBuf>)]) -> Result<(), String> {
     for (path, target) in snapshot {
         if let Some(target) = target {
             flip(path, target)?;
@@ -294,38 +276,45 @@ pub(crate) fn restore(snapshot: &[(PathBuf, Option<PathBuf>)]) -> Result<(), Str
     Ok(())
 }
 
-pub(crate) fn clone_source(checkout_path: &Path, entry: &ListEntry) -> Result<(), String> {
-    if entry.sha.len() != 40 || !entry.sha.chars().all(|c| c.is_ascii_hexdigit()) {
+fn git_ok(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .ok_or_else(|| format!("git {} failed", args[0]))
+}
+
+pub(super) fn clone_source(checkout: &Path, entry: &ListEntry) -> Result<(), String> {
+    if entry.sha.len() != 40 || !entry.sha.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!(
             "compat row sha '{}' is not a git commit",
             entry.sha
         ));
     }
-    if !git_ok(
-        None,
-        &["clone", "--quiet", "--no-checkout", &entry.source],
-        Some(checkout_path),
-    )
-    .map_err(|e| format!("failed to run git clone: {e}"))?
-    {
+    let out = ProcessCommand::new("git")
+        .args(["clone", "--quiet", "--no-checkout", &entry.source])
+        .arg(checkout)
+        .status()
+        .map_err(|e| format!("failed to run git clone: {e}"))?;
+    if !out.success() {
         return Err(format!(
             "git clone failed for app '{}' from {}",
             entry.app_id, entry.source
         ));
     }
-    if !git_ok(
-        Some(checkout_path),
-        &["checkout", "--quiet", "--detach", &entry.sha],
-        None,
-    )
-    .map_err(|e| format!("failed to run git checkout: {e}"))?
-    {
-        return Err(format!(
+    git_ok(checkout, &["checkout", "--quiet", "--detach", &entry.sha]).map_err(|_| {
+        format!(
             "git checkout {} failed for app '{}': the proved commit is not in {}",
             entry.sha, entry.app_id, entry.source
-        ));
-    }
-    let head = git_head(checkout_path).map_err(|e| format!("failed to run git rev-parse: {e}"))?;
+        )
+    })?;
+    let head = git_ok(checkout, &["rev-parse", "HEAD"])
+        .map_err(|e| format!("failed to run git rev-parse: {e}"))?;
     (head == entry.sha).then_some(()).ok_or_else(|| {
         format!(
             "checkout HEAD is {head} but the proved commit is {}",
@@ -334,36 +323,11 @@ pub(crate) fn clone_source(checkout_path: &Path, entry: &ListEntry) -> Result<()
     })
 }
 
-pub(crate) fn verify_git_source(source: &Path, expected_sha: &str) -> Result<(), String> {
-    if git_head(source).ok().as_deref() != Some(expected_sha) {
+pub(super) fn verify_git_source(source: &Path, expected_sha: &str) -> Result<(), String> {
+    if git_ok(source, &["rev-parse", "HEAD"]).ok().as_deref() != Some(expected_sha) {
         return Err("installed source commit drift".into());
     }
-    git_ok(Some(source), &["diff", "--quiet", "HEAD", "--"], None)?
-        .then_some(())
-        .ok_or_else(|| "installed tracked source changed".into())
-}
-
-fn git_ok(cwd: Option<&Path>, args: &[&str], extra: Option<&Path>) -> Result<bool, String> {
-    let mut cmd = ProcessCommand::new("git");
-    if let Some(dir) = cwd {
-        cmd.arg("-C").arg(dir);
-    }
-    cmd.args(args);
-    if let Some(path) = extra {
-        cmd.arg(path);
-    }
-    cmd.status().map(|s| s.success()).map_err(|e| e.to_string())
-}
-
-fn git_head(source: &Path) -> Result<String, String> {
-    let out = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(source)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        .ok_or_else(|| "git rev-parse HEAD failed".into())
+    git_ok(source, &["diff", "--quiet", "HEAD", "--"])
+        .map(|_| ())
+        .map_err(|_| "installed tracked source changed".into())
 }

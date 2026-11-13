@@ -12,17 +12,14 @@ pub(super) use share::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminCommand {
-    /// Reclaim deleted space in active stores.
     #[command(subcommand)]
     Storage(AdminStorageCommand),
-    /// Prepare recovery credentials and a fresh identity.
     #[command(subcommand)]
     Backup(AdminBackupCommand),
 }
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminStorageCommand {
-    /// Reclaim already-deleted v2 data in both active stores.
     Cleanup {
         #[arg(long)]
         status: bool,
@@ -37,46 +34,45 @@ pub(crate) enum AdminStorageCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminBackupCommand {
-    /// Create one fresh DEV identity without starting a daemon.
     Init(BackupInitArgs),
-    /// Register a credentials-only recovery device without opening a store.
     RecoverCredentialsHome {
         #[command(flatten)]
         args: RecoverCredentialsArgs,
         #[arg(long, conflicts_with = "invite_code_file")]
         existing_dev: bool,
     },
-    /// Prepare recovery credentials from an existing account without registering.
     PrepareRecoveryHome(PrepareRecoveryArgs),
 }
 
-#[derive(Subcommand, Debug)]
-pub(crate) enum AppLifecycleCommand {
-    /// Publish this clean git commit for the running node's exact API version.
-    Publish {
-        #[arg(long)]
-        manifest: PathBuf,
-        /// Target registry environment (dev | prod). Default: prod.
-        #[arg(long)]
-        env: Option<String>,
-        #[arg(long)]
-        key_file: Option<PathBuf>,
-        /// Developer API key (default: $EXEMEM_DEV_API_KEY).
-        #[arg(long)]
-        api_key: Option<String>,
-        /// Registry HTTP API base URL (default: $LASTDB_APP_REGISTRY_URL).
-        #[arg(long)]
-        registry_url: Option<String>,
-        /// Signed-list channel. Default: stable.
-        #[arg(long)]
-        channel: Option<String>,
-        /// Validate this checkout against the running node and write an unsigned declaration.
-        #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
-        prepare: Option<PathBuf>,
-    },
+#[derive(Args, Debug)]
+pub(crate) struct PublishArgs {
+    #[arg(long)]
+    pub manifest: PathBuf,
+    #[arg(long)]
+    pub env: Option<String>,
+    #[arg(long)]
+    pub key_file: Option<PathBuf>,
+    #[arg(long)]
+    pub api_key: Option<String>,
+    #[arg(long)]
+    pub registry_url: Option<String>,
+    #[arg(long)]
+    pub channel: Option<String>,
+    #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
+    pub prepare: Option<PathBuf>,
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
+pub(crate) struct CatalogSource {
+    #[arg(long)]
+    pub channel: Option<String>,
+    #[arg(long)]
+    pub index: Option<String>,
+    #[arg(long)]
+    pub trust_key: Option<String>,
+}
+
+#[derive(Args, Debug)]
 pub(crate) struct RecordListArgs {
     pub schema: String,
     #[arg(long)]
@@ -108,32 +104,20 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Command {
-    /// Manage personal backups and restore an accepted recovery point.
-    Backup {
-        #[command(subcommand)]
-        action: BackupCommand,
-    },
-    /// Invite readers and manage named database sharing.
+    #[command(subcommand)]
+    Backup(BackupCommand),
     #[command(subcommand)]
     Share(ShareCommand),
-    /// Create, list, and select databases on this node.
-    Db {
-        #[command(subcommand)]
-        action: DatabaseCommand,
-    },
-    /// Diagnose, maintain, or recover a LastDB home.
-    Admin {
-        #[command(subcommand)]
-        action: AdminCommand,
-    },
-    /// Show whether the local daemon socket is reachable.
+    #[command(subcommand)]
+    Db(DatabaseCommand),
+    #[command(subcommand)]
+    Admin(AdminCommand),
     Status {
         #[arg(long)]
         json: bool,
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Submit a complete conditional mutation from JSON, or '-' for stdin.
     Mutate {
         #[arg(long)]
         request_file: PathBuf,
@@ -142,9 +126,7 @@ pub(super) enum Command {
         #[arg(long)]
         mutation_id: Option<uuid::Uuid>,
     },
-    /// List one page of primary keys, or named alternate keys under --key-hash.
     GetKeys(RecordListArgs),
-    /// Point-get one record by exact hash (and range when the schema is HashRange).
     Get {
         schema: String,
         #[arg(long)]
@@ -158,19 +140,14 @@ pub(super) enum Command {
         #[arg(long, value_name = "FILE")]
         hydrate_inline: Option<PathBuf>,
     },
-    /// Discover, install, and publish apps through the signed registry.
-    App {
-        #[command(subcommand)]
-        action: AppCommand,
-    },
+    #[command(subcommand)]
+    App(AppCommand),
 }
 
 #[derive(Subcommand, Debug)]
 pub(super) enum DatabaseCommand {
-    /// Create an owned database. Personal stays the unscoped default.
     Create {
         name: String,
-        /// Allow only the owner to sync or read this database.
         #[arg(long, conflicts_with_all = ["spec_name", "spec_version"])]
         private: bool,
         #[arg(long, requires = "spec_version")]
@@ -180,12 +157,10 @@ pub(super) enum DatabaseCommand {
         #[arg(long)]
         json: bool,
     },
-    /// List the personal database, owned databases, and received shares.
     List {
         #[arg(long)]
         json: bool,
     },
-    /// Show the database a name or id selects. This does not change the default.
     Select {
         selector: String,
         #[arg(long)]
@@ -194,8 +169,7 @@ pub(super) enum DatabaseCommand {
 }
 
 #[derive(Subcommand, Debug)]
-pub(crate) enum AppManagedCommand {
-    /// Show actual installed versions and command-link health.
+pub(crate) enum AppCommand {
     Status {
         app_id: Option<String>,
         #[arg(long)]
@@ -203,41 +177,27 @@ pub(crate) enum AppManagedCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Restore the previous retained app version and its service hooks.
     Rollback {
         app_id: String,
         #[arg(long)]
         json: bool,
     },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum AppCatalogCommand {
-    /// List apps on the signed public index or resolve one for this node.
+    Publish(PublishArgs),
     List {
         #[arg(value_name = "APP")]
         app_id: Option<String>,
         #[arg(long, requires = "app_id")]
         catalog_entry: bool,
-        #[arg(long)]
-        channel: Option<String>,
-        #[arg(long)]
-        index: Option<String>,
-        #[arg(long)]
-        trust_key: Option<String>,
+        #[command(flatten)]
+        source: CatalogSource,
         #[arg(long)]
         json: bool,
     },
-    /// Install apps from the signed list for this node's exact API version.
     Install {
         #[arg(required = true)]
         app_ids: Vec<String>,
-        #[arg(long)]
-        channel: Option<String>,
-        #[arg(long)]
-        index: Option<String>,
-        #[arg(long)]
-        trust_key: Option<String>,
+        #[command(flatten)]
+        source: CatalogSource,
         #[arg(long)]
         accept_install: bool,
         #[arg(long)]
@@ -245,7 +205,6 @@ pub(crate) enum AppCatalogCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Upgrade installed apps from the list for the running node API.
     Upgrade {
         #[arg(required_unless_present = "all")]
         app_ids: Vec<String>,
@@ -253,41 +212,15 @@ pub(crate) enum AppCatalogCommand {
         all: bool,
         #[arg(long)]
         accept_install: bool,
-        #[arg(long)]
-        channel: Option<String>,
-        #[arg(long)]
-        index: Option<String>,
-        #[arg(long)]
-        trust_key: Option<String>,
+        #[command(flatten)]
+        source: CatalogSource,
         #[arg(long)]
         json: bool,
     },
 }
 
 #[derive(Subcommand, Debug)]
-pub(crate) enum AppCommand {
-    #[command(flatten)]
-    Managed(AppManagedCommand),
-    #[command(flatten)]
-    Lifecycle(AppLifecycleCommand),
-    #[command(flatten)]
-    Catalog(AppCatalogCommand),
-}
-
-#[derive(Subcommand, Debug)]
 pub(crate) enum BackupCommand {
-    /// Save an existing cloud account on this home.
     Connect(BackupConnectArgs),
-    /// Restore an owned database from the signed cloud log into a fresh home.
     Restore(BackupRestoreArgs),
-}
-
-impl BackupCommand {
-    pub(crate) fn into_cloud(self) -> Result<CloudCommand, String> {
-        let action = match self {
-            Self::Connect(a) => ByteBackupCommand::Connect(a),
-            Self::Restore(a) => ByteBackupCommand::Restore(a),
-        };
-        Ok(CloudCommand::BackupV2 { action })
-    }
 }

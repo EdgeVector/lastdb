@@ -1,4 +1,4 @@
-//! Registry-owned app trees, atomic activation, LaunchAgent updater, and retained rollback versions.
+//! Registry-owned app trees, atomic activation, and retained rollback versions.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -21,12 +21,6 @@ pub struct ManagedReceipt {
     pub inactive: bool,
     pub installed_at: String,
     pub listing: ListEntry,
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct ActivationOptions {
-    pub accept_install: bool,
-    pub inactive: bool,
 }
 
 pub fn apps_root() -> Result<PathBuf, String> {
@@ -63,44 +57,37 @@ pub fn lock(root: &Path) -> Result<File, String> {
     Ok(file)
 }
 
-fn is_rejected(root: &Path, sha: &str) -> bool {
-    fs::read_to_string(root.join("rejected-source")).is_ok_and(|s| s.trim() == sha)
-}
-
 pub fn install(
     resolution: &Resolution,
     home: &Path,
-    options: ActivationOptions,
+    accept_install: bool,
+    inactive: bool,
 ) -> Result<ManagedReceipt, String> {
     let entry = &resolution.entry;
     let root = app_root(&entry.app_id)?;
     let _lock = lock(&root)?;
-    let prior = root
-        .join("current")
+    let cur = root.join("current");
+    let prior = cur
         .symlink_metadata()
         .ok()
-        .map(|_| receipt(&root.join("current")))
+        .map(|_| receipt(&cur))
         .transpose()?;
-    if !options.accept_install && is_rejected(&root, &entry.sha) {
-        if let Some(cur) = &prior {
-            verify_or_restore(&root, home, cur)?;
+    let rej = root.join("rejected-source");
+    if !accept_install && fs::read_to_string(&rej).is_ok_and(|s| s.trim() == entry.sha) {
+        if let Some(c) = &prior {
+            verify_or_restore(&root, home, c)?;
         }
         return Err(
             "source held after rollback; a newer source or explicit install consent is required"
                 .into(),
         );
     }
-    if let Some(cur) = prior.as_ref().filter(|r| {
-        r.sha == entry.sha && r.inactive == options.inactive && r.publisher == entry.publisher_key
+    if let Some(c) = prior.as_ref().filter(|r| {
+        r.sha == entry.sha && r.inactive == inactive && r.publisher == entry.publisher_key
     }) {
-        verify_or_restore(&root, home, cur)?;
-        return Ok(cur.clone());
+        verify_or_restore(&root, home, c)?;
+        return Ok(c.clone());
     }
-    let version = root.join("versions").join(format!(
-        "{}-{}",
-        entry.sha,
-        chrono::Utc::now().timestamp_micros()
-    ));
     let stage = root.join(format!("stage-{}", std::process::id()));
     if stage.exists() {
         return Err(format!(
@@ -108,22 +95,32 @@ pub fn install(
             stage.display()
         ));
     }
-    let result =
-        stage_version(resolution, &stage, home, prior.as_ref(), &options).and_then(|new| {
-            fs::create_dir_all(root.join("versions")).map_err(|e| e.to_string())?;
-            fs::rename(&stage, &version).map_err(|e| e.to_string())?;
-            let activation = activate(&root, &version, home, &new);
-            prune(&root)?;
-            activation?;
-            if root.join("rejected-source").exists() {
-                fs::remove_file(root.join("rejected-source")).map_err(|e| e.to_string())?;
-            }
-            Ok(new)
-        });
-    if stage.exists() {
-        let _ = fs::remove_dir_all(stage);
-    }
-    result
+    let version = root.join("versions").join(format!(
+        "{}-{}",
+        entry.sha,
+        chrono::Utc::now().timestamp_micros()
+    ));
+    let res = stage_version(
+        resolution,
+        &stage,
+        home,
+        prior.as_ref(),
+        (accept_install, inactive),
+    )
+    .and_then(|new| {
+        fs::create_dir_all(root.join("versions"))
+            .and_then(|()| fs::rename(&stage, &version))
+            .map_err(|e| e.to_string())?;
+        let act = activate(&root, &version, home, &new);
+        prune(&root)?;
+        act?;
+        if rej.exists() {
+            fs::remove_file(&rej).map_err(|e| e.to_string())?;
+        }
+        Ok(new)
+    });
+    let _ = fs::remove_dir_all(&stage);
+    res
 }
 
 fn stage_version(
@@ -131,7 +128,7 @@ fn stage_version(
     stage: &Path,
     home: &Path,
     prior: Option<&ManagedReceipt>,
-    options: &ActivationOptions,
+    (accept_install, inactive): (bool, bool),
 ) -> Result<ManagedReceipt, String> {
     let entry = &resolution.entry;
     if !resolution.trust.starts_with("pinned:") {
@@ -152,14 +149,11 @@ fn stage_version(
     }) {
         return Err("publisher key changed; explicit owner rotation is required".into());
     }
-    if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != options.inactive)
-        && !options.accept_install
-    {
+    if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != inactive) && !accept_install {
+        let pretty = serde_json::to_string_pretty(&plan).map_err(|e| e.to_string())?;
         eprintln!(
-            "Install consent for {} (publisher {}): {}",
-            entry.app_id,
-            entry.publisher_key,
-            serde_json::to_string_pretty(&plan).map_err(|e| e.to_string())?
+            "Install consent for {} (publisher {}): {pretty}",
+            entry.app_id, entry.publisher_key
         );
         return Err("review install instructions and repeat with --accept-install".into());
     }
@@ -170,7 +164,7 @@ fn stage_version(
     }
     steps(&source, home, &entry.app_id, &plan.prepare)?;
     managed_manifest::validate_sources(&source, &plan)?;
-    if !options.inactive {
+    if !inactive {
         steps(&source, home, &entry.app_id, &plan.probe)?;
     }
     let suffix = format!("/{}/api/{}.json", entry.channel, entry.api_version);
@@ -183,7 +177,7 @@ fn stage_version(
         trust: resolution.trust.clone(),
         publisher: entry.publisher_key.clone(),
         consent_hash: hash,
-        inactive: options.inactive,
+        inactive,
         installed_at: chrono::Utc::now().to_rfc3339(),
         listing: entry.clone(),
     };
@@ -195,77 +189,58 @@ fn stage_version(
     Ok(new)
 }
 
-pub fn verify_active(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
-    verify_state(root, current)?;
-    if !current.inactive {
-        let src = root.join("current/source");
-        steps(
-            &src,
-            home,
-            &current.app_id,
-            &InstallPlan::load(&src, &current.app_id)?.probe,
-        )?;
-    }
-    Ok(())
-}
-
-pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
-    if let Err(error) = verify_active(root, home, current) {
-        restore_previous(root, home)?;
-        fs::write(root.join("rejected-source"), &current.sha).map_err(|e| e.to_string())?;
-        return Err(format!(
-            "current app failed its health check; restored previous version and held source: {error}"
-        ));
-    }
-    Ok(())
-}
-
-pub fn verify_state(root: &Path, current: &ManagedReceipt) -> Result<(), String> {
+pub fn verify(
+    root: &Path,
+    active_home: Option<&Path>,
+    current: &ManagedReceipt,
+) -> Result<(), String> {
     let src = root.join("current/source");
     let plan = InstallPlan::load(&src, &current.app_id)?;
     if plan.consent_hash()? != current.consent_hash {
         return Err("install manifest changed since consent".into());
     }
     managed_manifest::verify(root, &plan)?;
-    managed_manifest::verify_git_source(&src, &current.sha)
-}
-
-fn apply_current_plan(
-    root: &Path,
-    home: &Path,
-    current: &ManagedReceipt,
-    plan: &InstallPlan,
-) -> Result<(), String> {
-    managed_manifest::install(root, plan)?;
-    if !current.inactive {
-        steps(
-            &root.join("current/source"),
-            home,
-            &current.app_id,
-            &plan.post_install,
-        )?;
+    managed_manifest::verify_git_source(&src, &current.sha)?;
+    if let Some(home) = active_home.filter(|_| !current.inactive) {
+        steps(&src, home, &current.app_id, &plan.probe)?;
     }
     Ok(())
 }
 
-pub fn activate(
-    root: &Path,
-    version: &Path,
-    home: &Path,
-    new: &ManagedReceipt,
-) -> Result<(), String> {
+pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
+    if let Err(error) = verify(root, Some(home), current) {
+        restore_previous(root, home)?;
+        fs::write(root.join("rejected-source"), &current.sha).map_err(|e| e.to_string())?;
+        return Err(format!("current app failed its health check; restored previous version and held source: {error}"));
+    }
+    Ok(())
+}
+
+fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> Result<(), String> {
+    let apply = |r: &ManagedReceipt, p: &InstallPlan| -> Result<(), String> {
+        managed_manifest::install(root, p)?;
+        if !r.inactive {
+            steps(
+                &root.join("current/source"),
+                home,
+                &r.app_id,
+                &p.post_install,
+            )?;
+        }
+        Ok(())
+    };
     let old = fs::read_link(root.join("current")).ok();
     let plan = InstallPlan::load(&version.join("source"), &new.app_id)?;
     let links_before = managed_manifest::snapshot(&plan)?;
     managed_manifest::flip(&root.join("current"), version)?;
-    if let Err(error) =
-        apply_current_plan(root, home, new, &plan).and_then(|()| verify_active(root, home, new))
-    {
+    if let Err(error) = apply(new, &plan).and_then(|()| verify(root, Some(home), new)) {
         if let Some(ref target) = old {
             managed_manifest::flip(&root.join("current"), target)?;
             let old_r = receipt(&root.join("current"))?;
-            let old_p = InstallPlan::load(&root.join("current/source"), &old_r.app_id)?;
-            apply_current_plan(root, home, &old_r, &old_p)?;
+            apply(
+                &old_r,
+                &InstallPlan::load(&root.join("current/source"), &old_r.app_id)?,
+            )?;
         } else {
             let _ = fs::remove_file(root.join("current"));
         }
@@ -295,18 +270,17 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
         return Err("rollback target is outside app versions".into());
     }
     let prior = receipt(&target)?;
-    if is_rejected(root, &prior.sha) {
+    if fs::read_to_string(root.join("rejected-source")).is_ok_and(|s| s.trim() == prior.sha) {
         return Err(
             "previous source is held after rollback; explicit install consent is required".into(),
         );
     }
-    let (_, _, node) =
-        super::running_node(&crate::lastdb_uds::uds::socket_path(&home.join("data")));
-    if prior.listing.api_version != node.api_version
+    let (_, _, api, outbox) = super::running_node(home);
+    if prior.listing.api_version != api
         || prior
             .listing
             .outbox_format_version
-            .is_some_and(|v| v != node.outbox_format_version)
+            .is_some_and(|v| v != outbox)
     {
         return Err("previous app does not match the running node interface".into());
     }
@@ -319,22 +293,27 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
 }
 
 fn prune(root: &Path) -> Result<(), String> {
-    let current = fs::canonicalize(root.join("current")).ok();
-    let previous = fs::canonicalize(root.join("previous")).ok();
-    let mut versions = Vec::new();
-    for entry in fs::read_dir(root.join("versions")).map_err(|e| e.to_string())? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if let Ok(r) = receipt(&path) {
-            versions.push((r.installed_at, path));
-        }
-    }
-    versions.sort_by(|a, b| b.0.cmp(&a.0));
-    for (_, path) in versions
+    let (cur, prev) = (
+        fs::canonicalize(root.join("current")).ok(),
+        fs::canonicalize(root.join("previous")).ok(),
+    );
+    let mut versions: Vec<_> = fs::read_dir(root.join("versions"))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?
         .into_iter()
-        .filter(|(_, p)| current.as_ref() != Some(p) && previous.as_ref() != Some(p))
+        .filter_map(|e| {
+            let p = e.path();
+            Some((receipt(&p).ok()?.installed_at, p))
+        })
+        .collect();
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, p) in versions
+        .into_iter()
+        .filter(|(_, p)| cur.as_ref() != Some(p) && prev.as_ref() != Some(p))
         .skip(1)
     {
-        fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+        fs::remove_dir_all(p).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

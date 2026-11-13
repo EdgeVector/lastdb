@@ -3,7 +3,6 @@
 use std::io::{self, IsTerminal};
 use std::path::Path;
 
-/// File under the node home recording the last boot failure message.
 pub const LAST_BOOT_ERROR_FILE: &str = "last_boot_error.txt";
 
 pub(super) fn emit_fresh_recovery_phrase(mnemonic: &str) {
@@ -12,12 +11,10 @@ pub(super) fn emit_fresh_recovery_phrase(mnemonic: &str) {
         && io::stderr().is_terminal()
     {
         eprint!(
-            "\n=== LastDB recovery phrase (save this; only shown once) ===\n\
-             {mnemonic}\n\
+            "\n=== LastDB recovery phrase (save this; only shown once) ===\n{mnemonic}\n\
              ===========================================================\n\
-             This phrase is your account root: identity, content encryption, \
-             and HashKey blinding. Enabling cloud later reuses it — \
-             no re-encryption of field keys.\n"
+             This phrase is your account root: identity, content encryption, and HashKey blinding. \
+             Enabling cloud later reuses it — no re-encryption of field keys.\n"
         );
         tracing::info!("fresh identity generated; recovery phrase printed on stderr");
     } else {
@@ -30,20 +27,19 @@ pub(super) fn ensure_node_home(home: &Path) -> io::Result<()> {
     std::fs::create_dir_all(home)?;
     #[cfg(target_os = "macos")]
     {
-        let marker = home.join(".metadata_never_index");
+        let m = home.join(".metadata_never_index");
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&marker)
+            .open(&m)
         {
             Ok(_) => {
-                tracing::info!(path = %marker.display(), "excluded node home from Spotlight indexing");
+                tracing::info!(path = %m.display(), "excluded node home from Spotlight indexing");
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => tracing::warn!(
-                target: "lastdb_node::host", path = %marker.display(), error = %e,
-                "could not exclude node home from Spotlight indexing"
-            ),
+            Err(e) => {
+                tracing::warn!(target: "lastdb_node::host", path = %m.display(), error = %e, "could not exclude node home from Spotlight indexing");
+            }
         }
     }
     Ok(())
@@ -57,7 +53,6 @@ pub(super) fn map_and_record_boot_error(
     let raw = err.to_string();
     let lower = raw.to_ascii_lowercase();
     let decrypt_err = [
-        "cannot decrypt existing store",
         "aead",
         "aes-gcm",
         "decrypt",
@@ -68,12 +63,10 @@ pub(super) fn map_and_record_boot_error(
     ]
     .iter()
     .any(|n| lower.contains(n));
-    let msg = if decrypt_err {
-        if raw.contains("cannot decrypt existing store") {
-            raw
-        } else {
-            format!("cannot decrypt existing store — wrong master key or incompatible build; refusing to start fresh: {raw}")
-        }
+    let msg = if decrypt_err && raw.contains("cannot decrypt existing store") {
+        raw
+    } else if decrypt_err {
+        format!("cannot decrypt existing store — wrong master key or incompatible build; refusing to start fresh: {raw}")
     } else if existing_store {
         format!(
             "cannot open existing store — refusing to start fresh over existing data at {}: {raw}",

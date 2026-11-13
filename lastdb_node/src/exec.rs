@@ -1,6 +1,7 @@
 //! Data-route executor and wall-clock timeout budgets for the `lastdbd` owner control socket.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -14,8 +15,7 @@ use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::DataRoute;
 
-type ErasedRoute<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = UdsResponse> + Send + 'a>>;
+type ErasedRoute<'a> = std::pin::Pin<Box<dyn Future<Output = UdsResponse> + Send + 'a>>;
 
 macro_rules! heap_route {
     ($f:path, $req:ident, $ctx:ident, $host:ident) => {{
@@ -25,17 +25,14 @@ macro_rules! heap_route {
             ctx: &'a AccessContext,
             host: &'a Host,
         ) -> ErasedRoute<'a> {
-            Box::pin(async move { $f(req, ctx, host).await })
+            Box::pin($f(req, ctx, host))
         }
         start($req, $ctx, $host)
     }};
-}
-
-macro_rules! heap_route_ctx_host {
     ($f:path, $ctx:ident, $host:ident) => {{
         #[inline(never)]
         fn start<'a>(ctx: &'a AccessContext, host: &'a Host) -> ErasedRoute<'a> {
-            Box::pin(async move { $f(ctx, host).await })
+            Box::pin($f(ctx, host))
         }
         start($ctx, $host)
     }};
@@ -67,9 +64,7 @@ mod schema_resolve {
     };
 }
 
-use reply::{
-    content_free, envelope, error_response, json_ok, mapped_error_response, render, HostError,
-};
+use reply::{content_free, envelope, error_response, json_ok, map_host_err, render, HostError};
 use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
 pub use database_routes::{
@@ -79,8 +74,6 @@ pub use mutation::execute_deferred_mutation;
 pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
 pub use wire::{parse_mutation_body, ParsedMutation, Reject};
 
-const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
-const DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS: u64 = 600;
 pub const DEFAULT_CLI_UDS_TIMEOUT_SECS: u64 = 30;
 
 fn secs_override(var: &str) -> Option<Duration> {
@@ -91,8 +84,7 @@ fn secs_override(var: &str) -> Option<Duration> {
 
 #[must_use]
 pub fn handler_timeout() -> Duration {
-    secs_override("LASTDB_UDS_HANDLER_TIMEOUT_SECS")
-        .unwrap_or(Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS))
+    secs_override("LASTDB_UDS_HANDLER_TIMEOUT_SECS").unwrap_or(Duration::from_secs(90))
 }
 
 #[must_use]
@@ -102,21 +94,15 @@ pub fn admin_handler_timeout_override() -> Option<Duration> {
 
 #[must_use]
 pub fn admin_handler_timeout() -> Duration {
-    admin_handler_timeout_override()
-        .unwrap_or(Duration::from_secs(DEFAULT_ADMIN_HANDLER_TIMEOUT_SECS))
+    admin_handler_timeout_override().unwrap_or(Duration::from_secs(600))
 }
 
-pub(in crate::exec) async fn with_handler_timeout_budget<F>(
+pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsResponse>>(
     ctx: &AccessContext,
     budget: Duration,
     fut: F,
-) -> UdsResponse
-where
-    F: std::future::Future<Output = UdsResponse>,
-{
-    if let Ok(resp) = tokio::time::timeout(budget, fut).await {
-        resp
-    } else {
+) -> UdsResponse {
+    tokio::time::timeout(budget, fut).await.unwrap_or_else(|_| {
         tracing::warn!(
             timeout_secs = budget.as_secs(),
             "uds handler deadline exceeded; returning 503"
@@ -126,33 +112,21 @@ where
             "node is busy: handler deadline exceeded; retry after 1s",
             ctx,
         )
-    }
+    })
 }
 
-pub fn block_on_route<Fut>(
+pub fn block_on_route<Fut: Future<Output = UdsResponse>>(
     handle: &tokio::runtime::Handle,
     ctx: &AccessContext,
+    admin: bool,
     fut: Fut,
-) -> UdsResponse
-where
-    Fut: std::future::Future<Output = UdsResponse>,
-{
-    handle.block_on(with_handler_timeout_budget(ctx, handler_timeout(), fut))
-}
-
-pub fn block_on_admin_route<Fut>(
-    handle: &tokio::runtime::Handle,
-    ctx: &AccessContext,
-    fut: Fut,
-) -> UdsResponse
-where
-    Fut: std::future::Future<Output = UdsResponse>,
-{
-    handle.block_on(with_handler_timeout_budget(
-        ctx,
-        admin_handler_timeout(),
-        fut,
-    ))
+) -> UdsResponse {
+    let budget = if admin {
+        admin_handler_timeout()
+    } else {
+        handler_timeout()
+    };
+    handle.block_on(with_handler_timeout_budget(ctx, budget, fut))
 }
 
 pub fn block_on_data_route(
@@ -171,11 +145,38 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    with_handler_timeout_budget(
-        ctx,
-        data_route_budget(route),
-        execute_data_route(route, req, ctx, host),
-    )
+    with_handler_timeout_budget(ctx, data_route_budget(route), async {
+        let fut: ErasedRoute<'_> = match route {
+            DataRoute::ListSchemas => return schema_routes::list_schemas(req, ctx, host),
+            DataRoute::GetSchema => return schema_routes::get_schema(req, ctx, host),
+            DataRoute::Status => return admin_routes::status_route(ctx, host),
+            DataRoute::AutoIdentity => return admin_routes::auto_identity(host),
+            DataRoute::BootIdentity => return admin_routes::boot_identity(host),
+            DataRoute::Query => heap_route!(query::query_route, req, ctx, host),
+            DataRoute::Mutation => heap_route!(mutation::mutation_route, req, ctx, host),
+            DataRoute::MutationBatch => heap_route!(mutation::batch_route, req, ctx, host),
+            DataRoute::QueryBatch => heap_route!(query::query_batch_route, req, ctx, host),
+            DataRoute::ListRecordKeys => heap_route!(list_keys, req, ctx, host),
+            DataRoute::DeclareSchema => heap_route!(schema_declare::declare_schema, req, ctx, host),
+            DataRoute::SeedSystemSchema => heap_route!(schema_routes::seed_system, req, ctx, host),
+            DataRoute::DropSchema => heap_route!(schema_routes::drop_schema, req, ctx, host),
+            DataRoute::AdminShed => heap_route!(admin_routes::admin_shed, ctx, host),
+            DataRoute::DbSchemas => heap_route!(admin_routes::db_schemas, ctx, host),
+            DataRoute::DbFlush => heap_route!(admin_routes::db_flush, req, ctx, host),
+            DataRoute::DbCleanup => heap_route!(admin_routes::db_cleanup, req, ctx, host),
+            DataRoute::DbNativeStatus => {
+                heap_route!(admin_routes::db_native_status, req, ctx, host)
+            }
+            DataRoute::DbDeleteLedger => {
+                heap_route!(admin_routes::db_delete_ledger, req, ctx, host)
+            }
+            DataRoute::DbSchemaRetention => heap_route!(admin_routes::db_retention, req, ctx, host),
+            DataRoute::DbPutBlob => heap_route!(file_blob::db_put_blob, req, ctx, host),
+            DataRoute::DbFetchBlob => heap_route!(file_blob::db_fetch_blob, req, ctx, host),
+            DataRoute::DbDeleteBlob => heap_route!(mutation::db_delete_blob, req, ctx, host),
+        };
+        fut.await
+    })
     .await
 }
 
@@ -193,150 +194,56 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
     }
 }
 
-pub(in crate::exec) async fn execute_data_route(
-    route: DataRoute,
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    match route {
-        DataRoute::Query => heap_route!(query::execute_query_route, req, ctx, host).await,
-        DataRoute::Mutation => heap_route!(mutation::execute_mutation_route, req, ctx, host).await,
-        DataRoute::MutationBatch => {
-            heap_route!(mutation::execute_mutations_batch_route, req, ctx, host).await
+async fn list_keys(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let result = async {
+        let r = list_keys_route::ListRecordKeysRequest::parse(&req.target)
+            .map_err(|m| HostError::new(400, m))?;
+        let canonical = schema_resolve::resolve_schema_name(host, &r.requested)?
+            .ok_or_else(|| HostError::new(404, format!("schema not found: {}", r.requested)))?;
+        if let Some(name) = r.key_name.as_deref() {
+            let scope = host.records().db_ops().read_scope().await?;
+            let report = scope
+                .run_result(Box::pin(async {
+                    let hash = r
+                        .hash_filter
+                        .as_deref()
+                        .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
+                    let schema = host
+                        .records()
+                        .schema_manager()
+                        .get_schema_metadata(&canonical)?
+                        .ok_or_else(|| HostError::new(404, "schema is absent"))?;
+                    let mut q = Query::new_with_filter(
+                        canonical.clone(),
+                        Some(HashRangeFilter::HashKey(hash.to_owned())),
+                    );
+                    q.key_name = Some(name.to_owned());
+                    let qreq = QueryRequest {
+                        query: q,
+                        limit: Some(r.limit),
+                        offset: None,
+                        cursor: list_keys_route::decode_alternate_cursor(r.cursor.as_deref())?,
+                        response_format: query::QueryResponseFormat::Full,
+                    };
+                    let page = query::execute_query(host, qreq).await?;
+                    list_keys_route::alternate_list_report(&r, &schema, &page)
+                }))
+                .await?;
+            return Ok(json!({ "list": report }));
         }
-        DataRoute::QueryBatch => {
-            heap_route!(query::execute_query_batch_route, req, ctx, host).await
-        }
-        DataRoute::ListSchemas => schema_routes::execute_list_schemas_route(req, ctx, host),
-        DataRoute::ListRecordKeys => {
-            heap_route!(execute_list_record_keys_route, req, ctx, host).await
-        }
-        DataRoute::GetSchema => schema_routes::execute_get_schema_route(req, ctx, host),
-        DataRoute::DeclareSchema => {
-            heap_route!(schema_declare::execute_declare_schema_route, req, ctx, host).await
-        }
-        DataRoute::SeedSystemSchema => {
-            heap_route!(
-                schema_routes::execute_seed_system_schema_route,
-                req,
-                ctx,
-                host
+        let report = host
+            .records()
+            .list_schema_record_keys(
+                &r.requested,
+                &canonical,
+                r.limit,
+                r.cursor.as_deref(),
+                r.hash_filter.as_deref(),
             )
             .await
-        }
-        DataRoute::DropSchema => {
-            heap_route!(schema_routes::execute_drop_schema_route, req, ctx, host).await
-        }
-        DataRoute::Status => admin_routes::execute_status_route(ctx, host),
-        DataRoute::AdminShed => {
-            heap_route_ctx_host!(admin_routes::execute_admin_shed_route, ctx, host).await
-        }
-        DataRoute::AutoIdentity => admin_routes::execute_auto_identity_route(host),
-        DataRoute::BootIdentity => admin_routes::execute_boot_identity_route(host),
-        DataRoute::DbSchemas => {
-            heap_route_ctx_host!(admin_routes::execute_db_schemas_route, ctx, host).await
-        }
-        DataRoute::DbFlush => {
-            heap_route!(admin_routes::execute_db_flush_route, req, ctx, host).await
-        }
-        DataRoute::DbCleanup => {
-            heap_route!(admin_routes::execute_db_cleanup_route, req, ctx, host).await
-        }
-        DataRoute::DbNativeStatus => {
-            heap_route!(admin_routes::execute_db_native_status_route, req, ctx, host).await
-        }
-        DataRoute::DbDeleteLedger => {
-            heap_route!(admin_routes::execute_db_delete_ledger_route, req, ctx, host).await
-        }
-        DataRoute::DbSchemaRetention => {
-            heap_route!(
-                admin_routes::execute_db_schema_retention_route,
-                req,
-                ctx,
-                host
-            )
-            .await
-        }
-        DataRoute::DbPutBlob => {
-            heap_route!(file_blob::execute_db_put_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbFetchBlob => {
-            heap_route!(file_blob::execute_db_fetch_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbDeleteBlob => {
-            heap_route!(mutation::execute_db_delete_blob_route, req, ctx, host).await
-        }
+            .map_err(|e| map_host_err("list failed", e))?;
+        Ok(json!({ "list": report }))
     }
-}
-
-async fn execute_list_record_keys_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let request = match list_keys_route::ListRecordKeysRequest::parse(&req.target) {
-        Ok(r) => r,
-        Err(msg) => return error_response(400, msg, ctx),
-    };
-    let canonical = match schema_resolve::resolve_schema_name(host, &request.requested) {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            return error_response(
-                404,
-                &format!("schema not found: {}", request.requested),
-                ctx,
-            )
-        }
-        Err(e) => return render(Err(e), ctx),
-    };
-    if let Some(name) = request.key_name.as_deref() {
-        let page_fut = async {
-            let hash = request
-                .hash_filter
-                .as_deref()
-                .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
-            let schema = host
-                .records()
-                .schema_manager()
-                .get_schema_metadata(&canonical)
-                .map_err(HostError::from)?
-                .ok_or_else(|| HostError::new(404, "schema is absent"))?;
-            let mut q = Query::new_with_filter(
-                canonical.clone(),
-                Some(HashRangeFilter::HashKey(hash.to_owned())),
-            );
-            q.key_name = Some(name.to_owned());
-            let cursor = list_keys_route::decode_alternate_cursor(request.cursor.as_deref())?;
-            let page = query::execute_query(
-                host,
-                q,
-                Some(request.limit),
-                None,
-                cursor,
-                query::QueryResponseFormat::Full,
-            )
-            .await?;
-            list_keys_route::alternate_list_report(&request, &schema, &page)
-        };
-        let result = match host.records().db_ops().read_scope().await {
-            Ok(scope) => scope.run_result(Box::pin(page_fut)).await,
-            Err(e) => Err(HostError::from(e)),
-        };
-        return render(result.map(|report| json!({ "list": report })), ctx);
-    }
-    match host
-        .records()
-        .list_schema_record_keys(
-            &request.requested,
-            &canonical,
-            request.limit,
-            request.cursor.as_deref(),
-            request.hash_filter.as_deref(),
-        )
-        .await
-    {
-        Ok(report) => json_ok(&envelope(&json!({ "list": report }), ctx.user_id.as_str())),
-        Err(e) => mapped_error_response("list failed", e, ctx),
-    }
+    .await;
+    render(result, ctx)
 }

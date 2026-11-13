@@ -18,15 +18,12 @@ impl DatabaseTarget {
     }
 
     pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        if let Some(sel) = self.selector.as_deref() {
-            Cow::Owned(format!(
-                "{DATABASE_SCOPE_PREFIX}{sel}{}",
-                path.strip_prefix("/api")
-                    .expect("database path starts with /api")
-            ))
-        } else {
-            Cow::Borrowed(path)
-        }
+        self.selector.as_deref().map_or(Cow::Borrowed(path), |sel| {
+            let suffix = path
+                .strip_prefix("/api")
+                .expect("database path starts with /api");
+            Cow::Owned(format!("{DATABASE_SCOPE_PREFIX}{sel}{suffix}"))
+        })
     }
 
     pub(crate) fn is_explicit(&self) -> bool {
@@ -59,111 +56,85 @@ fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
 
 pub(super) fn list_databases(data_dir: Option<PathBuf>, json: bool) -> Result<(), String> {
     let target = DatabaseTarget::open(data_dir, None)?;
-    let raw = get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?;
-    let response = parse_json_response(&raw, "database list")?;
+    let resp = parse_json_response(
+        &get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?,
+        "database list",
+    )?;
     if json {
-        println!("{response}");
+        println!("{resp}");
         return Ok(());
     }
-    for db in response["databases"]
+    for db in resp["databases"]
         .as_array()
         .ok_or("missing database list")?
     {
         let id = db["id"].as_str().ok_or("database has no ID")?;
-        let name = db["name"].as_str().unwrap_or(id);
-        let access = db["access"].as_str().ok_or("database has no access mode")?;
-        let state = db["state"].as_str().ok_or("database has no state")?;
-        println!("{name}\t{id}\t{access}\t{state}");
+        println!(
+            "{}\t{id}\t{}\t{}",
+            db["name"].as_str().unwrap_or(id),
+            db["access"].as_str().ok_or("database has no access mode")?,
+            db["state"].as_str().ok_or("database has no state")?
+        );
     }
     Ok(())
-}
-
-pub(super) const STATUS_UNREACHABLE_EXIT: i32 = 1;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StatusRun {
-    Serving,
-    Unreachable,
-}
-
-fn probe_status_json(socket: &Path, timeout: Duration) -> Result<serde_json::Value, String> {
-    let req = format!(
-        "GET /api/status HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    parse_json_response(
-        &request_readonly_with_retry(socket, req.as_bytes(), timeout)?,
-        "status",
-    )?
-    .get("status")
-    .cloned()
-    .ok_or_else(|| "status response missing status object".into())
 }
 
 pub(super) fn status(
     data_dir: Option<PathBuf>,
     json: bool,
     timeout_secs: Option<u64>,
-) -> Result<StatusRun, String> {
-    let default_timeout = lastdb_node::exec::admin_handler_timeout_override().unwrap_or(
-        Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
-    );
-    let probe_timeout = timeout_secs
-        .filter(|s| *s > 0)
-        .map_or(default_timeout, Duration::from_secs);
+) -> Result<bool, String> {
+    let def = lastdb_node::exec::admin_handler_timeout_override().unwrap_or(Duration::from_secs(
+        lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS,
+    ));
+    let budget = timeout_secs
+        .filter(|&s| s > 0)
+        .map_or(def, Duration::from_secs);
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     let health = probe_health(&socket);
     let running = health.is_ok();
     let status_val = running
-        .then(|| probe_status_json(&socket, probe_timeout).ok())
+        .then(|| {
+            get_path_retry(&socket, "/api/status", budget)
+                .and_then(|r| parse_json_response(&r, "status"))
+                .ok()
+                .and_then(|v| v.get("status").cloned())
+        })
         .flatten();
+    let daemon_build = status_val
+        .as_ref()
+        .and_then(|s| s.pointer("/build/version"))
+        .and_then(serde_json::Value::as_str);
+    let daemon_status = health.as_ref().map_or_else(
+        |e| format!("lastdbd: not reachable — {e}"),
+        |()| "serving".to_string(),
+    );
     if json {
-        let daemon_build = status_val
-            .as_ref()
-            .and_then(|s| s.pointer("/build/version"))
-            .and_then(serde_json::Value::as_str);
         let cli_build = lastdb_node::version::build_version();
-        let daemon_status = health.as_ref().map_or_else(
-            |e| format!("lastdbd: not reachable — {e}"),
-            |()| "serving".to_string(),
-        );
-        let payload = serde_json::json!({
-            "home": home.display().to_string(),
-            "socket": socket.display().to_string(),
-            "running": running,
-            "daemon_status": daemon_status,
-            "daemon_pid_alive": false,
-            "health_error": health.as_ref().err(),
-            "daemon_build": daemon_build,
-            "cli_build": cli_build,
+        print_pretty_json(&serde_json::json!({
+            "home": home.display().to_string(), "socket": socket.display().to_string(),
+            "running": running, "daemon_status": daemon_status, "daemon_pid_alive": false,
+            "health_error": health.as_ref().err(), "daemon_build": daemon_build, "cli_build": cli_build,
             "build_agreement": daemon_build.map(|b| if b == cli_build { "match" } else { "mismatch" }),
             "notes": [
                 "daemon_build is what the PROCESS reports; cli_build is this binary. null daemon_build = no status reply, build unknown — not agreement",
             ],
-        });
+        }));
+    } else {
         println!(
             "{}",
-            serde_json::to_string_pretty(&payload)
-                .map_err(|e| format!("serialize status json: {e}"))?
+            if running {
+                "lastdbd: serving"
+            } else {
+                &daemon_status
+            }
         );
-    } else {
-        if let Err(e) = &health {
-            println!("lastdbd: not reachable — {e}");
-        } else {
-            println!("lastdbd: serving");
+        println!("Home: {}\nSocket: {}", home.display(), socket.display());
+        if let Some(ver) = daemon_build {
+            println!("Build: {ver}");
         }
-        println!("Home: {}", home.display());
-        println!("Socket: {}", socket.display());
-        if let Some(s) = &status_val {
-            if let Some(ver) = s
-                .pointer("/build/version")
-                .and_then(serde_json::Value::as_str)
-            {
-                println!("Build: {ver}");
-            }
-            if let Some(up) = s.get("uptime_secs").and_then(serde_json::Value::as_u64) {
-                println!("Uptime: {up}s");
-            }
+        if let Some(up) = status_val.as_ref().and_then(|s| s["uptime_secs"].as_u64()) {
+            println!("Uptime: {up}s");
         }
         if std::fs::read(home.join("data").join(NODE_MARKER))
             .ok()
@@ -175,11 +146,7 @@ pub(super) fn status(
             );
         }
     }
-    Ok(if running {
-        StatusRun::Serving
-    } else {
-        StatusRun::Unreachable
-    })
+    Ok(running)
 }
 
 pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {
@@ -191,59 +158,47 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
             json,
         }) => {
             let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-            if probe_health(&socket).is_err() {
-                return Err(format!(
-                    "lastdbd not reachable at {} — start the daemon first",
-                    socket.display()
-                ));
-            }
+            require_reachable(&socket)?;
             db_cleanup(&socket, status, wait, timeout, json)
         }
-        AdminCommand::Backup(action) => cloud_command(data_dir, backup_action(action)?),
-    }
-}
-
-fn backup_action(action: AdminBackupCommand) -> Result<CloudCommand, String> {
-    use AdminBackupCommand::{Init, PrepareRecoveryHome, RecoverCredentialsHome};
-    match action {
-        Init(a) => Ok(CloudCommand::BackupV2 {
-            action: ByteBackupCommand::Init(a),
-        }),
-        RecoverCredentialsHome { args, existing_dev } => {
-            if !existing_dev {
-                return Ok(CloudCommand::RecoverCredentialsHome(args));
-            }
-            if args.env != "dev" {
-                return Err("--existing-dev requires --env dev".into());
-            }
-            Ok(CloudCommand::RecoverDevCredentialsHome {
-                into: args.into,
-                expected_user_hash: args.expected_user_hash,
-                identity_seed_stdin: args.identity_seed_stdin,
-                json: args.json,
-            })
+        AdminCommand::Backup(AdminBackupCommand::Init(a)) => cloud_command(
+            data_dir,
+            CloudCommand::BackupV2 {
+                action: ByteBackupCommand::Init(a),
+            },
+        ),
+        AdminCommand::Backup(AdminBackupCommand::PrepareRecoveryHome(a)) => {
+            cloud_command(data_dir, CloudCommand::PrepareRecoveryHome(a))
         }
-        PrepareRecoveryHome(a) => Ok(CloudCommand::PrepareRecoveryHome(a)),
+        AdminCommand::Backup(AdminBackupCommand::RecoverCredentialsHome { args, existing_dev }) => {
+            let cmd = if existing_dev {
+                if args.env != "dev" {
+                    return Err("--existing-dev requires --env dev".into());
+                }
+                CloudCommand::RecoverDevCredentialsHome {
+                    into: args.into,
+                    expected_user_hash: args.expected_user_hash,
+                    identity_seed_stdin: args.identity_seed_stdin,
+                    json: args.json,
+                }
+            } else {
+                CloudCommand::RecoverCredentialsHome(args)
+            };
+            cloud_command(data_dir, cmd)
+        }
     }
 }
 
-fn decode_cleanup(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {
-    let report = value
+fn decode_cleanup(raw: &str, label: &str) -> Result<NativeCleanupStatus, String> {
+    let report = parse_json_response(raw, label)?
         .get("cleanup")
         .cloned()
         .ok_or("response missing cleanup")?;
-    let status: NativeCleanupStatus =
+    let s: NativeCleanupStatus =
         serde_json::from_value(report).map_err(|e| format!("invalid cleanup response: {e}"))?;
-    (status.complete == (status.phase == NativeCleanupPhase::Complete))
-        .then_some(status)
+    (s.complete == (s.phase == NativeCleanupPhase::Complete))
+        .then_some(s)
         .ok_or_else(|| "cleanup response has inconsistent completion fields".into())
-}
-
-fn read_cleanup_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
-    decode_cleanup(&parse_json_response(
-        &get_path(socket, "/api/db/cleanup", timeout)?,
-        "cleanup status",
-    )?)
 }
 
 fn db_cleanup(
@@ -253,46 +208,52 @@ fn db_cleanup(
     timeout: u64,
     json: bool,
 ) -> Result<(), String> {
-    let mut status = if status_only {
-        read_cleanup_status(socket, Duration::from_secs(30))?
+    let raw = if status_only {
+        get_path(socket, "/api/db/cleanup", Duration::from_secs(30))?
     } else {
-        let raw = post_json_admin(socket, "/api/db/cleanup", &serde_json::json!({}))?;
-        decode_cleanup(&parse_json_response(&raw, "/api/db/cleanup")?)?
+        post_json_admin(socket, "/api/db/cleanup", &serde_json::json!({}))?
     };
-    let id = status.request_id.clone();
-    let (started, limit) = (Instant::now(), Duration::from_secs(timeout));
+    let mut status = decode_cleanup(
+        &raw,
+        if status_only {
+            "cleanup status"
+        } else {
+            "/api/db/cleanup"
+        },
+    )?;
+    let (id, started, limit) = (
+        status.request_id.clone(),
+        Instant::now(),
+        Duration::from_secs(timeout),
+    );
     while wait && !status.complete {
         if status.phase == NativeCleanupPhase::RecoveryRequired || status.request_id.is_none() {
-            print_cleanup_status(&status, json)?;
+            print_cleanup_status(&status, json);
             return Err(status
                 .last_error
                 .unwrap_or_else(|| "no cleanup request is active".into()));
         }
         let Some(left) = limit.checked_sub(started.elapsed()) else {
-            print_cleanup_status(&status, json)?;
-            return Err(
-                "cleanup remains incomplete; its durable request continues after this client timeout"
-                    .into(),
-            );
+            print_cleanup_status(&status, json);
+            return Err("cleanup remains incomplete; its durable request continues after this client timeout".into());
         };
         std::thread::sleep(Duration::from_millis(250).min(left));
         if let Some(left) = limit.checked_sub(started.elapsed()) {
-            status = read_cleanup_status(socket, Duration::from_secs(30).min(left))?;
+            let raw = get_path(socket, "/api/db/cleanup", Duration::from_secs(30).min(left))?;
+            status = decode_cleanup(&raw, "cleanup status")?;
             if status.request_id != id {
                 return Err("the latest cleanup request changed while this client waited".into());
             }
         }
     }
-    print_cleanup_status(&status, json)
+    print_cleanup_status(&status, json);
+    Ok(())
 }
 
-fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) -> Result<(), String> {
+fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) {
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(status).map_err(|e| e.to_string())?
-        );
-        return Ok(());
+        print_pretty_json(status);
+        return;
     }
     println!("Cleanup: {:?}", status.phase);
     if let Some(id) = &status.request_id {
@@ -316,5 +277,4 @@ fn print_cleanup_status(status: &NativeCleanupStatus, json: bool) -> Result<(), 
     println!(
         "  Scope: data already deleted from the active stores. Backup copies remain separate."
     );
-    Ok(())
 }
