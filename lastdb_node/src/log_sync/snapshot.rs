@@ -56,9 +56,9 @@ async fn publish(
     let cut = runtime
         .capture_database_snapshot()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| "cannot freeze the database files")?;
     let (cut, files) = tokio::task::spawn_blocking(move || {
-        let files = files::inventory(&cut)?;
+        let files = files::inventory(&cut).map_err(|_| "cannot read the frozen database files")?;
         Ok::<_, String>((cut, files))
     })
     .await
@@ -171,7 +171,17 @@ pub(super) async fn requested(
         return Ok(());
     };
     let nonce = request_nonce(&request)?;
-    publish(host, log, database, &nonce).await?;
+    let failure = path.with_file_name("snapshot-error");
+    if let Err(error) = publish(host, log, database, &nonce).await {
+        super::disk::write_private(&failure, error.as_bytes())
+            .map_err(|_| "cannot save the snapshot failure")?;
+        return Err(error);
+    }
+    match std::fs::remove_file(failure) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("cannot clear the previous snapshot failure".into()),
+    }
     if request_bytes(host, log.database_id())?.as_deref() == Some(request.as_slice()) {
         std::fs::remove_file(path).map_err(|_| "cannot retire the completed snapshot request")?;
     }
