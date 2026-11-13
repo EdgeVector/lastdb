@@ -53,6 +53,7 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
+    pub(crate) database_sessions: crate::exec::DatabaseSessions,
 }
 
 impl Host {
@@ -138,6 +139,7 @@ impl Host {
             uds_workers: OnceLock::new(),
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
+            database_sessions: crate::exec::DatabaseSessions::default(),
         })
     }
 

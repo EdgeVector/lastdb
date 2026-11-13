@@ -10,6 +10,7 @@ import time
 import uuid
 
 from signed_files import retry, run_operation, summary
+from social_app import call as app_call, observe_access, open_content_apps, read_album, report_content_flow, window
 from support import OperationError, decode_json, require
 
 
@@ -120,16 +121,27 @@ def transfer(programs, root, publisher, recipient, api_key):
     require(reader_key != publisher_key, "social_separate_identity")
     retry("social_initial_configuration", lambda: roster(publisher, database),
           lambda config: config.get("revision") == "0" and config.get("members") == [])
-    share_albums(publisher, recipient, database, definition, contact, reader_key, publisher_key)
+    with window(publisher, database) as owner_app:
+        app_call(owner_app, "/api/home", authorized=False, status=403)
+        person = app_call(owner_app, "/api/remember", {
+            "name": "Ana", "nodeKey": reader_key, "contactCode": contact.read_text().strip(),
+        })
+        require(person == {"name": "Ana", "nodeKey": reader_key}
+                and person in app_call(owner_app, "/api/home")["people"], "social_app_saved_contact")
+        with window(recipient) as recipient_app:
+            share_albums(publisher, recipient, database, definition, reader_key, publisher_key,
+                         owner_app, recipient_app)
     check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
 
 
-def share_albums(publisher, recipient, database, definition, contact, reader_key, publisher_key):
+def share_albums(publisher, recipient, database, definition, reader_key, publisher_key, owner_app, recipient_app):
     try:
-        receipt = share(publisher, database, contact, reader_key, 1)
-        require(receipt["publisher"] == publisher_key, "social_publisher_identity")
-        received = social(recipient, "accept", "--publisher", publisher_key, "--name", "family",
-                          receipt=receipt)
+        receipt = app_call(owner_app, "/api/invite", {"databaseId": database, "nodeKey": reader_key})
+        require(receipt["publisher"] == publisher_key and receipt["revision"] == "1",
+                "social_publisher_identity")
+        received = app_call(recipient_app, "/api/accept", {
+            "publisher": publisher_key, "name": "family", "receipt": receipt,
+        })
         require(received.get("id") == database and received.get("spec") == SPEC
                 and received.get("access") == "reader", "social_received_metadata")
         wait_for_album(recipient, database, 0)
@@ -138,19 +150,28 @@ def share_albums(publisher, recipient, database, definition, contact, reader_key
         listed = next(row for row in recipient.call("/api/databases")["databases"]
                       if row["id"] == database)
         require(listed.get("spec") == SPEC, "social_spec_after_restart")
+        observe_access(recipient_app, database, "active", 1)
+        selections = open_content_apps(recipient, recipient_app, database)
+        require(read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_initial_album")
         grants = social(publisher, "list", "--database", database)
         require(len(grants) == 1 and grants[0]["user"] == "Ana", "social_remembers_contact")
         share(publisher, database, None, reader_key, 1)
         write_album(publisher, database, definition, 1)
         wait_for_album(recipient, database, 1)
+        require(read_album(recipient, selections, database, "album-1", ALBUMS[1]), "social_apps_second_album")
         revoke(publisher, database, reader_key, 2)
         write_album(publisher, database, definition, 2)
         for _ in range(12):
             require(album(recipient, database, 2) == [], "social_revoked_read_new_album")
             time.sleep(1)
+        observe_access(recipient_app, database, "revoked")
+        require(read_album(recipient, selections, database, "album-2")
+                and read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_revoked")
         wait_for_album(recipient, database, 0)
         share(publisher, database, None, reader_key, 3)
         wait_for_album(recipient, database, 2)
+        observe_access(recipient_app, database, "active", 3)
+        require(read_album(recipient, selections, database, "album-2", ALBUMS[2]), "social_apps_caught_up")
     finally:
         applied = roster(publisher, database)
         if any(member["state"] == "active" for member in applied["members"]):
@@ -163,6 +184,7 @@ def share_albums(publisher, recipient, database, definition, contact, reader_key
                "restart, read later albums, stopped receiving them after revoke, and caught up after regrant.")
     print(message, flush=True)
     summary(message)
+    report_content_flow()
 
 
 def check_role_and_overview(programs, root, publisher, other_database, name, contact, reader_key):

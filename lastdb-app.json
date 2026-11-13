@@ -1,0 +1,120 @@
+{
+  "app_id": "social-graph",
+  "version": "0.1.0",
+  "source": "https://github.com/EdgeVector/lastdb.git",
+  "audience": "public",
+  "metadata": {
+    "display_name": "Social",
+    "description": "Manage people and shared databases on a local LastDB node.",
+    "homepage_url": "https://github.com/EdgeVector/lastdb/tree/main/apps/social"
+  },
+  "contract_surfaces": [
+    "http"
+  ],
+  "run": {
+    "runtime": "command",
+    "entrypoint": "apps/social/social"
+  },
+  "schemas": [
+    {
+      "name": "Person",
+      "descriptive_name": "Person",
+      "purpose_statement": "One person the owner has added. The hash coordinate person_id is the hash of node_key.",
+      "schema_type": "Hash",
+      "record_keys": {
+        "primary": {
+          "kind": "hash"
+        },
+        "alternates": {}
+      },
+      "fields": [
+        "person_id",
+        "node_key",
+        "contact_code",
+        "display_name",
+        "avatar",
+        "added_at"
+      ],
+      "field_types": {
+        "person_id": "String",
+        "node_key": "String",
+        "contact_code": "String",
+        "display_name": "String",
+        "avatar": "String",
+        "added_at": "DateTime"
+      },
+      "field_descriptions": {
+        "person_id": "Stable id of this person: the hash of node_key.",
+        "node_key": "Node key of this person. person_id is its hash.",
+        "contact_code": "Code another person uses to add this contact.",
+        "display_name": "Name shown for this person.",
+        "avatar": "Inline thumbnail.",
+        "added_at": "When this person was added, RFC 3339."
+      },
+      "owner_app_id": "social-graph"
+    },
+    {
+      "name": "AddressBookEntry",
+      "descriptive_name": "Address Book Entry",
+      "purpose_statement": "A keyed reference to a verified Social contact.",
+      "schema_type": "HashRange",
+      "record_keys": {
+        "primary": {
+          "kind": "hash_range"
+        },
+        "alternates": {}
+      },
+      "fields": [
+        "person_id"
+      ],
+      "field_types": {
+        "person_id": "String"
+      },
+      "field_descriptions": {
+        "person_id": "Primary key of the private Social Person record."
+      },
+      "owner_app_id": "social-graph"
+    },
+    {
+      "name": "SharingUpdate",
+      "descriptive_name": "Sharing Update",
+      "purpose_statement": "The last pending Social sharing update for one database.",
+      "schema_type": "Hash",
+      "record_keys": {
+        "primary": {
+          "kind": "hash"
+        },
+        "alternates": {}
+      },
+      "fields": [
+        "request"
+      ],
+      "field_types": {
+        "request": "String"
+      },
+      "field_descriptions": {
+        "request": "The exact pending revision and member configuration."
+      },
+      "owner_app_id": "social-graph"
+    }
+  ],
+  "install": {
+    "links": [
+      {
+        "source": "apps/social/social",
+        "command": "social"
+      }
+    ],
+    "probe": [
+      {
+        "argv": [
+          "python3",
+          "-B",
+          "apps/social/social",
+          "--help"
+        ],
+        "timeout_s": 15
+      }
+    ]
+  }
+}

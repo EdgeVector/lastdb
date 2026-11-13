@@ -124,6 +124,14 @@ class Sharing:
         if saved and saved["fields"]["request"]:
             self.finish_update(database_id, definition, saved)
 
+    def pending_edit(self, database_id):
+        self.node.declare_private(PENDING)
+        saved = self.node.get_record(PENDING_SCHEMA, database_id)
+        if not saved or not saved["fields"]["request"]:
+            return None
+        request = json.loads(saved["fields"]["request"])
+        return {"expectedRevision": request["expectedRevision"], "members": request["members"]}
+
     def finish_update(self, database_id, definition, saved):
         request = json.loads(saved["fields"]["request"])
         if any(member.get("regrant") and member["role"] == "submit" for member in request["members"]):
@@ -165,7 +173,7 @@ class Sharing:
                     raise SocialError("LastDB returned a mismatched sharing acknowledgement")
                 return ack["revision"]
 
-    def invite(self, selector, display_name, node_key, contact_path):
+    def invite(self, selector, display_name, node_key, contact_path=None):
         database_id = self.owned(selector)["id"]
         publisher = self.node.own_key()
         if publisher == node_key:

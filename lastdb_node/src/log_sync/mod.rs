@@ -16,6 +16,7 @@ mod native;
 mod owner_recovery;
 mod paths;
 mod received;
+pub(crate) mod received_access;
 mod registry;
 mod restore;
 mod retry;

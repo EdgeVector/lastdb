@@ -1,6 +1,6 @@
 //! Database selection at the owner socket. An explicit target never falls back.
-use super::database_owned;
 use super::*;
+use super::{database_owned, database_session};
 use crate::host::owned::{self, Resolved};
 use crate::lastdb_uds::database_path::{self, DATABASES_PATH};
 use crate::lastdb_uds::uds_router::{self, ControlRoute};
@@ -29,6 +29,9 @@ pub async fn execute_database_request(
 ) -> UdsResponse {
     if !ctx.is_owner {
         return content_free(404, "Not Found");
+    }
+    if database_session::is_issue(req) {
+        return issue_session(req, ctx, host);
     }
     match (req.method.as_str(), req.target.as_str()) {
         ("GET", DATABASES_PATH) => return list(ctx, host),
@@ -65,6 +68,23 @@ pub async fn execute_database_request(
         return content_free(404, "Not Found");
     }
     dispatch(route, req, ctx, host, selection).await
+}
+
+fn issue_session(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    if req.method != "POST" {
+        return uds_router::method_not_allowed_response("POST");
+    }
+    let id = match database_session::requested_database(req) {
+        Ok(id) => id,
+        Err(error) => return render(Err(error), ctx),
+    };
+    let writable = match resolve_database(id.as_str(), ctx, host) {
+        Ok(Selection::Owned(_)) => true,
+        Ok(Selection::Share(_) | Selection::Signed(_)) => false,
+        Ok(Selection::Owner) => return content_free(404, "Not Found"),
+        Err(response) => return response,
+    };
+    database_session::issue(req, ctx, host, writable)
 }
 
 async fn dispatch(
@@ -286,6 +306,12 @@ fn database(home: &std::path::Path, share: &RegisteredShare) -> Value {
     } else {
         "reader"
     });
+    if share.signed_log {
+        value["selfAccess"] = json!(crate::log_sync::received_access::view(
+            home,
+            share.id.as_str()
+        ));
+    }
     value["kind"] = json!("received");
     value
 }

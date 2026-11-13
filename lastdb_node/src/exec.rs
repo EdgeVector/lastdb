@@ -41,6 +41,7 @@ mod database_mutation;
 mod database_owned;
 mod database_read;
 mod database_routes;
+mod database_session;
 mod database_share;
 mod database_signed;
 mod file_blob;
@@ -69,6 +70,8 @@ use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, Q
 pub use database_routes::{
     execute_database_request, execute_deferred_database_request, is_deferred_database_request,
 };
+pub use database_session::admit as admit_database_session;
+pub(crate) use database_session::DatabaseSessions;
 pub use mutation::execute_deferred_mutation;
 pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
 pub use wire::{parse_mutation_body, ParsedMutation, Reject};

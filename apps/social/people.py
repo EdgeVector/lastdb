@@ -9,6 +9,16 @@ from lastdb import LastDBError, SocialError
 
 
 PERSON_SCHEMA = "social-graph/Person"
+ADDRESS_BOOK = "social-graph/AddressBookEntry"
+BOOK_HASH = "contacts"
+BOOK = {
+    "name": "AddressBookEntry", "descriptive_name": "Address Book Entry",
+    "purpose_statement": "A keyed reference to a verified Social contact.",
+    "schema_type": "HashRange",
+    "record_keys": {"primary": {"kind": "hash_range"}, "alternates": {}},
+    "fields": ["person_id"], "field_types": {"person_id": "String"},
+    "field_descriptions": {"person_id": "Primary key of the private Social Person record."},
+}
 PERSON = {
     "name": "Person",
     "descriptive_name": "Person",
@@ -46,6 +56,16 @@ class People:
     def declare(self):
         return self.node.declare_private(PERSON)
 
+    def import_contact(self, node_key, display_name, contact_code):
+        if not isinstance(display_name, str) or not (1 <= len(display_name.strip()) <= 100):
+            raise SocialError("enter a contact name of 1 to 100 characters")
+        if not isinstance(contact_code, str) or not (1 <= len(contact_code.strip()) <= 512):
+            raise SocialError("enter the LastDB contact code")
+        if not isinstance(node_key, str) or len(node_key) != 64:
+            raise SocialError("enter the verified node key")
+        verified = self.node.verify_saved_contact(contact_code.strip(), node_key)
+        return self.remember(node_key, display_name.strip(), verified["contactCode"])
+
     def remember(self, node_key, display_name, contact_code):
         definition = self.declare()
         person_id = hashlib.sha256(node_key.encode()).hexdigest()
@@ -58,6 +78,7 @@ class People:
             if fields["node_key"] != node_key:
                 raise SocialError("stored contact has a different node key")
             if fields.get("display_name") == display_name and fields.get("contact_code") == contact_code:
+                self.index(person_id)
                 return fields
             fields.update(display_name=display_name, contact_code=contact_code)
             try:
@@ -66,6 +87,7 @@ class People:
                 if error.status != 409:
                     raise
             else:
+                self.index(person_id)
                 return fields
         raise SocialError("contact changed concurrently; retry the operation")
 
@@ -107,3 +129,36 @@ class People:
             cursor = page.get("next_cursor")
             if not cursor:
                 raise SocialError("LastDB omitted the next contact cursor")
+
+    def index(self, person_id, definition=None):
+        if definition is None:
+            definition = self.node.declare_private(BOOK)
+        target = {"hash": BOOK_HASH, "range": person_id}
+        try:
+            self.node.call("POST", "/api/mutation", {
+                "type": "mutation", "schema": ADDRESS_BOOK, "definition_id": definition,
+                "key_value": target, "alternates": {}, "record": {"person_id": person_id},
+                "mutation_type": "create", "expected": {"type": "absent"}, "durability": "durable",
+            })
+        except LastDBError as error:
+            if error.status != 409:
+                raise
+
+    def address_book(self):
+        self.declare()
+        self.node.declare_private(BOOK)
+        result = []
+        cursor = None
+        while True:
+            request = {"schema_name": ADDRESS_BOOK, "filter": {"HashKey": BOOK_HASH}, "limit": 64}
+            if cursor:
+                request["cursor"] = cursor
+            page = self.node.call("POST", "/api/query", request)
+            keys = [row["fields"]["person_id"] for row in page["results"]]
+            if keys:
+                result.extend(self.read_batch(keys))
+            if not page["has_more"]:
+                return result
+            cursor = page.get("next_cursor")
+            if not cursor:
+                raise SocialError("LastDB omitted the next address book cursor")

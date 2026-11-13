@@ -100,6 +100,10 @@ fn serve_reserved(
     else {
         return Ok(());
     };
+    if !exec::admit_database_session(&req, &srv.host) {
+        let response = UdsResponse::new(403, "Forbidden", b"database session refused".to_vec());
+        return uds_http::finish_connection(&mut stream, &response);
+    }
     let deferred = match uds_router::route(&req) {
         ControlRoute::Data(r @ (DataRoute::Mutation | DataRoute::MutationBatch)) => Some(Some(r)),
         _ if exec::is_deferred_database_request(&req) => Some(None),
