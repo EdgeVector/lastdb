@@ -320,7 +320,7 @@ fn decode_definition(mut map: Map<String, Value>) -> Result<DeclarativeSchemaDef
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             Value::Object(obj) => {
-                let mut ns: Vec<String> = obj.into_keys().collect();
+                let mut ns: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
                 ns.sort();
                 Some(ns)
             }

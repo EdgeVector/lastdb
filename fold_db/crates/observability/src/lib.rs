@@ -181,12 +181,12 @@ mod error_imp {
     }
 
     fn sanitize(src: &SentryEvent<'_>) -> SentryEvent<'static> {
-        let cat = src
-            .tags
-            .get("crash_kind")
-            .map(String::as_str)
-            .filter(|k| matches!(*k, "panic" | "startup_failed" | "unclean_exit"))
-            .unwrap_or("application_error");
+        let cat = match src.tags.get("crash_kind").map(String::as_str) {
+            Some("panic") => "panic",
+            Some("startup_failed") => "startup_failed",
+            Some("unclean_exit") => "unclean_exit",
+            _ => "application_error",
+        };
         let env_tag = src.environment.as_deref().filter(|v| {
             "production|development|prod|dev|staging"
                 .split('|')
