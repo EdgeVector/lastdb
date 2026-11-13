@@ -18,6 +18,8 @@ use zeroize::Zeroizing;
 mod recovery_home;
 #[path = "cloud_cmds/setup.rs"]
 mod setup;
+#[path = "cloud_cmds/snapshot_wait.rs"]
+mod snapshot_wait;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let CloudCommand::BackupV2 { action } = action else {
@@ -60,14 +62,17 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             }
             run_restore(&lastdb_node::host::resolve_home(data_dir)?, args)
         }
-        ByteBackupCommand::Snapshot(database) => queue_snapshot(data_dir, &database),
+        ByteBackupCommand::Snapshot { database, wait } => queue_snapshot(data_dir, &database, wait),
     }
 }
 
-fn queue_snapshot(data_dir: Option<PathBuf>, database: &str) -> Result<(), String> {
+fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
-    let id = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    let (id, nonce) = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    if wait {
+        return snapshot_wait::until_head(&home, &id, &nonce);
+    }
     println!("Queued signed snapshot for {id}");
     Ok(())
 }
@@ -266,10 +271,12 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         owner_closed.map_err(|e| e.to_string())?;
         staged.publish(&destination).map(|()| out)
     })?;
-    print_backup(
+    snapshot_wait::print_backup(
         &serde_json::json!({
             "ok": true, "database_id": database, "name": restored.name,
-            "through_delivery_seq": restored.through, "destination": destination,
+            "through_delivery_seq": restored.through,
+            "snapshot_through": restored.snapshot_through, "replayed": restored.replayed,
+            "destination": destination,
         }),
         args.json,
     )
@@ -355,17 +362,6 @@ fn block_on_cloud<T>(
         .build()
         .map_err(|_| format!("cannot construct {label} runtime"))?
         .block_on(future)
-}
-
-fn print_backup(value: &serde_json::Value, json: bool) -> Result<(), String> {
-    if !json {
-        println!("V2 backup");
-    }
-    println!(
-        "{}",
-        serde_json::to_string_pretty(value).map_err(|_| "cannot encode V2 result")?
-    );
-    Ok(())
 }
 
 fn read_stdin_no_control(limit: usize, label: &str) -> Result<Zeroizing<String>, String> {
