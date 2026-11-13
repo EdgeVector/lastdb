@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, MutationLog, Namespace};
@@ -17,9 +18,9 @@ use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 use super::cloud::CloudLog;
 use super::registry;
 use super::retry::{self, Seal};
-use super::upload;
+use super::{upload, wire};
 
-const PAGE_LIMIT: u32 = 8;
+const PAGE_LIMIT: u32 = 64;
 
 pub(super) async fn publish_owned(host: &Host, log: &CloudLog) {
     let Ok(Some((store, key))) = DatabaseContentKey::local_store(host, log.database_id()) else {
@@ -80,12 +81,28 @@ async fn send_page(
         return false;
     };
     let mut next = tip.saturating_add(1);
+    let mut entries = Vec::with_capacity(page.items.len());
+    let mut through = None;
     for item in &page.items {
-        if !send_item(host, log, key, item, &mut next).await {
-            return false;
-        }
+        let sequence = match item {
+            Item::Withheld { sequence, .. } => *sequence,
+            Item::Publish { sequence, .. } => {
+                let Some(entry) = prepare_item(host, log, key, item, next).await else {
+                    break;
+                };
+                next = next.max(entry.writer_seq.saturating_add(1));
+                entries.push(entry);
+                *sequence
+            }
+        };
+        through = Some(sequence);
     }
-    let through = page.through;
+    let Some(through) = through else {
+        return false;
+    };
+    if !append_entries(log, entries).await {
+        return false;
+    }
     let runtime = Arc::clone(runtime);
     let acked =
         tokio::task::spawn_blocking(move || accepted_writes::acknowledge(&runtime, through)).await;
@@ -97,13 +114,13 @@ async fn send_page(
     }
 }
 
-async fn send_item(
+async fn prepare_item(
     host: &Host,
     log: &CloudLog,
     key: &DatabaseContentKey,
     item: &Item,
-    next: &mut u64,
-) -> bool {
+    next: u64,
+) -> Option<Entry> {
     let Item::Publish {
         mutation_id,
         kind,
@@ -113,44 +130,31 @@ async fn send_item(
         ..
     } = item
     else {
-        return true;
+        return None;
     };
-    let Some(namespace) = namespace_of(canonical) else {
-        return false;
-    };
-    let Ok(saved) = retry::load(&host.home, log.database_id(), mutation_id) else {
-        return false;
-    };
+    let namespace = namespace_of(canonical)?;
+    let saved = retry::load(&host.home, log.database_id(), mutation_id).ok()?;
     let source = upload::FileSource {
         canonical,
         row: file_ciphertext.as_deref(),
         reference: file_reference.as_deref(),
     };
     let sealed = match saved {
-        Some((seal, payload)) if seal.writer_seq <= *next && seal.namespace == namespace => {
+        Some((seal, payload)) if seal.writer_seq <= next && seal.namespace == namespace => {
             Some((seal, payload))
         }
         Some(_) => None,
         None => {
             let seal = Seal {
-                writer_seq: *next,
+                writer_seq: next,
                 authored_at_ms: fold_db::clock::unix_millis(),
                 namespace,
             };
             prepare_payload(host, log, key, mutation_id, kind, source, seal).await
         }
     };
-    let Some((seal, payload)) = sealed else {
-        return false;
-    };
-    let Some(entry) = cloud_entry(log, &seal, payload) else {
-        return false;
-    };
-    if !append_entry(log, entry).await {
-        return false;
-    }
-    *next = (*next).max(seal.writer_seq.saturating_add(1));
-    true
+    let (seal, payload) = sealed?;
+    cloud_entry(log, &seal, payload)
 }
 
 async fn prepare_payload(
@@ -199,26 +203,43 @@ fn cloud_entry(log: &CloudLog, seal: &Seal, payload: Vec<u8>) -> Option<Entry> {
     })
 }
 
-async fn append_entry(log: &CloudLog, entry: Entry) -> bool {
-    let seq = entry.writer_seq;
+async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> bool {
     let mut log = log.clone();
-    let joined = tokio::task::spawn_blocking(move || {
-        let writer = log.reader();
-        MutationLog::append(
-            &mut log,
-            AppendBatch {
-                writer,
-                entries: vec![entry],
+    tokio::task::spawn_blocking(move || {
+        // A byte-limited retry must keep its original ciphertext and sequence.
+        let mut pending = vec![entries];
+        while let Some(mut entries) = pending.pop() {
+            let Some(through) = entries.last().map(|entry| entry.writer_seq) else {
+                continue;
+            };
+            let mut batch = AppendBatch {
+                writer: log.reader(),
+                entries,
                 accepted_at_ms: fold_db::clock::unix_millis(),
-            },
-        )
+            };
+            let Ok(body) = wire::append_request(&batch) else {
+                return false;
+            };
+            if body.len() as u64 > CONTROL_JSON_MAX_BYTES {
+                entries = std::mem::take(&mut batch.entries);
+                if entries.len() == 1 {
+                    tracing::warn!(target: "lastdbd::log_sync", "signed entry exceeds the request limit");
+                    return false;
+                }
+                pending.push(entries.split_off(entries.len() / 2));
+                pending.push(entries);
+                continue;
+            }
+            match MutationLog::append(&mut log, batch) {
+                Ok(AppendOutcome::Accepted { .. }) => {}
+                Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
+                _ => return false,
+            }
+        }
+        true
     })
-    .await;
-    match joined {
-        Ok(Ok(AppendOutcome::Accepted { .. })) => true,
-        Ok(Ok(AppendOutcome::Duplicate { next_seq })) => next_seq > seq,
-        _ => false,
-    }
+    .await
+    .unwrap_or(false)
 }
 
 async fn writer_tip(log: &CloudLog) -> Option<u64> {
