@@ -272,7 +272,8 @@ def cut_after_checkpoint(call, database, source, peer):
     require(decimal(page["next"]) == len(page["entries"]) == 11
             and page["entries"][-1]["entry"]["device_id"] == device_id(source)
             and decimal(page["entries"][-1]["entry"]["writer_seq"]) == 7, "private_cut_entry")
-    ref = verify_snapshot(call, page["entries"], 11)
+    original = verify_snapshot(call, page["entries"], 11)
+    ref = verify_snapshot(call, [], 11, previous=original)
     trim = call("trim", {})
     require(decimal(trim["through"]) == 11 and trim["snapshot_due"] is False,
             "private_trimmed_prefix")
@@ -364,16 +365,18 @@ def check_restore(programs, call, database, owner, api_key):
         with running(restored):
             require(read_fields(restored, database, records) == [[row] for row in records],
                     "private_recovered_record")
-    summary("After trimming the acknowledged prefix, the cloud reported each device's own "
-            "write count. A fresh LastDB home with no writes restored the signed snapshot and "
-            "the later edits, and read both devices' records by key.")
+    summary("The cloud kept each device's own write count after trim. The newest signed "
+            "snapshot contained no new edits, and a fresh LastDB home recovered through it "
+            "and its earlier snapshot, then read both devices' later edits by key.")
 
 
-def verify_snapshot(call, entries, through):
+def verify_snapshot(call, entries, through, *, previous=None):
     snapshot = call("snapshot", {})
     manifest = call("delivery/snapshot", {})
     ref = snapshot["snapshot_ref"]
-    require(manifest["snapshot_ref"] == ref and decimal(manifest["through_delivery_seq"]) == through,
+    require(manifest["snapshot_ref"] == ref and ref != previous
+            and decimal(manifest["through_delivery_seq"]) == through
+            and manifest.get("previous_ref") == previous and decimal(manifest["parts"]) == 1,
             "private_snapshot_prefix")
     part = call("delivery/snapshot", {"snapshot_ref": ref, "part": "0"})
     require([item["payload"] for item in json.loads(part["part"])]
