@@ -1,11 +1,10 @@
-//! Native per-key field key storage codec (`{F}:{esc(hash)}\0{range}`).
+//! Native field key codec, key-space identities, size limits, and record replacement intents.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use schema_types::field_range_profile::FieldRangeProfile;
 use sha2::Sha256;
 
-/// Logical key format marker of a home: typed range keys.
 pub const KEY_FORMAT: &[u8] = b"typed-ranges";
 const SEP: char = '\u{0}';
 const ESC: char = '\u{1}';
@@ -14,7 +13,6 @@ pub fn current_key_format(marker: &[u8]) -> bool {
     marker == KEY_FORMAT
 }
 
-/// Chokepoint mapping API `HashKey`/`RangeKey` coordinates to storage segments.
 #[derive(Clone)]
 pub struct FieldKeyCodec {
     blind_key: [u8; 32],
@@ -111,9 +109,19 @@ impl FieldKeyCodec {
         let h = self.storage_hash(field_key_id, api_hash)?;
         Ok(format!("{field_key_id}:{}{SEP}", escape_segment(&h)))
     }
+
+    pub fn api_record_key(
+        &self,
+        space: &str,
+        api_hash: &str,
+        api_range: &str,
+    ) -> Result<String, FieldKeyCodecError> {
+        let hash = self.storage_hash(space, api_hash)?;
+        let range = self.storage_range(space, api_range)?;
+        Ok(record_space::record_key(space, &hash, &range))
+    }
 }
 
-/// Errors from [`FieldKeyCodec`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKeyCodecError {
     InvalidRange(String),
@@ -164,4 +172,146 @@ pub fn decode_hash_range_suffix(suffix: &str) -> Option<(String, String)> {
         }
     }
     Some((hash, range.to_owned()))
+}
+
+pub mod field_key_id {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use sha2::{Digest, Sha256};
+
+    pub const ALTERNATE_ENTRY_PREFIX: &str = "ak:";
+
+    #[must_use]
+    pub fn is_canonical_field_key_id(field_key_id: &str) -> bool {
+        field_key_id.len() == 43
+            && URL_SAFE_NO_PAD
+                .decode(field_key_id)
+                .is_ok_and(|d| d.len() == 32 && URL_SAFE_NO_PAD.encode(d) == field_key_id)
+    }
+
+    #[must_use]
+    pub fn alternate_field_key_id(schema: &crate::schema::types::Schema, name: &str) -> String {
+        let revision = schema.alternate_key_revision();
+        let mut hash = Sha256::new();
+        hash.update(b"lastdb:alternate-key:v1");
+        for part in [schema.name.as_str(), revision.as_str(), name] {
+            hash.update((part.len() as u64).to_be_bytes());
+            hash.update(part.as_bytes());
+        }
+        URL_SAFE_NO_PAD.encode(hash.finalize())
+    }
+}
+
+pub mod record_space {
+    use crate::field_key_codec::escape_segment;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use sha2::{Digest, Sha256};
+
+    pub const RECORD_PREFIX: &str = "rk:";
+
+    #[must_use]
+    pub fn record_space_uuid(schema_name: &str) -> String {
+        let mut hasher = Sha256::new();
+        for part in [b"lastdb:record-space:v1".as_slice(), schema_name.as_bytes()] {
+            crate::canonical::push_field(&mut hasher, part);
+        }
+        URL_SAFE_NO_PAD.encode(hasher.finalize())
+    }
+
+    #[must_use]
+    pub fn record_key(space: &str, storage_hash: &str, storage_range: &str) -> String {
+        format!(
+            "{RECORD_PREFIX}{space}:{}\0{storage_range}",
+            escape_segment(storage_hash)
+        )
+    }
+
+    #[must_use]
+    pub fn record_hash_prefix(space: &str, storage_hash: &str) -> String {
+        format!("{RECORD_PREFIX}{space}:{}\0", escape_segment(storage_hash))
+    }
+}
+
+pub mod record_replacement {
+    use crate::record_value::FileMarker;
+    use crate::schema::types::KeyValue;
+    use schema_types::record_keys::RecordKeys;
+    use serde::{Deserialize, Serialize};
+    use serde_json::Value;
+    use std::collections::BTreeMap;
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordTarget {
+        pub schema: String,
+        pub key: KeyValue,
+        pub alternates: BTreeMap<String, Option<KeyValue>>,
+    }
+
+    impl RecordTarget {
+        pub fn validate(&self, def: &RecordKeys) -> Result<(), String> {
+            def.validate()?;
+            if self.schema.is_empty() {
+                return Err("a record target requires a schema".into());
+            }
+            def.primary
+                .validate_coordinates(self.key.hash.as_deref(), self.key.range.as_deref())?;
+            if def.alternates.keys().ne(self.alternates.keys()) {
+                return Err("supply exactly every declared alternate key".into());
+            }
+            for (name, key) in &self.alternates {
+                let declared = &def.alternates[name];
+                match key {
+                    Some(k) => {
+                        declared.validate_coordinates(k.hash.as_deref(), k.range.as_deref())?;
+                    }
+                    None if declared.allow_absent => {}
+                    None => return Err(format!("alternate {name} requires an address")),
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+    pub enum RecordExpectation {
+        Absent,
+        Revision { revision: String },
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordMetadata {
+        pub source_file_name: Option<String>,
+        pub metadata: BTreeMap<String, String>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordReplacement {
+        pub target: RecordTarget,
+        pub expected: RecordExpectation,
+        pub fields: BTreeMap<String, Value>,
+        pub metadata: Option<RecordMetadata>,
+        pub file: Option<FileMarker>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub inline_file: Option<FileMarker>,
+    }
+
+    impl RecordReplacement {
+        pub fn validate(&self, def: &RecordKeys) -> Result<(), String> {
+            self.target.validate(def)?;
+            if matches!(&self.expected, RecordExpectation::Revision { revision } if revision.is_empty())
+            {
+                return Err("a replacement revision must be nonempty".into());
+            }
+            if self.file.as_ref().is_some_and(|f| !f.has_valid_hash()) {
+                return Err("a record file marker requires a lowercase SHA-256".into());
+            }
+            if self.inline_file.as_ref().is_some_and(|f| !f.fits_inline()) {
+                return Err("an inline file marker has an invalid digest, label or size".into());
+            }
+            Ok(())
+        }
+    }
 }

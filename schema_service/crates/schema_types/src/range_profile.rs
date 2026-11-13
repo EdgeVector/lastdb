@@ -28,30 +28,29 @@ pub struct PortableSchemaId(String);
 impl PortableSchemaId {
     pub fn from_catalog(
         catalog_id: &str,
-        mut definition: DeclarativeSchemaDefinition,
+        mut def: DeclarativeSchemaDefinition,
     ) -> Result<Self, String> {
         if !is_digest(catalog_id) {
             return Err("schema catalog ID must be a lowercase SHA-256".into());
         }
-        if definition.identity_hash.as_deref() != Some(catalog_id) {
+        if def.identity_hash.as_deref() != Some(catalog_id) {
             return Err("definition lacks the exact supported catalog identity".into());
         }
-        if definition.record_keys.is_none() {
+        if def.record_keys.is_none() {
             return Err("portable schemas require explicit record keys".into());
         }
-        definition.validate_definition()?;
-        definition.require_typed_fields()?;
-        let ver = definition.identity_hash_algo_version;
-        definition.compute_identity_hash();
-        if definition.identity_hash.as_deref() != Some(catalog_id)
-            || definition.identity_hash_algo_version != ver
+        def.validate_definition()?;
+        def.require_typed_fields()?;
+        let ver = def.identity_hash_algo_version;
+        def.compute_identity_hash();
+        if def.identity_hash.as_deref() != Some(catalog_id) || def.identity_hash_algo_version != ver
         {
             return Err("schema catalog identity does not match its declaration".into());
         }
-        definition.normalize_wire();
-        definition.ensure_field_hashes();
-        let val = serde_json::to_value(&definition)
-            .map_err(|_| "cannot encode portable schema definition")?;
+        def.normalize_wire();
+        def.ensure_field_hashes();
+        let val =
+            serde_json::to_value(&def).map_err(|_| "cannot encode portable schema definition")?;
         let bytes = app_identity_crypto::canonicalize(&val)
             .map_err(|_| "cannot canonicalize portable schema definition")?;
         let mut digest = Sha256::new();
@@ -138,23 +137,23 @@ pub mod field_range_profile {
                     Ok((((parse_hex(stored, 16)? as u64) ^ (1_u64 << 63)) as i64).to_string())
                 }
                 Self::DateDaysV1 => {
-                    let biased = parse_hex(stored, 6)?;
-                    if biased > (LAST_DAY - FIRST_DAY) as u128 {
+                    let b = parse_hex(stored, 6)?;
+                    if b > (LAST_DAY - FIRST_DAY) as u128 {
                         return Err("stored Date range is outside years 0000..9999".into());
                     }
-                    NaiveDate::from_num_days_from_ce_opt(FIRST_DAY + biased as i32)
+                    NaiveDate::from_num_days_from_ce_opt(FIRST_DAY + b as i32)
                         .map(|d| d.format("%Y-%m-%d").to_string())
                         .ok_or_else(|| "stored Date range is invalid".into())
                 }
                 Self::DateTimeNanosV1 => {
-                    let biased = parse_hex(stored, 18)?;
-                    if biased >= (END_NANOS - FIRST_NANOS) as u128 {
+                    let b = parse_hex(stored, 18)?;
+                    if b >= (END_NANOS - FIRST_NANOS) as u128 {
                         return Err("stored DateTime range is outside UTC years 0000..9999".into());
                     }
-                    let nanos = FIRST_NANOS + biased as i128;
+                    let n = FIRST_NANOS + b as i128;
                     DateTime::<Utc>::from_timestamp(
-                        nanos.div_euclid(NANOS_PER_SEC) as i64,
-                        nanos.rem_euclid(NANOS_PER_SEC) as u32,
+                        n.div_euclid(NANOS_PER_SEC) as i64,
+                        n.rem_euclid(NANOS_PER_SEC) as u32,
                     )
                     .map(|i| i.to_rfc3339_opts(SecondsFormat::Nanos, true))
                     .ok_or_else(|| "stored DateTime range is invalid".into())
@@ -210,9 +209,11 @@ pub mod field_range_profile {
     }
 
     fn empty_slot(v: &str) -> Result<String, String> {
-        v.is_empty()
-            .then(String::new)
-            .ok_or_else(|| "a field key without a range field requires an empty range slot".into())
+        if v.is_empty() {
+            Ok(String::new())
+        } else {
+            Err("a field key without a range field requires an empty range slot".into())
+        }
     }
 
     fn parse_hex(text: &str, width: usize) -> Result<u128, String> {
@@ -251,14 +252,7 @@ pub mod key_comparison {
         }
 
         pub fn validate_value(&self, text: &str) -> Result<(), String> {
-            match ordered_type(&self.field_type)? {
-                FieldValueType::String => Ok(()),
-                FieldValueType::Integer => parse_i64(text).map(|_| ()),
-                FieldValueType::Date => date_day(text).map(|_| ()),
-                FieldValueType::DateTime => datetime_nanos(text).map(|_| ()),
-                FieldValueType::Boolean => parse_bool(text).map(|_| ()),
-                _ => Err("this field type has no approved typed range comparison".into()),
-            }
+            self.compare(text, text).map(|_| ())
         }
     }
 
@@ -275,22 +269,24 @@ pub mod key_comparison {
         if let FieldValueType::OneOf(variants) = field_type {
             let mut non_null = variants.iter().filter(|v| **v != FieldValueType::Null);
             let first = ordered_type(non_null.next().ok_or("a required key cannot be null")?)?;
-            for variant in non_null {
-                if ordered_type(variant)? != first {
+            for v in non_null {
+                if ordered_type(v)? != first {
                     return Err("a typed range requires one unambiguous scalar domain".into());
                 }
             }
             return Ok(first);
         }
-        matches!(
+        if matches!(
             field_type,
             FieldValueType::String
                 | FieldValueType::Integer
                 | FieldValueType::Date
                 | FieldValueType::DateTime
                 | FieldValueType::Boolean
-        )
-        .then_some(field_type)
-        .ok_or_else(|| "this field type has no approved typed range comparison".into())
+        ) {
+            Ok(field_type)
+        } else {
+            Err("this field type has no approved typed range comparison".into())
+        }
     }
 }

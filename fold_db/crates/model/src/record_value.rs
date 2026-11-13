@@ -1,7 +1,7 @@
 //! One complete stored record, its external addresses, file markers, and record stamp.
 
+use crate::field_key_codec::record_replacement::RecordReplacement;
 use crate::portable_mutation::{Position, Stamp};
-use crate::record_replacement::RecordReplacement;
 use crate::schema::types::KeyValue;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use schema_types::PortableSchemaId;
@@ -10,8 +10,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+pub use crate::field_key_codec::record_replacement::RecordMetadata as RecordMeta;
 pub use crate::portable_mutation::Stamp as RecordStamp;
-pub use crate::record_replacement::RecordMetadata as RecordMeta;
 
 pub const RECORD_VALUE_VERSION: u8 = 3;
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
@@ -42,11 +42,10 @@ impl FileMarker {
 
     #[must_use]
     pub fn fits_inline(&self) -> bool {
-        let label_ok =
-            |s: &Option<String>| s.as_ref().is_none_or(|l| l.len() <= MAX_INLINE_LABEL_BYTES);
+        let ok = |s: &Option<String>| s.as_ref().is_none_or(|l| l.len() <= MAX_INLINE_LABEL_BYTES);
         self.has_valid_hash()
-            && label_ok(&self.name)
-            && label_ok(&self.media_type)
+            && ok(&self.name)
+            && ok(&self.media_type)
             && usize::try_from(self.size_bytes).is_ok_and(|n| n <= MAX_INLINE_FILE_BYTES)
     }
 }
@@ -75,7 +74,7 @@ impl InlineFile {
                 name,
                 media_type,
                 size_bytes: bytes.len() as u64,
-                sha256: crate::hex::sha256_hex(bytes),
+                sha256: crate::canonical::hex::sha256_hex(bytes),
             },
             data: STANDARD.encode(bytes),
         };
@@ -89,7 +88,7 @@ impl InlineFile {
             .decode(self.data.as_bytes())
             .map_err(|e| format!("inline file data is invalid base64: {e}"))?;
         (bytes.len() as u64 == self.marker.size_bytes
-            && crate::hex::sha256_hex(&bytes) == self.marker.sha256)
+            && crate::canonical::hex::sha256_hex(&bytes) == self.marker.sha256)
             .then_some(bytes)
             .ok_or_else(|| "inline file bytes differ from their marker".into())
     }
@@ -102,9 +101,9 @@ impl InlineFile {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, String> {
-        self.is_well_formed()
-            .then_some(())
-            .ok_or_else(|| "the inline file has an invalid marker, size or encoding".to_owned())?;
+        if !self.is_well_formed() {
+            return Err("the inline file has an invalid marker, size or encoding".into());
+        }
         serde_json::to_vec(self).map_err(|e| format!("encode inline file: {e}"))
     }
 
@@ -289,5 +288,62 @@ impl StoredRecord {
             ));
         }
         Ok(())
+    }
+}
+
+pub mod author_clock {
+    use crate::schema::types::Mutation;
+    use sha2::{Digest, Sha256};
+
+    pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct MutationAuthorClockState {
+        pub physical_nanos: u64,
+        pub logical_counter: u64,
+    }
+
+    impl MutationAuthorClockState {
+        pub fn advance_local_batch(
+            &mut self,
+            now_nanos: u64,
+            count: usize,
+        ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
+            let add = u64::try_from(count.checked_sub(1)?).ok()?;
+            let counter = self.logical_counter.checked_add(1)?;
+            let first = self.physical_nanos.max(now_nanos);
+            let last = first.checked_add(add)?;
+            self.physical_nanos = last;
+            self.logical_counter = counter;
+            Some((first..=last, counter))
+        }
+
+        pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {
+            self.physical_nanos = self.physical_nanos.max(physical_nanos);
+            self.logical_counter = self.logical_counter.max(logical_counter);
+        }
+    }
+
+    #[must_use]
+    pub fn mutation_author_clock_key(device_id: &str) -> String {
+        format!(
+            "mutation_author_clock:{:x}",
+            Sha256::digest(device_id.as_bytes())
+        )
+    }
+
+    #[must_use]
+    pub fn mutation_author_canonical_bytes(m: &Mutation) -> Vec<u8> {
+        let h = m.content_hash();
+        crate::canonical::CanonicalWriter::with_capacity(
+            h.len() + m.uuid.len() + m.author_clock_writer_id.len() + 32,
+        )
+        .field(b"lastdb-mutation-author-v3")
+        .field(h.as_bytes())
+        .field(m.uuid.as_bytes())
+        .field(m.author_clock_writer_id.as_bytes())
+        .u64(m.imported_written_at.unwrap_or(0))
+        .u64(m.logical_counter)
+        .finish()
     }
 }

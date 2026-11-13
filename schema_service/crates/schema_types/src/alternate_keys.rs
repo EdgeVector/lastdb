@@ -11,7 +11,6 @@ pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// Explicit record addresses independent of payload field definitions.
 pub mod record_keys {
     use super::{is_false, MAX_ALTERNATE_KEYS};
     use crate::field_range_profile::FieldRangeProfile;
@@ -64,8 +63,8 @@ pub mod record_keys {
                 return Err("record address differs from the declared key shape".into());
             }
             self.range_profile()?
-                .encode_value(range.unwrap_or_default())?;
-            Ok(())
+                .encode_value(range.unwrap_or_default())
+                .map(|_| ())
         }
     }
 
@@ -213,13 +212,14 @@ impl DeclarativeSchemaDefinition {
                 record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
                 record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
             };
-            if self.schema_type != kind || self.key.is_some() || !self.alternate_keys.is_empty() {
-                return Err(
-                    "record_keys require one owned Hash/HashRange layout without field-derived keys"
-                        .into(),
-                );
-            }
-            return Ok(());
+            return (self.schema_type == kind
+                && self.key.is_none()
+                && self.alternate_keys.is_empty())
+            .then_some(())
+            .ok_or_else(|| {
+                "record_keys require one owned Hash/HashRange layout without field-derived keys"
+                    .into()
+            });
         }
         if self.alternate_keys.len() > MAX_ALTERNATE_KEYS {
             return Err("a schema permits at most 16 alternate keys".into());

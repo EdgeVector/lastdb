@@ -1,4 +1,4 @@
-//! Record domain store: codecs, paged hash spans, warm-set reads, and delete ledger.
+//! Record domain store: codecs, paged hash spans, warm-set reads, alternate reads, and delete ledger.
 
 mod accepted;
 mod reads;
@@ -7,74 +7,33 @@ pub(crate) use reads::{KeyedRecord, RangeWalk};
 
 use crate::error::FoldDbError;
 use crate::schema::types::{
-    field::FilterUtils, key_comparison::KeyComparisonContext, FileWrite, KeyValue, Schema,
-    SchemaError,
+    field::{FilterUtils, HashRangeFilter},
+    key_comparison::KeyComparisonContext,
+    FileWrite, KeyValue, Schema, SchemaError,
 };
-use crate::storage::disk_pack::{
-    transaction::{self, blocked::write_scopes},
-    PackReadScope, PackRuntime,
-};
+use crate::storage::disk_pack::{transaction, PackReadScope, PackRuntime};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::{
     control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY},
     read::ReadStore,
-    records::{self as format, RecordAddress, RecordFormat},
+    records::{
+        self as format, alternate_bounds, AlternateAddress, AlternateEntry, RecordAddress,
+        RecordFormat, MAX_ALTERNATE_ENTRIES,
+    },
 };
 use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::{
     field_key_codec::FieldKeyCodec,
+    field_key_id::alternate_field_key_id,
     record_space::{record_hash_prefix, record_space_uuid},
     record_value::StoredRecord,
 };
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-const READ_CHUNK: usize = 10_000;
-
+pub use crate::db_operations::WriterWatch;
 pub(crate) use format::RecordChange;
 pub use format::RecordDeleteLedgerEntry;
-
-#[derive(Debug)]
-pub struct WriterWatch {
-    mark: u64,
-    last_other: Option<Instant>,
-    quiet: Duration,
-}
-
-impl Default for WriterWatch {
-    fn default() -> Self {
-        Self {
-            mark: write_scopes(),
-            last_other: None,
-            quiet: Duration::from_secs(crate::env_flag::var_or(
-                "LASTDB_MAINTENANCE_QUIET_SECS",
-                60,
-            )),
-        }
-    }
-}
-
-impl WriterWatch {
-    pub async fn measure<F: Future>(work: F) -> (F::Output, Duration, u64) {
-        let (output, cost) = transaction::blocked::measure(work).await;
-        (output, cost.blocked, cost.scopes)
-    }
-
-    pub fn writer_present(&mut self, own: u64) -> bool {
-        let now = write_scopes();
-        let others = now.saturating_sub(self.mark).saturating_sub(own);
-        self.mark = now;
-        if others > 0 {
-            self.last_other = Some(Instant::now());
-        }
-        others > 0 || self.last_other.is_some_and(|at| at.elapsed() < self.quiet)
-    }
-
-    pub fn rest_may_end(&mut self) -> bool {
-        !self.writer_present(0)
-    }
-}
 
 #[derive(Clone, Copy)]
 pub(crate) enum RecordBound<'a> {
@@ -146,24 +105,6 @@ impl RecordStore {
             &self.node_key,
             &record_space_uuid(&schema.name),
             p,
-        ))
-    }
-
-    pub(crate) fn alternate_codec(
-        &self,
-        schema: &Schema,
-        name: &str,
-    ) -> Result<FieldKeyCodec, SchemaError> {
-        let def = schema
-            .require_record_keys()?
-            .alternates
-            .get(name)
-            .ok_or_else(|| invalid("alternate key is not declared"))?;
-        let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
-        Ok(FieldKeyCodec::from_node_key(
-            &self.node_key,
-            &id,
-            def.range_profile().map_err(invalid)?,
         ))
     }
 
@@ -246,9 +187,9 @@ impl RecordStore {
             RecordBound::All => (base.clone(), FilterUtils::create_prefix_end(&base)?),
             RecordBound::Prefix(prefix) => {
                 codec.require_text_range_prefix().map_err(invalid)?;
-                let start = stored(prefix)?;
-                let end = FilterUtils::create_prefix_end(&start)?;
-                (start, end)
+                let s = stored(prefix)?;
+                let e = FilterUtils::create_prefix_end(&s)?;
+                (s, e)
             }
             RecordBound::Between(s, e) => (stored(s)?, stored(e)?),
         };
@@ -285,6 +226,58 @@ impl RecordStore {
         )
     }
 
+    pub(crate) async fn select_alternate_entries(
+        &self,
+        schema: &Schema,
+        name: &str,
+        filter: &HashRangeFilter,
+        after: Option<&AlternateEntry>,
+        limit: usize,
+    ) -> Result<Vec<AlternateEntry>, SchemaError> {
+        if limit > MAX_ALTERNATE_ENTRIES {
+            return Err(invalid("alternate page exceeds 4096 entries"));
+        }
+        let def = schema
+            .require_record_keys()?
+            .alternates
+            .get(name)
+            .ok_or_else(|| invalid("alternate key is not declared"))?;
+        let id = alternate_field_key_id(schema, name);
+        let codec = FieldKeyCodec::from_node_key(
+            &self.node_key,
+            &id,
+            def.range_profile().map_err(invalid)?,
+        );
+        let storage_key = |k: &KeyValue, primary: &KeyValue| {
+            AlternateAddress::new(&codec, &id, k, &self.record_address(schema, primary)?)
+                .map(AlternateAddress::into_string)
+        };
+        let (mut start, end) = alternate_bounds(&codec, &id, filter)?;
+        if let Some(after) = after {
+            let cursor = storage_key(&after.matched, &after.primary)?;
+            if cursor < start || cursor >= end {
+                return Err(invalid(
+                    "alternate cursor is outside the requested key range",
+                ));
+            }
+            start = format!("{cursor}\0");
+        }
+        self.reader()
+            .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
+            .await?
+            .into_iter()
+            .map(|(k, v)| {
+                let e: AlternateEntry =
+                    serde_json::from_slice(&v).map_err(|_| invalid("invalid alternate entry"))?;
+                (storage_key(&e.matched, &e.primary)?.as_bytes() == k)
+                    .then_some(e)
+                    .ok_or_else(|| {
+                        invalid("alternate entry coordinates differ from their storage key")
+                    })
+            })
+            .collect()
+    }
+
     pub(crate) async fn read_records<K: AsRef<str> + Sync>(
         &self,
         keys: &[K],
@@ -301,7 +294,7 @@ impl RecordStore {
                 };
                 let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
                 let mut admitted = Vec::new();
-                for chunk in misses.chunks(READ_CHUNK) {
+                for chunk in misses.chunks(10_000) {
                     let req = chunk
                         .iter()
                         .map(|&at| keys[at].as_ref().as_bytes().to_vec())

@@ -1,4 +1,4 @@
-//! Cryptographic primitives for E2E key derivation and AES-256-GCM envelopes.
+//! Cryptographic primitives, Ed25519 signing, wall clock, and env scalar parsers.
 
 use ed25519_compact::x25519;
 use hkdf::Hkdf;
@@ -167,5 +167,124 @@ pub mod at_rest {
         (plain.len() as u64 <= max).then_some(plain).ok_or_else(|| {
             CryptoError::InvalidFormat("decoded value exceeds explicit bound".into())
         })
+    }
+}
+
+pub mod clock {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn since_epoch() -> Duration {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+    }
+
+    pub fn unix_secs() -> u64 {
+        since_epoch().as_secs()
+    }
+    pub fn unix_millis() -> u64 {
+        u64::try_from(since_epoch().as_millis()).unwrap_or(u64::MAX)
+    }
+    pub fn unix_nanos() -> u64 {
+        u64::try_from(since_epoch().as_nanos()).unwrap_or(u64::MAX)
+    }
+    pub fn unix_nanos_wide() -> u128 {
+        since_epoch().as_nanos()
+    }
+}
+
+pub mod env_flag {
+    #[must_use]
+    pub fn truthy(raw: &str) -> bool {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    }
+
+    #[must_use]
+    pub fn var_truthy(name: &str) -> bool {
+        std::env::var(name).ok().is_some_and(|v| truthy(&v))
+    }
+
+    #[must_use]
+    pub fn var_parsed<T: std::str::FromStr>(name: &str) -> Option<T> {
+        std::env::var(name).ok()?.trim().parse().ok()
+    }
+
+    #[must_use]
+    pub fn var_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+        var_parsed(name).unwrap_or(default)
+    }
+}
+
+pub mod security {
+    use base64::{engine::general_purpose, Engine as _};
+    use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+    use rand::rngs::OsRng;
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum SecurityError {
+        #[error("Key generation failed: {0}")]
+        KeyGenerationFailed(String),
+    }
+
+    pub type SecurityResult<T> = Result<T, SecurityError>;
+
+    #[derive(Debug)]
+    pub struct Ed25519KeyPair {
+        signing_key: SigningKey,
+        verifying_key: VerifyingKey,
+    }
+
+    impl Ed25519KeyPair {
+        pub fn generate() -> SecurityResult<Self> {
+            let signing_key = SigningKey::generate(&mut OsRng);
+            let verifying_key = signing_key.verifying_key();
+            Ok(Self {
+                signing_key,
+                verifying_key,
+            })
+        }
+
+        pub fn from_secret_key(secret_key: &[u8]) -> SecurityResult<Self> {
+            let bytes: [u8; 32] = secret_key.try_into().map_err(|_| {
+                SecurityError::KeyGenerationFailed(format!(
+                    "Ed25519 secret key must be 32 bytes, got {}",
+                    secret_key.len()
+                ))
+            })?;
+            let signing_key = SigningKey::from_bytes(&bytes);
+            let verifying_key = signing_key.verifying_key();
+            Ok(Self {
+                signing_key,
+                verifying_key,
+            })
+        }
+
+        pub fn public_key_bytes(&self) -> [u8; 32] {
+            self.verifying_key.to_bytes()
+        }
+
+        pub fn secret_key_bytes(&self) -> [u8; 32] {
+            self.signing_key.to_bytes()
+        }
+
+        pub fn public_key_base64(&self) -> String {
+            general_purpose::STANDARD.encode(self.public_key_bytes())
+        }
+
+        pub fn sign(&self, message: &[u8]) -> Signature {
+            self.signing_key.sign(message)
+        }
+    }
+
+    pub struct KeyUtils;
+
+    impl KeyUtils {
+        pub fn signature_to_base64(signature: &Signature) -> String {
+            general_purpose::STANDARD.encode(signature.to_bytes())
+        }
     }
 }

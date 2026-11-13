@@ -141,7 +141,7 @@ impl MutationManager {
             require_contribution_definition(&schema, &adm.definition_id)?;
         }
         let records = self.db_ops.records();
-        let (mut keys, mut addresses) = (
+        let (mut keys, mut addrs) = (
             Vec::with_capacity(mutations.len()),
             Vec::with_capacity(mutations.len()),
         );
@@ -156,22 +156,22 @@ impl MutationManager {
                     *range = crate::schema::types::key_comparison::canonical_range(profile, range)?;
                 }
             }
-            addresses.push(records.record_address(&schema, &key)?);
+            addrs.push(records.record_address(&schema, &key)?);
             keys.push(key);
         }
-        let stored = read_write_preimages(records, &addresses, &mutations).await?;
+        let stored = read_write_preimages(records, &addrs, &mutations).await?;
         let (mut changes, mut changed) = (
             Vec::with_capacity(mutations.len()),
             Vec::with_capacity(mutations.len()),
         );
-        for (AuthoredMutation { mutation, stamp }, (key, (address, before))) in mutations
+        for (AuthoredMutation { mutation, stamp }, (key, (addr, before))) in mutations
             .iter_mut()
-            .zip(keys.iter().zip(addresses.into_iter().zip(stored)))
+            .zip(keys.iter().zip(addrs.into_iter().zip(stored)))
         {
             check_expectation(mutation, before.as_deref())?;
             let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
             changes.push(RecordChange {
-                key: address,
+                key: addr,
                 before,
                 after,
                 file_write: mutation.file_write.take(),
@@ -257,13 +257,14 @@ fn check_expectation(
         CasExpectation::Revision { revision } => actual.as_ref() == Some(revision),
     };
     if !matches {
+        let expected = match &mutation.expected {
+            CasExpectation::Absent => "<absent>".into(),
+            CasExpectation::Revision { revision } => revision.clone(),
+        };
         return Err(SchemaError::CasConflict {
             schema: mutation.schema_name.clone(),
             key: mutation.key_value.to_storage_key(),
-            expected: match &mutation.expected {
-                CasExpectation::Absent => "<absent>".into(),
-                CasExpectation::Revision { revision } => revision.clone(),
-            },
+            expected,
             actual,
         });
     }

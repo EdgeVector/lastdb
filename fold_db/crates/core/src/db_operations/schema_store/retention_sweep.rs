@@ -38,11 +38,7 @@ pub struct RetentionFloors {
 impl RetentionFloors {
     pub fn start(&self, schema: &str, hash: &str) -> Option<KeyValue> {
         let mut schemas = self.lock();
-        let floor = schemas
-            .entry(schema.to_owned())
-            .or_default()
-            .entry(hash.to_owned())
-            .or_default();
+        let floor = floor_mut(&mut schemas, schema, hash);
         floor.low = None;
         if floor.after.is_some() {
             floor.passes += 1;
@@ -55,11 +51,7 @@ impl RetentionFloors {
 
     pub fn keep(&self, schema: &str, hash: &str, after: &KeyValue) {
         let mut schemas = self.lock();
-        let floor = schemas
-            .entry(schema.to_owned())
-            .or_default()
-            .entry(hash.to_owned())
-            .or_default();
+        let floor = floor_mut(&mut schemas, schema, hash);
         if floor
             .low
             .as_deref()
@@ -109,6 +101,18 @@ impl RetentionFloors {
     }
 }
 
+fn floor_mut<'a>(
+    schemas: &'a mut HashMap<String, HashMap<String, Floor>>,
+    schema: &str,
+    hash: &str,
+) -> &'a mut Floor {
+    schemas
+        .entry(schema.to_owned())
+        .or_default()
+        .entry(hash.to_owned())
+        .or_default()
+}
+
 fn range_of(key: &KeyValue) -> &str {
     key.range.as_deref().unwrap_or("")
 }
@@ -131,14 +135,12 @@ impl SchemaStore {
         };
         let keys: Vec<(String, String)> = live
             .map(|k| {
-                (
-                    if partitioned {
-                        k.hash.clone().unwrap_or_default()
-                    } else {
-                        String::new()
-                    },
-                    range_of(k).to_owned(),
-                )
+                let h = if partitioned {
+                    k.hash.clone().unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                (h, range_of(k).to_owned())
             })
             .collect();
         if keys.is_empty() {

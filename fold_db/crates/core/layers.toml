@@ -1,41 +1,17 @@
 # Layer order of the fold_db core crate (package fold_db), bottom first.
-#
-# scripts/ci/layer-check.py reads this file. Each source file goes to the
-# layer that lists the longest prefix of its module path. A file may use its
-# own layer and the layers below it. A reference to a higher layer fails CI.
-# Cycles inside one layer are allowed.
-#
-# Models sit in the bottom layers; behavior sits above. To fix a failure,
-# move the referenced item down to the lowest layer that uses it, move the
-# calling code up to the layer that owns it, or invert the call with a narrow
-# trait in the lower layer.
-#
-# Two placements are deliberate:
-# - crypto and security sit in primitives, below the model, because model
-#   types carry Ed25519KeyPair and E2eKeys values.
-# - resident sits in runtime, below storage, because the disk pack reads and
-#   publishes the warm set (resident::core_set) and resident itself uses no
-#   store.
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: the clock, env parsing, and the crypto and signing primitives."
+doc = "Leaf helpers with no domain meaning: clock, env parsing, crypto, and signing primitives."
 modules = [
-  "clock",
   "crypto",
-  "env_flag",
-  "security",
 ]
 
 [[layer]]
 name = "model"
-doc = "The core side of the data model: content_limit, schema::types, access context, and error kinds."
+doc = "The core side of the data model: content_limit, schema::types, access context, manifest retention, and error kinds."
 modules = [
-  "access",
-  "content_limit",
   "error",
-  "schema::manifest_retention",
-  "schema::schema_types",
   "schema::types",
   "storage::error",
 ]
@@ -49,23 +25,16 @@ modules = [
 
 [[layer]]
 name = "storage"
-doc = "The store: storage traits and config, the disk pack (files, runs, transactions, restore proofs), current-key rules and key families, the field key store, the encrypting stores, and the content key proof."
+doc = "The store: storage traits and config, the disk pack, current-key rules and key families, the field key store, the encrypting stores, and the content key proof."
 modules = [
   "storage",
 ]
 
 [[layer]]
 name = "operations"
-doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, and the blob CAS."
+doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, alternate keys, and search outbox."
 modules = [
   "db_operations",
-]
-
-[[layer]]
-name = "alternate_keys"
-doc = "Alternate-key derivation, preparation, reads and writes over the operations layer."
-modules = [
-  "alternate_keys",
 ]
 
 [[layer]]
@@ -84,7 +53,7 @@ modules = [
 
 [[layer]]
 name = "surface"
-doc = "The crate root re-exports. The cloud backup HTTPS client is the cloud_backup_client crate; the core does no network I/O."
+doc = "The crate root re-exports."
 modules = [
   "crate",
 ]

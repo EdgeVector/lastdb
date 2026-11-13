@@ -1,8 +1,8 @@
 //! Declarative schema definition, catalog identity hashing, and wire codec.
 
 use crate::{
-    compute_field_hash, refuses_identity_downgrade, DeclarativeSchemaType, FieldValueType,
-    IdentityRecompute, KeyConfig, OwnedDeclaration, IDENTITY_HASH_ALGO_VERSION,
+    compute_field_hash, DeclarativeSchemaType, FieldValueType, KeyConfig, OwnedDeclaration,
+    IDENTITY_HASH_ALGO_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -58,13 +58,6 @@ pub struct DeclarativeSchemaDefinition {
 }
 
 impl DeclarativeSchemaDefinition {
-    #[must_use]
-    pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
-        self.field_types
-            .get(field_name)
-            .unwrap_or(&FieldValueType::Any)
-    }
-
     pub fn ensure_field_hashes(&mut self) {
         let mut seen = HashSet::new();
         let names: Vec<String> = self
@@ -96,7 +89,8 @@ impl DeclarativeSchemaDefinition {
             .iter()
             .flat_map(|k| [k.hash_field.as_deref(), k.range_field.as_deref()])
             .flatten();
-        self.fields
+        for f in self
+            .fields
             .iter()
             .flatten()
             .chain(self.field_classifications.keys())
@@ -108,7 +102,9 @@ impl DeclarativeSchemaDefinition {
             .chain(self.field_versions.keys())
             .map(String::as_str)
             .chain(keys)
-            .try_for_each(Self::validate_field_name)?;
+        {
+            Self::validate_field_name(f)?;
+        }
         self.validate_key_field_types()?;
         if !self.alternate_keys.is_empty() || self.record_keys.is_some() {
             self.validate_owned_schema()?;
@@ -117,8 +113,14 @@ impl DeclarativeSchemaDefinition {
     }
 
     pub fn compute_identity_hash(&mut self) {
-        let names: BTreeSet<&str> = self.fields.iter().flatten().map(String::as_str).collect();
-        let names: Vec<&str> = names.into_iter().collect();
+        let names: Vec<&str> = self
+            .fields
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         let mut hasher = Sha256::new();
         if let Some(app_id) = self.owner_app_id.as_deref().filter(|s| !s.is_empty()) {
             hasher.update(format!("app:{app_id}:").as_bytes());
@@ -157,35 +159,6 @@ impl DeclarativeSchemaDefinition {
             self.identity_hash = Some(base);
             self.identity_hash_algo_version = Some(FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION);
         }
-    }
-
-    #[must_use]
-    pub fn identity_is_newer_than_binary(&self) -> bool {
-        refuses_identity_downgrade(
-            self.identity_hash.as_deref(),
-            self.identity_hash_algo_version,
-        )
-        .is_some()
-    }
-
-    #[must_use = "a refused downgrade must be surfaced, not dropped"]
-    pub fn recompute_identity_hash_unless_newer(&mut self) -> IdentityRecompute {
-        if let Some(stored) = refuses_identity_downgrade(
-            self.identity_hash.as_deref(),
-            self.identity_hash_algo_version,
-        ) {
-            return IdentityRecompute::RefusedDowngrade {
-                stored,
-                binary: IDENTITY_HASH_ALGO_VERSION,
-            };
-        }
-        self.compute_identity_hash();
-        IdentityRecompute::Recomputed
-    }
-
-    #[must_use]
-    pub fn get_identity_hash(&self) -> Option<&String> {
-        self.identity_hash.as_ref()
     }
 
     pub fn normalize_owned_declaration(
@@ -233,14 +206,6 @@ impl DeclarativeSchemaDefinition {
         })
     }
 
-    pub fn normalize_wire(&mut self) {
-        self.hash = None;
-        self.superseded_by = None;
-        if self.identity_hash.is_none() && self.owner_app_id.is_some() {
-            self.compute_identity_hash();
-        }
-    }
-
     pub(crate) fn require_typed_fields(&self) -> Result<(), String> {
         let fields = self.fields.as_deref().unwrap_or_default();
         if (fields.is_empty() && self.record_keys.is_none())
@@ -253,12 +218,14 @@ impl DeclarativeSchemaDefinition {
             .filter(|f| !self.field_types.contains_key(*f))
             .map(String::as_str)
             .collect();
-        untyped.is_empty().then_some(()).ok_or_else(|| {
-            format!(
+        if untyped.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
                 "every field needs a type in schema.field_types; these fields have none: {}",
                 untyped.join(", ")
-            )
-        })
+            ))
+        }
     }
 }
 
@@ -301,11 +268,10 @@ impl<'de> Deserialize<'de> for DeclarativeSchemaDefinition {
 }
 
 fn decode_definition(mut map: Map<String, Value>) -> Result<DeclarativeSchemaDefinition, String> {
-    if let Some(bad) = ["field_key_id", "record_mapper"]
-        .into_iter()
-        .find(|n| map.contains_key(*n))
-    {
-        return Err(format!("schema-level '{bad}' is not supported"));
+    for bad in ["field_key_id", "record_mapper"] {
+        if map.contains_key(bad) {
+            return Err(format!("schema-level '{bad}' is not supported"));
+        }
     }
     if let Some(raw) = map.remove("fields") {
         let names = match raw {

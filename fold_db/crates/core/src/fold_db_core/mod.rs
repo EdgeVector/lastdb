@@ -1,17 +1,19 @@
-//! FoldDB Core — embedded database coordinator, lifecycle, and record files.
+//! FoldDB Core — embedded database coordinator, lifecycle, and alternate-key queries.
 
 use async_trait as _;
 use lastdb_model::record_space::record_space_uuid;
-use lastdb_model::record_value::{FileMarker, StoredRecord};
-use std::path::Path;
+use lastdb_model::record_value::StoredRecord;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tracing::info;
 
+use crate::alternate_keys::{self, AlternateEntry};
 use crate::db_operations::{DbOperations, SchemaRecordKey, SchemaRecordKeysReport};
 use crate::error::FoldDbError;
-use crate::schema::types::{KeyValue, SchemaError};
+use crate::schema::types::field::HashRangeFilter;
+use crate::schema::types::operations::SortOrder;
+use crate::schema::types::{KeyValue, Query, QueryCursor, Schema, SchemaError};
 use crate::schema::SchemaCore;
-use crate::storage::current_keys::families::record_file_path;
 use crate::storage::StorageError;
 
 #[path = "factory/local/mod.rs"]
@@ -21,6 +23,7 @@ pub mod query;
 
 pub use mutation_manager::MutationManager;
 pub use query::QueryExecutor;
+use query::{AlternatePage, QueryRecords};
 
 pub struct FoldDB {
     pub(crate) schema_manager: Arc<SchemaCore>,
@@ -167,143 +170,205 @@ impl FoldDB {
             .await
             .map_err(FoldDbError::Schema)
     }
+}
 
-    pub async fn remember_local_file(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        path: &Path,
-        marker: &FileMarker,
-    ) -> Result<(), FoldDbError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let (record_key, record) = self.read_file_record(schema_name, key).await?;
-                let record = record.ok_or_else(|| {
-                    FoldDbError::Database("local file reference has no record".into())
-                })?;
-                let (stored, version) = record
-                    .file
-                    .as_ref()
-                    .zip(record.file_version.as_ref())
-                    .ok_or_else(|| {
-                        FoldDbError::Database("local file reference has no file version".into())
-                    })?;
-                if stored != marker {
-                    return Err(FoldDbError::Database(
-                        "local file reference does not match the committed marker".into(),
-                    ));
+impl QueryExecutor {
+    pub async fn count_query_rows(&self, query: &Query) -> Result<Option<usize>, SchemaError> {
+        if query.key_name.is_some() {
+            return self.count_alternate_rows(query).await.map(Some);
+        }
+        self.in_read_scope(async {
+            let Some(schema) = self.prepare_query_schema(query).await? else {
+                return Ok(None);
+            };
+            if query.include_tombstones {
+                return Ok(None);
+            }
+            Ok(Some(
+                self.select_filtered(&schema, query.filter.clone(), None)
+                    .await?
+                    .len(),
+            ))
+        })
+        .await
+    }
+
+    pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
+        self.in_read_scope(async {
+            let (schema, name) = self.require_declared_alternate(query).await?;
+            let filter = query
+                .filter
+                .as_ref()
+                .ok_or_else(|| alternate_keys::invalid("alternate count requires a key"))?;
+            let store = self.db_ops.records();
+            let (mut after, mut count) = (None, 0usize);
+            loop {
+                let entries = store
+                    .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
+                    .await?;
+                let addrs = entries
+                    .iter()
+                    .map(|e| store.record_key(&schema, &e.primary))
+                    .collect::<Result<Vec<_>, _>>()?;
+                for (e, r) in entries.iter().zip(store.read_records(&addrs).await?) {
+                    if !r.is_some_and(|r| {
+                        r.is_live()
+                            && r.alternates.get(name).and_then(Option::as_ref) == Some(&e.matched)
+                    }) {
+                        return Err(alternate_keys::invalid(
+                            "alternate count found an entry without its current primary record",
+                        ));
+                    }
                 }
-                crate::storage::local_file_ref::remember(
-                    &self.db_ops.native_runtime(),
-                    &record_file_path(&record_key, version)?,
-                    path,
-                    &marker.sha256,
-                    marker.size_bytes,
-                )
-                .map_err(FoldDbError::from)
-            })
+                count = count
+                    .checked_add(entries.len())
+                    .ok_or_else(|| alternate_keys::invalid("alternate count overflow"))?;
+                if entries.len() < 128 {
+                    return Ok(count);
+                }
+                after = entries.last().cloned();
+            }
+        })
+        .await
+    }
+
+    pub async fn query_alternate_page(
+        &self,
+        query: Query,
+        limit: usize,
+        cursor: Option<QueryCursor>,
+    ) -> Result<AlternatePage, SchemaError> {
+        self.in_read_scope(self.read_alternate_page(query, limit, cursor))
             .await
     }
 
-    async fn read_file_record(
+    async fn read_alternate_page(
         &self,
-        schema_name: &str,
-        key: &KeyValue,
-    ) -> Result<(String, Option<Arc<StoredRecord>>), FoldDbError> {
-        let schema = self.schema_manager.require_schema_metadata(schema_name)?;
-        let records = self.db_ops.records();
-        let rk = records.record_key(&schema, key)?;
-        let rec = records
-            .read_records(std::slice::from_ref(&rk))
-            .await?
-            .pop()
-            .flatten();
-        Ok((rk, rec))
-    }
-
-    pub async fn read_record_file(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        revision: Option<&str>,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key).await?;
-                require_revision(schema_name, key, record.as_deref(), revision)?;
-                let Some((marker, ver)) = record
-                    .as_ref()
-                    .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
-                else {
-                    return Ok(None);
-                };
-                let bytes = self
-                    .db_ops
-                    .records()
-                    .format
-                    .open_record_file(&rk, ver, marker)
-                    .await?
-                    .ok_or_else(|| {
-                        FoldDbError::InProgress(
-                            "the record's file is not on this device and could not be downloaded: no cloud backup is configured on this node".into(),
+        mut query: Query,
+        limit: usize,
+        cursor: Option<QueryCursor>,
+    ) -> Result<AlternatePage, SchemaError> {
+        let (schema, name) = self.require_declared_alternate(&query).await?;
+        let name = name.to_owned();
+        query.key_name = None;
+        let filter = query
+            .filter
+            .take()
+            .ok_or_else(|| alternate_keys::invalid("alternate filter is absent"))?;
+        let spec = (
+            &schema.name,
+            schema.alternate_key_revision(),
+            &name,
+            &filter,
+        );
+        let comparison = format!(
+            "ak2:{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&spec)
+                    .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
+            )
+        );
+        let after = parse_alternate_cursor(cursor, &comparison)?;
+        let mut entries = self
+            .db_ops
+            .records()
+            .select_alternate_entries(
+                &schema,
+                &name,
+                &filter,
+                after.as_ref(),
+                limit.saturating_add(1),
+            )
+            .await?;
+        let has_more = entries.len() > limit;
+        entries.truncate(limit);
+        let values = if entries.is_empty() {
+            QueryRecords::new()
+        } else {
+            query.filter = Some(HashRangeFilter::HashRangeKeys(
+                entries
+                    .iter()
+                    .map(|e| {
+                        (
+                            e.primary.hash.clone().unwrap_or_default(),
+                            e.primary.range.clone().unwrap_or_default(),
                         )
-                    })?;
-                Ok(Some((marker.clone(), bytes)))
-            })
-            .await
+                    })
+                    .collect(),
+            ));
+            self.query_current(query, None).await?
+        };
+        for e in &entries {
+            let rec = values.get(&e.primary).ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "alternate page is missing a primary record ({} entries, {} records)",
+                    entries.len(),
+                    values.len()
+                ))
+            })?;
+            if rec.alternates.get(&name).and_then(Option::as_ref) != Some(&e.matched) {
+                return Err(alternate_keys::invalid(
+                    "alternate entry does not match its primary record",
+                ));
+            }
+        }
+        Ok(AlternatePage {
+            values,
+            entries,
+            has_more,
+            comparison,
+        })
     }
 
-    pub async fn read_record_inline_file(
+    async fn require_declared_alternate<'a>(
         &self,
-        schema_name: &str,
-        key: &KeyValue,
-        revision: Option<&str>,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.db_ops
-            .read_scope()
+        query: &'a Query,
+    ) -> Result<(Schema, &'a str), SchemaError> {
+        let schema = self
+            .prepare_query_schema(query)
             .await?
-            .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key).await?;
-                require_revision(schema_name, key, record.as_deref(), revision)?;
-                let Some(marker) = record.as_ref().and_then(|r| r.inline_file.as_ref()) else {
-                    return Ok(None);
-                };
-                let bytes = self
-                    .db_ops
-                    .records()
-                    .format
-                    .open_inline_file(&rk, marker)
-                    .await?
-                    .ok_or_else(|| {
-                        FoldDbError::Database("record inline file bytes are missing".into())
-                    })?;
-                Ok(Some((marker.clone(), bytes)))
-            })
-            .await
+            .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
+        if query.include_tombstones
+            || query
+                .sort_order
+                .as_ref()
+                .is_some_and(|o| *o != SortOrder::Asc)
+            || query.expected_total_count.is_some()
+        {
+            return Err(alternate_keys::invalid(
+                "unsupported alternate query controls",
+            ));
+        }
+        let name = query
+            .key_name
+            .as_deref()
+            .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
+        schema
+            .require_record_keys()?
+            .alternates
+            .contains_key(name)
+            .then_some((schema, name))
+            .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))
     }
 }
 
-fn require_revision(
-    schema_name: &str,
-    key: &KeyValue,
-    record: Option<&StoredRecord>,
-    revision: Option<&str>,
-) -> Result<(), FoldDbError> {
-    if let Some(expected) = revision {
-        let actual = record.map(|r| r.stamp.revision());
-        if actual.as_deref() != Some(expected) {
-            return Err(SchemaError::CasConflict {
-                schema: schema_name.to_owned(),
-                key: key.to_storage_key(),
-                expected: expected.to_owned(),
-                actual,
-            }
-            .into());
-        }
+fn parse_alternate_cursor(
+    cursor: Option<QueryCursor>,
+    comparison: &str,
+) -> Result<Option<AlternateEntry>, SchemaError> {
+    let Some(c) = cursor else {
+        return Ok(None);
+    };
+    if c.comparison.as_deref() != Some(comparison) {
+        return Err(alternate_keys::invalid(
+            "alternate cursor does not match this query",
+        ));
     }
-    Ok(())
+    let primary = c.alternate_primary.clone().ok_or_else(|| {
+        alternate_keys::invalid("alternate cursor requires its primary tie-breaker")
+    })?;
+    Ok(Some(AlternateEntry {
+        primary,
+        matched: c.into_key(),
+    }))
 }

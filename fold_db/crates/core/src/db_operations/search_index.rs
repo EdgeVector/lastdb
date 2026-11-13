@@ -38,25 +38,12 @@ pub(crate) struct IndexChangeBatch {
 fn version_one() -> u32 {
     1
 }
-
 fn is_version_one(v: &u32) -> bool {
     *v == 1
 }
 
 pub fn search_inbox_dir_for_home(home: &Path) -> PathBuf {
     home.join("apps/search/inbox")
-}
-
-fn resolve_search_inbox_dir() -> Option<PathBuf> {
-    let env_str = |k| {
-        std::env::var(k)
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-    };
-    env_str("LASTDB_SEARCH_INBOX")
-        .map(PathBuf::from)
-        .or_else(|| env_str("LASTDB_HOME").map(|h| search_inbox_dir_for_home(Path::new(&h))))
 }
 
 pub(crate) fn build_index_change_batch<'a>(
@@ -79,7 +66,7 @@ pub(crate) fn build_index_change_batch<'a>(
                         .any(|skip| t.eq_ignore_ascii_case(skip))
                 }) && c.iter().any(|t| t.eq_ignore_ascii_case("word"))
             })
-            .map(|(name, _)| name.clone())
+            .map(|(n, _)| n.clone())
             .collect::<HashSet<_>>()
     });
     let changes: Vec<_> = schema_mutations
@@ -108,7 +95,7 @@ pub(crate) fn build_index_change_batch<'a>(
         .collect();
     (!changes.is_empty()).then(|| IndexChangeBatch {
         format_version: 1,
-        schema_name: schema_name.to_string(),
+        schema_name: schema_name.to_owned(),
         searchable_fields: searchable,
         changes,
     })
@@ -121,12 +108,21 @@ pub(crate) fn deliver_outbox(
     if !queue_policy::enabled() {
         return Ok(());
     }
-    let Some(inbox) = inbox.or_else(resolve_search_inbox_dir) else {
+    let env_str = |k| {
+        std::env::var(k)
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+    let Some(inbox) = inbox
+        .or_else(|| env_str("LASTDB_SEARCH_INBOX").map(PathBuf::from))
+        .or_else(|| env_str("LASTDB_HOME").map(|h| search_inbox_dir_for_home(Path::new(&h))))
+    else {
         return Ok(());
     };
     let name = format!(
         "{}_{}.json",
-        crate::clock::unix_millis(),
+        crate::crypto::clock::unix_millis(),
         Uuid::new_v4().simple()
     );
     let path = inbox.join(&name);
@@ -165,7 +161,7 @@ pub mod queue_policy {
     }
 
     fn max_bytes() -> u64 {
-        crate::env_flag::var_or("LASTDB_SEARCH_QUEUE_MAX_BYTES", DEFAULT_MAX_BYTES)
+        crate::crypto::env_flag::var_or("LASTDB_SEARCH_QUEUE_MAX_BYTES", DEFAULT_MAX_BYTES)
             .clamp(64 * 1024, 1024 * 1024 * 1024)
     }
 

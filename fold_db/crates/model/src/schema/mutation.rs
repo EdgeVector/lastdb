@@ -1,7 +1,7 @@
-use super::operations::{MutationType, SchemaError};
 use super::types::{cas::CasExpectation, key_value::KeyValue};
+use super::SchemaError;
 use crate::canonical::{push_field, CanonicalValue};
-use crate::record_replacement::RecordTarget;
+use crate::field_key_codec::record_replacement::RecordTarget;
 use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,10 +27,8 @@ struct Issued<T> {
 }
 
 impl<T: PartialEq> PartialEq for Issued<T> {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.issuer, &other.issuer)
-            && self.marker == other.marker
-            && self.data == other.data
+    fn eq(&self, o: &Self) -> bool {
+        Arc::ptr_eq(&self.issuer, &o.issuer) && self.marker == o.marker && self.data == o.data
     }
 }
 
@@ -85,7 +83,7 @@ impl FileWriteIssuer {
 
     #[must_use]
     pub fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
-        Arc::ptr_eq(&self.identity, &file.0.issuer).then(|| file.path())
+        Arc::ptr_eq(&self.identity, &file.0.issuer).then_some(file.path())
     }
 }
 
@@ -140,6 +138,67 @@ pub struct ContributionAdmission {
     pub receipt_id: [u8; 32],
     pub intent_digest: [u8; 32],
     pub writer: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationType {
+    Create,
+    Replace,
+    Delete,
+    Purge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MutationConvergence {
+    Sync,
+    #[default]
+    Async,
+}
+
+impl MutationConvergence {
+    pub fn waits(self) -> bool {
+        matches!(self, Self::Sync)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MutationDurability {
+    Durable,
+    #[default]
+    Queued,
+}
+
+impl MutationDurability {
+    pub fn waits_for_persist(self) -> bool {
+        matches!(self, Self::Durable)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum Operation {
+    #[serde(rename = "mutation")]
+    Mutation {
+        schema: String,
+        #[serde(rename = "record")]
+        record_fields: HashMap<String, Value>,
+        key_value: KeyValue,
+        alternates: BTreeMap<String, Option<KeyValue>>,
+        mutation_type: MutationType,
+        source_file_name: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+        file: Option<FileMarker>,
+        expected: CasExpectation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        convergence: Option<MutationConvergence>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        durability: Option<MutationDurability>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -266,33 +325,33 @@ impl Mutation {
 
     #[must_use]
     pub fn content_hash(&self) -> String {
-        let mut digest = Sha256::new();
-        push_field(&mut digest, b"lastdb-record-authored-content-v2");
-        push_field(&mut digest, self.uuid.as_bytes());
-        push_field(&mut digest, self.schema_name.as_bytes());
-        push_json(&mut digest, &self.mutation_type);
-        push_json(&mut digest, &self.key_value);
-        push_json(&mut digest, &self.alternates);
-        push_json(&mut digest, &self.file);
-        push_json(&mut digest, &self.expected);
+        let mut d = Sha256::new();
+        push_field(&mut d, b"lastdb-record-authored-content-v2");
+        push_field(&mut d, self.uuid.as_bytes());
+        push_field(&mut d, self.schema_name.as_bytes());
+        push_json(&mut d, &self.mutation_type);
+        push_json(&mut d, &self.key_value);
+        push_json(&mut d, &self.alternates);
+        push_json(&mut d, &self.file);
+        push_json(&mut d, &self.expected);
         let fields: BTreeMap<_, _> = self.record_fields.iter().collect();
-        digest.update((fields.len() as u64).to_be_bytes());
+        d.update((fields.len() as u64).to_be_bytes());
         for (name, value) in fields {
-            push_field(&mut digest, name.as_bytes());
-            push_json(&mut digest, &CanonicalValue(value));
+            push_field(&mut d, name.as_bytes());
+            push_json(&mut d, &CanonicalValue(value));
         }
-        push_field(&mut digest, self.pub_key.as_bytes());
-        push_json(&mut digest, &self.source_file_name);
+        push_field(&mut d, self.pub_key.as_bytes());
+        push_json(&mut d, &self.source_file_name);
         let meta = self
             .metadata
             .as_ref()
             .map(|m| m.iter().collect::<BTreeMap<_, _>>());
-        push_json(&mut digest, &meta);
-        push_json(&mut digest, &self.erase_written_before_nanos);
-        push_json(&mut digest, &self.imported_written_at);
-        digest.update(self.logical_counter.to_be_bytes());
-        push_field(&mut digest, self.author_clock_writer_id.as_bytes());
-        format!("{:x}", digest.finalize())
+        push_json(&mut d, &meta);
+        push_json(&mut d, &self.erase_written_before_nanos);
+        push_json(&mut d, &self.imported_written_at);
+        d.update(self.logical_counter.to_be_bytes());
+        push_field(&mut d, self.author_clock_writer_id.as_bytes());
+        format!("{:x}", d.finalize())
     }
 }
 

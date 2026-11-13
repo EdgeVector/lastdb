@@ -13,7 +13,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 const MIN_ROWS: usize = 16;
-const RECORD_PROBE_ROWS: usize = 16;
 
 pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
 
@@ -229,9 +228,10 @@ impl RecordStore {
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         use HashRangeFilter as F;
         let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
+        let mk = |h: &str, r: &str| KeyValue::new(Some(h.to_owned()), ranged.then(|| r.to_owned()));
         let requested: Vec<KeyValue> = match filter {
-            F::HashRangeKey { hash, range } => vec![api_key(ranged, hash, range)],
-            F::HashRangeKeys(keys) => keys.iter().map(|(h, r)| api_key(ranged, h, r)).collect(),
+            F::HashRangeKey { hash, range } => vec![mk(hash, range)],
+            F::HashRangeKeys(keys) => keys.iter().map(|(h, r)| mk(h, r)).collect(),
             F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. }
                 if !ranged =>
             {
@@ -240,7 +240,7 @@ impl RecordStore {
             F::HashKey(_) | F::HashRangePrefix { .. } | F::HashRangeRange { .. } => {
                 return Err(invalid(
                     "HashRange range selectors are read through range_rows",
-                ))
+                ));
             }
         };
         let mut seen = HashSet::new();
@@ -281,13 +281,13 @@ impl RecordStore {
                     .storage_hash(&space, h)
                     .map_err(invalid)?,
             ),
-            None => space_prefix(schema),
+            None => format!("{RECORD_PREFIX}{space}:"),
         };
         let start = match after {
             Some(c) if !c.starts_with(&base) => {
                 return Err(SchemaError::InvalidCursor(
                     "cursor is not in this schema's records".into(),
-                ))
+                ));
             }
             Some(c) => format!("{c}\0"),
             None => base.clone(),
@@ -299,8 +299,7 @@ impl RecordStore {
             .await
             .map_err(|e| invalid(format!("list record keys: {e}")))?;
         let has_more = rows.len() > limit;
-        let mut keys = Vec::with_capacity(limit);
-        let mut cursor = None;
+        let (mut keys, mut cursor) = (Vec::with_capacity(limit), None);
         for (key, value) in rows.into_iter().take(limit) {
             let record = decode(&value)?;
             let physical =
@@ -316,18 +315,18 @@ impl RecordStore {
 
     pub async fn schema_may_hold_records(&self, schema: &Schema) -> Result<bool, SchemaError> {
         self.record_read_scope(async {
-            let prefix = space_prefix(schema);
+            let prefix = format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name));
             let end = FilterUtils::create_prefix_end(&prefix)?;
             let rows = self
                 .reader()
-                .scan_range_paged(prefix.as_bytes(), end.as_bytes(), RECORD_PROBE_ROWS + 1)
+                .scan_range_paged(prefix.as_bytes(), end.as_bytes(), MIN_ROWS + 1)
                 .await
                 .map_err(|e| invalid(format!("probe records: {e}")))?;
-            if rows.len() > RECORD_PROBE_ROWS {
+            if rows.len() > MIN_ROWS {
                 return Ok(true);
             }
-            for (_, value) in &rows {
-                if decode(value)?.is_live() {
+            for (_, v) in &rows {
+                if decode(v)?.is_live() {
                     return Ok(true);
                 }
             }
@@ -335,14 +334,6 @@ impl RecordStore {
         })
         .await
     }
-}
-
-fn space_prefix(schema: &Schema) -> String {
-    format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name))
-}
-
-fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
-    KeyValue::new(Some(hash.to_owned()), ranged.then(|| range.to_owned()))
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
@@ -354,8 +345,7 @@ fn midpoint(low: &[u8], high: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let width = low.len().max(high.len()) + 1;
-    let mut sum = vec![0u32; width + 1];
-    let mut carry = 0u32;
+    let (mut sum, mut carry) = (vec![0u32; width + 1], 0u32);
     for at in (0..width).rev() {
         let total = low.get(at).map_or(0, |&b| u32::from(b))
             + high.get(at).map_or(0, |&b| u32::from(b))
