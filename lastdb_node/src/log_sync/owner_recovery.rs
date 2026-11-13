@@ -23,6 +23,10 @@ use super::{apply, paths, restore, session, status, wire};
 pub struct RecoveredPrefix {
     /// Last delivery sequence applied. Zero is an empty log.
     pub through: u64,
+    /// Log position already present in the restored snapshot. Zero when there was none.
+    pub snapshot_through: u64,
+    /// Log entries applied after that snapshot.
+    pub replayed: u64,
     /// `personal` when the envelope used the owner key. Otherwise the sibling name.
     pub name: String,
 }
@@ -80,11 +84,13 @@ pub async fn recover_owned(
     } else {
         (place(host, &log, name, database_id, through).await?, 0)
     };
-    apply_through(&log, start, through).await?;
+    let replayed = apply_through(&log, start, through).await?;
     session::store_cursor(&host.home, database_id.as_str(), through)?;
     session::mark_prefix(&host.home, database_id.as_str(), through)?;
     Ok(RecoveredPrefix {
         through,
+        snapshot_through: start,
+        replayed,
         name: placed,
     })
 }
@@ -231,8 +237,32 @@ async fn read_page(log: &CloudLog, after: u64) -> Result<ListPage, LogError> {
     .map_err(|_| LogError::UnexpectedOutcome)?
 }
 
-async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<(), String> {
+pub(super) async fn count_entries(log: &CloudLog, cap: u64) -> Result<u64, String> {
+    let mut cursor = 0u64;
+    let mut count = 0u64;
+    loop {
+        let page = read_page(log, cursor)
+            .await
+            .map_err(|error| error.to_string())?;
+        if page.entries.is_empty() {
+            return Ok(count);
+        }
+        for entry in &page.entries {
+            count = count.saturating_add(1);
+            cursor = entry.delivery_seq;
+            if count >= cap {
+                return Ok(count);
+            }
+        }
+        if page.entries.len() < mutation_log::LIST_PAGE_LIMIT {
+            return Ok(count);
+        }
+    }
+}
+
+async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<u64, String> {
     let mut recovered_snapshot = cursor != 0;
+    let mut replayed = 0u64;
     let mut files = restore::file_source(log.clone());
     while cursor < through {
         let page = match read_page(log, cursor).await {
@@ -266,10 +296,11 @@ async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<
         if delivered.is_empty() || cursor != expected {
             return Err("signed recovery log stopped before the selected head".into());
         }
+        replayed = replayed.saturating_add(delivered.len() as u64);
         let host = log.host().map_err(|e| e.to_string())?;
         database_replay::replay_owned(host, log.database_id(), None, &delivered, &mut files)
             .await
             .map_err(|error| error.to_string())?;
     }
-    Ok(())
+    Ok(replayed)
 }

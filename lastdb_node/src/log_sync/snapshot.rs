@@ -76,6 +76,7 @@ async fn publish(
         files,
     };
     let id = transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?;
+    let entries = confirmed(log, through).await?;
     if database.kind == "personal" {
         runtime
             .note_accepted_snapshot(cut.native_frontier)
@@ -84,7 +85,38 @@ async fn publish(
             .acknowledge_accepted(cut.accepted_head)
             .map_err(|error| format!("{error:?}"))?;
     }
+    remember(&host.home, log.database_id(), through, entries)?;
     tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");
+    Ok(())
+}
+
+/// Stop paging a database into the log until its first snapshot is committed.
+/// A later snapshot request also holds the page so a refused snapshot cannot
+/// fill the log while the request is still queued.
+pub(super) fn holds_first_backup(home: &Path, database: &str, unacked: bool) -> bool {
+    if established_path(home, database).is_file() {
+        return false;
+    }
+    pending(home, database) || (unacked && session::load_cursor(home, database).ok() == Some(0))
+}
+
+async fn confirmed(log: &super::cloud::CloudLog, through: u64) -> Result<u64, String> {
+    let saved = transport::current(log)
+        .await?
+        .ok_or("signed snapshot read is empty")?;
+    let head = super::owner_recovery::head(log).await?;
+    if saved.1.through.get() != through || head != through {
+        return Err("signed snapshot read is not the log head".into());
+    }
+    super::owner_recovery::count_entries(log, LOG_ENTRY_REPORT_CAP).await
+}
+
+fn remember(home: &Path, database: &str, through: u64, entries: u64) -> Result<(), String> {
+    let report = format!("through={through}\nhead={through}\nlog_entries={entries}\n");
+    super::disk::write_private(&result_path(home, database), report.as_bytes())
+        .map_err(|_| "cannot record the signed snapshot read")?;
+    super::disk::write_private(&established_path(home, database), b"snapshot-v1\n")
+        .map_err(|_| "cannot record the first snapshot")?;
     Ok(())
 }
 
@@ -124,8 +156,18 @@ pub(super) async fn requested(
     Ok(())
 }
 
+const LOG_ENTRY_REPORT_CAP: u64 = 9;
+
 fn request_path(home: &std::path::Path, id: &str) -> std::path::PathBuf {
     home.join("log-sync").join(id).join("snapshot-request")
+}
+
+fn result_path(home: &Path, id: &str) -> std::path::PathBuf {
+    home.join("log-sync").join(id).join("snapshot-result")
+}
+
+fn established_path(home: &Path, id: &str) -> std::path::PathBuf {
+    home.join("log-sync").join(id).join("snapshot-established")
 }
 
 /// Restore the snapshot before booting the isolated destination.

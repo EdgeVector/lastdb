@@ -38,7 +38,7 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
         async move {
             while !shutdown.load(Ordering::Acquire) {
                 let pause = one_turn(&host).await;
-                sleep_interruptible(&shutdown, pause).await;
+                sleep_interruptible(&host, &shutdown, pause).await;
             }
         }
         .in_current_span(),
@@ -152,7 +152,7 @@ pub(super) fn warn_once(flag: &AtomicBool, message: &str) {
     }
 }
 
-async fn sleep_interruptible(shutdown: &AtomicBool, pause: Pause) {
+async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
     let seconds = match pause {
         Pause::Idle => 1,
         Pause::Retry => 5,
@@ -163,7 +163,16 @@ async fn sleep_interruptible(shutdown: &AtomicBool, pause: Pause) {
             return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+        if snapshot_waiting(host) {
+            return;
+        }
     }
+}
+
+fn snapshot_waiting(host: &Host) -> bool {
+    registry::databases(&host.home)
+        .iter()
+        .any(|database| super::snapshot::pending(&host.home, &database.id))
 }
 
 pub(super) fn native_publisher(host: &Host, database_id: &str) -> bool {

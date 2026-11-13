@@ -224,6 +224,9 @@ pub(crate) enum BackupCommand {
     Snapshot {
         #[arg(long)]
         database: Option<String>,
+        /// Return after the signed snapshot read shows through equal to the log head.
+        #[arg(long)]
+        wait: bool,
     },
 }
 
