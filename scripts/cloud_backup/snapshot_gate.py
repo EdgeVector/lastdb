@@ -116,6 +116,9 @@ def write_records(node, database_id):
             written.update(body)
         reply = node.call(route, {"mutations": [mutation(index) for index in indexes]})
         require(isinstance(reply, dict) and reply.get("count") == len(bodies), "record_write")
+        written_count = start + len(bodies)
+        if written_count % 50_000 == 0:
+            print(f"seeded_records={written_count}", flush=True)
     return written.hexdigest()
 
 
@@ -303,17 +306,20 @@ def run_gate(programs, root, phrase, api_key):
     write_private(home / "identity.key", baseline_data.seed(phrase))
     install_registry(home, database_id)
     opt_into_first_snapshot(home, database_id)
-    # The personal store turns on local write capture when it boots with saved credentials.
-    connected = programs.command(home, [
-        "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-        "--expected-user-hash", baseline_data.ACCOUNT, "--json",
-    ], input_bytes=api_key, timeout=60)
-    require(connected.get("ok") is True and connected.get("credentials_saved") is True
-            and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
     destination = root / "restored"
     try:
+        # Seed an existing local database before its first cloud connection.
+        # Booting offline avoids building a local queue for the seed records.
         node.start(sign_in=False)
         digest = seed(programs, node, database_id, numbers)
+        node.stop()
+        connected = programs.command(home, [
+            "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
+            "--expected-user-hash", baseline_data.ACCOUNT, "--json",
+        ], input_bytes=api_key, timeout=60)
+        require(connected.get("ok") is True and connected.get("credentials_saved") is True
+                and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
+        node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
         node.stop()
         restore(programs, home, destination, database_id, phrase, numbers)
