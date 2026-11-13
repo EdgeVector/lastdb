@@ -30,6 +30,26 @@ pub(super) fn load(home: &Path) -> Result<RegistryFile, String> {
     }
 }
 
+pub(crate) fn prepare_snapshot_restore(
+    home: &Path,
+    database_id: String,
+    owned_name: Option<&str>,
+) -> Result<(), String> {
+    let mut file = load(home)?;
+    if let Some(name) = owned_name {
+        validate_create(name, None).map_err(|err| err.status().1)?;
+        file.owned.push(Entry {
+            id: database_id,
+            name: Some(name.to_owned()),
+            kind: Kind::Personal,
+            spec: None,
+        });
+    } else {
+        file.owner.id = database_id;
+    }
+    write(home, &file).map_err(|e| e.to_string())
+}
+
 pub(super) fn read(home: &Path) -> Result<Option<RegistryFile>, String> {
     let path = registry_path(home);
     if !path.is_file() {

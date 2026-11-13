@@ -73,7 +73,13 @@ pub(super) async fn open_native(
     }
     match finish_open(host, &database.id, &database.kind, log, device).await {
         Prep::Pause(pause) => pause,
-        Prep::Ready(ready) => run::run_ready(host.as_ref(), *ready).await,
+        Prep::Ready(ready) => {
+            if let Err(reason) = super::snapshot::requested(host, &ready.log).await {
+                tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication failed");
+                return Pause::Retry;
+            }
+            run::run_ready(host.as_ref(), *ready).await
+        }
     }
 }
 

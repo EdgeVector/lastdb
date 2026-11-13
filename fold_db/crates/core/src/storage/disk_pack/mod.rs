@@ -24,7 +24,7 @@ pub(in crate::storage) mod run_node;
 pub(crate) mod transaction;
 
 pub use crate::storage::disk_backup::{
-    byte_backup, mutation_log, run_restore, NativeCloudWorkGuard,
+    byte_backup, mutation_log, run_restore, snapshot, NativeCloudWorkGuard,
 };
 pub use crate::storage::disk_cleanup::{
     NativeCleanupBoundary, NativeCleanupPhase, NativeCleanupStatus,

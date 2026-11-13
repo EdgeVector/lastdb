@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::host::Host;
 
-use super::account::{self, node_key};
+use super::account;
 use super::http::{self, Endpoint, Proof};
 use super::paths;
 use super::wire;
@@ -31,7 +31,7 @@ struct WriterTipResponse {
 #[derive(Clone)]
 pub(crate) struct CloudLog {
     handle: tokio::runtime::Handle,
-    host: Arc<Host>,
+    host: Option<Arc<Host>>,
     endpoint: Arc<Endpoint>,
     keypair: Arc<Ed25519KeyPair>,
     pub(super) scope: CloudScope,
@@ -75,24 +75,47 @@ impl CloudLog {
     }
 
     pub(super) fn open(parts: LogOpen<'_>) -> Result<Self, String> {
+        let keypair = Arc::clone(&parts.host.keypair);
+        let mut log = Self::open_offline(
+            parts.endpoint,
+            parts.scope,
+            parts.database_id,
+            parts.device,
+            keypair,
+            parts.environment_label,
+        )?;
+        log.member_revision = parts.member_revision;
+        log.host = Some(Arc::clone(parts.host));
+        Ok(log)
+    }
+
+    pub(super) fn open_offline(
+        endpoint: Endpoint,
+        scope: CloudScope,
+        database_id: Id,
+        device: &str,
+        keypair: Arc<Ed25519KeyPair>,
+        environment_label: &'static str,
+    ) -> Result<Self, String> {
+        let principal = PrincipalId::new(&hex::encode(keypair.public_key_bytes()))
+            .map_err(|_| "node key is not a log label")?;
         Ok(Self {
             handle: tokio::runtime::Handle::current(),
-            host: Arc::clone(parts.host),
-            endpoint: Arc::new(parts.endpoint),
-            keypair: Arc::clone(&parts.host.keypair),
-            scope: parts.scope,
-            database_id: parts.database_id,
-            principal: PrincipalId::new(&node_key(parts.host))
-                .map_err(|_| "node key is not a log label")?,
-            device: mutation_log::DeviceId::new(parts.device)
+            host: None,
+            endpoint: Arc::new(endpoint),
+            keypair,
+            scope,
+            database_id,
+            principal,
+            device: mutation_log::DeviceId::new(device)
                 .map_err(|_| "device id is not a log label")?,
-            member_revision: parts.member_revision,
-            environment_label: parts.environment_label,
+            member_revision: 0,
+            environment_label,
         })
     }
 
-    pub(super) fn host(&self) -> &Host {
-        &self.host
+    pub(super) fn host(&self) -> Result<&Arc<Host>, LogError> {
+        self.host.as_ref().ok_or(LogError::UnexpectedOutcome)
     }
 
     pub(super) fn database_id(&self) -> &str {

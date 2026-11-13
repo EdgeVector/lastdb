@@ -60,7 +60,16 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             }
             run_restore(&lastdb_node::host::resolve_home(data_dir)?, args)
         }
+        ByteBackupCommand::Snapshot(database) => queue_snapshot(data_dir, &database),
     }
+}
+
+fn queue_snapshot(data_dir: Option<PathBuf>, database: &str) -> Result<(), String> {
+    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
+    require_reachable(&socket)?;
+    let id = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    println!("Queued signed snapshot for {id}");
+    Ok(())
 }
 
 struct FreshHome {
@@ -233,9 +242,23 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         fresh.commit()?;
         drop(fresh);
         let staged = StagedHome::open(staged_path)?;
-        let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
+        let base = lastdb_node::log_sync::restore_snapshot_base(
+            &staged.path,
+            home,
+            &scope,
+            &database,
+            &seed,
+            "recovered",
+        )
+        .await?;
+        let host = Arc::new(if base.is_some() {
+            Host::boot_for_snapshot_restore(&staged.path).await?
+        } else {
+            Host::boot_for_signed_restore(&staged.path).await?
+        });
         let res =
-            lastdb_node::log_sync::recover_owned(&host, home, scope, &database, "recovered").await;
+            lastdb_node::log_sync::recover_owned(&host, home, scope, &database, "recovered", base)
+                .await;
         let owned_closed = host.shutdown_owned_databases().await;
         let owner_closed = host.db.shutdown().await;
         drop(host);

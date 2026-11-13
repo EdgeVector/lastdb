@@ -5,6 +5,7 @@ pub mod accepted;
 pub mod byte_backup;
 pub mod mutation_log;
 pub mod run_restore;
+pub mod snapshot;
 
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::{AtomicBool, Ordering};

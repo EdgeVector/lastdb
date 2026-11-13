@@ -5,12 +5,14 @@ mod commit;
 mod manifest;
 mod range;
 mod read;
+mod snapshot;
 
 pub use cleanup::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
 pub use commit::{HomeMutation, RunCommit};
 pub use manifest::{CURRENT, RUNS};
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
+pub use snapshot::RunSnapshot;
 
 use super::codec::corrupt;
 use super::merge::count_merged_keys;
