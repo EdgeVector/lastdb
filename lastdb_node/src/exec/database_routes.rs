@@ -1,5 +1,4 @@
 //! Database selection at the owner socket. An explicit target never falls back.
-use super::database_owned;
 use super::*;
 use crate::host::owned::{self, Resolved};
 use crate::lastdb_uds::database_path::{self, DATABASES_PATH};
@@ -29,6 +28,9 @@ pub async fn execute_database_request(
 ) -> UdsResponse {
     if !ctx.is_owner {
         return content_free(404, "Not Found");
+    }
+    if super::database_session::is_issue(req) {
+        return super::database_session::issue(req, ctx, host);
     }
     match (req.method.as_str(), req.target.as_str()) {
         ("GET", DATABASES_PATH) => return list(ctx, host),
@@ -286,6 +288,12 @@ fn database(home: &std::path::Path, share: &RegisteredShare) -> Value {
     } else {
         "reader"
     });
+    if share.signed_log {
+        value["selfAccess"] = json!(crate::log_sync::received_access::view(
+            home,
+            share.id.as_str()
+        ));
+    }
     value["kind"] = json!("received");
     value
 }

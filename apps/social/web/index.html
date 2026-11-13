@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Social</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead"><a href="/" id="brand">Social</a><nav aria-label="Social"><button id="people" type="button">People</button><button id="databases" type="button">Databases</button></nav></header>
+  <main>
+    <div class="toolbar"><h1 id="heading">People</h1><div id="actions"></div></div>
+    <p id="notice" role="status" hidden></p>
+    <div class="columns"><section id="list" aria-label="Entries"></section><section id="detail" aria-label="Details"></section></div>
+  </main>
+  <dialog id="form-dialog" aria-labelledby="form-title"><form id="form"><h2 id="form-title"></h2><div id="fields"></div><p id="form-error" role="alert" hidden></p><div class="buttons"><button id="cancel" type="button" class="quiet">Cancel</button><button id="submit" type="submit"></button></div></form></dialog>
+</body>
+</html>

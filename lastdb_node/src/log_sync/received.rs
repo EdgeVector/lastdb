@@ -71,7 +71,12 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
 }
 
 async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -> Option<CloudLog> {
-    let Some(fresh) = members::revision(&log).await else {
+    let observed = members::access(&log).await;
+    super::received_access::record(&host.home, share.id.as_str(), observed.as_ref());
+    let Some(members::ObservedAccess::Active {
+        revision: fresh, ..
+    }) = observed
+    else {
         return Some(log);
     };
     if fresh <= log.member_revision {

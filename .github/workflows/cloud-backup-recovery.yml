@@ -9,6 +9,7 @@ on:
       - '.github/workflows/cloud-backup-build.yml'
       - 'scripts/cloud_backup/**'
       - 'apps/social/**'
+      - 'lastdb-app.json'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
       - 'app_identity_crypto/**'
@@ -53,7 +54,10 @@ jobs:
         run: |
           test "$SELECTED_REF" = refs/heads/main
       - name: Check the operational recipe syntax
-        run: python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
+        run: |
+          python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
+          python3 -m json.tool lastdb-app.json > /dev/null
+          node --check apps/social/web/app.js
 
   build-client:
     name: Build

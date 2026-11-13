@@ -5,11 +5,14 @@ import argparse
 from http.client import HTTPException
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
 from lastdb import LastDB, SocialError
+from app import SocialApp
 from people import People
+from server import run_server
 from sharing import Sharing, read_invitation
 
 
@@ -50,10 +53,25 @@ def list_grants(sharing, people, selector):
 def parser():
     command = argparse.ArgumentParser(description=__doc__)
     command.add_argument("--data-dir", required=True, type=Path)
-    command.add_argument("--lastdb", required=True, type=Path)
+    command.add_argument("--lastdb", type=Path)
     actions = command.add_subparsers(dest="action", required=True)
     actions.add_parser("declare", help="Declare the private Person schema")
     actions.add_parser("show-records", help="List private contacts without their contact codes")
+    launch = actions.add_parser("open", help="Open Social's local browser interface")
+    launch.add_argument("--no-browser", action="store_true")
+    launch.add_argument("--database")
+    remember = actions.add_parser("remember", help="Save a verified contact without sharing a database")
+    remember.add_argument("--user", required=True)
+    remember.add_argument("--node-key", required=True)
+    remember.add_argument("--contact", required=True, type=Path)
+    pick = actions.add_parser("pick-database", help="List matching databases or select an exact database ID")
+    pick.add_argument("--spec", required=True)
+    pick.add_argument("--version", required=True, type=int)
+    pick.add_argument("--intent", required=True, choices=("read", "write"))
+    pick.add_argument("--session", action="store_true", help="Issue an owner-approved data session for the selected database")
+    selection = pick.add_mutually_exclusive_group()
+    selection.add_argument("--database")
+    selection.add_argument("--cancel", action="store_true")
     create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
     create.add_argument("name")
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
@@ -75,13 +93,31 @@ def parser():
     return command
 
 
-def run(args):
-    node = LastDB(args.data_dir, args.lastdb)
+def resolve_node(args):
+    executable = args.lastdb or shutil.which("lastdb")
+    if not executable:
+        raise SocialError("supply --lastdb or put lastdb on PATH")
+    return LastDB(args.data_dir, Path(executable))
+
+
+def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
     match args.action:
         case "create-db":
             return sharing.create(args.name)
+        case "remember":
+            return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
+        case "pick-database":
+            app = SocialApp(node)
+            spec = {"name": args.spec, "version": args.version}
+            if args.cancel:
+                return None
+            if args.session:
+                if not args.database:
+                    raise SocialError("--session requires an explicit database selection")
+                return app.approve_pick(spec, args.intent, args.database)
+            return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
         case "add":
             return sharing.invite(args.database, args.user, args.node_key, args.contact)
         case "remove":
@@ -101,7 +137,12 @@ def run(args):
 
 def main():
     try:
-        result = run(parser().parse_args())
+        args = parser().parse_args()
+        node = resolve_node(args)
+        if args.action == "open":
+            run_server(node, not args.no_browser, args.database)
+            return 0
+        result = run(args, node)
         print(json.dumps(result, sort_keys=True))
     except (SocialError, OSError, HTTPException, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"social: {error}", file=sys.stderr)

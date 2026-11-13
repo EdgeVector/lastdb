@@ -14,6 +14,7 @@ pub use crate::identity::{
     load_or_generate_seed_with_meta, user_hash_from_pubkey, IDENTITY_KEY_FILE,
 };
 
+pub(crate) mod database_sessions;
 pub(crate) mod owned;
 mod recovery;
 pub use recovery::init_daemon_logging;
@@ -53,6 +54,7 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
+    pub(crate) database_sessions: database_sessions::DatabaseSessions,
 }
 
 impl Host {
@@ -138,6 +140,7 @@ impl Host {
             uds_workers: OnceLock::new(),
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
+            database_sessions: database_sessions::DatabaseSessions::default(),
         })
     }
 

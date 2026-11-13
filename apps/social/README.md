@@ -42,3 +42,23 @@ Social reads and updates the whole LastDB share configuration, preserving
 other members. It records the exact pending request in the personal database
 until LastDB confirms the result or definitively rejects it. A later `add` or
 `remove` can resume delivery. LastDB seals the invitation after the grant.
+
+## Open the local app
+
+Run `social --data-dir "$isolated_home" open` on a running LastDB node. The
+launcher opens a browser window for the local Social session. Add verified
+contacts under People. Use Databases to create a share, see the applied roster,
+revoke a reader, copy the sealed invitation, or accept one. The recipient's
+cloud access and downloaded record readiness are shown separately. Use
+`open --database ID` to go directly to a database's sharing settings.
+
+The picker filters by spec and intent. For example, run
+`social --data-dir "$isolated_home" pick-database --spec social --version 1 --intent read`
+to see choices. Add `--database ID` for an explicit selection or `--cancel`
+for a null result. An owner-approved selection with `--session` includes a
+short-lived `databaseSession`. A client uses the selected ID with the normal
+LastDB data API and sends that value in `X-LastDB-Database-Session`. Keep the
+session out of logs. The node limits a session to the selected database and
+its approved operation. The existing owner socket still trusts programs that
+run as its OS user. Run content apps outside that owner trust boundary before
+using this as an app isolation guarantee.
