@@ -26,7 +26,6 @@ pub(crate) const SCHEMAS_NAMESPACE: &str = "schemas";
 pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
 pub const CAS_COLLECTION: &str = "cas_blobs";
 pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
-
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
 pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
@@ -58,9 +57,78 @@ pub(in crate::storage::format) use crate::crypto::envelope::{
     ENVELOPE_VERSION as FILE_ENVELOPE_VERSION, NONCE_SIZE as FILE_NONCE_SIZE,
     TAG_SIZE as FILE_TAG_SIZE,
 };
-
 pub(crate) const SCHEMA_RELEASE_ROWS: usize = 256;
 pub(in crate::storage) use lastdb_model::field_key_codec::KEY_FORMAT as CURRENT_KEY_FORMAT_VALUE;
+
+pub(crate) mod retired {
+    use super::{
+        MAIN_NAMESPACE, METADATA_NAMESPACE, RETIRED_SHARED_DIR, RETIRED_SHARED_NODE_BYTES,
+    };
+    use crate::storage::disk_pack::{map, native_routing};
+    use crate::storage::error::{StorageError, StorageResult};
+    use laststore::disk_run::home::RunRead;
+    use std::path::Path;
+
+    pub(in crate::storage) const JOURNAL_RETIRED: &str = "a portable journal key is retired";
+    const METADATA_PREFIXES: &[&str] = &[
+        "portable-entry:",
+        "portable-inbox:",
+        "portable-inbox-index:",
+        "portable-progress:",
+        "portable-schema:",
+        "portable-schema-versions:",
+        "portable-replay-state",
+        "portable-restore-owner",
+        "portable-last-applied-peer",
+        "native-shared-schema-scope",
+    ];
+
+    pub(in crate::storage) fn refuse_shared_home(root: &Path, marker: &[u8]) -> StorageResult<()> {
+        if marker == RETIRED_SHARED_NODE_BYTES
+            || std::fs::symlink_metadata(root.join(RETIRED_SHARED_DIR)).is_ok_and(|m| m.is_dir())
+        {
+            return Err(StorageError::RetiredFormat(
+                "the dedicated shared home format is retired",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(in crate::storage) fn is_journal_key(namespace: &str, key: &[u8]) -> bool {
+        let Ok(key) = std::str::from_utf8(key) else {
+            return false;
+        };
+        match namespace {
+            METADATA_NAMESPACE => METADATA_PREFIXES.iter().any(|p| key.starts_with(p)),
+            MAIN_NAMESPACE => key.starts_with("ade:"),
+            _ => false,
+        }
+    }
+
+    pub(in crate::storage) fn refuse_journal(main: &mut RunRead) -> StorageResult<()> {
+        for (ns, prefix) in METADATA_PREFIXES
+            .iter()
+            .map(|&p| (METADATA_NAMESPACE, p))
+            .chain([(MAIN_NAMESPACE, "ade:")])
+        {
+            let mut end = prefix.as_bytes().to_vec();
+            if let Some(last) = end.last_mut() {
+                *last += 1;
+            }
+            let mut range = main
+                .administrative_range(
+                    native_routing::collection_for_namespace(ns),
+                    prefix.as_bytes(),
+                    &end,
+                )
+                .map_err(map)?;
+            if !range.next_page(1).map_err(map)?.records.is_empty() {
+                return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
+            }
+        }
+        Ok(())
+    }
+}
 
 pub(crate) mod content_key_proof {
     use crate::crypto::at_rest::{
@@ -71,7 +139,6 @@ pub(crate) mod content_key_proof {
     pub(crate) const KEY: &[u8] = b"__content_key_proof_v1";
     pub(crate) use super::METADATA_NAMESPACE as NAMESPACE;
     const VALUE: &[u8] = b"lastdb-content-key-proof-v1";
-    const MAX_BYTES: u64 = 4096;
 
     pub(crate) fn create(key: &[u8; 32]) -> Result<Vec<u8>, StorageError> {
         seal_at_rest_raw(key, VALUE)
@@ -84,7 +151,7 @@ pub(crate) mod content_key_proof {
                 "content key proof is not a binary encrypted value".into(),
             ));
         }
-        let plain = open_at_rest_bounded(key, stored, MAX_BYTES)
+        let plain = open_at_rest_bounded(key, stored, 4096)
             .map_err(|e| StorageError::EncryptionError(format!("content key proof: {e}")))?;
         (plain == VALUE).then_some(()).ok_or_else(|| {
             StorageError::EncryptionError(
@@ -95,12 +162,14 @@ pub(crate) mod content_key_proof {
 }
 
 pub(crate) mod bind {
+    use super::{
+        content_key_proof, control, metadata::Metadata, records::RecordFormat,
+        schemas::SchemaFormat, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY, MAIN_NAMESPACE,
+        METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+    };
     use crate::storage::disk_pack::{transaction, PackNamespacedStore, PackRuntime};
     use crate::storage::error::{StorageError, StorageResult};
-    use crate::storage::format::{
-        content_key_proof, metadata::Metadata, records::RecordFormat, schemas::SchemaFormat,
-        MAIN_NAMESPACE, METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
-    };
+    use lastdb_model::field_key_codec::current_key_format;
     use std::sync::Arc;
 
     pub(crate) struct BoundFormat {
@@ -114,7 +183,7 @@ pub(crate) mod bind {
         store: PackNamespacedStore,
         content_key: [u8; 32],
     ) -> StorageResult<BoundFormat> {
-        let runtime = store.disk_pack_runtime();
+        let runtime = Arc::clone(&store.runtime);
         let main = store.open_namespace(MAIN_NAMESPACE).await?;
         let meta_kv = store.open_namespace(METADATA_NAMESPACE).await?;
         let states = store.open_namespace(SCHEMA_STATES_NAMESPACE).await?;
@@ -124,15 +193,19 @@ pub(crate) mod bind {
             Arc::clone(&runtime),
         );
         let metadata = Metadata::new(meta_kv.clone(), Arc::clone(&runtime));
-        let records = RecordFormat::new(
-            main,
-            store,
-            Arc::clone(&runtime),
-            content_key,
-            metadata.clone(),
-        );
         transaction::scope(Arc::clone(&runtime), async {
-            records.require_current_key_format().await?;
+            let keys =
+                [CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY].map(|k| k.as_bytes().to_vec());
+            let controls = main.get_many(keys.into()).await?;
+            if controls.len() != 2 {
+                return Err(control::invalid("incomplete fence read"));
+            }
+            if !controls[0].as_deref().is_some_and(current_key_format) {
+                return Err(StorageError::InvalidOperation(
+                    "the logical key format does not match this node home".into(),
+                ));
+            }
+            control::validate_frozen_replay_floor(controls[0].as_deref(), controls[1].as_deref())?;
             let stored = meta_kv.get(content_key_proof::KEY).await?.ok_or_else(|| {
                 StorageError::EncryptionError(
                     "content key proof is missing; this program opens only a home it created"
@@ -142,6 +215,7 @@ pub(crate) mod bind {
             content_key_proof::verify(&content_key, &stored)
         })
         .await?;
+        let records = RecordFormat::new(main, Arc::clone(&runtime), content_key, metadata.clone());
         runtime.finish_fresh_initialization().await?;
         Ok(BoundFormat {
             schemas,
@@ -153,11 +227,9 @@ pub(crate) mod bind {
 }
 
 pub(crate) mod control {
-    use crate::storage::error::StorageResult;
-    use crate::storage::StorageError;
+    pub(crate) use super::{CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY};
+    use crate::storage::{error::StorageResult, StorageError};
     use serde::Deserialize;
-
-    pub(crate) use crate::storage::format::{CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY};
 
     pub(in crate::storage::format) fn invalid(text: impl std::fmt::Display) -> StorageError {
         StorageError::InvalidOperation(format!("delete replay cutoff: {text}"))
@@ -186,11 +258,9 @@ pub(crate) mod control {
 pub(crate) mod read {
     use crate::storage::disk_pack::PackKvStore;
     use crate::storage::error::{StorageError, StorageResult};
-    use crate::storage::traits::YieldedScan;
     use serde::de::DeserializeOwned;
 
-    #[derive(Clone)]
-    pub(crate) struct ReadStore(PackKvStore);
+    pub(crate) type ReadStore = PackKvStore;
 
     fn parse_item<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
         serde_json::from_slice(bytes).map_err(|e| {
@@ -198,73 +268,27 @@ pub(crate) mod read {
         })
     }
 
-    impl ReadStore {
-        pub(in crate::storage::format) fn new(store: PackKvStore) -> Self {
-            Self(store)
-        }
+    fn decode_rows<T: DeserializeOwned>(
+        rows: &[(Vec<u8>, Vec<u8>)],
+    ) -> StorageResult<Vec<(String, T)>> {
+        rows.iter()
+            .map(|(k, v)| {
+                let key = String::from_utf8_lossy(k).into_owned();
+                parse_item(&key, v).map(|val| (key, val))
+            })
+            .collect()
+    }
 
-        fn decode_rows<T: DeserializeOwned>(
-            rows: Vec<(Vec<u8>, Vec<u8>)>,
-        ) -> StorageResult<Vec<(String, T)>> {
-            rows.into_iter()
-                .map(|(k, v)| {
-                    let key = String::from_utf8_lossy(&k).into_owned();
-                    let val = parse_item(&key, &v)?;
-                    Ok((key, val))
-                })
-                .collect()
-        }
-
-        pub(crate) async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
-            self.0.get(key).await
-        }
-
-        pub(crate) async fn get_many(
-            &self,
-            keys: Vec<Vec<u8>>,
-        ) -> StorageResult<Vec<Option<Vec<u8>>>> {
-            self.0.get_many(keys).await
-        }
-
-        pub(crate) async fn scan_prefix(
-            &self,
-            prefix: &[u8],
-        ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-            self.0.scan_prefix(prefix).await
-        }
-
-        pub(crate) async fn scan_range_yielding(
-            &self,
-            start: &[u8],
-            end: &[u8],
-            limit: usize,
-            future_reads: usize,
-        ) -> StorageResult<YieldedScan> {
-            self.0
-                .scan_range_yielding(start, end, limit, future_reads)
-                .await
-        }
-
-        pub(crate) async fn scan_range_paged(
-            &self,
-            start: &[u8],
-            end: &[u8],
-            limit: usize,
-        ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-            self.0.scan_range_paged(start, end, limit).await
-        }
-
+    impl PackKvStore {
         pub(crate) async fn get_item<T: DeserializeOwned + Send + Sync>(
             &self,
             key: &str,
         ) -> StorageResult<Option<T>> {
-            self.0
-                .get(key.as_bytes())
+            self.get(key.as_bytes())
                 .await?
                 .map(|b| parse_item(key, &b))
                 .transpose()
         }
-
         pub(crate) async fn get_items<T: DeserializeOwned + Send + Sync>(
             &self,
             keys: &[String],
@@ -272,46 +296,34 @@ pub(crate) mod read {
             if keys.is_empty() {
                 return Ok(Vec::new());
             }
-            self.0
-                .get_many(keys.iter().map(|k| k.as_bytes().to_vec()).collect())
+            self.get_many(keys.iter().map(|k| k.as_bytes().to_vec()).collect())
                 .await?
                 .into_iter()
                 .zip(keys)
                 .map(|(raw, key)| raw.map(|b| parse_item(key, &b)).transpose())
                 .collect()
         }
-
-        pub(crate) async fn list_keys_with_prefix(
-            &self,
-            prefix: &str,
-        ) -> StorageResult<Vec<String>> {
+        pub(crate) async fn list_keys_with_prefix(&self, p: &str) -> StorageResult<Vec<String>> {
             Ok(self
-                .0
-                .scan_prefix(prefix.as_bytes())
+                .scan_prefix(p.as_bytes())
                 .await?
                 .into_iter()
                 .map(|(k, _)| String::from_utf8_lossy(&k).into_owned())
                 .collect())
         }
-
         pub(crate) async fn scan_items_with_prefix<T: DeserializeOwned + Send + Sync>(
             &self,
-            prefix: &str,
+            p: &str,
         ) -> StorageResult<Vec<(String, T)>> {
-            Self::decode_rows(self.0.scan_prefix(prefix.as_bytes()).await?)
+            decode_rows(&self.scan_prefix(p.as_bytes()).await?)
         }
-
         pub(crate) async fn scan_items_in_range_paged<T: DeserializeOwned + Send + Sync>(
             &self,
-            start: &str,
-            end: &str,
-            limit: usize,
+            s: &str,
+            e: &str,
+            n: usize,
         ) -> StorageResult<Vec<(String, T)>> {
-            Self::decode_rows(
-                self.0
-                    .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
-                    .await?,
-            )
+            decode_rows(&self.scan_range_paged(s.as_bytes(), e.as_bytes(), n).await?)
         }
     }
 }

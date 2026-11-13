@@ -35,7 +35,7 @@ struct Catalog {
 
 #[derive(Default)]
 pub(crate) struct SidecarPlan {
-    pub(crate) remember: Vec<Remember>,
+    pub(crate) remember: Vec<(String, PathBuf, String, u64)>,
     pub(crate) forget: Vec<String>,
 }
 
@@ -43,13 +43,6 @@ impl SidecarPlan {
     pub(crate) fn is_empty(&self) -> bool {
         self.remember.is_empty() && self.forget.is_empty()
     }
-}
-
-pub(crate) struct Remember {
-    pub(crate) cas_key: String,
-    pub(crate) path: PathBuf,
-    pub(crate) sha256: String,
-    pub(crate) size_bytes: u64,
 }
 
 pub(crate) struct DescribedFile {
@@ -101,22 +94,6 @@ fn load_files(runtime: &PackRuntime) -> StorageResult<BTreeMap<String, Entry>> {
     Ok(load(&node_dir(runtime)?.join(SIDECAR_NAME))?.files)
 }
 
-fn save(path: &Path, catalog: &Catalog) -> StorageResult<()> {
-    if catalog.files.is_empty() {
-        return match fs::remove_file(path) {
-            Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
-            _ => Ok(()),
-        };
-    }
-    let tmp = path.with_extension("json.tmp");
-    let mut file = File::create(&tmp)?;
-    serde_json::to_writer(&mut file, catalog)
-        .map_err(|e| invalid(format!("local file reference catalog write failed: {e}")))?;
-    file.sync_all()?;
-    drop(file);
-    Ok(fs::rename(&tmp, path)?)
-}
-
 fn resolve_regular(
     node: &Path,
     path: &Path,
@@ -131,17 +108,13 @@ fn resolve_regular(
         ));
     }
     let meta = fs::metadata(&canonical)?;
-    if !meta.is_file() {
-        return Err(invalid(format!(
-            "local file {} is not a regular file",
-            canonical.display()
-        )));
-    }
-    if expected_size.is_some_and(|size| meta.len() != size) {
-        return Err(invalid(format!(
-            "local file {} does not match its record marker",
-            canonical.display()
-        )));
+    if !meta.is_file() || expected_size.is_some_and(|size| meta.len() != size) {
+        let why = if meta.is_file() {
+            "does not match its record marker"
+        } else {
+            "is not a regular file"
+        };
+        return Err(invalid(format!("local file {} {why}", canonical.display())));
     }
     Ok((canonical, meta.len()))
 }
@@ -167,13 +140,12 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
             canonical.display()
         )));
     }
-    let file_name = canonical
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .map(str::to_string);
     Ok(DescribedFile {
+        file_name: canonical
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(Into::into),
         path: canonical,
-        file_name,
         size_bytes,
         sha256: hex_lower(hasher.finalize()),
     })
@@ -189,40 +161,46 @@ pub(crate) fn apply(runtime: &PackRuntime, plan: SidecarPlan) -> StorageResult<(
     for key in &plan.forget {
         catalog.files.remove(key);
     }
-    for item in plan.remember {
-        let p = item
-            .path
+    for (cas_key, item_path, sha256, size_bytes) in plan.remember {
+        let p = item_path
             .to_str()
             .ok_or_else(|| invalid("a local file reference path is not valid Unicode"))?;
         catalog.files.insert(
-            item.cas_key,
+            cas_key,
             Entry {
                 path: p.to_string(),
-                sha256: item.sha256,
-                size_bytes: item.size_bytes,
+                sha256,
+                size_bytes,
             },
         );
     }
-    save(&path, &catalog)
+    if catalog.files.is_empty() {
+        return match fs::remove_file(&path) {
+            Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        };
+    }
+    let tmp = path.with_extension("json.tmp");
+    let mut file = File::create(&tmp)?;
+    serde_json::to_writer(&mut file, &catalog)
+        .map_err(|e| invalid(format!("local file reference catalog write failed: {e}")))?;
+    file.sync_all()?;
+    drop(file);
+    Ok(fs::rename(&tmp, &path)?)
 }
 
 pub(crate) fn remember(
-    runtime: &PackRuntime,
-    cas_key: &str,
-    path: &Path,
-    sha256: &str,
-    size_bytes: u64,
+    rt: &PackRuntime,
+    key: &str,
+    p: &Path,
+    sha: &str,
+    size: u64,
 ) -> StorageResult<()> {
-    let item = Remember {
-        cas_key: cas_key.to_string(),
-        path: path.to_path_buf(),
-        sha256: sha256.to_string(),
-        size_bytes,
-    };
+    let remember = vec![(key.into(), p.to_path_buf(), sha.into(), size)];
     apply(
-        runtime,
+        rt,
         SidecarPlan {
-            remember: vec![item],
+            remember,
             forget: Vec::new(),
         },
     )
@@ -253,18 +231,14 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
             detail: "local file reference exceeds the in-memory file cap".into(),
         });
     }
+    let disp = path.display();
     let mismatch = || {
         invalid(format!(
-            "local file {} does not match its record marker",
-            path.display()
+            "local file {disp} does not match its record marker"
         ))
     };
-    let meta = fs::metadata(path).map_err(|e| {
-        invalid(format!(
-            "local file {} is not available: {e}",
-            path.display()
-        ))
-    })?;
+    let meta = fs::metadata(path)
+        .map_err(|e| invalid(format!("local file {disp} is not available: {e}")))?;
     if !meta.is_file() || meta.len() != size_bytes {
         return Err(mismatch());
     }
@@ -275,18 +249,16 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
             detail: "local file reference allocation refused".into(),
         })?;
     File::open(path)?.read_to_end(&mut bytes)?;
-    if bytes.len() as u64 != size_bytes || hex_lower(Sha256::digest(&bytes)) != sha256 {
-        return Err(mismatch());
-    }
-    Ok(bytes)
+    (bytes.len() as u64 == size_bytes && hex_lower(Sha256::digest(&bytes)) == sha256)
+        .then_some(bytes)
+        .ok_or_else(mismatch)
 }
 
 pub(crate) async fn materialize(
     runtime: &Arc<PackRuntime>,
     account_key: &[u8; 32],
 ) -> StorageResult<Vec<Vec<u8>>> {
-    let node = node_dir(runtime)?;
-    let entries = load_files(runtime)?;
+    let (node, entries) = (node_dir(runtime)?, load_files(runtime)?);
     let (mut release_keys, mut put_keys) = (Vec::with_capacity(entries.len()), Vec::new());
     for (cas_key, entry) in entries {
         let key = cas_key.into_bytes();
@@ -297,14 +269,14 @@ pub(crate) async fn materialize(
                 resolve_regular(&n, &path, Some(size), "is not available for backup")
             })
             .await?;
-            if let Some(row) = runtime.cas_get(&key).await? {
-                let marker = FileMarker {
+            if let Some(row) = runtime.open_cas().await?.get(&key).await? {
+                let m = FileMarker {
                     name: None,
                     media_type: None,
                     size_bytes: size,
                     sha256: entry.sha256.clone(),
                 };
-                if require_row(account_key, &marker, &row).is_ok() {
+                if require_row(account_key, &m, &row).is_ok() {
                     return Ok(false);
                 }
             }
@@ -317,7 +289,7 @@ pub(crate) async fn materialize(
                     "sealed local file does not match its record marker",
                 ));
             }
-            runtime.cas_put(&key, row).await?;
+            runtime.cas_kv().put(&key, row).await?;
             Ok(true)
         };
         match step.await {
@@ -333,16 +305,10 @@ pub(crate) async fn materialize(
 }
 
 pub(crate) async fn release(runtime: &Arc<PackRuntime>, keys: &[Vec<u8>]) -> StorageResult<()> {
-    if keys.is_empty() {
-        return Ok(());
-    }
-    runtime.cas_delete(keys.to_vec()).await
+    runtime.cas_delete_many(keys).await
 }
 
 pub(crate) async fn release_catalog(runtime: &Arc<PackRuntime>) -> StorageResult<()> {
-    let keys: Vec<_> = load_files(runtime)?
-        .into_keys()
-        .map(String::into_bytes)
-        .collect();
-    release(runtime, &keys).await
+    let keys: Vec<_> = load_files(runtime)?.into_keys().map(Into::into).collect();
+    runtime.cas_delete_many(&keys).await
 }

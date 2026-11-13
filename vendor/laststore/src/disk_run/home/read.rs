@@ -1,6 +1,6 @@
-//! One read call against one held CURRENT.
+//! One read call against one held CURRENT, including memory-admitted point reads.
 
-use super::manifest::{Manifest, RunFile};
+use super::manifest::Manifest;
 use super::open::{slots, ReadSlot};
 use super::{run_key, RunHome};
 use crate::disk_run::{Found, MetadataMemo, RunReader};
@@ -52,7 +52,7 @@ pub struct RunRead {
     pub(super) bounded_streams: bool,
     pub(super) shared_metadata_bytes: u64,
     pub(super) manifest: Arc<Manifest>,
-    pub(super) runs: Vec<(Arc<RunFile>, Option<RunReader>)>,
+    pub(super) runs: Vec<ReadSlot>,
     pub(super) key: [u8; 32],
     pub(super) budget: ReadBudget,
     pub(super) costs: RunReadCosts,
@@ -68,15 +68,15 @@ impl RunHome {
 
     /// One read call against exactly `root`, even when newer states exist.
     pub fn read_root(&self, root: &RunRoot, budget: ReadBudget) -> RunRead {
-        let manifest = Arc::clone(&root.0);
         RunRead {
             bounded_streams: false,
             shared_metadata_bytes: 0,
-            runs: manifest
+            runs: root
+                .0
                 .newest_first()
                 .map(|r| (Arc::clone(r), None))
                 .collect(),
-            manifest,
+            manifest: Arc::clone(&root.0),
             key: self.key,
             budget,
             costs: RunReadCosts::default(),
@@ -87,67 +87,40 @@ impl RunHome {
 }
 
 impl RunRead {
-    pub(super) fn new_bounded(
+    pub(super) fn bounded_from(
         manifest: Arc<Manifest>,
         key: [u8; 32],
         budget: ReadBudget,
-        maximum: u64,
-        lock: Arc<std::fs::File>,
+        available: u64,
+        shared_base: Option<u64>,
+        _owner_lock: Arc<std::fs::File>,
     ) -> Result<Self> {
-        let available = maximum
-            .checked_sub(manifest.retained_bytes())
-            .ok_or(Error::ReadBudgetExceeded)?;
-        Ok(Self {
-            bounded_streams: true,
-            shared_metadata_bytes: 0,
-            runs: slots(&manifest, available)?,
-            manifest,
-            key,
-            budget,
-            costs: RunReadCosts::default(),
-            metadata: MetadataMemo::new(0),
-            _owner_lock: lock,
-        })
-    }
-
-    pub(super) fn with_retained(
-        manifest: Arc<Manifest>,
-        key: [u8; 32],
-        budget: ReadBudget,
-        retained: u64,
-        lock: Arc<std::fs::File>,
-    ) -> Result<Self> {
-        let available = lastdb_model::storage_policy::BACKUP_RESOURCES
-            .working_memory_bytes
-            .checked_sub(retained)
-            .ok_or(Error::ReadBudgetExceeded)?;
         let runs = slots(&manifest, available)?;
+        let slot_mem = (runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64;
         Ok(Self {
             bounded_streams: true,
-            shared_metadata_bytes: retained
-                + (runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64,
+            shared_metadata_bytes: shared_base.map_or(0, |b| b + slot_mem),
             runs,
             manifest,
             key,
             budget,
             costs: RunReadCosts::default(),
             metadata: MetadataMemo::new(0),
-            _owner_lock: lock,
+            _owner_lock,
         })
     }
 
     /// Bytes retained by this call's manifest, reader slots and opened metadata.
     pub fn retained_bytes(&self) -> u64 {
         self.manifest.retained_bytes()
-            + self.metadata.retained_bytes()
+            + self.metadata.bytes
             + (self.runs.capacity() * std::mem::size_of::<ReadSlot>()) as u64
     }
 
     /// Admit the paired capture metadata shared by subsequent bounded calls.
     pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
-        if bytes < self.retained_bytes()
-            || bytes > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes
-        {
+        let max = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+        if bytes < self.retained_bytes() || bytes > max {
             return Err(Error::ReadBudgetExceeded);
         }
         self.shared_metadata_bytes = bytes;
@@ -188,44 +161,98 @@ impl RunRead {
 
     /// Charge a memory or pending-write result to this call's budget.
     pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+        let add = key_bytes
+            .checked_add(body_bytes)
+            .ok_or(Error::ReadBudgetExceeded)? as u64;
         self.examine(1)?;
-        self.charge(
-            key_bytes
-                .checked_add(body_bytes)
-                .ok_or(Error::ReadBudgetExceeded)? as u64,
-        )
+        self.charge(add)
     }
 
     pub(super) fn examine(&mut self, keys: u64) -> Result<()> {
         let next = self.costs.examined_keys.saturating_add(keys);
-        if next > self.budget.keys {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        self.costs.examined_keys = next;
-        Ok(())
+        (next <= self.budget.keys)
+            .then(|| self.costs.examined_keys = next)
+            .ok_or(Error::ReadBudgetExceeded)
     }
 
     pub(super) fn charge(&mut self, bytes: u64) -> Result<()> {
         let next = self.costs.budget_bytes.saturating_add(bytes);
-        if next > self.budget.bytes {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        self.costs.budget_bytes = next;
-        Ok(())
+        (next <= self.budget.bytes)
+            .then(|| self.costs.budget_bytes = next)
+            .ok_or(Error::ReadBudgetExceeded)
     }
 
-    pub(super) fn reader(&mut self, slot: usize) -> Result<&RunReader> {
+    pub(super) fn reader(&mut self, slot: usize) -> Result<&Arc<RunReader>> {
         if self.runs[slot].1.is_none() {
             let base_from = self.runs.len() - self.manifest.base.len();
             if slot >= base_from {
-                for (_, reader) in &mut self.runs[base_from..] {
-                    *reader = None;
-                }
+                self.runs[base_from..]
+                    .iter_mut()
+                    .for_each(|(_, r)| *r = None);
             }
             let (file, reader) = &mut self.runs[slot];
-            *reader = Some(RunReader::open(&file.path, &self.key)?);
+            *reader = Some(Arc::new(RunReader::open(&file.path, &self.key)?));
         }
         Ok(self.runs[slot].1.as_ref().expect("reader opened"))
+    }
+
+    pub(super) fn admit_stream(&self, extra: u64) -> Result<(u64, u64)> {
+        let res = lastdb_model::storage_policy::BACKUP_RESOURCES;
+        let logical = self
+            .budget
+            .bytes
+            .checked_sub(self.costs.budget_bytes)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let reserved = self
+            .shared_metadata_bytes
+            .max(self.retained_bytes())
+            .checked_add(self.costs.budget_bytes)
+            .and_then(|n| n.checked_add(extra))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let global = res
+            .working_memory_bytes
+            .checked_sub(reserved)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        Ok((logical.min(global).min(res.decoded_values_bytes), reserved))
+    }
+
+    pub(super) fn open_stream(&self, slot: usize, extra: u64) -> Result<(RunReader, u64, u64)> {
+        let (admission, reserved) = self.admit_stream(extra)?;
+        let reader =
+            RunReader::open_bounded(&self.runs[slot].0.path, &self.key, admission, reserved)?;
+        Ok((reader, admission, reserved))
+    }
+
+    pub(super) fn streamed_value(
+        &mut self,
+        collection: &str,
+        key: &str,
+        maximum: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        self.account_memory_record(collection.len(), key.len())?;
+        let buffers = 2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let pre = (collection.len() as u64 + key.len() as u64 + 2)
+            .checked_add(buffers)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        self.admit_stream(pre)?;
+        let wanted = run_key(collection, key.as_bytes())?;
+        let post = (wanted.capacity() as u64)
+            .checked_add(buffers)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        self.admit_stream(post)?;
+        for slot in 0..self.runs.len() {
+            if !self.runs[slot].0.meta.covers(&wanted) {
+                continue;
+            }
+            let (reader, admission, reserved) = self.open_stream(slot, wanted.len() as u64)?;
+            if let Some(hit) = reader.stream_body(&wanted, admission, reserved, maximum)? {
+                if let Some(ref v) = hit {
+                    self.charge(v.len() as u64)?;
+                }
+                return Ok(hit);
+            }
+        }
+        Ok(None)
     }
 
     /// The value of one key; a body over `maximum` fails the call's budget.
@@ -235,9 +262,9 @@ impl RunRead {
         key: &str,
         maximum: u64,
     ) -> Result<Option<Vec<u8>>> {
-        self.get_many_bounded(&[(collection.to_owned(), key.to_owned())], maximum)?
+        self.get_many_bounded(&[(collection.into(), key.into())], maximum)?
             .pop()
-            .expect("one coordinate")
+            .expect("one")
     }
 
     /// Batch read. Results keep the input order.
@@ -260,14 +287,14 @@ impl RunRead {
         if self.bounded_streams {
             return Ok(coordinates
                 .iter()
-                .map(|(collection, key)| self.streamed_value(collection, key, maximum))
+                .map(|(c, k)| self.streamed_value(c, k, maximum))
                 .collect());
         }
         self.examine(coordinates.len() as u64)?;
         let mut wanted = Vec::with_capacity(coordinates.len());
-        for (collection, key) in coordinates {
-            self.charge((collection.len() + key.len()) as u64)?;
-            wanted.push(run_key(collection, key.as_bytes()));
+        for (c, k) in coordinates {
+            self.charge((c.len() + k.len()) as u64)?;
+            wanted.push(run_key(c, k.as_bytes()));
         }
         let mut found: Vec<Option<Found>> = vec![None; coordinates.len()];
         for slot in 0..self.runs.len() {
@@ -282,15 +309,13 @@ impl RunRead {
             }
             let keys: Vec<&[u8]> = open
                 .iter()
-                .map(|&at| wanted[at].as_ref().expect("checked").as_slice())
+                .map(|&at| wanted[at].as_ref().unwrap().as_slice())
                 .collect();
-            self.reader(slot)?;
-            let hits = self.runs[slot]
-                .1
-                .as_ref()
-                .expect("reader opened")
-                .get_many_with(&keys, &mut self.metadata)?;
-            for (at, hit) in open.into_iter().zip(hits) {
+            let reader = Arc::clone(self.reader(slot)?);
+            for (at, hit) in open
+                .into_iter()
+                .zip(reader.get_many_with(&keys, &mut self.metadata)?)
+            {
                 found[at] = hit;
             }
         }
@@ -298,7 +323,7 @@ impl RunRead {
             .into_iter()
             .zip(found)
             .map(|(key, hit)| match (key, hit) {
-                (Err(error), _) => Ok(Err(error)),
+                (Err(err), _) => Ok(Err(err)),
                 (Ok(_), Some(Found::Value(v))) if v.len() as u64 > maximum => {
                     Ok(Err(Error::ReadBudgetExceeded))
                 }

@@ -6,14 +6,11 @@ use thiserror::Error;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeProofStage {
     NativeReader,
-    Admission,
     Validation,
     Restore,
     Profile,
     PhysicalRoot,
     Account,
-    Schemas,
-    Records,
     FinalBinding,
 }
 
@@ -21,14 +18,11 @@ impl fmt::Display for NativeProofStage {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         out.write_str(match self {
             Self::NativeReader => "native_reader",
-            Self::Admission => "admission",
             Self::Validation => "validation",
             Self::Restore => "restore",
             Self::Profile => "profile",
             Self::PhysicalRoot => "physical_root",
             Self::Account => "account",
-            Self::Schemas => "schemas",
-            Self::Records => "records",
             Self::FinalBinding => "final_binding",
         })
     }
@@ -56,8 +50,8 @@ pub enum NativeProofCause {
 impl fmt::Display for NativeProofCause {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Static(code) => out.write_str(code),
             Self::Io { kind, os_code } => write!(out, "io kind={kind:?} os_code={os_code:?}"),
+            Self::Static(code) => out.write_str(code),
             Self::ReadResource => out.write_str("read_resource_limit"),
             Self::WriteResource => out.write_str("write_resource_limit"),
             Self::StorageFull => out.write_str("storage_full"),
@@ -101,14 +95,8 @@ pub enum StorageError {
     PublicationFile,
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    #[error(
-        "no space left on device — the filesystem holding the database is \
-         full, so the write did not land. Free disk space and retry; nothing \
-         already stored was lost. Underlying error: {detail}"
-    )]
+    #[error("no space left on device — the filesystem holding the database is full, so the write did not land. Free disk space and retry; nothing already stored was lost. Underlying error: {detail}")]
     StorageFull { detail: String },
-    #[error("Configuration error: {0}")]
-    ConfigurationError(String),
     #[error("Encryption error: {0}")]
     EncryptionError(String),
     #[error("retired format: {0}")]
@@ -125,35 +113,26 @@ impl StorageError {
         &self,
         stage: NativeProofStage,
     ) -> (NativeProofStage, NativeProofCause) {
+        if let Self::NativeProof { stage: p, cause } = self {
+            let keep = !matches!(
+                p,
+                NativeProofStage::Validation | NativeProofStage::NativeReader
+            );
+            return (if keep { *p } else { stage }, *cause);
+        }
+        use NativeProofCause as C;
         let cause = match self {
-            Self::NativeProof {
-                stage: prior,
-                cause,
-            } => {
-                use NativeProofStage::{NativeReader, Validation};
-                return (
-                    if matches!(prior, Validation | NativeReader) {
-                        stage
-                    } else {
-                        *prior
-                    },
-                    *cause,
-                );
-            }
-            Self::IoError(io) => NativeProofCause::Io {
+            Self::IoError(io) => C::Io {
                 kind: io.kind(),
                 os_code: io.raw_os_error(),
             },
-            Self::ReadResourceLimit { .. } => NativeProofCause::ReadResource,
-            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => {
-                NativeProofCause::WriteResource
-            }
-            Self::StorageFull { .. } => NativeProofCause::StorageFull,
-            Self::BackendError(_) => NativeProofCause::Backend,
-            Self::ConfigurationError(_) => NativeProofCause::Configuration,
-            Self::InvalidOperation(_) => NativeProofCause::InvalidOperation,
-            Self::EncryptionError(_) => NativeProofCause::Encryption,
-            _ => NativeProofCause::Other,
+            Self::ReadResourceLimit { .. } => C::ReadResource,
+            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => C::WriteResource,
+            Self::StorageFull { .. } => C::StorageFull,
+            Self::BackendError(_) => C::Backend,
+            Self::InvalidOperation(_) => C::InvalidOperation,
+            Self::EncryptionError(_) => C::Encryption,
+            _ => C::Other,
         };
         (stage, cause)
     }
