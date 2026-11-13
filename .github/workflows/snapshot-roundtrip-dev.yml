@@ -7,7 +7,6 @@ name: Snapshot round trip
 #
 # exemem-infra deploy.yml can start it with no inputs:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
-# Optional input `database` is the owned database name. Omit it to use `gate`.
 
 on:
   push:
@@ -15,12 +14,6 @@ on:
   schedule:
     - cron: '41 11 * * *'
   workflow_dispatch:
-    inputs:
-      database:
-        description: "Owned database name. Omit to use gate."
-        required: false
-        type: string
-        default: gate
   pull_request:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
@@ -97,7 +90,6 @@ jobs:
       - name: Seed, snapshot, and restore the gate database
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          SNAPSHOT_GATE_DATABASE: ${{ inputs.database || 'gate' }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
         run: |

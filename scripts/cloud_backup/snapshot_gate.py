@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline_data
 from node import OwnedNode
 from programs import Programs, execute
-from support import OperationError, dev_endpoint, failure, require, write_private
+from support import OperationError, child_environment, dev_endpoint, failure, require, write_private
 
 
 RECORDS = 300_000
@@ -35,7 +35,6 @@ BUDGET_SECONDS = 60
 SETTLE_FILES = 48
 SCHEMA = "SnapshotGate"
 LABEL = b"snapshot-gate-v1"
-NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
 LOAD_PREFIX = "c1da11d0-0000-4000-8000-"
 
 
@@ -67,33 +66,20 @@ def note(numbers, key, value):
     summary(f"{key}={value}")
 
 
-def database_name():
-    name = os.environ.get("SNAPSHOT_GATE_DATABASE", "gate")
-    require(isinstance(name, str) and NAME.fullmatch(name) and name != "personal", "database_name")
-    return name
-
-
-def approved_id(digest, start):
-    """An id in the DEV load prefix the cleanup role is allowed to delete."""
-    text = LOAD_PREFIX + digest[start:start + 12]
-    require(len(text) == 36, "database_id")
-    return text
-
-
-def gate_ids():
+def gate_id():
+    """Use a run-owned ID in the DEV prefix the cleanup role can delete."""
     material = os.environ["GITHUB_RUN_ID"] + ":" + os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     require(re.fullmatch(r"[1-9][0-9]{0,18}:[1-9][0-9]{0,4}", material), "run_id")
-    digest = hashlib.sha256(material.encode("ascii")).hexdigest()
-    return approved_id(digest, 0), approved_id(digest, 12)
+    return LOAD_PREFIX + hashlib.sha256(material.encode("ascii")).hexdigest()[:12]
 
 
-def install_registry(home, gate_id, owner_id, name):
+def install_registry(home, database_id):
     folder = home / "databases"
     folder.mkdir(mode=0o700)
     write_private(folder / "registry.json", json.dumps({
         "format": 1,
-        "owner": {"id": owner_id, "name": "personal", "kind": "personal", "spec": None},
-        "owned": [{"id": gate_id, "name": name, "kind": "personal", "spec": None}],
+        "owner": {"id": database_id, "name": "personal", "kind": "personal", "spec": None},
+        "owned": [],
     }).encode("ascii"))
 
 
@@ -133,8 +119,8 @@ def write_records(node, database_id):
     return written.hexdigest()
 
 
-def run_file_count(home, database_id):
-    base = home / "databases" / database_id / "data"
+def run_file_count(home):
+    base = home / "data"
     if not (base / "disk-run" / "runs").is_dir():
         return None
     count = 0
@@ -145,11 +131,11 @@ def run_file_count(home, database_id):
     return count
 
 
-def wait_until_settled(home, database_id):
+def wait_until_settled(home):
     previous = None
     deadline = time.monotonic() + 40 * 60
     while time.monotonic() < deadline:
-        count = run_file_count(home, database_id)
+        count = run_file_count(home)
         if count is not None and count <= SETTLE_FILES and count == previous:
             return count
         previous = count
@@ -239,36 +225,28 @@ def live_write(node, database_id):
     require(found.get("live") == "live", "live_read")
 
 
-def seed(programs, node, api_key, name, numbers):
+def seed(programs, node, database_id, numbers):
     started = time.monotonic()
-    connected = programs.command(node.home, [
-        "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-        "--expected-user-hash", baseline_data.ACCOUNT, "--json",
-    ], input_bytes=api_key, timeout=60)
-    require(connected.get("ok") is True and connected.get("credentials_saved") is True
-            and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
     listed = programs.command(node.home, ["db", "list", "--json"], timeout=30)
     rows = listed.get("databases") if isinstance(listed, dict) else None
     require(isinstance(rows, list), "database_list")
-    matched = [row for row in rows if row.get("name") == name and row.get("id") == numbers["database_id"]]
+    matched = [row for row in rows if row.get("name") == "personal" and row.get("id") == database_id]
     require(len(matched) == 1 and matched[0].get("kind") == "personal", "database_registered")
-    database_id = numbers["database_id"]
     install_schema(node, database_id)
     digest = write_records(node, database_id)
     require(digest == content_digest(RECORDS), "seed_digest")
-    files = wait_until_settled(node.home, database_id)
-    note(numbers, "database_id", database_id)
+    files = wait_until_settled(node.home)
     note(numbers, "records", RECORDS)
     note(numbers, "digest", digest)
     note(numbers, "run_files", files)
     note(numbers, "seed_seconds", round(time.monotonic() - started, 3))
-    return database_id, digest
+    return digest
 
 
-def upload(programs, node, name, numbers):
+def upload(programs, node, database_id, numbers):
     try:
         elapsed, output = cli(programs, node.home, [
-            "backup", "snapshot", "--database", name, "--wait",
+            "backup", "snapshot", "--database", database_id, "--wait",
         ], BUDGET_SECONDS)
     except OperationError as error:
         if str(error) == "cli_deadline":
@@ -300,37 +278,43 @@ def restore(programs, source, destination, database_id, phrase, numbers):
 
 def check_restored(programs, destination, database_id, digest, numbers):
     started = time.monotonic()
-    restored = OwnedNode(destination, programs)
-    restored.start(sign_in=False)
+    restored = OwnedNode(destination, programs, account=baseline_data.ACCOUNT)
     try:
+        restored.start(sign_in=False)
         count = verify_records(restored, database_id, digest)
         live_write(restored, database_id)
-    finally:
+        elapsed = time.monotonic() - started
         restored.stop()
+    finally:
         restored.cleanup_stop()
     note(numbers, "verified_records", count)
-    note(numbers, "verify_seconds", round(time.monotonic() - started, 3))
+    note(numbers, "verify_seconds", round(elapsed, 3))
     note(numbers, "live_write", "ok")
 
 
 def run_gate(programs, root, phrase, api_key):
-    name = database_name()
     numbers = {}
-    gate_id, owner_id = gate_ids()
-    require(gate_id != owner_id, "database_id")
-    note(numbers, "database_id", gate_id)
-    note(numbers, "owner_id", owner_id)
+    database_id = gate_id()
+    note(numbers, "database_id", database_id)
     home = root / "source"
     home.mkdir(mode=0o700)
-    node = OwnedNode(home, programs, keep_saved_credentials=True)
+    node = OwnedNode(home, programs, account=baseline_data.ACCOUNT, isolated_copy=True,
+                     keep_saved_credentials=True)
     write_private(home / "identity.key", baseline_data.seed(phrase))
-    install_registry(home, gate_id, owner_id, name)
-    opt_into_first_snapshot(home, gate_id)
-    node.start(sign_in=False)
+    install_registry(home, database_id)
+    opt_into_first_snapshot(home, database_id)
+    # The personal store turns on local write capture when it boots with saved credentials.
+    connected = programs.command(home, [
+        "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
+        "--expected-user-hash", baseline_data.ACCOUNT, "--json",
+    ], input_bytes=api_key, timeout=60)
+    require(connected.get("ok") is True and connected.get("credentials_saved") is True
+            and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
     destination = root / "restored"
     try:
-        database_id, digest = seed(programs, node, api_key, name, numbers)
-        upload(programs, node, name, numbers)
+        node.start(sign_in=False)
+        digest = seed(programs, node, database_id, numbers)
+        upload(programs, node, database_id, numbers)
         node.stop()
         restore(programs, home, destination, database_id, phrase, numbers)
         check_restored(programs, destination, database_id, digest, numbers)
@@ -390,10 +374,8 @@ def cleanup():
     described = aws(guard, "describe-table", {"TableName": guard.DEV_TABLE})
     guard.allow_table_arn(described.get("Table", {}).get("TableArn", ""), guard.DEV_TABLE)
     deleted = 0
-    for database_id in gate_ids():
-        guard.allow_stream(database_id)
-        for partition in guard.load_partitions(database_id):
-            deleted += purge_partition(guard, partition)
+    for partition in guard.load_partitions(gate_id()):
+        deleted += purge_partition(guard, partition)
     summary(f"cleanup_rows={deleted}")
     # snapshot/bytes accepts read, prepare, download, and publish. It has no
     # owner delete, and the DEV load role cannot reach the R2 or B2 objects.
@@ -425,14 +407,16 @@ def main():
     parser_args = sys.argv[2:]
     require(len(parser_args) == 4 and parser_args[0] == "--bin-dir"
             and parser_args[2] == "--version", "arguments")
-    programs = Programs(Path(parser_args[1]).resolve(strict=True), parser_args[3], dict(os.environ))
     with tempfile.TemporaryDirectory(prefix="ldb-snapshot-", dir="/tmp") as temporary:
+        root = Path(temporary)
+        for name in ("os-home", "tmp"):
+            (root / name).mkdir(mode=0o700)
+        programs = Programs(Path(parser_args[1]).resolve(strict=True), parser_args[3],
+                            child_environment(root))
         try:
-            run_gate(programs, Path(temporary), phrase, api_key)
+            run_gate(programs, root, phrase, api_key)
         except OperationError as error:
-            summary("snapshot gate failed: " + str(failure(error)["failure"]))
-            if error.cli_refusal:
-                summary("cli=" + str(error.cli_refusal.get("reason")))
+            summary("snapshot gate failed: " + json.dumps(failure(error), sort_keys=True))
             raise
         finally:
             del phrase
