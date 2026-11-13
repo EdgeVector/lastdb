@@ -233,11 +233,15 @@ impl Inner {
             return Ok(());
         }
         let mut state = self.state.clone().ok_or(Error::Gap)?;
+        let released = recover::retained_bytes(root, view.acked, through)?;
+        state.retained_bytes = state
+            .retained_bytes
+            .checked_sub(released)
+            .ok_or(Error::Gap)?;
         state.acked = through;
-        state.retained_bytes = recover::unacked_bytes(root, through, state.head)?;
         io::write_json(&root.join("state.json"), &state)?;
         self.state = Some(state);
-        let _ = recover::release_acked(root, through);
+        recover::release_acked(root, view.acked, through);
         Ok(())
     }
 
