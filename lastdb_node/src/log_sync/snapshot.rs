@@ -41,7 +41,7 @@ async fn publish(
         (Resolved::Owned, Some(store)) => store,
         _ => return Err("snapshot database is unavailable locally".into()),
     };
-    let runtime = Arc::clone(store.db_ops().native_runtime());
+    let runtime = store.db_ops().native_runtime();
     let status = runtime.accepted_status();
     if !runtime.captures_accepted() || status.gap {
         return Err("snapshot needs intact local write capture".into());
