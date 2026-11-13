@@ -1,7 +1,21 @@
+//! Storage error types, native proof stages, and database path configuration.
+
 use crate::schema::types::SchemaError;
 use std::fmt;
 use std::io::ErrorKind;
 use thiserror::Error;
+
+pub mod config {
+    #[derive(Clone, Debug)]
+    pub struct DatabaseConfig {
+        pub path: std::path::PathBuf,
+    }
+    impl DatabaseConfig {
+        pub fn local(path: std::path::PathBuf) -> Self {
+            Self { path }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeProofStage {
@@ -95,50 +109,47 @@ impl StorageError {
     pub(in crate::storage) fn mutation_limit(d: impl Into<String>) -> Self {
         Self::MutationLimit { detail: d.into() }
     }
-    pub(in crate::storage) fn backend(detail: impl Into<String>) -> Self {
-        Self::BackendError(detail.into())
+    pub(in crate::storage) fn backend(d: impl Into<String>) -> Self {
+        Self::BackendError(d.into())
     }
-    pub(in crate::storage) fn invalid(detail: impl Into<String>) -> Self {
-        Self::InvalidOperation(detail.into())
+    pub(in crate::storage) fn invalid(d: impl Into<String>) -> Self {
+        Self::InvalidOperation(d.into())
     }
-
-    #[must_use]
-    pub fn is_storage_full_io(error: &std::io::Error) -> bool {
-        error.kind() == ErrorKind::StorageFull || error.raw_os_error() == Some(28)
+    pub(in crate::storage) fn is_storage_full_io(e: &std::io::Error) -> bool {
+        e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28)
     }
-
     pub fn native_proof_context(
         &self,
         stage: NativeProofStage,
     ) -> (NativeProofStage, NativeProofCause) {
         use NativeProofCause::{Io, Static};
         use NativeProofStage::{NativeReader, Validation};
-        if let Self::NativeProof { stage: p, cause } = self {
-            let s = if matches!(p, Validation | NativeReader) {
-                stage
-            } else {
-                *p
-            };
-            return (s, *cause);
+        use StorageError::*;
+        if let NativeProof { stage: p, cause } = self {
+            return (
+                if matches!(p, Validation | NativeReader) {
+                    stage
+                } else {
+                    *p
+                },
+                *cause,
+            );
         }
         let cause = match self {
-            Self::IoError(io) => Io {
+            IoError(io) => Io {
                 kind: io.kind(),
                 os_code: io.raw_os_error(),
             },
-            Self::ReadResourceLimit { .. } => Static("read_resource_limit"),
-            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => {
-                Static("write_resource_limit")
-            }
-            Self::StorageFull { .. } => Static("storage_full"),
-            Self::BackendError(_) => Static("backend"),
-            Self::InvalidOperation(_) => Static("invalid_operation"),
-            Self::EncryptionError(_) => Static("encryption"),
+            ReadResourceLimit { .. } => Static("read_resource_limit"),
+            WriteResourceLimit { .. } | MutationLimit { .. } => Static("write_resource_limit"),
+            StorageFull { .. } => Static("storage_full"),
+            BackendError(_) => Static("backend"),
+            InvalidOperation(_) => Static("invalid_operation"),
+            EncryptionError(_) => Static("encryption"),
             _ => Static("other"),
         };
         (stage, cause)
     }
-
     pub fn at_native_proof(self, stage: NativeProofStage) -> Self {
         let (stage, cause) = self.native_proof_context(stage);
         Self::NativeProof { stage, cause }
@@ -150,7 +161,6 @@ impl From<tokio::task::JoinError> for StorageError {
         Self::backend(e.to_string())
     }
 }
-
 impl<T> From<std::sync::PoisonError<T>> for StorageError {
     fn from(e: std::sync::PoisonError<T>) -> Self {
         Self::backend(format!("Lock poisoned: {e}"))
@@ -161,17 +171,17 @@ pub type StorageResult<T> = Result<T, StorageError>;
 
 impl From<StorageError> for SchemaError {
     fn from(error: StorageError) -> Self {
+        use StorageError::*;
         match error {
-            StorageError::RecordTooLarge { size, limit } => Self::RecordTooLarge { size, limit },
-            StorageError::ReadResourceLimit { detail } => Self::ReadResourceLimit { detail },
-            StorageError::WriteResourceLimit { detail }
-            | StorageError::MutationLimit { detail } => Self::WriteResourceLimit { detail },
-            StorageError::StorageFull { detail } => Self::StorageFull { detail },
-            StorageError::IoError(io) if StorageError::is_storage_full_io(&io) => {
-                Self::StorageFull {
-                    detail: io.to_string(),
-                }
+            RecordTooLarge { size, limit } => Self::RecordTooLarge { size, limit },
+            ReadResourceLimit { detail } => Self::ReadResourceLimit { detail },
+            WriteResourceLimit { detail } | MutationLimit { detail } => {
+                Self::WriteResourceLimit { detail }
             }
+            StorageFull { detail } => Self::StorageFull { detail },
+            IoError(io) if StorageError::is_storage_full_io(&io) => Self::StorageFull {
+                detail: io.to_string(),
+            },
             other => Self::InvalidData(other.to_string()),
         }
     }
