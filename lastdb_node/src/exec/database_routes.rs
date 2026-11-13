@@ -1,6 +1,5 @@
 //! Database selection at the owner socket. An explicit target never falls back.
 use super::*;
-use super::{database_owned, database_session};
 use crate::host::owned::{self, Resolved};
 use crate::lastdb_uds::database_path::{self, DATABASES_PATH};
 use crate::lastdb_uds::uds_router::{self, ControlRoute};
@@ -30,8 +29,8 @@ pub async fn execute_database_request(
     if !ctx.is_owner {
         return content_free(404, "Not Found");
     }
-    if database_session::is_issue(req) {
-        return database_session::issue(req, ctx, host);
+    if super::database_session::is_issue(req) {
+        return super::database_session::issue(req, ctx, host);
     }
     match (req.method.as_str(), req.target.as_str()) {
         ("GET", DATABASES_PATH) => return list(ctx, host),
