@@ -83,9 +83,9 @@ def install_registry(home, database_id):
     }).encode("ascii"))
 
 
-def mutation(index):
+def mutation(index, body):
     return {
-        "type": "mutation", "schema": SCHEMA, "record": {"body": record_body(index)},
+        "type": "mutation", "schema": SCHEMA, "record": {"body": body},
         "key_value": {"hash": f"{index:06d}", "range": None}, "alternates": {},
         "mutation_type": "create", "source_file_name": None, "metadata": None, "file": None,
         "expected": {"type": "absent"}, "durability": "durable", "convergence": "sync",
@@ -108,18 +108,25 @@ def install_schema(node, database_id):
 
 def write_records(node, database_id):
     route = f"/api/databases/{database_id}/mutations/batch"
+    started = time.monotonic()
+    request_seconds = 0.0
     written = hashlib.sha256()
     for start in range(0, RECORDS, BATCH):
         indexes = range(start, min(start + BATCH, RECORDS))
-        bodies = [record_body(index).encode("ascii") for index in indexes]
+        bodies = [record_body(index) for index in indexes]
         for body in bodies:
-            written.update(body)
-        reply = node.call(route, {"mutations": [mutation(index) for index in indexes]})
-        require(isinstance(reply, dict) and reply.get("count") == len(bodies), "record_write")
+            written.update(body.encode("ascii"))
+        mutations = [mutation(index, body) for index, body in zip(indexes, bodies, strict=True)]
+        request_start = time.monotonic()
+        reply = node.call(route, {"mutations": mutations})
+        request_seconds += time.monotonic() - request_start
+        require(isinstance(reply, dict) and reply.get("count") == len(bodies)
+                and reply.get("durability") == "durable", "record_write")
         written_count = start + len(bodies)
         if written_count % 50_000 == 0:
-            print(f"seeded_records={written_count}", flush=True)
-    return written.hexdigest()
+            print(f"seeded_records={written_count} elapsed_seconds={time.monotonic() - started:.3f} "
+                  f"write_request_seconds={request_seconds:.3f}", flush=True)
+    return written.hexdigest(), time.monotonic() - started, request_seconds
 
 
 def run_file_count(home):
@@ -135,12 +142,17 @@ def run_file_count(home):
 
 
 def wait_until_settled(home):
+    started = time.monotonic()
     previous = None
-    deadline = time.monotonic() + 40 * 60
-    while time.monotonic() < deadline:
+    next_report = started
+    deadline = started + 40 * 60
+    while (now := time.monotonic()) < deadline:
         count = run_file_count(home)
         if count is not None and count <= SETTLE_FILES and count == previous:
             return count
+        if now >= next_report:
+            print(f"settle_elapsed_seconds={now - started:.3f} run_files={count}", flush=True)
+            next_report = now + 30
         previous = count
         time.sleep(3)
     raise OperationError("snapshot_files_not_settled")
@@ -236,9 +248,16 @@ def seed(programs, node, database_id, numbers):
     matched = [row for row in rows if row.get("name") == "personal" and row.get("id") == database_id]
     require(len(matched) == 1 and matched[0].get("kind") == "personal", "database_registered")
     install_schema(node, database_id)
-    digest = write_records(node, database_id)
+    digest, write_seconds, request_seconds = write_records(node, database_id)
+    note(numbers, "seed_write_seconds", round(write_seconds, 3))
+    note(numbers, "seed_write_request_seconds", round(request_seconds, 3))
+    note(numbers, "seed_records_per_second", round(RECORDS / write_seconds, 1))
     require(digest == content_digest(RECORDS), "seed_digest")
-    files = wait_until_settled(node.home)
+    settle_started = time.monotonic()
+    try:
+        files = wait_until_settled(node.home)
+    finally:
+        note(numbers, "file_settle_seconds", round(time.monotonic() - settle_started, 3))
     note(numbers, "records", RECORDS)
     note(numbers, "digest", digest)
     note(numbers, "run_files", files)
