@@ -184,28 +184,29 @@ fn read_reference(dir: &Path) -> Result<Option<String>, Error> {
     }
 }
 
-pub(super) fn unacked_bytes(root: &Path, through: u64, head: u64) -> Result<u64, Error> {
+pub(super) fn retained_bytes(root: &Path, after: u64, through: u64) -> Result<u64, Error> {
+    let entries = root.join("entries");
     let mut retained = 0u64;
-    for sequence in (through + 1)..=head {
-        let meta = files::read_meta(&root.join("entries").join(files::seq_name(sequence)))?;
+    for sequence in (after + 1)..=through {
+        let meta = files::read_meta(&entries.join(files::seq_name(sequence)))?;
+        if meta.sequence != sequence {
+            return Err(Error::Gap);
+        }
         retained = retained
-            .saturating_add(meta.envelope_bytes)
-            .saturating_add(meta.file_bytes);
+            .checked_add(meta.envelope_bytes)
+            .and_then(|total| total.checked_add(meta.file_bytes))
+            .ok_or(Error::Gap)?;
     }
     Ok(retained)
 }
 
-pub(super) fn release_acked(root: &Path, through: u64) -> Result<(), Error> {
+pub(super) fn release_acked(root: &Path, after: u64, through: u64) {
     let entries = root.join("entries");
-    if !entries.exists() {
-        return Ok(());
+    // A crash or transient removal failure is recovered from the persisted
+    // acknowledgement when reopening the log.
+    for sequence in (after + 1)..=through {
+        let _ = io::remove_dir(&entries.join(files::seq_name(sequence)));
     }
-    for sequence in files::list_sequences(&entries)? {
-        if sequence <= through {
-            io::remove_dir(&entries.join(files::seq_name(sequence)))?;
-        }
-    }
-    Ok(())
 }
 
 pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<PendingNote>, Error> {
