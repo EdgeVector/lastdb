@@ -261,7 +261,7 @@ fn commit_split(
         .into_iter()
         .partition(|op| op.collection == CAS_COLLECTION);
     let mut last: BTreeMap<_, _> = cas.into_iter().map(|op| (op.key.clone(), op)).collect();
-    blob_backup::queue_new_uploads(&mut last);
+    physical::queue_new_uploads(&mut last);
     let (puts, deletes): (Vec<_>, _) = last.into_values().partition(|op| op.body.is_some());
     cas_delete::save(v2, !puts.is_empty(), !main.is_empty(), &deletes)?;
     if !puts.is_empty() {
@@ -272,7 +272,7 @@ fn commit_split(
     }
     if !deletes.is_empty() {
         v2.cas
-            .commit(blob_backup::with_releases(deletes))
+            .commit(physical::with_releases(deletes))
             .map_err(map)?;
         v2.home
             .clear_checkpoint(CheckpointKind::CasDelete)

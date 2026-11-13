@@ -95,7 +95,24 @@ pub(crate) mod current_keys {
             record: &str,
             version: &Position,
         ) -> super::StorageResult<BlobPath> {
-            super::super::disk_pack::blob_path_of_key(database, &record_file_path(record, version)?)
+            let key = record_file_path(record, version)?;
+            let err =
+                || super::StorageError::InvalidOperation("record file key has no blob path".into());
+            let [space, record, write_id]: [&str; 3] = key
+                .strip_prefix(RECORD_FILE_PREFIX)
+                .ok_or_else(err)?
+                .splitn(3, ':')
+                .collect::<Vec<_>>()
+                .try_into()
+                .map_err(|_| err())?;
+            let path = BlobPath {
+                database: database.clone(),
+                space: space.to_owned().try_into().map_err(|_| err())?,
+                record: record.to_owned().try_into().map_err(|_| err())?,
+                write_id: write_id.to_owned().try_into().map_err(|_| err())?,
+            };
+            path.validate().map_err(|_| err())?;
+            Ok(path)
         }
 
         pub(crate) fn record_file_uploaded_path(file_path: &[u8]) -> super::StorageResult<Vec<u8>> {

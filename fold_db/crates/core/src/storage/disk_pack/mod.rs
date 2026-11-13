@@ -12,8 +12,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
-mod blob_backup;
-pub use blob_backup::{blob_path_of_key, BlobRow};
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
 mod kv;
 pub(in crate::storage) use kv::native_routing;
@@ -41,8 +39,7 @@ pub use run_node::{CAS_DIR, RUN_DIR};
 pub use view::{NativeDiskStatus, NativeMemoryPurgeReport, NativeStorageDiagnostics};
 
 pub(in crate::storage) mod cas_delete {
-    use super::blob_backup::with_releases;
-    use super::physical::{V2Home, CAS_COLLECTION};
+    use super::physical::{with_releases, V2Home, CAS_COLLECTION};
     use super::{map, HomeMutation, StorageError, StorageResult};
     use laststore::disk_run::home::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
     use serde::{Deserialize, Serialize};

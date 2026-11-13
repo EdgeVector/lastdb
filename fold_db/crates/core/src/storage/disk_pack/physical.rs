@@ -1,8 +1,13 @@
 //! The physical home under one node store: the disk format v2 run homes and raw reads.
 
 use super::*;
+use crate::storage::format::metadata::FILE_REFERENCE_PREFIX;
+use crate::storage::format::{
+    METADATA_NAMESPACE, PENDING_UPLOAD_PREFIX, RECORD_FILE_PREFIX, RECORD_FILE_UPLOADED_PREFIX,
+    RELEASED_FILE_PREFIX,
+};
 use laststore::disk_run::home::{RunHome, RunRead, RunReadCosts, RunRoot};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::PoisonError;
 
 pub use crate::storage::format::CAS_COLLECTION;
@@ -291,6 +296,74 @@ impl PackRuntime {
             Ok((out, resume))
         })
     }
+
+    pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
+        let meta = PackKvStore {
+            runtime: Arc::clone(self),
+            namespace: METADATA_NAMESPACE.into(),
+        };
+        let cas = self.cas_kv();
+        for (store, p) in [
+            (&meta, FILE_REFERENCE_PREFIX),
+            (&cas, PENDING_UPLOAD_PREFIX),
+            (&cas, RECORD_FILE_UPLOADED_PREFIX),
+            (&cas, RELEASED_FILE_PREFIX),
+            (&cas, RECORD_FILE_PREFIX),
+        ] {
+            if !store.prefix_rows(p.as_bytes(), 1, false).await?.is_empty() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn raw_suffix(op: &HomeMutation) -> Option<String> {
+    let decoded = String::from_utf8(native_routing::decode(&op.key).ok()?).ok()?;
+    decoded.strip_prefix(RECORD_FILE_PREFIX).map(str::to_owned)
+}
+
+fn blob_marker(prefix: &str, suffix: &str, put: bool) -> HomeMutation {
+    HomeMutation {
+        collection: CAS_COLLECTION.into(),
+        key: native_routing::encode(format!("{prefix}{suffix}").as_bytes()),
+        body: put.then(|| b"1".to_vec()),
+    }
+}
+
+pub(in crate::storage::disk_pack) fn queue_new_uploads(cas: &mut BTreeMap<String, HomeMutation>) {
+    let queued: Vec<_> = cas
+        .values()
+        .filter(|op| op.body.is_some())
+        .filter_map(raw_suffix)
+        .filter(|s| {
+            let up = blob_marker(RECORD_FILE_UPLOADED_PREFIX, s, true);
+            cas.get(&up.key).is_none_or(|op| op.body.is_none())
+        })
+        .map(|s| blob_marker(PENDING_UPLOAD_PREFIX, &s, true))
+        .collect();
+    for op in queued {
+        cas.entry(op.key.clone()).or_insert(op);
+    }
+}
+
+pub(in crate::storage::disk_pack) fn with_releases(
+    deletes: Vec<HomeMutation>,
+) -> Vec<HomeMutation> {
+    let mut out = BTreeMap::new();
+    for op in deletes {
+        if let Some(s) = raw_suffix(&op) {
+            for d in [
+                blob_marker(RECORD_FILE_UPLOADED_PREFIX, &s, false),
+                blob_marker(PENDING_UPLOAD_PREFIX, &s, false),
+                blob_marker(RELEASED_FILE_PREFIX, &s, true),
+            ] {
+                out.entry(d.key.clone()).or_insert(d);
+            }
+        }
+        out.insert(op.key.clone(), op);
+    }
+    out.into_values().collect()
 }
 
 pub(super) fn call_error(error: laststore::Error, call: &V2Read) -> StorageError {
