@@ -28,18 +28,6 @@ pub const BACKUP_RESOURCES: BackupResources = BackupResources {
     durable_spool_bytes: 1024 * 1024 * 1024,
 };
 
-/// Opaque cloud object planning, separate from native physical format identity.
-pub mod backup_transport {
-    /// Maximum bytes in one opaque cloud object chunk.
-    pub const OBJECT_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
-    /// Maximum bytes in one metadata pack.
-    pub const METADATA_PACK_BYTES: u64 = 8 * 1024 * 1024;
-    /// Byte size used to classify a native file as small for transport planning.
-    pub const SMALL_NATIVE_FILE_BYTES: u64 = 64 * 1024;
-    /// Maximum members in one metadata pack.
-    pub const MAX_PACK_MEMBERS: usize = 512;
-}
-
 /// Native read resources.
 pub mod native_read {
     /// Eager work allowance across stored frames, decoded blocks, and returned records.

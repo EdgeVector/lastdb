@@ -322,7 +322,7 @@ fn replace_record(
     }
     let mut fields = BTreeMap::new();
     for (field, value) in &mutation.record_fields {
-        if !schema.has_field(field) {
+        if !schema.fields.iter().flatten().any(|f| f == field) {
             return Err(SchemaError::InvalidData(format!(
                 "field '{field}' is not declared in schema '{}'",
                 schema.name

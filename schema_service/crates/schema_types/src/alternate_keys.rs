@@ -1,12 +1,11 @@
 //! Record key addresses, named alternate keys, and key-field validation.
 
-use crate::declarative_schemas::DeclarativeSchemaDefinition;
 use crate::field_range_profile::FieldRangeProfile;
-use crate::{DeclarativeSchemaType, FieldValueType};
+use crate::{DeclarativeSchemaDefinition, DeclarativeSchemaType, FieldValueType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const MAX_ALTERNATE_KEYS: usize = 16;
+const MAX_ALTERNATE_KEYS: usize = 16;
 
 pub(crate) fn is_false(value: &bool) -> bool {
     !*value
@@ -57,10 +56,12 @@ pub mod record_keys {
             if hash.is_none_or(str::is_empty) {
                 return Err("a record address requires a nonempty hash".into());
             }
-            match (self.kind, range) {
-                (RecordKeyKind::Hash, None) => (),
-                (RecordKeyKind::HashRange, Some(v)) if !v.is_empty() => (),
-                _ => return Err("record address differs from the declared key shape".into()),
+            if !matches!(
+                (self.kind, range),
+                (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_))
+            ) || range.is_some_and(str::is_empty)
+            {
+                return Err("record address differs from the declared key shape".into());
             }
             self.range_profile()?
                 .encode_value(range.unwrap_or_default())?;
@@ -144,7 +145,7 @@ pub enum MissingAlternateKey {
 }
 
 impl AlternateKey {
-    pub fn fields(&self) -> impl Iterator<Item = &str> {
+    fn fields(&self) -> impl Iterator<Item = &str> {
         (!self.hash_field.is_empty())
             .then_some(self.hash_field.as_str())
             .into_iter()
@@ -213,7 +214,10 @@ impl DeclarativeSchemaDefinition {
                 record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
             };
             if self.schema_type != kind || self.key.is_some() || !self.alternate_keys.is_empty() {
-                return Err("record_keys require one owned Hash/HashRange layout without field-derived keys".into());
+                return Err(
+                    "record_keys require one owned Hash/HashRange layout without field-derived keys"
+                        .into(),
+                );
             }
             return Ok(());
         }
@@ -282,7 +286,7 @@ impl DeclarativeSchemaDefinition {
     }
 
     #[must_use]
-    pub fn key_field_type(&self, path: &str) -> FieldValueType {
+    pub(crate) fn key_field_type(&self, path: &str) -> FieldValueType {
         self.field_types
             .get(path)
             .cloned()

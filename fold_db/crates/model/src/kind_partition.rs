@@ -1,10 +1,8 @@
 //! Storage-key layouts and half-open prefix bounds.
 
-pub const KIND_PARTITION_SEP: char = '\0';
-
 #[must_use]
 pub fn anchored(kind: &str, rest: &str) -> String {
-    format!("{kind}{KIND_PARTITION_SEP}{rest}")
+    format!("{kind}\0{rest}")
 }
 
 #[must_use]
@@ -17,5 +15,5 @@ pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
     }
     let end = String::from_utf8(bytes)
         .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
-    (prefix.to_string(), end)
+    (prefix.to_owned(), end)
 }

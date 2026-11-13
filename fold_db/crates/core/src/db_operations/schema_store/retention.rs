@@ -1,4 +1,4 @@
-//! Operator and manifest retention-policy management on [`SchemaStore`].
+//! Retention policy CRUD and write-age tracking on [`SchemaStore`].
 
 use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
 use crate::schema::manifest_retention::{
@@ -9,7 +9,7 @@ use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::format::schemas::keys::*;
 use std::collections::HashMap;
 
-fn invalid(msg: impl Into<String>) -> SchemaError {
+pub(super) fn invalid(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
 }
 
@@ -20,7 +20,7 @@ pub(super) fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
 }
 
 impl SchemaStore {
-    async fn get_policy(
+    pub(super) async fn get_policy(
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
@@ -186,7 +186,7 @@ impl SchemaStore {
                 .or_insert(*written_at);
         }
         let mut unique: Vec<_> = clocks.keys().cloned().collect();
-        unique.sort_by(KeyValue::cmp_storage_order);
+        unique.sort_by(|a, b| a.cmp_page_order_with(b, str::cmp));
         let previous = self
             .schema_states_store
             .get_items::<SchemaRetentionAgeEntry>(&latest_keys(schema_name, &unique))
