@@ -49,18 +49,6 @@ impl PackRuntime {
         Ok(self.cas_kv())
     }
 
-    pub(in crate::storage) async fn cas_delete_many(
-        self: &Arc<Self>,
-        keys: &[Vec<u8>],
-    ) -> StorageResult<()> {
-        if keys.is_empty() {
-            return Ok(());
-        }
-        self.cas_kv()
-            .batch_mutate(keys.iter().cloned().map(KvMutation::delete).collect())
-            .await
-    }
-
     pub(in crate::storage) fn stage_record_file_deletes(
         self: &Arc<Self>,
         keys: &[Vec<u8>],

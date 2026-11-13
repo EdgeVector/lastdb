@@ -2,7 +2,6 @@
 
 use super::disk_pack::{run_blocking, PackRuntime};
 use super::error::{StorageError, StorageResult};
-use super::format::records::{require_row, seal_file_row};
 use crate::error::FoldDbError;
 use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::FileMarker;
@@ -13,7 +12,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 const SIDECAR_NAME: &str = "local-file-refs.json";
 const CATALOG_VERSION: u32 = 1;
@@ -94,34 +93,30 @@ fn load_files(runtime: &PackRuntime) -> StorageResult<BTreeMap<String, Entry>> {
     Ok(load(&node_dir(runtime)?.join(SIDECAR_NAME))?.files)
 }
 
-fn resolve_regular(
-    node: &Path,
-    path: &Path,
-    expected_size: Option<u64>,
-    context: &str,
-) -> StorageResult<(PathBuf, u64)> {
-    let canonical = fs::canonicalize(path)
-        .map_err(|e| invalid(format!("local file {} {context}: {e}", path.display())))?;
+fn resolve_regular(node: &Path, path: &Path) -> StorageResult<(PathBuf, u64)> {
+    let canonical = fs::canonicalize(path).map_err(|e| {
+        invalid(format!(
+            "local file {} is not available: {e}",
+            path.display()
+        ))
+    })?;
     if canonical.starts_with(fs::canonicalize(node).unwrap_or_else(|_| node.to_path_buf())) {
         return Err(invalid(
             "a local file reference must stay outside the node home",
         ));
     }
     let meta = fs::metadata(&canonical)?;
-    if !meta.is_file() || expected_size.is_some_and(|size| meta.len() != size) {
-        let why = if meta.is_file() {
-            "does not match its record marker"
-        } else {
-            "is not a regular file"
-        };
-        return Err(invalid(format!("local file {} {why}", canonical.display())));
+    if !meta.is_file() {
+        return Err(invalid(format!(
+            "local file {} is not a regular file",
+            canonical.display()
+        )));
     }
     Ok((canonical, meta.len()))
 }
 
 pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {
-    let (canonical, expected_len) =
-        resolve_regular(&node_dir(runtime)?, path, None, "is not available")?;
+    let (canonical, expected_len) = resolve_regular(&node_dir(runtime)?, path)?;
     let mut file = File::open(&canonical)?;
     let (mut hasher, mut buf, mut size_bytes) = (Sha256::new(), [0u8; 64 * 1024], 0u64);
     loop {
@@ -252,63 +247,4 @@ fn read_plaintext(path: &Path, size_bytes: u64, sha256: &str) -> StorageResult<V
     (bytes.len() as u64 == size_bytes && hex_lower(Sha256::digest(&bytes)) == sha256)
         .then_some(bytes)
         .ok_or_else(mismatch)
-}
-
-pub(crate) async fn materialize(
-    runtime: &Arc<PackRuntime>,
-    account_key: &[u8; 32],
-) -> StorageResult<Vec<Vec<u8>>> {
-    let (node, entries) = (node_dir(runtime)?, load_files(runtime)?);
-    let (mut release_keys, mut put_keys) = (Vec::with_capacity(entries.len()), Vec::new());
-    for (cas_key, entry) in entries {
-        let key = cas_key.into_bytes();
-        release_keys.push(key.clone());
-        let step = async {
-            let (n, path, size) = (node.clone(), PathBuf::from(&entry.path), entry.size_bytes);
-            let (canonical, _) = run_blocking(move || {
-                resolve_regular(&n, &path, Some(size), "is not available for backup")
-            })
-            .await?;
-            if let Some(row) = runtime.open_cas().await?.get(&key).await? {
-                let m = FileMarker {
-                    name: None,
-                    media_type: None,
-                    size_bytes: size,
-                    sha256: entry.sha256.clone(),
-                };
-                if require_row(account_key, &m, &row).is_ok() {
-                    return Ok(false);
-                }
-            }
-            let sha = entry.sha256.clone();
-            let plain = run_blocking(move || read_plaintext(&canonical, size, &sha)).await?;
-            let (row, sealed_sha) = seal_file_row(account_key, &plain)
-                .map_err(|e| invalid(format!("local file seal failed: {e}")))?;
-            if sealed_sha != entry.sha256 {
-                return Err(invalid(
-                    "sealed local file does not match its record marker",
-                ));
-            }
-            runtime.cas_kv().put(&key, row).await?;
-            Ok(true)
-        };
-        match step.await {
-            Ok(true) => put_keys.push(key),
-            Ok(false) => {}
-            Err(error) => {
-                let _ = release(runtime, &put_keys).await;
-                return Err(error);
-            }
-        }
-    }
-    Ok(release_keys)
-}
-
-pub(crate) async fn release(runtime: &Arc<PackRuntime>, keys: &[Vec<u8>]) -> StorageResult<()> {
-    runtime.cas_delete_many(keys).await
-}
-
-pub(crate) async fn release_catalog(runtime: &Arc<PackRuntime>) -> StorageResult<()> {
-    let keys: Vec<_> = load_files(runtime)?.into_keys().map(Into::into).collect();
-    runtime.cas_delete_many(&keys).await
 }
