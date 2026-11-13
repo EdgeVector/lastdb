@@ -1,26 +1,64 @@
 //! Verify an inactive run home without a writer, cleanup, or conversion.
-
-mod database;
 mod node;
 mod record;
 
 use super::byte_backup::RunBackupProfile;
+use crate::schema::schema_types::SchemaWithState;
+use crate::schema::types::{KeyValue, Schema, SchemaError};
 use crate::storage::disk_backup::mutation_log::{Frontiers, LogAnchor, LogEntry, LogPosition};
-use crate::storage::disk_pack::{run_node, RUN_DIR};
+use crate::storage::disk_pack::{native_routing, run_node, RUN_DIR};
 use crate::storage::error::{
     NativeProofCause, NativeProofStage as Stage, StorageError, StorageResult,
 };
+use crate::storage::format::{SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE};
 use cloud_backup_protocol::NativeRoot;
-use laststore::disk_run::home::{ReadBudget, RunHome, RunRead, RUNS};
+use lastdb_model::record_value::FileMarker;
+use lastdb_model::storage_policy::backup_decode::{
+    NATIVE_STREAM_LOOKUP_READ_BYTES, RECORD_BODY_MAX_BYTES,
+};
+use laststore::disk_run::{
+    home::{ReadBudget, RunHome, RunRead, RUNS},
+    MAX_RUN_KEY_BYTES,
+};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
-pub use database::{SnapshotRecordPage, SnapshotSchema};
 pub use node::RunNodeGuard;
-pub use record::{RunSnapshotReader, SnapshotAlternatePage, StagedRecord, StagedRecordQuery};
+pub use record::{SnapshotAlternatePage, SnapshotRecordPage, SnapshotSchema};
 
-pub type RunRestoreGuard = RunNodeGuard;
+pub struct StagedRecordQuery<'a> {
+    schema: &'a str,
+    key: KeyValue,
+}
+
+impl<'a> StagedRecordQuery<'a> {
+    pub fn new(schema: &'a str, key: KeyValue, _include_inline: bool) -> StorageResult<Self> {
+        let valid = |s: &str| (1..=MAX_RUN_KEY_BYTES).contains(&s.len());
+        (valid(schema)
+            && key.hash.as_deref().is_some_and(valid)
+            && key
+                .range
+                .as_ref()
+                .is_none_or(|r| r.len() <= MAX_RUN_KEY_BYTES))
+        .then_some(Self { schema, key })
+        .ok_or_else(|| invalid("staged record coordinates"))
+    }
+}
+
+pub struct StagedRecord {
+    fields: BTreeMap<String, Value>,
+}
+
+impl StagedRecord {
+    pub fn fields(&self) -> &BTreeMap<String, Value> {
+        &self.fields
+    }
+}
+
+pub struct RunSnapshotReader(pub(super) RunNodeGuard);
 
 pub(super) fn sum_file_bytes(files: &[(String, u64)], msg: &'static str) -> StorageResult<u64> {
     files
@@ -30,15 +68,15 @@ pub(super) fn sum_file_bytes(files: &[(String, u64)], msg: &'static str) -> Stor
 }
 
 pub fn verify(
-    data_root: &Path,
+    root: &Path,
     profile: &RunBackupProfile,
     native_root: &NativeRoot,
-    account_key: &[u8; 32],
-) -> StorageResult<RunRestoreGuard> {
+    key: &[u8; 32],
+) -> StorageResult<RunNodeGuard> {
     phase(Stage::Profile, profile.validate_root(native_root))?;
-    finish_restore_guard(
-        data_root,
-        account_key,
+    finish_guard(
+        root,
+        key,
         |n| &n.profile == profile,
         "run restore captured profile differs",
     )
@@ -49,36 +87,29 @@ pub fn verify_replayed(
     anchor: &LogAnchor,
     through: &LogPosition,
     key: &[u8; 32],
-) -> StorageResult<RunRestoreGuard> {
+) -> StorageResult<RunNodeGuard> {
     if through.epoch != anchor.epoch {
         return Err(invalid("mutation replay epoch"));
     }
-    finish_restore_guard(
-        data,
-        key,
-        |n| {
-            n.profile.main.home_id == anchor.main_home
-                && n.profile.main.frontier.get() == through.frontiers.main
-        },
-        "mutation replay exact final frontier",
-    )
+    let ok = |n: &RunNodeGuard| {
+        n.profile.main.home_id == anchor.main_home
+            && n.profile.main.frontier.get() == through.frontiers.main
+    };
+    finish_guard(data, key, ok, "mutation replay exact final frontier")
 }
 
-fn finish_restore_guard(
-    data_root: &Path,
+fn finish_guard(
+    root: &Path,
     key: &[u8; 32],
     check: impl FnOnce(&RunNodeGuard) -> bool,
     msg: &'static str,
-) -> StorageResult<RunRestoreGuard> {
-    let native = phase(
-        Stage::PhysicalRoot,
-        RunNodeGuard::open(data_root, key, false),
-    )?;
+) -> StorageResult<RunNodeGuard> {
+    let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(root, key, false))?;
     if !check(&native) {
         return Err(invalid(msg));
     }
     native.require_empty_local_cas()?;
-    phase(Stage::FinalBinding, native.check_binding()).map(|()| native)
+    phase(Stage::FinalBinding, native.verify_handles()).map(|()| native)
 }
 
 pub fn install_empty_cas_home(data_root: &Path, account_key: &[u8; 32]) -> StorageResult<()> {
@@ -119,12 +150,12 @@ impl MutationReplay {
             .ok_or_else(|| invalid("mutation replay compaction changed frontier"))
     }
 
-    pub fn part(&self, entry: &LogEntry, part_index: usize, source: &Path) -> StorageResult<()> {
+    pub fn part(&self, entry: &LogEntry, idx: usize, source: &Path) -> StorageResult<()> {
         let part = entry
             .parts
-            .get(part_index)
+            .get(idx)
             .ok_or_else(|| invalid("mutation replay part number"))?;
-        let prev = part_index
+        let prev = idx
             .checked_sub(1)
             .and_then(|i| entry.parts.get(i))
             .map_or(entry.before.main, |p| p.frontier);
@@ -132,12 +163,12 @@ impl MutationReplay {
         if cur != prev && cur != part.frontier {
             return Err(invalid("mutation replay exact partial frontier"));
         }
-        let applied = self
+        let app = self
             .main
             .replay_commit_file(source, prev, part.frontier)
             .map_err(map)?;
-        (applied.run_id.to_string() == part.run_id.as_str()
-            && applied.run_bytes == part.bytes
+        (app.run_id.to_string() == part.run_id.as_str()
+            && app.run_bytes == part.bytes
             && self.frontiers().main == part.frontier)
             .then_some(())
             .ok_or_else(|| invalid("mutation replay original run identity or length"))
@@ -145,31 +176,74 @@ impl MutationReplay {
 }
 
 impl RunSnapshotReader {
+    pub fn open(
+        path: &Path,
+        account_key: &[u8; 32],
+        verified_root: &NativeRoot,
+    ) -> StorageResult<Self> {
+        let native = RunNodeGuard::open(path, account_key, true)?;
+        native.profile.validate_root(verified_root)?;
+        native.require_empty_local_cas().map(|()| Self(native))
+    }
+
+    pub(super) fn lookup(&self, keys: usize) -> StorageResult<RunRead> {
+        fork_bounded(&self.0.main, NATIVE_STREAM_LOOKUP_READ_BYTES, keys as u64)
+    }
+
+    pub fn read_record(
+        &self,
+        query: &StagedRecordQuery<'_>,
+        account_key: &[u8; 32],
+    ) -> StorageResult<Option<StagedRecord>> {
+        let (mut read, key) = (
+            self.lookup(3)?,
+            native_routing::encode(query.schema.as_bytes()),
+        );
+        let bytes = read
+            .get_bounded(SCHEMAS_NAMESPACE, &key, RECORD_BODY_MAX_BYTES)
+            .map_err(map)?
+            .ok_or_else(|| invalid("staged schema is absent"))?;
+        let schema = record::decode_schema(&bytes, &key)?;
+        let codec = record::record_codec(&schema, account_key)?;
+        let address = record::record_address(&schema, &codec, &query.key)?;
+        let Some(rec) = record::read_verified(&mut read, &schema, &codec, &address)? else {
+            return Ok(None);
+        };
+        rec.is_live()
+            .then_some(Some(StagedRecord { fields: rec.fields }))
+            .ok_or_else(|| invalid("staged record payload differs from its key"))
+    }
+
     pub fn seed_replay(
         &self,
         destination: &Path,
         anchor: &LogAnchor,
-        position: &LogPosition,
+        pos: &LogPosition,
     ) -> StorageResult<()> {
         let native = &self.0;
         if native.profile.main.home_id != anchor.main_home
-            || native.profile.main.frontier.get() != position.frontiers.main
-            || position.epoch != anchor.epoch
+            || native.profile.main.frontier.get() != pos.frontiers.main
+            || pos.epoch != anchor.epoch
         {
             return Err(invalid("cached mutation replay predecessor"));
         }
         native.check_binding()?;
         node::directory(destination)?;
         let bytes = sum_file_bytes(&native.files, "cached mutation replay bytes")?;
-        let pol = laststore::space::SpacePolicy::default();
-        let _space = laststore::space::reserve_space(destination, &pol, bytes).map_err(map)?;
+        let _space = laststore::space::reserve_space(
+            destination,
+            &laststore::space::SpacePolicy::default(),
+            bytes,
+        )
+        .map_err(map)?;
         let (main, runs) = (
             destination.join(RUN_DIR),
             destination.join(RUN_DIR).join(RUNS),
         );
-        for dir in [&main, &runs] {
-            DirBuilder::new().mode(0o700).create(dir)?;
-        }
+        DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&runs)?;
         for (rel, expected_bytes) in &native.files {
             let mut out = OpenOptions::new()
                 .write(true)
@@ -177,12 +251,12 @@ impl RunSnapshotReader {
                 .mode(0o600)
                 .custom_flags(libc::O_NOFOLLOW)
                 .open(destination.join(rel))?;
-            let n = node::stream_regular(
+            if node::stream_regular(
                 &native.root.join(rel),
                 &mut out,
                 "cached mutation replay file length",
-            )?;
-            if n != *expected_bytes {
+            )? != *expected_bytes
+            {
                 return Err(invalid("cached mutation replay file length"));
             }
             out.sync_all()?;
@@ -191,6 +265,71 @@ impl RunSnapshotReader {
             File::open(dir)?.sync_all()?;
         }
         native.check_binding()
+    }
+
+    pub fn schemas(&self) -> StorageResult<Vec<SnapshotSchema>> {
+        const LIMIT: usize = 1024;
+        let mut read = self.lookup(LIMIT * 2 + 8)?;
+        let p = read
+            .administrative_range(SCHEMAS_NAMESPACE, b"", &[0xff])
+            .map_err(map)?
+            .next_page_yielding_bounded(LIMIT + 1, 0, 0, RECORD_BODY_MAX_BYTES)
+            .map_err(map)?;
+        if !p.exhausted || p.resume.is_some() {
+            return Err(record::resource_limit(
+                "verified schema catalog exceeds its read allowance",
+            ));
+        }
+        p.records
+            .into_iter()
+            .map(|(name, bytes)| {
+                let schema = record::decode_schema(&bytes, &name)?;
+                let state = read
+                    .get_bounded(SCHEMA_STATES_NAMESPACE, &name, 256)
+                    .map_err(map)?
+                    .map(|b| serde_json::from_slice(&b).map_err(|_| invalid("staged schema state")))
+                    .transpose()?
+                    .unwrap_or_default();
+                Ok(SnapshotSchema {
+                    entry: SchemaWithState::new(schema, state),
+                })
+            })
+            .collect()
+    }
+
+    pub fn inline_file(
+        &self,
+        schema: &Schema,
+        key: &KeyValue,
+        expected_revision: Option<&str>,
+        account_key: &[u8; 32],
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, crate::error::FoldDbError> {
+        let (mut read, codec) = (self.lookup(4)?, record::record_codec(schema, account_key)?);
+        let address = record::checked_address(schema, &codec, key)?;
+        let rec = record::read_verified(&mut read, schema, &codec, &address)?;
+        let live = rec.as_ref().filter(|r| r.is_live());
+        if let Some(expected) = expected_revision {
+            let actual = live.map(|r| r.stamp.revision());
+            if actual.as_deref() != Some(expected) {
+                return Err(SchemaError::CasConflict {
+                    schema: schema.name.clone(),
+                    key: key.to_storage_key(),
+                    expected: expected.to_owned(),
+                    actual,
+                }
+                .into());
+            }
+        }
+        let Some(live_rec) = live else {
+            return Ok(None);
+        };
+        record::read_inline(&mut read, &address, live_rec)?
+            .map(|f| {
+                f.bytes()
+                    .map(|b| (f.marker, b))
+                    .map_err(|_| invalid("staged inline file bytes").into())
+            })
+            .transpose()
     }
 }
 

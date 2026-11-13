@@ -4,18 +4,14 @@ use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
 use cloud_backup_protocol::{limits::REQUEST_JSON_MAX_BYTES, AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fs::{self, File, Metadata, OpenOptions};
+use std::fs::{self, Metadata, OpenOptions};
 use std::io::{self, Read};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
 pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
-
-pub fn cloud_credentials_path(home: &Path) -> PathBuf {
-    home.join(CLOUD_CREDENTIALS_FILE)
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,16 +58,6 @@ fn read_key<'de, D: Deserializer<'de>>(d: D) -> Result<Zeroizing<String>, D::Err
     String::deserialize(d).map(Zeroizing::new)
 }
 
-pub(crate) enum PrivatePathError {
-    Io(io::Error),
-    Invalid,
-    Limit,
-}
-
-pub(crate) fn is_owned_dir(meta: &Metadata) -> bool {
-    meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0
-}
-
 pub(crate) fn is_private_file(meta: &Metadata) -> bool {
     meta.is_file()
         && meta.uid() == unsafe { libc::geteuid() }
@@ -79,64 +65,39 @@ pub(crate) fn is_private_file(meta: &Metadata) -> bool {
         && meta.nlink() == 1
 }
 
-pub(crate) fn open_private_path(
-    path: &Path,
-    create: bool,
-    create_new: bool,
-    truncate: bool,
-) -> Result<File, PrivatePathError> {
-    let file = OpenOptions::new()
-        .read(!truncate)
-        .write(true)
-        .create(create)
-        .create_new(create_new)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(PrivatePathError::Io)?;
-    if !is_private_file(&file.metadata().map_err(PrivatePathError::Io)?) {
-        return Err(PrivatePathError::Invalid);
-    }
-    if truncate {
-        file.set_len(0).map_err(PrivatePathError::Io)?;
-    }
-    Ok(file)
-}
-
-pub(crate) fn read_private_path(
-    path: &Path,
-    max_bytes: u64,
-) -> Result<Option<Vec<u8>>, PrivatePathError> {
-    match fs::symlink_metadata(path) {
-        Ok(m) if !m.is_file() => return Err(PrivatePathError::Invalid),
-        Ok(m) if m.len() > max_bytes => return Err(PrivatePathError::Limit),
-        Ok(_) => {}
+fn read_private(path: &Path, max_bytes: u64) -> Result<Option<Vec<u8>>, &'static str> {
+    const PRIV_ERR: &str = "native backup credentials must be a private owner file";
+    const LIM_ERR: &str = "native backup credential file exceeds its byte limit";
+    let meta = match fs::symlink_metadata(path) {
+        Ok(m) => m,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(PrivatePathError::Io(e)),
+        Err(_) => return Err(PRIV_ERR),
+    };
+    if !meta.is_file() {
+        return Err(PRIV_ERR);
+    }
+    if meta.len() > max_bytes {
+        return Err(LIM_ERR);
     }
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
-        .map_err(PrivatePathError::Io)?;
-    if !is_private_file(&file.metadata().map_err(PrivatePathError::Io)?) {
-        return Err(PrivatePathError::Invalid);
+        .map_err(|_| PRIV_ERR)?;
+    if !is_private_file(&file.metadata().map_err(|_| PRIV_ERR)?) {
+        return Err(PRIV_ERR);
     }
     let mut bytes = Vec::new();
     file.take(max_bytes + 1)
         .read_to_end(&mut bytes)
-        .map_err(PrivatePathError::Io)?;
+        .map_err(|_| PRIV_ERR)?;
     (bytes.len() as u64 <= max_bytes)
         .then_some(Some(bytes))
-        .ok_or(PrivatePathError::Limit)
+        .ok_or(LIM_ERR)
 }
 
 pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, String> {
-    let path = cloud_credentials_path(home);
-    let Some(raw) = read_private_path(&path, REQUEST_JSON_MAX_BYTES).map_err(|e| match e {
-        PrivatePathError::Limit => "native backup credential file exceeds its byte limit",
-        _ => "native backup credentials must be a private owner file",
-    })?
+    let Some(raw) = read_private(&home.join(CLOUD_CREDENTIALS_FILE), REQUEST_JSON_MAX_BYTES)?
     else {
         return Ok(None);
     };
@@ -147,7 +108,6 @@ pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, S
         .ok_or_else(|| "native backup credential is empty".into())
 }
 
-/// Saved-credential client for account scope and sealed file upload.
 pub fn client_from_home(
     home: &Path,
 ) -> Result<crate::cloud_backup_client::byte_backup::ByteBackupClient, String> {
@@ -196,15 +156,15 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
         endpoints::schema_service_url(),
         endpoints::schema_service_url_for(cloud_env),
     );
-    if eff != cloud_env || url != exp {
+    if (eff, url.as_str()) == (cloud_env, exp) {
+        tracing::info!(target: "lastdb_node::cloud", %cloud_env, schema_service_url = %url, "schema service environment follows the home cloud environment");
+    } else {
         tracing::warn!(
             target: "lastdb_node::cloud", %cloud_env, schema_service_env = %eff,
             schema_service_url = %url, expected_schema_service_url = %exp,
             "ENVIRONMENT MISMATCH: home is connected to {cloud_env} Exemem cloud, \
              but schema service resolves to {url}; unset overriding env vars or reconnect."
         );
-    } else {
-        tracing::info!(target: "lastdb_node::cloud", %cloud_env, schema_service_url = %url, "schema service environment follows the home cloud environment");
     }
 }
 
@@ -229,8 +189,11 @@ pub async fn register_native_device(
     if let Some(code) = invite_code {
         body["invite_code"] = serde_json::Value::String(code.to_owned());
     }
-    let raw_url = format!("{}/api/auth/cli/register", exemem_api_url_for(environment));
-    let url = https(&raw_url).map_err(|_| "Invalid Exemem API URL for register".to_owned())?;
+    let url = https(&format!(
+        "{}/api/auth/cli/register",
+        exemem_api_url_for(environment)
+    ))
+    .map_err(|_| "Invalid Exemem API URL for register".to_owned())?;
     let expected = crate::identity::user_hash_from_pubkey(&keypair.public_key_base64())
         .map_err(|_| "Cannot derive native account identity".to_owned())?;
     let resp = build_shared_http_client()

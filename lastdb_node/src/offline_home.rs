@@ -85,8 +85,9 @@ pub fn open_directory_excluding(path: &Path, excluded: Option<&File>) -> Result<
             Err(_) => Err("cannot inspect directory".into()),
         }
     };
-    let root = fs::open("/", DIR_FLAGS, Mode::empty()).map_err(|_| "cannot open directory root")?;
-    let mut dir = File::from(root);
+    let mut dir = File::from(
+        fs::open("/", DIR_FLAGS, Mode::empty()).map_err(|_| "cannot open directory root")?,
+    );
     check(&dir)?;
     for part in path.components() {
         if let Component::Normal(name) = part {
@@ -162,26 +163,14 @@ pub fn dir_entry_names(dir: &File, error: &'static str) -> Result<Vec<Vec<u8>>, 
 }
 
 pub fn read_private_file(dir: &File, name: &str, limit: u64) -> Result<Vec<u8>, String> {
-    read_private_file_bound(dir, name, limit, None)
-}
-
-pub fn read_private_file_bound(
-    dir: &File,
-    name: &str,
-    limit: u64,
-    expected: Option<&File>,
-) -> Result<Vec<u8>, String> {
     const ERR: &str = "credential file must be a bounded owner-only regular file";
-    let flags = OFlags::RDONLY | OFlags::NONBLOCK;
-    let file = open_private_at(dir, name, flags, Mode::empty(), ERR)?;
-    if expected
-        .map(|h| eq_fd(&file, h))
-        .transpose()
-        .map_err(|_| "cannot inspect credential file")?
-        == Some(false)
-    {
-        return Err("recovery credential file changed during preparation".into());
-    }
+    let file = open_private_at(
+        dir,
+        name,
+        OFlags::RDONLY | OFlags::NONBLOCK,
+        Mode::empty(),
+        ERR,
+    )?;
     require_private_file(&file, Some(limit), ERR)?;
     let mut bytes = Vec::new();
     file.take(limit + 1)
@@ -228,7 +217,7 @@ impl Directory {
         require_owned_directory(&file)
             .map_err(|_| DirectoryError("offline directory identity changed"))?;
         Ok(Self {
-            path: path.to_owned(),
+            path: path.to_path_buf(),
             file,
             max_bytes,
         })
@@ -258,7 +247,7 @@ impl Directory {
             return Err(DirectoryError("offline directory identity changed"));
         }
         fs::unlinkat(&self.file, name, AtFlags::empty()).map_err(io::Error::from)?;
-        Ok(self.file.sync_all()?)
+        self.file.sync_all().map_err(Into::into)
     }
 
     pub fn read(&self, name: &str) -> DirectoryResult<Option<Zeroizing<Vec<u8>>>> {
@@ -315,7 +304,7 @@ impl Directory {
             OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | SAFE,
             0o600,
         )?;
-        let res: DirectoryResult<()> = (|| {
+        let res = (|| -> DirectoryResult<()> {
             file.write_all(bytes)?;
             file.sync_all()?;
             self.check()?;
@@ -335,13 +324,14 @@ impl Directory {
     }
 }
 
-fn stamp(m: &Metadata) -> [i128; 6] {
-    [
-        m.dev() as i128,
-        m.ino() as i128,
-        m.len() as i128,
-        (i128::from(m.uid()) << 32) | i128::from(m.mode()) | ((m.nlink() as i128) << 64),
-        (i128::from(m.mtime()) << 32) ^ i128::from(m.mtime_nsec()),
-        (i128::from(m.ctime()) << 32) ^ i128::from(m.ctime_nsec()),
-    ]
+fn stamp(m: &Metadata) -> (u64, u64, u64, u32, u32, i64, i64) {
+    (
+        m.dev(),
+        m.ino(),
+        m.len(),
+        m.uid(),
+        m.mode(),
+        m.mtime(),
+        m.mtime_nsec(),
+    )
 }

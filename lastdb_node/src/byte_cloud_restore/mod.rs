@@ -1,44 +1,42 @@
 //! Verified recipient staging of accepted opaque-byte cloud backups.
-mod download;
 mod logs;
-mod native;
 mod runs;
 
+use crate::cloud::is_private_file;
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupReader};
+use cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES;
 use cloud_backup_protocol::recovery::RecoveryProfile;
-use cloud_backup_protocol::v2::{
-    publication::{CommitResponse, CommitStatusRequest, Head, HeadReadResult},
-    AcceptedBackup, Version,
+use cloud_backup_protocol::v2::access::{
+    ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
+use cloud_backup_protocol::v2::publication::{
+    CommitResponse, CommitStatusRequest, Head, HeadReadResult,
+};
+use cloud_backup_protocol::v2::{AcceptedBackup, Version};
 use cloud_backup_protocol::{Digest, ErrorCode, Id, NativeRoot, ProtocolError, RecoveryDescriptor};
-use download::{bounded_bytes, check_capacity, verify_file};
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
-use fold_db::storage::disk_pack::{mutation_log::LogPosition, NativeCloudWorkGuard};
+use fold_db::storage::disk_pack::{
+    mutation_log::LogPosition, run_restore, NativeCloudWorkGuard, RUN_DIR,
+};
 use fold_db::storage::error::{NativeProofCause, NativeProofStage};
-use logs::MutationLogRoot;
-use native as local;
-use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::os::unix::fs::DirBuilderExt;
+use sha2::{Digest as _, Sha256};
+use std::fmt;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::{atomic::AtomicU64, Arc};
 use zeroize::Zeroizing;
 
 pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct NativeFileProof {
-    pub path: String,
-    pub sha256: Digest,
-    pub bytes: u64,
-}
+const MAX_SPOOL: u64 = DURABLE_LOCAL_SPOOL_MAX_BYTES
+    - fold_db::storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
+use RestoreError as E;
 
 #[derive(Debug)]
 pub enum RestoreError {
     Invalid(&'static str),
     Limit(&'static str),
-    Io(std::io::Error),
+    Io(io::Error),
     Protocol(ProtocolError),
     Source(&'static str),
     NativeProof {
@@ -49,8 +47,8 @@ pub enum RestoreError {
 
 pub type Result<T> = std::result::Result<T, RestoreError>;
 
-impl From<std::io::Error> for RestoreError {
-    fn from(v: std::io::Error) -> Self {
+impl From<io::Error> for RestoreError {
+    fn from(v: io::Error) -> Self {
         Self::Io(v)
     }
 }
@@ -66,8 +64,8 @@ impl RestoreError {
         Self::NativeProof { stage, cause }
     }
 }
-impl std::fmt::Display for RestoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(s) => write!(f, "invalid restore {s}"),
             Self::Limit(s) => write!(f, "restore limit: {s}"),
@@ -82,21 +80,11 @@ impl std::fmt::Display for RestoreError {
 }
 impl std::error::Error for RestoreError {}
 
-/// Key material used to verify and decrypt a backup.
-pub(super) struct RecoveryDecryption {
-    pub(super) content: Zeroizing<[u8; 32]>,
-    pub(super) account_public_key: String,
+pub(super) struct GuestSecrets {
+    pub(super) recovery: RecoveryDescriptor,
+    pub(super) key: Zeroizing<[u8; 32]>,
 }
 
-impl RecoveryDecryption {
-    pub(super) fn validate_account(&self, pubkey: &Digest) -> Result<()> {
-        (self.account_public_key == pubkey.as_str())
-            .then_some(())
-            .ok_or(RestoreError::Invalid("recovery public key"))
-    }
-}
-
-/// Read-only previous state while the cache holds its slot lock.
 pub(crate) struct GuestReplayCache<'a> {
     pub(crate) data: &'a Path,
     pub(crate) head: &'a Head,
@@ -104,55 +92,37 @@ pub(crate) struct GuestReplayCache<'a> {
     pub(crate) through: Option<&'a LogPosition>,
 }
 
-/// Durable exact V2 guest staging session.
 pub struct RestoreSession {
-    root: PathBuf,
-    accepted: AcceptedBackup,
-    destination: PathBuf,
-    endpoint: Option<String>,
+    pub(super) root: PathBuf,
+    pub(super) accepted: AcceptedBackup,
     _lock: File,
-    spool_bytes: Arc<AtomicU64>,
 }
 
 impl RestoreSession {
-    fn begin_in(destination: &Path, accepted: AcceptedBackup, check_primary: bool) -> Result<Self> {
+    fn begin_in(dest: &Path, accepted: AcceptedBackup, check_primary: bool) -> Result<Self> {
         if check_primary {
-            crate::offline_home::refuse_primary(destination)
-                .map_err(|_| RestoreError::Invalid("destination"))?;
+            crate::offline_home::refuse_primary(dest).map_err(|_| E::Invalid("destination"))?;
         }
         accepted.validate()?;
-        let parent = destination
-            .parent()
-            .ok_or(RestoreError::Invalid("destination parent"))?
-            .canonicalize()?;
-        let name = destination
-            .file_name()
-            .ok_or(RestoreError::Invalid("destination name"))?;
-        let destination = parent.join(name);
-        match fs::symlink_metadata(&destination) {
-            Ok(_) => return Err(RestoreError::Invalid("destination exists")),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        let parent = fs::canonicalize(dest.parent().ok_or(E::Invalid("destination parent"))?)?;
+        let name = dest.file_name().ok_or(E::Invalid("destination name"))?;
+        match fs::symlink_metadata(parent.join(name)) {
+            Ok(_) => return Err(E::Invalid("destination exists")),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
-        let session_id = uuid::Uuid::new_v4();
-        let root = parent.join(format!(".byte-cloud-restore-{session_id}"));
+        let root = parent.join(format!(".byte-cloud-restore-{}", uuid::Uuid::new_v4()));
         fs::DirBuilder::new().mode(0o700).create(&root)?;
-        let _lock = local::owner_file(&root.join("owner.lock"), true)?;
+        let _lock = open_private(&root.join("owner.lock"), true, false)?;
         _lock
             .try_lock()
-            .map_err(|_| RestoreError::Invalid("session already owned"))?;
-        for sub in ["cache", "entries", "chain", "home", "home/data"] {
-            local::ensure_directory(&root.join(sub))?;
-        }
-        local::sync_dir(&root)?;
-        local::sync_dir(&parent)?;
+            .map_err(|_| E::Invalid("session already owned"))?;
+        ensure_directory(&root.join("data"))?;
+        sync_dir(&root).and_then(|()| sync_dir(&parent))?;
         Ok(Self {
             root,
             accepted,
-            destination,
-            endpoint: None,
             _lock,
-            spool_bytes: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -160,155 +130,254 @@ impl RestoreSession {
         &self.root
     }
 
-    pub fn accepted(&self) -> &AcceptedBackup {
-        &self.accepted
-    }
-
     pub(super) fn ancestor(&self, accepted: AcceptedBackup) -> Result<Self> {
         accepted.validate()?;
         if accepted.job().stream != self.accepted.job().stream
             || accepted.ordinal.get() > self.accepted.ordinal.get()
         {
-            return Err(RestoreError::Invalid("accepted ancestor stream or order"));
+            return Err(E::Invalid("accepted ancestor stream or order"));
         }
         Ok(Self {
             root: self.root.clone(),
             accepted,
-            destination: self.destination.clone(),
-            endpoint: self.endpoint.clone(),
             _lock: self._lock.try_clone()?,
-            spool_bytes: Arc::clone(&self.spool_bytes),
         })
     }
 
     pub(crate) async fn guest_accepted(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
-        let accepted = match reader.guest_head().await.map_err(|e| reader_error(&e))? {
+        let accepted = match reader
+            .guest_head()
+            .await
+            .map_err(|e| reader_error(&e, false))?
+        {
             HeadReadResult::Ok { response } => response
                 .accepted
-                .ok_or(RestoreError::Source("share has no published backup"))?,
-            HeadReadResult::Error { error } => return Err(reader_error(&error.into())),
+                .ok_or(E::Source("share has no published backup"))?,
+            HeadReadResult::Error { error } => return Err(reader_error(&error.into(), false)),
         };
         (&accepted.job().stream == reader.guest_stream())
             .then_some(accepted)
-            .ok_or(RestoreError::Invalid("guest stream"))
+            .ok_or(E::Invalid("guest stream"))
     }
 
-    pub(crate) fn begin_guest_at(destination: &Path, accepted: AcceptedBackup) -> Result<Self> {
-        Self::begin_in(destination, accepted, true)
+    pub(crate) fn begin_guest_at(dest: &Path, accepted: AcceptedBackup) -> Result<Self> {
+        Self::begin_in(dest, accepted, true)
     }
 
     pub(crate) fn begin_managed_guest(slot: &Path, accepted: AcceptedBackup) -> Result<Self> {
-        let invalid = || RestoreError::Invalid("managed guest slot");
-        let entry = slot.parent().ok_or_else(invalid)?;
-        let registry = entry.parent().ok_or_else(invalid)?;
         fn name_of(p: &Path) -> Option<&str> {
             p.file_name().and_then(std::ffi::OsStr::to_str)
         }
+        let entry = slot.parent().ok_or(E::Invalid("managed guest slot"))?;
+        let registry = entry.parent().ok_or(E::Invalid("managed guest slot"))?;
         if !matches!(name_of(slot), Some("snapshot-0" | "snapshot-1"))
             || name_of(entry).is_none_or(|n| Id::try_from(n.to_owned()).is_err())
             || name_of(registry) != Some(MANAGED_SHARE_DIRECTORY)
             || slot.canonicalize()? != slot
         {
-            return Err(invalid());
+            return Err(E::Invalid("managed guest slot"));
         }
-        [registry, entry, slot]
-            .into_iter()
-            .try_for_each(local::directory)?;
+        for d in [registry, entry, slot] {
+            directory(d)?;
+        }
         Self::begin_in(&slot.join("unactivated"), accepted, false)
     }
 
     pub(crate) async fn stage_guest_recovery(
         &mut self,
         reader: &ByteBackupReader,
-        content_key: Zeroizing<[u8; 32]>,
-        publisher_public_key: Digest,
+        key: Zeroizing<[u8; 32]>,
+        account_public_key: Digest,
         cache: Option<&GuestReplayCache<'_>>,
     ) -> Result<(PathBuf, NativeRoot, Option<LogPosition>)> {
         if reader.guest_stream() != &self.accepted.job().stream {
-            return Err(RestoreError::Invalid("recipient restore session"));
+            return Err(E::Invalid("recipient restore session"));
         }
         let recovery = RecoveryDescriptor {
             profile: RecoveryProfile::MiniPortableV1,
-            account_public_key: publisher_public_key,
+            account_public_key,
         };
         recovery.validate_for(&self.accepted.job().stream.scope)?;
-        let dec = RecoveryDecryption {
-            content: content_key,
-            account_public_key: recovery.account_public_key.as_str().to_owned(),
-        };
-        let _admission = NativeCloudWorkGuard::acquire()
-            .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
-        self.require_unactivated()?;
-        self.authorize_read(reader).await?;
-        let (inventory, bytes) = runs::load_closure(self, reader).await?;
-        let (proof, through) = if self.accepted.begin.dependencies().is_empty() {
-            let root = runs::snapshot_closure(self, &dec, &bytes)?;
-            (
-                runs::stage_and_verify(self, reader, &dec, &root, inventory).await?,
-                None,
-            )
-        } else {
-            let root = MutationLogRoot::decode(&bytes, &dec.content, &self.accepted.begin)
-                .map_err(|_| RestoreError::Invalid("recipient mutation log root"))?;
-            drop(inventory);
-            let (p, t) = logs::stage_guest(self, reader, &dec, root, cache).await?;
-            (p, Some(t))
-        };
-        self.require_unactivated()?;
-        let native_root = proof.native_root().map_err(RestoreError::native_proof)?;
-        Ok((self.root.join("home/data"), native_root, through))
-    }
-
-    fn require_unactivated(&self) -> Result<()> {
-        let home = self.root.join("home");
-        for path in [
-            self.destination.clone(),
-            home.join(crate::identity::IDENTITY_KEY_FILE),
-            crate::cloud::cloud_credentials_path(&home),
-        ] {
-            match fs::symlink_metadata(path) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-                Ok(_) => return Err(RestoreError::Invalid("recipient stage already activated")),
-            }
-        }
-        Ok(())
-    }
-
-    async fn authorize_read(&mut self, client: &ByteBackupReader) -> Result<()> {
-        let ep = client.canonical_endpoint();
-        match &self.endpoint {
-            Some(saved) if *saved != ep => return Err(RestoreError::Invalid("restore endpoint")),
-            None => self.endpoint = Some(ep),
-            Some(_) => {}
-        }
+        let secrets = GuestSecrets { recovery, key };
+        let _guard = NativeCloudWorkGuard::acquire()
+            .map_err(|_| E::Limit("active native cloud operation"))?;
         let req = CommitStatusRequest {
             version: Version::V2,
             job: self.accepted.job().clone(),
         };
-        let status = client
+        let status = reader
             .commit_status(&req)
             .await
-            .map_err(|e| reader_error(&e))?;
-        match status {
-            CommitResponse::Accepted { backup } if *backup == self.accepted => Ok(()),
-            _ => Err(RestoreError::Invalid("authoritative accepted selection")),
+            .map_err(|e| reader_error(&e, false))?;
+        if !matches!(status, CommitResponse::Accepted { backup } if *backup == self.accepted) {
+            return Err(E::Invalid("authoritative accepted selection"));
         }
+        let (mut inv, bytes) = runs::load_closure(self, reader).await?;
+        let (proof, through) = if self.accepted.begin.dependencies().is_empty() {
+            let r = runs::snapshot_closure(self, &secrets, &bytes)?;
+            (
+                runs::stage_and_verify(self, reader, &secrets, &r, &mut inv).await?,
+                None,
+            )
+        } else {
+            let r = logs::MutationLogRoot::decode(&bytes, &secrets.key, &self.accepted.begin)?;
+            let (p, t) = logs::stage_guest(self, reader, &secrets, r, cache).await?;
+            (p, Some(t))
+        };
+        let root = proof.native_root().map_err(E::native_proof)?;
+        Ok((self.root.join("data"), root, through))
     }
 }
 
-fn reader_error(error: &BackupTransportError) -> RestoreError {
-    if matches!(error, BackupTransportError::Authentication)
-        || matches!(error, BackupTransportError::Protocol(e) if e.code == ErrorCode::Unauthorized)
+pub(super) async fn grants(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    objects: Vec<ReadSelector>,
+) -> Result<Vec<ReadGrant>> {
+    let req = ReadGrantRequest {
+        version: Version::V2,
+        job: session.accepted.job().clone(),
+        objects,
+    };
+    req.validate()?;
+    let resp = client
+        .read_grants(&req, &session.accepted)
+        .await
+        .map_err(|e| reader_error(&e, false))?;
+    resp.validate_for(&req, &session.accepted)?;
+    resp.items
+        .into_iter()
+        .map(|i| match i {
+            ReadGrantItemResult::Ok { grant, .. } => Ok(grant),
+            ReadGrantItemResult::Error { .. } => Err(E::Source("object grant")),
+        })
+        .collect()
+}
+
+pub(super) async fn fetch_bytes(
+    client: &ByteBackupReader,
+    grant: &ReadGrant,
+    max: u64,
+) -> Result<Vec<u8>> {
+    let len = grant.bytes.get();
+    if len > max {
+        return Err(E::Limit("object decode"));
+    }
+    let mut bytes = Vec::with_capacity(len as usize);
+    client
+        .download_to(grant, &mut bytes)
+        .await
+        .map_err(|e| reader_error(&e, true))?;
+    Ok(bytes)
+}
+
+pub(super) async fn fetch_object(
+    session: &RestoreSession,
+    client: &ByteBackupReader,
+    grant: &ReadGrant,
+) -> Result<PathBuf> {
+    let len = grant.bytes.get();
+    if len > MAX_SPOOL {
+        return Err(E::Limit("spool bytes"));
+    }
+    check_capacity(&session.root, len)?;
+    let path = session.root.join("payload.object");
+    let mut file = open_private(&path, false, true)?;
+    client
+        .download_to(grant, &mut file)
+        .await
+        .map_err(|e| reader_error(&e, true))?;
+    file.sync_all()?;
+    sync_dir(&session.root).map(|()| path)
+}
+
+pub(super) fn verify_file(path: &Path, sha: &Digest, len: u64) -> Result<()> {
+    let (m, mut h) = (fs::symlink_metadata(path)?, Sha256::new());
+    if !m.is_file()
+        || m.len() != len
+        || io::copy(&mut File::open(path)?.take(len + 1), &mut h)? != len
     {
-        return RestoreError::Source("guest permission refused");
+        return Err(E::Invalid("file length"));
     }
-    if matches!(
-        error,
-        BackupTransportError::Protocol(e)
-            if e.code == ErrorCode::RetryLater && e.field == "guest.head_changed"
-    ) {
-        return RestoreError::Source("share changed, start a new guest stage");
+    (fold_db::hex::hex_lower(h.finalize()) == sha.as_str())
+        .then_some(())
+        .ok_or(E::Invalid("file digest"))
+}
+
+pub(super) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
+    let vfs = rustix::fs::statvfs(root).map_err(io::Error::from)?;
+    let avail = (vfs.f_bavail as u64).checked_mul(vfs.f_frsize as u64);
+    let req = bytes.checked_add(laststore::space::SpacePolicy::default().free_space_reserve_bytes);
+    avail
+        .zip(req)
+        .is_some_and(|(a, r)| a >= r)
+        .then_some(())
+        .ok_or(E::Limit("disk capacity"))
+}
+
+pub(super) fn sync_dir(path: &Path) -> Result<()> {
+    File::open(path)?.sync_all().map_err(Into::into)
+}
+
+pub(super) fn directory(path: &Path) -> Result<()> {
+    let m = fs::symlink_metadata(path)?;
+    (m.is_dir() && m.uid() == unsafe { libc::geteuid() } && m.mode() & 0o077 == 0)
+        .then_some(())
+        .ok_or(E::Invalid("owned session directory"))
+}
+
+pub(super) fn open_private(path: &Path, create_new: bool, truncate: bool) -> Result<File> {
+    let mut opt = OpenOptions::new();
+    opt.read(!truncate)
+        .write(true)
+        .create(true)
+        .create_new(create_new);
+    let f = opt.mode(0o600).custom_flags(libc::O_NOFOLLOW).open(path)?;
+    if !is_private_file(&f.metadata()?) {
+        return Err(E::Invalid("owned session file"));
     }
-    RestoreError::Source("byte transport")
+    if truncate {
+        f.set_len(0)?;
+    }
+    Ok(f)
+}
+
+pub(super) fn ensure_directory(path: &Path) -> Result<()> {
+    if let Err(e) = fs::DirBuilder::new().mode(0o700).create(path) {
+        if e.kind() != io::ErrorKind::AlreadyExists {
+            return Err(e.into());
+        }
+    }
+    directory(path)
+}
+
+pub(super) fn prepare_native_ephemera(data: &Path, key: &[u8; 32]) -> Result<()> {
+    let home = data.join(RUN_DIR);
+    directory(&home)?;
+    ensure_directory(&home.join(laststore::disk_run::home::RUNS))?;
+    let lock = open_private(&home.join(laststore::disk_run::home::LOCK), false, false)?;
+    if lock.metadata()?.len() != 0 {
+        return Err(E::Invalid("run ephemeral lock"));
+    }
+    lock.sync_all()?;
+    sync_dir(&home)?;
+    run_restore::install_empty_cas_home(data, key).map_err(E::native_proof)
+}
+
+fn reader_error(err: &BackupTransportError, digest: bool) -> RestoreError {
+    use BackupTransportError::{Authentication, Integrity, Protocol};
+    match err {
+        Integrity(_) if digest => E::Invalid("object digest"),
+        Authentication
+        | Protocol(ProtocolError {
+            code: ErrorCode::Unauthorized,
+            ..
+        }) => E::Source("guest permission refused"),
+        Protocol(e)
+            if (e.code, e.field.as_str()) == (ErrorCode::RetryLater, "guest.head_changed") =>
+        {
+            E::Source("share changed, start a new guest stage")
+        }
+        _ => E::Source("byte transport"),
+    }
 }

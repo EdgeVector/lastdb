@@ -1,7 +1,7 @@
 //! Protected credential homes: offline transfer or explicit source-free registration.
 use super::{
-    block_on_cloud, read_stdin_secret, require_disjoint, CloudCommand, FreshHome,
-    PrepareRecoveryArgs, RecoverCredentialsArgs,
+    block_on_cloud, read_stdin_secret, CloudCommand, FreshHome, PrepareRecoveryArgs,
+    RecoverCredentialsArgs,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::AccountId;
@@ -9,12 +9,12 @@ use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::{
-    entry_present, open_directory, read_private_file, require_owned_directory, require_private_file,
+    entry_present, open_directory, read_private_file, require_absolute, require_owned_directory,
+    require_private_file,
 };
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
-use std::fs;
 use std::io::Read;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use zeroize::Zeroizing;
 
@@ -85,7 +85,7 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
                 }
             })
         }
-        CloudCommand::BackupV2 { .. } => unreachable!("handled by signed restore dispatch"),
+        CloudCommand::BackupV2 { .. } => unreachable!("handled by backup dispatch"),
     }
 }
 
@@ -106,7 +106,11 @@ fn prepare_recovery_home(source: Option<&Path>, args: &PrepareRecoveryArgs) -> R
         .map_err(|_| "recovery environment must be dev or prod")?;
     let src_dir = open_directory(source)?;
     require_owned_directory(&src_dir)?;
-    require_disjoint(source, &args.into)?;
+    require_absolute(source)?;
+    require_absolute(&args.into)?;
+    if source.starts_with(&args.into) || args.into.starts_with(source) {
+        return Err("source and recovery home paths must not overlap".into());
+    }
     let target = FreshHome::preflight(&args.into, Some(&src_dir))?;
     let seed = read_private_file(&src_dir, IDENTITY_KEY_FILE, 32)?;
     if seed.len() != 32 {
@@ -165,12 +169,11 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(INTENT, &intent)?;
     target.commit()?;
-    let invite_str = invite.as_deref().map(String::as_str);
     register_into(
         env,
         &pair,
         &device,
-        invite_str,
+        invite.as_deref().map(String::as_str),
         account.as_str(),
         &mut target,
     )
@@ -245,7 +248,7 @@ fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
     if !path.is_absolute() {
         return Err("invite file must be absolute".into());
     }
-    let file = fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
@@ -255,14 +258,12 @@ fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
         Some(1024),
         "invite must be a bounded private owner file",
     )?;
-    let stamp = |f: &fs::File| f.metadata().map(|m| (m.len(), m.mtime(), m.mtime_nsec()));
-    let before = stamp(&file).map_err(|_| "cannot inspect invite file")?;
     let mut bytes = Zeroizing::new(Vec::new());
     (&file)
         .take(1025)
         .read_to_end(&mut bytes)
         .map_err(|_| "cannot read invite file")?;
-    if bytes.len() > 1024 || Ok(before) != stamp(&file).map_err(|_| ()) {
+    if bytes.len() > 1024 {
         return Err("invite file changed or exceeds its limit".into());
     }
     let text = std::str::from_utf8(&bytes)
@@ -279,7 +280,7 @@ fn recover_dev_seed(
     expected: &str,
     seed_stdin: bool,
 ) -> Result<String, (&'static str, bool, Option<String>)> {
-    let fail = |code| (code, false, None);
+    let fail = |code: &'static str| (code, false, None::<String>);
     if source.is_some() || !seed_stdin {
         return Err(fail("explicit_seed_stdin_without_data_dir_required"));
     }
@@ -293,7 +294,8 @@ fn recover_dev_seed(
         .write(IDENTITY_KEY_FILE, seed.as_ref())
         .map_err(|_| fail("cannot_write_protected_identity"))?;
     let id = uuid::Uuid::new_v4().to_string();
-    register_into(Environment::Dev, &pair, &id, None, expected, &mut target)
-        .map(|()| id.clone())
-        .map_err(|i| (DEV_ERRS[i], true, Some(id)))
+    match register_into(Environment::Dev, &pair, &id, None, expected, &mut target) {
+        Ok(()) => Ok(id),
+        Err(i) => Err((DEV_ERRS[i], true, Some(id))),
+    }
 }

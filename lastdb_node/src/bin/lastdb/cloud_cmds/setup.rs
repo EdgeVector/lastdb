@@ -1,14 +1,14 @@
-//! Descriptor-bound fresh-home enrollment and existing-account connection setup.
-use super::{
-    print_backup, read_stdin_no_control, CLOUD_CREDENTIALS_FILE, IDENTITY_KEY_FILE, PHRASE_FILE,
-};
+//! Store-free native backup home initialization, DEV enrollment, and existing connections.
+use super::{block_on_cloud, print_backup, read_stdin_no_control, FreshHome};
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
-use lastdb_node::cloud::{SavedConnection, SavedCredentials};
-use lastdb_node::identity::user_hash_from_pubkey;
+use lastdb_node::cloud::{
+    register_native_device, SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE,
+};
+use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::{
     dir_entry_names, entry_present, open_directory, open_private_at, read_private_file,
-    require_mode_0700_directory, require_owned_directory, same_inode,
+    require_mode_0700_directory, require_owned_directory, same_inode, Directory,
 };
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use rustix::fs::{self, Mode, OFlags};
@@ -18,11 +18,11 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
 
+const PHRASE_FILE: &str = "recovery-phrase.txt";
 const DEVICE_FILE: &str = ".native_backup_device_id";
 const LOCK_FILE: &str = ".native_backup_enrollment.lock";
 const PENDING_FILE: &str = ".native_backup_credentials.pending";
 const FILE_ERR: &str = "native enrollment file must be a private regular owner file";
-const MODE_ERR: &str = "native enrollment directory must be owner-only with mode0700";
 const ALLOWED: [&str; 6] = [
     IDENTITY_KEY_FILE,
     PHRASE_FILE,
@@ -32,7 +32,171 @@ const ALLOWED: [&str; 6] = [
     CLOUD_CREDENTIALS_FILE,
 ];
 
-pub(super) struct PreparedHome {
+pub(super) fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), String> {
+    if phrase_path != destination.join(PHRASE_FILE) {
+        return Err("--recovery-phrase-out must name <into>/recovery-phrase.txt".into());
+    }
+    let target = FreshHome::preflight_empty(destination)?;
+    let pair = Ed25519KeyPair::generate().map_err(|_| "cannot create fresh native identity")?;
+    let seed = Zeroizing::new(pair.secret_key_bytes());
+    let phrase = Zeroizing::new(
+        bip39::Mnemonic::from_entropy(seed.as_ref())
+            .map_err(|_| "cannot encode fresh native recovery phrase")?
+            .to_string(),
+    );
+    let account = user_hash_from_pubkey(&pair.public_key_base64())?;
+    let mut target = target.create()?;
+    target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
+    target.write(PHRASE_FILE, phrase.as_bytes())?;
+    target.commit()?;
+    print_backup(
+        &serde_json::json!({
+            "schema": "lastdb.native-backup-init.v1", "ok": true, "environment": "dev",
+            "account_id": account, "home": destination, "recovery_phrase_file": phrase_path,
+            "cloud_sync_off": true, "local_store_opened": false, "network_request": false,
+            "identity_seed_output": false, "recovery_phrase_output": false,
+        }),
+        json,
+    )
+}
+
+pub(super) fn connect(home: &Path, invite_stdin: bool, json: bool) -> Result<(), String> {
+    let dir = PreparedHome::open(home)?;
+    let seed = dir.seed()?;
+    let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
+        .map_err(|_| "invalid native backup identity")?;
+    let account = user_hash_from_pubkey(&pair.public_key_base64())?;
+    let api_url = exemem_api_url_for(Environment::Dev);
+    let emit = |registered: bool| -> Result<(), String> {
+        print_backup(
+            &serde_json::json!({
+                "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
+                "account_id": account, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
+                "cloud_sync_off": true, "local_store_opened": false,
+                "local_store_read_only": false, "database_writer_opened": false,
+                "registration_attempted": registered, "credentials_saved": true,
+                "api_key_output": false, "restored_home": false, "automatic_backup_enabled": false,
+            }),
+            json,
+        )
+    };
+    if dir.finish_saved_credentials(api_url)? {
+        return emit(false);
+    }
+    let invite = invite_stdin
+        .then(|| read_stdin_no_control(4096, "native enrollment invite"))
+        .transpose()?;
+    let device_id = dir.device_id()?;
+    let fut = register_native_device(
+        Environment::Dev,
+        &pair,
+        &device_id,
+        invite.as_deref().map(String::as_str),
+    );
+    let (api_key, user_hash) = block_on_cloud("native enrollment", fut).map_err(|e| {
+        format!("{e}; registration may have committed; retry only by an explicit request")
+    })?;
+    if user_hash != account
+        || dir.seed()?.as_ref() != seed.as_ref()
+        || dir.device_id()? != device_id
+    {
+        return Err("native enrollment identity changed; registration may have committed".into());
+    }
+    let creds = SavedCredentials::new(api_url, api_key)
+        .key_json()
+        .map_err(|_| "cannot encode paused native credentials")?;
+    dir.write_new(PENDING_FILE, &creds)
+        .and_then(|()| dir.publish())
+        .map_err(|e| format!("{e}; registration may have committed; retain this home"))?;
+    emit(true)
+}
+
+pub(super) fn connect_existing(
+    home: &Path,
+    env_str: &str,
+    expected: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
+    let env = Environment::try_from_str(env_str)
+        .map_err(|_| "existing connection requires an absolute home and dev or prod environment")?;
+    let expected = expected
+        .map(|v| AccountId::try_from(v.to_owned()).map_err(|_| "invalid expected account identity"))
+        .transpose()?;
+    let api_key = read_stdin_no_control(4096, "existing account API key")?;
+    let dir = Directory::open(home).map_err(|e| e.to_string())?;
+    let seed = dir
+        .read(IDENTITY_KEY_FILE)
+        .map_err(|e| e.to_string())?
+        .ok_or("missing home identity")?;
+    if seed.len() != 32 {
+        return Err("identity must contain exactly 32 bytes".into());
+    }
+    let pair = Ed25519KeyPair::from_secret_key(&seed).map_err(|_| "invalid identity")?;
+    let account_id = AccountId::try_from(user_hash_from_pubkey(&pair.public_key_base64())?)
+        .map_err(|_| "invalid account identity".to_owned())?;
+    if expected.as_ref().is_some_and(|id| id != &account_id) {
+        return Err("expected account identity does not match this home".into());
+    }
+    let api_url = exemem_api_url_for(env);
+    let auth = lastdb_node::cloud_backup_client::AuthClient::new(
+        api_url.to_owned(),
+        api_key.as_str().to_owned(),
+    );
+    let endpoint = lastdb_node::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(auth)
+        .map_err(|e| e.to_string())?
+        .canonical_endpoint();
+    let prev = dir
+        .read(CLOUD_CREDENTIALS_FILE)
+        .map_err(|e| e.to_string())?;
+    let mut creds = match &prev {
+        Some(bytes) => {
+            let saved =
+                SavedCredentials::parse(bytes).map_err(|_| "invalid source cloud credentials")?;
+            if saved.api_url != api_url || saved.api_key.as_str() != api_key.as_str() {
+                return Err("saved cloud credentials do not match this connection".into());
+            }
+            saved
+        }
+        None => SavedCredentials::new(api_url, api_key.as_str().to_owned()),
+    };
+    let source_home = match &creds.connection {
+        Some(saved) => saved.source_home.clone(),
+        None => Id::try_from(uuid::Uuid::new_v4().to_string())
+            .map_err(|_| "cannot name this home".to_owned())?,
+    };
+    let conn = SavedConnection {
+        account_id: account_id.clone(),
+        source_home,
+        environment: env_str.to_owned(),
+        endpoint,
+    };
+    if creds
+        .connection
+        .as_ref()
+        .is_some_and(|saved| saved != &conn)
+    {
+        return Err("saved cloud connection does not match this account".into());
+    }
+    creds.connection = Some(conn);
+    let encoded = creds
+        .to_json()
+        .map_err(|_| "cannot encode cloud credentials")?;
+    dir.publish(
+        CLOUD_CREDENTIALS_FILE,
+        prev.as_deref().map(Vec::as_slice),
+        &encoded,
+    )
+    .map_err(|e| e.to_string())?;
+    print_backup(
+        &serde_json::json!({
+            "ok": true, "environment": env_str, "account_id": account_id,
+            "credentials_saved": true, "registration_attempted": false,
+        }),
+        json,
+    )
+}
+
+struct PreparedHome {
     parent: File,
     name: OsString,
     directory: File,
@@ -40,34 +204,34 @@ pub(super) struct PreparedHome {
 }
 
 impl PreparedHome {
-    pub(super) fn open(home: &Path) -> Result<Self, String> {
+    fn open(home: &Path) -> Result<Self, String> {
         let parent = open_directory(home.parent().ok_or("native enrollment needs a home")?)?;
         require_owned_directory(&parent)?;
         let directory = open_directory(home)?;
-        require_mode_0700_directory(&directory, MODE_ERR)?;
+        require_mode_0700_directory(
+            &directory,
+            "native enrollment directory must be owner-only with mode0700",
+        )?;
         let name = home
             .file_name()
             .ok_or("native enrollment needs an explicit home name")?
             .to_os_string();
-        let flags = OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK;
-        let _lock = open_private_at(
+        let lock = open_private_at(
             &directory,
             LOCK_FILE,
-            flags,
+            OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK,
             Mode::from_raw_mode(0o600),
             FILE_ERR,
         )?;
-        _lock
-            .try_lock()
+        lock.try_lock()
             .map_err(|_| "native enrollment is already active for this home")?;
         let prepared = Self {
             parent,
             name,
             directory,
-            _lock,
+            _lock: lock,
         };
-        prepared.verify_entries()?;
-        prepared.seed().map(|_| prepared)
+        prepared.verify_entries().map(|()| prepared)
     }
 
     fn verify_entries(&self) -> Result<(), String> {
@@ -85,10 +249,8 @@ impl PreparedHome {
         Ok(())
     }
 
-    pub(super) fn seed(&self) -> Result<Zeroizing<[u8; 32]>, String> {
-        if !same_inode(&self.parent, &self.name, &self.directory) {
-            return Err("selected native enrollment home changed".into());
-        }
+    fn seed(&self) -> Result<Zeroizing<[u8; 32]>, String> {
+        self.verify_entries()?;
         let seed: Zeroizing<[u8; 32]> = read_private_file(&self.directory, IDENTITY_KEY_FILE, 32)?
             .as_slice()
             .try_into()
@@ -106,22 +268,21 @@ impl PreparedHome {
             .ok_or_else(|| "protected recovery phrase does not match native identity".into())
     }
 
-    pub(super) fn device_id(&self) -> Result<String, String> {
+    fn device_id(&self) -> Result<String, String> {
         self.verify_entries()?;
         if !entry_present(&self.directory, DEVICE_FILE)? {
             self.write_new(DEVICE_FILE, uuid::Uuid::new_v4().to_string().as_bytes())?;
         }
-        let bytes = read_private_file(&self.directory, DEVICE_FILE, 36)?;
-        let text = String::from_utf8(bytes).map_err(|_| "invalid saved native device ID")?;
+        let text = String::from_utf8(read_private_file(&self.directory, DEVICE_FILE, 36)?)
+            .map_err(|_| "invalid saved native device ID")?;
         let id = uuid::Uuid::parse_str(&text).map_err(|_| "invalid saved native device ID")?;
         if id.get_version() != Some(uuid::Version::Random) || id.to_string() != text {
             return Err("native device ID must be a canonical UUIDv4".into());
         }
-        sync_ro(&self.directory, DEVICE_FILE)?;
         self.sync().map(|()| text)
     }
 
-    pub(super) fn finish_saved_credentials(&self, api_url: &str) -> Result<bool, String> {
+    fn finish_saved_credentials(&self, api_url: &str) -> Result<bool, String> {
         self.verify_entries()?;
         let name = match (
             entry_present(&self.directory, CLOUD_CREDENTIALS_FILE)?,
@@ -138,18 +299,12 @@ impl PreparedHome {
         if creds.api_url != api_url || creds.api_key.is_empty() {
             return Err("saved native credentials do not match the compiled DEV endpoint".into());
         }
-        sync_ro(&self.directory, name)?;
         if name == PENDING_FILE {
-            self.publish()?;
+            self.publish()
         } else {
-            self.sync()?;
+            self.sync()
         }
-        Ok(true)
-    }
-
-    pub(super) fn save_credentials(&self, bytes: &[u8]) -> Result<(), String> {
-        self.write_new(PENDING_FILE, bytes)?;
-        self.publish()
+        .map(|()| true)
     }
 
     fn publish(&self) -> Result<(), String> {
@@ -169,11 +324,10 @@ impl PreparedHome {
 
     fn write_new(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
         self.verify_entries()?;
-        let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL;
         let mut file = open_private_at(
             &self.directory,
             name,
-            flags,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
             Mode::from_raw_mode(0o600),
             FILE_ERR,
         )?;
@@ -190,123 +344,4 @@ impl PreparedHome {
             .and_then(|()| self.parent.sync_all())
             .map_err(|_| "cannot sync native enrollment home".into())
     }
-}
-
-fn sync_ro(dir: &File, name: &str) -> Result<(), String> {
-    open_private_at(
-        dir,
-        name,
-        OFlags::RDONLY | OFlags::NONBLOCK,
-        Mode::empty(),
-        FILE_ERR,
-    )?
-    .sync_all()
-    .map_err(|_| "cannot sync saved native enrollment file".into())
-}
-
-pub(super) fn run_existing(
-    home: &Path,
-    env: &str,
-    expected: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
-    if !home.is_absolute() || !matches!(env, "dev" | "prod") {
-        return Err(
-            "existing connection requires an absolute home and dev or prod environment".into(),
-        );
-    }
-    let expected = expected
-        .map(|v| AccountId::try_from(v.to_owned()).map_err(|_| "invalid expected account identity"))
-        .transpose()?;
-    let api_key = read_stdin_no_control(4096, "existing account API key")?;
-    if api_key.is_empty() || api_key.len() > 4096 || api_key.trim() != api_key.as_str() {
-        return Err("existing account API key was refused".into());
-    }
-    let account_id = home_account(home)?;
-    if expected.as_ref().is_some_and(|id| id != &account_id) {
-        return Err("expected account identity does not match this home".into());
-    }
-    save_existing(home, env, &account_id, &api_key)?;
-    print_backup(
-        &serde_json::json!({
-            "ok": true,
-            "environment": env,
-            "account_id": account_id,
-            "credentials_saved": true,
-            "registration_attempted": false,
-        }),
-        json,
-    )
-}
-
-fn home_account(home: &Path) -> Result<AccountId, String> {
-    let directory = open_directory(home)?;
-    require_owned_directory(&directory)?;
-    let seed = read_private_file(&directory, IDENTITY_KEY_FILE, 32)?;
-    if seed.len() != 32 {
-        return Err("identity must contain exactly 32 bytes".into());
-    }
-    let pair = Ed25519KeyPair::from_secret_key(&seed).map_err(|_| "invalid identity")?;
-    let account = user_hash_from_pubkey(&pair.public_key_base64())?;
-    AccountId::try_from(account).map_err(|_| "invalid account identity".into())
-}
-
-fn save_existing(
-    home: &Path,
-    env: &str,
-    account_id: &AccountId,
-    api_key: &str,
-) -> Result<(), String> {
-    let environment =
-        Environment::try_from_str(env).map_err(|_| "recovery environment must be dev or prod")?;
-    let api_url = exemem_api_url_for(environment);
-    let endpoint = lastdb_node::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(
-        lastdb_node::cloud_backup_client::AuthClient::new(api_url.to_owned(), api_key.to_owned()),
-    )
-    .map_err(|error| error.to_string())?
-    .canonical_endpoint();
-    let directory = lastdb_node::offline_home::Directory::open(home).map_err(|e| e.to_string())?;
-    let previous = directory
-        .read(CLOUD_CREDENTIALS_FILE)
-        .map_err(|e| e.to_string())?;
-    let mut creds = match &previous {
-        Some(bytes) => {
-            let saved =
-                SavedCredentials::parse(bytes).map_err(|_| "invalid source cloud credentials")?;
-            if saved.api_url != api_url || saved.api_key.as_str() != api_key {
-                return Err("saved cloud credentials do not match this connection".into());
-            }
-            saved
-        }
-        None => SavedCredentials::new(api_url, api_key.to_owned()),
-    };
-    let source_home = match &creds.connection {
-        Some(saved) => saved.source_home.clone(),
-        None => Id::try_from(uuid::Uuid::new_v4().to_string())
-            .map_err(|_| "cannot name this home".to_owned())?,
-    };
-    let connection = SavedConnection {
-        account_id: account_id.clone(),
-        source_home,
-        environment: env.to_owned(),
-        endpoint,
-    };
-    if creds
-        .connection
-        .as_ref()
-        .is_some_and(|saved| saved != &connection)
-    {
-        return Err("saved cloud connection does not match this account".into());
-    }
-    creds.connection = Some(connection);
-    let encoded = creds
-        .to_json()
-        .map_err(|_| "cannot encode cloud credentials")?;
-    directory
-        .publish(
-            CLOUD_CREDENTIALS_FILE,
-            previous.as_ref().map(|bytes| bytes.as_slice()),
-            &encoded,
-        )
-        .map_err(|e| e.to_string())
 }
