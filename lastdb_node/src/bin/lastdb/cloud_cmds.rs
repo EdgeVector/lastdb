@@ -69,9 +69,9 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
 fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
-    let id = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    let (id, nonce) = lastdb_node::log_sync::request_snapshot(&home, database)?;
     if wait {
-        return snapshot_wait::until_head(&home, &id);
+        return snapshot_wait::until_head(&home, &id, &nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())

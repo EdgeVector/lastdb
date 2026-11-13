@@ -36,12 +36,7 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     if private && !runtime.captures_accepted() {
         return Err("local capture disabled until the enrolled node restarts");
     }
-    let status = accepted_writes::status(&runtime);
-    if super::snapshot::holds_first_backup(
-        &host.home,
-        log.database_id(),
-        status.acked < status.head,
-    ) {
+    if super::snapshot::holds_first_backup(&host.home, log.database_id()) {
         return Ok(());
     }
     let material = Zeroizing::new(*key.encryption_bytes());
