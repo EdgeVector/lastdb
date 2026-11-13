@@ -210,6 +210,12 @@ pub(crate) mod local_file_ref {
         }
     }
 
+    pub(super) fn has_references(runtime: &PackRuntime) -> StorageResult<bool> {
+        let _guard = catalog_lock()?;
+        let (path, _) = sidecar_path(runtime)?;
+        Ok(!load(&path)?.files.is_empty())
+    }
+
     pub(crate) fn describe(
         runtime: &PackRuntime,
         path: &Path,

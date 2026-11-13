@@ -56,7 +56,7 @@ async fn publish(
     let cut = runtime
         .capture_database_snapshot()
         .await
-        .map_err(|_| "cannot freeze the database files")?;
+        .map_err(|error| format!("cannot freeze the database files: {error}"))?;
     let (cut, files) = tokio::task::spawn_blocking(move || {
         let files = files::inventory(&cut).map_err(|_| "cannot read the frozen database files")?;
         Ok::<_, String>((cut, files))
