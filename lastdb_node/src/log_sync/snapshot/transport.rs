@@ -86,7 +86,8 @@ pub(super) async fn publish(
         let grants = grants(
             log,
             json!({
-                "action": "prepare", "database_id": log.database_id(), "files": page,
+                "action": "prepare", "database_id": log.database_id(),
+                "upload_id": manifest.upload_id, "files": page,
             }),
             page.len(),
         )
