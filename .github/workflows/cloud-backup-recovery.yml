@@ -8,6 +8,7 @@ on:
       - '.github/workflows/cloud-backup-recovery.yml'
       - '.github/workflows/cloud-backup-build.yml'
       - 'scripts/cloud_backup/**'
+      - 'apps/social/**'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
       - 'app_identity_crypto/**'
@@ -23,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "signed-files = fresh Files transfer; social-share = configuration and recipient access"
+        description: "signed-files = fresh Files transfer; social-share = two-user Social sharing"
         type: choice
         options: [signed-files, social-share]
         default: signed-files
@@ -52,7 +53,7 @@ jobs:
         run: |
           test "$SELECTED_REF" = refs/heads/main
       - name: Check the operational recipe syntax
-        run: python3 -m py_compile scripts/cloud_backup/*.py
+        run: python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
 
   build-client:
     name: Build

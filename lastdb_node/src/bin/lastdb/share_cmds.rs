@@ -99,6 +99,17 @@ fn run_offline(
         .map_err(|_| "share identity home must exist")?;
     match action {
         ShareCommand::Contact { out } => contact(&identity_home, &out),
+        ShareCommand::VerifyContact {
+            contact,
+            recipient_key,
+        } => {
+            let verified = read_contact(&contact, recipient_key)?;
+            println!(
+                "{}",
+                serde_json::json!({"contactCode": verified.encode(), "nodeKey": verified.identity_public_key()})
+            );
+            Ok(())
+        }
         ShareCommand::Invite {
             recipient,
             recipient_key,

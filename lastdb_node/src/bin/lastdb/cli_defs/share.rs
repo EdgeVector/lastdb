@@ -8,6 +8,12 @@ pub(crate) enum ShareCommand {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Verify a contact file against an independently trusted node key.
+    VerifyContact {
+        contact: PathBuf,
+        #[arg(long)]
+        recipient_key: String,
+    },
     /// Create a recipient-encrypted invitation for the named database selected by --db.
     Invite {
         /// Contact file obtained from the intended recipient.
