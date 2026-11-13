@@ -1,4 +1,4 @@
-//! Put and fetch routes for a record's blob, inline, or local-reference file.
+//! Put, fetch, and delete routes for a record's blob, inline, or local-reference file.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -57,19 +57,18 @@ pub(super) async fn db_fetch_blob(
         let s = schema_resolve::resolve_schema_name(host, &t.schema)?
             .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", t.schema)))?;
         let rev = t.expected_revision.as_deref();
-        let (res, msg) = match t.placement {
-            Placement::Inline => (
-                host.records()
-                    .read_record_inline_file(&s, &t.key, rev)
-                    .await,
-                "the record has no inline file",
-            ),
-            Placement::Blob => (
-                host.records().read_record_file(&s, &t.key, rev).await,
-                "the record has no file",
-            ),
-        };
-        res?.ok_or_else(|| HostError::new(404, msg))
+        match t.placement {
+            Placement::Inline => host
+                .records()
+                .read_record_inline_file(&s, &t.key, rev)
+                .await?
+                .ok_or_else(|| HostError::new(404, "the record has no inline file")),
+            Placement::Blob => host
+                .records()
+                .read_record_file(&s, &t.key, rev)
+                .await?
+                .ok_or_else(|| HostError::new(404, "the record has no file")),
+        }
     };
     render_file(req, ctx, read.await)
 }
@@ -91,10 +90,53 @@ pub(super) fn render_file(
     }
     let mut file = serde_json::to_value(&marker).unwrap_or(Value::Null);
     if let Some(obj) = file.as_object_mut() {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-        obj.insert("bytes_b64".into(), Value::String(b64));
+        obj.insert(
+            "bytes_b64".into(),
+            Value::String(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+        );
     }
     json_ok(&envelope(&json!({ "file": file }), ctx.user_id.as_str()))
+}
+
+pub(super) async fn db_delete_blob(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "file delete is owner-only", ctx);
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        mutation: Operation,
+        #[serde(default)]
+        placement: Placement,
+    }
+    let res = async {
+        let b: Body = serde_json::from_slice(&req.body)
+            .map_err(|e| HostError::new(400, format!("invalid delete-blob request: {e}")))?;
+        let mut p = ParsedMutation::from_operation(b.mutation, None);
+        if p.mutation.mutation_type != MutationType::Replace {
+            return Err(HostError::new(
+                400,
+                "delete-blob requires a complete replacement",
+            ));
+        }
+        match b.placement {
+            Placement::Inline => p.mutation.inline_write = Some(InlineWrite::Clear),
+            Placement::Blob if p.mutation.file.is_some() => {
+                return Err(HostError::new(
+                    400,
+                    "delete-blob requires a complete replacement without a file marker",
+                ));
+            }
+            Placement::Blob => p.mutation.file_write = Some(FileWrite::Clear),
+        }
+        mutation::commit_parsed_mutation(host, p).await
+    }
+    .await;
+    render(res, ctx)
 }
 
 #[derive(Deserialize)]

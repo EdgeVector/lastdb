@@ -32,19 +32,19 @@ type Catalog = (
 
 fn load_catalog(
     home: &Path,
-    channel: Option<&str>,
+    ch: Option<&str>,
     index: Option<&str>,
     trust_key: Option<&str>,
 ) -> Result<Catalog, String> {
-    let ch = channel.unwrap_or(registry::DEFAULT_CHANNEL);
+    let ch = ch.unwrap_or(registry::DEFAULT_CHANNEL);
     let loc = registry::IndexLocation::resolve(index)?;
     let (vk, trust) = registry::resolve_list_trust_key(trust_key)?;
-    let (build, src, api, outbox) = registry::running_node(home);
+    let (build, node_src, api, outbox) = registry::running_node(home);
     let mut list = block_on_app(registry::fetch_list(&loc, ch, api, &vk))?;
     list.apps
         .retain(|e| e.outbox_format_version.is_none_or(|v| v == outbox));
     let idx = loc.describe_interface(ch, list.api_version);
-    Ok((list, idx, trust, (build, src)))
+    Ok((list, idx, trust, (build, node_src)))
 }
 
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
@@ -54,7 +54,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             print_pretty_json(&host::rollback(&app_id, &home)?);
             Ok(())
         }
-        AppCommand::Status { app_id, check, .. } => status_apps(&home, app_id, check),
+        AppCommand::Status { app_id, check, .. } => status_apps(&home, app_id.as_deref(), check),
         AppCommand::Publish(args) => interface_publish::publish_interface(&home, &args),
         AppCommand::List {
             app_id,
@@ -75,7 +75,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             accept_install,
             source,
             ..
-        } => upgrade_apps(&home, all, accept_install, app_ids, &source),
+        } => upgrade_apps(&home, all, accept_install, &app_ids, &source),
     }
 }
 
@@ -106,29 +106,18 @@ fn list_apps(
         }
         return Ok(());
     };
+    let api = list.api_version;
     let e = list
         .apps
         .iter()
         .find(|e| e.app_id == app_id)
-        .ok_or_else(|| {
-            format!(
-                "no app '{app_id}' was proved with lastdb API {}",
-                list.api_version
-            )
-        })?;
+        .ok_or_else(|| format!("no app '{app_id}' was proved with lastdb API {api}"))?;
     if catalog_entry || json {
         print_pretty_json(e);
     } else {
-        println!(
-            "{} {} @ {} proved with lastdb {nb} ({ns}) at {}\n  source: {}\n  index: {index} (trust: {trust})",
-            e.app_id, e.app_version, e.sha, e.published_at, e.source
-        );
+        println!("{} {} @ {} proved with lastdb {nb} ({ns}) at {}\n  source: {}\n  index: {index} (trust: {trust})", e.app_id, e.app_version, e.sha, e.published_at, e.source);
     }
     Ok(())
-}
-
-fn installed(app: &str) -> Result<host::ManagedReceipt, String> {
-    host::receipt(&host::app_root(app)?.join("current"))
 }
 
 fn installed_app_ids() -> Result<Vec<String>, String> {
@@ -136,19 +125,17 @@ fn installed_app_ids() -> Result<Vec<String>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
-    let mut names: Vec<_> = std::fs::read_dir(root)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter_map(|e| {
-            e.path()
-                .join("current")
-                .join(registry::RECEIPT_FILE)
-                .is_file()
-                .then(|| e.file_name().to_string_lossy().into_owned())
-        })
-        .collect();
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(root).map_err(|e| e.to_string())? {
+        let e = entry.map_err(|e| e.to_string())?;
+        if e.path()
+            .join("current")
+            .join(registry::RECEIPT_FILE)
+            .is_file()
+        {
+            names.push(e.file_name().to_string_lossy().into_owned());
+        }
+    }
     names.sort();
     Ok(names)
 }
@@ -183,18 +170,14 @@ fn install_apps(
 ) -> Result<(), String> {
     let ch = src.channel.as_deref().unwrap_or(registry::DEFAULT_CHANNEL);
     let rows = resolutions(home, ch, src.index.as_deref(), src.trust_key.as_deref())?;
-    let results: Vec<_> = app_ids
-        .iter()
-        .map(|app| {
-            let row = rows
-                .iter()
-                .find(|r| &r.entry.app_id == app)
-                .ok_or_else(|| {
-                    format!("no app '{app}' was proved with lastdb on this interface")
-                })?;
-            host::install(row, home, accept_install, inactive)
-        })
-        .collect::<Result<_, _>>()?;
+    let mut results = Vec::with_capacity(app_ids.len());
+    for app in app_ids {
+        let row = rows
+            .iter()
+            .find(|r| &r.entry.app_id == app)
+            .ok_or_else(|| format!("no app '{app}' was proved with lastdb on this interface"))?;
+        results.push(host::install(row, home, accept_install, inactive)?);
+    }
     print_pretty_json(&results);
     install_poll()
 }
@@ -237,15 +220,17 @@ fn install_poll() -> Result<(), String> {
     let _ = Command::new("launchctl")
         .args(["bootout", &format!("{dom}/{label}")])
         .output();
-    Command::new("launchctl")
+    if !Command::new("launchctl")
         .args(["bootstrap", &dom])
         .arg(&plist)
         .output()
         .map_err(|e| e.to_string())?
         .status
         .success()
-        .then_some(())
-        .ok_or_else(|| "could not load registry app updater".into())
+    {
+        return Err("could not load registry app updater".into());
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -257,28 +242,23 @@ type CachedLists = HashMap<(String, String), Result<Vec<registry::Resolution>, S
 
 fn upgrade_one(
     home: &Path,
-    accept_install: bool,
-    polling: bool,
+    (accept_install, polling): (bool, bool),
     src: &CatalogSource,
     lists: &mut CachedLists,
     app: &str,
 ) -> Result<Option<serde_json::Value>, String> {
-    let cur = installed(app)?;
+    let root = host::app_root(app)?;
+    let cur = host::receipt(&root.join("current"))?;
     if src.index.is_none() && cur.index.trim().starts_with("lastsecrets://") {
         let err = "saved private registry index is no longer supported";
-        return if polling {
-            Ok(Some(json!({
-                "app": app, "state": "blocked", "reason": "unsupported_saved_index",
-                "error": err, "installed_release": cur.sha
-            })))
-        } else {
-            Err(err.into())
-        };
+        if !polling {
+            return Err(err.into());
+        }
+        return Ok(Some(
+            json!({"app": app, "state": "blocked", "reason": "unsupported_saved_index", "error": err, "installed_release": cur.sha}),
+        ));
     }
-    let (ch, root) = (
-        src.channel.as_deref().unwrap_or(&cur.channel),
-        host::app_root(app)?,
-    );
+    let ch = src.channel.as_deref().unwrap_or(&cur.channel);
     let stamp = root.join("last-checked");
     if polling
         && ch == "stable"
@@ -289,7 +269,7 @@ fn upgrade_one(
             .is_some_and(|d| d.as_secs() < 3600)
     {
         let _lock = host::lock(&root)?;
-        host::verify_or_restore(&root, home, &installed(app)?)?;
+        host::verify_or_restore(&root, home, &host::receipt(&root.join("current"))?)?;
         return Ok(None);
     }
     let eff = src.index.as_deref().unwrap_or(&cur.index);
@@ -312,14 +292,20 @@ fn upgrade_apps(
     home: &Path,
     all: bool,
     accept_install: bool,
-    ids: Vec<String>,
+    ids: &[String],
     src: &CatalogSource,
 ) -> Result<(), String> {
-    let names = if all { installed_app_ids()? } else { ids };
+    let owned;
+    let names: &[String] = if all {
+        owned = installed_app_ids()?;
+        &owned
+    } else {
+        ids
+    };
     let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1");
     let (mut lists, mut results, mut failed) = (HashMap::new(), Vec::new(), false);
     for app in names {
-        match upgrade_one(home, accept_install, polling, src, &mut lists, &app) {
+        match upgrade_one(home, (accept_install, polling), src, &mut lists, app) {
             Ok(Some(res)) => results.push(res),
             Ok(None) => {}
             Err(error) => {
@@ -331,17 +317,19 @@ fn upgrade_apps(
     if !polling || !results.is_empty() {
         print_pretty_json(&results);
     }
-    (!failed)
-        .then_some(())
-        .ok_or_else(|| "one or more app upgrades failed; prior versions retained".into())
+    if failed {
+        Err("one or more app upgrades failed; prior versions retained".into())
+    } else {
+        Ok(())
+    }
 }
 
-fn status_apps(home: &Path, app_id: Option<String>, check: bool) -> Result<(), String> {
-    let names = app_id.map_or_else(installed_app_ids, |app| Ok(vec![app]))?;
+fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), String> {
+    let names = app_id.map_or_else(installed_app_ids, |app| Ok(vec![app.to_owned()]))?;
     let (mut rows, mut failed) = (Vec::new(), false);
     for app in names {
         let root = host::app_root(&app)?;
-        match installed(&app) {
+        match host::receipt(&root.join("current")) {
             Ok(r) => {
                 let probe = host::verify(&root, check.then_some(home), &r).err();
                 failed |= probe.is_some();
@@ -352,12 +340,11 @@ fn status_apps(home: &Path, app_id: Option<String>, check: bool) -> Result<(), S
                 } else {
                     "current"
                 };
-                rows.push(json!({
-                    "app": app, "state": state, "installed_release": r.sha,
-                    "active_release": std::fs::read_link(root.join("current")).ok(),
-                    "prior_release": std::fs::read_link(root.join("previous")).ok(),
-                    "probe": probe, "receipt": r
-                }));
+                let (act, pri) = (
+                    std::fs::read_link(root.join("current")).ok(),
+                    std::fs::read_link(root.join("previous")).ok(),
+                );
+                rows.push(json!({"app": app, "state": state, "installed_release": r.sha, "active_release": act, "prior_release": pri, "probe": probe, "receipt": r}));
             }
             Err(error) => {
                 failed = true;
@@ -366,7 +353,9 @@ fn status_apps(home: &Path, app_id: Option<String>, check: bool) -> Result<(), S
         }
     }
     print_pretty_json(&rows);
-    (!failed)
-        .then_some(())
-        .ok_or_else(|| "one or more apps are unhealthy".into())
+    if failed {
+        Err("one or more apps are unhealthy".into())
+    } else {
+        Ok(())
+    }
 }

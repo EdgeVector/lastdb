@@ -53,81 +53,83 @@ impl UdsResponse {
     }
 }
 
-enum UdsHttpError {
+enum HttpErr {
     Silent,
-    BadRequest,
-    UnsupportedHttpVersion,
-    HeadersTooLarge,
-    BodyTooLarge,
+    Bad,
+    Version,
+    HeadersLarge,
+    BodyLarge,
 }
 
-impl From<io::Error> for UdsHttpError {
+impl From<io::Error> for HttpErr {
     fn from(_: io::Error) -> Self {
         Self::Silent
     }
 }
 
-fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, UdsHttpError> {
+fn read_line<R: BufRead>(r: &mut R) -> Result<Option<Vec<u8>>, HttpErr> {
     let mut buf = Vec::new();
-    if reader.take((max as u64) + 2).read_until(b'\n', &mut buf)? == 0 {
+    if r.take((MAX_LINE_LEN as u64) + 2)
+        .read_until(b'\n', &mut buf)?
+        == 0
+    {
         return Ok(None);
     }
     if buf.pop() != Some(b'\n') {
-        return Err(if buf.len() > max {
-            UdsHttpError::HeadersTooLarge
+        return Err(if buf.len() > MAX_LINE_LEN {
+            HttpErr::HeadersLarge
         } else {
-            UdsHttpError::BadRequest
+            HttpErr::Bad
         });
     }
     if buf.last() == Some(&b'\r') {
         buf.pop();
     }
-    (buf.len() <= max)
-        .then_some(Some(buf))
-        .ok_or(UdsHttpError::HeadersTooLarge)
+    if buf.len() > MAX_LINE_LEN {
+        Err(HttpErr::HeadersLarge)
+    } else {
+        Ok(Some(buf))
+    }
 }
 
-fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpError> {
-    let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::Silent)?;
-    let [method, target, version] = std::str::from_utf8(&line)
-        .map_err(|_| UdsHttpError::BadRequest)?
-        .split(' ')
-        .collect::<Vec<_>>()[..]
-    else {
-        return Err(UdsHttpError::BadRequest);
+fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, HttpErr> {
+    let line = read_line(&mut reader)?.ok_or(HttpErr::Silent)?;
+    let s = std::str::from_utf8(&line).map_err(|_| HttpErr::Bad)?;
+    let [method, target, version] = s.split(' ').collect::<Vec<_>>()[..] else {
+        return Err(HttpErr::Bad);
     };
     if method.is_empty() || !method.bytes().all(|b| b.is_ascii_graphic()) || target.is_empty() {
-        return Err(UdsHttpError::BadRequest);
+        return Err(HttpErr::Bad);
     }
     if version != "HTTP/1.0" && version != "HTTP/1.1" {
-        return Err(UdsHttpError::UnsupportedHttpVersion);
+        return Err(HttpErr::Version);
     }
     let (method, target) = (method.to_string(), target.to_string());
     let (mut headers, mut total) = (Vec::new(), 0usize);
     loop {
-        let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::BadRequest)?;
-        if line.is_empty() {
+        let l = read_line(&mut reader)?.ok_or(HttpErr::Bad)?;
+        if l.is_empty() {
             break;
         }
-        total = total.saturating_add(line.len());
+        total = total.saturating_add(l.len());
         if total > MAX_HEADERS_TOTAL || headers.len() >= MAX_HEADER_COUNT {
-            return Err(UdsHttpError::HeadersTooLarge);
+            return Err(HttpErr::HeadersLarge);
         }
-        let (raw, val) = std::str::from_utf8(&line)
+        let (raw, val) = std::str::from_utf8(&l)
             .ok()
             .and_then(|s| s.split_once(':'))
-            .ok_or(UdsHttpError::BadRequest)?;
-        let name = raw.trim();
-        if name.is_empty() || name.bytes().any(|b| b == b' ' || b == b'\t') {
-            return Err(UdsHttpError::BadRequest);
+            .ok_or(HttpErr::Bad)?;
+        let n = raw.trim();
+        if n.is_empty() || n.bytes().any(|b| b == b' ' || b == b'\t') {
+            return Err(HttpErr::Bad);
         }
-        headers.push((name.to_string(), val.trim().to_string()));
+        headers.push((n.to_string(), val.trim().to_string()));
     }
     if headers
         .iter()
         .any(|(n, _)| n.eq_ignore_ascii_case("transfer-encoding"))
     {
-        return Err(UdsHttpError::BadRequest);
+        return Err(HttpErr::Bad);
     }
     let body = read_body(&mut reader, &headers, &method, &target)?;
     Ok(UdsRequest {
@@ -139,63 +141,56 @@ fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpError> {
 }
 
 fn read_body(
-    reader: &mut impl Read,
+    r: &mut impl Read,
     headers: &[(String, String)],
     method: &str,
     target: &str,
-) -> Result<Vec<u8>, UdsHttpError> {
+) -> Result<Vec<u8>, HttpErr> {
+    let put_path = target == "/api/db/put-blob"
+        || super::database_path::split(target).is_some_and(|(_, p)| p == "db/put-blob");
+    let octet = headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
+        .and_then(|(_, v)| v.split(';').next());
     let raw_blob = method == "POST"
-        && (target == "/api/db/put-blob"
-            || crate::lastdb_uds::database_path::split(target)
-                .is_some_and(|(_, p)| p == "db/put-blob"))
-        && headers
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
-            .and_then(|(_, v)| v.split(';').next())
-            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
+        && put_path
+        && octet.is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
     let max = if raw_blob {
         fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
     } else {
         MAX_BODY_LEN as u64
     };
-    let (mut length, mut seen) = (0usize, false);
+    let (mut len, mut seen) = (0usize, false);
     for (n, v) in headers {
         if n.eq_ignore_ascii_case("content-length") {
-            let p = v
-                .trim()
-                .parse::<usize>()
-                .map_err(|_| UdsHttpError::BadRequest)?;
-            if seen && p != length {
-                return Err(UdsHttpError::BadRequest);
+            let p: usize = v.trim().parse().map_err(|_| HttpErr::Bad)?;
+            if seen && p != len {
+                return Err(HttpErr::Bad);
             }
-            (length, seen) = (p, true);
+            (len, seen) = (p, true);
         }
     }
-    if length as u64 > max {
-        return Err(UdsHttpError::BodyTooLarge);
+    if len as u64 > max {
+        return Err(HttpErr::BodyLarge);
     }
     let mut body = Vec::new();
-    body.try_reserve_exact(length)
-        .map_err(|_| UdsHttpError::Silent)?;
-    body.resize(length, 0);
-    reader.read_exact(&mut body).map_err(|e| {
+    body.try_reserve_exact(len).map_err(|_| HttpErr::Silent)?;
+    body.resize(len, 0);
+    r.read_exact(&mut body).map_err(|e| {
         if e.kind() == io::ErrorKind::UnexpectedEof {
-            UdsHttpError::BadRequest
+            HttpErr::Bad
         } else {
-            UdsHttpError::Silent
+            HttpErr::Silent
         }
     })?;
     Ok(body)
 }
 
 pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
-    let resp = UdsResponse::new(
-        503,
-        "Service Unavailable",
-        br#"{"status":"busy","error":"uds_worker_queue_full"}"#.to_vec(),
-    )
-    .with_header("Content-Type", "application/json")
-    .with_header("Retry-After", "1");
+    let body = br#"{"status":"busy","error":"uds_worker_queue_full"}"#.to_vec();
+    let resp = UdsResponse::new(503, "Service Unavailable", body)
+        .with_header("Content-Type", "application/json")
+        .with_header("Retry-After", "1");
     write_with_budget(stream, &resp, Duration::from_secs(2))
 }
 
@@ -258,23 +253,23 @@ fn write_with_budget(
 
 pub fn receive_connection(
     stream: &mut UnixStream,
-    owner_user_id: &str,
+    owner: &str,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
-    let read_half = stream.try_clone()?;
+    let r = stream.try_clone()?;
     match read_request(io::BufReader::new(DeadlineStream(
-        &read_half,
+        &r,
         Instant::now() + UDS_CONN_BUDGET,
     ))) {
-        Ok(req) => Ok(Some((req, AccessContext::owner(owner_user_id)))),
-        Err(UdsHttpError::Silent) => Ok(None),
+        Ok(req) => Ok(Some((req, AccessContext::owner(owner)))),
+        Err(HttpErr::Silent) => Ok(None),
         Err(err) => {
-            let (status, reason) = match err {
-                UdsHttpError::UnsupportedHttpVersion => (505, "HTTP Version Not Supported"),
-                UdsHttpError::HeadersTooLarge => (431, "Request Header Fields Too Large"),
-                UdsHttpError::BodyTooLarge => (413, "Payload Too Large"),
-                UdsHttpError::BadRequest | UdsHttpError::Silent => (400, "Bad Request"),
+            let (st, reason) = match err {
+                HttpErr::Version => (505, "HTTP Version Not Supported"),
+                HttpErr::HeadersLarge => (431, "Request Header Fields Too Large"),
+                HttpErr::BodyLarge => (413, "Payload Too Large"),
+                HttpErr::Bad | HttpErr::Silent => (400, "Bad Request"),
             };
-            finish_connection(stream, &UdsResponse::new(status, reason, reason.into()))?;
+            finish_connection(stream, &UdsResponse::new(st, reason, reason.into()))?;
             Ok(None)
         }
     }

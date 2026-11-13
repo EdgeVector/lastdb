@@ -1,19 +1,19 @@
-//! Schema catalog listing, lookup, alias resolution, system seed, and schema drop routes.
+//! Schema catalog listing, lookup, alias resolution, compatibility check, seed, and drop routes.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use fold_db::access::AccessContext;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema};
+use fold_db::schema::types::{FieldValueType, Schema};
 use fold_db::schema::{SchemaState, SchemaWithState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::reply::{
-    content_free, envelope, error_response, json_ok, map_host_err, render, HostError,
-};
+use super::reply::{content_free, envelope, error_response, json_ok, render, HostError};
 use super::wire::{query_flag, schema_name_from_target};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+
+const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
 
 fn annotate<T: Serialize>(schemas: impl IntoIterator<Item = T>) -> Option<Vec<Value>> {
     schemas
@@ -90,54 +90,6 @@ pub(in crate::exec) fn get_schema(
     )
 }
 
-pub(in crate::exec) async fn seed_system(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Request {
-        schema: DeclarativeSchemaDefinition,
-        #[serde(default)]
-        isolated_copy: bool,
-    }
-    let res = async {
-        let r: Request = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid system seed setup request: {e}")))?;
-        if !r.isolated_copy || !fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY") {
-            return Err(HostError::new(
-                409,
-                "system seed setup requires isolated_copy=true and LASTDB_ISOLATED_COPY=1",
-            ));
-        }
-        if r.schema
-            .owner_app_id
-            .as_deref()
-            .is_some_and(|o| !o.trim().is_empty())
-        {
-            return Err(HostError::new(
-                400,
-                "system seed setup requires a schema without owner_app_id",
-            ));
-        }
-        fold_db::schema::require_logical_layout(&r.schema.schema_type)
-            .map_err(|e| HostError::new(400, e.to_string()))?;
-        r.schema
-            .validate()
-            .map_err(|e| map_host_err("system seed setup failed", e.into()))?;
-        let name = r.schema.name.clone();
-        host.records()
-            .schema_manager()
-            .load_schema_internal(r.schema)
-            .await
-            .map_err(|e| map_host_err("system seed setup failed", e.into()))?;
-        Ok(json!({ "system_seed_schema": name, "source": "system_seed" }))
-    }
-    .await;
-    render(res, ctx)
-}
-
 pub(in crate::exec) async fn drop_schema(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -187,11 +139,12 @@ pub(in crate::exec) async fn drop_schema(
         }
         let target = resolve_schema_name(host, schema)
             .or_else(|e| blocked_drop_target(host, schema, &e).map(Some).ok_or(e))?;
-        let (canonical, existed) = if let Some(c) = target {
-            let ex = mgr.drop_schema(&c).await.map_err(drop_err)?;
-            (c, ex)
-        } else {
-            (schema.to_string(), false)
+        let (canonical, existed) = match target {
+            Some(c) => {
+                let ex = mgr.drop_schema(&c).await.map_err(drop_err)?;
+                (c, ex)
+            }
+            None => (schema.to_string(), false),
         };
         if b.must_exist && !existed {
             return Err(HostError::new(
@@ -346,4 +299,60 @@ fn resolve_matches<'a>(
             ))
         }
     }
+}
+
+pub(super) fn check_owned_local(
+    host: &Host,
+    local_id: &str,
+    p: &Schema,
+) -> Result<Option<(Schema, bool)>, String> {
+    p.validate_owned_schema()?;
+    fn fset(s: &Schema) -> BTreeSet<&str> {
+        s.fields.iter().flatten().map(String::as_str).collect()
+    }
+    let schemas = host
+        .records()
+        .schema_manager()
+        .get_schemas()
+        .map_err(|e| e.to_string())?;
+    let mut inst = None;
+    for s in schemas.values() {
+        if !(s.name == local_id
+            || s.identity_hash == p.identity_hash
+            || (s.owner_app_id == p.owner_app_id && s.descriptive_name == p.descriptive_name))
+        {
+            continue;
+        }
+        if s.owner_app_id != p.owner_app_id
+            || s.descriptive_name != p.descriptive_name
+            || s.schema_type != p.schema_type
+            || s.record_keys != p.record_keys
+            || s.key != p.key
+            || s.alternate_keys != p.alternate_keys
+            || inst.is_some()
+        {
+            return Err(BREAKING_CHANGE.into());
+        }
+        let (sf, pf) = (fset(s), fset(p));
+        let ok = sf.intersection(&pf).all(|f| {
+            let (st, pt) = (s.field_types.get(*f), p.field_types.get(*f));
+            let retyped = matches!(st, None | Some(FieldValueType::Any))
+                && pt.is_some_and(|k| *k != FieldValueType::Any);
+            (st == pt || retyped) && s.field_descriptions.get(*f) == p.field_descriptions.get(*f)
+        });
+        let changed = ok
+            .then(|| {
+                if sf == pf {
+                    (s.identity_hash == p.identity_hash).then_some(true)
+                } else {
+                    sf.is_subset(&pf)
+                        .then_some(true)
+                        .or_else(|| pf.is_subset(&sf).then_some(false))
+                }
+            })
+            .flatten()
+            .ok_or(BREAKING_CHANGE)?;
+        inst = Some((s.clone(), changed));
+    }
+    Ok(inst)
 }
