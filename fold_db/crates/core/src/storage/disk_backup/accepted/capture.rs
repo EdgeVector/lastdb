@@ -17,7 +17,7 @@ tokio::task_local! {
     pub(super) static REPLAY_STORE: Arc<PackRuntime>;
 }
 
-fn capture_enabled(runtime: &PackRuntime) -> bool {
+pub(crate) fn capture_enabled(runtime: &PackRuntime) -> bool {
     runtime.captures_accepted()
         && !runtime.fresh_initialization_pending()
         && !REPLAY_STORE
@@ -59,9 +59,9 @@ pub(crate) fn stage_schema_put(
     content_key: &[u8; 32],
     name: &str,
     schema: &Schema,
-) -> StorageResult<()> {
+) -> StorageResult<Option<String>> {
     if !capture_enabled(runtime) {
-        return Ok(());
+        return Ok(None);
     }
     let wire = schema.to_wire();
     let tag = wire.get_identity_hash().map_or("none", String::as_str);
@@ -70,20 +70,26 @@ pub(crate) fn stage_schema_put(
         StorageError::SerializationError("accepted schema body is not canonical".into())
     })?;
     let body = body::schema_body(&mutation_id, name, "put", Some(&definition));
-    transaction::stage_accepted(runtime, vec![body::seal(content_key, &body)?])
+    let mut note = body::seal(content_key, &body)?;
+    note.authored_at_ms = Some(crate::clock::unix_millis());
+    transaction::stage_accepted(runtime, vec![note])?;
+    Ok(Some(mutation_id))
 }
 
 pub(crate) fn stage_schema_drop(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
     name: &str,
-) -> StorageResult<()> {
+) -> StorageResult<Option<String>> {
     if !capture_enabled(runtime) {
-        return Ok(());
+        return Ok(None);
     }
-    let mutation_id = body::schema_id(name, "drop");
+    let mutation_id = super::schema_drop_id(name);
     let body = body::schema_body(&mutation_id, name, "drop", None);
-    transaction::stage_accepted(runtime, vec![body::seal(content_key, &body)?])
+    let mut note = body::seal(content_key, &body)?;
+    note.authored_at_ms = Some(crate::clock::unix_millis());
+    transaction::stage_accepted(runtime, vec![note])?;
+    Ok(Some(mutation_id))
 }
 
 async fn seal_mutation(
@@ -117,6 +123,8 @@ async fn seal_mutation(
     };
     let canonical = body::record_body(mutation, &parts);
     let mut note = body::seal(content_key, &canonical)?;
+    // Keep the author clock outside the canonical body so retries retain their identity.
+    note.authored_at_ms = mutation.imported_written_at.map(|time| time / 1_000_000);
     note.file = file_bytes;
     note.reference = reference;
     Ok(note)

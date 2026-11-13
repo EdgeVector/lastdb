@@ -233,7 +233,7 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         fresh.commit()?;
         drop(fresh);
         let staged = StagedHome::open(staged_path)?;
-        let host = Arc::new(Host::boot(&staged.path).await?);
+        let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
         let res =
             lastdb_node::log_sync::recover_owned(&host, home, scope, &database, "recovered").await;
         let owned_closed = host.shutdown_owned_databases().await;

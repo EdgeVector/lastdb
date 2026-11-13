@@ -137,6 +137,7 @@ pub(super) fn seal(content_key: &[u8; 32], body: &impl Serialize) -> StorageResu
         mutation_id,
         plaintext_sha256,
         envelope,
+        authored_at_ms: None,
         file: None,
         reference: None,
     })

@@ -2,7 +2,8 @@
 
 pub mod types;
 
-use crate::storage::disk_pack::transaction::publication;
+use crate::storage::disk_pack::transaction::{self, publication};
+use crate::storage::format::metadata::SchemaReplayDrop;
 use crate::storage::StorageError;
 use ::schema_types::IdentityRecompute;
 use std::collections::HashMap;
@@ -34,14 +35,16 @@ struct SchemaCatalog {
     states: HashMap<String, SchemaState>,
 }
 
+#[derive(Clone)]
 struct CachedSchema {
-    schema: Schema,
+    schema: Option<Schema>,
     state: SchemaState,
 }
 
 pub struct SchemaCore {
     catalog: Arc<RwLock<Arc<SchemaCatalog>>>,
     db_ops: Arc<crate::db_operations::DbOperations>,
+    drops: tokio::sync::Mutex<()>,
 }
 
 impl SchemaCore {
@@ -54,6 +57,7 @@ impl SchemaCore {
         Ok(Self {
             catalog: Arc::new(RwLock::new(Arc::new(SchemaCatalog { schemas, states }))),
             db_ops,
+            drops: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -62,15 +66,6 @@ impl SchemaCore {
             .read()
             .map(|g| Arc::clone(&g))
             .map_err(|e| SchemaError::InvalidData(format!("schema catalog lock poisoned: {e}")))
-    }
-
-    fn mutate_catalog(&self, f: impl FnOnce(&mut SchemaCatalog)) -> Result<(), SchemaError> {
-        let mut g = self
-            .catalog
-            .write()
-            .map_err(|e| SchemaError::InvalidData(format!("schema catalog lock poisoned: {e}")))?;
-        f(Arc::make_mut(&mut *g));
-        Ok(())
     }
 
     fn catalog_id(&self) -> usize {
@@ -82,8 +77,7 @@ impl SchemaCore {
         for (n, s) in
             publication::entries::<CachedSchema>(&self.db_ops.native_runtime(), self.catalog_id())?
         {
-            c.schemas.insert(n.clone(), s.schema.clone());
-            c.states.insert(n, s.state);
+            s.update(&mut c, n);
         }
         Ok(c)
     }
@@ -126,7 +120,7 @@ impl SchemaCore {
             self.catalog_id(),
             schema_name,
         )? {
-            return Ok((Some(s.schema.clone()), s.state));
+            return Ok((s.schema.clone(), s.state));
         }
         let c = self.snapshot()?;
         Ok((
@@ -167,11 +161,47 @@ impl SchemaCore {
     }
 
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        if let Some(schema) = self.db_ops.schemas().block_for_drop(schema_name).await? {
-            self.mutate_catalog(|c| {
-                c.states
-                    .insert(schema_name.to_owned(), SchemaState::Blocked);
-            })?;
+        self.drop_with_receipt(schema_name, None).await
+    }
+
+    /// Apply a signed schema removal once, using bounded native cleanup transactions.
+    pub async fn drop_replay_schema(
+        &self,
+        schema_name: &str,
+        receipt_id: &[u8; 32],
+        digest: &[u8; 32],
+    ) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        runtime
+            .replay_accepted(self.drop_with_receipt(
+                schema_name,
+                Some(&SchemaReplayDrop {
+                    id: receipt_id,
+                    digest,
+                }),
+            ))
+            .await?;
+        Ok(())
+    }
+
+    async fn drop_with_receipt(
+        &self,
+        schema_name: &str,
+        replay: Option<&SchemaReplayDrop<'_>>,
+    ) -> Result<bool, SchemaError> {
+        use crate::db_operations::schema_store::SchemaDrop;
+        let _drop = self.drops.lock().await;
+        let SchemaDrop::Ready(schema) = self
+            .db_ops
+            .schemas()
+            .block_for_drop(schema_name, replay, |s| {
+                self.publish_catalog(schema_name.to_owned(), s.cloned(), SchemaState::Blocked)
+            })
+            .await?
+        else {
+            return Ok(false);
+        };
+        if let Some(schema) = schema {
             let r = self.db_ops.records().release_schema_rows(&schema).await?;
             tracing::info!(
                 target: "fold_node::database",
@@ -179,11 +209,13 @@ impl SchemaCore {
                 "schema drop released the stored rows of the schema"
             );
         }
-        let existed = self.db_ops.schemas().drop_schema(schema_name).await?;
-        self.mutate_catalog(|c| {
-            c.schemas.remove(schema_name);
-            c.states.remove(schema_name);
-        })?;
+        let existed = self
+            .db_ops
+            .schemas()
+            .drop_reserved_schema(schema_name, replay, || {
+                self.publish_catalog(schema_name.to_owned(), None, SchemaState::Available)
+            })
+            .await?;
         Ok(existed)
     }
 
@@ -201,25 +233,40 @@ impl SchemaCore {
         if let Some(s) = self.get_schema_metadata(schema_name)? {
             return Ok(Some(s));
         }
-        let Some(s) = self
+        if self
             .db_ops
             .schemas()
             .get_schema(schema_name)
-            .await
-            .map_err(|e| SchemaError::InvalidData(e.to_string()))?
-        else {
+            .await?
+            .is_none()
+        {
             return Ok(None);
-        };
-        let cached = s.name.clone();
-        self.load_schema_internal(s.clone()).await?;
-        tracing::info!("Refreshed schema '{cached}' from database (stale cache)");
-        Ok(self.get_schema_metadata(&cached)?.or(Some(s)))
+        }
+        transaction::scope(self.db_ops.native_runtime(), async {
+            let Some(schema) = self.db_ops.schemas().get_schema(schema_name).await? else {
+                return Ok(None);
+            };
+            let state = self
+                .db_ops
+                .schemas()
+                .get_schema_state(schema_name)
+                .await?
+                .unwrap_or_default();
+            require_explicit_record_keys(&schema)?;
+            self.publish_catalog(schema_name.to_owned(), Some(schema.clone()), state)?;
+            Ok(Some(schema))
+        })
+        .await
     }
 
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
         require_explicit_record_keys(&schema)?;
         schema.validate()?;
         schema.ensure_field_hashes();
+        transaction::scope(self.db_ops.native_runtime(), self.save_schema(schema)).await
+    }
+
+    async fn save_schema(&self, mut schema: Schema) -> Result<(), SchemaError> {
         let existing = self.db_ops.schemas().get_schema(&schema.name).await?;
         stamp_identity_for_load(&mut schema, existing.as_ref());
         let refresh = existing.is_some();
@@ -247,27 +294,46 @@ impl SchemaCore {
                 .await?;
             SchemaState::Available
         };
-        let (catalog, key) = (Arc::clone(&self.catalog), name);
-        let staged = CachedSchema {
-            schema: schema.clone(),
-            state,
-        };
+        self.publish_catalog(name, Some(schema), state)
+    }
+
+    fn publish_catalog(
+        &self,
+        key: String,
+        schema: Option<Schema>,
+        state: SchemaState,
+    ) -> Result<(), SchemaError> {
+        let catalog = Arc::clone(&self.catalog);
+        let staged = CachedSchema { schema, state };
         publication::publish(
             &self.db_ops.native_runtime(),
             self.catalog_id(),
             key.clone(),
-            staged,
+            staged.clone(),
             move || {
                 let mut g = catalog.write().map_err(|e| {
                     StorageError::BackendError(format!("schema catalog lock poisoned: {e}"))
                 })?;
-                let inner = Arc::make_mut(&mut *g);
-                inner.schemas.insert(key.clone(), schema);
-                inner.states.insert(key, state);
+                staged.update(Arc::make_mut(&mut *g), key);
                 Ok(())
             },
         )?;
         Ok(())
+    }
+}
+
+impl CachedSchema {
+    fn update(&self, catalog: &mut SchemaCatalog, name: String) {
+        if let Some(schema) = &self.schema {
+            catalog.schemas.insert(name.clone(), schema.clone());
+        } else {
+            catalog.schemas.remove(&name);
+        }
+        if self.schema.is_some() || self.state == SchemaState::Blocked {
+            catalog.states.insert(name, self.state);
+        } else {
+            catalog.states.remove(&name);
+        }
     }
 }
 

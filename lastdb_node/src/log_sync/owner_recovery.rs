@@ -250,15 +250,9 @@ async fn apply_through(log: &CloudLog, through: u64) -> Result<(), String> {
         if delivered.is_empty() || cursor != expected {
             return Err("signed recovery log stopped before the selected head".into());
         }
-        database_replay::replay_delivered(
-            log.host(),
-            log.database_id(),
-            log.principal().as_str(),
-            &delivered,
-            &mut files,
-        )
-        .await
-        .map_err(|error| error.to_string())?;
+        database_replay::replay_owned(log.host(), log.database_id(), None, &delivered, &mut files)
+            .await
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }

@@ -1,8 +1,10 @@
 //! Mutation Manager — public write entry points and native transaction commits.
 
+mod replay;
 mod write_records;
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -32,6 +34,7 @@ pub(super) struct ChangedRecord<'a> {
 pub use crate::resident::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
+pub use crate::storage::format::metadata::ReplayStamp;
 
 pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
@@ -65,18 +68,42 @@ impl MutationManager {
         async move { Ok(self.write_mutations_receipt(mutations).await?.mutation_ids) }.boxed()
     }
 
+    /// Commit an authenticated replay and its receipt in the same native write scope.
+    ///
+    /// The caller binds the receipt ID to the entry's stable identity and the digest
+    /// to its contents. An identical receipt returns `None` without polling `replay`.
+    /// A failed replay commits neither its staged writes nor its receipt.
+    pub async fn write_replay_once<T>(
+        &self,
+        receipt_id: &[u8; 32],
+        payload_digest: &[u8; 32],
+        replay: impl Future<Output = Result<T, SchemaError>>,
+    ) -> Result<Option<T>, SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        runtime
+            .replay_accepted(transaction::request_scope(Arc::clone(&runtime), async {
+                if self
+                    .db_ops
+                    .metadata()
+                    .stage_replay_receipt(receipt_id, payload_digest)
+                    .await?
+                {
+                    return Ok(None);
+                }
+                replay.await.map(Some)
+            }))
+            .await
+    }
+
     pub async fn write_mutations_receipt(
         &self,
-        mut mutations: Vec<Mutation>,
+        mutations: Vec<Mutation>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         Box::pin(async move {
-            let now = clock::unix_nanos();
             self.validate_mutation_batch(&mutations)?;
             if mutations.is_empty() {
                 return Ok(ResidentCommitReceipt::empty_queued());
             }
-            self.prepare_mutation_author_clocks(&mut mutations, now)?;
-            let revision = mutations.first().map(|m| m.logical_counter);
             let states = self.schema_manager.get_schema_states()?;
             for m in &mutations {
                 if states.get(&m.schema_name).copied() == Some(SchemaState::Blocked) {
@@ -87,28 +114,30 @@ impl MutationManager {
                 }
                 m.validate_record_intent()?;
             }
-            let mut receipt = self
-                .commit_native_batch(mutations, std::time::Instant::now())
-                .await?;
-            receipt.revision = revision;
-            Ok(receipt)
+            self.commit_native_batch(mutations, std::time::Instant::now())
+                .await
         })
         .await
     }
 
-    fn prepare_mutation_author_clocks(
+    async fn prepare_mutation_author_clocks(
         &self,
         mutations: &mut [Mutation],
-        now: u64,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<u64, SchemaError> {
         let writer_id = self.signer.public_key_base64();
-        let mut guard = self
+        let mut state = self
+            .db_ops
+            .metadata()
+            .author_clock(&writer_id)
+            .await?
+            .unwrap_or_default();
+        let cached = *self
             .author_clock_state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let mut state = *guard;
+        state.observe_remote(cached.physical_nanos, cached.logical_counter);
         let (mut times, logical_counter) = state
-            .advance_local_batch(now, mutations.len())
+            .advance_local_batch(clock::unix_nanos(), mutations.len())
             .ok_or_else(|| {
                 SchemaError::InvalidData("mutation author-clock range exhausted".into())
             })?;
@@ -120,28 +149,21 @@ impl MutationManager {
                 crate::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
             m.author_clock_signature = sign_mutation_author_clock(m, self.signer.as_ref());
         }
-        *guard = state;
-        Ok(())
+        self.db_ops
+            .metadata()
+            .stage_author_clock(&writer_id, &state)
+            .await?;
+        Ok(logical_counter)
     }
 
     async fn commit_native_batch(
         &self,
-        mutations: Vec<Mutation>,
+        mut mutations: Vec<Mutation>,
         start: std::time::Instant,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if mutations.iter().any(|m| m.imported_written_at.is_some()) {
-            let cutoff_nanos = self.db_ops.records().minimum_replay_time().await?;
-            if cutoff_nanos > 0
-                && mutations
-                    .iter()
-                    .any(|m| m.imported_written_at.is_some_and(|t| t <= cutoff_nanos))
-            {
-                return Err(SchemaError::ReplayBeforeDeleteCutoff { cutoff_nanos });
-            }
-        }
         let runtime = self.db_ops.native_runtime();
         let mut stages = ResidentCommitStages::default();
-        let (mutation_ids, record_revisions, operations) =
+        let (mutation_ids, record_revisions, operations, revision) =
             transaction::request_scope(Arc::clone(&runtime), async {
                 runtime.record_read_stage("request-start", mutations.len());
                 if let Some(adm) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
@@ -160,9 +182,12 @@ impl MutationManager {
                             vec![mutations[0].uuid.clone()],
                             BTreeMap::new(),
                             ResidentCommitOperations::default(),
+                            None,
                         ));
                     }
                 }
+                let revision = self.prepare_mutation_author_clocks(&mut mutations).await?;
+                self.require_after_replay_cutoff(&mutations).await?;
                 let ops = count_commit_ops(&mutations);
                 let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
                 let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
@@ -185,38 +210,32 @@ impl MutationManager {
                     .stage_record_groups(authored, &mut stages, &runtime)
                     .await?;
                 runtime.record_read_stage("stored-stages-done", groups);
-                self.stage_author_clock_state().await?;
-                Ok::<_, SchemaError>((ids, revs, ops))
+                Ok::<_, SchemaError>((ids, revs, ops, Some(revision)))
             })
             .await?;
         stages.ack_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(ResidentCommitReceipt {
             mutation_ids,
             record_revisions,
-            revision: None,
+            revision,
             operations,
             durability: ResidentDurability::Durable,
             stages,
         })
     }
 
-    async fn stage_author_clock_state(&self) -> Result<(), SchemaError> {
-        let writer = self.signer.public_key_base64();
-        let state = *self
-            .author_clock_state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let mut durable = self
-            .db_ops
-            .metadata()
-            .author_clock(&writer)
-            .await?
-            .unwrap_or_default();
-        durable.observe_remote(state.physical_nanos, state.logical_counter);
-        self.db_ops
-            .metadata()
-            .stage_author_clock(&writer, &durable)
-            .await
+    async fn require_after_replay_cutoff(&self, mutations: &[Mutation]) -> Result<(), SchemaError> {
+        let cutoff_nanos = self.db_ops.records().minimum_replay_time().await?;
+        if cutoff_nanos > 0
+            && mutations.iter().any(|mutation| {
+                mutation
+                    .imported_written_at
+                    .is_some_and(|time| time <= cutoff_nanos)
+            })
+        {
+            return Err(SchemaError::ReplayBeforeDeleteCutoff { cutoff_nanos });
+        }
+        Ok(())
     }
 
     pub(super) async fn stage_records_with_effects(

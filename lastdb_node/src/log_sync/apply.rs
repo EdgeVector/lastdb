@@ -43,6 +43,24 @@ pub(crate) async fn apply_page(
     if let Some(publisher) = publisher {
         return received_page(host, log, publisher, entries, *cursor).await;
     }
+    let owned_private = host
+        .owned
+        .is_private_id(log.database_id())
+        .map_err(|_| "owned database was not resolved".to_owned())?;
+    if owned_private {
+        let delivered: Vec<_> = entries.iter().map(delivered_entry).collect();
+        let mut files = super::restore::file_source(log.clone());
+        crate::database_replay::replay_owned(
+            host,
+            log.database_id(),
+            Some(log.device().as_str()),
+            &delivered,
+            &mut files,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        return Ok(PagePlan::Ack(*cursor));
+    }
     let mut handled = None;
     for stored in entries {
         let entry = &stored.entry;

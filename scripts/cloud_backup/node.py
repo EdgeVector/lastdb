@@ -74,13 +74,17 @@ class Connection(http.client.HTTPConnection):
 class OwnedNode:
     def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False,
                  account=ACCOUNT, *, isolated_copy=False, cloud_credentials=None,
-                 device_sign_in=False):
+                 device_sign_in=False, keep_saved_credentials=False):
         self.home, self.programs = home, programs
         # A restored device fetches a record's file from B2 on its first read.
         # device_sign_in registers a new device on this home and saves that
         # device's own credentials. The copy path is the older workaround.
         # Backup stays off on a restored home either way.
         self.cloud_credentials = cloud_credentials
+        # The signed device exchange enrolls each home separately and keeps
+        # that home's credentials across intermediate daemon restarts.
+        require(type(keep_saved_credentials) is bool, "keep_saved_credentials_flag")
+        self.keep_saved_credentials = keep_saved_credentials
         require(type(device_sign_in) is bool, "device_sign_in_flag")
         require(not device_sign_in or cloud_credentials is not None, "device_sign_in_account")
         self.device_sign_in = device_sign_in
@@ -127,7 +131,7 @@ class OwnedNode:
     def offline(self):
         if self.backup_source:
             return
-        if self.cloud_credentials is None:
+        if self.cloud_credentials is None and not self.keep_saved_credentials:
             require(not os.path.lexists(self.home / CREDENTIALS_FILE), "restored_home_cloud_off")
 
     def connect(self):

@@ -29,7 +29,11 @@ pub(super) struct Ready {
 
 pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
     if ready.publisher.is_none() {
-        accepted::publish_owned(host, &ready.log).await;
+        if let Err(reason) = accepted::publish_owned(host, &ready.log).await {
+            tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
+                %reason, "owned pull awaits safe local capture");
+            return Pause::Retry;
+        }
     }
     pull_and_ack(host, &mut ready).await
 }
@@ -72,15 +76,15 @@ async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
 }
 
 async fn finish_ack(host: &Host, log: &CloudLog, database_id: &str, seq: u64) -> Pause {
+    if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
+        tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
+        return Pause::Retry;
+    }
     if seq > 0 {
         if let Err(error) = log.ack_through(log.reader(), seq).await {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "ack failed");
             return Pause::Retry;
         }
-    }
-    if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
-        tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
-        return Pause::Retry;
     }
     if let Err(error) = session::mark_prefix(&host.home, database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "durable prefix was not stored");

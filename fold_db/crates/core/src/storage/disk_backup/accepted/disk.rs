@@ -17,6 +17,7 @@ pub(in crate::storage) struct Note {
     pub mutation_id: String,
     pub plaintext_sha256: String,
     pub envelope: Vec<u8>,
+    pub authored_at_ms: Option<u64>,
     pub file: Option<Vec<u8>>,
     /// Custody path for a local file. Absent when the sealed row is in `file`.
     pub reference: Option<String>,
@@ -50,6 +51,8 @@ pub(super) struct PendingNote {
     pub(super) mutation_id: String,
     pub(super) plaintext_sha256: String,
     pub(super) envelope_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) authored_at_ms: Option<u64>,
     pub(super) file_sha256: Option<String>,
     pub(super) envelope_bytes: u64,
     pub(super) file_bytes: u64,
@@ -63,6 +66,8 @@ pub(super) struct Meta {
     pub(super) mutation_id: String,
     pub(super) plaintext_sha256: String,
     pub(super) envelope_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) authored_at_ms: Option<u64>,
     pub(super) file_sha256: Option<String>,
     pub(super) envelope_bytes: u64,
     pub(super) file_bytes: u64,
@@ -73,6 +78,7 @@ struct Inner {
     frontier: u64,
     history: bool,
     blocked: bool,
+    legacy_through: u64,
 }
 
 pub(in crate::storage) struct Log {
@@ -88,6 +94,7 @@ impl Log {
             frontier,
             history: false,
             blocked: false,
+            legacy_through: 0,
         };
         if !root.exists() {
             inner.history = frontier > 0;
@@ -108,6 +115,7 @@ impl Log {
                 opened_frontier: 0,
                 snapshot_required: true,
                 gap: true,
+                legacy_through: 0,
             },
             |inner| inner.status(),
         )
@@ -196,6 +204,7 @@ impl Inner {
             opened_frontier: state.map_or(0, |state| state.opened_frontier),
             snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
             gap: self.blocked || state.is_some_and(|state| state.gap),
+            legacy_through: self.legacy_through,
         }
     }
 

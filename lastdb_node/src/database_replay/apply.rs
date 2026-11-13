@@ -23,62 +23,87 @@ use super::RestoreError;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
-pub(super) async fn replay(
-    store: &FoldDB,
-    decoder: decode::EntryDecoder<'_>,
-    home: &Path,
-    chain: &[Link],
-    journal: &mut Journal,
-    files: &mut (dyn super::SnapshotFileSource + Send),
-) -> Result<(), RestoreError> {
-    while journal.applied_refs.len() < chain.len() {
-        let index = journal.applied_refs.len();
-        let link = &chain[index];
-        pin_object(home, journal, link)?;
-        if !object_closed(journal, link) {
-            drive_object(store, decoder, home, link, journal, files).await?;
-        }
-        journal
-            .applied_refs
-            .push(link.manifest.snapshot_ref.clone());
-        journal.next_part = 0;
-        journal.next_entry = 0;
-        journal.attempt = None;
-        journal.current_ref = None;
-        journal::save(home, journal)?;
-    }
-    Ok(())
+pub(super) struct SnapshotApplier<'a> {
+    pub store: &'a FoldDB,
+    pub decoder: decode::EntryDecoder<'a>,
+    pub home: &'a Path,
+    pub files: &'a mut (dyn super::SnapshotFileSource + Send),
+    pub owner: Option<(&'a str, Option<&'a str>)>,
 }
 
-async fn drive_object(
-    store: &FoldDB,
-    decoder: decode::EntryDecoder<'_>,
-    home: &Path,
-    link: &Link,
-    journal: &mut Journal,
-    files: &mut (dyn super::SnapshotFileSource + Send),
-) -> Result<(), RestoreError> {
-    loop {
-        if object_closed(journal, link) {
-            return Ok(());
-        }
-        let part = journal.next_part as usize;
-        let entries = &link.parts[part].entries;
-        if entries.is_empty() {
-            bump_part(journal);
+impl SnapshotApplier<'_> {
+    pub(super) async fn replay(
+        &mut self,
+        chain: &[Link],
+        journal: &mut Journal,
+    ) -> Result<(), RestoreError> {
+        while journal.applied_refs.len() < chain.len() {
+            let index = journal.applied_refs.len();
+            let link = &chain[index];
+            pin_object(self.home, journal, link)?;
             if !object_closed(journal, link) {
-                journal::save(home, journal)?;
+                self.drive_object(link, journal).await?;
             }
-            continue;
+            journal
+                .applied_refs
+                .push(link.manifest.snapshot_ref.clone());
+            journal.next_part = 0;
+            journal.next_entry = 0;
+            journal.attempt = None;
+            journal.current_ref = None;
+            journal::save(self.home, journal)?;
         }
-        let entry = journal.next_entry as usize;
-        apply_one(store, decoder, home, journal, &entries[entry], files).await?;
-        journal.next_entry += 1;
-        journal.attempt = None;
-        if journal.next_entry as usize == entries.len() {
-            bump_part(journal);
+        Ok(())
+    }
+
+    async fn drive_object(
+        &mut self,
+        link: &Link,
+        journal: &mut Journal,
+    ) -> Result<(), RestoreError> {
+        loop {
+            if object_closed(journal, link) {
+                return Ok(());
+            }
+            let part = journal.next_part as usize;
+            let entries = &link.parts[part].entries;
+            if entries.is_empty() {
+                bump_part(journal);
+                if !object_closed(journal, link) {
+                    journal::save(self.home, journal)?;
+                }
+                continue;
+            }
+            let entry = journal.next_entry as usize;
+            let entry = &entries[entry];
+            if let Some((owner, local_device)) = self.owner {
+                super::owned::OwnerReplay {
+                    store: self.store,
+                    decoder: self.decoder,
+                    owner,
+                    local_device,
+                    files: self.files,
+                }
+                .one(entry)
+                .await?;
+            } else {
+                apply_one(
+                    self.store,
+                    self.decoder,
+                    self.home,
+                    journal,
+                    entry,
+                    self.files,
+                )
+                .await?;
+            }
+            journal.next_entry += 1;
+            journal.attempt = None;
+            if journal.next_entry as usize == entries.len() {
+                bump_part(journal);
+            }
+            journal::save(self.home, journal)?;
         }
-        journal::save(home, journal)?;
     }
 }
 

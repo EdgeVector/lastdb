@@ -29,6 +29,8 @@ pub enum Item {
         mutation_id: String,
         kind: String,
         canonical: Vec<u8>,
+        /// Local author milliseconds from the durable commit, when recorded.
+        authored_at_ms: Option<u64>,
         file_ciphertext: Option<Vec<u8>>,
         /// Custody path recorded for this entry. Absent when the sealed row is present.
         file_reference: Option<String>,
@@ -59,6 +61,8 @@ pub struct StreamStatus {
     pub snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
     pub gap: bool,
+    /// Last outstanding sequence found at open without a captured author clock.
+    pub legacy_through: u64,
 }
 
 /// The page cannot be published. Do not skip the entry and do not acknowledge it.
@@ -123,6 +127,7 @@ pub fn status(runtime: &PackRuntime) -> StreamStatus {
         opened_frontier: status.opened_frontier,
         snapshot_required: status.snapshot_required,
         gap: status.gap,
+        legacy_through: status.legacy_through,
     }
 }
 
@@ -154,6 +159,7 @@ fn classify(
         mutation_id: entry.mutation_id,
         kind: kind.to_string(),
         canonical: plain,
+        authored_at_ms: entry.authored_at_ms,
         file_ciphertext: entry.file_ciphertext,
         file_reference: entry.file_reference,
     })

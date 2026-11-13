@@ -160,6 +160,8 @@ impl MutationManager {
             keys.push(key);
         }
         let stored = read_write_preimages(records, &addrs, &mutations).await?;
+        self.stage_local_replay_records(runtime, schema_name, &addrs, &mutations, &stored)
+            .await?;
         let (mut changes, mut changed) = (
             Vec::with_capacity(mutations.len()),
             Vec::with_capacity(mutations.len()),
