@@ -72,6 +72,12 @@ impl Host {
         Self::boot_inner(home, true).await
     }
 
+    /// Boot the isolated restore home after verified snapshot files are installed.
+    #[doc(hidden)]
+    pub async fn boot_for_snapshot_restore(home: &Path) -> Result<Self, String> {
+        Self::boot_inner(home, true).await
+    }
+
     async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;

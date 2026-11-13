@@ -220,6 +220,11 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    /// Queue a direct encrypted snapshot of the selected database.
+    Snapshot {
+        #[arg(long)]
+        database: Option<String>,
+    },
 }
 
 pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Result<(), String> {

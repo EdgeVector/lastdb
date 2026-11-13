@@ -22,6 +22,7 @@ pub(crate) struct Spec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Database {
     pub id: String,
+    pub name: Option<String>,
     pub kind: String,
     pub spec: Option<Spec>,
     pub native: bool,
@@ -38,6 +39,8 @@ struct RegistryFile {
 #[derive(Deserialize)]
 struct EntryRow {
     id: String,
+    #[serde(default)]
+    name: Option<String>,
     kind: String,
     #[serde(default)]
     spec: Option<SpecRow>,
@@ -93,6 +96,7 @@ fn accept(row: &EntryRow, native: bool) -> Option<Database> {
     };
     Some(Database {
         id: row.id.clone(),
+        name: row.name.clone(),
         kind: row.kind.clone(),
         spec,
         native,

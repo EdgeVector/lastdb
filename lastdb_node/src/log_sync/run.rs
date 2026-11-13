@@ -38,7 +38,7 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
     pull_and_ack(host, &mut ready).await
 }
 
-async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
+pub(super) async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
     let event = SyncEvent::Pull {
         now_ms: fold_db::clock::unix_millis(),
     };

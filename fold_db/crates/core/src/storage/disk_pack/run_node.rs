@@ -161,7 +161,7 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(in crate::storage::disk_pack) async fn open_store(
+    pub(in crate::storage) async fn open_store(
         self: &Arc<Self>,
         name: &str,
     ) -> StorageResult<PackKvStore> {

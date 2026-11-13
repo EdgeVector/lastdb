@@ -28,6 +28,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod snapshot_author;
+
 pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
 pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
 pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";

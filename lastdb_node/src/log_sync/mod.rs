@@ -22,10 +22,14 @@ mod restore;
 mod retry;
 mod run;
 mod session;
+mod snapshot;
 mod status;
 mod turn;
 mod upload;
 mod wire;
 
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
+pub use snapshot::{
+    request as request_snapshot, restore_base as restore_snapshot_base, RestoredBase,
+};
 pub use turn::spawn;
