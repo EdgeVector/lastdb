@@ -40,6 +40,9 @@ pub async fn execute_database_request(
     let Some((selector, path)) = database_path::split(&req.target) else {
         return content_free(404, "Not Found");
     };
+    if let Some(route) = super::database_share::Route::parse(path) {
+        return super::database_share::execute(route, req, ctx, host, selector).await;
+    }
     let selector = selector.to_owned();
     req.target = format!("/api/{path}");
     if req.method == "POST" && req.target == "/api/contributors" {
@@ -110,12 +113,14 @@ async fn received_share(
     }
 }
 
-/// Only bounded, Send mutation futures may leave the socket worker.
-pub fn is_deferred_database_mutation(req: &UdsRequest) -> bool {
+/// Bounded mutation and sharing requests can leave the socket worker.
+pub fn is_deferred_database_request(req: &UdsRequest) -> bool {
     scoped_mutation(req).is_some()
+        || database_path::split(&req.target)
+            .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
 
-pub fn execute_deferred_database_mutation<'a>(
+pub fn execute_deferred_database_request<'a>(
     req: &'a mut UdsRequest,
     ctx: &'a AccessContext,
     host: &'a Host,
@@ -123,6 +128,18 @@ pub fn execute_deferred_database_mutation<'a>(
     Box::pin(async move {
         if !ctx.is_owner {
             return content_free(404, "Not Found");
+        }
+        if let Some((selector, route)) =
+            database_path::split(&req.target).and_then(|(selector, path)| {
+                Some((selector, super::database_share::Route::parse(path)?))
+            })
+        {
+            return with_handler_timeout_budget(
+                ctx,
+                handler_timeout(),
+                super::database_share::execute(route, req, ctx, host, selector),
+            )
+            .await;
         }
         let Some((selector, path, route)) = scoped_mutation(req) else {
             return content_free(404, "Not Found");

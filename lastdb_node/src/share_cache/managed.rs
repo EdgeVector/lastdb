@@ -17,6 +17,8 @@ const MAX_REGISTERED: usize = 32;
 #[serde(deny_unknown_fields)]
 pub(super) struct ManagedRegistration {
     name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spec: Option<crate::share_spec::PublicationSpec>,
     expires_ms: u64,
     grant: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +157,7 @@ impl ShareCache {
             Registration::with_invitation(registration, &opened, publisher, invitation)?;
         let state = registration.managed.get_or_insert(ManagedRegistration {
             name: None,
+            spec: None,
             expires_ms: 0,
             grant: None,
             grant_version: None,
@@ -163,6 +166,14 @@ impl ShareCache {
         });
         if let Some(name) = name {
             state.name = Some(name.to_owned());
+        }
+        if let Some(spec) = opened.spec {
+            if state.spec.as_ref().is_some_and(|current| current != &spec) {
+                return Err(ShareCacheError::Invalid(
+                    "invitation spec differs from this share handle",
+                ));
+            }
+            state.spec = Some(spec);
         }
         state.expires_ms = opened.permission.expires_ms();
         state.signed_log |= signed_log;
@@ -259,6 +270,7 @@ fn describe(home: &Path, id: &Id, registration: &Registration) -> Result<Registe
         id: id.clone(),
         publisher: registration.publisher.clone(),
         name: state.name.clone(),
+        spec: state.spec.clone(),
         snapshot: registration
             .active
             .as_ref()

@@ -3,6 +3,7 @@
 //! DEV and PROD use the same member routes. Success is a service
 //! acknowledgement, or a publisher read that already shows the desired row.
 
+mod config;
 mod exchange;
 mod files;
 mod invite;
@@ -14,6 +15,8 @@ mod successor;
 use cloud_backup_protocol::Digest;
 use std::path::Path;
 
+pub(crate) use config::{read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use invite::issue_invitation;
 pub use invite::seal_named_invitation;
 
 /// What the publisher wants the member row to become.
@@ -46,6 +49,7 @@ pub async fn update_member(
     intent: MemberIntent,
 ) -> Result<MemberAck, String> {
     let entry = crate::host::owned::find_shareable(home, selector)?;
+    let _lock = pending::lock(home, &entry.id)?;
     let session = session::open(home).await?;
     if &session.publisher == node {
         return Err("share.members.publisher".into());

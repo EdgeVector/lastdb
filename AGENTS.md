@@ -75,11 +75,9 @@ Tom requested: "update CI so that it's always testing for the sharing feature.
 It should always test to make sure that share works." He then specified:
 "Yeah let's add a daily test instead" rather than live cloud work per push.
 
-The fresh-home record/Share/Files proof runs on every required CI invocation,
-without a path-based skip. Its explicit `share_invitation_ci` Rust target in
-`lastdb_node/operations/` also exercises real encrypted invitation roundtrips,
-trust/refusal cases and local registration on private generated CI homes. Only
-this sharing target is re-enabled; it needs no cloud credentials or mocks.
+The fresh-home record/Share/Files product operation runs on every required CI
+invocation, without a path-based skip. Live signed invitations and recipient
+registration use the accepted-main DEV product operation.
 The existing four-case LastDB–ExeMem DEV suite runs daily, not on every push.
 Hourly owned-scope cleanup remains separate from the daily product result.
 Cloud work stays serialized, isolated from pull-request code, and within the

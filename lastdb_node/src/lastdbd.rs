@@ -138,7 +138,7 @@ fn serve_reserved(
         uds_router::ControlRoute::Data(
             r @ (uds_router::DataRoute::Mutation | uds_router::DataRoute::MutationBatch),
         ) => Some(Some(r)),
-        _ if exec::is_deferred_database_mutation(&req) => Some(None),
+        _ if exec::is_deferred_database_request(&req) => Some(None),
         _ => None,
     };
     if let Some(route) = deferred.filter(|_| retain_request_permits(&mut lease, &req)) {
@@ -153,7 +153,7 @@ fn serve_reserved(
             let resp = if let Some(r) = route {
                 exec::execute_deferred_mutation(r, &req, &ctx, &host).await
             } else {
-                exec::execute_deferred_database_mutation(&mut req, &ctx, &host).await
+                exec::execute_deferred_database_request(&mut req, &ctx, &host).await
             };
             drop((req, lease));
             completion.resume(stream, move |mut s, _| {

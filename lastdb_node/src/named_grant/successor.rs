@@ -34,8 +34,19 @@ pub(super) fn require_stream(
     if document.stream.stream_id.as_str() != database_id || document.stream.scope != session.scope {
         return Err("share.grant.identity".into());
     }
-    if document.stream.scope.account_id != session.scope.account_id {
-        return Err("share.grant.identity".into());
+    if let Some(update) = &document.update {
+        if update.publisher_public_key != session.publisher {
+            return Err("share.grant.identity".into());
+        }
+        let key = app_identity_crypto::VerifyingKey::from_bytes(&session.signer.public_key_bytes())
+            .map_err(|_| "share.grant.identity")?;
+        let signature = hex::decode(update.signature.as_str())
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or("share.signature")?;
+        let digest = update.digest().map_err(|error| error.field)?;
+        app_identity_crypto::verify(&key, &signature, digest.as_str().as_bytes())
+            .map_err(|_| "share.signature")?;
     }
     Ok(())
 }
@@ -63,11 +74,7 @@ pub(super) fn sign(
     node: &Digest,
     intent: MemberIntent,
 ) -> Result<SignedUpdate, String> {
-    let previous = document.update.clone();
-    let mut members = previous
-        .as_ref()
-        .map(|update| update.members.clone())
-        .unwrap_or_default();
+    let mut members = current_members(document);
     let next = next_member(
         members
             .iter()
@@ -76,17 +83,35 @@ pub(super) fn sign(
         intent,
     )?;
     upsert(&mut members, next);
+    sign_members(session, document, members)
+}
+
+pub(super) fn current_members(document: &MemberListReadResponse) -> Vec<ShareMember> {
+    let mut members = document
+        .update
+        .as_ref()
+        .map(|update| update.members.clone())
+        .unwrap_or_default();
+    for member in &mut members {
+        member.regrant = false;
+    }
+    members
+}
+
+pub(super) fn sign_members(
+    session: &PublisherSession,
+    document: &MemberListReadResponse,
+    mut members: Vec<ShareMember>,
+) -> Result<SignedUpdate, String> {
     if members.len() > MEMBER_LIMIT {
         return Err("mutation_log.transaction".into());
     }
-    let revision = match &previous {
-        None => 1,
-        Some(update) => update
-            .revision
-            .get()
-            .checked_add(1)
-            .ok_or("share.grant.revision")?,
-    };
+    members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
+    let revision = document
+        .revision
+        .get()
+        .checked_add(1)
+        .ok_or("share.grant.revision")?;
     let mut update = MemberListUpdate {
         version: Version::V2,
         stream: document.stream.clone(),
@@ -97,7 +122,7 @@ pub(super) fn sign(
         updated_at_ms: DecimalU64::new(nonzero_now()?),
     };
     update
-        .validate_successor_of(previous.as_ref())
+        .validate_successor_of(document.update.as_ref())
         .map_err(|error| error.field)?;
     let digest = update.digest().map_err(|error| error.field)?;
     let signature = session.signer.sign(digest.as_str().as_bytes()).to_bytes();
@@ -174,7 +199,6 @@ fn upsert(members: &mut Vec<ShareMember>, member: ShareMember) {
     } else {
         members.push(member);
     }
-    members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
 }
 
 fn member<'a>(document: &'a MemberListReadResponse, node: &Digest) -> Option<&'a ShareMember> {
