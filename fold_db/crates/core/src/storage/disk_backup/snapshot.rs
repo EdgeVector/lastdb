@@ -10,8 +10,11 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// The database and file storage captured at one write boundary.
 pub struct DatabaseSnapshot {
+    /// Last local accepted change included in the frozen files.
     pub accepted_head: u64,
+    /// Main storage frontier included in the frozen files.
     pub native_frontier: u64,
     marker: File,
     main: RunSnapshot,
@@ -19,6 +22,7 @@ pub struct DatabaseSnapshot {
 }
 
 impl PackRuntime {
+    /// Start a separate author stream on a newly restored device.
     pub async fn adopt_restored_snapshot(self: &Arc<Self>) -> StorageResult<()> {
         let runtime = Arc::clone(self);
         self.replay_accepted(async {
@@ -35,6 +39,7 @@ impl PackRuntime {
             .map_err(|e| StorageError::invalid(format!("restore snapshot coverage: {e:?}")))
     }
 
+    /// Pin both native publications under the same database write guard.
     pub async fn capture_database_snapshot(self: &Arc<Self>) -> StorageResult<DatabaseSnapshot> {
         let _write = self.enter_write().await;
         if self.requires_recovery() {
@@ -78,6 +83,7 @@ impl PackRuntime {
 }
 
 impl DatabaseSnapshot {
+    /// List the exact original file paths and sizes.
     pub fn files(&self) -> StorageResult<Vec<(PathBuf, u64)>> {
         let mut files = vec![(NODE_MARKER.into(), self.marker.metadata()?.len())];
         for (name, root) in [(RUN_DIR, &self.main), (CAS_DIR, &self.files)] {
@@ -91,6 +97,7 @@ impl DatabaseSnapshot {
         Ok(files)
     }
 
+    /// Open a file held by this capture.
     pub fn open_file(&self, path: &Path) -> StorageResult<File> {
         if path == Path::new(NODE_MARKER) {
             Ok(self.marker.try_clone()?)

@@ -114,7 +114,7 @@ async fn place(
     Ok(name.to_owned())
 }
 
-async fn head(log: &CloudLog) -> Result<u64, String> {
+pub(super) async fn head(log: &CloudLog) -> Result<u64, String> {
     let log = log.clone();
     tokio::task::spawn_blocking(move || log.head(log.principal()))
         .await

@@ -1,19 +1,18 @@
 //! Publish a held database checkpoint through the signed cloud database.
 
-mod archive;
+mod files;
 mod transport;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::{DecimalU64, Digest, Id};
+use cloud_backup_protocol::{DecimalU64, Id};
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use serde::{Deserialize, Serialize};
 
 use crate::host::owned;
+use crate::host::owned::Resolved;
 use crate::host::Host;
-use crate::log_envelope::DatabaseContentKey;
 use fold_db::security::Ed25519KeyPair;
 
 use super::{cloud::CloudLog, registry, session};
@@ -22,46 +21,74 @@ use super::{cloud::CloudLog, registry, session};
 #[serde(deny_unknown_fields)]
 struct Manifest {
     through: DecimalU64,
-    bytes: DecimalU64,
-    sha256: Digest,
-    path: BlobPath,
+    name: Option<String>,
+    files: Vec<files::FileEntry>,
 }
 
 /// Publish snapshots for a database already selected by its stable id.
-async fn publish(host: &Arc<Host>, log: &CloudLog) -> Result<(), String> {
-    let _work = NativeCloudWorkGuard::acquire().map_err(|e| e.to_string())?;
-    let (store, key) = DatabaseContentKey::local_store(host, log.database_id())
-        .map_err(|e| e.to_string())?
-        .ok_or("snapshot database is unavailable locally")?;
+async fn publish(
+    host: &Arc<Host>,
+    log: &CloudLog,
+    database: &registry::Database,
+) -> Result<(), String> {
+    let _work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
+    let (resolved, sibling) = host
+        .owned
+        .registered_store(log.database_id())
+        .map_err(|error| error.status().1)?;
+    let store = match (resolved, sibling) {
+        (Resolved::Owner, None) => Arc::clone(&host.db),
+        (Resolved::Owned, Some(store)) => store,
+        _ => return Err("snapshot database is unavailable locally".into()),
+    };
     let runtime = Arc::clone(store.db_ops().native_runtime());
     let status = runtime.accepted_status();
     if !runtime.captures_accepted() || status.gap {
-        return Err("snapshot needs an intact local write capture".into());
+        return Err("snapshot needs intact local write capture".into());
     }
     let through = session::load_cursor(&host.home, log.database_id())?;
+    if super::owner_recovery::head(log).await? != through {
+        return Err("snapshot awaits incoming signed updates".into());
+    }
     let previous = transport::current(log).await?;
     let cut = runtime
         .capture_database_snapshot()
         .await
-        .map_err(|e| e.to_string())?;
-    let head = cut.accepted_head;
-    let frontier = cut.native_frontier;
-    let bytes = tokio::task::spawn_blocking(move || archive::encode(&cut, &key, through))
-        .await
-        .map_err(|_| "snapshot encoder stopped")??;
-    let manifest = transport::publish(log, previous.as_ref(), through, bytes).await?;
-    if manifest.through.get() != through {
-        return Err("cloud returned a different snapshot position".into());
+        .map_err(|error| error.to_string())?;
+    let (cut, files) = tokio::task::spawn_blocking(move || {
+        let files = files::inventory(&cut)?;
+        Ok::<_, String>((cut, files))
+    })
+    .await
+    .map_err(|_| "snapshot inventory stopped")??;
+    let manifest = Manifest {
+        through: DecimalU64::new(through),
+        name: if database.native {
+            Some(
+                database
+                    .name
+                    .clone()
+                    .ok_or("snapshot database has no local name")?,
+            )
+        } else {
+            None
+        },
+        files,
+    };
+    let id = transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?;
+    if database.kind == "personal" {
+        runtime
+            .note_accepted_snapshot(cut.native_frontier)
+            .map_err(|error| format!("{error:?}"))?;
+        runtime
+            .acknowledge_accepted(cut.accepted_head)
+            .map_err(|error| format!("{error:?}"))?;
     }
-    runtime
-        .note_accepted_snapshot(frontier)
-        .map_err(|e| format!("{e:?}"))?;
-    runtime
-        .acknowledge_accepted(head)
-        .map_err(|e| format!("{e:?}"))?;
+    tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");
     Ok(())
 }
 
+/// Queue a direct cloud snapshot of one owned database.
 pub fn request(home: &std::path::Path, selector: &str) -> Result<String, String> {
     let databases = registry::databases(home);
     let selected = databases
@@ -74,7 +101,15 @@ pub fn request(home: &std::path::Path, selector: &str) -> Result<String, String>
     Ok(selected.id.clone())
 }
 
-pub(super) async fn requested(host: &Arc<Host>, log: &CloudLog) -> Result<(), String> {
+pub(super) fn pending(home: &Path, database: &str) -> bool {
+    request_path(home, database).exists()
+}
+
+pub(super) async fn requested(
+    host: &Arc<Host>,
+    log: &CloudLog,
+    database: &registry::Database,
+) -> Result<(), String> {
     let path = request_path(&host.home, log.database_id());
     let request =
         super::disk::read_limited(&path, 32).map_err(|_| "cannot read snapshot request")?;
@@ -84,7 +119,7 @@ pub(super) async fn requested(host: &Arc<Host>, log: &CloudLog) -> Result<(), St
     if request != b"snapshot-v1\n" {
         return Err("snapshot request has an unsupported version".into());
     }
-    publish(host, log).await?;
+    publish(host, log, database).await?;
     std::fs::remove_file(path).map_err(|_| "cannot retire the completed snapshot request")?;
     Ok(())
 }
@@ -100,7 +135,6 @@ pub async fn restore_base(
     scope: &cloud_backup_protocol::CloudScope,
     database: &Id,
     seed: &[u8; 32],
-    name: &str,
 ) -> Result<Option<RestoredBase>, String> {
     let probe =
         Arc::new(Ed25519KeyPair::from_secret_key(seed).map_err(|_| "invalid recovery key")?);
@@ -118,29 +152,18 @@ pub async fn restore_base(
     if let Some(revision) = super::members::revision(&log).await {
         log.member_revision = revision;
     }
-    let Some(manifest) = transport::current(&log).await? else {
+    let Some((id, manifest)) = transport::current(&log).await? else {
         return Ok(None);
     };
-    let payload = transport::download(&log, &manifest).await?;
-    let through = manifest.through.get();
-    let personal =
-        DatabaseContentKey::personal(seed, database.as_str()).map_err(|e| e.to_string())?;
-    let (key, name) = if archive::opens(&payload, &personal, through) {
-        (personal, None)
-    } else {
-        (
-            DatabaseContentKey::owned(seed, database.as_str()).map_err(|e| e.to_string())?,
-            Some(name),
-        )
-    };
+    let name = manifest.name.as_deref();
     let data = data_path(home, database, name.is_some());
     if let Some(parent) = data.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    archive::decode(&payload, &key, through, &data)?;
+    transport::download(&log, &id, &manifest, &data).await?;
     owned::prepare_snapshot_restore(home, database.as_str().to_owned(), name)?;
     Ok(Some(RestoredBase {
-        through,
+        through: manifest.through.get(),
         name: name.unwrap_or("personal").to_owned(),
         member_revision: log.member_revision,
     }))
@@ -156,7 +179,9 @@ fn data_path(home: &Path, database: &Id, named: bool) -> PathBuf {
 
 /// A cloud-delivery position whose database files were installed locally.
 pub struct RestoredBase {
+    /// Last log position already included in the restored files.
     pub through: u64,
+    /// Local database name to use after installing the files.
     pub name: String,
     pub(super) member_revision: u64,
 }

@@ -248,7 +248,6 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
             &scope,
             &database,
             &seed,
-            "recovered",
         )
         .await?;
         let host = Arc::new(if base.is_some() {

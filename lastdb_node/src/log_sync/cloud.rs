@@ -140,8 +140,18 @@ impl CloudLog {
         body: Vec<u8>,
         proof: Proof,
     ) -> Result<(u16, Vec<u8>), ()> {
+        self.post_status_limit(path, body, proof, 65_536).await
+    }
+
+    pub(super) async fn post_status_limit(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        proof: Proof,
+        limit: u64,
+    ) -> Result<(u16, Vec<u8>), ()> {
         self.endpoint
-            .post_exchange(self.signed(path, &body, proof), 65_536)
+            .post_exchange(self.signed(path, &body, proof), limit)
             .await
             .map_err(|_| ())
     }

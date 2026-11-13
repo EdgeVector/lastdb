@@ -1,32 +1,54 @@
-//! Use the existing encrypted-object transport, then commit on the signed route.
+//! Sign the snapshot inventory and transfer its original files directly.
 
-use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::v2::jobs::{CloseReason, JobBeginRequest, JobCloseRequest};
-use cloud_backup_protocol::v2::share_access::MUTATION_LOG_SNAPSHOT_BYTES_PATH;
-use cloud_backup_protocol::v2::transfer::TransferInput;
-use cloud_backup_protocol::v2::{ClientDescriptor, Destination, Job, Object, Stream, Version};
-use cloud_backup_protocol::{bytes_sha256, canonical_bytes, DecimalU64, Id};
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::time::Duration;
+
+use cloud_backup_protocol::v2::share_access::MUTATION_LOG_SNAPSHOT_BYTES_PATH as ROUTE;
+use cloud_backup_protocol::{bytes_sha256, canonical_bytes, Digest, Id};
+use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
+use futures::{stream, StreamExt, TryStreamExt};
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest as _, Sha256};
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 
-use crate::cloud_backup_client::byte_backup::ExactUpload;
-use crate::database_replay::{SnapshotFileRequest, SnapshotFileSource};
-use crate::log_sync::{cloud::CloudLog, http::Proof, restore};
+use super::{files, Manifest};
+use crate::log_sync::{cloud::CloudLog, http::Proof};
 
-use super::{archive::MAX_BYTES, Manifest};
+const PAGE: usize = 32;
+const PARALLEL: usize = 6;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Grant {
+    url: String,
+    headers: BTreeMap<String, String>,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Read {
     database_id: Id,
+    snapshot_id: Option<Digest>,
     snapshot: Option<Manifest>,
 }
 
-pub(super) async fn current(log: &CloudLog) -> Result<Option<Manifest>, String> {
+impl Manifest {
+    fn id(&self) -> Result<Digest, String> {
+        canonical_bytes(self)
+            .map(|body| bytes_sha256(&body))
+            .map_err(|error| error.to_string())
+    }
+}
+
+pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>, String> {
     let body = canonical_bytes(&json!({"action": "read", "database_id": log.database_id()}))
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
     let (status, raw) = log
-        .post_status(MUTATION_LOG_SNAPSHOT_BYTES_PATH, body, Proof::Data)
+        .post_status_limit(ROUTE, body, Proof::Data, 400 * 1024)
         .await
         .map_err(|_| "snapshot lookup did not complete")?;
     if status == 404 {
@@ -39,129 +61,205 @@ pub(super) async fn current(log: &CloudLog) -> Result<Option<Manifest>, String> 
     if value.database_id.as_str() != log.database_id() {
         return Err("snapshot reply names a different database".into());
     }
-    if let Some(manifest) = &value.snapshot {
-        validate(log, manifest)?;
+    match (value.snapshot_id, value.snapshot) {
+        (None, None) => Ok(None),
+        (Some(id), Some(manifest)) if manifest.id()? == id => {
+            files::validate(&manifest.files)?;
+            Ok(Some((id, manifest)))
+        }
+        _ => Err("signed snapshot manifest does not match its digest".into()),
     }
-    Ok(value.snapshot)
 }
 
 pub(super) async fn publish(
     log: &CloudLog,
-    previous: Option<&Manifest>,
-    through: u64,
-    bytes: Vec<u8>,
-) -> Result<Manifest, String> {
-    let digest = bytes_sha256(&bytes);
-    let database = Id::try_from(log.database_id().to_owned()).map_err(|e| e.to_string())?;
-    let manifest = Manifest {
-        through: DecimalU64::new(through),
-        bytes: DecimalU64::new(bytes.len() as u64),
-        path: BlobPath {
-            database: database.clone(),
-            space: "lastdb-snapshot"
-                .to_owned()
-                .try_into()
-                .map_err(|e: cloud_backup_protocol::ProtocolError| e.to_string())?,
-            record: digest.clone(),
-            write_id: "v1"
-                .to_owned()
-                .try_into()
-                .map_err(|e: cloud_backup_protocol::ProtocolError| e.to_string())?,
-        },
-        sha256: digest,
-    };
-    upload(log, &manifest, bytes).await?;
-    let body = canonical_bytes(&json!({
-        "action": "publish",
-        "database_id": database,
-        "previous": previous.map(|snapshot| &snapshot.sha256),
-        "snapshot": &manifest,
-    }))
-    .map_err(|e| e.to_string())?;
-    let raw = log
-        .post(MUTATION_LOG_SNAPSHOT_BYTES_PATH, body)
-        .await
-        .map_err(|e| e.to_string())?;
-    let saved: Manifest =
-        serde_json::from_slice(&raw).map_err(|_| "invalid snapshot commit reply")?;
-    if saved != manifest {
-        return Err("snapshot commit returned different bytes or position".into());
+    previous: Option<&Digest>,
+    cut: &DatabaseSnapshot,
+    manifest: &Manifest,
+) -> Result<Digest, String> {
+    let id = manifest.id()?;
+    if previous == Some(&id) {
+        return Ok(id);
     }
-    Ok(saved)
+    let client = client()?;
+    for page in manifest.files.chunks(PAGE) {
+        let grants = grants(
+            log,
+            json!({
+                "action": "prepare", "database_id": log.database_id(), "files": page,
+            }),
+            page.len(),
+        )
+        .await?;
+        stream::iter(
+            page.iter()
+                .zip(grants)
+                .map(|(entry, grant)| upload(&client, cut, entry, grant)),
+        )
+        .buffer_unordered(PARALLEL)
+        .try_collect::<Vec<_>>()
+        .await?;
+    }
+    let value = call(
+        log,
+        json!({
+            "action": "publish",
+            "database_id": log.database_id(),
+            "previous": previous,
+            "snapshot": manifest,
+        }),
+    )
+    .await?;
+    if value.get("snapshot_id").and_then(serde_json::Value::as_str) != Some(id.as_str()) {
+        return Err("snapshot commit returned a different manifest digest".into());
+    }
+    Ok(id)
 }
 
-async fn upload(log: &CloudLog, manifest: &Manifest, bytes: Vec<u8>) -> Result<(), String> {
-    let begin = JobBeginRequest {
-        version: Version::V2,
-        job: Job {
-            stream: Stream {
-                scope: log.scope.clone(),
-                stream_id: manifest.path.database.clone(),
-            },
-            commit_id: fresh_id()?,
-        },
-        descriptor: ClientDescriptor::empty(),
-        required_destinations: vec![Destination::B2],
-        r2_multipart: None,
-        predecessor: None,
-        recovery_dependencies: Vec::new(),
-        covered_logs: Vec::new(),
-    };
-    let input = TransferInput {
-        version: Version::V2,
-        request_id: fresh_id()?,
-        job: begin.job.clone(),
-        object: Object {
-            sha256: manifest.sha256.clone(),
-            bytes: manifest.bytes,
-            destination: Destination::B2,
-        },
-        blob: Some(manifest.path.clone()),
-    };
-    let host = log.host().map_err(|e| e.to_string())?;
-    let client = crate::cloud::client_from_home(&host.home)?;
-    let uploaded = client.upload_exact(&begin, &input, bytes).await;
-    let close = JobCloseRequest {
-        version: Version::V2,
-        job: begin.job.clone(),
-        begin_sha256: begin.input_sha256().map_err(|e| e.to_string())?,
-        reason: CloseReason::UserRequested,
-    };
-    let closed = client.close(&close).await;
-    match uploaded.map_err(|e| e.to_string())? {
-        ExactUpload::Verified(_) => closed.map(|_| ()).map_err(|e| e.to_string()),
-        ExactUpload::Retryable(step) => Err(format!("snapshot upload awaits {step}")),
+async fn upload(
+    client: &Client,
+    cut: &DatabaseSnapshot,
+    entry: &files::FileEntry,
+    grant: Grant,
+) -> Result<(), String> {
+    let file = cut
+        .open_file(Path::new(entry.path.as_str()))
+        .map_err(|error| error.to_string())?;
+    let body = reqwest::Body::wrap_stream(ReaderStream::new(tokio::fs::File::from_std(file)));
+    let response = request(client.put(grant.url), grant.headers)
+        .header(reqwest::header::CONTENT_LENGTH, entry.bytes.get())
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "snapshot upload did not complete")?;
+    if response.status().is_success()
+        || (entry.destination == cloud_backup_protocol::v2::Destination::R2
+            && response.status() == StatusCode::PRECONDITION_FAILED)
+    {
+        return Ok(());
     }
+    Err(format!(
+        "snapshot file upload returned HTTP {}",
+        response.status()
+    ))
 }
 
-pub(super) async fn download(log: &CloudLog, manifest: &Manifest) -> Result<Vec<u8>, String> {
-    validate(log, manifest)?;
-    let request = SnapshotFileRequest {
-        database_id: log.database_id().to_owned(),
-        scope: log.scope.clone(),
-        path: manifest.path.clone(),
-    };
-    let bytes = restore::file_source(log.clone())
-        .read_blob(&request)
+pub(super) async fn download(
+    log: &CloudLog,
+    id: &Digest,
+    manifest: &Manifest,
+    destination: &Path,
+) -> Result<(), String> {
+    let client = client()?;
+    files::create_layout(destination).map_err(|error| error.to_string())?;
+    for (page, entries) in manifest.files.chunks(PAGE).enumerate() {
+        let grants = grants(
+            log,
+            json!({
+                "action": "download", "database_id": log.database_id(),
+                "snapshot_id": id, "offset": page * PAGE,
+            }),
+            entries.len(),
+        )
+        .await?;
+        stream::iter(
+            entries.iter().zip(grants).map(|(entry, grant)| {
+                let client = &client;
+                async move {
+                    receive(client, &destination.join(entry.path.as_str()), entry, grant).await
+                }
+            }),
+        )
+        .buffer_unordered(PARALLEL)
+        .try_collect::<Vec<_>>()
+        .await?;
+    }
+    files::sync_layout(destination).map_err(|error| error.to_string())
+}
+
+async fn receive(
+    client: &Client,
+    path: &Path,
+    entry: &files::FileEntry,
+    grant: Grant,
+) -> Result<(), String> {
+    let response = request(client.get(grant.url), grant.headers)
+        .send()
         .await
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 != manifest.bytes.get() || bytes_sha256(&bytes) != manifest.sha256 {
+        .map_err(|_| "snapshot download did not complete")?;
+    if !response.status().is_success() || response.content_length() != Some(entry.bytes.get()) {
+        return Err(format!(
+            "snapshot file download returned HTTP {} or a different length",
+            response.status()
+        ));
+    }
+    let mut input = response.bytes_stream();
+    let mut output =
+        tokio::fs::File::from_std(files::create_file(path).map_err(|error| error.to_string())?);
+    let mut hash = Sha256::new();
+    let mut length = 0;
+    while let Some(chunk) = input
+        .try_next()
+        .await
+        .map_err(|_| "snapshot download stopped")?
+    {
+        length += chunk.len() as u64;
+        if length > entry.bytes.get() {
+            return Err("snapshot download exceeded its saved length".into());
+        }
+        hash.update(&chunk);
+        output
+            .write_all(&chunk)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if length != entry.bytes.get() || files::digest(hash)? != entry.sha256 {
         return Err("snapshot download differs from its saved digest or length".into());
     }
-    Ok(bytes)
+    output.sync_all().await.map_err(|error| error.to_string())
 }
 
-fn validate(log: &CloudLog, manifest: &Manifest) -> Result<(), String> {
-    if manifest.path.database.as_str() != log.database_id()
-        || manifest.path.space.as_str() != "lastdb-snapshot"
-        || manifest.path.record != manifest.sha256
-        || !(1..=MAX_BYTES as u64).contains(&manifest.bytes.get())
-    {
-        return Err("invalid signed snapshot manifest".into());
+fn client() -> Result<Client, String> {
+    Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(900))
+        .build()
+        .map_err(|_| "cannot build snapshot transfers".to_owned())
+}
+
+fn request(
+    mut request: reqwest::RequestBuilder,
+    headers: BTreeMap<String, String>,
+) -> reqwest::RequestBuilder {
+    for (name, value) in headers {
+        if !name.eq_ignore_ascii_case("content-length") {
+            request = request.header(name, value);
+        }
     }
-    manifest.path.validate().map_err(|e| e.to_string())
+    request
 }
 
-fn fresh_id() -> Result<Id, String> {
-    Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(|e| e.to_string())
+async fn grants(
+    log: &CloudLog,
+    body: serde_json::Value,
+    expected: usize,
+) -> Result<Vec<Grant>, String> {
+    let value = call(log, body).await?;
+    let grants: Vec<Grant> =
+        serde_json::from_value(value).map_err(|_| "invalid snapshot transfer grants")?;
+    if grants.len() != expected {
+        return Err("snapshot transfer grants do not cover every file".into());
+    }
+    Ok(grants)
+}
+
+async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Value, String> {
+    let body = canonical_bytes(&body).map_err(|error| error.to_string())?;
+    let response = log
+        .post(ROUTE, body)
+        .await
+        .map_err(|error| error.to_string())?;
+    serde_json::from_slice(&response).map_err(|_| "invalid snapshot response".into())
 }

@@ -5,6 +5,7 @@ use crate::{Error, Result};
 use std::fs::File;
 use std::path::PathBuf;
 
+/// A held run directory publication and the exact files it references.
 pub struct RunSnapshot {
     root: RunRoot,
     descriptor: File,
@@ -12,6 +13,7 @@ pub struct RunSnapshot {
 }
 
 impl RunHome {
+    /// Hold the current publication across subsequent writes and compactions.
     pub fn snapshot(&self) -> Result<RunSnapshot> {
         let _publication = self.publish_lock()?;
         self.refuse_if_poisoned()?;
@@ -24,6 +26,7 @@ impl RunHome {
 }
 
 impl RunSnapshot {
+    /// List relative paths and byte lengths in the held publication.
     pub fn files(&self) -> Result<Vec<(PathBuf, u64)>> {
         let mut files = vec![
             (RUN_HOME_MARKER.into(), self.descriptor.metadata()?.len()),
@@ -39,6 +42,7 @@ impl RunSnapshot {
         Ok(files)
     }
 
+    /// Open a file belonging to the held publication.
     pub fn open_file(&self, path: &std::path::Path) -> Result<File> {
         if path == std::path::Path::new(RUN_HOME_MARKER) {
             return Ok(self.descriptor.try_clone()?);
@@ -46,7 +50,11 @@ impl RunSnapshot {
         if path == std::path::Path::new(CURRENT) {
             return Ok(self.current.try_clone()?);
         }
-        let Some(name) = path.file_name() else {
+        let Some(name) = path.strip_prefix(RUNS).ok().and_then(|path| {
+            (path.components().count() == 1)
+                .then(|| path.file_name())
+                .flatten()
+        }) else {
             return Err(Error::Config("snapshot run name".into()));
         };
         let run = self
