@@ -98,7 +98,7 @@ async fn publish(
             .acknowledge_accepted(cut.accepted_head)
             .map_err(|error| format!("{error:?}"))?;
     }
-    remember(&host.home, log.database_id(), through, entries, &nonce)?;
+    remember(&host.home, log.database_id(), through, entries, nonce)?;
     tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");
     Ok(())
 }
