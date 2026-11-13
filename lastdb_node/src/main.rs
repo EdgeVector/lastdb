@@ -1,29 +1,27 @@
-//! `lastdbd` — the LastDB Mini semantic daemon.
+//! `lastdbd` — the LastDB Mini semantic daemon and owner-socket server.
 
-mod lastdbd;
-
-#[cfg(target_os = "macos")]
-use std::ffi::CStr;
-use std::fmt;
 use std::io::Write;
-use std::os::fd::RawFd;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use clap::Parser;
-use lastdb_node::cloud;
 use lastdb_node::host::{self, Host};
+use lastdb_node::lastdb_uds::database_path::{DATABASES_PATH, DATABASE_SCOPE_PREFIX};
 use lastdb_node::lastdb_uds::uds::{self, UdsSocket};
-use lastdb_node::lastdb_uds::worker_pool::UdsWorkerPool;
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::fmt::format::Writer;
-use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
+use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
+use lastdb_node::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
+use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
+use lastdb_node::{cloud, exec, jobs, log_sync, registered_share};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::task::JoinHandle;
+use tracing::Instrument;
+
+const MAX_PARSE_BYTES: usize =
+    uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
+const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -40,218 +38,201 @@ struct Cli {
     enable_search: bool,
 }
 
-struct PrivateFormat;
-
-#[derive(Default)]
-struct Metrics(Vec<(&'static str, u64)>);
-
-impl Visit for Metrics {
-    fn record_u64(&mut self, f: &Field, v: u64) {
-        if matches!(
-            f.name(),
-            "workers" | "queue_capacity" | "max_field_value_bytes" | "default" | "absolute_max"
-        ) {
-            self.0.push((f.name(), v));
-        }
-    }
-    fn record_i64(&mut self, f: &Field, v: i64) {
-        if let Ok(v) = u64::try_from(v) {
-            self.record_u64(f, v);
-        }
-    }
-    fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
+#[derive(Clone)]
+struct Server {
+    host: Arc<Host>,
+    handle: tokio::runtime::Handle,
+    pool: UdsWorkerPool,
+    body_budget: Arc<Semaphore>,
+    mutation_replies: Arc<Semaphore>,
 }
 
-impl<S, N> FormatEvent<S, N> for PrivateFormat
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-    N: for<'a> FormatFields<'a> + 'static,
-{
-    fn format_event(
-        &self,
-        _ctx: &FmtContext<'_, S, N>,
-        mut w: Writer<'_>,
-        event: &Event<'_>,
-    ) -> fmt::Result {
-        let meta = event.metadata();
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        let cat = match meta.target() {
-            "lastdbd::shutdown" => "shutdown",
-            "lastdb_node::cloud" => "cloud",
-            "observability::crash" => "panic_report",
-            _ => "daemon",
-        };
-        write!(w, "timestamp={ts} severity={} category={cat}", meta.level())?;
-        if meta.target() == "lastdbd" {
-            let mut m = Metrics::default();
-            event.record(&mut m);
-            for (k, v) in m.0 {
-                write!(w, " {k}={v}")?;
-            }
-        }
-        writeln!(w)
+fn log_io(res: &std::io::Result<()>) {
+    if let Err(e) = res {
+        tracing::debug!(error = %e, "socket connection ended with error");
     }
 }
 
-fn init_tracing() -> Option<observability::layers::error::SentryGuard> {
-    use observability::layers::error::{build_error_layer, OBS_SENTRY_RELEASE_ENV};
-    std::env::set_var(
-        OBS_SENTRY_RELEASE_ENV,
-        lastdb_node::version::build_version(),
-    );
-    let filter = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|v| tracing_subscriber::EnvFilter::try_new(v.trim()).ok())
-        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
-    let (err_layer, guard) = build_error_layer().unzip();
-    let fmt = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .event_format(PrivateFormat);
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt)
-        .with(err_layer)
-        .init();
-    guard
+fn retain_permits(lease: &mut OwnedSemaphorePermit, req: &UdsRequest) -> bool {
+    let hdr_vec = req.headers.capacity() * std::mem::size_of::<(String, String)>();
+    let base = std::mem::size_of::<UdsRequest>()
+        + req.body.capacity()
+        + req.method.capacity()
+        + req.target.capacity()
+        + hdr_vec;
+    let bytes = req
+        .headers
+        .iter()
+        .fold(base, |t, (k, v)| t + k.capacity() + v.capacity());
+    if bytes > lease.num_permits() {
+        return false;
+    }
+    drop(lease.split(lease.num_permits() - bytes));
+    true
 }
 
-fn spawn_stdio_log_rotators() {
-    if matches!(
-        std::env::var("LASTDBD_STDIO_LOG_ROTATION").ok().as_deref(),
-        Some("0" | "false" | "FALSE" | "off" | "OFF")
-    ) {
-        return;
+fn serve_conn(srv: &Server, stream: UnixStream, comp: ConnectionWork) -> std::io::Result<()> {
+    if let Ok(lease) = Arc::clone(&srv.body_budget).try_acquire_many_owned(PARSE_PERMITS) {
+        return serve_reserved(srv, stream, comp, lease);
     }
-    let max_bytes = fold_db::env_flag::var_or("LASTDBD_STDIO_LOG_MAX_BYTES", 10 * 1024 * 1024u64);
-    if max_bytes == 0 {
-        return;
-    }
-    let keep = fold_db::env_flag::var_or("LASTDBD_STDIO_LOG_KEEP", 5usize);
-    let interval = Duration::from_secs(
-        fold_db::env_flag::var_or("LASTDBD_STDIO_LOG_CHECK_SECONDS", 60u64).max(1),
-    );
-    for fd in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
-        if let Some(p) = fd_regular_file_path(fd) {
-            std::thread::spawn(move || loop {
-                let _ = rotate_fd_if_needed(fd, &p, max_bytes, keep);
-                std::thread::sleep(interval);
-            });
+    let srv = srv.clone();
+    srv.handle.clone().spawn(async move {
+        match Arc::clone(&srv.body_budget)
+            .acquire_many_owned(PARSE_PERMITS)
+            .await
+        {
+            Ok(lease) => comp.resume(stream, move |s, c| {
+                log_io(&serve_reserved(&srv, s, c, lease));
+            }),
+            Err(e) => tracing::debug!(error = %e, "socket connection ended with error"),
         }
-    }
-}
-
-fn rotate_fd_if_needed(fd: RawFd, path: &Path, max_bytes: u64, keep: usize) -> std::io::Result<()> {
-    let meta = std::fs::metadata(path)?;
-    if !meta.is_file() || meta.len() <= max_bytes {
-        return Ok(());
-    }
-    let name = path
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .unwrap_or("lastdbd.log");
-    let rot = |idx: usize| path.with_file_name(format!("{name}.{idx}"));
-    if keep > 0 {
-        if let Err(e) = std::fs::remove_file(rot(keep)) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                return Err(e);
-            }
-        }
-        for i in (2..=keep).rev().filter(|&i| rot(i - 1).exists()) {
-            std::fs::rename(rot(i - 1), rot(i))?;
-        }
-        std::fs::copy(path, rot(1))?;
-        std::fs::set_permissions(rot(1), meta.permissions())?;
-    }
-    // SAFETY: `fd` is one of this process's stdio descriptors; `ftruncate` and `lseek` do not consume it.
-    if unsafe { libc::ftruncate(fd, 0) } != 0 || unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
+    });
     Ok(())
 }
 
-fn fd_regular_file_path(fd: RawFd) -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let mut buf = [0 as libc::c_char; libc::MAXPATHLEN as usize];
-        // SAFETY: `buf` is a writable MAXPATHLEN buffer as required by F_GETPATH.
-        if unsafe { libc::fcntl(fd, libc::F_GETPATH, buf.as_mut_ptr()) } == 0 {
-            // SAFETY: F_GETPATH writes a NUL-terminated path into `buf` on success.
-            let cstr = unsafe { CStr::from_ptr(buf.as_ptr()) };
-            let p = PathBuf::from(cstr.to_string_lossy().into_owned());
-            if std::fs::metadata(&p).is_ok_and(|m| m.is_file()) {
-                return Some(p);
-            }
-        }
+fn serve_reserved(
+    srv: &Server,
+    mut stream: UnixStream,
+    comp: ConnectionWork,
+    mut lease: OwnedSemaphorePermit,
+) -> std::io::Result<()> {
+    let Some((mut req, ctx)) = uds_http::receive_connection(&mut stream, &srv.host.user_hash)?
+    else {
+        return Ok(());
+    };
+    let deferred = match uds_router::route(&req) {
+        ControlRoute::Data(r @ (DataRoute::Mutation | DataRoute::MutationBatch)) => Some(Some(r)),
+        _ if exec::is_deferred_database_request(&req) => Some(None),
+        _ => None,
+    };
+    if let Some(route) = deferred.filter(|_| retain_permits(&mut lease, &req)) {
+        let (host, replies) = (Arc::clone(&srv.host), Arc::clone(&srv.mutation_replies));
+        srv.handle.spawn(async move {
+            let Ok(slot) = replies.acquire_owned().await else {
+                return;
+            };
+            let resp = if let Some(r) = route {
+                exec::execute_deferred_mutation(r, &req, &ctx, &host).await
+            } else {
+                exec::execute_deferred_database_request(&mut req, &ctx, &host).await
+            };
+            drop((req, lease));
+            comp.resume(stream, move |mut s, _| {
+                let res = uds_http::finish_connection(&mut s, &resp);
+                drop((resp, slot));
+                log_io(&res);
+            });
+        });
+        return Ok(());
     }
-    [format!("/dev/fd/{fd}"), format!("/proc/self/fd/{fd}")]
-        .into_iter()
-        .filter_map(|c| std::fs::read_link(c).ok())
-        .find(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
+    let path = req.target.split(['?', '#']).next();
+    let resp = if req.target == DATABASES_PATH || req.target.starts_with(DATABASE_SCOPE_PREFIX) {
+        exec::block_on_route(
+            &srv.handle,
+            &ctx,
+            false,
+            exec::execute_database_request(&mut req, &ctx, &srv.host),
+        )
+    } else if req.method == "GET" && path == Some("/health") {
+        if srv.host.db.db_ops().native_runtime().requires_recovery() {
+            let body = br#"{"status":"error","error":"storage_requires_recovery"}"#.to_vec();
+            UdsResponse::new(503, "Service Unavailable", body)
+                .with_header("Content-Type", "application/json")
+        } else {
+            uds_router::health_response()
+        }
+    } else if req.method == "POST" && path == Some("/api/apps/declare-schema") {
+        exec::block_on_route(
+            &srv.handle,
+            &ctx,
+            true,
+            exec::execute_apps_declare_schema_route(&req, &ctx, &srv.host),
+        )
+    } else {
+        uds_router::dispatch(&req, &ctx, |r, rq, cx| {
+            exec::block_on_data_route(&srv.handle, r, rq, cx, &srv.host)
+        })
+    };
+    uds_http::finish_connection(&mut stream, &resp)
 }
 
-fn serve_node(
-    runtime: tokio::runtime::Runtime,
-    home: &Path,
-    socket_path: Option<PathBuf>,
+fn spawn_background(
+    rt: &tokio::runtime::Runtime,
+    host: &Arc<Host>,
+    stop: &Arc<AtomicBool>,
+    sock: &Path,
+) -> Vec<(&'static str, JoinHandle<()>)> {
+    let _g = rt.enter();
+    let (sh, ss) = (Arc::clone(host), Arc::clone(stop));
+    let sync = tokio::spawn(
+        async move {
+            if log_sync::spawn(sh, ss).await.is_err() {
+                tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
+            }
+        }
+        .in_current_span(),
+    );
+    vec![
+        (
+            "ttl sweep",
+            jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(stop)),
+        ),
+        ("log sync", sync),
+        (
+            "received shares",
+            registered_share::spawn(host.home.clone(), Arc::clone(stop)),
+        ),
+        (
+            "saved queries",
+            jobs::saved_query::spawn(Arc::clone(host), sock.to_path_buf(), Arc::clone(stop)),
+        ),
+    ]
+}
+
+fn finish_shutdown(
+    rt: tokio::runtime::Runtime,
+    (home, pid): (&Path, u32),
+    host: &Arc<Host>,
+    pool: &UdsWorkerPool,
+    tasks: Vec<(&'static str, JoinHandle<()>)>,
+    accept_err: Result<(), String>,
 ) -> Result<(), String> {
-    use fold_db::content_limit::{self as cl, MAX_FIELD_VALUE_BYTES_ENV};
-    let (data_dir, pid) = (home.join("data"), std::process::id());
-    let host = Arc::new(runtime.block_on(Host::boot(home))?);
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let socket =
-        UdsSocket::bind_at(socket_path.unwrap_or_else(|| data_dir.join(uds::SOCKET_FILE_NAME)))
-            .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
-    println!("lastdbd serving the owner socket");
-    for sig in [libc::SIGTERM, libc::SIGINT] {
-        let f = Arc::clone(&shutdown);
-        // SAFETY: the handler only performs an async-signal-safe atomic store.
-        unsafe { signal_hook_registry::register(sig, move || f.store(true, Ordering::Relaxed)) }
-            .map_err(|e| format!("failed to register signal handler: {e}"))?;
-    }
-    let pool = UdsWorkerPool::from_env();
-    let _ = host.uds_workers.set(pool.clone());
-    let s = pool.snapshot();
-    tracing::info!(
-        workers = s.workers,
-        queue_capacity = s.queue_capacity,
-        "uds worker pool enabled (LASTDB_UDS_WORKERS / LASTDB_UDS_QUEUE)"
-    );
-    cl::set_max_field_value_bytes(cl::parse_max_field_value_bytes(
-        std::env::var(MAX_FIELD_VALUE_BYTES_ENV).ok(),
-    ));
-    tracing::info!(
-        max_field_value_bytes = cl::max_field_value_bytes(),
-        default = cl::DEFAULT_MAX_FIELD_VALUE_BYTES,
-        absolute_max = cl::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
-        env = MAX_FIELD_VALUE_BYTES_ENV,
-        "peer field value size limit"
-    );
-
-    let server = lastdbd::Server::new(Arc::clone(&host), runtime.handle().clone(), pool.clone());
-    let tasks = lastdbd::spawn_background(&runtime, &host, &shutdown, socket.path());
-    let accept_err = server
-        .serve(&socket, unsafe { libc::getuid() }, &shutdown)
-        .map_err(|e| format!("owner accept loop failed: {e}"));
-    shutdown.store(true, Ordering::Release);
-
+    let drain_bg = async {
+        let mut errs = Vec::new();
+        for (name, task) in tasks {
+            if let Err(e) = task.await {
+                errs.push(format!("{name} task failed: {e}"));
+            }
+        }
+        errs.is_empty().then_some(()).ok_or_else(|| errs.join("; "))
+    };
+    let pool_err = pool
+        .close_and_drain(Duration::from_secs(180))
+        .err()
+        .map(|e| format!("request handlers did not drain: {e}"));
+    let bg_err = match rt
+        .block_on(async { tokio::time::timeout(Duration::from_secs(180), drain_bg).await })
+    {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e),
+        Err(_) => Some("background writers did not drain within 180 seconds".to_string()),
+    };
+    let recv_err = rt.block_on(host.shutdown_received_databases()).err();
+    let own_err = rt
+        .block_on(host.shutdown_owned_databases())
+        .err()
+        .map(|e| format!("owned database shutdown flush failed: {e}"));
+    let db_err = rt
+        .block_on(host.db.shutdown())
+        .err()
+        .map(|e| format!("FoldDB shutdown flush failed: {e}"));
     let errs: Vec<String> = [
         accept_err.err(),
-        pool.close_and_drain(Duration::from_secs(180))
-            .err()
-            .map(|e| format!("request handlers did not drain: {e}")),
-        lastdbd::drain_background(&runtime, tasks).err(),
-        runtime.block_on(host.shutdown_received_databases()).err(),
-        runtime
-            .block_on(host.shutdown_owned_databases())
-            .err()
-            .map(|e| format!("owned database shutdown flush failed: {e}")),
-        runtime
-            .block_on(host.db.shutdown())
-            .err()
-            .map(|e| format!("FoldDB shutdown flush failed: {e}")),
+        pool_err,
+        bg_err,
+        recv_err,
+        own_err,
+        db_err,
     ]
     .into_iter()
     .flatten()
@@ -265,15 +246,90 @@ fn serve_node(
             errs.join("; ")
         ))
     };
-    runtime.shutdown_timeout(Duration::from_secs(1));
+    rt.shutdown_timeout(Duration::from_secs(1));
     res?;
     println!("lastdbd: shutdown signal received, exiting");
     Ok(())
 }
 
+fn serve_node(
+    rt: tokio::runtime::Runtime,
+    home: &Path,
+    sock_path: Option<PathBuf>,
+) -> Result<(), String> {
+    use fold_db::content_limit::{self as cl, MAX_FIELD_VALUE_BYTES_ENV};
+    let (data_dir, pid) = (home.join("data"), std::process::id());
+    let host = Arc::new(rt.block_on(Host::boot(home))?);
+    let stop = Arc::new(AtomicBool::new(false));
+    let target_sock = sock_path.unwrap_or_else(|| data_dir.join(uds::SOCKET_FILE_NAME));
+    let socket = UdsSocket::bind_at(target_sock)
+        .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
+    println!("lastdbd serving the owner socket");
+    for sig in [libc::SIGTERM, libc::SIGINT] {
+        let f = Arc::clone(&stop);
+        // SAFETY: the handler only performs an async-signal-safe atomic store.
+        unsafe { signal_hook_registry::register(sig, move || f.store(true, Ordering::Relaxed)) }
+            .map_err(|e| format!("failed to register signal handler: {e}"))?;
+    }
+    let pool = UdsWorkerPool::from_env();
+    let _ = host.uds_workers.set(pool.clone());
+    let s = pool.snapshot();
+    tracing::info!(
+        workers = s.workers,
+        queue_capacity = s.queue_capacity,
+        "uds worker pool enabled"
+    );
+    cl::set_max_field_value_bytes(cl::parse_max_field_value_bytes(
+        std::env::var(MAX_FIELD_VALUE_BYTES_ENV).ok(),
+    ));
+    tracing::info!(
+        max_field_value_bytes = cl::max_field_value_bytes(),
+        default = cl::DEFAULT_MAX_FIELD_VALUE_BYTES,
+        absolute_max = cl::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
+        "peer field value size limit"
+    );
+    let permits = s
+        .workers
+        .saturating_mul(MAX_PARSE_BYTES)
+        .min(Semaphore::MAX_PERMITS);
+    let srv = Server {
+        host: Arc::clone(&host),
+        handle: rt.handle().clone(),
+        pool: pool.clone(),
+        body_budget: Arc::new(Semaphore::new(permits)),
+        mutation_replies: Arc::new(Semaphore::new(s.workers)),
+    };
+    let tasks = spawn_background(&rt, &host, &stop, socket.path());
+    // SAFETY: `getuid()` has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let accept_err = socket
+        .serve(uid, &stop, |stream| {
+            let c = srv.clone();
+            match srv
+                .pool
+                .try_submit_owned_connection(stream, move |st, w| log_io(&serve_conn(&c, st, w)))
+            {
+                Ok(()) => {}
+                Err(SubmitError::QueueFull) => {
+                    let p = srv.pool.snapshot();
+                    tracing::warn!(
+                        workers = p.workers,
+                        queue_capacity = p.queue_capacity,
+                        in_flight = p.in_flight,
+                        rejects = p.queue_full_rejects,
+                        "uds worker queue full"
+                    );
+                }
+                Err(SubmitError::ShutDown) => tracing::error!("uds worker pool shut down"),
+            }
+        })
+        .map_err(|e| format!("owner accept loop failed: {e}"));
+    stop.store(true, Ordering::Release);
+    finish_shutdown(rt, (home, pid), &host, &pool, tasks, accept_err)
+}
+
 fn run() -> Result<(), String> {
-    spawn_stdio_log_rotators();
-    let _sentry = init_tracing();
+    let _sentry = host::init_daemon_logging();
     let cli = Cli::try_parse().unwrap_or_else(|e| {
         if matches!(
             e.kind(),
@@ -300,15 +356,14 @@ fn run() -> Result<(), String> {
         uds::preflight_data_dir(&home.join("data"))
             .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
     }
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let stack = fold_db::env_flag::var_or("RUST_MIN_STACK", 0usize).max(64 * 1024 * 1024);
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .thread_stack_size(
-            fold_db::env_flag::var_or("RUST_MIN_STACK", 0usize).max(64 * 1024 * 1024),
-        )
+        .thread_stack_size(stack)
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
     cloud::pin_schema_service_environment_from_home(&home);
-    serve_node(runtime, &home, cli.socket_path)
+    serve_node(rt, &home, cli.socket_path)
 }
 
 fn main() -> std::process::ExitCode {

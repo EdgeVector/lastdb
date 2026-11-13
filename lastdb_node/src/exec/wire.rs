@@ -1,9 +1,12 @@
-//! Request parsing and typed I4-safe request-shape rejection for owner-socket data routes.
+//! Request parsing, typed I4-safe rejection, and manifest/seed validation helpers.
 
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::operations::{MutationConvergence, Operation};
-use fold_db::schema::types::{Mutation, Query, QueryCursor};
+use fold_db::schema::types::{
+    DeclarativeSchemaDefinition, FieldValueType, Mutation, Query, QueryCursor, SchemaType,
+};
+use fold_db::schema::ManifestRetention;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -66,18 +69,16 @@ impl Reject {
         err: &serde_json::Error,
         key: Option<(&'static str, &'static str)>,
     ) -> Self {
-        if err.classify() == serde_json::error::Category::Data
+        let kind = if err.classify() == serde_json::error::Category::Data
             && err.to_string().starts_with("unknown field")
         {
-            Self {
-                kind: RejectKind::UnknownKey,
-                key: None,
-            }
+            RejectKind::UnknownKey
         } else {
-            Self {
-                kind: RejectKind::InvalidValue,
-                key,
-            }
+            RejectKind::InvalidValue
+        };
+        Self {
+            kind,
+            key: (kind == RejectKind::InvalidValue).then_some(key).flatten(),
         }
     }
 
@@ -132,7 +133,7 @@ impl ParsedMutation {
             key: key_value,
             alternates,
         };
-        let mut mutation = Mutation::with_uuid(
+        let mut m = Mutation::with_uuid(
             String::new(),
             target,
             record_fields,
@@ -140,13 +141,13 @@ impl ParsedMutation {
             mutation_type,
             expected,
         );
-        mutation.source_file_name = source_file_name;
-        mutation.metadata = metadata;
-        mutation.file = file;
-        mutation.definition_id = definition_id;
-        mutation.synchronous = Some(durability.unwrap_or_default().waits_for_persist());
+        m.source_file_name = source_file_name;
+        m.metadata = metadata;
+        m.file = file;
+        m.definition_id = definition_id;
+        m.synchronous = Some(durability.unwrap_or_default().waits_for_persist());
         Self {
-            mutation,
+            mutation: m,
             convergence: convergence.or(default_convergence).unwrap_or_default(),
         }
     }
@@ -157,7 +158,7 @@ pub fn parse_mutation_body(body: &[u8]) -> Result<ParsedMutation, Reject> {
         return Err(Reject::malformed_body());
     };
     const EX: &str = r#"{"type":"mutation","schema":"<Schema>","record":{"<field>":"<value>"},"key_value":{"hash":"<key>","range":null},"alternates":{},"mutation_type":"create","expected":{"type":"absent"}}"#;
-    const REQ: [&str; 7] = [
+    for k in [
         "type",
         "schema",
         "record",
@@ -165,9 +166,10 @@ pub fn parse_mutation_body(body: &[u8]) -> Result<ParsedMutation, Reject> {
         "mutation_type",
         "alternates",
         "expected",
-    ];
-    if let Some(&k) = REQ.iter().find(|&&k| !obj.contains_key(k)) {
-        return Err(Reject::kv(RejectKind::MissingRequiredKey, k, EX));
+    ] {
+        if !obj.contains_key(k) {
+            return Err(Reject::kv(RejectKind::MissingRequiredKey, k, EX));
+        }
     }
     serde_json::from_value::<Operation>(Value::Object(obj))
         .map(|op| ParsedMutation::from_operation(op, None))
@@ -263,16 +265,13 @@ pub(in crate::exec) fn parse_batch_mutation_body(
         return Err(content_free(400, "Bad Request"));
     };
     let (ops, conv) = if let Value::Array(items) = value {
-        (
-            items
-                .into_iter()
-                .map(|i| {
-                    serde_json::from_value(i)
-                        .map_err(|e| Reject::from_serde_error(&e, None).response())
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-            None,
-        )
+        let ops = items
+            .into_iter()
+            .map(|i| {
+                serde_json::from_value(i).map_err(|e| Reject::from_serde_error(&e, None).response())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        (ops, None)
     } else {
         let req: BatchMutationsRequest = serde_json::from_value(value)
             .map_err(|e| Reject::from_serde_error(&e, None).response())?;
@@ -322,4 +321,40 @@ pub(in crate::exec) fn schema_name_from_target(target: &str) -> Option<String> {
     let end = target.find(['?', '#']).unwrap_or(target.len());
     let raw = target[..end].strip_prefix("/api/schema/")?;
     (!raw.is_empty() && !raw.contains('/')).then(|| percent_decode(raw))
+}
+
+pub(in crate::exec) type RetLayout = (u64, &'static str, Vec<String>, bool);
+
+pub(in crate::exec) fn validate_manifest_retention(
+    retention: Option<ManifestRetention>,
+    s: &DeclarativeSchemaDefinition,
+) -> Result<Option<RetLayout>, String> {
+    fn str_prefix(k: &FieldValueType) -> bool {
+        match k {
+            FieldValueType::String | FieldValueType::Any => true,
+            FieldValueType::OneOf(v) => v.iter().any(str_prefix),
+            _ => false,
+        }
+    }
+    let Some(ret) = retention else {
+        return Ok(None);
+    };
+    let ttl = ret.ttl()?;
+    if matches!(s.schema_type, SchemaType::Hash | SchemaType::Single) {
+        return Ok(Some((
+            ttl,
+            "records expire by the time since the last write; a rewrite resets the age",
+            Vec::new(),
+            false,
+        )));
+    }
+    let rk = s
+        .record_keys
+        .as_ref()
+        .ok_or("retention requires explicit record_keys")?;
+    let warn = (!rk.primary.range_type.as_ref().is_some_and(str_prefix))
+        .then(|| "retention uses 20 zero-padded unix-second digits at the start of an explicit String range key".into())
+        .into_iter()
+        .collect();
+    Ok(Some((ttl, "records expire by the entry time at the front of the range key: unix seconds, zero-padded to 20 digits. A range key without that prefix never expires", warn, true)))
 }

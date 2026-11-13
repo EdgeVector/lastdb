@@ -1,13 +1,87 @@
-//! `lastdb mutate`: request body construction, file input, and submission.
+//! Database target resolution, `db list`, and `lastdb mutate`.
 
 use super::*;
+use lastdb_node::lastdb_uds::database_path::{self, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
+use serde_json::json;
+use std::borrow::Cow;
 
 const PUT_BLOB_PATH: &str = "/api/db/put-blob";
+
+pub(crate) struct DatabaseTarget {
+    pub(crate) socket: PathBuf,
+    selector: Option<String>,
+}
+
+impl DatabaseTarget {
+    pub(crate) fn open(data_dir: Option<PathBuf>, selector: Option<&str>) -> Result<Self, String> {
+        let (_, socket) = resolve_client_home_and_socket(data_dir)?;
+        let selector = selector.map(|v| resolve_database(&socket, v)).transpose()?;
+        Ok(Self { socket, selector })
+    }
+
+    pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
+        let Some(sel) = self.selector.as_deref() else {
+            return Cow::Borrowed(path);
+        };
+        let suffix = path
+            .strip_prefix("/api")
+            .expect("database path starts with /api");
+        Cow::Owned(format!("{DATABASE_SCOPE_PREFIX}{sel}{suffix}"))
+    }
+
+    pub(crate) fn selector(&self) -> Option<&str> {
+        self.selector.as_deref()
+    }
+}
+
+fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
+    if !database_path::valid_selector(selector) {
+        return Err("invalid database ID or name".into());
+    }
+    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+        return Ok(selector.to_owned());
+    }
+    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
+    parse_json_response(&raw, "database list")?["databases"]
+        .as_array()
+        .ok_or("missing database list")?
+        .iter()
+        .find_map(|db| {
+            (db["name"].as_str() == Some(selector)).then_some(())?;
+            let id = db["id"].as_str()?;
+            cloud_backup_protocol::Id::try_from(id.to_owned()).ok()?;
+            Some(id.to_owned())
+        })
+        .ok_or_else(|| "database is not registered on this node".into())
+}
+
+pub(super) fn list_databases(data_dir: Option<PathBuf>, json_only: bool) -> Result<(), String> {
+    let target = DatabaseTarget::open(data_dir, None)?;
+    let resp = parse_json_response(
+        &get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?,
+        "database list",
+    )?;
+    if json_only {
+        println!("{resp}");
+        return Ok(());
+    }
+    for db in resp["databases"]
+        .as_array()
+        .ok_or("missing database list")?
+    {
+        let id = db["id"].as_str().ok_or("database has no ID")?;
+        let name = db["name"].as_str().unwrap_or(id);
+        let acc = db["access"].as_str().ok_or("database has no access mode")?;
+        let st = db["state"].as_str().ok_or("database has no state")?;
+        println!("{name}\t{id}\t{acc}\t{st}");
+    }
+    Ok(())
+}
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecordInput {
-    mutation: serde_json::Value,
+    mutation: Value,
     file: Option<InputFile>,
     #[serde(default)]
     placement: Option<String>,
@@ -32,27 +106,10 @@ struct ThumbFile {
     media_type: Option<String>,
 }
 
-fn write_mutate_receipt(response: &str) -> Result<(), String> {
-    let (_, body) = response
-        .split_once("\r\n\r\n")
-        .ok_or("mutation response had no body")?;
-    if response.starts_with("HTTP/1.1 202 ") {
-        let r: serde_json::Value =
-            serde_json::from_str(body).map_err(|_| "invalid mutation submission receipt")?;
-        if r["status"] != "submitted" || r["mutation_id"].as_str().is_none() {
-            return Err("invalid mutation submission receipt".into());
-        }
-    } else {
-        parse_json_response(response, "mutation")?;
-    }
-    println!("{}", body.trim_end_matches('\n'));
-    Ok(())
-}
-
 fn submit_input_file(
     target: &DatabaseTarget,
     base: &Path,
-    body: &serde_json::Value,
+    body: &Value,
     file: &InputFile,
     placement: &str,
 ) -> Result<(), String> {
@@ -67,26 +124,20 @@ fn submit_input_file(
     let thumb = if let Some(t) = &file.thumbnail {
         let p = base.join(&t.source);
         let bytes = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
-        serde_json::json!({
-            "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes),
-            "name": t.name, "media_type": t.media_type,
-        })
+        json!({ "bytes_b64": base64::engine::general_purpose::STANDARD.encode(bytes), "name": t.name, "media_type": t.media_type })
     } else {
-        serde_json::Value::Null
+        Value::Null
     };
-    let mut metadata = serde_json::json!({
-        "mutation": body, "name": file.name, "media_type": file.media_type,
-        "placement": placement, "thumbnail": thumb,
-    });
+    let mut meta = json!({ "mutation": body, "name": file.name, "media_type": file.media_type, "placement": placement, "thumbnail": thumb });
     let receipt = if file.local {
-        metadata["local_path"] = serde_json::json!(std::fs::canonicalize(&source)
+        meta["local_path"] = json!(std::fs::canonicalize(&source)
             .map_err(|e| format!("open {}: {e}", source.display()))?);
         parse_json_response(
-            &post_json_admin(&target.socket, &target.path(PUT_BLOB_PATH), &metadata)?,
+            &post_json_admin(&target.socket, &target.path(PUT_BLOB_PATH), &meta)?,
             PUT_BLOB_PATH,
         )?
     } else {
-        put_record_file(target, &metadata, &source)?
+        put_record_file(target, &meta, &source)?
     };
     println!("{receipt}");
     Ok(())
@@ -96,9 +147,9 @@ pub(super) fn mutate_command(
     target: &DatabaseTarget,
     request_file: &Path,
     durable: bool,
-    mutation_id: Option<uuid::Uuid>,
+    mutation_id: Option<Uuid>,
 ) -> Result<(), String> {
-    if mutation_id.is_some() && !target.is_explicit() {
+    if mutation_id.is_some() && target.selector.is_none() {
         return Err("--mutation-id requires --db".into());
     }
     let text = if request_file == Path::new("-") {
@@ -111,7 +162,7 @@ pub(super) fn mutate_command(
     } else {
         std::fs::read_to_string(request_file).map_err(|e| format!("read mutation: {e}"))?
     };
-    let mut body: serde_json::Value =
+    let mut body: Value =
         serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))?;
     let file = if body.get("mutation").is_some() {
         if body.get("file").is_none() {
@@ -137,21 +188,28 @@ pub(super) fn mutate_command(
         return Err("--mutation-id applies to record submissions without file changes".into());
     }
     if let Some(obj) = body.as_object_mut().filter(|_| durable) {
-        obj.insert("durability".into(), serde_json::json!("durable"));
+        obj.insert("durability".into(), json!("durable"));
     }
     lastdb_node::exec::parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
         .map_err(|r| format!("invalid complete mutation: {r:?}"))?;
-    let base = request_file.parent().unwrap_or(Path::new(""));
     let (route, body) = match file {
-        Some((Some(f), p)) => return submit_input_file(target, base, &body, &f, p),
+        Some((Some(f), p)) => {
+            return submit_input_file(
+                target,
+                request_file.parent().unwrap_or(Path::new("")),
+                &body,
+                &f,
+                p,
+            );
+        }
         Some((None, p)) => (
             "/api/db/delete-blob",
-            serde_json::json!({ "mutation": body, "placement": p }),
+            json!({ "mutation": body, "placement": p }),
         ),
         None => ("/api/mutation", body),
     };
-    let id = (target.is_explicit() && route == "/api/mutation")
-        .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
+    let id = (target.selector.is_some() && route == "/api/mutation")
+        .then(|| mutation_id.unwrap_or_else(Uuid::new_v4));
     let with_id = |e: String| {
         if let Some(id) = id {
             format!("{e} (mutation ID {id})")
@@ -166,27 +224,41 @@ pub(super) fn mutate_command(
     };
     let raw = post_json_with_id(&target.socket, &target.path(route), &body, timeout, id)
         .map_err(with_id)?;
-    write_mutate_receipt(&raw).map_err(with_id)
-}
-
-fn admit_local(bytes: u64) -> Result<(), String> {
-    (bytes <= fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES)
-        .then_some(())
-        .ok_or_else(|| "local file input exceeds native pending memory allowance".into())
+    let (_, resp_body) = raw
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| with_id("mutation response had no body".into()))?;
+    if raw.starts_with("HTTP/1.1 202 ") {
+        let r: Value = serde_json::from_str(resp_body)
+            .map_err(|_| with_id("invalid mutation submission receipt".into()))?;
+        if r["status"] != "submitted" || r["mutation_id"].as_str().is_none() {
+            return Err(with_id("invalid mutation submission receipt".into()));
+        }
+    } else {
+        parse_json_response(&raw, "mutation").map_err(with_id)?;
+    }
+    println!("{}", resp_body.trim_end_matches('\n'));
+    Ok(())
 }
 
 fn put_record_file(
     target: &DatabaseTarget,
-    metadata: &serde_json::Value,
+    metadata: &Value,
     source: &Path,
-) -> Result<serde_json::Value, String> {
+) -> Result<Value, String> {
     let max = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
+    let admit = |n: u64| -> Result<(), String> {
+        if n <= max {
+            Ok(())
+        } else {
+            Err("local file input exceeds native pending memory allowance".into())
+        }
+    };
     let f = std::fs::File::open(source).map_err(|e| format!("open {}: {e}", source.display()))?;
     let len = f
         .metadata()
         .map_err(|e| format!("file metadata: {e}"))?
         .len();
-    admit_local(len)?;
+    admit(len)?;
     let mut bytes = Vec::new();
     bytes
         .try_reserve_exact(usize::try_from(len).map_err(|_| "local file input length overflow")?)
@@ -194,23 +266,19 @@ fn put_record_file(
     f.take(max.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| format!("read local file input: {e}"))?;
-    admit_local(bytes.len() as u64)?;
+    admit(bytes.len() as u64)?;
     let json = serde_json::to_vec(metadata).map_err(|e| format!("serialize file metadata: {e}"))?;
     let body_len = json
         .len()
         .checked_add(bytes.len())
         .ok_or("local file request length overflow")?;
-    let head = format!(
-        "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/octet-stream\r\nX-LastDB-File-Blob-Metadata-Length: {}\r\nContent-Length: {body_len}\r\nConnection: close\r\n\r\n",
-        target.path(PUT_BLOB_PATH),
-        client_headers(),
-        json.len(),
-    );
+    let (route, hdr, jlen) = (target.path(PUT_BLOB_PATH), client_headers(), json.len());
+    let head = format!("POST {route} HTTP/1.1\r\nHost: localhost\r\n{hdr}Content-Type: application/octet-stream\r\nX-LastDB-File-Blob-Metadata-Length: {jlen}\r\nContent-Length: {body_len}\r\nConnection: close\r\n\r\n");
     let cap = head
         .len()
         .checked_add(body_len)
         .ok_or("local file request length overflow")?;
-    admit_local(cap as u64)?;
+    admit(cap as u64)?;
     let mut req = Vec::new();
     req.try_reserve_exact(cap)
         .map_err(|_| "local file request allocation refused")?;
@@ -218,10 +286,12 @@ fn put_record_file(
     req.extend_from_slice(&json);
     req.extend_from_slice(&bytes);
     drop(bytes);
-    let resp = request_with_timeout(
-        &target.socket,
-        &req,
-        lastdb_node::exec::admin_handler_timeout(),
-    )?;
-    parse_json_response(&resp, PUT_BLOB_PATH)
+    parse_json_response(
+        &request_with_timeout(
+            &target.socket,
+            &req,
+            lastdb_node::exec::admin_handler_timeout(),
+        )?,
+        PUT_BLOB_PATH,
+    )
 }

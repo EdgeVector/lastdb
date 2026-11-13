@@ -1,17 +1,21 @@
-//! Owner-socket response envelope, I4 error mapping, and `GET /api/list` helpers.
+//! Owner-socket response envelope, I4 error mapping, and `GET /api/list` route and helpers.
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
 use fold_db::db_operations::SchemaRecordKey;
 use fold_db::error::FoldDbError;
-use fold_db::schema::types::{KeyValue, QueryCursor, Schema};
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::{KeyValue, Query, QueryCursor, Schema};
 use fold_db::schema::SchemaError;
 use fold_db::storage::StorageError;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use super::wire::query_value;
-use crate::lastdb_uds::uds_http::UdsResponse;
+use super::query;
+use super::schema_resolve::resolve_schema_name;
+use super::wire::{query_value, QueryRequest};
+use crate::host::Host;
+use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 423, 503, 507];
 
@@ -97,8 +101,8 @@ impl From<FoldDbError> for HostError {
     fn from(err: FoldDbError) -> Self {
         match err {
             FoldDbError::Schema(s) => Self::from(s),
-            FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => Self::new(400, msg),
-            FoldDbError::InProgress(msg) => Self::new(503, msg),
+            FoldDbError::Config(m) | FoldDbError::Serialization(m) => Self::new(400, m),
+            FoldDbError::InProgress(m) => Self::new(503, m),
             other => Self::internal(other.to_string()),
         }
     }
@@ -108,11 +112,9 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         let or_empty = |v: Option<Value>| v.unwrap_or_else(|| json!({})).to_string();
         match &err {
-            SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
+            SchemaError::NotFound(m) => Self::new(404, m.clone()),
             SchemaError::StorageRead { .. } => Self::internal(err.to_string()),
-            SchemaError::Blocked(msg) | SchemaError::InvalidCursor(msg) => {
-                Self::new(400, msg.clone())
-            }
+            SchemaError::Blocked(m) | SchemaError::InvalidCursor(m) => Self::new(400, m.clone()),
             s @ SchemaError::CasConflict { .. } => Self::new(409, or_empty(s.cas_conflict_body())),
             s @ SchemaError::RecordTooLarge { .. } => {
                 Self::new(413, or_empty(s.field_value_too_large_body()))
@@ -151,7 +153,7 @@ impl From<StorageError> for HostError {
             StorageError::WriteResourceLimit { detail } => {
                 Self::from(SchemaError::WriteResourceLimit { detail })
             }
-            error => Self::internal(error.to_string()),
+            e => Self::internal(e.to_string()),
         }
     }
 }
@@ -176,33 +178,30 @@ pub(in crate::exec) fn render(
         return content_free(500, "Internal Server Error");
     }
     let reason = status_reason(e.status);
-    if let Some(body) = e.structured_body.as_ref() {
-        serde_json::to_vec(body).map_or_else(
-            |_| content_free(500, "Internal Server Error"),
-            |b| {
-                UdsResponse::new(e.status, reason, b)
-                    .with_header("Content-Type", "application/json")
-            },
-        )
-    } else {
-        UdsResponse::new(e.status, reason, e.message.into_bytes())
-    }
+    e.structured_body.as_ref().map_or_else(
+        || UdsResponse::new(e.status, reason, e.message.into_bytes()),
+        |body| {
+            serde_json::to_vec(body).map_or_else(
+                |_| content_free(500, "Internal Server Error"),
+                |b| {
+                    UdsResponse::new(e.status, reason, b)
+                        .with_header("Content-Type", "application/json")
+                },
+            )
+        },
+    )
 }
 
-pub(in crate::exec) fn error_response(
-    status: u16,
-    message: &str,
-    ctx: &AccessContext,
-) -> UdsResponse {
-    render(Err(HostError::new(status, message)), ctx)
+pub(in crate::exec) fn error_response(status: u16, msg: &str, ctx: &AccessContext) -> UdsResponse {
+    render(Err(HostError::new(status, msg)), ctx)
 }
 
-pub(in crate::exec) fn map_host_err(operation: &str, err: FoldDbError) -> HostError {
-    let mut mapped = HostError::from(err);
-    if mapped.status == 500 {
-        mapped.message = format!("{operation}: {}", mapped.message);
+pub(in crate::exec) fn map_host_err(op: &str, err: FoldDbError) -> HostError {
+    let mut m = HostError::from(err);
+    if m.status == 500 {
+        m.message = format!("{op}: {}", m.message);
     }
-    mapped
+    m
 }
 
 pub(in crate::exec) struct ListRecordKeysRequest {
@@ -257,11 +256,11 @@ pub(in crate::exec) fn decode_alternate_cursor(
 }
 
 pub(in crate::exec) fn alternate_list_report(
-    request: &ListRecordKeysRequest,
+    req: &ListRecordKeysRequest,
     schema: &Schema,
     page: &Value,
 ) -> Result<Value, HostError> {
-    let name = request.key_name.as_deref().expect("named branch");
+    let name = req.key_name.as_deref().expect("named branch");
     let def = schema
         .require_record_keys()?
         .alternates
@@ -270,20 +269,19 @@ pub(in crate::exec) fn alternate_list_report(
     let rows = page["results"]
         .as_array()
         .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
-    let rk = |v: &Value| -> Result<SchemaRecordKey, HostError> {
-        let k: KeyValue = serde_json::from_value(v.clone())
-            .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
-        Ok(SchemaRecordKey {
-            hash: k
-                .hash
-                .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
-            range: k.range.unwrap_or_default(),
-        })
-    };
     let map_keys = |f| {
         rows.iter()
-            .map(|r| rk(&r[f]))
-            .collect::<Result<Vec<_>, _>>()
+            .map(|r| {
+                let k: KeyValue = serde_json::from_value(r[f].clone())
+                    .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
+                Ok(SchemaRecordKey {
+                    hash: k
+                        .hash
+                        .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
+                    range: k.range.unwrap_or_default(),
+                })
+            })
+            .collect::<Result<Vec<_>, HostError>>()
     };
     let (keys, primary_keys) = (map_keys("matched_key")?, map_keys("key")?);
     let next = (!page["next_cursor"].is_null())
@@ -298,10 +296,66 @@ pub(in crate::exec) fn alternate_list_report(
         .transpose()
         .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?;
     Ok(json!({
-        "schema": request.requested, "schema_id": schema.name, "key_name": name,
-        "key_definition": def, "hash_filter": request.hash_filter,
+        "schema": req.requested, "schema_id": schema.name, "key_name": name,
+        "key_definition": def, "hash_filter": req.hash_filter,
         "field_key": fold_db::alternate_keys::field_key(schema, name),
         "keys": keys, "primary_keys": primary_keys,
         "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next,
     }))
+}
+
+pub(in crate::exec) async fn list_keys(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    let res = async {
+        let r = ListRecordKeysRequest::parse(&req.target).map_err(|m| HostError::new(400, m))?;
+        let canonical = resolve_schema_name(host, &r.requested)?
+            .ok_or_else(|| HostError::new(404, format!("schema not found: {}", r.requested)))?;
+        if let Some(name) = r.key_name.as_deref() {
+            let scope = host.records().db_ops().read_scope().await?;
+            let report = scope
+                .run_result(Box::pin(async {
+                    let hash = r
+                        .hash_filter
+                        .as_deref()
+                        .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
+                    let schema = host
+                        .records()
+                        .schema_manager()
+                        .get_schema_metadata(&canonical)?
+                        .ok_or_else(|| HostError::new(404, "schema is absent"))?;
+                    let mut q = Query::new_with_filter(
+                        canonical.clone(),
+                        Some(HashRangeFilter::HashKey(hash.to_owned())),
+                    );
+                    q.key_name = Some(name.to_owned());
+                    let qreq = QueryRequest {
+                        query: q,
+                        limit: Some(r.limit),
+                        offset: None,
+                        cursor: decode_alternate_cursor(r.cursor.as_deref())?,
+                        response_format: query::QueryResponseFormat::Full,
+                    };
+                    alternate_list_report(&r, &schema, &query::execute_query(host, qreq).await?)
+                }))
+                .await?;
+            return Ok(json!({ "list": report }));
+        }
+        let report = host
+            .records()
+            .list_schema_record_keys(
+                &r.requested,
+                &canonical,
+                r.limit,
+                r.cursor.as_deref(),
+                r.hash_filter.as_deref(),
+            )
+            .await
+            .map_err(|e| map_host_err("list failed", e))?;
+        Ok(json!({ "list": report }))
+    }
+    .await;
+    render(res, ctx)
 }

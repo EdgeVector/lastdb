@@ -5,7 +5,7 @@
 # own layer and the layers below it. A reference to a higher layer fails CI.
 # Cycles inside one layer are allowed.
 
-exclude = ["main.rs", "lastdbd.rs", "bin"]
+exclude = ["main.rs", "bin"]
 
 [[layer]]
 name = "leaf"
@@ -14,14 +14,12 @@ modules = [
   "accepted_writes",
   "share_spec",
   "cloud_backup_client",
-  "identity",
   "lastdb_uds",
   "node_read",
   "profile",
   "seal",
   "saved_query",
   "saved_query_run",
-  "service_home",
   "version",
 ]
 

@@ -105,7 +105,7 @@ pub(in crate::exec) fn parse_query_batch(
     Ok(queries)
 }
 
-fn page_payload(
+pub(super) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
     (limit, offset): (usize, usize),
@@ -142,20 +142,6 @@ pub(super) fn cursor_payload(
         .flatten()
         .map(|key| QueryCursor::new(key, comparison));
     page_payload(page, total_count, (limit, offset), has_more, next, None)
-}
-
-pub(super) fn materialized_page_payload(results: Vec<Value>, limit: usize, offset: usize) -> Value {
-    let total_count = results.len();
-    let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
-    let has_more = offset.saturating_add(page.len()) < total_count;
-    page_payload(
-        page,
-        Some(total_count),
-        (limit, offset),
-        has_more,
-        None,
-        None,
-    )
 }
 
 pub(super) fn format_rows(

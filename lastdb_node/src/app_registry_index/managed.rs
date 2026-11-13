@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::managed_manifest::{self, steps, InstallPlan};
-use super::{ListEntry, Resolution, RECEIPT_FILE};
+use super::{str_err, ListEntry, Resolution, RECEIPT_FILE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagedReceipt {
@@ -24,34 +24,30 @@ pub struct ManagedReceipt {
 }
 
 pub fn apps_root() -> Result<PathBuf, String> {
-    std::env::var_os("LASTDB_APPS_ROOT")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/share/lastdb-apps"))
-        })
-        .ok_or_else(|| "HOME is required for managed apps".into())
+    let root = std::env::var_os("LASTDB_APPS_ROOT").map(PathBuf::from);
+    let root = root.or_else(|| {
+        std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/share/lastdb-apps"))
+    });
+    root.ok_or_else(|| "HOME is required for managed apps".into())
 }
 
 pub fn app_root(app: &str) -> Result<PathBuf, String> {
-    super::valid_app_id(app)
-        .then(|| apps_root().map(|r| r.join(app)))
-        .ok_or_else(|| "invalid app id".to_string())?
+    if !super::valid_app_id(app) {
+        return Err("invalid app id".into());
+    }
+    Ok(apps_root()?.join(app))
 }
 
 pub fn receipt(version: &Path) -> Result<ManagedReceipt, String> {
-    serde_json::from_slice(&fs::read(version.join(RECEIPT_FILE)).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())
+    let raw = fs::read(version.join(RECEIPT_FILE)).map_err(str_err)?;
+    serde_json::from_slice(&raw).map_err(str_err)
 }
 
 pub fn lock(root: &Path) -> Result<File, String> {
-    fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(root.join("install.lock"))
-        .map_err(|e| e.to_string())?;
+    fs::create_dir_all(root).map_err(str_err)?;
+    let mut opts = File::options();
+    opts.read(true).write(true).create(true).truncate(false);
+    let file = opts.open(root.join("install.lock")).map_err(str_err)?;
     file.try_lock()
         .map_err(|e| format!("app install is locked: {e}"))?;
     Ok(file)
@@ -67,11 +63,11 @@ pub fn install(
     let root = app_root(&entry.app_id)?;
     let _lock = lock(&root)?;
     let cur = root.join("current");
-    let prior = cur
-        .symlink_metadata()
-        .ok()
-        .map(|_| receipt(&cur))
-        .transpose()?;
+    let prior = if cur.symlink_metadata().is_ok() {
+        Some(receipt(&cur)?)
+    } else {
+        None
+    };
     let rej = root.join("rejected-source");
     if !accept_install && fs::read_to_string(&rej).is_ok_and(|s| s.trim() == entry.sha) {
         if let Some(c) = &prior {
@@ -95,27 +91,24 @@ pub fn install(
             stage.display()
         ));
     }
-    let version = root.join("versions").join(format!(
-        "{}-{}",
-        entry.sha,
-        chrono::Utc::now().timestamp_micros()
-    ));
+    let ts = chrono::Utc::now().timestamp_micros();
+    let version = root.join("versions").join(format!("{}-{ts}", entry.sha));
     let res = stage_version(
         resolution,
         &stage,
         home,
         prior.as_ref(),
-        (accept_install, inactive),
+        accept_install,
+        inactive,
     )
     .and_then(|new| {
-        fs::create_dir_all(root.join("versions"))
-            .and_then(|()| fs::rename(&stage, &version))
-            .map_err(|e| e.to_string())?;
+        fs::create_dir_all(root.join("versions")).map_err(str_err)?;
+        fs::rename(&stage, &version).map_err(str_err)?;
         let act = activate(&root, &version, home, &new);
         prune(&root)?;
         act?;
         if rej.exists() {
-            fs::remove_file(&rej).map_err(|e| e.to_string())?;
+            fs::remove_file(&rej).map_err(str_err)?;
         }
         Ok(new)
     });
@@ -128,7 +121,8 @@ fn stage_version(
     stage: &Path,
     home: &Path,
     prior: Option<&ManagedReceipt>,
-    (accept_install, inactive): (bool, bool),
+    accept_install: bool,
+    inactive: bool,
 ) -> Result<ManagedReceipt, String> {
     let entry = &resolution.entry;
     if !resolution.trust.starts_with("pinned:") {
@@ -150,7 +144,7 @@ fn stage_version(
         return Err("publisher key changed; explicit owner rotation is required".into());
     }
     if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != inactive) && !accept_install {
-        let pretty = serde_json::to_string_pretty(&plan).map_err(|e| e.to_string())?;
+        let pretty = serde_json::to_string_pretty(&plan).map_err(str_err)?;
         eprintln!(
             "Install consent for {} (publisher {}): {pretty}",
             entry.app_id, entry.publisher_key
@@ -181,11 +175,8 @@ fn stage_version(
         installed_at: chrono::Utc::now().to_rfc3339(),
         listing: entry.clone(),
     };
-    fs::write(
-        stage.join(RECEIPT_FILE),
-        serde_json::to_vec_pretty(&new).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let raw = serde_json::to_vec_pretty(&new).map_err(str_err)?;
+    fs::write(stage.join(RECEIPT_FILE), raw).map_err(str_err)?;
     Ok(new)
 }
 
@@ -210,41 +201,47 @@ pub fn verify(
 pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> Result<(), String> {
     if let Err(error) = verify(root, Some(home), current) {
         restore_previous(root, home)?;
-        fs::write(root.join("rejected-source"), &current.sha).map_err(|e| e.to_string())?;
+        fs::write(root.join("rejected-source"), &current.sha).map_err(str_err)?;
         return Err(format!("current app failed its health check; restored previous version and held source: {error}"));
     }
     Ok(())
 }
 
+fn apply_links(
+    root: &Path,
+    home: &Path,
+    r: &ManagedReceipt,
+    p: &InstallPlan,
+) -> Result<(), String> {
+    managed_manifest::install(root, p)?;
+    if !r.inactive {
+        steps(
+            &root.join("current/source"),
+            home,
+            &r.app_id,
+            &p.post_install,
+        )?;
+    }
+    Ok(())
+}
+
 fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> Result<(), String> {
-    let apply = |r: &ManagedReceipt, p: &InstallPlan| -> Result<(), String> {
-        managed_manifest::install(root, p)?;
-        if !r.inactive {
-            steps(
-                &root.join("current/source"),
-                home,
-                &r.app_id,
-                &p.post_install,
-            )?;
-        }
-        Ok(())
-    };
     let old = fs::read_link(root.join("current")).ok();
     let plan = InstallPlan::load(&version.join("source"), &new.app_id)?;
-    let links_before = managed_manifest::snapshot(&plan)?;
+    let snap = managed_manifest::snapshot(&plan)?;
     managed_manifest::flip(&root.join("current"), version)?;
-    if let Err(error) = apply(new, &plan).and_then(|()| verify(root, Some(home), new)) {
+    if let Err(error) =
+        apply_links(root, home, new, &plan).and_then(|()| verify(root, Some(home), new))
+    {
         if let Some(ref target) = old {
             managed_manifest::flip(&root.join("current"), target)?;
             let old_r = receipt(&root.join("current"))?;
-            apply(
-                &old_r,
-                &InstallPlan::load(&root.join("current/source"), &old_r.app_id)?,
-            )?;
+            let old_p = InstallPlan::load(&root.join("current/source"), &old_r.app_id)?;
+            apply_links(root, home, &old_r, &old_p)?;
         } else {
             let _ = fs::remove_file(root.join("current"));
         }
-        managed_manifest::restore(&links_before)?;
+        managed_manifest::restore(&snap)?;
         return Err(format!(
             "activation failed; restored prior version: {error}"
         ));
@@ -260,13 +257,13 @@ pub fn rollback(app: &str, home: &Path) -> Result<ManagedReceipt, String> {
     let _lock = lock(&root)?;
     let rejected = receipt(&root.join("current"))?;
     let restored = restore_previous(&root, home)?;
-    fs::write(root.join("rejected-source"), rejected.sha).map_err(|e| e.to_string())?;
+    fs::write(root.join("rejected-source"), rejected.sha).map_err(str_err)?;
     Ok(restored)
 }
 
 fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> {
-    let target = fs::canonicalize(root.join("previous")).map_err(|e| e.to_string())?;
-    if !target.starts_with(fs::canonicalize(root.join("versions")).map_err(|e| e.to_string())?) {
+    let target = fs::canonicalize(root.join("previous")).map_err(str_err)?;
+    if !target.starts_with(fs::canonicalize(root.join("versions")).map_err(str_err)?) {
         return Err("rollback target is outside app versions".into());
     }
     let prior = receipt(&target)?;
@@ -293,27 +290,19 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
 }
 
 fn prune(root: &Path) -> Result<(), String> {
-    let (cur, prev) = (
-        fs::canonicalize(root.join("current")).ok(),
-        fs::canonicalize(root.join("previous")).ok(),
-    );
-    let mut versions: Vec<_> = fs::read_dir(root.join("versions"))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter_map(|e| {
-            let p = e.path();
-            Some((receipt(&p).ok()?.installed_at, p))
-        })
-        .collect();
+    let cur = fs::canonicalize(root.join("current")).ok();
+    let prev = fs::canonicalize(root.join("previous")).ok();
+    let mut versions = Vec::new();
+    for e in fs::read_dir(root.join("versions")).map_err(str_err)? {
+        let p = e.map_err(str_err)?.path();
+        if let Ok(r) = receipt(&p) {
+            versions.push((r.installed_at, p));
+        }
+    }
     versions.sort_by(|a, b| b.0.cmp(&a.0));
-    for (_, p) in versions
-        .into_iter()
-        .filter(|(_, p)| cur.as_ref() != Some(p) && prev.as_ref() != Some(p))
-        .skip(1)
-    {
-        fs::remove_dir_all(p).map_err(|e| e.to_string())?;
+    let keep = |p: &Path| cur.as_deref() == Some(p) || prev.as_deref() == Some(p);
+    for (_, p) in versions.into_iter().filter(|(_, p)| !keep(p)).skip(1) {
+        fs::remove_dir_all(p).map_err(str_err)?;
     }
     Ok(())
 }

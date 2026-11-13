@@ -1,4 +1,4 @@
-//! Data-route executor and wall-clock timeout budgets for the `lastdbd` owner control socket.
+//! Data-route executor, admin/status routes, and wall-clock timeout budgets for `lastdbd`.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -6,8 +6,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{Query, Schema};
+use fold_db::schema::types::Schema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -38,7 +37,6 @@ macro_rules! heap_route {
     }};
 }
 
-mod admin_routes;
 mod database_mutation;
 mod database_owned;
 mod database_read;
@@ -150,31 +148,49 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
         let fut: ErasedRoute<'_> = match route {
             DataRoute::ListSchemas => return schema_routes::list_schemas(req, ctx, host),
             DataRoute::GetSchema => return schema_routes::get_schema(req, ctx, host),
-            DataRoute::Status => return admin_routes::status_route(ctx, host),
-            DataRoute::AutoIdentity => return admin_routes::auto_identity(host),
-            DataRoute::BootIdentity => return admin_routes::boot_identity(host),
+            DataRoute::Status => {
+                let up = fold_db::clock::unix_secs().saturating_sub(host.process_start_ts);
+                let uds = host
+                    .uds_workers
+                    .get()
+                    .map(crate::lastdb_uds::UdsWorkerPool::snapshot);
+                let st = json!({
+                    "build": { "version": crate::version::build_version() },
+                    "process_start_ts": host.process_start_ts, "uptime_secs": up,
+                    "uds": uds, "search": search_queue_status(host),
+                });
+                return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
+            }
+            DataRoute::AutoIdentity => {
+                let pk = host.public_key();
+                return json_ok(
+                    &json!({ "user_id": pk, "user_hash": host.user_hash, "public_key": pk }),
+                );
+            }
+            DataRoute::BootIdentity => {
+                return json_ok(&json!({
+                    "pid": std::process::id(), "process_start_ts": host.process_start_ts,
+                    "build": crate::version::build_version(), "restart_cause": "clean",
+                }));
+            }
             DataRoute::Query => heap_route!(query::query_route, req, ctx, host),
             DataRoute::Mutation => heap_route!(mutation::mutation_route, req, ctx, host),
             DataRoute::MutationBatch => heap_route!(mutation::batch_route, req, ctx, host),
             DataRoute::QueryBatch => heap_route!(query::query_batch_route, req, ctx, host),
-            DataRoute::ListRecordKeys => heap_route!(list_keys, req, ctx, host),
+            DataRoute::ListRecordKeys => heap_route!(reply::list_keys, req, ctx, host),
             DataRoute::DeclareSchema => heap_route!(schema_declare::declare_schema, req, ctx, host),
-            DataRoute::SeedSystemSchema => heap_route!(schema_routes::seed_system, req, ctx, host),
+            DataRoute::SeedSystemSchema => heap_route!(mutation::seed_system, req, ctx, host),
             DataRoute::DropSchema => heap_route!(schema_routes::drop_schema, req, ctx, host),
-            DataRoute::AdminShed => heap_route!(admin_routes::admin_shed, ctx, host),
-            DataRoute::DbSchemas => heap_route!(admin_routes::db_schemas, ctx, host),
-            DataRoute::DbFlush => heap_route!(admin_routes::db_flush, req, ctx, host),
-            DataRoute::DbCleanup => heap_route!(admin_routes::db_cleanup, req, ctx, host),
-            DataRoute::DbNativeStatus => {
-                heap_route!(admin_routes::db_native_status, req, ctx, host)
-            }
-            DataRoute::DbDeleteLedger => {
-                heap_route!(admin_routes::db_delete_ledger, req, ctx, host)
-            }
-            DataRoute::DbSchemaRetention => heap_route!(admin_routes::db_retention, req, ctx, host),
+            DataRoute::AdminShed => heap_route!(admin_shed, ctx, host),
+            DataRoute::DbSchemas => heap_route!(db_schemas, ctx, host),
+            DataRoute::DbFlush => heap_route!(db_flush, req, ctx, host),
+            DataRoute::DbCleanup => heap_route!(db_cleanup, req, ctx, host),
+            DataRoute::DbNativeStatus => heap_route!(db_native_status, req, ctx, host),
+            DataRoute::DbDeleteLedger => heap_route!(db_delete_ledger, req, ctx, host),
+            DataRoute::DbSchemaRetention => heap_route!(mutation::db_retention, req, ctx, host),
             DataRoute::DbPutBlob => heap_route!(file_blob::db_put_blob, req, ctx, host),
             DataRoute::DbFetchBlob => heap_route!(file_blob::db_fetch_blob, req, ctx, host),
-            DataRoute::DbDeleteBlob => heap_route!(mutation::db_delete_blob, req, ctx, host),
+            DataRoute::DbDeleteBlob => heap_route!(file_blob::db_delete_blob, req, ctx, host),
         };
         fut.await
     })
@@ -195,56 +211,138 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
     }
 }
 
-async fn list_keys(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    let result = async {
-        let r = list_keys_route::ListRecordKeysRequest::parse(&req.target)
-            .map_err(|m| HostError::new(400, m))?;
-        let canonical = schema_resolve::resolve_schema_name(host, &r.requested)?
-            .ok_or_else(|| HostError::new(404, format!("schema not found: {}", r.requested)))?;
-        if let Some(name) = r.key_name.as_deref() {
-            let scope = host.records().db_ops().read_scope().await?;
-            let report = scope
-                .run_result(Box::pin(async {
-                    let hash = r
-                        .hash_filter
-                        .as_deref()
-                        .ok_or_else(|| HostError::new(400, "alternate key lists require hash="))?;
-                    let schema = host
-                        .records()
-                        .schema_manager()
-                        .get_schema_metadata(&canonical)?
-                        .ok_or_else(|| HostError::new(404, "schema is absent"))?;
-                    let mut q = Query::new_with_filter(
-                        canonical.clone(),
-                        Some(HashRangeFilter::HashKey(hash.to_owned())),
-                    );
-                    q.key_name = Some(name.to_owned());
-                    let qreq = QueryRequest {
-                        query: q,
-                        limit: Some(r.limit),
-                        offset: None,
-                        cursor: list_keys_route::decode_alternate_cursor(r.cursor.as_deref())?,
-                        response_format: query::QueryResponseFormat::Full,
-                    };
-                    let page = query::execute_query(host, qreq).await?;
-                    list_keys_route::alternate_list_report(&r, &schema, &page)
-                }))
-                .await?;
-            return Ok(json!({ "list": report }));
-        }
-        let report = host
-            .records()
-            .list_schema_record_keys(
-                &r.requested,
-                &canonical,
-                r.limit,
-                r.cursor.as_deref(),
-                r.hash_filter.as_deref(),
-            )
+fn search_queue_status(host: &Host) -> Value {
+    fold_db::db_operations::search_index::queue_policy::status(
+        &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home),
+    )
+}
+
+fn require_owner(ctx: &AccessContext, msg: &'static str) -> Result<(), HostError> {
+    ctx.is_owner
+        .then_some(())
+        .ok_or_else(|| HostError::new(403, msg))
+}
+
+async fn admin_shed(ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let rt = host.db.db_ops().native_runtime();
+    let flush_err = rt.flush_native().await.err().map(|e| e.to_string());
+    let (met, purged, purge_err) = match rt.purge_clean_memory(0) {
+        Ok(r) => (flush_err.is_none() && r.target_met, r.records_purged, None),
+        Err(e) => (false, 0, Some(e.to_string())),
+    };
+    json_ok(&envelope(
+        &json!({ "shed": { "target_met": met, "records_purged": purged, "error": flush_err.or(purge_err) } }),
+        &ctx.user_id,
+    ))
+}
+
+async fn db_schemas(ctx: &AccessContext, host: &Host) -> UdsResponse {
+    render(
+        host.db
+            .db_ops()
+            .schema_storage_report()
             .await
-            .map_err(|e| map_host_err("list failed", e))?;
-        Ok(json!({ "list": report }))
+            .map(|r| json!({ "schema_storage": r }))
+            .map_err(|e| HostError::new(500, format!("db schemas failed: {e}"))),
+        ctx,
+    )
+}
+
+async fn db_cleanup(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    #[derive(Default, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        request_id: Option<uuid::Uuid>,
+    }
+    let res = async {
+        require_owner(ctx, "native cleanup is owner-only")?;
+        let rt = host.db.db_ops().native_runtime();
+        if req.method == "GET" {
+            return Ok(json!({ "cleanup": rt.status_cleanup() }));
+        }
+        let b = if req.body.is_empty() {
+            Body::default()
+        } else {
+            serde_json::from_slice(&req.body)
+                .map_err(|e| HostError::new(400, format!("invalid cleanup request: {e}")))?
+        };
+        let st = rt
+            .request_native_cleanup(b.request_id)
+            .await
+            .map_err(|e| map_host_err("native cleanup request failed", e.into()))?;
+        Ok(json!({ "cleanup": st }))
     }
     .await;
-    render(result, ctx)
+    render(res, ctx)
+}
+
+async fn db_flush(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let res = async {
+        require_owner(ctx, "the local durability barrier is owner-only")?;
+        if !req.body.is_empty()
+            && !serde_json::from_slice::<serde_json::Map<String, Value>>(&req.body)
+                .is_ok_and(|f| f.is_empty())
+        {
+            return Err(HostError::new(
+                400,
+                "local flush body must be an empty object",
+            ));
+        }
+        let r = host
+            .db
+            .db_ops()
+            .native_runtime()
+            .flush_native()
+            .await
+            .map_err(|e| HostError::new(503, format!("local flush failed: {e}")))?;
+        Ok(json!({ "durable": true, "native_flush": r }))
+    }
+    .await;
+    render(res, ctx)
+}
+
+async fn db_native_status(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    #[derive(Deserialize)]
+    struct Opts {
+        #[serde(default)]
+        inventory: bool,
+    }
+    let res = async {
+        require_owner(ctx, "the native status route is owner-only")?;
+        let rt = host.db.db_ops().native_runtime();
+        let mut status =
+            json!({ "native_disk": rt.status_native(), "search": search_queue_status(host) });
+        if laststore::diagnostics_enabled() {
+            let inv = !req.body.is_empty()
+                && serde_json::from_slice::<Opts>(&req.body)
+                    .map_err(|_| HostError::new(400, "invalid native-status diagnostic options"))?
+                    .inventory;
+            if let Some(r) = rt
+                .diagnostics_native(inv)
+                .await
+                .map_err(|e| map_host_err("storage diagnostic failed", e.into()))?
+            {
+                status["storage_diagnostics"] = json!(r);
+            }
+        }
+        Ok(status)
+    }
+    .await;
+    render(res, ctx)
+}
+
+async fn db_delete_ledger(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let limit = wire::query_value(&req.target, "limit")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0) as usize;
+    render(
+        host.db
+            .db_ops()
+            .records()
+            .list_record_delete_ledger(limit)
+            .await
+            .map(|e| json!({ "delete_ledger": { "count": e.len(), "entries": e } }))
+            .map_err(|e| HostError::new(500, format!("delete-ledger failed: {e}"))),
+        ctx,
+    )
 }

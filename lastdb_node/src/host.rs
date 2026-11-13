@@ -16,6 +16,7 @@ pub use crate::identity::{
 
 pub(crate) mod owned;
 mod recovery;
+pub use recovery::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
@@ -75,9 +76,7 @@ impl Host {
         if fresh {
             match bip39::Mnemonic::from_entropy(&seed) {
                 Ok(m) => recovery::emit_fresh_recovery_phrase(&m.to_string()),
-                Err(e) => {
-                    tracing::warn!(error = %e, "fresh identity written but BIP39 phrase could not be encoded");
-                }
+                Err(e) => tracing::warn!(error = %e, "BIP39 phrase could not be encoded"),
             }
         }
         let keypair = Arc::new(
@@ -111,7 +110,7 @@ impl Host {
             .map_err(|e| format!("Search queue preparation failed: {e}"))?;
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
-        recovery::clear_last_boot_error(home);
+        let _ = std::fs::remove_file(home.join(recovery::LAST_BOOT_ERROR_FILE));
         tracing::info!(target: "lastdbd::boot", "minimal host booted");
         Ok(Self {
             home: home.to_path_buf(),

@@ -24,6 +24,10 @@ pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
 const DEFAULT_INDEX_BASE_URL: &str =
     crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
 
+pub(crate) fn str_err(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexLocation {
     Url(String),
@@ -43,28 +47,30 @@ impl IndexLocation {
     async fn fetch_interface(&self, channel: &str, api: u32) -> Result<(Vec<u8>, Vec<u8>), String> {
         validate_channel(channel)?;
         let addr = self.describe_interface(channel, api);
-        match self {
-            Self::Dir(_) => Ok((
-                std::fs::read(&addr).map_err(|e| format!("{addr}: {e}"))?,
-                std::fs::read(format!("{addr}.sig")).map_err(|e| format!("{addr}.sig: {e}"))?,
-            )),
-            Self::Url(base) => {
-                if !base.starts_with("https://") {
-                    return Err("registry list URL must use HTTPS".into());
-                }
-                // trace-egress: propagate (anonymous static registry list endpoint)
-                let client = reqwest::Client::builder()
-                    .timeout(Duration::from_secs(30))
-                    .no_proxy()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                Ok((
-                    fetch_url(&client, &addr).await?,
-                    fetch_url(&client, &format!("{addr}.sig")).await?,
-                ))
-            }
+        let sig = format!("{addr}.sig");
+        if matches!(self, Self::Dir(_)) {
+            let b = std::fs::read(&addr).map_err(|e| format!("{addr}: {e}"))?;
+            let s = std::fs::read(&sig).map_err(|e| format!("{sig}: {e}"))?;
+            return Ok((b, s));
         }
+        let Self::Url(base) = self else {
+            unreachable!()
+        };
+        if !base.starts_with("https://") {
+            return Err("registry list URL must use HTTPS".into());
+        }
+        // trace-egress: propagate (anonymous static registry list endpoint)
+        let b = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .no_proxy();
+        let client = b
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(str_err)?;
+        Ok((
+            fetch_url(&client, &addr).await?,
+            fetch_url(&client, &sig).await?,
+        ))
     }
 
     pub fn resolve(flag: Option<&str>) -> Result<Self, String> {
@@ -72,9 +78,8 @@ impl IndexLocation {
         let raw = flag
             .or(env.as_deref())
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_INDEX_BASE_URL)
-            .trim_end_matches('/');
+            .filter(|s| !s.is_empty());
+        let raw = raw.unwrap_or(DEFAULT_INDEX_BASE_URL).trim_end_matches('/');
         if raw.starts_with("lastsecrets://") {
             return Err("registry index location does not accept a lastsecrets locator".into());
         }
@@ -110,20 +115,17 @@ pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, Strin
     let env = std::env::var(TRUST_KEY_ENV)
         .ok()
         .filter(|s| !s.trim().is_empty());
-    let Some((raw, what, note, tag)) = flag
-        .map(|r| (r, "--trust-key", "--trust-key", "flag"))
-        .or_else(|| {
-            env.as_deref().map(|r| {
-                (
-                    r,
-                    TRUST_KEY_ENV,
-                    "$LASTDB_REGISTRY_TRUST_KEY",
-                    "env:LASTDB_REGISTRY_TRUST_KEY",
-                )
-            })
-        })
-    else {
-        let k = verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64).map_err(|e| e.to_string())?;
+    let (raw, what, note, tag) = if let Some(r) = flag {
+        (r, "--trust-key", "--trust-key", "flag")
+    } else if let Some(r) = env.as_deref() {
+        (
+            r,
+            TRUST_KEY_ENV,
+            "$LASTDB_REGISTRY_TRUST_KEY",
+            "env:LASTDB_REGISTRY_TRUST_KEY",
+        )
+    } else {
+        let k = verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64).map_err(str_err)?;
         return Ok((k, format!("pinned:{}", key_id(&k))));
     };
     let raw = raw.trim();
@@ -153,9 +155,10 @@ struct StoredList {
 }
 
 fn cache_file(location: &IndexLocation, channel: &str, api: u32) -> Result<PathBuf, String> {
-    let mut root = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+    let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from);
+    let state =
+        state.or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")));
+    let mut root = state
         .ok_or("HOME or XDG_STATE_HOME is required for the registry cache")?
         .join("lastdb-app-registry");
     if !matches!(location, IndexLocation::Url(base) if base == DEFAULT_INDEX_BASE_URL) {
@@ -172,35 +175,32 @@ pub async fn fetch_list(
     trust: &VerifyingKey,
 ) -> Result<InterfaceList, String> {
     validate_channel(channel)?;
-    let download = location
-        .fetch_interface(channel, api)
-        .await
-        .and_then(|(bytes, signature)| {
+    let download = match location.fetch_interface(channel, api).await {
+        Ok((bytes, signature)) => {
             let list = InterfaceList::load(&bytes, &signature, trust, channel, api)?;
+            let payload_sha256 = fold_db::hex::sha256_hex(&bytes);
             Ok((
                 StoredList {
-                    payload_sha256: fold_db::hex::sha256_hex(&bytes),
+                    payload_sha256,
                     bytes,
                     signature,
                 },
                 list,
             ))
-        });
+        }
+        Err(e) => Err(e),
+    };
     let path = cache_file(location, channel, api)?;
     let parent = path.parent().ok_or("registry cache parent missing")?;
-    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(path.with_extension("lock"))
-        .map_err(|e| e.to_string())?;
-    lock.lock().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(parent).map_err(str_err)?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).truncate(false).read(true).write(true);
+    let lock = opts.open(path.with_extension("lock")).map_err(str_err)?;
+    lock.lock().map_err(str_err)?;
     let cached = if path.exists() {
+        let raw = std::fs::read(&path).map_err(str_err)?;
         let v: StoredList =
-            serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
-                .map_err(|e| format!("invalid registry cache: {e}"))?;
+            serde_json::from_slice(&raw).map_err(|e| format!("invalid registry cache: {e}"))?;
         if v.payload_sha256 != fold_db::hex::sha256_hex(&v.bytes) {
             return Err("registry cache digest mismatch".into());
         }
@@ -223,11 +223,15 @@ pub async fn fetch_list(
                 old
             } else {
                 let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-                std::fs::write(&tmp, serde_json::to_vec(&val).map_err(|e| e.to_string())?)
-                    .and_then(|()| std::fs::File::open(&tmp).and_then(|f| f.sync_all()))
-                    .and_then(|()| std::fs::rename(&tmp, &path))
-                    .and_then(|()| std::fs::File::open(parent).and_then(|f| f.sync_all()))
-                    .map_err(|e| e.to_string())?;
+                std::fs::write(&tmp, serde_json::to_vec(&val).map_err(str_err)?)
+                    .map_err(str_err)?;
+                std::fs::File::open(&tmp)
+                    .and_then(|f| f.sync_all())
+                    .map_err(str_err)?;
+                std::fs::rename(&tmp, &path).map_err(str_err)?;
+                std::fs::File::open(parent)
+                    .and_then(|f| f.sync_all())
+                    .map_err(str_err)?;
                 list
             }
         }
@@ -242,9 +246,9 @@ pub async fn fetch_list(
             old
         }
     };
-    if chrono::DateTime::parse_from_rfc3339(&accepted.generated_at)
-        .is_ok_and(|g| chrono::Utc::now().signed_duration_since(g).num_days() >= 7)
-    {
+    let stale = chrono::DateTime::parse_from_rfc3339(&accepted.generated_at)
+        .is_ok_and(|g| chrono::Utc::now().signed_duration_since(g).num_days() >= 7);
+    if stale {
         eprintln!(
             "note: registry list was generated at {} (at least 7 days ago)",
             accepted.generated_at
@@ -257,55 +261,57 @@ pub async fn fetch_list(
 pub fn running_node(home: &Path) -> (String, &'static str, u32, u32) {
     if let Some(v) = socket_version(&crate::lastdb_uds::uds::socket_path(&home.join("data"))) {
         let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
-        if let (Some(b), Some(api), Some(outbox)) = (
+        if let (Some(b), Some(a), Some(o)) = (
             v["build"].as_str(),
             u32_f("api_version"),
             u32_f("current_outbox_format_version"),
         ) {
-            return (b.to_string(), "socket", api, outbox);
+            return (b.to_string(), "socket", a, o);
         }
     }
     let (api, outbox) = (
         crate::version::CURRENT_API_VERSION,
         crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
     );
-    std::env::current_exe()
+    let sibling = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("lastdbd")))
-        .into_iter()
-        .chain([PathBuf::from("lastdbd")])
-        .find_map(|c| {
-            let out = ProcessCommand::new(c)
-                .arg("--version")
-                .env("RUST_LOG", "off")
-                .output()
-                .ok()?;
-            out.status.success().then_some(())?;
-            String::from_utf8_lossy(&out.stdout).lines().find_map(|l| {
-                l.trim()
-                    .strip_prefix("lastdbd ")
-                    .map(str::trim)
-                    .filter(|b| !b.is_empty())
-                    .map(|b| (b.to_string(), "lastdbd", api, outbox))
-            })
-        })
-        .unwrap_or_else(|| {
-            (
-                crate::version::build_version().to_string(),
-                "cli",
-                api,
-                outbox,
-            )
-        })
+        .and_then(|e| e.parent().map(|p| p.join("lastdbd")));
+    for c in sibling.into_iter().chain([PathBuf::from("lastdbd")]) {
+        let Ok(out) = ProcessCommand::new(c)
+            .arg("--version")
+            .env("RUST_LOG", "off")
+            .output()
+        else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        for l in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Some(b) = l
+                .trim()
+                .strip_prefix("lastdbd ")
+                .map(str::trim)
+                .filter(|b| !b.is_empty())
+            {
+                return (b.to_string(), "lastdbd", api, outbox);
+            }
+        }
+    }
+    (
+        crate::version::build_version().to_string(),
+        "cli",
+        api,
+        outbox,
+    )
 }
 
 fn socket_version(socket: &Path) -> Option<Value> {
     let mut s = UnixStream::connect(socket).ok()?;
     let t = Some(Duration::from_secs(5));
-    s.set_read_timeout(t)
-        .and_then(|()| s.set_write_timeout(t))
-        .and_then(|()| s.write_all(b"GET /api/version HTTP/1.1\r\nHost: localhost\r\nX-LastDB-Client: lastdb\r\nConnection: close\r\n\r\n"))
-        .ok()?;
+    s.set_read_timeout(t).ok()?;
+    s.set_write_timeout(t).ok()?;
+    s.write_all(b"GET /api/version HTTP/1.1\r\nHost: localhost\r\nX-LastDB-Client: lastdb\r\nConnection: close\r\n\r\n").ok()?;
     let mut raw = String::new();
     s.read_to_string(&mut raw).ok()?;
     (raw.split_whitespace().nth(1) == Some("200")).then_some(())?;
@@ -329,26 +335,29 @@ pub(crate) fn authorized_transition(
     {
         return false;
     }
-    [Environment::Dev, Environment::Prod]
-        .into_iter()
-        .any(|env| {
-            let source = match (env, e.app_id.as_str()) {
-                (Environment::Prod, "brain" | "lastsecrets" | "search") => {
-                    format!("https://github.com/EdgeVector/{}.git", e.app_id)
-                }
-                (Environment::Dev, "registry-daily-dev") => {
-                    "https://github.com/EdgeVector/lastdb-app-registry.git".to_owned()
-                }
-                _ => return false,
-            };
-            let base = registry_index_url_for(env);
-            let (owner, delegate) = registry_ci_publisher_keys_for(env);
-            !delegate.is_empty()
-                && !owner.is_empty()
-                && ((prior.publisher == owner && e.publisher_key == delegate)
-                    || (prior.publisher == delegate && e.publisher_key == owner))
-                && e.source == source
-                && prior.index == base
-                && resolution.index == format!("{base}/{}/api/{}.json", e.channel, e.api_version)
-        })
+    for env in [Environment::Dev, Environment::Prod] {
+        let src = match (env, e.app_id.as_str()) {
+            (Environment::Prod, "brain" | "lastsecrets" | "search") => {
+                format!("https://github.com/EdgeVector/{}.git", e.app_id)
+            }
+            (Environment::Dev, "registry-daily-dev") => {
+                "https://github.com/EdgeVector/lastdb-app-registry.git".into()
+            }
+            _ => continue,
+        };
+        let base = registry_index_url_for(env);
+        let (owner, del) = registry_ci_publisher_keys_for(env);
+        let rotated = (prior.publisher == owner && e.publisher_key == del)
+            || (prior.publisher == del && e.publisher_key == owner);
+        if !del.is_empty()
+            && !owner.is_empty()
+            && rotated
+            && e.source == src
+            && prior.index == base
+            && resolution.index == format!("{base}/{}/api/{}.json", e.channel, e.api_version)
+        {
+            return true;
+        }
+    }
+    false
 }
