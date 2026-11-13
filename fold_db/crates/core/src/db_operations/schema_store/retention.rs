@@ -1,10 +1,10 @@
 //! Retention policy CRUD and write-age tracking on [`SchemaStore`].
 
 use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
-use crate::schema::manifest_retention::{
+use crate::error::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
-use crate::schema::schema_types::{RetentionSource, SchemaRetentionPolicy};
+use crate::schema::types::schema_types::{RetentionSource, SchemaRetentionPolicy};
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::format::schemas::keys::*;
 use std::collections::HashMap;
@@ -167,7 +167,8 @@ impl SchemaStore {
             });
         }
         self.format.delete_states(keys).await?;
-        Ok(self.format.flush_states().await?)
+        self.format.flush_states().await?;
+        Ok(())
     }
 
     pub(crate) async fn record_schema_retention_write_ages(
@@ -224,7 +225,8 @@ impl SchemaStore {
                 }])
                 .await?;
         }
-        Ok(self.format.flush_states().await?)
+        self.format.flush_states().await?;
+        Ok(())
     }
 
     pub async fn remove_schema_retention_keys(
@@ -259,7 +261,8 @@ impl SchemaStore {
                 },
             ])
             .await?;
-        Ok(self.format.flush_states().await?)
+        self.format.flush_states().await?;
+        Ok(())
     }
 
     pub async fn record_schema_retention_hash_partitions(
@@ -284,7 +287,8 @@ impl SchemaStore {
             })
             .collect();
         self.format.batch_states(entries).await?;
-        Ok(self.format.flush_states().await?)
+        self.format.flush_states().await?;
+        Ok(())
     }
 
     pub async fn list_schema_retention_policies(
@@ -320,7 +324,8 @@ impl SchemaStore {
                 policy,
             })
             .await?;
-        Ok(self.format.flush_states().await?)
+        self.format.flush_states().await?;
+        Ok(())
     }
 }
 

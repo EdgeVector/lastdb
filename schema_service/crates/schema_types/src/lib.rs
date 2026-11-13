@@ -1,4 +1,4 @@
-//! Pure wire/domain schema types, field scalar profiles, and portable schema IDs.
+//! Pure wire/domain schema types and field scalar validation.
 
 use chrono::{DateTime, Datelike, NaiveDate, Timelike};
 use serde::{Deserialize, Serialize};
@@ -34,9 +34,8 @@ pub fn refuses_identity_downgrade(
     stored_hash: Option<&str>,
     stored_version: Option<u32>,
 ) -> Option<u32> {
-    stored_version.filter(|stored| {
-        stored_hash.is_some_and(|h| !h.is_empty()) && *stored > IDENTITY_HASH_ALGO_VERSION
-    })
+    stored_version
+        .filter(|&v| stored_hash.is_some_and(|h| !h.is_empty()) && v > IDENTITY_HASH_ALGO_VERSION)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -58,53 +57,63 @@ pub enum FieldValueType {
 
 impl FieldValueType {
     pub fn validate(&self, value: &Value) -> Result<(), String> {
-        let check = |ok: bool, exp: &str| ok.then_some(()).ok_or_else(|| type_err(exp, value));
+        let chk = |ok: bool, exp: &str| {
+            if ok {
+                Ok(())
+            } else {
+                Err(type_err(exp, value))
+            }
+        };
         match self {
             Self::Any => Ok(()),
-            Self::Date => value
-                .as_str()
-                .ok_or_else(|| type_err("Date", value))
-                .and_then(|s| date_day(s).map(|_| ())),
-            Self::DateTime => value
-                .as_str()
-                .ok_or_else(|| type_err("DateTime", value))
-                .and_then(|s| datetime_nanos(s).map(|_| ())),
-            Self::Null => check(value.is_null(), "Null"),
-            Self::String => check(value.is_string(), "String"),
-            Self::Boolean => check(value.is_boolean(), "Boolean"),
-            Self::Integer => check(value.as_i64().is_some(), "Integer"),
-            Self::Float => check(value.as_f64().is_some(), "Float"),
-            Self::Number => check(value.is_number(), "Number"),
-            Self::Array(elem_ty) => value
-                .as_array()
-                .ok_or_else(|| type_err("Array", value))?
-                .iter()
-                .enumerate()
-                .try_for_each(|(i, v)| elem_ty.validate(v).map_err(|e| format!("Array[{i}]: {e}"))),
-            Self::Map(val_ty) => value
-                .as_object()
-                .ok_or_else(|| type_err("Map", value))?
-                .iter()
-                .try_for_each(|(k, v)| {
-                    val_ty.validate(v).map_err(|e| format!("Map[\"{k}\"]: {e}"))
-                }),
+            Self::Date => {
+                date_day(value.as_str().ok_or_else(|| type_err("Date", value))?).map(|_| ())
+            }
+            Self::DateTime => {
+                datetime_nanos(value.as_str().ok_or_else(|| type_err("DateTime", value))?)
+                    .map(|_| ())
+            }
+            Self::Null => chk(value.is_null(), "Null"),
+            Self::String => chk(value.is_string(), "String"),
+            Self::Boolean => chk(value.is_boolean(), "Boolean"),
+            Self::Integer => chk(value.as_i64().is_some(), "Integer"),
+            Self::Float => chk(value.as_f64().is_some(), "Float"),
+            Self::Number => chk(value.is_number(), "Number"),
+            Self::Array(elem) => {
+                for (i, v) in value
+                    .as_array()
+                    .ok_or_else(|| type_err("Array", value))?
+                    .iter()
+                    .enumerate()
+                {
+                    elem.validate(v).map_err(|e| format!("Array[{i}]: {e}"))?;
+                }
+                Ok(())
+            }
+            Self::Map(val) => {
+                for (k, v) in value.as_object().ok_or_else(|| type_err("Map", value))? {
+                    val.validate(v).map_err(|e| format!("Map[\"{k}\"]: {e}"))?;
+                }
+                Ok(())
+            }
             Self::Object(fields) => {
                 let obj = value.as_object().ok_or_else(|| type_err("Object", value))?;
-                fields.iter().try_for_each(|(name, ty)| {
+                for (name, ty) in fields {
                     ty.validate(obj.get(name).unwrap_or(&Value::Null))
-                        .map_err(|e| format!(".{name}: {e}"))
-                })
+                        .map_err(|e| format!(".{name}: {e}"))?;
+                }
+                Ok(())
             }
-            Self::OneOf(variants) => variants
-                .iter()
-                .any(|v| v.validate(value).is_ok())
-                .then_some(())
-                .ok_or_else(|| {
-                    format!(
+            Self::OneOf(variants) => {
+                if variants.iter().any(|v| v.validate(value).is_ok()) {
+                    Ok(())
+                } else {
+                    Err(format!(
                         "value does not match any variant of OneOf({self}), got {}",
                         json_type_name(value)
-                    )
-                }),
+                    ))
+                }
+            }
         }
     }
 }
@@ -264,5 +273,49 @@ impl DeclarativeSchemaDefinition {
             ));
         }
         Ok(())
+    }
+
+    #[must_use]
+    pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
+        self.field_types
+            .get(field_name)
+            .unwrap_or(&FieldValueType::Any)
+    }
+
+    #[must_use]
+    pub fn identity_is_newer_than_binary(&self) -> bool {
+        refuses_identity_downgrade(
+            self.identity_hash.as_deref(),
+            self.identity_hash_algo_version,
+        )
+        .is_some()
+    }
+
+    #[must_use = "a refused downgrade must be surfaced, not dropped"]
+    pub fn recompute_identity_hash_unless_newer(&mut self) -> IdentityRecompute {
+        if let Some(stored) = refuses_identity_downgrade(
+            self.identity_hash.as_deref(),
+            self.identity_hash_algo_version,
+        ) {
+            return IdentityRecompute::RefusedDowngrade {
+                stored,
+                binary: IDENTITY_HASH_ALGO_VERSION,
+            };
+        }
+        self.compute_identity_hash();
+        IdentityRecompute::Recomputed
+    }
+
+    #[must_use]
+    pub fn get_identity_hash(&self) -> Option<&String> {
+        self.identity_hash.as_ref()
+    }
+
+    pub fn normalize_wire(&mut self) {
+        self.hash = None;
+        self.superseded_by = None;
+        if self.identity_hash.is_none() && self.owner_app_id.is_some() {
+            self.compute_identity_hash();
+        }
     }
 }

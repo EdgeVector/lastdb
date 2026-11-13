@@ -1,9 +1,6 @@
 //! Query types and keyed hash/range execution.
 
-pub mod query_executor;
-
-pub use query_executor::{AlternatePage, QueryExecutor};
-
+use crate::alternate_keys::AlternateEntry;
 use crate::db_operations::record_store::{
     KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey,
 };
@@ -20,6 +17,22 @@ use std::sync::Arc;
 const PAGE_READ_KEYS: usize = 8_192;
 const MIN_STEP: usize = 32;
 const MAX_STEP: usize = 1024;
+
+pub struct AlternatePage {
+    pub values: QueryRecords,
+    pub entries: Vec<AlternateEntry>,
+    pub has_more: bool,
+    pub comparison: String,
+}
+
+pub struct QueryExecutor {
+    pub(super) db_ops: Arc<DbOperations>,
+    pub(super) schema_manager: Arc<SchemaCore>,
+}
+
+pub mod query_executor {
+    pub use super::{AlternatePage, QueryExecutor};
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RecordMetadata {
@@ -266,44 +279,27 @@ impl QueryExecutor {
                 if source.done {
                     break;
                 }
-                let stop = source
-                    .span
-                    .as_ref()
-                    .zip(source.cursor.as_deref())
-                    .map(|(span, c)| records.span_key(span, c))
-                    .transpose()?;
-                if let Some(stop) = stop.filter(|s| {
-                    resumable
-                        && skip == 0
-                        && after.as_ref().is_none_or(|a| s.cmp_page_order(a).is_gt())
-                }) {
+                if let Some(stop) =
+                    range_stop(records, &source, resumable && skip == 0, after.as_ref())?
+                {
                     note_page_resume(PageResume::Key(stop));
                     break;
                 }
-                let how = if skip > 0 {
-                    "read it with next_cursor pages, not an offset"
-                } else {
-                    "read it in pages with next_cursor; a count or a condition needs the complete range"
-                };
-                return Err(SchemaError::ReadResourceLimit {
-                    detail: format!(
-                        "the range under one hash holds more deleted records than one request reads ({PAGE_READ_KEYS} keys); {how}"
-                    ),
-                });
+                return Err(range_limit_err(skip));
             };
             let mark = (rows.len(), skip);
             let mut kept = Vec::new();
-            for winner in taken {
+            for w in taken {
                 if after
                     .as_ref()
-                    .is_some_and(|a| winner.key.cmp_page_order(a).is_le())
+                    .is_some_and(|a| w.key.cmp_page_order(a).is_le())
                 {
                     continue;
                 }
                 if skip > 0 {
                     skip -= 1;
                 } else {
-                    kept.push(winner);
+                    kept.push(w);
                     if rows.len() + kept.len() == limit {
                         break;
                     }
@@ -324,6 +320,37 @@ impl QueryExecutor {
             }
         }
         Ok(rows)
+    }
+}
+
+fn range_stop(
+    records: &RecordStore,
+    source: &RangeKeys,
+    allow: bool,
+    after: Option<&KeyValue>,
+) -> Result<Option<KeyValue>, SchemaError> {
+    if !allow {
+        return Ok(None);
+    }
+    Ok(source
+        .span
+        .as_ref()
+        .zip(source.cursor.as_deref())
+        .map(|(span, c)| records.span_key(span, c))
+        .transpose()?
+        .filter(|s| after.is_none_or(|a| s.cmp_page_order(a).is_gt())))
+}
+
+fn range_limit_err(skip: usize) -> SchemaError {
+    let how = if skip > 0 {
+        "read it with next_cursor pages, not an offset"
+    } else {
+        "read it in pages with next_cursor; a count or a condition needs the complete range"
+    };
+    SchemaError::ReadResourceLimit {
+        detail: format!(
+            "the range under one hash holds more deleted records than one request reads ({PAGE_READ_KEYS} keys); {how}"
+        ),
     }
 }
 

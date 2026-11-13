@@ -9,12 +9,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::portable_mutation::Stamp;
 
+use crate::crypto::{clock, security::Ed25519KeyPair};
 use crate::db_operations::record_store::RecordChange;
 use crate::db_operations::{DbOperations, RecordDeleteLedgerEntry};
 use crate::schema::mutation_author::sign_mutation_author_clock;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Mutation, Schema};
+use crate::schema::types::{KeyValue, Mutation, MutationAuthorClockState, Schema};
 use crate::schema::{SchemaCore, SchemaError, SchemaState};
 use crate::storage::disk_pack::transaction;
 
@@ -28,77 +29,32 @@ pub(super) struct ChangedRecord<'a> {
     pub(super) key: &'a KeyValue,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidentDurability {
-    Queued,
-    Durable,
-}
-
-impl ResidentDurability {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Durable => "durable",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ResidentCommitOperations {
-    pub created: u64,
-    pub updated: u64,
-    pub deleted: u64,
-}
-
-impl ResidentCommitOperations {
-    #[must_use]
-    pub fn total(&self) -> u64 {
-        self.created
-            .saturating_add(self.updated)
-            .saturating_add(self.deleted)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ResidentCommitStages {
-    pub prepare_us: u64,
-    pub ack_us: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResidentCommitReceipt {
-    pub mutation_ids: Vec<String>,
-    pub record_revisions: BTreeMap<String, String>,
-    pub revision: Option<u64>,
-    pub operations: ResidentCommitOperations,
-    pub durability: ResidentDurability,
-    pub stages: ResidentCommitStages,
-}
+pub use crate::resident::{
+    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
+};
 
 pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
     pub(super) schema_manager: Arc<SchemaCore>,
-    signer: Arc<crate::security::Ed25519KeyPair>,
+    signer: Arc<Ed25519KeyPair>,
     pub(super) search_outbox_inbox: Option<PathBuf>,
-    author_clock_state: Mutex<crate::schema::types::MutationAuthorClockState>,
+    author_clock_state: Mutex<MutationAuthorClockState>,
 }
 
 impl MutationManager {
     pub fn new(
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
-        signer: Arc<crate::security::Ed25519KeyPair>,
+        signer: Arc<Ed25519KeyPair>,
         search_outbox_inbox: Option<PathBuf>,
-        author_clock_state: crate::schema::types::MutationAuthorClockState,
+        author_clock_state: MutationAuthorClockState,
     ) -> Self {
-        let author_clock_state = Mutex::new(author_clock_state);
         Self {
             db_ops,
             schema_manager,
             signer,
             search_outbox_inbox,
-            author_clock_state,
+            author_clock_state: Mutex::new(author_clock_state),
         }
     }
 
@@ -114,17 +70,10 @@ impl MutationManager {
         mut mutations: Vec<Mutation>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         Box::pin(async move {
-            let now = crate::clock::unix_nanos();
+            let now = clock::unix_nanos();
             self.validate_mutation_batch(&mutations)?;
             if mutations.is_empty() {
-                return Ok(ResidentCommitReceipt {
-                    mutation_ids: Vec::new(),
-                    record_revisions: BTreeMap::new(),
-                    revision: None,
-                    operations: ResidentCommitOperations::default(),
-                    durability: ResidentDurability::Queued,
-                    stages: ResidentCommitStages::default(),
-                });
+                return Ok(ResidentCommitReceipt::empty_queued());
             }
             self.prepare_mutation_author_clocks(&mut mutations, now)?;
             let revision = mutations.first().map(|m| m.logical_counter);
@@ -214,17 +163,10 @@ impl MutationManager {
                         ));
                     }
                 }
-                let mut ops = ResidentCommitOperations::default();
-                for m in &mutations {
-                    match m.mutation_type {
-                        MutationType::Create => ops.created += 1,
-                        MutationType::Replace => ops.updated += 1,
-                        MutationType::Delete | MutationType::Purge => ops.deleted += 1,
-                    }
-                }
+                let ops = count_commit_ops(&mutations);
                 let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
                 let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
-                let record_revisions = mutations
+                let revs = mutations
                     .iter()
                     .zip(&stamps)
                     .map(|(m, s)| (m.uuid.clone(), s.revision()))
@@ -244,7 +186,7 @@ impl MutationManager {
                     .await?;
                 runtime.record_read_stage("stored-stages-done", groups);
                 self.stage_author_clock_state().await?;
-                Ok::<_, SchemaError>((ids, record_revisions, ops))
+                Ok::<_, SchemaError>((ids, revs, ops))
             })
             .await?;
         stages.ack_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -303,35 +245,7 @@ impl MutationManager {
             .zip(&outcomes)
             .filter_map(|(r, &(live, _, _))| live.then_some(r.key));
         self.db_ops.schemas().note_live_writes(schema, live)?;
-        let mut audits: BTreeMap<(&str, &str), Vec<(&KeyValue, bool)>> = BTreeMap::new();
-        for (rec, &(_, _, had_file)) in changed.iter().zip(&outcomes) {
-            let verb = match rec.mutation.mutation_type {
-                MutationType::Purge => "purge",
-                MutationType::Delete => "delete",
-                MutationType::Create | MutationType::Replace => continue,
-            };
-            audits
-                .entry((
-                    verb,
-                    rec.mutation.erase_caller.unwrap_or("mutation-pipeline"),
-                ))
-                .or_default()
-                .push((rec.key, had_file));
-        }
-        for ((verb, caller), recs) in audits {
-            let desc = if let [(kv, _)] = recs.as_slice() {
-                match (&kv.hash, &kv.range) {
-                    (Some(h), Some(r)) => format!("hash='{h}' range='{r}'"),
-                    (Some(h), None) => format!("hash='{h}'"),
-                    (None, Some(r)) => format!("range='{r}'"),
-                    (None, None) => "<single>".into(),
-                }
-            } else {
-                format!("<bulk:{} keys>", recs.len())
-            };
-            let mut entry = RecordDeleteLedgerEntry::erasure(verb, caller, &schema.name, &desc);
-            entry.records_erased = recs.len() as u64;
-            entry.file_records_erased = recs.iter().filter(|(_, f)| *f).count() as u64;
+        for entry in collect_erasure_audits(&schema.name, changed, &outcomes) {
             self.db_ops
                 .records()
                 .format
@@ -364,4 +278,55 @@ impl MutationManager {
         }
         Ok(())
     }
+}
+
+fn count_commit_ops(mutations: &[Mutation]) -> ResidentCommitOperations {
+    let mut ops = ResidentCommitOperations::default();
+    for m in mutations {
+        match m.mutation_type {
+            MutationType::Create => ops.created += 1,
+            MutationType::Replace => ops.updated += 1,
+            MutationType::Delete | MutationType::Purge => ops.deleted += 1,
+        }
+    }
+    ops
+}
+
+fn collect_erasure_audits(
+    schema_name: &str,
+    changed: &[ChangedRecord<'_>],
+    outcomes: &[(bool, Option<u64>, bool)],
+) -> Vec<RecordDeleteLedgerEntry> {
+    let mut audits: BTreeMap<(&str, &str), Vec<(&KeyValue, bool)>> = BTreeMap::new();
+    for (rec, &(_, _, had_file)) in changed.iter().zip(outcomes) {
+        let verb = match rec.mutation.mutation_type {
+            MutationType::Purge => "purge",
+            MutationType::Delete => "delete",
+            MutationType::Create | MutationType::Replace => continue,
+        };
+        let caller = rec.mutation.erase_caller.unwrap_or("mutation-pipeline");
+        audits
+            .entry((verb, caller))
+            .or_default()
+            .push((rec.key, had_file));
+    }
+    audits
+        .into_iter()
+        .map(|((verb, caller), recs)| {
+            let desc = if let [(kv, _)] = recs.as_slice() {
+                match (&kv.hash, &kv.range) {
+                    (Some(h), Some(r)) => format!("hash='{h}' range='{r}'"),
+                    (Some(h), None) => format!("hash='{h}'"),
+                    (None, Some(r)) => format!("range='{r}'"),
+                    (None, None) => "<single>".into(),
+                }
+            } else {
+                format!("<bulk:{} keys>", recs.len())
+            };
+            let mut entry = RecordDeleteLedgerEntry::erasure(verb, caller, schema_name, &desc);
+            entry.records_erased = recs.len() as u64;
+            entry.file_records_erased = recs.iter().filter(|(_, f)| *f).count() as u64;
+            entry
+        })
+        .collect()
 }

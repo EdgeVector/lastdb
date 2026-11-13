@@ -1,7 +1,150 @@
-//! Re-exports `lastdb_model::schema::types` plus task-local key comparison.
+//! Re-exports `lastdb_model::schema::types`, schema state/retention types, and key comparison.
 
 pub use key_comparison::KeyValuePageOrder;
 pub use lastdb_model::schema::types::*;
+
+pub mod schema_types {
+    use lastdb_model::schema::types::declarative_schemas::DeclarativeSchemaDefinition;
+    use lastdb_model::schema::types::schema::DeclarativeSchemaType;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+    pub enum SchemaState {
+        #[default]
+        Available,
+        Blocked,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct SchemaRetentionPolicy {
+        pub ttl_seconds: u64,
+        pub source: RetentionSource,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub overridden_manifest_ttl_seconds: Option<u64>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub hash_partitions: Vec<String>,
+    }
+
+    impl SchemaRetentionPolicy {
+        pub fn operator(ttl_seconds: u64, hash_partitions: Vec<String>) -> Self {
+            Self {
+                ttl_seconds,
+                source: RetentionSource::Operator,
+                overridden_manifest_ttl_seconds: None,
+                hash_partitions,
+            }
+        }
+
+        pub fn manifest(ttl_seconds: u64) -> Self {
+            Self {
+                ttl_seconds,
+                source: RetentionSource::Manifest,
+                overridden_manifest_ttl_seconds: None,
+                hash_partitions: Vec::new(),
+            }
+        }
+
+        pub fn operator_over(
+            previous: Option<&Self>,
+            ttl_seconds: u64,
+            mut hash_partitions: Vec<String>,
+        ) -> Self {
+            hash_partitions.sort();
+            hash_partitions.dedup();
+            Self {
+                ttl_seconds,
+                source: RetentionSource::Operator,
+                overridden_manifest_ttl_seconds: previous.and_then(Self::manifest_ttl_seconds),
+                hash_partitions,
+            }
+        }
+
+        pub fn after_operator_clear(previous: Option<&Self>) -> Option<Self> {
+            previous
+                .filter(|p| p.source == RetentionSource::Operator)
+                .and_then(|p| p.overridden_manifest_ttl_seconds)
+                .map(Self::manifest)
+        }
+
+        pub fn manifest_ttl_seconds(&self) -> Option<u64> {
+            match self.source {
+                RetentionSource::Manifest => Some(self.ttl_seconds),
+                RetentionSource::Operator => self.overridden_manifest_ttl_seconds,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RetentionSource {
+        Operator,
+        Manifest,
+    }
+
+    impl RetentionSource {
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Operator => "operator",
+                Self::Manifest => "manifest",
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SchemaWithState {
+        #[serde(flatten)]
+        pub schema: DeclarativeSchemaDefinition,
+        pub state: SchemaState,
+    }
+
+    impl SchemaWithState {
+        pub fn new(schema: DeclarativeSchemaDefinition, state: SchemaState) -> Self {
+            Self { schema, state }
+        }
+
+        #[must_use]
+        pub fn name(&self) -> &str {
+            &self.schema.name
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct SchemaListEntry {
+        pub name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub descriptive_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub purpose_statement: Option<String>,
+        pub schema_type: DeclarativeSchemaType,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub record_keys: Option<::schema_types::record_keys::RecordKeys>,
+        pub fields: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub identity_hash: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        pub owner_app_id: Option<String>,
+        pub state: SchemaState,
+    }
+
+    impl SchemaListEntry {
+        pub fn from_schema(s: &DeclarativeSchemaDefinition, state: SchemaState) -> Self {
+            Self {
+                name: s.name.clone(),
+                descriptive_name: s.descriptive_name.clone(),
+                purpose_statement: s.purpose_statement.clone(),
+                schema_type: s.schema_type.clone(),
+                record_keys: s.record_keys.clone(),
+                fields: s.fields.clone(),
+                hash: s.hash.clone(),
+                identity_hash: s.identity_hash.clone(),
+                owner_app_id: s.owner_app_id.clone(),
+                state,
+            }
+        }
+    }
+}
 
 pub mod key_comparison {
     use lastdb_model::schema::types::field::{HashRangeFilter, KeyWindow};
@@ -30,12 +173,12 @@ pub mod key_comparison {
     impl KeyComparisonContext {
         pub fn for_schema(schema: &Schema) -> Result<Self, SchemaError> {
             let keys = schema.require_record_keys()?;
-            let range_type = keys
+            let rt = keys
                 .primary
                 .range_type
                 .clone()
                 .unwrap_or(FieldValueType::String);
-            let range = RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?;
+            let range = RangeKeyComparison::typed(rt).map_err(SchemaError::InvalidData)?;
             let profile = keys
                 .primary
                 .range_profile()
@@ -73,13 +216,10 @@ pub mod key_comparison {
             Ok(format!("qc1:{:x}", Sha256::digest(bytes)))
         }
 
-        pub async fn run<T, E>(
+        pub async fn run<T, E: From<SchemaError>>(
             self: Arc<Self>,
             future: impl Future<Output = Result<T, E>>,
-        ) -> Result<T, E>
-        where
-            E: From<SchemaError>,
-        {
+        ) -> Result<T, E> {
             let (result, ctx) = if let Ok(active) = COMPARISON.try_with(Arc::clone) {
                 if active.identity != self.identity {
                     return Err(SchemaError::InvalidData(
@@ -102,24 +242,20 @@ pub mod key_comparison {
             COMPARISON.try_with(|ctx| ctx.range.clone()).ok()
         }
 
-        fn compare_current_ranges(left: &str, right: &str) -> Ordering {
+        fn compare_current_ranges(l: &str, r: &str) -> Ordering {
             COMPARISON
-                .try_with(|ctx| ctx.compare_ranges(left, right))
-                .unwrap_or_else(|_| left.cmp(right))
-        }
-
-        fn compare_ranges(&self, left: &str, right: &str) -> Ordering {
-            match self.range.compare(left, right) {
-                Ok(order) => order,
-                Err(detail) => {
-                    let _ = self.failure.set(detail);
-                    self.range
-                        .validate_value(left)
-                        .is_ok()
-                        .cmp(&self.range.validate_value(right).is_ok())
-                        .then_with(|| left.cmp(right))
-                }
-            }
+                .try_with(|ctx| match ctx.range.compare(l, r) {
+                    Ok(o) => o,
+                    Err(detail) => {
+                        let _ = ctx.failure.set(detail);
+                        ctx.range
+                            .validate_value(l)
+                            .is_ok()
+                            .cmp(&ctx.range.validate_value(r).is_ok())
+                            .then_with(|| l.cmp(r))
+                    }
+                })
+                .unwrap_or_else(|_| l.cmp(r))
         }
 
         pub fn canonical_key(&self, mut key: KeyValue) -> Result<KeyValue, SchemaError> {
@@ -135,8 +271,8 @@ pub mod key_comparison {
             match filter.as_mut() {
                 Some(HashRangeKey { range, .. }) => *range = canonical_range(self.profile, range)?,
                 Some(HashRangeKeys(keys)) => {
-                    for (_, range) in keys {
-                        *range = canonical_range(self.profile, range)?;
+                    for (_, r) in keys {
+                        *r = canonical_range(self.profile, r)?;
                     }
                 }
                 Some(HashRangeRange { start, end, .. }) => {

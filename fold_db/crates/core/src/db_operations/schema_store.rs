@@ -1,7 +1,7 @@
 //! Schema domain store: catalog reads, writes, state transitions, and drop cleanup.
 
 use crate::db_operations::record_store::RangeWalk;
-use crate::schema::schema_types::SchemaState;
+use crate::schema::types::schema_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::read::ReadStore;
@@ -164,7 +164,8 @@ impl SchemaStore {
                     schema_name,
                     schema,
                 )?;
-                Ok(self.format.flush_schemas().await?)
+                self.format.flush_schemas().await?;
+                Ok(())
             }
             .boxed(),
         )
@@ -193,7 +194,8 @@ impl SchemaStore {
                         state,
                     })
                     .await?;
-                Ok(self.format.flush_states().await?)
+                self.format.flush_states().await?;
+                Ok(())
             }
             .boxed(),
         )
@@ -235,14 +237,14 @@ impl SchemaStore {
                         .scan_range_yielding(&start, &end, asked, 1)
                         .await?;
                     let count = scan.rows.len();
-                    let keys = scan
+                    let keys: Vec<String> = scan
                         .rows
                         .into_iter()
                         .map(|(k, _)| {
                             String::from_utf8(k)
                                 .map_err(|e| SchemaError::InvalidData(e.to_string()))
                         })
-                        .collect::<Result<Vec<_>, _>>()?;
+                        .collect::<Result<_, _>>()?;
                     if !keys.is_empty() {
                         self.format
                             .delete_states(vec![StateDelete::Selected {
@@ -306,11 +308,9 @@ fn schema_field_key_profiles(
     let defs = schema.require_record_keys()?;
     let mut out = Vec::with_capacity(defs.alternates.len() + 1);
     for (name, key) in &defs.alternates {
+        let id = lastdb_model::field_key_id::alternate_field_key_id(schema, name);
         out.push((
-            check(
-                lastdb_model::field_key_id::alternate_field_key_id(schema, name),
-                "invalid alternate field key identity",
-            )?,
+            check(id, "invalid alternate field key identity")?,
             key.range_profile().map_err(SchemaError::InvalidData)?,
         ));
     }

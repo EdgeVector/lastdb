@@ -1,10 +1,8 @@
 //! Shared telemetry substrate for the LastDB workspace.
-#![warn(missing_docs)]
-
-use std::{collections::HashSet, fmt, io, time::SystemTime, time::UNIX_EPOCH};
 
 use once_cell::sync::OnceCell;
 use serde_json::{json, Map, Value};
+use std::{collections::HashSet, fmt, io, time::SystemTime, time::UNIX_EPOCH};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -16,35 +14,26 @@ static INIT_ONCE: OnceCell<()> = OnceCell::new();
 #[cfg(feature = "sentry")]
 static LAMBDA_SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
 
-/// Panic marker hooks.
 pub mod crash {
     use std::io::Write;
-    /// Emit only a fixed marker to stderr.
     pub fn write_panic_marker() {
         let _ = writeln!(std::io::stderr().lock(), "LastDB panic");
     }
-    /// Install fixed panic output so captured stderr cannot retain raw panic payloads.
     pub fn install_private_panic_hook() {
         std::panic::set_hook(Box::new(|_| write_panic_marker()));
     }
 }
 
-/// Outbound HTTP trace propagation hook.
 pub mod propagation {
-    /// Pass-through hook at outgoing HTTP call sites.
     pub fn inject_w3c<T>(builder: T) -> T {
         builder
     }
 }
 
-/// Subscriber layer namespaces.
 pub mod layers {
-    /// Optional Sentry ERROR sink with strict privacy allowlisting.
     pub mod error {
-        /// Environment variable that names the Sentry release version.
         pub const OBS_SENTRY_RELEASE_ENV: &str = "OBS_SENTRY_RELEASE";
 
-        /// RAII guard returned by [`build_error_layer`].
         #[must_use = "SentryGuard must be held for the lifetime of the binary or buffered events may be dropped"]
         pub struct SentryGuard {
             #[cfg(feature = "sentry")]
@@ -64,10 +53,8 @@ pub mod layers {
 #[cfg(not(feature = "sentry"))]
 mod error_imp {
     use crate::layers::error::SentryGuard;
-    /// Stand-in layer when built without the `sentry` feature.
     pub struct ErrorLayer<S>(std::marker::PhantomData<fn(S)>);
     impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for ErrorLayer<S> {}
-    /// Return `None` when built without the `sentry` feature.
     pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)> {
         None
     }
@@ -85,8 +72,6 @@ mod error_imp {
     use tracing_subscriber::{layer::Layer, registry::LookupSpan};
 
     const DSN_ENV: &str = "OBS_SENTRY_DSN";
-
-    /// Concrete return type of [`build_error_layer`].
     pub type ErrorLayer<S> = Filtered<sentry_tracing::SentryLayer<S>, FilterFn, S>;
 
     fn parse_dsn(raw: &str) -> Option<sentry::types::Dsn> {
@@ -103,17 +88,15 @@ mod error_imp {
             .ok()
     }
 
-    /// Build the Sentry ERROR-layer when `OBS_SENTRY_DSN` is set to a valid DSN.
-    pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
+    pub fn build_error_layer<S: Subscriber + for<'a> LookupSpan<'a>>(
+    ) -> Option<(ErrorLayer<S>, SentryGuard)> {
         let dsn = parse_dsn(&env::var(DSN_ENV).ok()?)?;
         let non_empty = |k| env::var(k).ok().filter(|v| !v.is_empty());
-        let release = non_empty(OBS_SENTRY_RELEASE_ENV)
-            .map_or(Cow::Borrowed(env!("CARGO_PKG_VERSION")), Cow::Owned);
         let opts = sentry::ClientOptions {
-            release: Some(release),
+            release: Some(
+                non_empty(OBS_SENTRY_RELEASE_ENV)
+                    .map_or(Cow::Borrowed(env!("CARGO_PKG_VERSION")), Cow::Owned),
+            ),
             environment: non_empty("OBS_SENTRY_ENVIRONMENT").map(Cow::Owned),
             default_integrations: false,
             send_default_pii: false,
@@ -136,13 +119,10 @@ mod error_imp {
         clippy::needless_pass_by_value,
         reason = "sentry_tracing::SentryLayer::event_mapper callback signature passes Context<'_, S> by value"
     )]
-    fn map_event<S>(
+    fn map_event<S: Subscriber + for<'a> LookupSpan<'a>>(
         event: &tracing::Event<'_>,
         ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) -> EventMapping
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
+    ) -> EventMapping {
         let ev = sentry_tracing::event_from_event(event, Some(&ctx));
         if is_disk_full(&ev) {
             let mut b = sentry_tracing::breadcrumb_from_event(event, Some(&ctx));
@@ -174,10 +154,10 @@ mod error_imp {
     fn numeric_version(rel: &str) -> Option<&str> {
         let v = rel.strip_prefix('v').unwrap_or(rel).split('-').next()?;
         let mut p = v.split('.');
-        let ok = [p.next(), p.next(), p.next()].into_iter().all(|x| {
+        ([p.next(), p.next(), p.next()].into_iter().all(|x| {
             x.is_some_and(|s| (1..=6).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()))
-        }) && p.next().is_none();
-        ok.then_some(v)
+        }) && p.next().is_none())
+        .then_some(v)
     }
 
     fn sanitize(src: &SentryEvent<'_>) -> SentryEvent<'static> {
@@ -192,13 +172,16 @@ mod error_imp {
                 .split('|')
                 .any(|a| a == *v)
         });
-        let rel = src.release.as_deref().and_then(numeric_version);
         SentryEvent {
             level: src.level,
             platform: "native".into(),
             message: Some(format!("Application fault: {cat}")),
             fingerprint: vec!["private_fault".into(), cat.into()].into(),
-            release: rel.map(|v| v.to_owned().into()),
+            release: src
+                .release
+                .as_deref()
+                .and_then(numeric_version)
+                .map(|v| v.to_owned().into()),
             environment: env_tag.map(|v| v.to_owned().into()),
             tags: fault_tags(cat),
             ..SentryEvent::default()
@@ -211,13 +194,12 @@ mod error_imp {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || (dash && b == b'-'))
     }
 
-    fn env_if(key: &str, ok: impl FnOnce(&str) -> bool) -> Option<String> {
-        let r = env::var(key).ok()?;
-        let v = r.trim();
-        ok(v).then(|| v.to_owned())
-    }
-
     fn fault_tags(cat: &str) -> BTreeMap<String, String> {
+        let env_if = |key: &str, ok: fn(&str) -> bool| {
+            let r = env::var(key).ok()?;
+            let v = r.trim();
+            ok(v).then(|| v.to_owned())
+        };
         let mut tags = BTreeMap::from([
             ("fault_category".into(), cat.into()),
             ("os".into(), env::consts::OS.into()),
@@ -237,18 +219,14 @@ mod error_imp {
     }
 }
 
-/// Errors raised by [`init_lambda`].
 #[derive(Debug, thiserror::Error)]
 pub enum ObsError {
-    /// `init_lambda` was called more than once in the same process.
     #[error("observability already initialized")]
     AlreadyInitialized,
-    /// Could not install the global tracing subscriber.
     #[error("failed to install tracing subscriber: {0}")]
     SubscriberInstall(String),
 }
 
-/// RAII handle returned by [`init_lambda`].
 #[must_use = "ObsGuard must be held for the lifetime of the binary or log lines may be dropped"]
 pub struct ObsGuard {
     _sentry: Option<layers::error::SentryGuard>,
@@ -263,7 +241,6 @@ impl fmt::Debug for ObsGuard {
     }
 }
 
-/// Initialize observability for an AWS Lambda handler.
 pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuard, ObsError> {
     assert!(
         !service_name.trim().is_empty(),
@@ -348,10 +325,15 @@ impl JsonFieldVisitor<'_> {
         let k = f.name();
         if k == "message" {
             self.1 = Some(v.as_str().map_or_else(|| v.to_string(), str::to_owned));
-        } else if self.0.contains(k) {
-            self.2.insert(k.into(), "<redacted>".into());
         } else {
-            self.2.insert(k.into(), v);
+            self.2.insert(
+                k.into(),
+                if self.0.contains(k) {
+                    "<redacted>".into()
+                } else {
+                    v
+                },
+            );
         }
     }
 }
@@ -367,8 +349,10 @@ impl Visit for JsonFieldVisitor<'_> {
         self.put(f, Value::from(v));
     }
     fn record_f64(&mut self, f: &Field, v: f64) {
-        let n = serde_json::Number::from_f64(v);
-        self.put(f, n.map_or(Value::Null, Value::Number));
+        self.put(
+            f,
+            serde_json::Number::from_f64(v).map_or(Value::Null, Value::Number),
+        );
     }
     fn record_bool(&mut self, f: &Field, v: bool) {
         self.put(f, Value::Bool(v));

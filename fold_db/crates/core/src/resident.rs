@@ -77,11 +77,7 @@ pub(crate) struct CoreWarmSet {
 }
 
 const JSON_MAP_ENTRY: usize = 96;
-const ARC_HEADER: usize = 2 * std::mem::size_of::<usize>();
-const RECORD_BASE: usize = 128;
-const SAFETY_PERCENT: usize = 110;
 const ROUND: usize = 16;
-const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
@@ -132,6 +128,19 @@ impl CoreWarmSet {
                 found
             })
             .collect()
+    }
+
+    fn touch_record(&mut self, coord: &RecordCoordinate) -> Option<(Arc<StoredRecord>, usize)> {
+        if !self.entries.contains_key(coord) {
+            return None;
+        }
+        let tick = self.next_tick();
+        let entry = self.entries.get_mut(coord)?;
+        let key = self
+            .order
+            .remove(&std::mem::replace(&mut entry.tick, tick))?;
+        self.order.insert(tick, key);
+        Some((Arc::clone(&entry.record), entry.bytes))
     }
 
     pub(crate) fn admit_records(
@@ -219,19 +228,6 @@ impl CoreWarmSet {
         self.clock
     }
 
-    fn touch_record(&mut self, coord: &RecordCoordinate) -> Option<(Arc<StoredRecord>, usize)> {
-        if !self.entries.contains_key(coord) {
-            return None;
-        }
-        let tick = self.next_tick();
-        let entry = self.entries.get_mut(coord)?;
-        let key = self
-            .order
-            .remove(&std::mem::replace(&mut entry.tick, tick))?;
-        self.order.insert(tick, key);
-        Some((Arc::clone(&entry.record), entry.bytes))
-    }
-
     fn remove_record(&mut self, coord: &RecordCoordinate) -> bool {
         let Some(entry) = self.entries.remove(coord) else {
             return false;
@@ -243,9 +239,8 @@ impl CoreWarmSet {
 }
 
 fn record_charge(coord: &RecordCoordinate, record: &StoredRecord) -> usize {
-    let key_cap = |k: &lastdb_model::schema::types::KeyValue| {
-        k.hash.as_ref().map_or(0, String::capacity) + k.range.as_ref().map_or(0, String::capacity)
-    };
+    let cap = |s: &Option<String>| s.as_ref().map_or(0, String::capacity);
+    let key_cap = |k: &lastdb_model::schema::types::KeyValue| cap(&k.hash) + cap(&k.range);
     let fields: usize = record
         .fields
         .iter()
@@ -259,20 +254,17 @@ fn record_charge(coord: &RecordCoordinate, record: &StoredRecord) -> usize {
         + key_cap(&record.key);
     let meta = record.meta.as_ref().map_or(0, |m| {
         std::mem::size_of::<RecordMeta>()
-            + m.source_file_name.as_ref().map_or(0, String::capacity)
+            + cap(&m.source_file_name)
             + m.metadata
                 .iter()
                 .map(|(k, v)| JSON_MAP_ENTRY + k.capacity() + v.capacity())
                 .sum::<usize>()
     });
     let marker = |f: &FileMarker| {
-        std::mem::size_of::<FileMarker>()
-            + f.name.as_ref().map_or(0, String::capacity)
-            + f.media_type.as_ref().map_or(0, String::capacity)
-            + f.sha256.capacity()
+        std::mem::size_of::<FileMarker>() + cap(&f.name) + cap(&f.media_type) + f.sha256.capacity()
     };
-    let raw = RECORD_BASE
-        + ARC_HEADER
+    let raw = 128
+        + 2 * std::mem::size_of::<usize>()
         + std::mem::size_of::<StoredRecord>()
         + coord.0.capacity()
         + coord.1.capacity()
@@ -286,7 +278,7 @@ fn record_charge(coord: &RecordCoordinate, record: &StoredRecord) -> usize {
             .file_version
             .as_ref()
             .map_or(0, |v| v.source_stream.as_str().len());
-    raw.saturating_mul(SAFETY_PERCENT)
+    raw.saturating_mul(110)
         .div_ceil(100)
         .div_ceil(ROUND)
         .saturating_mul(ROUND)
@@ -296,10 +288,74 @@ fn json_heap_bytes(value: &Value) -> usize {
     match value {
         Value::Null | Value::Bool(_) | Value::Number(_) => 0,
         Value::String(s) => s.capacity(),
-        Value::Array(a) => a.capacity() * VALUE_SIZE + a.iter().map(json_heap_bytes).sum::<usize>(),
+        Value::Array(a) => {
+            a.capacity() * std::mem::size_of::<Value>()
+                + a.iter().map(json_heap_bytes).sum::<usize>()
+        }
         Value::Object(m) => m
             .iter()
             .map(|(k, v)| JSON_MAP_ENTRY + k.capacity() + json_heap_bytes(v))
             .sum(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResidentDurability {
+    Queued,
+    Durable,
+}
+
+impl ResidentDurability {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Durable => "durable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResidentCommitOperations {
+    pub created: u64,
+    pub updated: u64,
+    pub deleted: u64,
+}
+
+impl ResidentCommitOperations {
+    #[must_use]
+    pub fn total(&self) -> u64 {
+        self.created
+            .saturating_add(self.updated)
+            .saturating_add(self.deleted)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResidentCommitStages {
+    pub prepare_us: u64,
+    pub ack_us: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResidentCommitReceipt {
+    pub mutation_ids: Vec<String>,
+    pub record_revisions: BTreeMap<String, String>,
+    pub revision: Option<u64>,
+    pub operations: ResidentCommitOperations,
+    pub durability: ResidentDurability,
+    pub stages: ResidentCommitStages,
+}
+
+impl ResidentCommitReceipt {
+    pub(crate) fn empty_queued() -> Self {
+        Self {
+            mutation_ids: Vec::new(),
+            record_revisions: BTreeMap::new(),
+            revision: None,
+            operations: ResidentCommitOperations::default(),
+            durability: ResidentDurability::Queued,
+            stages: ResidentCommitStages::default(),
+        }
     }
 }
