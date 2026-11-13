@@ -60,7 +60,8 @@
       "schema_type": "HashRange",
       "record_keys": {
         "primary": {
-          "kind": "hash_range"
+          "kind": "hash_range",
+          "range_type": "String"
         },
         "alternates": {}
       },
@@ -111,7 +112,7 @@
           "python3",
           "-B",
           "apps/social/social",
-          "--help"
+          "check"
         ],
         "timeout_s": 15
       }

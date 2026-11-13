@@ -4,15 +4,18 @@
 import argparse
 from http.client import HTTPException
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True
+
 from lastdb import LastDB, SocialError
 from app import SocialApp
 from people import People
-from server import run_server
+from server import choose_database, run_server
 from sharing import Sharing, read_invitation
 
 
@@ -52,11 +55,13 @@ def list_grants(sharing, people, selector):
 
 def parser():
     command = argparse.ArgumentParser(description=__doc__)
-    command.add_argument("--data-dir", required=True, type=Path)
+    home = os.environ.get("LASTDB_HOME")
+    command.add_argument("--data-dir", required=not home, default=home, type=Path)
     command.add_argument("--lastdb", type=Path)
     actions = command.add_subparsers(dest="action", required=True)
     actions.add_parser("declare", help="Declare the private Person schema")
     actions.add_parser("show-records", help="List private contacts without their contact codes")
+    actions.add_parser("check", help="Check the running LastDB for Social compatibility")
     launch = actions.add_parser("open", help="Open Social's local browser interface")
     launch.add_argument("--no-browser", action="store_true")
     launch.add_argument("--database")
@@ -72,6 +77,7 @@ def parser():
     selection = pick.add_mutually_exclusive_group()
     selection.add_argument("--database")
     selection.add_argument("--cancel", action="store_true")
+    selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
     create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
     create.add_argument("name")
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
@@ -103,36 +109,40 @@ def resolve_node(args):
 def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
-    match args.action:
-        case "create-db":
-            return sharing.create(args.name)
-        case "remember":
-            return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
-        case "pick-database":
-            app = SocialApp(node)
-            spec = {"name": args.spec, "version": args.version}
-            if args.cancel:
-                return None
-            if args.session:
-                if not args.database:
-                    raise SocialError("--session requires an explicit database selection")
-                return app.approve_pick(spec, args.intent, args.database)
-            return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
-        case "add":
-            return sharing.invite(args.database, args.user, args.node_key, args.contact)
-        case "remove":
-            return remove(sharing, people, args)
-        case "grants":
-            return sharing.all_configurations(args.database)
-        case "list":
-            return list_grants(sharing, people, args.database)
-        case "accept":
-            return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
-        case "declare":
-            return {"definitionId": people.declare()}
-        case "show-records":
-            return [{key: value for key, value in row.items() if key != "contact_code"}
-                    for row in people.all()]
+    if args.action == "create-db":
+        return sharing.create(args.name)
+    if args.action == "remember":
+        return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
+    if args.action == "pick-database":
+        app = SocialApp(node)
+        spec = {"name": args.spec, "version": args.version}
+        if args.cancel:
+            return None
+        if args.choose:
+            return choose_database(node, spec, args.intent)
+        if args.session:
+            if not args.database:
+                raise SocialError("--session requires an explicit database selection")
+            return app.approve_pick(spec, args.intent, args.database)
+        return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
+    if args.action == "add":
+        return sharing.invite(args.database, args.user, args.node_key, args.contact)
+    if args.action == "remove":
+        return remove(sharing, people, args)
+    if args.action == "grants":
+        return sharing.all_configurations(args.database)
+    if args.action == "list":
+        return list_grants(sharing, people, args.database)
+    if args.action == "accept":
+        return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
+    if args.action == "declare":
+        return {"definitionId": people.declare()}
+    if args.action == "check":
+        node.require_sessions()
+        return {"ready": True}
+    if args.action == "show-records":
+        return [{key: value for key, value in row.items() if key != "contact_code"}
+                for row in people.all()]
 
 
 def main():

@@ -4,9 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from http.client import HTTPConnection
 import json
+import os
 from pathlib import Path
 import subprocess
-import sys
 from urllib.parse import parse_qs, urlsplit
 
 from node import Connection
@@ -18,13 +18,37 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = {"name": "social", "version": 1}
 
 
+def command(node):
+    entrypoint = node.programs.environment.get("SOCIAL_COMMAND", str(ROOT / "apps/social/social"))
+    return [entrypoint, "--data-dir", str(node.home), "--lastdb", str(node.programs.directory / "lastdb")]
+
+
+def install(publisher, root, revision):
+    programs = publisher.programs
+    require(len(revision) == 40 and all(char in "0123456789abcdef" for char in revision), "social_install_revision")
+    home = root / "os-home"
+    home.mkdir(mode=0o700)
+    extra = {"HOME": str(home), "LASTDB_APPS_ROOT": str(root / "apps"),
+             "PATH": f"{programs.directory}:{os.environ['PATH']}"}
+    index = decode_json((ROOT / "lastdb_node/environments.json").read_bytes())["environments"]["dev"]["registry_index"]
+    receipt = programs.command(publisher.home, [
+        "app", "install", "social-graph", "--channel", "next", "--index", index, "--accept-install", "--json",
+    ], extra=extra, timeout=150)
+    require(isinstance(receipt, list) and len(receipt) == 1 and receipt[0]["sha"] == revision,
+            "social_install_exact_source")
+    link = home / ".local/bin/social"
+    source = root / "apps/social-graph/current/source/apps/social/social"
+    require(link.is_symlink() and link.resolve(strict=True) == source.resolve(strict=True), "social_install_command")
+    programs.environment["SOCIAL_COMMAND"] = str(link)
+    summary(f"Installed Social from the signed DEV registry at `{revision}` and used its managed command link.")
+
+
 @contextmanager
 def window(node, database=None):
-    command = [sys.executable, "-B", str(ROOT / "apps/social/social"), "--data-dir", str(node.home),
-               "--lastdb", str(node.programs.directory / "lastdb"), "open", "--no-browser"]
+    launch = [*command(node), "open", "--no-browser"]
     if database:
-        command.extend(("--database", database))
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        launch.extend(("--database", database))
+    with subprocess.Popen(launch, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                           env=node.programs.environment) as process:
         try:
             import select
@@ -103,7 +127,8 @@ def observe_access(browser, database, state, revision=None):
     def matches(result):
         access = result["database"]["selfAccess"]
         return (access["state"] == state and access["confirmedAtMs"] and not access["stale"]
-                and (revision is None or access["revision"] == str(revision)))
+                and (revision is None or access["revision"] == str(revision))
+                and (state != "active" or access["role"] == "read"))
     retry(f"social_recipient_access_{state}", lambda: call(browser, f"/api/database?databaseId={database}"), matches)
 
 

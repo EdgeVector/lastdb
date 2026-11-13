@@ -5,12 +5,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import time
 import uuid
 
 from signed_files import retry, run_operation, summary
-from social_app import call as app_call, observe_access, open_content_apps, read_album, report_content_flow, window
+from social_app import (call as app_call, command as social_command, install, observe_access,
+                        open_content_apps, read_album, report_content_flow, window)
 from support import OperationError, decode_json, require
 
 
@@ -21,9 +21,7 @@ ALBUMS = ("Before sharing", "While shared", "While revoked")
 
 
 def social(node, *arguments, receipt=None, refusal=None):
-    command = [sys.executable, "-B", str(ROOT / "apps/social/social"),
-               "--data-dir", str(node.home), "--lastdb", str(node.programs.directory / "lastdb"),
-               *arguments]
+    command = [*social_command(node), *arguments]
     try:
         result = subprocess.run(command, input=json.dumps(receipt).encode() if receipt else None,
                                 capture_output=True, env=node.programs.environment, timeout=180)
@@ -96,6 +94,8 @@ def revoke(publisher, database, reader_key, revision):
 
 
 def transfer(programs, root, publisher, recipient, api_key):
+    if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
+        install(publisher, root, revision)
     name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     created = social(publisher, "create-db", name)
     database = str(uuid.UUID(created["id"]))

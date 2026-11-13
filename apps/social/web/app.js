@@ -231,9 +231,42 @@ function showReceipt(receipt) {
   $('detail').append(panel);
 }
 
-for (const tab of ['people', 'databases']) $(tab).addEventListener('click', () => setTab(tab).catch(report));
-$('cancel').addEventListener('click', () => $('form-dialog').close());
-$('brand').addEventListener('click', (event) => { event.preventDefault(); setTab('people').catch(report); });
-const selected = new URLSearchParams(location.search).get('databaseId');
-if (selected) { state.tab = 'databases'; state.selected = selected; }
-refresh().catch(report);
+async function showPicker() {
+  $('brand').removeAttribute('href');
+  document.querySelector('nav').hidden = true;
+  $('heading').textContent = 'Choose a database';
+  $('detail').hidden = true;
+  $('list').parentElement.classList.add('picker');
+  const {intent, databases} = await api('choices');
+  const complete = async (databaseId) => {
+    const controls = [...document.querySelectorAll('main button')];
+    controls.forEach((control) => { control.disabled = true; });
+    try {
+      await api('choose', {databaseId});
+      $('list').replaceChildren(element('p', 'You can close this window.'));
+      $('actions').replaceChildren();
+    } catch (error) {
+      controls.forEach((control) => { control.disabled = false; });
+      throw error;
+    }
+  };
+  $('actions').append(button('Cancel', () => complete(null), 'quiet'));
+  $('list').append(element('p', intent === 'write' ? 'Allow the app to read and write.' : 'Allow the app to read.', 'status'));
+  if (!databases.length) $('list').append(element('p', 'No matching databases are available.', 'muted'));
+  for (const row of databases) {
+    const choice = button(nameOf(row), () => complete(row.databaseId), 'entry');
+    choice.append(element('span', `${specOf(row)} · ${accessOf(row)}`));
+    $('list').append(choice);
+  }
+}
+
+function showSocial(databaseId) {
+  for (const tab of ['people', 'databases']) $(tab).addEventListener('click', () => setTab(tab).catch(report));
+  $('cancel').addEventListener('click', () => $('form-dialog').close());
+  $('brand').addEventListener('click', (event) => { event.preventDefault(); setTab('people').catch(report); });
+  if (databaseId) { state.tab = 'databases'; state.selected = databaseId; }
+  return refresh();
+}
+
+const view = new URLSearchParams(location.search);
+(view.has('choose') ? showPicker() : showSocial(view.get('databaseId'))).catch(report);
