@@ -9,7 +9,7 @@ use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::lastdb_uds::database_path;
+use crate::lastdb_uds::{database_path, uds_router};
 
 const LIFETIME: std::time::Duration = std::time::Duration::from_secs(3600);
 const MAX_SESSIONS: usize = 1024;
@@ -43,16 +43,15 @@ pub(super) fn is_issue(req: &UdsRequest) -> bool {
     req.target == PATH
 }
 
-pub(super) fn issue(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-    writable: bool,
-) -> UdsResponse {
+pub(super) fn issue(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    if req.method != "POST" {
+        return uds_router::method_not_allowed_response("POST");
+    }
     let result = (|| {
         let body = decode(req)?;
         let write = matches!(body.intent, Intent::Write);
-        if write && !writable {
+        let owned = is_owned(host, &body.database_id)?;
+        if write && !owned {
             return Err(HostError::new(
                 403,
                 "this database permits local read sessions only",
@@ -92,8 +91,22 @@ fn decode(req: &UdsRequest) -> Result<Request, HostError> {
         .map_err(|_| HostError::new(400, "invalid database session request"))
 }
 
-pub(super) fn requested_database(req: &UdsRequest) -> Result<Id, HostError> {
-    Ok(decode(req)?.database_id)
+fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
+    use crate::host::owned::Resolved;
+
+    let (resolved, _) = host.owned.resolve(id.as_str()).map_err(|error| {
+        let (status, reason) = error.status();
+        HostError::new(status, reason)
+    })?;
+    match resolved {
+        Resolved::Owned => Ok(true),
+        Resolved::Owner => Err(HostError::new(404, "a session requires a shared database")),
+        Resolved::Absent => match crate::registered_share::resolve(&host.home, id.as_str()) {
+            Ok(Some(_)) => Ok(false),
+            Ok(None) => Err(HostError::new(404, "the database is not registered")),
+            Err(_) => Err(HostError::new(503, "database registry is unavailable")),
+        },
+    }
 }
 
 fn token_hash(token: &str) -> [u8; 32] {
