@@ -179,25 +179,6 @@ impl CloudLog {
         }
     }
 
-    pub(crate) async fn resumed(
-        &self,
-        state: SyncState,
-    ) -> Result<SyncState, mutation_log_sync::SyncError> {
-        let log = self.clone();
-        match tokio::task::spawn_blocking(move || SyncState::resume(&state, &log)).await {
-            Ok(result) => result,
-            Err(_) => Err(LogError::UnexpectedOutcome.into()),
-        }
-    }
-
-    pub(crate) async fn ack_through(&self, reader: Writer, through: u64) -> Result<u64, LogError> {
-        let mut log = self.clone();
-        match tokio::task::spawn_blocking(move || log.ack(&reader, through)).await {
-            Ok(result) => result,
-            Err(_) => Err(LogError::UnexpectedOutcome),
-        }
-    }
-
     pub(super) async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
         self.endpoint
             .post_json(self.signed(path, &body, Proof::Data))
@@ -274,20 +255,15 @@ impl MutationLog for CloudLog {
         _now_ms: u64,
     ) -> Result<ListPage, LogError> {
         self.same_reader(reader)?;
-        let body = wire::list_body(
-            self.database_id.as_str(),
-            self.device.as_str(),
-            after,
-            limit,
-        )?;
+        let body = wire::list_body(self.database_id.as_str(), after, limit)?;
         wire::list_page(self.database_id.as_str(), &self.call(paths::LIST, body)?)
     }
 
     fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError> {
         self.same_reader(&reader.key)?;
         self.same_device(&reader.device)?;
-        let body = wire::ack_body(self.database_id.as_str(), reader.device.as_str(), through)?;
-        wire::acknowledged(&self.call(paths::ACK, body)?)
+        // The signed cloud log has no reader progress to update.
+        Ok(through)
     }
 
     fn register_reader(&mut self, _reader: &Writer) -> Result<(), LogError> {

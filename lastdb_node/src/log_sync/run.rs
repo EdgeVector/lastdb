@@ -1,7 +1,7 @@
-//! Pull, apply, and ack for one database that is already open.
+//! Pull, apply, and save local download progress for an open database.
 //!
-//! An owned database publishes one accepted page first. The cloud
-//! cursor moves only after that pull is applied.
+//! An owned database publishes one accepted page first. A download
+//! position advances only after the downloaded changes are durable.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -35,10 +35,10 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
             return Pause::Retry;
         }
     }
-    pull_and_ack(host, &mut ready).await
+    pull_and_checkpoint(host, &mut ready).await
 }
 
-pub(super) async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
+pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause {
     let event = SyncEvent::Pull {
         now_ms: fold_db::clock::unix_millis(),
     };
@@ -69,22 +69,16 @@ pub(super) async fn pull_and_ack(host: &Host, ready: &mut Ready) -> Pause {
     };
     match plan {
         PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => {
-            finish_ack(host, &ready.log, &ready.database_id, seq).await
+            checkpoint_download(host, &ready.database_id, seq)
         }
         PagePlan::Hold(None) => Pause::Retry,
     }
 }
 
-async fn finish_ack(host: &Host, log: &CloudLog, database_id: &str, seq: u64) -> Pause {
+fn checkpoint_download(host: &Host, database_id: &str, seq: u64) -> Pause {
     if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
         return Pause::Retry;
-    }
-    if seq > 0 {
-        if let Err(error) = log.ack_through(log.reader(), seq).await {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "ack failed");
-            return Pause::Retry;
-        }
     }
     if let Err(error) = session::mark_prefix(&host.home, database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "durable prefix was not stored");
