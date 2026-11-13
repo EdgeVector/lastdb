@@ -1,20 +1,10 @@
 """One ledger for every phase, with a six-dollar hard cap.
 
-This harness calls the #778 mutation-log routes. An append's happy path
-reads the head, the writer tip, the grant prefix, and that writer's
-submission rows. A list still reads every entry after the cursor:
-``load_for`` calls ``query_bounded`` with no page limit. ``load_reads``
-therefore still charges the main partition and ``{id}#sub``. Head and list
-do not conflict, so they are not charged three reloads. An ack overwrites
-its row and does not grow the partition.
-
-A mutating call is one ``TransactWriteItems``, charged at twice the
-on-demand write price. Appends and acks are charged ``SERVER_ATTEMPTS``
-loads and transactions, because the server retries the load and the commit
-up to 3 times (mod.rs ``ATTEMPTS``). Head and list stay one load. An append
-adds an entry row of 350 bytes plus 150 bytes of item overhead once, not
-once per attempt. Cleanup Query and BatchWriteItem are counted on their
-own.
+An append reads and conditionally updates the database head, stores the
+entry, and stores its immutable acceptance fact. The ledger budgets
+an extra read plus three transactional writes per attempt. It conservatively
+charges the main partition and submission reads during an audit. Cleanup
+Query and BatchWriteItem are counted on their own.
 
 Lambda duration is ``LAMBDA_MB / 1024`` GB for 100 ms at the published
 GB-second price. 128 is the Lambda default. The mutation-log function's
@@ -30,10 +20,10 @@ PAGE_BYTES = 4096
 LIST_LIMIT = 90
 SERVER_ATTEMPTS = 3
 FULL_PARTITION_LOAD = True
-MUTATING_WRITE_UNITS = 4
+MUTATING_WRITE_UNITS = 6
 ENTRY_ROW_BYTES = 350
 ROW_OVERHEAD_BYTES = 150
-DEVICE_ROW_BYTES = 800
+ACCEPTED_FACT_BYTES = 512
 WRITE_USD = 2 * 1.25 / 1_000_000
 READ_USD = 0.25 / 1_000_000
 LAMBDA_REQUEST_USD = 0.20 / 1_000_000
@@ -60,15 +50,15 @@ def read_units(partition_bytes):
 def stored_growth(nbytes):
     """Bytes an append adds. A large body is not rounded down."""
     body = 0 if nbytes is None else nbytes
-    return max(body, ENTRY_ROW_BYTES) + ROW_OVERHEAD_BYTES
+    return max(body, ENTRY_ROW_BYTES) + ROW_OVERHEAD_BYTES + ACCEPTED_FACT_BYTES
 
 
 def load_reads(main_bytes, sub_bytes):
     """Reads for one #778 load of the main partition and ``{id}#sub``."""
     sub = read_units(sub_bytes)
     if FULL_PARTITION_LOAD:
-        return read_units(main_bytes) + sub
-    return 1 + sub
+        return read_units(main_bytes) + sub + 1
+    return 2 + sub
 
 
 def recheck_hold(partition_bytes, sub_bytes):
@@ -96,17 +86,7 @@ class Ledger:
         self.stored_bytes = 0
         self.partition_bytes = 0
         self.sub_bytes = 0
-        self._devices = set()
         self._lock = threading.Lock()
-
-    def note_device(self, device_id):
-        """Tip and ack rows are about 400 bytes each and stay in the partition."""
-        with self._lock:
-            if device_id in self._devices:
-                return
-            self._devices.add(device_id)
-            self.partition_bytes += DEVICE_ROW_BYTES
-            self.stored_bytes += DEVICE_ROW_BYTES
 
     def estimate(self):
         request_usd = self.lambda_requests * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)

@@ -22,7 +22,7 @@ PAYLOAD = base64.urlsafe_b64encode(b"load").rstrip(b"=").decode("ascii")
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
 OPERATIONS = (
-    "create-database", "append", "head", "list", "ack", "revoke", "snapshot", "trim",
+    "create-database", "append", "head", "list", "revoke", "snapshot", "trim",
 )
 READS = frozenset({"head", "list"})
 ENTRY_FIELDS = (
@@ -34,8 +34,7 @@ FIELDS = {
     "create-database": ("database_id", "kind", "spec"),
     "append": ("database_id", "device_id", "entries"),
     "head": ("database_id",),
-    "list": ("after", "database_id", "device_id", "limit"),
-    "ack": ("database_id", "device_id", "through"),
+    "list": ("after", "database_id", "limit"),
     "revoke": ("capability", "database_id", "principal"),
     "snapshot": ("database_id",),
     "trim": ("database_id",),
@@ -65,10 +64,6 @@ def request_body(operation, fields):
     if operation == "list":
         _u64(fields["after"])
         _u64(fields["limit"])
-        _device(fields["device_id"])
-    if operation == "ack":
-        _u64(fields["through"])
-        _device(fields["device_id"])
     if operation == "revoke":
         _text(fields["principal"])
         _text(fields["capability"])
@@ -100,8 +95,6 @@ def check_success(operation, payload):
         require_head(payload)
     elif operation == "list":
         require_list(payload)
-    elif operation == "ack":
-        require_ack(payload)
     elif operation == "snapshot":
         require_snapshot(payload)
     elif operation == "trim":
@@ -151,10 +144,6 @@ def require_list(body):
     if page["next"] is not None:
         decimal(page["next"])
     return page
-
-
-def require_ack(body):
-    return decimal(require_object(body, ("through",))["through"])
 
 
 def require_revoke(body):

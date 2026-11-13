@@ -1,11 +1,9 @@
 """How many writers run, and which calls each level makes.
 
-Five, twenty, and one hundred writers each append ten times, then ack the
-head cursor. The 100-writer tier finishes that work. It does not stop after
-38 rounds. ``--scale`` still runs the 100-writer tier on a three-minute
-clock. Trim uses 128 devices. They append, then ack the head cursor, then
-snapshot and trim. ``through`` is a delivery sequence from head, never a
-writer sequence.
+Five, twenty, and one hundred writers each append ten times. The 100-writer
+tier finishes that work. It does not stop after 38 rounds. The scale option
+runs the 100-writer tier on a three-minute clock. Trim uses 128 writers,
+then snapshots and trims the log at the database delivery head.
 """
 
 APPENDS = 10

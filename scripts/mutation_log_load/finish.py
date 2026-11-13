@@ -1,10 +1,10 @@
 """The log check and the trim calls that follow a tier."""
 
 from faults import RetriesExhausted, quiet_backoff_seconds
-from logcheck import ack_holds, collect_pages, verify_log
+from logcheck import unresolved_writes_absent, collect_pages, verify_log
 from stats import finding_message, tier_summary
 from routes import (
-    PAYLOAD, RouteError, prove_trimmed_list, request_body, require_ack,
+    PAYLOAD, RouteError, prove_trimmed_list, request_body,
     require_head, require_snapshot, require_trim,
 )
 
@@ -14,11 +14,8 @@ def _device(prefix, index):
 
 
 def request_for(session, operation, fields, limit):
-    """JSON body for one mutation-log call. An ack does not grow the ledger."""
+    """JSON body for one mutation-log call."""
     database = session.database_id
-    if "index" in fields or "device_id" in fields:
-        device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
-        session.ledger.note_device(device)
     if operation in ("head", "snapshot", "trim", "create-database"):
         body = {"database_id": database}
         if operation == "create-database":
@@ -26,8 +23,8 @@ def request_for(session, operation, fields, limit):
             body["kind"] = "shareable"
             body["spec"] = {"name": "social", "version": 1}
         return request_body(operation, body)
-    device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
     if operation == "append":
+        device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
         return request_body(operation, {
             "database_id": database,
             "device_id": device,
@@ -42,35 +39,9 @@ def request_for(session, operation, fields, limit):
         return request_body(operation, {
             "after": fields.get("after", 0),
             "database_id": database,
-            "device_id": device,
             "limit": limit,
         })
-    if operation == "ack":
-        return request_body(operation, {
-            "database_id": database,
-            "device_id": device,
-            "through": fields["seq"],
-        })
     raise RouteError("route")
-
-
-def ack_cursor(session, index):
-    """Ack the head's delivery cursor. ``through`` is never a writer sequence."""
-    if session.call("list", required=True, index=index, after=0) is None:
-        raise RouteError("ack")
-    head = session.call("head", required=True, index=index)
-    if head is None:
-        raise RouteError("ack")
-    cursor = require_head(head)
-    if cursor is None or cursor < 1:
-        raise RouteError("ack")
-    acked = session.call("ack", required=True, index=index, seq=cursor)
-    through = None if acked is None else require_ack(acked)
-    if through is None or through < cursor:
-        raise RouteError("ack")
-    with session._lock:
-        if through > session.acked_through:
-            session.acked_through = through
 
 
 def read_log(session):
@@ -90,16 +61,15 @@ def read_log(session):
 
 
 def check_log(session):
-    """Reject a short page, a broken invariant, or a lost acknowledgement."""
+    """Reject a short page, a broken invariant, or a lost accepted entry."""
     entries = read_log(session)
     if session.audit_cursor and len(entries) < session.audit_cursor:
         raise RouteError("log")
     with session._lock:
         accepted = {device: set(seqs) for device, seqs in session.accepted.items()}
         unresolved = list(session.unresolved)
-        acked = session.acked_through
     verify_log(entries, accepted)
-    session.ack_holds = ack_holds(entries, unresolved, acked)
+    session.no_partial_writes = unresolved_writes_absent(entries, unresolved)
 
 
 def _read_with_recheck(session):
@@ -152,13 +122,13 @@ def _checked(session):
         audit_log(session)
     except (LoadError, RouteError, RetriesExhausted, CapExceeded):
         return "error"
-    if session.ack_holds:
+    if session.no_partial_writes:
         return "scaling"
     return "error"
 
 
 def finding_text(session, spec):
-    if session.trim_skipped and session.ack_holds:
+    if session.trim_skipped and session.no_partial_writes:
         return "trim not exercised"
     message = finding_message(
         session.throttle_503, spec.kind, session.contention_503,
@@ -197,7 +167,7 @@ def trim_appends(session):
 
 
 def trim_log(session):
-    """Ack every stored device through the head cursor, then snapshot and trim.
+    """Verify a snapshot cut before trimming the shared log.
 
     The caller does not call this when the trim tier stored nothing. A tier
     that stored at least one append still has to move ``through`` to the
@@ -210,10 +180,6 @@ def trim_log(session):
     cursor = require_head(head)
     if cursor is None or cursor < landed:
         raise RouteError("trim")
-    for device in sorted(session.accepted):
-        acked = session.call("ack", required=True, device_id=device, seq=cursor)
-        if acked is None or require_ack(acked) < cursor:
-            raise RouteError("trim")
     require_snapshot(session.call("snapshot", required=True))
     through = require_trim(session.call("trim", required=True))
     if through < cursor:

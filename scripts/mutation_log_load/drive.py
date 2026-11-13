@@ -11,7 +11,7 @@ from faults import (
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
 from finish import (
-    ack_cursor, after_exhausted, audit_log, finding_text, read_log, request_for,
+    after_exhausted, audit_log, finding_text, read_log, request_for,
     tier_report, trim_appends, trim_log, verify_after_cap,
 )
 from plan import still_running, writer_calls
@@ -103,8 +103,7 @@ class Session:
         self.contention_unresolved = 0
         self.throttle_unresolved = 0
         self.unresolved = []
-        self.acked_through = 0
-        self.ack_holds = True
+        self.no_partial_writes = True
         self.audited = False
         self.audit_cursor = 0
         self.in_logcheck = False
@@ -135,7 +134,7 @@ class Session:
         self.contention_unresolved = 0
         self.throttle_unresolved = 0
         self.unresolved = []
-        self.ack_holds = True
+        self.no_partial_writes = True
         self.audited = False
         self.in_logcheck = False
         self.log_read_throttled = False
@@ -172,7 +171,7 @@ class Session:
     def _charge(self, operation, body):
         kind = "read" if operation in READS else "write"
         try:
-            attempts = SERVER_ATTEMPTS if operation in ("append", "ack") else 1
+            attempts = SERVER_ATTEMPTS if operation == "append" else 1
             self.ledger.charge(
                 kind, None if kind == "read" else len(body),
                 grow=operation == "append", attempts=attempts,
@@ -186,7 +185,6 @@ class Session:
         with self._lock:
             self.samples.append(latency)
             self.calls += 1
-            # Appends and acks are both write attempts in the contention rate.
             if operation not in READS:
                 self.write_attempts += 1
 
@@ -326,7 +324,7 @@ def _over_cap(session, spec):
     """The cap loses to a correctness failure and to a scaling finding."""
     if _exhausted(session) and not session.audited:
         return verify_after_cap(session)
-    if _exhausted(session) and not session.ack_holds:
+    if _exhausted(session) and not session.no_partial_writes:
         return "error"
     if _exhausted(session) or _capacity(session, spec):
         return "scaling"
@@ -335,8 +333,8 @@ def _over_cap(session, spec):
 
 def _finished(session, spec):
     if session.trim_skipped:
-        return "scaling" if session.ack_holds else "error"
-    if _exhausted(session) and not session.ack_holds:
+        return "scaling" if session.no_partial_writes else "error"
+    if _exhausted(session) and not session.no_partial_writes:
         return "error"
     if _exhausted(session) or _capacity(session, spec):
         return "scaling"
@@ -353,8 +351,6 @@ def _script(spec, session, index):
         for operation, writer, seq in writer_calls(spec, index):
             if session.call(operation, index=writer, seq=seq) is None:
                 raise LoadError("http")
-        if spec.kind == "full":
-            ack_cursor(session, index)
     except RetriesExhausted:
         return
 
@@ -366,7 +362,6 @@ def _steady(spec, session, started):
             while still_running(spec, session.clock() - started, seq - 1) and not session.stop.is_set():
                 if session.call("append", index=index, seq=seq) is None:
                     raise LoadError("http")
-                ack_cursor(session, index)
                 seq += 1
         except RetriesExhausted:
             return
