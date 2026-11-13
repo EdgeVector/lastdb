@@ -1,121 +1,115 @@
-//! Exact record and alternate lookups from the same inactive native root as the restore proof.
-
-use super::database::{bad_request, checked_address, resource_limit, scan_records_page};
-use super::{invalid, map, RunNodeGuard, StorageResult};
-use crate::schema::types::field::HashRangeFilter;
+//! Record, page, and alternate lookups from the same inactive native root as the restore proof.
+use super::{invalid, map, RunSnapshotReader, StorageError, StorageResult};
+use crate::schema::schema_types::SchemaWithState;
+use crate::schema::types::field::{FilterUtils, HashRangeFilter};
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::native_routing;
 use crate::storage::format::{
     records::{alternate_bounds, inline_files, AlternateAddress, AlternateEntry, RecordAddress},
-    RECORDS_COLLECTION, SCHEMAS_NAMESPACE,
+    RECORDS_COLLECTION,
 };
-use cloud_backup_protocol::{Digest, NativeRoot};
+use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::alternate_field_key_id;
+use lastdb_model::record_space::{record_hash_prefix, record_space_uuid, RECORD_PREFIX};
 use lastdb_model::record_value::{
     InlineFile, StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES,
 };
-use lastdb_model::storage_policy::backup_decode::RECORD_BODY_MAX_BYTES;
-use lastdb_model::{field_key_codec::FieldKeyCodec, record_space::record_space_uuid};
-use laststore::disk_run::{home::RunRead, MAX_RUN_KEY_BYTES};
-use serde::Serialize;
-use serde_json::Value;
+use laststore::disk_run::home::RunRead;
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+
+pub struct SnapshotSchema {
+    pub entry: SchemaWithState,
+}
+
+pub struct SnapshotRecordPage {
+    pub record_space: String,
+    pub records: Vec<StoredRecord>,
+    pub next_cursor: Option<String>,
+}
 
 pub struct SnapshotAlternatePage {
     pub rows: Vec<(AlternateEntry, StoredRecord)>,
     pub has_more: bool,
 }
 
-pub struct StagedRecordQuery<'a> {
-    schema: &'a str,
-    key: KeyValue,
-    include_inline: bool,
-}
-
-impl<'a> StagedRecordQuery<'a> {
-    pub fn new(schema: &'a str, key: KeyValue, include_inline: bool) -> StorageResult<Self> {
-        let valid = |s: &str| (1..=MAX_RUN_KEY_BYTES).contains(&s.len());
-        (valid(schema)
-            && key.hash.as_deref().is_some_and(valid)
-            && key
-                .range
-                .as_ref()
-                .is_none_or(|r| r.len() <= MAX_RUN_KEY_BYTES))
-        .then_some(Self {
-            schema,
-            key,
-            include_inline,
-        })
-        .ok_or_else(|| invalid("staged record coordinates"))
-    }
-}
-
-#[derive(Serialize)]
-pub struct StagedRecord {
-    key: KeyValue,
-    fields: BTreeMap<String, Value>,
-    inline_file: Option<InlineFile>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    share_author: Option<Digest>,
-}
-
-impl StagedRecord {
-    pub fn fields(&self) -> &BTreeMap<String, Value> {
-        &self.fields
-    }
-}
-
-pub struct RunSnapshotReader(pub(super) RunNodeGuard);
-
 impl RunSnapshotReader {
-    pub fn open(
-        path: &Path,
+    pub fn exact_records(
+        &self,
+        schema: &Schema,
+        keys: &[KeyValue],
         account_key: &[u8; 32],
-        verified_root: &NativeRoot,
-    ) -> StorageResult<Self> {
-        let native = RunNodeGuard::open(path, account_key, true)?;
-        native.profile.validate_root(verified_root)?;
-        native.require_empty_local_cas().map(|()| Self(native))
+    ) -> StorageResult<Vec<StoredRecord>> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        if keys.len() > 1000 {
+            return Err(bad_request("a Share exact read accepts at most 1000 keys"));
+        }
+        let (mut read, codec) = (
+            self.lookup(keys.len() + 2)?,
+            record_codec(schema, account_key)?,
+        );
+        let mut addrs = BTreeMap::new();
+        for key in keys {
+            let addr = checked_address(schema, &codec, key)?;
+            addrs.insert(native_routing::encode(addr.as_str().as_bytes()), addr);
+        }
+        let coords: Vec<_> = addrs
+            .keys()
+            .map(|k| (RECORDS_COLLECTION.into(), k.clone()))
+            .collect();
+        let mut out = Vec::new();
+        for (addr, val) in addrs.values().zip(
+            read.get_many_bounded(&coords, MAX_RECORD_BYTES as u64)
+                .map_err(map)?,
+        ) {
+            if let Some(b) = val.map_err(map)? {
+                if let Some(rec) = decode_verified(schema, &codec, addr.as_str(), &b, true)? {
+                    out.push(rec);
+                }
+            }
+        }
+        Ok(out)
     }
 
-    pub fn read_record(
+    pub fn record_page(
         &self,
-        query: &StagedRecordQuery<'_>,
+        schema: &Schema,
+        filter: Option<&HashRangeFilter>,
+        after: Option<&str>,
+        limit: usize,
         account_key: &[u8; 32],
-    ) -> StorageResult<Option<StagedRecord>> {
-        let (mut read, key) = (
-            self.lookup(3)?,
-            native_routing::encode(query.schema.as_bytes()),
+    ) -> StorageResult<SnapshotRecordPage> {
+        let (mut read, codec) = (self.lookup(10_000)?, record_codec(schema, account_key)?);
+        let (space, err) = (
+            record_space_uuid(&schema.name),
+            "cursor is outside the Share key selection",
         );
-        let bytes = read
-            .get_bounded(SCHEMAS_NAMESPACE, &key, RECORD_BODY_MAX_BYTES)
-            .map_err(map)?
-            .ok_or_else(|| invalid("staged schema is absent"))?;
-        let schema = decode_schema(&bytes, &key)?;
-        let codec = record_codec(&schema, account_key)?;
-        let address = record_address(&schema, &codec, &query.key)?;
-        let Some(record) = read_verified(&mut read, &schema, &codec, &address)? else {
-            return Ok(None);
+        let (start, end) = page_bounds(&space, &codec, filter)?;
+        let Some((rows, exhausted, _)) = scan_page(&mut read, &start, &end, after, limit, err)?
+        else {
+            return Ok(SnapshotRecordPage {
+                record_space: space,
+                records: Vec::new(),
+                next_cursor: None,
+            });
         };
-        if !record.is_live() {
-            return Err(invalid("staged record payload differs from its key"));
+        let has_more = rows.len() > limit || !exhausted;
+        let (mut records, mut last) = (Vec::new(), None);
+        for (key, bytes) in rows.into_iter().take(limit) {
+            if let Some(rec) = decode_verified(schema, &codec, &key, &bytes, true)? {
+                records.push(rec);
+            }
+            last = Some(key);
         }
-        let inline_file = query
-            .include_inline
-            .then(|| read_inline(&mut read, &address, &record))
-            .transpose()?
-            .flatten();
-        let share_author = record
-            .meta
-            .and_then(|mut m| m.metadata.remove("share_author"))
-            .and_then(|a| Digest::try_from(a).ok());
-        Ok(Some(StagedRecord {
-            key: record.key,
-            fields: record.fields,
-            inline_file,
-            share_author,
-        }))
+        if last.is_none() && has_more {
+            return Err(resource_limit("verified record page cannot continue"));
+        }
+        Ok(SnapshotRecordPage {
+            record_space: space,
+            records,
+            next_cursor: last.filter(|_| has_more),
+        })
     }
 
     pub fn alternate_page(
@@ -146,14 +140,11 @@ impl RunSnapshotReader {
         let (start, end) = alternate_bounds(&alternate, &field, filter).map_err(|_| {
             bad_request("alternate reads require a valid key or range under one hash")
         })?;
-        let encode = |entry: &AlternateEntry| {
-            def.validate_coordinates(
-                entry.matched.hash.as_deref(),
-                entry.matched.range.as_deref(),
-            )
-            .map_err(|_| bad_request("alternate key differs from its schema"))?;
-            let address = checked_address(schema, &primary, &entry.primary)?;
-            AlternateAddress::new(&alternate, &field, &entry.matched, &address)
+        let encode = |e: &AlternateEntry| {
+            def.validate_coordinates(e.matched.hash.as_deref(), e.matched.range.as_deref())
+                .map_err(|_| bad_request("alternate key differs from its schema"))?;
+            let addr = checked_address(schema, &primary, &e.primary)?;
+            AlternateAddress::new(&alternate, &field, &e.matched, &addr)
                 .map(AlternateAddress::into_string)
                 .map_err(|_| bad_request("alternate cursor coordinates are invalid"))
         };
@@ -164,28 +155,84 @@ impl RunSnapshotReader {
             .into_iter()
             .map(|r| (r.key.clone(), r))
             .collect();
-        let rows = entries
-            .into_iter()
-            .map(|e| {
-                records
-                    .remove(&e.primary)
-                    .filter(|r| r.alternates.get(name).and_then(Option::as_ref) == Some(&e.matched))
-                    .map(|r| (e, r))
-                    .ok_or_else(|| {
-                        invalid("staged alternate entry differs from its primary record")
-                    })
-            })
-            .collect::<StorageResult<_>>()?;
+        let mut rows = Vec::with_capacity(entries.len());
+        for e in entries {
+            let rec = records
+                .remove(&e.primary)
+                .filter(|r| r.alternates.get(name).and_then(Option::as_ref) == Some(&e.matched))
+                .ok_or_else(|| invalid("staged alternate entry differs from its primary record"))?;
+            rows.push((e, rec));
+        }
         Ok(SnapshotAlternatePage { rows, has_more })
     }
 }
 
-pub(super) fn decode_schema(bytes: &[u8], expected_encoded_key: &str) -> StorageResult<Schema> {
-    let schema: Schema =
-        serde_json::from_slice(bytes).map_err(|_| invalid("staged schema record"))?;
-    (native_routing::encode(schema.name.as_bytes()) == expected_encoded_key)
-        .then_some(schema)
-        .ok_or_else(|| invalid("staged schema name differs from its key"))
+type RawPage = (Vec<(String, Vec<u8>)>, bool, bool);
+
+fn scan_page(
+    read: &mut RunRead,
+    start: &str,
+    end: &str,
+    after: Option<&str>,
+    limit: usize,
+    err: &str,
+) -> StorageResult<Option<RawPage>> {
+    if after.is_some_and(|c| c < start || c >= end) {
+        return Err(bad_request(err));
+    }
+    if start >= end {
+        return Ok(None);
+    }
+    let mut range = match after {
+        Some(c) => {
+            read.administrative_range_after(RECORDS_COLLECTION, c.as_bytes(), end.as_bytes())
+        }
+        None => read.administrative_range(RECORDS_COLLECTION, start.as_bytes(), end.as_bytes()),
+    }
+    .map_err(map)?;
+    let p = range
+        .next_page_yielding_bounded(limit.saturating_add(1), 0, 0, MAX_RECORD_BYTES as u64)
+        .map_err(map)?;
+    Ok(Some((p.records, p.exhausted, p.resume.is_some())))
+}
+
+fn page_bounds(
+    space: &str,
+    codec: &FieldKeyCodec,
+    filter: Option<&HashRangeFilter>,
+) -> StorageResult<(String, String)> {
+    use HashRangeFilter as F;
+    let base = match filter {
+        None => format!("{RECORD_PREFIX}{space}:"),
+        Some(
+            F::HashKey(h) | F::HashRangePrefix { hash: h, .. } | F::HashRangeRange { hash: h, .. },
+        ) if !h.is_empty() => record_hash_prefix(
+            space,
+            &codec
+                .storage_hash(space, h)
+                .map_err(|_| bad_request("invalid hash"))?,
+        ),
+        _ => return Err(bad_request("a Share page requires one nonempty hash")),
+    };
+    let end_of =
+        |p| FilterUtils::create_prefix_end(p).map_err(|_| bad_request("invalid Share key prefix"));
+    let stored = |r| {
+        codec
+            .storage_range(space, r)
+            .map(|s| format!("{base}{s}"))
+            .map_err(|_| bad_request("range differs from the declared key type"))
+    };
+    match filter {
+        Some(F::HashRangePrefix { prefix, .. }) => {
+            codec
+                .require_text_range_prefix()
+                .map_err(|_| bad_request("range prefixes require a text key"))?;
+            let start = stored(prefix)?;
+            end_of(&start).map(|end| (start, end))
+        }
+        Some(F::HashRangeRange { start, end, .. }) => Ok((stored(start)?, stored(end)?)),
+        _ => end_of(&base).map(|end| (base, end)),
+    }
 }
 
 fn read_entries(
@@ -197,14 +244,8 @@ fn read_entries(
     encode: impl Fn(&AlternateEntry) -> StorageResult<String>,
 ) -> StorageResult<(Vec<AlternateEntry>, bool)> {
     let after = after.map(&encode).transpose()?;
-    let Some((rows, _, resumed)) = scan_records_page(
-        read,
-        start,
-        end,
-        after.as_deref(),
-        limit,
-        "alternate cursor is outside the requested key range",
-    )?
+    let err = "alternate cursor is outside the requested key range";
+    let Some((rows, _, resumed)) = scan_page(read, start, end, after.as_deref(), limit, err)?
     else {
         return Ok((Vec::new(), false));
     };
@@ -214,27 +255,36 @@ fn read_entries(
         ));
     }
     let has_more = rows.len() > limit;
-    let entries = rows
-        .into_iter()
-        .take(limit)
-        .map(|(key, bytes)| {
-            let e: AlternateEntry = serde_json::from_slice(&bytes)
-                .map_err(|_| invalid("staged alternate entry format"))?;
-            (encode(&e).ok().as_deref() == Some(key.as_str()))
-                .then_some(e)
-                .ok_or_else(|| invalid("staged alternate entry differs from its storage key"))
-        })
-        .collect::<StorageResult<_>>()?;
+    let mut entries = Vec::new();
+    for (key, bytes) in rows.into_iter().take(limit) {
+        let e: AlternateEntry =
+            serde_json::from_slice(&bytes).map_err(|_| invalid("staged alternate entry format"))?;
+        if encode(&e).ok().as_deref() != Some(key.as_str()) {
+            return Err(invalid(
+                "staged alternate entry differs from its storage key",
+            ));
+        }
+        entries.push(e);
+    }
     Ok((entries, has_more))
+}
+
+pub(super) fn decode_schema(bytes: &[u8], expected_encoded_key: &str) -> StorageResult<Schema> {
+    let schema: Schema =
+        serde_json::from_slice(bytes).map_err(|_| invalid("staged schema record"))?;
+    (native_routing::encode(schema.name.as_bytes()) == expected_encoded_key)
+        .then_some(schema)
+        .ok_or_else(|| invalid("staged schema name differs from its key"))
 }
 
 pub(super) fn record_codec(
     schema: &Schema,
     account_key: &[u8; 32],
 ) -> StorageResult<FieldKeyCodec> {
-    let profile = schema
+    let keys = schema
         .require_record_keys()
-        .map_err(|_| invalid("staged schema has no record keys"))?
+        .map_err(|_| invalid("staged schema has no record keys"))?;
+    let profile = keys
         .primary
         .range_profile()
         .map_err(|_| invalid("staged schema range profile"))?;
@@ -243,6 +293,15 @@ pub(super) fn record_codec(
         &record_space_uuid(&schema.name),
         profile,
     ))
+}
+
+pub(super) fn checked_address(
+    schema: &Schema,
+    codec: &FieldKeyCodec,
+    key: &KeyValue,
+) -> StorageResult<RecordAddress> {
+    record_address(schema, codec, key)
+        .map_err(|_| bad_request("record key differs from its schema"))
 }
 
 pub(super) fn record_address(
@@ -260,7 +319,7 @@ pub(super) fn record_address(
         .map_err(|_| invalid("staged record address"))
 }
 
-pub(super) fn decode_verified(
+fn decode_verified(
     schema: &Schema,
     codec: &FieldKeyCodec,
     stored: &str,
@@ -283,11 +342,13 @@ pub(super) fn read_verified(
     address: &RecordAddress,
 ) -> StorageResult<Option<StoredRecord>> {
     let key = native_routing::encode(address.as_str().as_bytes());
-    read.get_bounded(RECORDS_COLLECTION, &key, MAX_RECORD_BYTES as u64)
+    match read
+        .get_bounded(RECORDS_COLLECTION, &key, MAX_RECORD_BYTES as u64)
         .map_err(map)?
-        .map(|b| decode_verified(schema, codec, address.as_str(), &b, false))
-        .transpose()
-        .map(Option::flatten)
+    {
+        Some(b) => decode_verified(schema, codec, address.as_str(), &b, false),
+        None => Ok(None),
+    }
 }
 
 pub(super) fn read_inline(
@@ -306,4 +367,14 @@ pub(super) fn read_inline(
     inline_files::decode_for(&bytes, marker)
         .map(Some)
         .map_err(|_| invalid("staged inline file differs from its record"))
+}
+
+fn bad_request(message: &str) -> StorageError {
+    StorageError::InvalidOperation(message.to_string())
+}
+
+pub(super) fn resource_limit(message: &str) -> StorageError {
+    StorageError::ReadResourceLimit {
+        detail: message.to_string(),
+    }
 }

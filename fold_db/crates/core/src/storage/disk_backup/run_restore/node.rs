@@ -2,7 +2,7 @@
 
 use super::{
     fork_bounded, invalid, map, phase, read_budget, sum_file_bytes, RunBackupProfile, Stage,
-    StorageError, StorageResult,
+    StorageResult,
 };
 use crate::storage::content_key_proof::{self, KEY as CKP_KEY, NAMESPACE as CKP_NS};
 use crate::storage::disk_backup::byte_backup::RunBackupHome;
@@ -39,20 +39,7 @@ impl RunNodeGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.profile.native_root()
     }
-    pub fn files(&self) -> impl Iterator<Item = &(String, u64)> {
-        self.files.iter()
-    }
-    pub fn totals(&self) -> StorageResult<(u64, u64)> {
-        let count = u64::try_from(self.files.len()).map_err(|_| invalid("run file count"))?;
-        sum_file_bytes(&self.files, "run file byte sum").map(|b| (count, b))
-    }
-    pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
-        (self.root == data_root)
-            .then_some(())
-            .ok_or_else(|| invalid("run restore publication root differs"))
-            .and_then(|()| self.profile.validate_root(root))
-            .and_then(|()| self.check_binding())
-    }
+
     pub(super) fn require_empty_local_cas(&self) -> StorageResult<()> {
         self.cas
             .referenced_runs()
@@ -61,7 +48,8 @@ impl RunNodeGuard {
             .then_some(())
             .ok_or_else(|| invalid("restored personal CAS home is not empty"))
     }
-    pub fn check_binding(&self) -> StorageResult<()> {
+
+    pub(super) fn verify_handles(&self) -> StorageResult<()> {
         same_entry(&self.directory, &self.root)?;
         same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
         if profile_version(&self.root)? != self.profile.version {
@@ -76,11 +64,16 @@ impl RunNodeGuard {
             same_entry(home, &p)?;
             same_entry(runs, &p.join(RUNS))?;
             same_entry(lock, &p.join(LOCK))?;
+            check_home_closure(&p, lock)?;
         }
+        require_root_members(&self.root)
+    }
+
+    pub(super) fn check_binding(&self) -> StorageResult<()> {
+        self.verify_handles()?;
         (scan_main_home(&self.root, self.profile.version, &self.main)?.0 == self.profile)
             .then_some(())
             .ok_or_else(|| invalid("run restore captured home differs"))
-            .and_then(|()| require_root_members(&self.root))
     }
 
     pub(super) fn open(root: &Path, key: &[u8; 32], shared: bool) -> StorageResult<Self> {
@@ -133,7 +126,7 @@ impl RunNodeGuard {
             profile,
             files,
         };
-        guard.check_binding().map(|()| guard)
+        guard.verify_handles().map(|()| guard)
     }
 }
 
@@ -153,7 +146,7 @@ pub(super) fn lock_node(
     require_root_members(root).map(|()| (dir, marker, version))
 }
 
-pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
+fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
     let rec = RECORDS_COLLECTION;
     let coords = [
         (rec.into(), enc(CURRENT_KEY_FORMAT_KEY.as_bytes())),
@@ -207,7 +200,7 @@ pub(super) fn directory(path: &Path) -> StorageResult<File> {
         .map(|()| f)
 }
 
-pub(super) fn regular(path: &Path, write: bool) -> StorageResult<File> {
+fn regular(path: &Path, write: bool) -> StorageResult<File> {
     let f = OpenOptions::new()
         .read(true)
         .write(write)
@@ -229,13 +222,10 @@ fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
 }
 
 fn profile_version(root: &Path) -> StorageResult<u16> {
-    let f = regular(&root.join(NODE_MARKER), false).or_else(|_| {
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(root.join(NODE_MARKER))
-            .map_err(StorageError::from)
-    })?;
+    let f = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(root.join(NODE_MARKER))?;
     if !f.metadata()?.is_file() {
         return Err(invalid("restored node marker type"));
     }
@@ -269,6 +259,20 @@ fn exact_members(path: &Path, allowed: &[&str], err_msg: &'static str) -> Storag
         .ok_or_else(|| invalid(err_msg))
 }
 
+fn check_home_closure(p: &Path, lock: &File) -> StorageResult<()> {
+    if regular(&p.join(RUN_HOME_MARKER), false)?.metadata()?.len() != 64
+        || lock.metadata()?.len() != 0
+    {
+        return Err(invalid("run restore descriptor or ephemeral lock length"));
+    }
+    regular(&p.join(CURRENT), false)?;
+    exact_members(
+        p,
+        &[RUN_HOME_MARKER, CURRENT, LOCK, RUNS],
+        "run restore home closure",
+    )
+}
+
 fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding> {
     let p = root.join(name);
     let binding = [
@@ -276,18 +280,7 @@ fn prepare_home(root: &Path, name: &str) -> StorageResult<HomeBinding> {
         directory(&p.join(RUNS))?,
         regular(&p.join(LOCK), false)?,
     ];
-    if regular(&p.join(RUN_HOME_MARKER), false)?.metadata()?.len() != 64
-        || binding[2].metadata()?.len() != 0
-    {
-        return Err(invalid("run restore descriptor or ephemeral lock length"));
-    }
-    regular(&p.join(CURRENT), false)?;
-    exact_members(
-        &p,
-        &[RUN_HOME_MARKER, CURRENT, LOCK, RUNS],
-        "run restore home closure",
-    )
-    .map(|()| binding)
+    check_home_closure(&p, &binding[2]).map(|()| binding)
 }
 
 fn scan_main_home(
@@ -297,7 +290,6 @@ fn scan_main_home(
 ) -> StorageResult<(RunBackupProfile, Vec<(String, u64)>)> {
     let name = run_node::RUN_DIR;
     let path = root.join(name);
-    prepare_home(root, name)?;
     let (descriptor_sha256, d_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
     if d_bytes != 64 {
         return Err(invalid("run restore file digest differs"));
