@@ -1,5 +1,6 @@
 """Exercise Social sharing with two isolated LastDB nodes in DEV."""
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ SCHEMA = "social/Album"
 ALBUMS = ("Before sharing", "While shared", "While revoked")
 
 
-def social(node, *arguments, receipt=None):
+def social(node, *arguments, receipt=None, refusal=None):
     command = [sys.executable, "-B", str(ROOT / "apps/social/social"),
                "--data-dir", str(node.home), "--lastdb", str(node.programs.directory / "lastdb"),
                *arguments]
@@ -27,6 +28,10 @@ def social(node, *arguments, receipt=None):
                                 capture_output=True, env=node.programs.environment, timeout=180)
     except subprocess.TimeoutExpired as error:
         raise OperationError(f"social_{arguments[0]}_deadline") from error
+    if refusal is not None:
+        require(result.returncode == 1 and not result.stdout and refusal in result.stderr,
+                f"social_{arguments[0]}_expected_refusal")
+        return None
     if result.returncode:
         # An invitation is held in memory and must never enter workflow output.
         detail = result.stderr.decode(errors="replace").partition(" returned HTTP ")[2][:3]
@@ -66,7 +71,7 @@ def roster(node, database):
 
 def expect_roster(node, database, revision, member=None):
     config = roster(node, database)
-    require(config["revision"] == str(revision) and config["members"] == ([member] if member else []),
+    require(config.get("revision") == str(revision) and config.get("members") == ([member] if member else []),
             "social_applied_configuration")
 
 
@@ -114,8 +119,9 @@ def transfer(programs, root, publisher, recipient, api_key):
     ])["recipient_public_key"]
     require(reader_key != publisher_key, "social_separate_identity")
     retry("social_initial_configuration", lambda: roster(publisher, database),
-          lambda config: config["revision"] == "0" and not config["members"])
+          lambda config: config.get("revision") == "0" and config.get("members") == [])
     share_albums(publisher, recipient, database, definition, contact, reader_key, publisher_key)
+    check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
 
 
 def share_albums(publisher, recipient, database, definition, contact, reader_key, publisher_key):
@@ -157,6 +163,56 @@ def share_albums(publisher, recipient, database, definition, contact, reader_key
                "restart, read later albums, stopped receiving them after revoke, and caught up after regrant.")
     print(message, flush=True)
     summary(message)
+
+
+def check_role_and_overview(programs, root, publisher, other_database, name, contact, reader_key):
+    # Use a second generated database so the original transfer keeps its four revisions.
+    created = social(publisher, "create-db", f"{name}-roles")
+    database = str(uuid.UUID(created["id"]))
+    summary(f"Owned DEV role-check mutation log `{database}`.")
+    print(f"Social DEV role-check database {database}", flush=True)
+    retry("social_role_configuration", lambda: roster(publisher, database),
+          lambda config: config.get("revision") == "0")
+    grant_file = root / "contributor.grant"
+    arguments = ("add", "--database", database, "--user", "Ana", "--node-key", reader_key)
+    try:
+        programs.command(publisher.home, [
+            "--db", database, "share", "contributors", "grant", "--recipient", str(contact),
+            "--recipient-key", reader_key, "--out", str(grant_file),
+        ], timeout=30)
+        contributor = {"nodeKey": reader_key, "role": "submit", "state": "active"}
+        expect_roster(publisher, database, 1, contributor)
+        social(publisher, *arguments, refusal=b"already has contributor access")
+        expect_roster(publisher, database, 1, contributor)
+        social(publisher, "remove", "--database", database, "--node-key", reader_key)
+        expect_roster(publisher, database, 2, {**contributor, "state": "revoked"})
+        share(publisher, database, None, reader_key, 3)
+        check_overview(publisher, other_database, database, reader_key)
+    finally:
+        applied = roster(publisher, database)
+        if any(member["state"] == "active" for member in applied.get("members", [])):
+            social(publisher, "remove", "--database", database, "--node-key", reader_key)
+    expect_roster(publisher, database, 4, {"nodeKey": reader_key, "role": "read", "state": "revoked"})
+    message = ("Social refused an active contributor, restored a revoked contributor as a reader, "
+               "and kept a confirmed roster visible while another database's roster was unavailable.")
+    print(message, flush=True)
+    summary(message)
+
+
+def check_overview(publisher, busy_database, confirmed_database, reader_key):
+    # Hold the existing update lock on this generated home to make one real
+    # LastDB roster temporarily unavailable. No data changes under this lock.
+    lock = publisher.home / "share-members" / f"{busy_database}.lock"
+    with lock.open("rb") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        configurations = {row["databaseId"]: row for row in social(publisher, "grants")}
+        require(configurations[busy_database].get("status") == "unavailable"
+                and configurations[busy_database].get("httpStatus") == 503
+                and configurations[confirmed_database].get("revision") == "3", "social_partial_rosters")
+        rows = {row["databaseId"]: row for row in social(publisher, "list")}
+        require(rows[busy_database].get("status") == "unavailable"
+                and rows[confirmed_database].get("nodeKey") == reader_key
+                and rows[confirmed_database].get("role") == "read", "social_partial_overview")
 
 
 if __name__ == "__main__":

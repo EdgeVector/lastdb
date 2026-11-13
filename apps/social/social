@@ -32,11 +32,19 @@ def remove(sharing, people, args):
 
 def list_grants(sharing, people, selector):
     configs = sharing.all_configurations(selector)
-    keys = [row["nodeKey"] for config in configs for row in config["members"]]
+    keys = [row["nodeKey"] for config in configs for row in config.get("members", [])]
     contacts = people.by_keys(keys)
-    return [{**member, "database": config["name"], "databaseId": config["databaseId"],
-             "user": contacts.get(member["nodeKey"], {}).get("display_name", member["nodeKey"])}
-            for config in configs for member in config["members"] if member["state"] == "active"]
+    rows = []
+    for config in configs:
+        database = {"database": config["name"], "databaseId": config["databaseId"]}
+        if "status" in config:
+            rows.append({**database, "status": config["status"]})
+            continue
+        for member in config["members"]:
+            if member["state"] == "active":
+                key = member["nodeKey"]
+                rows.append({**database, **member, "user": contacts.get(key, {}).get("display_name", key)})
+    return rows
 
 
 def parser():
