@@ -108,6 +108,25 @@ and `app-compatibility-publish.yml`. CI must run the apps and validate their
 unsigned declarations before its separate KMS identity publishes them. The real
 registry installs and the full one-hour qualification remain required.
 
+### Scoped extension: signed snapshot round trip (Tom, 2026-11-13)
+
+Tom asked for an end-to-end DEV check so the owner signed-database snapshot
+backup and restore path cannot regress. That path was deleted once before, in
+exemem-infra #797 and lastdb #1541.
+
+This authorizes only:
+
+- `scripts/cloud_backup/snapshot_gate.py`
+- `.github/workflows/snapshot-roundtrip-dev.yml`
+- the `snapshot-roundtrip-dev` precondition in `scripts/release/nightly_plan.py`,
+  `.github/workflows/nightly-release.yml`, and `.github/workflows/stable-release.yml`
+
+The check uses a fresh generated home, synthetic records, the public CLI and
+daemon, and the existing `cloud-backup-dev` environment. It runs on a push to
+main, the daily schedule, and `workflow_dispatch`. Pull requests receive no
+cloud credentials. Keep every other test target retired. No local LastDB
+builds, benchmarks, or runtime proofs. No primary data.
+
 ## Cursor Cloud specific instructions
 
 Owner byte backup and its PROD restore workflow are gone. Personal and private

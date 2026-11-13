@@ -322,9 +322,10 @@ def run_gate(programs, root, phrase, api_key):
     note(numbers, "owner_id", owner_id)
     home = root / "source"
     home.mkdir(mode=0o700)
-    node = OwnedNode(home, programs)
+    node = OwnedNode(home, programs, keep_saved_credentials=True)
     write_private(home / "identity.key", baseline_data.seed(phrase))
     install_registry(home, gate_id, owner_id, name)
+    opt_into_first_snapshot(home, gate_id)
     node.start(sign_in=False)
     destination = root / "restored"
     try:
@@ -399,9 +400,19 @@ def cleanup():
     summary("provider_objects=left_behind missing=snapshot/bytes delete")
 
 
+def opt_into_first_snapshot(home, database_id):
+    """Ask the daemon to hold log pages until this database's first snapshot."""
+    parent = home / "log-sync"
+    parent.mkdir(mode=0o700)
+    directory = parent / database_id
+    directory.mkdir(mode=0o700)
+    write_private(directory / "snapshot-first", b"snapshot-v1\n")
+
+
 def main():
-    command = sys.argv[1] if len(sys.argv) == 2 else ""
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "cleanup":
+        require(len(sys.argv) == 2, "arguments")
         cleanup()
         return
     require(command == "run", "command")
