@@ -14,7 +14,7 @@ use super::cloud::CloudLog;
 use super::http::Proof;
 
 pub(super) async fn revision(log: &CloudLog) -> Option<u64> {
-    match access(log).await {
+    match read(log, Proof::Canonical(CanonicalPost::MemberRead)).await {
         Some(ObservedAccess::Active { revision, .. }) => Some(revision),
         _ => None,
     }
@@ -30,6 +30,10 @@ pub(super) enum ObservedAccess {
 }
 
 pub(super) async fn access(log: &CloudLog) -> Option<ObservedAccess> {
+    read(log, Proof::SelfAccess(CanonicalPost::MemberRead)).await
+}
+
+async fn read(log: &CloudLog, proof: Proof) -> Option<ObservedAccess> {
     let request = MemberListReadRequest {
         version: Version::V2,
         stream: Stream {
@@ -42,7 +46,7 @@ pub(super) async fn access(log: &CloudLog) -> Option<ObservedAccess> {
         .post_status(
             CanonicalPost::MemberRead.path(),
             canonical_bytes(&request).ok()?,
-            Proof::Canonical(CanonicalPost::MemberRead),
+            proof,
         )
         .await
         .ok()?;

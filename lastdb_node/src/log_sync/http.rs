@@ -21,6 +21,7 @@ use super::wire;
 #[derive(Clone, Copy)]
 pub(crate) enum Proof {
     Canonical(CanonicalPost),
+    SelfAccess(CanonicalPost),
     Data,
 }
 
@@ -156,6 +157,9 @@ impl Endpoint {
             .post(url)
             .header(reqwest::header::AUTHORIZATION, header)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
+        if matches!(request.proof, Proof::SelfAccess(_)) {
+            http_request = http_request.header("X-LastDB-Self-Access", "1");
+        }
         if request.path == super::paths::CREATE {
             let Some(key) = &self.owner_key else {
                 return Err(LogError::UnexpectedOutcome);
@@ -174,7 +178,7 @@ impl Endpoint {
 
     fn authorize(&self, request: &LogRequest<'_>, now_ms: u64) -> Result<String, String> {
         match request.proof {
-            Proof::Canonical(route) => {
+            Proof::Canonical(route) | Proof::SelfAccess(route) => {
                 let environment = ShareEnvironment::parse(self.environment)
                     .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
                 node_read::authorization(
