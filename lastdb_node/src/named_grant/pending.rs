@@ -7,7 +7,7 @@ use super::{MemberAck, MemberIntent};
 use base64::Engine as _;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
-    MemberListUpdate, ShareMemberRole, ShareMemberState,
+    MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState,
 };
 use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};

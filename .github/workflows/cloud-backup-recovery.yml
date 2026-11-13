@@ -64,7 +64,7 @@ jobs:
     uses: ./.github/workflows/cloud-backup-build.yml
 
   signed-files:
-    name: ${{ inputs.mode == 'social-share' && 'Social sharing configuration in DEV' || 'Signed Files upload and download in DEV' }}
+    name: Signed sharing in DEV
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: cloud-backup-dev
