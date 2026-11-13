@@ -199,7 +199,9 @@ pub mod field_range_profile {
         pub fn require_text_prefix(self) -> Result<(), String> {
             match self {
                 Self::EmptyV1 => Err("a field key without a range field has no text prefix".into()),
-                Self::TypedV1 { scalar } if scalar == RangeStorageProfile::StringUtf8V1 => Ok(()),
+                Self::TypedV1 {
+                    scalar: RangeStorageProfile::StringUtf8V1,
+                } => Ok(()),
                 Self::TypedV1 { .. } => {
                     Err("a text prefix requires a String range storage profile".into())
                 }
