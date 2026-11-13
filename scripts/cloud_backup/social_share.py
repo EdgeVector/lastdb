@@ -1,5 +1,7 @@
 """Exercise the sharing configuration API with two isolated nodes in DEV."""
 
+from contextlib import closing
+from http.client import HTTPException
 import json
 import os
 from pathlib import Path
@@ -17,14 +19,20 @@ ALBUMS = ("Before sharing", "While shared", "While revoked")
 
 
 def request(node, method, path, body=None, status=200):
-    with Connection(node.socket) as connection:
-        content = None if body is None else json.dumps(body).encode()
-        connection.request(method, path, content, {"Content-Type": "application/json"})
-        reply = connection.getresponse()
-        require(reply.status == status, f"social_{method.lower()}_http_{reply.status}_wanted_{status}")
-        if status in (403, 404):
-            return None
-        return decode_json(reply.read(65537))
+    content = None if body is None else json.dumps(body).encode()
+    headers = {"X-LastDB-Client": "cloud-backup-ci", "Content-Type": "application/json"}
+    try:
+        with closing(Connection(node.socket)) as connection:
+            connection.request(method, path, content, headers)
+            reply = connection.getresponse()
+            require(reply.status == status, f"social_{method.lower()}_http_{reply.status}_wanted_{status}")
+            if status in (403, 404):
+                return None
+            raw = reply.read(65537)
+    except (OSError, HTTPException) as error:
+        raise OperationError(f"social_{method.lower()}_socket") from error
+    require(len(raw) <= 65536, "social_config_reply_size")
+    return decode_json(raw)
 
 
 def album(node, database, index):
