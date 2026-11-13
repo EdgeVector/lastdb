@@ -28,12 +28,76 @@ pub mod logical_rules {
 }
 
 pub mod types {
-    pub use crate::schema::operations::author_clock;
+    pub mod author_clock {
+        use crate::schema::mutation::Mutation;
+        use sha2::{Digest, Sha256};
+
+        pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
+
+        #[derive(
+            Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+        )]
+        pub struct MutationAuthorClockState {
+            pub physical_nanos: u64,
+            pub logical_counter: u64,
+        }
+
+        impl MutationAuthorClockState {
+            pub fn advance_local_batch(
+                &mut self,
+                now_nanos: u64,
+                count: usize,
+            ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
+                let additional = u64::try_from(count.checked_sub(1)?).ok()?;
+                let counter = self.logical_counter.checked_add(1)?;
+                let first = self.physical_nanos.max(now_nanos);
+                let last = first.checked_add(additional)?;
+                self.physical_nanos = last;
+                self.logical_counter = counter;
+                Some((first..=last, counter))
+            }
+
+            pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {
+                self.physical_nanos = self.physical_nanos.max(physical_nanos);
+                self.logical_counter = self.logical_counter.max(logical_counter);
+            }
+        }
+
+        #[must_use]
+        pub fn mutation_author_clock_key(device_id: &str) -> String {
+            format!(
+                "mutation_author_clock:{:x}",
+                Sha256::digest(device_id.as_bytes())
+            )
+        }
+
+        #[must_use]
+        pub fn mutation_author_canonical_bytes(mutation: &Mutation) -> Vec<u8> {
+            let content_hash = mutation.content_hash();
+            crate::canonical::CanonicalWriter::with_capacity(
+                content_hash.len()
+                    + mutation.uuid.len()
+                    + mutation.author_clock_writer_id.len()
+                    + 32,
+            )
+            .field(b"lastdb-mutation-author-v3")
+            .field(content_hash.as_bytes())
+            .field(mutation.uuid.as_bytes())
+            .field(mutation.author_clock_writer_id.as_bytes())
+            .u64(mutation.imported_written_at.unwrap_or(0))
+            .u64(mutation.logical_counter)
+            .finish()
+        }
+    }
+
     pub mod errors {
         pub use crate::schema::operations::SchemaError;
     }
     pub mod mutation {
-        pub use crate::schema::mutation::*;
+        pub use crate::schema::mutation::{
+            ContributionAdmission, FileWrite, FileWriteIssuer, LocalFileReference, Mutation,
+            SealedRecordFile,
+        };
     }
     pub mod operations {
         pub use crate::schema::mutation::Mutation;
@@ -108,7 +172,7 @@ pub mod types {
 
         impl FilterUtils {
             pub fn create_prefix_end(prefix: &str) -> Result<String, crate::schema::SchemaError> {
-                let mut prefix_end = prefix.to_string();
+                let mut prefix_end = prefix.to_owned();
                 while let Some(last_char) = prefix_end.pop() {
                     let next_cp = match last_char as u32 + 1 {
                         0xD800 => 0xE000,
@@ -148,11 +212,6 @@ pub mod types {
         }
 
         impl DeclarativeSchemaDefinition {
-            #[must_use]
-            pub fn has_field(&self, name: &str) -> bool {
-                self.fields.iter().flatten().any(|field| field == name)
-            }
-
             pub fn validate(&self) -> Result<(), crate::schema::SchemaError> {
                 self.validate_definition()
                     .map_err(crate::schema::SchemaError::InvalidData)
@@ -246,11 +305,6 @@ pub mod types {
                         .cmp(other.hash.as_deref().unwrap_or(""))
                 })
             }
-
-            #[must_use]
-            pub fn cmp_storage_order(&self, other: &Self) -> std::cmp::Ordering {
-                self.cmp_page_order_with(other, str::cmp)
-            }
         }
 
         impl std::fmt::Display for KeyValue {
@@ -265,63 +319,6 @@ pub mod types {
     }
 
     pub mod query_cursor {
-        use super::KeyValue;
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        use serde::{Deserialize, Serialize};
-
-        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-        #[serde(deny_unknown_fields)]
-        pub struct QueryCursor {
-            pub hash: Option<String>,
-            pub range: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub comparison: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub record: Option<String>,
-            #[serde(default, skip_serializing_if = "Option::is_none")]
-            pub alternate_primary: Option<KeyValue>,
-        }
-
-        impl QueryCursor {
-            #[must_use]
-            pub fn new(key: KeyValue, comparison: Option<String>) -> Self {
-                Self {
-                    hash: key.hash,
-                    range: key.range,
-                    comparison,
-                    record: None,
-                    alternate_primary: None,
-                }
-            }
-
-            #[must_use]
-            pub fn at_record(suffix: &str, comparison: Option<String>) -> Self {
-                Self {
-                    hash: None,
-                    range: None,
-                    comparison,
-                    record: Some(URL_SAFE_NO_PAD.encode(suffix)),
-                    alternate_primary: None,
-                }
-            }
-
-            pub fn record_position(&self) -> Result<Option<String>, String> {
-                self.record
-                    .as_deref()
-                    .map(|r| {
-                        let bytes = URL_SAFE_NO_PAD
-                            .decode(r)
-                            .map_err(|_| "the record cursor is not base64url".to_string())?;
-                        String::from_utf8(bytes)
-                            .map_err(|_| "the record cursor is not a record key".to_string())
-                    })
-                    .transpose()
-            }
-
-            #[must_use]
-            pub fn into_key(self) -> KeyValue {
-                KeyValue::new(self.hash, self.range)
-            }
-        }
+        pub use crate::schema::operations::QueryCursor;
     }
 }

@@ -12,6 +12,7 @@ use crate::storage::format::schemas::{
 use crate::storage::format::SCHEMA_RELEASE_ROWS;
 use futures::FutureExt;
 use lastdb_model::kind_partition::exact_prefix_bounds;
+use lastdb_model::record_space::record_space_uuid;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,7 +22,6 @@ mod retention_sweep;
 
 pub use retention_sweep::RetentionFloors;
 
-/// Domain store for schema-related persistence.
 #[derive(Clone)]
 pub struct SchemaStore {
     schemas_store: ReadStore,
@@ -36,14 +36,13 @@ impl SchemaStore {
     pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32]) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
-        let retention_floors = Arc::default();
         Self {
             schemas_store,
             schema_states_store,
             format,
             runtime,
             content_key,
-            retention_floors,
+            retention_floors: Arc::default(),
         }
     }
 
@@ -78,7 +77,10 @@ impl SchemaStore {
             })
     }
 
-    async fn require_installed_schema(&self, schema_name: &str) -> Result<(), SchemaError> {
+    pub(super) async fn require_installed_schema(
+        &self,
+        schema_name: &str,
+    ) -> Result<(), SchemaError> {
         self.get_schema(schema_name)
             .await?
             .map(|_| ())
@@ -129,8 +131,23 @@ impl SchemaStore {
         transaction::scope(
             Arc::clone(&self.runtime),
             async move {
+                schema
+                    .validate_definition()
+                    .map_err(SchemaError::InvalidData)?;
+                let next = schema_field_key_profiles(schema)?;
                 let input = schema_input(schema_name, schema)?;
                 if let Some(existing) = self.get_schema(schema_name).await? {
+                    let prev: HashMap<_, _> =
+                        schema_field_key_profiles(&existing)?.into_iter().collect();
+                    if next
+                        .iter()
+                        .any(|(k, p)| prev.get(k).is_some_and(|s| s != p))
+                    {
+                        return Err(SchemaError::InvalidData(
+                            "the schema range type differs from the stored field key profile"
+                                .into(),
+                        ));
+                    }
                     if existing.file_required != schema.file_required {
                         return Err(SchemaError::InvalidData(
                             "changing the file requirement needs a new schema identity".into(),
@@ -180,6 +197,23 @@ impl SchemaStore {
             }
             .boxed(),
         )
+        .await
+    }
+
+    pub(crate) async fn block_for_drop(
+        &self,
+        schema_name: &str,
+    ) -> Result<Option<Schema>, SchemaError> {
+        transaction::scope(Arc::clone(&self.runtime), async {
+            let Some(schema) = self.get_schema(schema_name).await? else {
+                return Ok(None);
+            };
+            if self.get_schema_state(schema_name).await? != Some(SchemaState::Blocked) {
+                self.store_schema_state(schema_name, &SchemaState::Blocked)
+                    .await?;
+            }
+            Ok(Some(schema))
+        })
         .await
     }
 
@@ -259,6 +293,39 @@ impl SchemaStore {
         )
         .await
     }
+}
+
+fn schema_field_key_profiles(
+    schema: &Schema,
+) -> Result<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>, SchemaError> {
+    let check = |id: String, msg: &'static str| {
+        lastdb_model::field_key_id::is_canonical_field_key_id(&id)
+            .then_some(id)
+            .ok_or_else(|| SchemaError::InvalidData(msg.into()))
+    };
+    let defs = schema.require_record_keys()?;
+    let mut out = Vec::with_capacity(defs.alternates.len() + 1);
+    for (name, key) in &defs.alternates {
+        out.push((
+            check(
+                lastdb_model::field_key_id::alternate_field_key_id(schema, name),
+                "invalid alternate field key identity",
+            )?,
+            key.range_profile().map_err(SchemaError::InvalidData)?,
+        ));
+    }
+    out.push((
+        check(
+            record_space_uuid(&schema.name),
+            "invalid record space identity",
+        )?,
+        defs.primary
+            .range_profile()
+            .map_err(SchemaError::InvalidData)?,
+    ));
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.dedup();
+    Ok(out)
 }
 
 async fn read_catalog_range<T: DeserializeOwned>(

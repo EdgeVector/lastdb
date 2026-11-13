@@ -45,10 +45,7 @@ impl ByteSink for Sha256 {
 
 #[inline]
 pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
-    let len: u32 = field
-        .len()
-        .try_into()
-        .expect("canonical field exceeds 4 GiB");
+    let len = u32::try_from(field.len()).expect("canonical field exceeds 4 GiB");
     sink.put(&len.to_be_bytes());
     sink.put(field);
 }

@@ -1,50 +1,88 @@
-//! Typed range storage profiles and order-preserving scalar comparison.
+//! Range storage profiles, typed range comparisons, field hashes, and portable IDs.
 
-use crate::{date_day, datetime_nanos, FieldValueType};
-use serde_json::{Map, Value};
+use crate::{DeclarativeSchemaDefinition, FieldValueType};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-pub(crate) fn prepare_definition_map(map: &mut Map<String, Value>) -> Result<bool, String> {
-    if let Some(bad) = ["field_key_id", "record_mapper"]
-        .into_iter()
-        .find(|n| map.contains_key(*n))
-    {
-        return Err(format!("schema-level '{bad}' is not supported"));
+#[must_use]
+pub fn compute_field_hash(
+    name: &str,
+    description: &str,
+    field_type: &FieldValueType,
+    version: u32,
+) -> String {
+    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "\"Any\"".into());
+    let quote = |s: &str| serde_json::to_string(s.trim()).unwrap_or_else(|_| "\"\"".into());
+    let payload = format!(
+        r#"{{"description":{},"name":{},"type":{type_json},"version":{version}}}"#,
+        quote(description),
+        quote(name),
+    );
+    app_identity_crypto::hex_lower(&Sha256::digest(payload.as_bytes()))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
+pub struct PortableSchemaId(String);
+
+impl PortableSchemaId {
+    pub fn from_catalog(
+        catalog_id: &str,
+        mut definition: DeclarativeSchemaDefinition,
+    ) -> Result<Self, String> {
+        if !is_digest(catalog_id) {
+            return Err("schema catalog ID must be a lowercase SHA-256".into());
+        }
+        if definition.identity_hash.as_deref() != Some(catalog_id) {
+            return Err("definition lacks the exact supported catalog identity".into());
+        }
+        if definition.record_keys.is_none() {
+            return Err("portable schemas require explicit record keys".into());
+        }
+        definition.validate_definition()?;
+        definition.require_typed_fields()?;
+        let ver = definition.identity_hash_algo_version;
+        definition.compute_identity_hash();
+        if definition.identity_hash.as_deref() != Some(catalog_id)
+            || definition.identity_hash_algo_version != ver
+        {
+            return Err("schema catalog identity does not match its declaration".into());
+        }
+        definition.normalize_wire();
+        definition.ensure_field_hashes();
+        let val = serde_json::to_value(&definition)
+            .map_err(|_| "cannot encode portable schema definition")?;
+        let bytes = app_identity_crypto::canonicalize(&val)
+            .map_err(|_| "cannot canonicalize portable schema definition")?;
+        let mut digest = Sha256::new();
+        digest.update(b"lastdb:portable-schema-definition:v1\0");
+        digest.update(bytes);
+        Ok(Self(app_identity_crypto::hex_lower(&digest.finalize())))
     }
-    if let Some(raw) = map.remove("fields") {
-        let names = match raw {
-            Value::Null => None,
-            Value::Array(arr) => Some(
-                arr.into_iter()
-                    .map(|v| {
-                        v.as_str()
-                            .map(str::to_owned)
-                            .ok_or("Invalid fields array; expected strings")
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            Value::Object(obj) => {
-                let mut ns: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
-                ns.sort();
-                Some(ns)
-            }
-            _ => return Err("Invalid fields; expected array or object map".into()),
-        };
-        if let Some(ns) = names {
-            map.insert(
-                "fields".into(),
-                Value::Array(ns.into_iter().map(Value::String).collect()),
-            );
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for PortableSchemaId {
+    type Error = String;
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        if is_digest(&v) {
+            Ok(Self(v))
+        } else {
+            Err("portable schema ID must be a lowercase SHA-256".into())
         }
     }
-    let had_type = map.get("schema_type").is_some_and(|v| !v.is_null());
-    if !had_type {
-        map.insert("schema_type".into(), Value::String("Single".into()));
-    }
-    Ok(had_type)
+}
+
+fn is_digest(v: &str) -> bool {
+    v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 pub mod field_range_profile {
-    use super::{date_day, datetime_nanos, key_comparison::ordered_type, FieldValueType};
+    use crate::{date_day, datetime_nanos, key_comparison::ordered_type, FieldValueType};
     use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
     use serde::{Deserialize, Serialize};
 
@@ -97,8 +135,7 @@ pub mod field_range_profile {
             match self {
                 Self::StringUtf8V1 => Ok(stored.to_owned()),
                 Self::IntegerI64V1 => {
-                    let v = parse_hex(stored, 16)? as u64;
-                    Ok(((v ^ (1_u64 << 63)) as i64).to_string())
+                    Ok((((parse_hex(stored, 16)? as u64) ^ (1_u64 << 63)) as i64).to_string())
                 }
                 Self::DateDaysV1 => {
                     let biased = parse_hex(stored, 6)?;
@@ -140,10 +177,9 @@ pub mod field_range_profile {
 
     impl FieldRangeProfile {
         pub fn for_field_type(range: Option<&FieldValueType>) -> Result<Self, String> {
-            match range {
-                None => Ok(Self::EmptyV1),
-                Some(ty) => RangeStorageProfile::typed(ty).map(|scalar| Self::TypedV1 { scalar }),
-            }
+            range.map_or(Ok(Self::EmptyV1), |ty| {
+                RangeStorageProfile::typed(ty).map(|scalar| Self::TypedV1 { scalar })
+            })
         }
 
         pub fn encode_value(self, api: &str) -> Result<String, String> {
@@ -163,9 +199,10 @@ pub mod field_range_profile {
         pub fn require_text_prefix(self) -> Result<(), String> {
             match self {
                 Self::EmptyV1 => Err("a field key without a range field has no text prefix".into()),
-                Self::TypedV1 { scalar } => (scalar == RangeStorageProfile::StringUtf8V1)
-                    .then_some(())
-                    .ok_or_else(|| "a text prefix requires a String range storage profile".into()),
+                Self::TypedV1 { scalar } if scalar == RangeStorageProfile::StringUtf8V1 => Ok(()),
+                Self::TypedV1 { .. } => {
+                    Err("a text prefix requires a String range storage profile".into())
+                }
             }
         }
     }
@@ -177,11 +214,7 @@ pub mod field_range_profile {
     }
 
     fn parse_hex(text: &str, width: usize) -> Result<u128, String> {
-        if text.len() != width
-            || !text
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
+        if text.len() != width || !text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
             return Err("stored typed range has a noncanonical width or alphabet".into());
         }
         u128::from_str_radix(text, 16).map_err(|_| "stored typed range is invalid".into())
@@ -189,7 +222,7 @@ pub mod field_range_profile {
 }
 
 pub mod key_comparison {
-    use super::{date_day, datetime_nanos, FieldValueType};
+    use crate::{date_day, datetime_nanos, FieldValueType};
     use serde::Serialize;
     use std::cmp::Ordering;
 
@@ -231,6 +264,7 @@ pub mod key_comparison {
         t.parse()
             .map_err(|_| "expected a signed 64-bit range key".into())
     }
+
     fn parse_bool(t: &str) -> Result<bool, String> {
         t.parse().map_err(|_| "expected a Boolean range key".into())
     }
@@ -246,17 +280,15 @@ pub mod key_comparison {
             }
             return Ok(first);
         }
-        if matches!(
+        matches!(
             field_type,
             FieldValueType::String
                 | FieldValueType::Integer
                 | FieldValueType::Date
                 | FieldValueType::DateTime
                 | FieldValueType::Boolean
-        ) {
-            Ok(field_type)
-        } else {
-            Err("this field type has no approved typed range comparison".into())
-        }
+        )
+        .then_some(field_type)
+        .ok_or_else(|| "this field type has no approved typed range comparison".into())
     }
 }

@@ -1,10 +1,9 @@
 //! Declarative schema definition, catalog identity hashing, and wire codec.
 
-pub use crate::{
-    refuses_identity_downgrade, IdentityRecompute, OwnedDeclaration, PortableSchemaId,
-    IDENTITY_HASH_ALGO_VERSION,
+use crate::{
+    compute_field_hash, refuses_identity_downgrade, DeclarativeSchemaType, FieldValueType,
+    IdentityRecompute, KeyConfig, OwnedDeclaration, IDENTITY_HASH_ALGO_VERSION,
 };
-use crate::{DeclarativeSchemaType, FieldValueType, KeyConfig};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -82,9 +81,8 @@ impl DeclarativeSchemaDefinition {
                 .field_descriptions
                 .get(&name)
                 .map_or("", String::as_str);
-            let ver = *self.field_versions.get(&name).unwrap_or(&1);
-            let hash = crate::compute_field_hash(&name, desc, self.get_field_type(&name), ver);
-            self.field_versions.entry(name.clone()).or_insert(ver);
+            let ver = *self.field_versions.entry(name.clone()).or_insert(1);
+            let hash = compute_field_hash(&name, desc, self.get_field_type(&name), ver);
             self.field_hashes.insert(name, hash);
         }
     }
@@ -93,33 +91,6 @@ impl DeclarativeSchemaDefinition {
         if self.file_required && self.record_keys.is_none() {
             return Err("file_required needs explicit record keys".into());
         }
-        self.validate_field_names()?;
-        self.validate_key_field_types()?;
-        if !self.alternate_keys.is_empty() || self.record_keys.is_some() {
-            self.validate_owned_schema()?;
-        }
-        Ok(())
-    }
-
-    pub fn validate_field_name(name: &str) -> Result<(), String> {
-        if matches!(name, "\u{1f}record" | "__record") {
-            return Err(format!(
-                "field name {name:?} is reserved and is not supported"
-            ));
-        }
-        if name.is_empty()
-            || name
-                .chars()
-                .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ',' | ':'))
-        {
-            return Err(format!(
-                "field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_field_names(&self) -> Result<(), String> {
         let keys = self
             .key
             .iter()
@@ -137,7 +108,12 @@ impl DeclarativeSchemaDefinition {
             .chain(self.field_versions.keys())
             .map(String::as_str)
             .chain(keys)
-            .try_for_each(Self::validate_field_name)
+            .try_for_each(Self::validate_field_name)?;
+        self.validate_key_field_types()?;
+        if !self.alternate_keys.is_empty() || self.record_keys.is_some() {
+            self.validate_owned_schema()?;
+        }
+        Ok(())
     }
 
     pub fn compute_identity_hash(&mut self) {
@@ -217,7 +193,7 @@ impl DeclarativeSchemaDefinition {
         namespace_label: &str,
         namespace: &str,
     ) -> Result<OwnedDeclaration, String> {
-        let namespace = namespace.trim().to_string();
+        let namespace = namespace.trim().to_owned();
         if namespace.is_empty() || namespace.contains('/') {
             return Err(format!(
                 "{namespace_label} must be non-empty and must not contain '/'"
@@ -243,7 +219,7 @@ impl DeclarativeSchemaDefinition {
             .as_deref()
             .is_none_or(|n| n.trim().is_empty())
         {
-            self.descriptive_name = Some(local_name.to_string());
+            self.descriptive_name = Some(local_name.to_owned());
         }
         self.name.clone_from(&local_schema_id);
         self.validate_owned_schema()?;
@@ -325,7 +301,42 @@ impl<'de> Deserialize<'de> for DeclarativeSchemaDefinition {
 }
 
 fn decode_definition(mut map: Map<String, Value>) -> Result<DeclarativeSchemaDefinition, String> {
-    let had_type = crate::range_profile::prepare_definition_map(&mut map)?;
+    if let Some(bad) = ["field_key_id", "record_mapper"]
+        .into_iter()
+        .find(|n| map.contains_key(*n))
+    {
+        return Err(format!("schema-level '{bad}' is not supported"));
+    }
+    if let Some(raw) = map.remove("fields") {
+        let names = match raw {
+            Value::Null => None,
+            Value::Array(arr) => Some(
+                arr.into_iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(str::to_owned)
+                            .ok_or("Invalid fields array; expected strings")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Value::Object(obj) => {
+                let mut ns: Vec<String> = obj.into_keys().collect();
+                ns.sort();
+                Some(ns)
+            }
+            _ => return Err("Invalid fields; expected array or object map".into()),
+        };
+        if let Some(ns) = names {
+            map.insert(
+                "fields".into(),
+                Value::Array(ns.into_iter().map(Value::String).collect()),
+            );
+        }
+    }
+    let had_type = map.get("schema_type").is_some_and(|v| !v.is_null());
+    if !had_type {
+        map.insert("schema_type".into(), Value::String("Single".into()));
+    }
     let mut s =
         DeclarativeSchemaDefinition::deserialize(Value::Object(map)).map_err(|e| e.to_string())?;
     if let Some(keys) = &s.record_keys {

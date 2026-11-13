@@ -102,8 +102,7 @@ pub mod key_comparison {
             COMPARISON.try_with(|ctx| ctx.range.clone()).ok()
         }
 
-        #[must_use]
-        pub fn compare_current_ranges(left: &str, right: &str) -> Ordering {
+        fn compare_current_ranges(left: &str, right: &str) -> Ordering {
             COMPARISON
                 .try_with(|ctx| ctx.compare_ranges(left, right))
                 .unwrap_or_else(|_| left.cmp(right))

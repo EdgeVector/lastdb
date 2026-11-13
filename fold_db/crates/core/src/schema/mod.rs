@@ -12,9 +12,7 @@ use std::sync::{Arc, RwLock};
 
 pub use lastdb_model::schema::logical_rules::{require_logical_filter, require_logical_layout};
 pub use manifest_retention::{
-    min_manifest_ttl_seconds, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
-    ManifestRetentionStatus, MAX_MANIFEST_TTL_SECONDS, MIN_MANIFEST_TTL_ENV,
-    MIN_MANIFEST_TTL_SECONDS,
+    ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
 pub use schema_types::{
     RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
@@ -42,7 +40,6 @@ struct CachedSchema {
     state: SchemaState,
 }
 
-/// Core schema management system combining validation, copy-on-write catalog, and persistence.
 pub struct SchemaCore {
     catalog: Arc<RwLock<Arc<SchemaCatalog>>>,
     db_ops: Arc<crate::db_operations::DbOperations>,
@@ -98,8 +95,7 @@ impl SchemaCore {
         schema: Schema,
         state: SchemaState,
     ) -> Result<(), SchemaError> {
-        let catalog = Arc::clone(&self.catalog);
-        let key = name.to_string();
+        let (catalog, key) = (Arc::clone(&self.catalog), name.to_string());
         let staged = CachedSchema {
             schema: schema.clone(),
             state,
@@ -201,18 +197,21 @@ impl SchemaCore {
     }
 
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        if self
-            .db_ops
-            .block_schema_for_drop(schema_name)
-            .await?
-            .is_some()
-        {
+        if let Some(schema) = self.db_ops.schemas().block_for_drop(schema_name).await? {
             self.update_catalog(|c| {
                 c.states
                     .insert(schema_name.to_string(), SchemaState::Blocked);
             })?;
+            let released = self.db_ops.records().release_schema_rows(&schema).await?;
+            tracing::info!(
+                target: "fold_node::database",
+                schema = schema_name,
+                records = released.records,
+                alternates = released.alternates,
+                "schema drop released the stored rows of the schema"
+            );
         }
-        let existed = self.db_ops.drop_schema(schema_name).await?;
+        let existed = self.db_ops.schemas().drop_schema(schema_name).await?;
         self.update_catalog(|c| {
             c.schemas.remove(schema_name);
             c.states.remove(schema_name);
@@ -267,7 +266,7 @@ impl SchemaCore {
             schema.validate()?;
         }
         let name = schema.name.clone();
-        self.db_ops.store_schema(&name, &schema).await?;
+        self.db_ops.schemas().store_schema(&name, &schema).await?;
         let state = if refresh {
             match self.db_ops.schemas().get_schema_state(&name).await? {
                 Some(state) => state,

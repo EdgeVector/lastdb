@@ -3,23 +3,17 @@
 use chrono::{DateTime, Datelike, NaiveDate, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fmt, str::FromStr};
+use std::{collections::BTreeMap, fmt};
 
-pub mod alternate_keys;
-pub mod declarative_schemas;
+mod alternate_keys;
+mod declarative_schemas;
 mod range_profile;
-
-pub mod field_value_type {
-    pub use crate::FieldValueType;
-}
-pub mod range_storage_profile {
-    pub use crate::field_range_profile::RangeStorageProfile;
-}
 
 pub use alternate_keys::{record_keys, AlternateKey, MissingAlternateKey};
 pub use declarative_schemas::DeclarativeSchemaDefinition;
-pub use range_profile::{field_range_profile, key_comparison};
+pub use range_profile::{
+    compute_field_hash, field_range_profile, key_comparison, PortableSchemaId,
+};
 
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
 
@@ -157,7 +151,7 @@ impl fmt::Display for FieldValueType {
 }
 
 pub(crate) fn date_day(text: &str) -> Result<i32, String> {
-    let err = || "expected Date in YYYY-MM-DD form with a valid calendar date".to_string();
+    let err = || "expected Date in YYYY-MM-DD form with a valid calendar date".to_owned();
     if !date_shape(text.as_bytes()) {
         return Err(err());
     }
@@ -168,7 +162,7 @@ pub(crate) fn date_day(text: &str) -> Result<i32, String> {
 
 pub(crate) fn datetime_nanos(text: &str) -> Result<i128, String> {
     let err = || {
-        "expected DateTime in RFC 3339 form with an offset, years 0000..9999, at most nine fractional digits, and no leap second".to_string()
+        "expected DateTime in RFC 3339 form with an offset, years 0000..9999, at most nine fractional digits, and no leap second".to_owned()
     };
     if !datetime_shape(text.as_bytes()) {
         return Err(err());
@@ -253,90 +247,22 @@ impl std::error::Error for FoldDbError {}
 
 pub type FoldDbResult<T> = Result<T, FoldDbError>;
 
-#[must_use]
-pub fn compute_field_hash(
-    name: &str,
-    description: &str,
-    field_type: &FieldValueType,
-    version: u32,
-) -> String {
-    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "\"Any\"".into());
-    let quote = |s: &str| serde_json::to_string(s.trim()).unwrap_or_else(|_| "\"\"".into());
-    let payload = format!(
-        r#"{{"description":{},"name":{},"type":{type_json},"version":{version}}}"#,
-        quote(description),
-        quote(name),
-    );
-    app_identity_crypto::hex_lower(&Sha256::digest(payload.as_bytes()))
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String")]
-pub struct PortableSchemaId(String);
-
-impl PortableSchemaId {
-    pub fn from_catalog(
-        catalog_id: &str,
-        mut definition: DeclarativeSchemaDefinition,
-    ) -> Result<Self, String> {
-        if !is_digest(catalog_id) {
-            return Err("schema catalog ID must be a lowercase SHA-256".into());
+impl DeclarativeSchemaDefinition {
+    pub fn validate_field_name(name: &str) -> Result<(), String> {
+        if matches!(name, "\u{1f}record" | "__record") {
+            return Err(format!(
+                "field name {name:?} is reserved and is not supported"
+            ));
         }
-        if definition.identity_hash.as_deref() != Some(catalog_id) {
-            return Err("definition lacks the exact supported catalog identity".into());
-        }
-        if definition.record_keys.is_none() {
-            return Err("portable schemas require explicit record keys".into());
-        }
-        definition.validate_definition()?;
-        definition.require_typed_fields()?;
-        let ver = definition.identity_hash_algo_version;
-        definition.compute_identity_hash();
-        if definition.identity_hash.as_deref() != Some(catalog_id)
-            || definition.identity_hash_algo_version != ver
+        if name.is_empty()
+            || name
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ',' | ':'))
         {
-            return Err("schema catalog identity does not match its declaration".into());
+            return Err(format!(
+                "field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"
+            ));
         }
-        definition.normalize_wire();
-        definition.ensure_field_hashes();
-        let val = serde_json::to_value(&definition)
-            .map_err(|_| "cannot encode portable schema definition")?;
-        let bytes = app_identity_crypto::canonicalize(&val)
-            .map_err(|_| "cannot canonicalize portable schema definition")?;
-        let mut digest = Sha256::new();
-        digest.update(b"lastdb:portable-schema-definition:v1\0");
-        digest.update(bytes);
-        Ok(Self(app_identity_crypto::hex_lower(&digest.finalize())))
+        Ok(())
     }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for PortableSchemaId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl FromStr for PortableSchemaId {
-    type Err = String;
-    fn from_str(v: &str) -> Result<Self, Self::Err> {
-        Self::try_from(v.to_owned())
-    }
-}
-
-impl TryFrom<String> for PortableSchemaId {
-    type Error = String;
-    fn try_from(v: String) -> Result<Self, Self::Error> {
-        is_digest(&v)
-            .then_some(Self(v))
-            .ok_or_else(|| "portable schema ID must be a lowercase SHA-256".into())
-    }
-}
-
-fn is_digest(v: &str) -> bool {
-    v.len() == 64 && v.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

@@ -1,15 +1,15 @@
-//! TTL sweep floors, format checks, and paged age/partition reads.
+//! Retention sweep floors, format checks, and paged TTL sweep queries.
 
-use super::{retention::latest_keys, SchemaStore};
+use super::retention::{invalid, latest_keys};
+use super::SchemaStore;
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
+use crate::storage::disk_pack::transaction;
 use crate::storage::format::schemas::keys::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use lastdb_model::kind_partition::exact_prefix_bounds;
-use schema_types::{
-    field_range_profile::FieldRangeProfile, range_storage_profile::RangeStorageProfile,
-};
+use schema_types::field_range_profile::{FieldRangeProfile, RangeStorageProfile};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -145,14 +145,14 @@ impl SchemaStore {
             return Ok(());
         }
         let (floors, name) = (Arc::clone(&self.retention_floors), schema.name.clone());
-        crate::storage::disk_pack::transaction::after_commit(&self.runtime, async move {
+        transaction::after_commit(&self.runtime, async move {
             floors.note_written(&name, &keys);
             Ok(())
         })
         .map_err(SchemaError::from)
     }
 
-    pub(in crate::db_operations) async fn require_retention_format(
+    pub(super) async fn require_retention_format(
         &self,
         schema_name: &str,
     ) -> Result<(), SchemaError> {
@@ -179,9 +179,7 @@ impl SchemaStore {
         )
         .then_some(())
         .ok_or_else(|| {
-            SchemaError::InvalidData(
-                "range TTL requires a String range with the 20-digit timestamp prefix".into(),
-            )
+            invalid("range TTL requires a String range with the 20-digit timestamp prefix")
         })
     }
 
@@ -199,7 +197,7 @@ impl SchemaStore {
         );
         let start = match after {
             Some(c) if c >= first.as_str() && c < end.as_str() => format!("{c}\0"),
-            Some(_) => return Err(SchemaError::InvalidData("invalid TTL age cursor".into())),
+            Some(_) => return Err(invalid("invalid TTL age cursor")),
             None => first,
         };
         let rows = self
@@ -229,9 +227,7 @@ impl SchemaStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<String>, Option<String>), SchemaError> {
-        let bad = |e: &dyn std::fmt::Display| {
-            SchemaError::InvalidData(format!("retention partition page: {e}"))
-        };
+        let bad = |e: &dyn std::fmt::Display| invalid(format!("retention partition page: {e}"));
         let (first, end) = exact_prefix_bounds(&retention_hash_partition_prefix(schema));
         let start = match cursor {
             Some(c) => URL_SAFE_NO_PAD.decode(c).map_err(|e| bad(&e))?,

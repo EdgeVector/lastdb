@@ -7,13 +7,12 @@ use sha2::Sha256;
 
 /// Logical key format marker of a home: typed range keys.
 pub const KEY_FORMAT: &[u8] = b"typed-ranges";
+const SEP: char = '\u{0}';
+const ESC: char = '\u{1}';
 
 pub fn current_key_format(marker: &[u8]) -> bool {
     marker == KEY_FORMAT
 }
-
-const SEP: char = '\u{0}';
-const ESC: char = '\u{1}';
 
 /// Chokepoint mapping API `HashKey`/`RangeKey` coordinates to storage segments.
 #[derive(Clone)]
@@ -70,8 +69,7 @@ impl FieldKeyCodec {
         mac.update(field_key_id.as_bytes());
         mac.update(b"\0");
         mac.update(api_hash.as_bytes());
-        let result = mac.finalize().into_bytes();
-        Ok(URL_SAFE_NO_PAD.encode(&result[..16]))
+        Ok(URL_SAFE_NO_PAD.encode(&mac.finalize().into_bytes()[..16]))
     }
 
     pub fn storage_range(
@@ -131,10 +129,9 @@ impl std::fmt::Display for FieldKeyCodecError {
 
 impl std::error::Error for FieldKeyCodecError {}
 
-/// Byte-stuff a segment so it contains no `\0` or bare `\u{1}`.
 pub(crate) fn escape_segment(segment: &str) -> String {
     if !segment.contains([SEP, ESC]) {
-        return segment.to_string();
+        return segment.to_owned();
     }
     let mut out = String::with_capacity(segment.len() + 2);
     for c in segment.chars() {
@@ -147,12 +144,11 @@ pub(crate) fn escape_segment(segment: &str) -> String {
     out
 }
 
-/// Parse `{esc(hash)}\0{range}` back into `(hash, range)`.
 #[must_use]
 pub fn decode_hash_range_suffix(suffix: &str) -> Option<(String, String)> {
     let (esc, range) = suffix.split_once(SEP)?;
     if !esc.contains(ESC) {
-        return Some((esc.to_string(), range.to_string()));
+        return Some((esc.to_owned(), range.to_owned()));
     }
     let mut hash = String::with_capacity(esc.len());
     let mut chars = esc.chars();
@@ -167,5 +163,5 @@ pub fn decode_hash_range_suffix(suffix: &str) -> Option<(String, String)> {
             hash.push(c);
         }
     }
-    Some((hash, range.to_string()))
+    Some((hash, range.to_owned()))
 }

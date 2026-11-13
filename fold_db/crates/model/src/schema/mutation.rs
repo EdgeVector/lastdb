@@ -1,4 +1,5 @@
-use super::types::{cas::CasExpectation, key_value::KeyValue, operations::MutationType};
+use super::operations::{MutationType, SchemaError};
+use super::types::{cas::CasExpectation, key_value::KeyValue};
 use crate::canonical::{push_field, CanonicalValue};
 use crate::record_replacement::RecordTarget;
 use crate::record_value::FileMarker;
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -115,8 +117,8 @@ impl FileWrite {
     }
 }
 
-impl std::fmt::Debug for FileWrite {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for FileWrite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Put(file) => f
                 .debug_struct("Put")
@@ -225,8 +227,8 @@ impl Mutation {
         }
     }
 
-    pub fn validate_record_intent(&self) -> Result<(), crate::schema::SchemaError> {
-        let invalid = |msg: &str| crate::schema::SchemaError::InvalidData(msg.into());
+    pub fn validate_record_intent(&self) -> Result<(), SchemaError> {
+        let invalid = |msg: &str| SchemaError::InvalidData(msg.into());
         if !(1..=128).contains(&self.uuid.len()) {
             return Err(invalid(
                 "a mutation requires a stable id of at most 128 bytes",
@@ -268,33 +270,33 @@ impl Mutation {
         push_field(&mut digest, b"lastdb-record-authored-content-v2");
         push_field(&mut digest, self.uuid.as_bytes());
         push_field(&mut digest, self.schema_name.as_bytes());
-        json_field(&mut digest, &self.mutation_type);
-        json_field(&mut digest, &self.key_value);
-        json_field(&mut digest, &self.alternates);
-        json_field(&mut digest, &self.file);
-        json_field(&mut digest, &self.expected);
+        push_json(&mut digest, &self.mutation_type);
+        push_json(&mut digest, &self.key_value);
+        push_json(&mut digest, &self.alternates);
+        push_json(&mut digest, &self.file);
+        push_json(&mut digest, &self.expected);
         let fields: BTreeMap<_, _> = self.record_fields.iter().collect();
         digest.update((fields.len() as u64).to_be_bytes());
         for (name, value) in fields {
             push_field(&mut digest, name.as_bytes());
-            json_field(&mut digest, &CanonicalValue(value));
+            push_json(&mut digest, &CanonicalValue(value));
         }
         push_field(&mut digest, self.pub_key.as_bytes());
-        json_field(&mut digest, &self.source_file_name);
-        let metadata = self
+        push_json(&mut digest, &self.source_file_name);
+        let meta = self
             .metadata
             .as_ref()
             .map(|m| m.iter().collect::<BTreeMap<_, _>>());
-        json_field(&mut digest, &metadata);
-        json_field(&mut digest, &self.erase_written_before_nanos);
-        json_field(&mut digest, &self.imported_written_at);
+        push_json(&mut digest, &meta);
+        push_json(&mut digest, &self.erase_written_before_nanos);
+        push_json(&mut digest, &self.imported_written_at);
         digest.update(self.logical_counter.to_be_bytes());
         push_field(&mut digest, self.author_clock_writer_id.as_bytes());
         format!("{:x}", digest.finalize())
     }
 }
 
-fn json_field<T: Serialize>(digest: &mut Sha256, value: &T) {
+fn push_json<T: Serialize>(digest: &mut Sha256, value: &T) {
     push_field(
         digest,
         &serde_json::to_vec(value).expect("mutation content is serializable"),

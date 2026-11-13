@@ -11,13 +11,13 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum IndexChangeKind {
+pub(crate) enum IndexChangeKind {
     Upsert,
     Tombstone,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct IndexChange {
+pub(crate) struct IndexChange {
     pub mutation_id: String,
     pub kind: IndexChangeKind,
     pub key_value: KeyValue,
@@ -26,7 +26,7 @@ pub struct IndexChange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct IndexChangeBatch {
+pub(crate) struct IndexChangeBatch {
     #[serde(default = "version_one", skip_serializing_if = "is_version_one")]
     pub format_version: u32,
     pub schema_name: String,
@@ -68,14 +68,31 @@ pub(crate) fn build_index_change_batch<'a>(
     if !queue_policy::enabled() {
         return None;
     }
-    let searchable = searchable_fields(schema);
+    let searchable = (!schema.field_classifications.is_empty()).then(|| {
+        schema
+            .field_classifications
+            .iter()
+            .filter(|(_, c)| {
+                !c.iter().any(|t| {
+                    ["secret", "no_index", "no-index"]
+                        .iter()
+                        .any(|skip| t.eq_ignore_ascii_case(skip))
+                }) && c.iter().any(|t| t.eq_ignore_ascii_case("word"))
+            })
+            .map(|(name, _)| name.clone())
+            .collect::<HashSet<_>>()
+    });
     let changes: Vec<_> = schema_mutations
         .zip(mutation_key_values)
         .map(|(m, kv)| {
             let (kind, record_fields) = match m.mutation_type {
                 MutationType::Create | MutationType::Replace => (
                     IndexChangeKind::Upsert,
-                    inbox_fields(&m.record_fields, searchable.as_ref()),
+                    m.record_fields
+                        .iter()
+                        .filter(|(n, _)| searchable.as_ref().is_none_or(|a| a.contains(*n)))
+                        .map(|(n, v)| (n.clone(), v.clone()))
+                        .collect(),
                 ),
                 MutationType::Delete | MutationType::Purge => {
                     (IndexChangeKind::Tombstone, HashMap::default())
@@ -123,34 +140,6 @@ pub(crate) fn deliver_outbox(
         changes = batch.changes.len(), delivered, "Search batch delivery decision"
     );
     Ok(())
-}
-
-fn searchable_fields(schema: &Schema) -> Option<HashSet<String>> {
-    (!schema.field_classifications.is_empty()).then(|| {
-        schema
-            .field_classifications
-            .iter()
-            .filter(|(_, c)| {
-                !c.iter().any(|t| {
-                    ["secret", "no_index", "no-index"]
-                        .iter()
-                        .any(|skip| t.eq_ignore_ascii_case(skip))
-                }) && c.iter().any(|t| t.eq_ignore_ascii_case("word"))
-            })
-            .map(|(name, _)| name.clone())
-            .collect()
-    })
-}
-
-fn inbox_fields(
-    fields: &HashMap<String, Value>,
-    searchable: Option<&HashSet<String>>,
-) -> HashMap<String, Value> {
-    fields
-        .iter()
-        .filter(|(name, _)| searchable.is_none_or(|allow| allow.contains(*name)))
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect()
 }
 
 pub mod queue_policy {

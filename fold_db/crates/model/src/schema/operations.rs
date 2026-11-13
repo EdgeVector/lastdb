@@ -1,63 +1,63 @@
 use super::types::{cas::CasExpectation, field::HashRangeFilter, key_value::KeyValue};
+use crate::record_value::FileMarker;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
-pub mod author_clock {
-    use crate::schema::mutation::Mutation;
-    use sha2::{Digest, Sha256};
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct QueryCursor {
+    pub hash: Option<String>,
+    pub range: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate_primary: Option<KeyValue>,
+}
 
-    pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
-
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct MutationAuthorClockState {
-        pub physical_nanos: u64,
-        pub logical_counter: u64,
-    }
-
-    impl MutationAuthorClockState {
-        pub fn advance_local_batch(
-            &mut self,
-            now_nanos: u64,
-            count: usize,
-        ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
-            let additional = u64::try_from(count.checked_sub(1)?).ok()?;
-            let counter = self.logical_counter.checked_add(1)?;
-            let first = self.physical_nanos.max(now_nanos);
-            let last = first.checked_add(additional)?;
-            self.physical_nanos = last;
-            self.logical_counter = counter;
-            Some((first..=last, counter))
-        }
-
-        pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {
-            self.physical_nanos = self.physical_nanos.max(physical_nanos);
-            self.logical_counter = self.logical_counter.max(logical_counter);
+impl QueryCursor {
+    #[must_use]
+    pub fn new(key: KeyValue, comparison: Option<String>) -> Self {
+        Self {
+            hash: key.hash,
+            range: key.range,
+            comparison,
+            record: None,
+            alternate_primary: None,
         }
     }
 
     #[must_use]
-    pub fn mutation_author_clock_key(device_id: &str) -> String {
-        format!(
-            "mutation_author_clock:{:x}",
-            Sha256::digest(device_id.as_bytes())
-        )
+    pub fn at_record(suffix: &str, comparison: Option<String>) -> Self {
+        Self {
+            hash: None,
+            range: None,
+            comparison,
+            record: Some(URL_SAFE_NO_PAD.encode(suffix)),
+            alternate_primary: None,
+        }
+    }
+
+    pub fn record_position(&self) -> Result<Option<String>, String> {
+        self.record
+            .as_deref()
+            .map(|r| {
+                let bytes = URL_SAFE_NO_PAD
+                    .decode(r)
+                    .map_err(|_| "the record cursor is not base64url".to_owned())?;
+                String::from_utf8(bytes)
+                    .map_err(|_| "the record cursor is not a record key".to_owned())
+            })
+            .transpose()
     }
 
     #[must_use]
-    pub fn mutation_author_canonical_bytes(mutation: &Mutation) -> Vec<u8> {
-        let content_hash = mutation.content_hash();
-        crate::canonical::CanonicalWriter::with_capacity(
-            content_hash.len() + mutation.uuid.len() + mutation.author_clock_writer_id.len() + 32,
-        )
-        .field(b"lastdb-mutation-author-v3")
-        .field(content_hash.as_bytes())
-        .field(mutation.uuid.as_bytes())
-        .field(mutation.author_clock_writer_id.as_bytes())
-        .u64(mutation.imported_written_at.unwrap_or(0))
-        .u64(mutation.logical_counter)
-        .finish()
+    pub fn into_key(self) -> KeyValue {
+        KeyValue::new(self.hash, self.range)
     }
 }
 
@@ -136,7 +136,7 @@ impl SchemaError {
 }
 
 impl fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound(msg) => write!(f, "Schema not found: {msg}"),
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
@@ -281,7 +281,7 @@ pub enum Operation {
         mutation_type: MutationType,
         source_file_name: Option<String>,
         metadata: Option<HashMap<String, String>>,
-        file: Option<crate::record_value::FileMarker>,
+        file: Option<FileMarker>,
         expected: CasExpectation,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         convergence: Option<MutationConvergence>,

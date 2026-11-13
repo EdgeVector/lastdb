@@ -51,7 +51,6 @@ impl FileMarker {
     }
 }
 
-/// Small file of one record stored in its own row in the `records` collection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InlineFile {
@@ -105,7 +104,7 @@ impl InlineFile {
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         self.is_well_formed()
             .then_some(())
-            .ok_or_else(|| "the inline file has an invalid marker, size or encoding".to_string())?;
+            .ok_or_else(|| "the inline file has an invalid marker, size or encoding".to_owned())?;
         serde_json::to_vec(self).map_err(|e| format!("encode inline file: {e}"))
     }
 

@@ -3,18 +3,10 @@
 use crate::schema::SchemaRetentionPolicy;
 use serde::{Deserialize, Serialize};
 
-pub const MAX_MANIFEST_TTL_SECONDS: u64 = 3650 * SECONDS_PER_DAY;
-pub const MIN_MANIFEST_TTL_SECONDS: u64 = 3600;
-pub const MIN_MANIFEST_TTL_ENV: &str = "LASTDB_MIN_MANIFEST_TTL_SECONDS";
+const MAX_MANIFEST_TTL_SECONDS: u64 = 3650 * SECONDS_PER_DAY;
+const MIN_MANIFEST_TTL_SECONDS: u64 = 3600;
+const MIN_MANIFEST_TTL_ENV: &str = "LASTDB_MIN_MANIFEST_TTL_SECONDS";
 const SECONDS_PER_DAY: u64 = 86_400;
-
-pub fn min_manifest_ttl_seconds() -> u64 {
-    std::env::var(MIN_MANIFEST_TTL_ENV)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .filter(|&s| s > 0)
-        .unwrap_or(MIN_MANIFEST_TTL_SECONDS)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,7 +33,11 @@ impl ManifestRetention {
                 return Err("retention takes ttl_days or ttl_seconds, not both".into())
             }
         };
-        let floor = min_manifest_ttl_seconds();
+        let floor = std::env::var(MIN_MANIFEST_TTL_ENV)
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+            .filter(|&s| s > 0)
+            .unwrap_or(MIN_MANIFEST_TTL_SECONDS);
         match seconds {
             Some(0) => Err("retention ttl must be greater than zero".into()),
             Some(s) if s < floor => Err(format!(

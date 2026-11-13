@@ -1,25 +1,26 @@
-//! Query types, executor re-export, and keyed hash/range query execution.
+//! Query types and keyed hash/range execution.
+
+pub mod query_executor;
+
+pub use query_executor::{AlternatePage, QueryExecutor};
 
 use crate::db_operations::record_store::{
     KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey,
 };
-use crate::db_operations::{note_page_resume, page_can_resume, PageResume};
+use crate::db_operations::{note_page_resume, page_can_resume, DbOperations, PageResume};
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, KeyValuePageOrder, Schema, SchemaError};
+use crate::schema::types::{KeyValue, KeyValuePageOrder, Query, Schema, SchemaError};
+use crate::schema::SchemaCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-
-pub mod query_executor;
-
-pub use query_executor::QueryExecutor;
+use std::sync::Arc;
 
 const PAGE_READ_KEYS: usize = 8_192;
 const MIN_STEP: usize = 32;
 const MAX_STEP: usize = 1024;
 
-/// Metadata of one stored record.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RecordMetadata {
     pub source_file_name: Option<String>,
@@ -31,7 +32,6 @@ pub struct RecordMetadata {
     pub inline_file: Option<lastdb_model::record_value::FileMarker>,
 }
 
-/// One stored record returned in [`QueryRecords`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub revision: String,
@@ -40,7 +40,6 @@ pub struct Record {
     pub metadata: Option<RecordMetadata>,
 }
 
-/// Map of stored records keyed by canonical API key.
 pub type QueryRecords = HashMap<KeyValue, Record>;
 
 impl Record {
@@ -111,10 +110,11 @@ impl RangeKeys {
     }
 
     fn next_live(&mut self, step: usize) -> Option<Vec<SpanKey>> {
-        let bound = match self.span.as_ref().filter(|_| !self.done) {
-            Some(span) => Some(span.storage_range(self.cursor.as_deref()?).to_owned()),
-            None => None,
-        };
+        let bound = self
+            .cursor
+            .as_deref()
+            .zip(self.span.as_ref().filter(|_| !self.done))
+            .map(|(c, s)| s.storage_range(c).to_owned());
         let n = self
             .keys
             .iter()
@@ -131,6 +131,75 @@ impl RangeKeys {
 }
 
 impl QueryExecutor {
+    pub fn new(db_ops: &Arc<DbOperations>, schema_manager: Arc<SchemaCore>) -> Self {
+        Self {
+            db_ops: Arc::clone(db_ops),
+            schema_manager,
+        }
+    }
+
+    pub(super) async fn in_read_scope<T>(
+        &self,
+        fut: impl std::future::Future<Output = Result<T, SchemaError>>,
+    ) -> Result<T, SchemaError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(Box::pin(fut))
+            .await
+    }
+
+    pub async fn query(&self, query: Query) -> Result<QueryRecords, SchemaError> {
+        self.in_read_scope(self.query_current(query, None)).await
+    }
+
+    pub async fn query_window(
+        &self,
+        query: Query,
+        window: KeyWindow,
+    ) -> Result<QueryRecords, SchemaError> {
+        self.in_read_scope(self.query_current(query, Some(window)))
+            .await
+    }
+
+    pub(super) async fn query_current(
+        &self,
+        mut query: Query,
+        window: Option<KeyWindow>,
+    ) -> Result<QueryRecords, SchemaError> {
+        if query.key_name.is_some() {
+            return Err(SchemaError::InvalidData(
+                "use the named alternate page reader".into(),
+            ));
+        }
+        let schema = self.prepare_query_schema(&query).await?.ok_or_else(|| {
+            SchemaError::InvalidData(format!("Schema '{}' not found", query.schema_name))
+        })?;
+        Ok(self
+            .select_filtered(&schema, query.filter.take(), window)
+            .await?
+            .into_iter()
+            .map(|(k, r)| (k, Record::from_stored(&r)))
+            .collect())
+    }
+
+    pub(super) async fn prepare_query_schema(
+        &self,
+        query: &Query,
+    ) -> Result<Option<Schema>, SchemaError> {
+        let Some(schema) = self
+            .schema_manager
+            .resolve_schema(&query.schema_name)
+            .await?
+        else {
+            return Ok(None);
+        };
+        self.schema_manager.require_queryable_schema(&schema.name)?;
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        crate::schema::require_logical_filter(query.filter.as_ref())?;
+        Ok(Some(schema))
+    }
+
     pub(super) async fn select_filtered(
         &self,
         schema: &Schema,
