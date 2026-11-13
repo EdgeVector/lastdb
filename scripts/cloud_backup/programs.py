@@ -80,7 +80,13 @@ def cli_refusal(stderr, exit_code, command=None):
     result = {"exit_code": exit_code, "reason": "unrecognized"}
     if command:
         result["command"] = command_words(command)
-    errors = [line[len(b"error: "):] for line in bytes(stderr).splitlines()
+    lines = bytes(stderr).splitlines()
+    if exit_code == -signal.SIGABRT:
+        if b"fatal runtime error: stack overflow, aborting" in lines:
+            return {**result, "reason": "rust_stack_overflow"}
+        if b"LastDB panic" in lines:
+            return {**result, "reason": "lastdb_panic"}
+    errors = [line[len(b"error: "):] for line in lines
               if line.startswith(b"error: ")]
     if len(errors) != 1:
         return result

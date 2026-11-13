@@ -50,14 +50,16 @@ def connect(programs, node, api_key):
             and receipt["account_id"] == node.account, "private_dev_connection")
 
 
-def restore(programs, credentials, destination, database, phrase, through):
-    receipt = programs.command(credentials, [
-        "backup", "restore", "--database", database, "--recovery-phrase-stdin",
-        "--into", str(destination), "--json",
-    ], input_bytes=phrase, timeout=100)
+def restore(programs, credentials, destination, database, phrase, through, *, stage):
+    try:
+        receipt = programs.command(credentials, [
+            "backup", "restore", "--database", database, "--recovery-phrase-stdin",
+            "--into", str(destination), "--json",
+        ], input_bytes=phrase, timeout=100)
+    except OperationError as error:
+        raise OperationError(stage, cli_refusal=error.cli_refusal) from None
     require(receipt["database_id"] == database and receipt["name"] == "personal"
-            and receipt["through_delivery_seq"] == through,
-            "private_recovery_prefix")
+            and receipt["through_delivery_seq"] == through, stage)
 
 
 def prepare_source(node, database, owner):
@@ -145,7 +147,8 @@ def connected_exchange(programs, call, database, phrase, api_key, credentials, s
         seed(source, database)
         wait_head(call, 2, "private_cloud_prefix")
         wait_prefix(source, database, 2, "private_source_seed_ack")
-        restore(programs, credentials.home, peer.home, database, phrase, 2)
+        restore(programs, credentials.home, peer.home, database, phrase, 2,
+                stage="private_peer_seed_restore")
         connect(programs, peer, api_key)
         with running(peer):
             write(source, database, SOURCE_ONLINE)
@@ -359,7 +362,8 @@ def check_restore(programs, call, database, owner, api_key):
         check_devices(page, first, second)
         through, records = reset_live_peer(programs, call, root, database, api_key, source, peer, records)
         restored = OwnedNode(root / "restored", programs, account=account)
-        restore(programs, credentials.home, restored.home, database, phrase, through)
+        restore(programs, credentials.home, restored.home, database, phrase, through,
+                stage="private_snapshot_suffix_restore")
         check_writer_tips(call, first, second, device_id(restored))
         with running(restored):
             require(read_fields(restored, database, records) == [[row] for row in records],
