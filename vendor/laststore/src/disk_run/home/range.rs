@@ -1,8 +1,8 @@
-//! Ordered ranges over one collection, merged across the held runs (ordinary and memory-bounded).
+//! Ordered ranges and bounded stream lookups over one held CURRENT.
 
 use super::read::RunRead;
 use super::{invalid, run_key, storage_key};
-use crate::disk_run::{Found, MergeIter, RunRange};
+use crate::disk_run::{Found, MergeIter, RunRange, RunReader};
 use crate::{Error, Result};
 use std::ops::Bound;
 use std::path::PathBuf;
@@ -27,89 +27,133 @@ pub struct RunHashRange<'a> {
 }
 
 enum RangeMode {
-    Ordinary {
-        records: MergeIter,
-        held: Option<(Vec<u8>, Found)>,
-    },
-    Bounded {
-        lower: Vec<u8>,
-        upper: Option<Vec<u8>>,
-        exclusive: bool,
-    },
+    Ordinary(MergeIter, Option<(Vec<u8>, Found)>),
+    Bounded(Vec<u8>, Vec<u8>, bool),
 }
 
 impl RunRead {
+    fn admit_stream(&self, extra: u64) -> Result<(u64, u64)> {
+        let res = lastdb_model::storage_policy::BACKUP_RESOURCES;
+        let logical = self
+            .budget
+            .bytes
+            .checked_sub(self.costs.budget_bytes)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let reserved = self
+            .shared_metadata_bytes
+            .max(self.retained_bytes())
+            .checked_add(self.costs.budget_bytes)
+            .and_then(|n| n.checked_add(extra))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let global = res
+            .working_memory_bytes
+            .checked_sub(reserved)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        Ok((logical.min(global).min(res.decoded_values_bytes), reserved))
+    }
+
+    fn open_stream(&self, slot: usize, extra: u64) -> Result<(RunReader, u64, u64)> {
+        let (adm, res) = self.admit_stream(extra)?;
+        Ok((
+            RunReader::open_bounded(&self.runs[slot].0.path, &self.key, adm, res)?,
+            adm,
+            res,
+        ))
+    }
+
+    pub(super) fn streamed_value(
+        &mut self,
+        col: &str,
+        key: &str,
+        max: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        self.account_memory_record(col.len(), key.len())?;
+        let bufs = 2 * lastdb_model::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes + 16;
+        let add_bufs = |n: usize| {
+            (n as u64)
+                .checked_add(bufs)
+                .ok_or(Error::ReadBudgetExceeded)
+        };
+        self.admit_stream(add_bufs(col.len() + key.len() + 2)?)?;
+        let wanted = run_key(col, key.as_bytes())?;
+        self.admit_stream(add_bufs(wanted.capacity())?)?;
+        for slot in 0..self.runs.len() {
+            if self.runs[slot].0.meta.covers(&wanted) {
+                let (reader, adm, res) = self.open_stream(slot, wanted.len() as u64)?;
+                if let Some(hit) = reader.stream_body(&wanted, adm, res, max)? {
+                    if let Some(v) = &hit {
+                        self.charge(v.len() as u64)?;
+                    }
+                    return Ok(hit);
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Internal metadata range over one collection, `[start, end)` in storage key bytes.
     pub fn administrative_range(
         &mut self,
-        collection: &str,
+        col: &str,
         start: &[u8],
         end: &[u8],
     ) -> Result<RunHashRange<'_>> {
-        self.range_between(collection, start, end, false)
+        self.range_between(col, start, end, false)
     }
 
     /// Continue an administrative range strictly above one complete storage key.
     pub fn administrative_range_after(
         &mut self,
-        collection: &str,
+        col: &str,
         after: &[u8],
         end: &[u8],
     ) -> Result<RunHashRange<'_>> {
-        self.range_between(collection, after, end, true)
+        self.range_between(col, after, end, true)
     }
 
     fn range_between(
         &mut self,
-        collection: &str,
+        col: &str,
         start: &[u8],
         end: &[u8],
         exclusive: bool,
     ) -> Result<RunHashRange<'_>> {
-        self.charge((collection.len() + start.len() + end.len()) as u64)?;
-        let (lower, upper) = (run_key(collection, start)?, Some(run_key(collection, end)?));
+        self.charge((col.len() + start.len() + end.len()) as u64)?;
+        let (lower, upper) = (run_key(col, start)?, run_key(col, end)?);
         let mode = if self.bounded_streams {
-            RangeMode::Bounded {
-                lower,
-                upper,
-                exclusive,
-            }
+            RangeMode::Bounded(lower, upper, exclusive)
         } else {
             let lo = if exclusive {
-                Bound::Excluded(lower.as_slice())
+                Bound::Excluded(&lower[..])
             } else {
-                Bound::Included(lower.as_slice())
+                Bound::Included(&lower[..])
             };
-            let (base_from, up_ref) = (
-                self.runs.len() - self.manifest.base.len(),
-                upper.as_deref().map_or(Bound::Unbounded, Bound::Excluded),
-            );
+            let base_from = self.runs.len() - self.manifest.base.len();
             let mut sources = Vec::new();
             for slot in 0..base_from {
-                if self.runs[slot].0.meta.overlaps(&lower, upper.as_deref()) {
-                    sources.push(self.reader(slot)?.range(lo, up_ref));
+                if self.runs[slot].0.meta.overlaps(&lower, Some(&upper)) {
+                    sources.push(self.reader(slot)?.range(lo, Bound::Excluded(&upper)));
                 }
             }
             let base: Vec<PathBuf> = self.runs[base_from..]
                 .iter()
-                .filter(|(f, _)| f.meta.overlaps(&lower, upper.as_deref()))
+                .filter(|(f, _)| f.meta.overlaps(&lower, Some(&upper)))
                 .map(|(f, _)| f.path.clone())
                 .collect();
             if !base.is_empty() {
-                let (lo_vec, up_vec) = (
-                    lo.map(<[u8]>::to_vec),
-                    upper.map_or(Bound::Unbounded, Bound::Excluded),
-                );
-                sources.push(RunRange::sequence(base, &self.key, lo_vec, up_vec));
+                let lo_vec = lo.map(<[u8]>::to_vec);
+                sources.push(RunRange::sequence(
+                    base,
+                    &self.key,
+                    lo_vec,
+                    Bound::Excluded(upper),
+                ));
             }
-            RangeMode::Ordinary {
-                records: MergeIter::new(sources),
-                held: None,
-            }
+            RangeMode::Ordinary(MergeIter::new(sources), None)
         };
         Ok(RunHashRange {
             owner: self,
-            collection: collection.into(),
+            collection: col.into(),
             exhausted: false,
             mode,
         })
@@ -145,7 +189,7 @@ impl RunHashRange<'_> {
         keys_per_row: usize,
         maximum: u64,
     ) -> Result<RunRangePage> {
-        if matches!(self.mode, RangeMode::Ordinary { .. }) {
+        if matches!(self.mode, RangeMode::Ordinary(..)) {
             return Err(invalid(
                 "bounded run pages require a captured or stopped-home read",
             ));
@@ -154,25 +198,24 @@ impl RunHashRange<'_> {
     }
 
     fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RunRangePage> {
-        match self.mode {
-            RangeMode::Ordinary { .. } => self.ordinary_page(limit, yielding),
-            RangeMode::Bounded { .. } => self.bounded_page(limit, yielding, u64::MAX),
+        if matches!(self.mode, RangeMode::Ordinary(..)) {
+            self.ordinary_page(limit, yielding)
+        } else {
+            self.bounded_page(limit, yielding, u64::MAX)
         }
     }
 
-    fn should_yield(
-        &self,
-        yielding: Option<(usize, usize)>,
-        records: usize,
-        has_last: bool,
-    ) -> bool {
+    fn should_yield(&self, yielding: Option<(usize, usize)>, n: usize, has_last: bool) -> bool {
         yielding.is_some_and(|(held, keys)| {
-            let (rows, cost) = (held + records, self.owner.costs.examined_keys);
+            let (rows, cur, lim) = (
+                held + n,
+                self.owner.costs.examined_keys,
+                self.owner.budget.keys,
+            );
             rows > 0
                 && keys > 0
                 && has_last
-                && cost.saturating_add(keys.saturating_mul(rows).saturating_add(16) as u64)
-                    > self.owner.budget.keys
+                && cur.saturating_add((keys.saturating_mul(rows) + 16) as u64) > lim
         })
     }
 
@@ -181,29 +224,25 @@ impl RunHashRange<'_> {
         limit: usize,
         yielding: Option<(usize, usize)>,
     ) -> Result<RunRangePage> {
-        let mut resume = None;
-        let mut out = Vec::new();
-        let mut last = None;
+        let (mut resume, mut out, mut last) = (None, Vec::new(), None);
         while !self.exhausted && out.len() < limit {
             if self.should_yield(yielding, out.len(), last.is_some()) {
                 resume = last.take();
                 break;
             }
-            let RangeMode::Ordinary { records, held } = &mut self.mode else {
+            let RangeMode::Ordinary(records, held) = &mut self.mode else {
                 unreachable!()
             };
-            let (key, found) = match held.take() {
-                Some(item) => item,
-                None => match records.next() {
-                    Some(next) => next?,
-                    None => {
-                        self.exhausted = true;
-                        break;
-                    }
-                },
+            let (key, found) = if let Some(item) = held.take() {
+                item
+            } else if let Some(next) = records.next() {
+                next?
+            } else {
+                self.exhausted = true;
+                break;
             };
             if self.owner.examine(1).is_err() {
-                if let RangeMode::Ordinary { held, .. } = &mut self.mode {
+                if let RangeMode::Ordinary(_, held) = &mut self.mode {
                     *held = Some((key, found));
                 }
                 if yielding.is_some() && last.is_some() {
@@ -212,9 +251,9 @@ impl RunHashRange<'_> {
                 }
                 return Err(Error::ReadBudgetExceeded);
             }
-            if let Found::Value(value) = found {
-                self.owner.charge((key.len() + value.len()) as u64)?;
-                out.push((storage_key(&self.collection, &key)?, value));
+            if let Found::Value(v) = found {
+                self.owner.charge((key.len() + v.len()) as u64)?;
+                out.push((storage_key(&self.collection, &key)?, v));
             }
             last = yielding.map(|_| key);
         }
@@ -254,21 +293,17 @@ impl RunHashRange<'_> {
             let before = self.owner.shared_metadata_bytes;
             self.owner.shared_metadata_bytes = before
                 .max(self.owner.retained_bytes())
-                .checked_add(self.coordinate_bytes())
+                .checked_add(self.coord_bytes())
                 .ok_or(Error::ReadBudgetExceeded)?;
-            let value = self.owner.streamed_value(&self.collection, &key, maximum);
+            let val = self.owner.streamed_value(&self.collection, &key, maximum);
             self.owner.shared_metadata_bytes = before;
-            let value = value?;
-            if let RangeMode::Bounded {
-                lower, exclusive, ..
-            } = &mut self.mode
-            {
-                *lower = run_key(&self.collection, key.as_bytes())?;
-                *exclusive = true;
+            let val = val?;
+            if let RangeMode::Bounded(lower, _, exclusive) = &mut self.mode {
+                (*lower, *exclusive) = (run_key(&self.collection, key.as_bytes())?, true);
             }
             last = true;
-            if let Some(value) = value {
-                out.push((key, value));
+            if let Some(v) = val {
+                out.push((key, v));
             }
         }
         Ok(RunRangePage {
@@ -279,57 +314,49 @@ impl RunHashRange<'_> {
     }
 
     fn next_bounded_key(&self) -> Result<Option<String>> {
-        let RangeMode::Bounded {
-            lower,
-            upper,
-            exclusive,
-        } = &self.mode
-        else {
+        let RangeMode::Bounded(lower, upper, exclusive) = &self.mode else {
             unreachable!()
         };
-        let mut selected: Option<Vec<u8>> = None;
+        let mut sel: Option<Vec<u8>> = None;
         for slot in 0..self.owner.runs.len() {
-            let end = selected.as_deref().or(upper.as_deref());
-            if !self.owner.runs[slot].0.meta.overlaps(lower, end) {
+            let end = sel.as_deref().unwrap_or(upper);
+            if !self.owner.runs[slot].0.meta.overlaps(lower, Some(end)) {
                 continue;
             }
             let extra = lower
                 .len()
-                .checked_add(end.map_or(0, <[u8]>::len))
-                .and_then(|n| n.checked_add(selected.as_ref().map_or(0, Vec::capacity)))
+                .checked_add(end.len())
+                .and_then(|n| n.checked_add(sel.as_ref().map_or(0, Vec::capacity)))
                 .ok_or(Error::ReadBudgetExceeded)? as u64;
-            let (reader, admission, reserved) = self.owner.open_stream(slot, extra)?;
-            if let Some(next) = reader.stream_key(lower, end, *exclusive, admission, reserved)? {
-                selected = Some(next);
+            let (r, adm, res) = self.owner.open_stream(slot, extra)?;
+            if let Some(next) = r.stream_key(lower, Some(end), *exclusive, adm, res)? {
+                sel = Some(next);
             }
         }
-        selected
-            .map(|k| storage_key(&self.collection, &k))
-            .transpose()
+        sel.map(|k| storage_key(&self.collection, &k)).transpose()
     }
 
-    fn coordinate_bytes(&self) -> u64 {
-        let RangeMode::Bounded { lower, upper, .. } = &self.mode else {
-            return 0;
-        };
-        (self.collection.capacity() + lower.capacity() + upper.as_ref().map_or(0, Vec::capacity))
-            as u64
+    fn coord_bytes(&self) -> u64 {
+        if let RangeMode::Bounded(l, u, _) = &self.mode {
+            (self.collection.capacity() + l.capacity() + u.capacity()) as u64
+        } else {
+            0
+        }
     }
 
     fn resume_key(&self) -> Result<String> {
-        let RangeMode::Bounded { lower, .. } = &self.mode else {
+        let RangeMode::Bounded(lower, ..) = &self.mode else {
             unreachable!()
         };
         let retained = self
             .owner
             .shared_metadata_bytes
             .max(self.owner.retained_bytes())
-            .saturating_add(self.owner.costs.budget_bytes)
-            .saturating_add(self.coordinate_bytes())
-            .saturating_add(lower.len() as u64);
-        if retained > lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        storage_key(&self.collection, lower)
+            .saturating_add(
+                self.owner.costs.budget_bytes + self.coord_bytes() + lower.len() as u64,
+            );
+        (retained <= lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes)
+            .then(|| storage_key(&self.collection, lower))
+            .ok_or(Error::ReadBudgetExceeded)?
     }
 }

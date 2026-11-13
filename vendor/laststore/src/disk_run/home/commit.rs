@@ -1,17 +1,17 @@
-//! Commits, merge planning, and tiered/base compaction.
+//! Commits, lock/staging helpers, merge planning, and tiered/base compaction.
 
 use super::manifest::{Manifest, RunFile, MAX_LEVELS};
-use super::open::overflow;
-use super::{invalid, run_key, RunHome, RunRoot};
+use super::{invalid, run_key, RunHome};
 use crate::disk_run::{
-    merge_runs, Found, MergeIter, MergeSpace, RunMeta, RunRange, RunReader, RunWriter,
-    MAX_RUN_VALUE_BYTES,
+    merge_runs, Found, MergeIter, MergeSpace, RunRange, RunReader, RunWriter, MAX_RUN_VALUE_BYTES,
 };
 use crate::space::SpacePolicy;
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::ops::Bound;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, MutexGuard};
 use uuid::Uuid;
 
 const MERGE_WIDTH: usize = 8;
@@ -68,42 +68,76 @@ pub struct HomeMutation {
     pub body: Option<Vec<u8>>,
 }
 
+impl HomeMutation {
+    /// Build a single stored mutation or tombstone.
+    pub fn new(col: impl Into<String>, key: impl Into<String>, body: Option<Vec<u8>>) -> Self {
+        Self {
+            collection: col.into(),
+            key: key.into(),
+            body,
+        }
+    }
+}
+
 /// One published commit.
 #[derive(Debug, Clone)]
 pub struct RunCommit {
     /// The immutable native file written by this commit.
     pub run_id: Uuid,
-    /// The state this commit installed.
-    pub root: RunRoot,
-    /// Generation of the CURRENT this commit published.
-    pub generation: u64,
     /// Complete commits, this one included.
     pub frontier: u64,
-    /// Records in the new run, after later duplicates replaced earlier ones.
-    pub records: u64,
     /// Size of the new run file.
     pub run_bytes: u64,
+    pub(super) root: Arc<Manifest>,
 }
 
 impl RunCommit {
-    pub(super) fn from_manifest(
-        run_id: Uuid,
-        records: u64,
-        run_bytes: u64,
-        installed: Arc<Manifest>,
-    ) -> Self {
+    pub(super) fn new(run_id: Uuid, run_bytes: u64, root: Arc<Manifest>) -> Self {
         Self {
             run_id,
-            generation: installed.generation,
-            frontier: installed.frontier,
-            root: RunRoot(installed),
-            records,
+            frontier: root.frontier,
             run_bytes,
+            root,
         }
     }
 }
 
 impl RunHome {
+    pub(super) fn commit_lock(&self) -> Result<MutexGuard<'_, ()>> {
+        self.locks.0.lock().map_err(|_| self.poisoned_lock())
+    }
+
+    pub(super) fn publish_lock(&self) -> Result<MutexGuard<'_, ()>> {
+        self.locks.1.lock().map_err(|_| self.poisoned_lock())
+    }
+
+    pub(super) fn publish_staged(&self, next: Manifest, staged: &Path) -> Result<Arc<Manifest>> {
+        if let Err(err) = Manifest::replace(&self.root, staged) {
+            self.poisoned.store(true, Ordering::Release);
+            return Err(err);
+        }
+        let next = Arc::new(next);
+        *self.current.write().map_err(|_| self.poisoned_lock())? = Arc::clone(&next);
+        Ok(next)
+    }
+
+    pub(super) fn stage_new_run(&self, file: &Arc<RunFile>) -> Result<(Manifest, PathBuf)> {
+        let mut next = self.next_manifest(true)?;
+        if next.levels.is_empty() {
+            next.levels.push(Vec::new());
+        }
+        next.levels[0].insert(0, Arc::clone(file));
+        let path = next.stage(&self.root, &self.key, None)?;
+        Ok((next, path))
+    }
+
+    fn poisoned_lock(&self) -> Error {
+        self.poisoned.store(true, Ordering::Release);
+        Error::WriteCapacity(
+            "disk run home: a lock was poisoned; restart the process to reopen the home".into(),
+        )
+    }
+
     /// True when [`RunHome::merge_step`] has work.
     pub fn needs_merge(&self) -> bool {
         let held = self.held();
@@ -124,23 +158,19 @@ impl RunHome {
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
         let _commit = self.commit_lock()?;
-        let mut writer = RunWriter::create(&self.runs, &self.key)?;
-        for (key, body) in &records {
-            writer.push(key, body.as_deref())?;
+        let mut writer = RunWriter::open(&self.runs, &self.key, None)?;
+        for (k, body) in &records {
+            writer.push(k, body.as_deref())?;
         }
         let prepared = writer.prepare_finish()?;
-        let RunMeta {
-            records: n,
-            file_bytes: bytes,
-            run_id: id,
-            ..
-        } = prepared.meta;
-        let file = RunFile::new(&self.runs, prepared.meta.clone());
+        let file = RunFile::new(&self.runs, prepared.0.meta.clone());
+        let (run_id, run_bytes) = (file.meta.run_id, file.meta.file_bytes);
         let installed = self.install_prepared(Arc::clone(&file), prepared);
         if installed.is_err() && !self.is_poisoned() {
             file.retire();
         }
-        Ok(RunCommit::from_manifest(id, n, bytes, installed?))
+        let root = installed?;
+        Ok(RunCommit::new(run_id, run_bytes, root))
     }
 
     /// Refuse a batch that [`RunHome::commit`] would refuse for its key or value sizes.
@@ -166,14 +196,12 @@ impl RunHome {
     /// Merge with this home's disk cap and the shared filesystem write quota.
     pub fn merge_step_with_space(&self, policy: &SpacePolicy) -> Result<bool> {
         self.refuse_if_poisoned()?;
-        let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
+        let _merge = self.locks.2.lock().unwrap_or_else(|e| e.into_inner());
         let held = self.held();
         self.count_hidden(&held)?;
         match plan(&held) {
             None => Ok(false),
-            Some(Plan::Tiered(level, inputs)) => {
-                self.merge_tiered(level, inputs, policy).map(|()| true)
-            }
+            Some(Plan::Tiered(lvl, ins)) => self.merge_tiered(lvl, ins, policy).map(|()| true),
             Some(Plan::Base(start)) => self.base_step(start, policy).map(|()| true),
         }
     }
@@ -194,12 +222,8 @@ impl RunHome {
             .iter()
             .map(|r| RunReader::open(&r.path, &self.key).map(Arc::new))
             .collect::<Result<_>>()?;
-        let mut writer = RunWriter::create_reserved(&self.runs, &self.key, &space)?;
-        let written = merge_runs(
-            readers.iter().map(RunReader::iter).collect(),
-            &mut writer,
-            true,
-        )?;
+        let mut writer = RunWriter::open(&self.runs, &self.key, Some(&space))?;
+        let written = merge_runs(readers.iter().map(RunReader::iter).collect(), &mut writer)?;
         let output = (written > 0).then(|| writer.finish()).transpose()?;
         let in_bytes: u64 = inputs.iter().map(|r| r.meta.record_bytes).sum();
         let out_bytes = output.as_ref().map_or(0, |r| r.record_bytes);
@@ -209,9 +233,7 @@ impl RunHome {
             .sum::<Option<u64>>()
             .map(|h| h.saturating_sub(in_bytes.saturating_sub(out_bytes)));
         let _publish = self.publish_lock()?;
-        self.refuse_if_poisoned()?;
-        let mut next = (*self.held()).clone();
-        next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
+        let mut next = self.next_manifest(false)?;
         let merged: HashSet<Uuid> = inputs.iter().map(|r| r.meta.run_id).collect();
         next.levels[level].retain(|r| !merged.contains(&r.meta.run_id));
         if let Some(run) = output {
@@ -236,9 +258,10 @@ impl RunHome {
         policy: &SpacePolicy,
     ) -> Result<()> {
         let held = self.held();
-        let (merging, cut) = match &start {
-            Some(runs) => (runs.clone(), None),
-            None => (held.merging.clone(), held.merge_cut.clone()),
+        let (merging, cut) = if let Some(runs) = &start {
+            (runs.clone(), None)
+        } else {
+            (held.merging.clone(), held.merge_cut.clone())
         };
         let done = cut
             .as_ref()
@@ -260,22 +283,21 @@ impl RunHome {
             &held.base[done..done + take],
             done + take == held.base.len(),
         );
-        let upper = taken
-            .last()
-            .filter(|_| !last)
-            .map(|r| r.meta.last_key.clone());
+        let upper = if last {
+            None
+        } else {
+            taken.last().map(|r| r.meta.last_key.clone())
+        };
         let space = MergeSpace::new(self.path(), policy)?;
-        let (c_ref, u_ref) = (cut.as_deref(), upper.as_deref());
-        let pieces = self.write_base_pieces(&merging, taken, c_ref, u_ref, target, &space)?;
+        let iv = (cut.as_deref(), upper.as_deref());
+        let pieces = self.write_base_pieces(&merging, taken, iv, target, &space)?;
         let _publish = self.publish_lock()?;
-        self.refuse_if_poisoned()?;
-        let mut next = (*self.held()).clone();
-        next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
+        let mut next = self.next_manifest(false)?;
         if let Some(runs) = &start {
             let moved: HashSet<Uuid> = runs.iter().map(|r| r.meta.run_id).collect();
-            next.levels
-                .iter_mut()
-                .for_each(|l| l.retain(|r| !moved.contains(&r.meta.run_id)));
+            for l in &mut next.levels {
+                l.retain(|r| !moved.contains(&r.meta.run_id));
+            }
             trim_levels(&mut next.levels);
             next.merging = runs.clone();
         }
@@ -300,15 +322,14 @@ impl RunHome {
         &self,
         merging: &[Arc<RunFile>],
         taken: &[Arc<RunFile>],
-        cut: Option<&[u8]>,
-        upper: Option<&[u8]>,
+        (cut, upper): (Option<&[u8]>, Option<&[u8]>),
         target: u64,
         space: &MergeSpace,
     ) -> Result<Option<Vec<Arc<RunFile>>>> {
-        if !merging
-            .iter()
-            .any(|r| r.meta.meets_merge_interval(cut, upper))
-        {
+        if !merging.iter().any(|r| {
+            cut.is_none_or(|a| r.meta.last_key.as_slice() > a)
+                && upper.is_none_or(|t| r.meta.first_key.as_slice() <= t)
+        }) {
             return Ok(None);
         }
         let (lo, up) = (
@@ -319,8 +340,9 @@ impl RunHome {
             .iter()
             .map(|r| Ok(Arc::new(RunReader::open(&r.path, &self.key)?).range(lo, up)))
             .collect::<Result<_>>()?;
+        let paths = taken.iter().map(|r| r.path.clone()).collect();
         sources.push(RunRange::sequence(
-            taken.iter().map(|r| r.path.clone()).collect(),
+            paths,
             &self.key,
             Bound::Unbounded,
             Bound::Unbounded,
@@ -329,16 +351,15 @@ impl RunHome {
         let res = (|| -> Result<()> {
             let mut writer: Option<RunWriter> = None;
             for record in MergeIter::new(sources) {
-                let (key, Found::Value(value)) = record? else {
+                let (key, Found::Value(val)) = record? else {
                     continue;
                 };
-                let open = match &mut writer {
-                    Some(w) => w,
-                    None => {
-                        writer.insert(RunWriter::create_reserved(&self.runs, &self.key, space)?)
-                    }
+                let open = if let Some(w) = &mut writer {
+                    w
+                } else {
+                    writer.insert(RunWriter::open(&self.runs, &self.key, Some(space))?)
                 };
-                open.push(&key, Some(&value))?;
+                open.push(&key, Some(&val))?;
                 if open.bytes_written() >= target {
                     pieces.push(RunFile::new(&self.runs, writer.take().unwrap().finish()?));
                 }
@@ -348,10 +369,11 @@ impl RunHome {
             }
             Ok(())
         })();
-        if let Err(err) = res {
-            pieces.iter().for_each(|p| p.retire());
-            return Err(err);
-        }
-        Ok(Some(pieces))
+        res.inspect_err(|_| {
+            for p in &pieces {
+                p.retire();
+            }
+        })
+        .map(|()| Some(pieces))
     }
 }

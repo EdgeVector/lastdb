@@ -1,290 +1,360 @@
-//! Captured read roots, write-read caching, and finite read-budget accounting.
+//! Captured read roots, task-local scopes, write-read caching, and bounded raw reads.
 
-use super::physical::{call_error, V2Read};
+use super::physical::V2Read;
 use super::transaction::PendingBatch;
 use super::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::sync::PoisonError;
 
 const WRITE_READ_MAX_BYTES: usize = 1024 * 1024;
 const WRITE_READ_MAX_VALUE_BYTES: usize = 16 * 1024;
-type Coordinate = (String, String);
 
-#[derive(Default)]
-struct SavedWriteReads {
-    values: BTreeMap<Coordinate, Option<Vec<u8>>>,
-    bytes: usize,
+fn inv(m: &str) -> StorageError {
+    StorageError::InvalidOperation(m.into())
 }
+
+pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
+pub(super) type Coordinate = (String, String);
+type WriteReads = (BTreeMap<Coordinate, Option<Vec<u8>>>, usize);
+type FailureSlot = Arc<Mutex<Option<(bool, String)>>>;
+type ScopeMeta = (
+    uuid::Uuid,
+    FailureSlot,
+    Option<Arc<PendingBatch>>,
+    Option<Arc<Mutex<WriteReads>>>,
+);
 
 #[derive(Clone)]
 pub(in crate::storage::disk_pack) struct ReadContext {
-    pub(in crate::storage::disk_pack) call: Arc<Mutex<V2Read>>,
-    identity: uuid::Uuid,
-    failure: Arc<Mutex<Option<(bool, String)>>>,
-    pub(in crate::storage::disk_pack) accepted: Arc<Vec<Arc<PendingBatch>>>,
-    pub(in crate::storage::disk_pack) revision: u64,
-    write_owner: Option<Arc<PendingBatch>>,
-    write_reads: Option<Arc<Mutex<SavedWriteReads>>>,
+    pub(super) call: Arc<Mutex<V2Read>>,
+    pub(super) accepted: Arc<Vec<Arc<PendingBatch>>>,
+    pub(super) revision: u64,
+    scope: ScopeMeta,
 }
 
 tokio::task_local! {
     static READ: Arc<ReadContext>;
-    static ITEM: Option<Arc<Mutex<Option<(bool, String)>>>>;
+    static ITEM: Option<FailureSlot>;
 }
 
 impl ReadContext {
-    pub(in crate::storage::disk_pack) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
-        READ.try_with(Arc::clone).ok().filter(|ctx| {
-            ctx.identity == runtime.native_home_id()
-                && ctx
-                    .validate_owner(PendingBatch::current(runtime).as_ref())
-                    .is_ok()
+    pub(super) fn captured(rt: &PackRuntime) -> Option<Arc<Self>> {
+        READ.try_with(Arc::clone).ok().filter(|c| {
+            c.scope.0 == rt.native_home_id()
+                && c.validate_owner(PendingBatch::current(rt).as_ref()).is_ok()
         })
     }
 
     pub(super) fn capture(
-        runtime: &Arc<PackRuntime>,
+        rt: &Arc<PackRuntime>,
         write_owner: Option<Arc<PendingBatch>>,
     ) -> StorageResult<Arc<Self>> {
-        if runtime.failed.load(Ordering::Acquire) {
-            return Err(StorageError::BackendError(
-                "native disk or cache publication failed; complete recovery is required".into(),
+        if rt.requires_recovery() {
+            return Err(StorageError::backend(
+                "native disk or cache publication failed; complete recovery is required",
             ));
         }
         let prep = write_owner.is_some();
         let accepted = if prep {
-            runtime.preparation_prefix()
+            let q = rt.queue.lock().expect("native preparation prefix");
+            Arc::new(q.requests.iter().map(|(p, _)| Arc::clone(p)).collect())
         } else {
             Arc::default()
         };
-        runtime.adopt_merged_root()?;
+        rt.adopt_merged_root()?;
         let (call, revision) = {
-            let view = runtime.view.read().expect("native complete read view");
-            (runtime.physical.read(&view.current, prep), view.revision)
+            let v = rt.view.read().expect("native complete read view");
+            (rt.physical.read(&v.0, prep), v.1)
         };
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
             revision,
-            identity: runtime.native_home_id(),
-            failure: Arc::default(),
-            write_owner,
-            write_reads: prep.then(Arc::default),
+            scope: (
+                rt.native_home_id(),
+                Arc::default(),
+                write_owner,
+                prep.then(Arc::default),
+            ),
         }))
     }
 
-    pub(in crate::storage::disk_pack) async fn current(
-        runtime: &Arc<PackRuntime>,
-    ) -> StorageResult<Arc<Self>> {
+    pub(super) async fn current(rt: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
         if let Ok(ctx) = READ.try_with(Arc::clone) {
-            if ctx.identity != runtime.native_home_id() {
-                return Err(StorageError::InvalidOperation(
-                    "one native read scope cannot change home identity".into(),
-                ));
+            if ctx.scope.0 != rt.native_home_id() {
+                return Err(inv("one native read scope cannot change home identity"));
             }
-            ctx.validate_owner(PendingBatch::current(runtime).as_ref())?;
-            let failure = ITEM
-                .try_with(Clone::clone)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            return Ok(Arc::new(Self {
-                failure,
-                ..(*ctx).clone()
-            }));
+            ctx.validate_owner(PendingBatch::current(rt).as_ref())?;
+            let mut next = (*ctx).clone();
+            let slot = ITEM.try_with(Clone::clone).ok().flatten();
+            next.scope.1 = slot.unwrap_or_default();
+            return Ok(Arc::new(next));
         }
-        let rt = Arc::clone(runtime);
+        let rt = Arc::clone(rt);
         run_blocking(move || Self::capture(&rt, None)).await
     }
 
-    pub(in crate::storage::disk_pack) fn remembered<T>(
-        &self,
-        result: StorageResult<T>,
-    ) -> StorageResult<T> {
-        if let Err(err) = &result {
-            let res = matches!(err, StorageError::ReadResourceLimit { .. });
-            self.failure
+    pub(super) fn remembered<T>(&self, res: StorageResult<T>) -> StorageResult<T> {
+        if let Err(e) = &res {
+            let lim = matches!(e, StorageError::ReadResourceLimit { .. });
+            self.scope
+                .1
                 .lock()
                 .expect("native item failure")
-                .get_or_insert_with(|| (res, err.to_string()));
+                .get_or_insert_with(|| (lim, e.to_string()));
         }
-        result
+        res
     }
 
-    pub(in crate::storage::disk_pack) fn owns_write(&self, p: Option<&Arc<PendingBatch>>) -> bool {
-        self.write_owner
+    fn owns_write(&self, p: Option<&Arc<PendingBatch>>) -> bool {
+        self.scope
+            .2
             .as_ref()
             .zip(p)
             .is_some_and(|(a, b)| Arc::ptr_eq(a, b))
     }
 
-    pub(in crate::storage::disk_pack) fn validate_owner(
-        &self,
-        p: Option<&Arc<PendingBatch>>,
-    ) -> StorageResult<()> {
-        if (self.write_owner.is_none() && p.is_none()) || self.owns_write(p) {
+    fn validate_owner(&self, p: Option<&Arc<PendingBatch>>) -> StorageResult<()> {
+        if (self.scope.2.is_none() && p.is_none()) || self.owns_write(p) {
             return Ok(());
         }
-        self.remembered(Err(StorageError::InvalidOperation(
-            "native read scope cannot change its complete write owner".into(),
+        self.remembered(Err(inv(
+            "native read scope cannot change its complete write owner",
         )))
     }
 
-    pub(in crate::storage::disk_pack) fn error(&self) -> Option<StorageError> {
-        let (res, detail) = self.failure.lock().expect("native item failure").clone()?;
-        Some(if res {
-            StorageError::ReadResourceLimit { detail }
+    pub(super) fn error(&self) -> Option<StorageError> {
+        let (lim, d) = self.scope.1.lock().expect("native item failure").clone()?;
+        Some(if lim {
+            StorageError::read_limit(d)
         } else {
-            StorageError::BackendError(detail)
+            StorageError::backend(d)
         })
     }
 
-    pub(in crate::storage::disk_pack) fn overlay_record(
-        &self,
-        p: Option<&Arc<PendingBatch>>,
-        col: &str,
-        key: &str,
-    ) -> Option<Arc<HomeMutation>> {
-        p.and_then(|b| b.lookup(col, key))
-            .or_else(|| self.accepted.iter().rev().find_map(|b| b.lookup(col, key)))
+    pub(super) async fn in_scope<T>(
+        self: &Arc<Self>,
+        item: bool,
+        fut: impl Future<Output = T>,
+    ) -> T {
+        let slot = item.then(|| Arc::clone(&self.scope.1));
+        READ.scope(Arc::clone(self), ITEM.scope(slot, Box::pin(fut)))
+            .await
     }
 
-    pub(in crate::storage::disk_pack) fn overlay_rows(
-        &self,
-        p: Option<&Arc<PendingBatch>>,
-        col: &str,
-        start: &[u8],
-        end: &[u8],
-    ) -> Vec<Arc<HomeMutation>> {
-        let mut rows = BTreeMap::new();
-        for batch in self.accepted.iter().chain(p) {
-            for r in batch.matching(col, start, end) {
-                rows.insert(r.key.clone(), r);
-            }
-        }
-        rows.into_values().collect()
-    }
-
-    pub(in crate::storage::disk_pack) fn account_memory_record(
+    pub(super) fn account_memory_record(
         &self,
         call: &mut V2Read,
-        key_bytes: usize,
-        body_bytes: usize,
+        k: usize,
+        b: usize,
     ) -> StorageResult<()> {
-        let res = key_bytes
-            .checked_add(body_bytes)
-            .ok_or_else(|| StorageError::ReadResourceLimit {
-                detail: "native memory record length overflow".into(),
-            })
-            .and_then(|bytes| {
-                self.require_room(call, 1, bytes as u64)?;
+        let res = k
+            .checked_add(b)
+            .ok_or_else(|| StorageError::read_limit("native memory record length overflow"))
+            .and_then(|n| {
+                self.require_room(call, 1, n as u64)?;
                 call.main
-                    .account_memory_record(key_bytes, body_bytes)
+                    .account_memory_record(k, b)
                     .map_err(|e| call_error(e, call))
             });
         self.remembered(res)
     }
 
-    pub(super) fn require_room(&self, call: &V2Read, keys: u64, bytes: u64) -> StorageResult<()> {
-        if let Some(error) = self.error() {
-            return Err(error);
+    fn require_room(&self, call: &V2Read, keys: u64, bytes: u64) -> StorageResult<()> {
+        if let Some(err) = self.error() {
+            return Err(err);
         }
-        let (costs, limits) = (call.costs(), call.main.budget());
-        if costs
-            .examined_keys
-            .checked_add(keys)
-            .is_none_or(|n| n > limits.keys)
-            || costs
-                .budget_bytes
+        let (c, l) = (call.costs(), call.main.budget());
+        if c.examined_keys.checked_add(keys).is_none_or(|n| n > l.keys)
+            || c.budget_bytes
                 .checked_add(bytes)
-                .is_none_or(|n| n > limits.bytes)
+                .is_none_or(|n| n > l.bytes)
         {
-            return Err(StorageError::ReadResourceLimit {
-                detail: format!(
-                    "native required work: examined_keys={}+{keys}/{}, charged_bytes={}+{bytes}/{}",
-                    costs.examined_keys, limits.keys, costs.budget_bytes, limits.bytes,
-                ),
-            });
+            return Err(StorageError::read_limit(format!(
+                "native required work: examined_keys={}+{keys}/{}, charged_bytes={}+{bytes}/{}",
+                c.examined_keys, l.keys, c.budget_bytes, l.bytes,
+            )));
         }
         Ok(())
     }
+}
 
-    pub(super) fn reuse_disk_value(
+fn call_error(error: laststore::Error, call: &V2Read) -> StorageError {
+    if !matches!(error, laststore::Error::ReadBudgetExceeded) {
+        return map(error);
+    }
+    let (c, l) = (call.costs(), call.main.budget());
+    StorageError::read_limit(format!(
+        "native call: examined_keys={}/{}, charged_bytes={}/{}",
+        c.examined_keys, l.keys, c.budget_bytes, l.bytes,
+    ))
+}
+
+fn raw_yielding(
+    ctx: &ReadContext,
+    (col, start, end): (&str, &[u8], &[u8]),
+    limit: usize,
+    kpr: usize,
+) -> StorageResult<(NativeRows, bool, Option<String>)> {
+    let mut call = ctx.call.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut cur = call
+        .home_for(col)
+        .administrative_range(col, start, end)
+        .map_err(map)?;
+    let mut out: NativeRows = Vec::new();
+    while out.len() < limit {
+        match cur.next_page_yielding((limit - out.len()).min(128), out.len(), kpr) {
+            Ok(p) => {
+                out.extend(p.records);
+                if p.resume.is_some() || p.exhausted {
+                    return Ok((out, p.exhausted, p.resume));
+                }
+            }
+            Err(laststore::Error::ReadBudgetExceeded) if !out.is_empty() => break,
+            Err(e) => return Err(map(e)),
+        }
+    }
+    let resume = out.last().map(|(k, _)| k.clone());
+    Ok((out, false, resume))
+}
+
+impl PackRuntime {
+    pub(super) fn raw_many(
         &self,
-        call: &mut V2Read,
-        coordinate: &Coordinate,
-    ) -> StorageResult<Option<Option<Vec<u8>>>> {
-        let Some(reads) = &self.write_reads else {
-            return Ok(None);
-        };
-        let value = reads
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .values
-            .get(coordinate)
-            .cloned();
-        if let Some(val) = &value {
-            let klen = coordinate.0.len() + coordinate.1.len();
-            self.account_memory_record(call, klen, val.as_ref().map_or(0, Vec::len))?;
-        }
-        Ok(value)
+        ctx: &Arc<ReadContext>,
+        coords: &[Coordinate],
+        pending: Option<&Arc<PendingBatch>>,
+    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+        ctx.remembered((|| {
+            ctx.validate_owner(pending)?;
+            let max = [10_000, 40_000][usize::from(ctx.owns_write(pending))];
+            if coords.len() > max {
+                return Err(StorageError::read_limit(format!(
+                    "native batch exceeds {max} keys"
+                )));
+            }
+            let mut call = ctx.call.lock().unwrap_or_else(PoisonError::into_inner);
+            ctx.require_room(&call, coords.len() as u64, 0)?;
+            let mut all = Vec::with_capacity(coords.len());
+            for chunk in coords.chunks(10_000) {
+                let (mut out, mut misses) = (vec![None; chunk.len()], Vec::new());
+                for (slot, c) in chunk.iter().enumerate() {
+                    let hit = pending
+                        .and_then(|b| b.lookup(&c.0, &c.1))
+                        .or_else(|| ctx.accepted.iter().rev().find_map(|b| b.lookup(&c.0, &c.1)))
+                        .map(|r| (c.1.len(), r.body.clone()))
+                        .or_else(|| {
+                            let s = ctx
+                                .scope
+                                .3
+                                .as_ref()?
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner);
+                            Some((c.0.len() + c.1.len(), s.0.get(c)?.clone()))
+                        });
+                    if let Some((kb, body)) = hit {
+                        ctx.account_memory_record(
+                            &mut call,
+                            kb,
+                            body.as_ref().map_or(0, Vec::len),
+                        )?;
+                        out[slot] = body;
+                    } else {
+                        misses.push(slot);
+                    }
+                }
+                let wanted: Vec<_> = misses.iter().map(|&s| chunk[s].clone()).collect();
+                let oh = std::mem::size_of::<(Coordinate, Option<Vec<u8>>)>()
+                    + 8 * std::mem::size_of::<usize>();
+                for (slot, res) in misses
+                    .into_iter()
+                    .zip(call.get_many(&wanted).map_err(|e| call_error(e, &call))?)
+                {
+                    let val = res.map_err(|e| call_error(e, &call))?;
+                    let (c, body) = (&chunk[slot], val.as_ref().map_or(0, Vec::len));
+                    if let Some(reads) = ctx
+                        .scope
+                        .3
+                        .as_ref()
+                        .filter(|_| body <= WRITE_READ_MAX_VALUE_BYTES)
+                    {
+                        let mut s = reads.lock().unwrap_or_else(PoisonError::into_inner);
+                        let bytes = c.0.len() + c.1.len() + body + oh;
+                        if bytes <= WRITE_READ_MAX_BYTES.saturating_sub(s.1) && !s.0.contains_key(c)
+                        {
+                            s.0.insert(c.clone(), val.clone());
+                            s.1 += bytes;
+                        }
+                    }
+                    out[slot] = val;
+                }
+                all.extend(out);
+            }
+            Ok(all)
+        })())
     }
 
-    pub(super) fn remember_disk_value(&self, coordinate: &Coordinate, value: Option<&[u8]>) {
-        let Some(reads) = &self.write_reads else {
-            return;
-        };
-        let body_bytes = value.map_or(0, <[u8]>::len);
-        if body_bytes > WRITE_READ_MAX_VALUE_BYTES {
-            return;
-        }
-        let mut saved = reads.lock().unwrap_or_else(PoisonError::into_inner);
-        let overhead =
-            std::mem::size_of::<(Coordinate, Option<Vec<u8>>)>() + 8 * std::mem::size_of::<usize>();
-        let bytes = coordinate.0.len() + coordinate.1.len() + body_bytes + overhead;
-        if bytes <= WRITE_READ_MAX_BYTES.saturating_sub(saved.bytes)
-            && !saved.values.contains_key(coordinate)
-        {
-            saved
-                .values
-                .insert(coordinate.clone(), value.map(<[u8]>::to_vec));
-            saved.bytes += bytes;
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct PackReadScope {
-    pub(super) context: Arc<ReadContext>,
-}
-
-impl PackReadScope {
-    pub(crate) async fn for_runtime(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
-        Ok(Self {
-            context: ReadContext::current(runtime).await?,
-        })
-    }
-
-    pub async fn run_shared<T>(&self, future: impl Future<Output = T>) -> T {
-        READ.scope(
-            Arc::clone(&self.context),
-            ITEM.scope(None, Box::pin(future)),
-        )
-        .await
-    }
-
-    pub async fn run_result<T, E>(&self, future: impl Future<Output = Result<T, E>>) -> Result<T, E>
-    where
-        E: From<StorageError>,
-    {
-        let item = Some(Arc::clone(&self.context.failure));
-        let result = READ
-            .scope(
-                Arc::clone(&self.context),
-                ITEM.scope(item, Box::pin(future)),
-            )
-            .await;
-        self.context.error().map_or(result, |err| Err(err.into()))
+    pub(super) fn raw_range(
+        &self,
+        ctx: &Arc<ReadContext>,
+        (col, start, end): (&str, &[u8], &[u8]),
+        limit: usize,
+        pending: Option<&Arc<PendingBatch>>,
+        yielding: Option<usize>,
+    ) -> StorageResult<(NativeRows, bool, Option<String>)> {
+        ctx.remembered((|| {
+            ctx.validate_owner(pending)?;
+            if limit == 0 && yielding.is_none() {
+                return Ok((Vec::new(), start >= end, None));
+            }
+            if limit > 10_000 {
+                return Err(StorageError::read_limit(
+                    "native page exceeds 10000 records",
+                ));
+            }
+            if let Some(kpr) = yielding {
+                return raw_yielding(ctx, (col, start, end), limit, kpr);
+            }
+            let mut rows = BTreeMap::new();
+            for b in ctx.accepted.iter().chain(pending) {
+                for r in b.matching(col, start, end) {
+                    rows.insert(r.key.clone(), r);
+                }
+            }
+            let mut ov = rows.into_values().peekable();
+            let mut call = ctx.call.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut cur = call
+                .home_for(col)
+                .administrative_range(col, start, end)
+                .map_err(map)?;
+            let (mut disk, mut done, mut out) = (VecDeque::new(), false, Vec::new());
+            while out.len() < limit {
+                if disk.is_empty() && !done {
+                    let p = cur.next_page((limit - out.len()).min(128)).map_err(map)?;
+                    done = p.exhausted;
+                    disk.extend(p.records);
+                }
+                if ov
+                    .peek()
+                    .is_some_and(|m| disk.front().is_none_or(|(k, _)| m.key <= *k))
+                {
+                    let m = ov.next().expect("selected pending record");
+                    cur.account_memory_record(m.key.len(), m.body.as_ref().map_or(0, Vec::len))
+                        .map_err(map)?;
+                    if disk.front().is_some_and(|(k, _)| *k == m.key) {
+                        disk.pop_front();
+                    }
+                    if let Some(body) = &m.body {
+                        out.push((m.key.clone(), body.clone()));
+                    }
+                } else if let Some(rec) = disk.pop_front() {
+                    out.push(rec);
+                } else if done {
+                    break;
+                }
+            }
+            Ok((out, done && disk.is_empty() && ov.peek().is_none(), None))
+        })())
     }
 }

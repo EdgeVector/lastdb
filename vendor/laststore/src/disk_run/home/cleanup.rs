@@ -1,15 +1,13 @@
-//! Explicit base compaction, hidden-version counting, checkpoints, commit replay, and file removal.
+//! Commit retention, replay, hidden-version counting, checkpoints, and run-file cleanup.
 
 use super::commit::{tail, RunCommit};
 use super::manifest::{Manifest, RunFile};
 use super::{
-    capture::{link_synced, private_parent},
-    invalid, is_removable_run, open_nofollow, write_private_file, RunHome, CAS_DELETE,
-    NODE_CLEANUP,
+    invalid, is_removable_run, open_nofollow, write_private_file, RunHome, CAS_DELETE, NODE_CLEANUP,
 };
 use crate::disk_run::{Found, MetadataMemo, RunReader, RUN_SUFFIX};
 use crate::durability::sync_directory;
-use crate::frame::{decode_frame_bounded, encode_frame};
+use crate::frame::{decode_frame, encode_frame};
 use crate::space::SpacePolicy;
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -43,6 +41,51 @@ impl CheckpointKind {
     }
 }
 
+fn euid() -> u32 {
+    rustix::process::geteuid().as_raw()
+}
+
+fn private_parent(path: &Path) -> Result<()> {
+    let p = path.parent().ok_or_else(|| invalid("log file parent"))?;
+    let m = fs::symlink_metadata(p)?;
+    (path.is_absolute()
+        && p.canonicalize()? == p
+        && m.is_dir()
+        && m.uid() == euid()
+        && m.mode() & 0o077 == 0)
+        .then_some(())
+        .ok_or_else(|| invalid("log private directory"))
+}
+
+fn link_synced(source: &Path, target: &Path, bytes: u64) -> Result<()> {
+    let b = fs::symlink_metadata(source)?;
+    if !b.is_file() || b.len() != bytes {
+        return Err(invalid("log retained inode differs"));
+    }
+    fs::hard_link(source, target)?;
+    let a = fs::symlink_metadata(target)?;
+    if !a.is_file() || (b.dev(), b.ino(), bytes) != (a.dev(), a.ino(), a.len()) {
+        return Err(invalid("log retained inode differs"));
+    }
+    File::open(target)?.sync_all()?;
+    sync_directory(target.parent().ok_or_else(|| invalid("log link parent"))?)
+}
+
+impl RunCommit {
+    /// The held root protects the new run from compaction until this link is durable.
+    pub fn retain_file(&self, destination: &Path) -> Result<()> {
+        private_parent(destination)?;
+        let file = self
+            .root
+            .newest_first()
+            .find(|f| f.meta.run_id == self.run_id)
+            .ok_or_else(|| invalid("commit run is absent from its held root"))?;
+        (file.meta.file_bytes == self.run_bytes)
+            .then(|| link_synced(&file.path, destination, self.run_bytes))
+            .ok_or_else(|| invalid("commit run length"))?
+    }
+}
+
 impl RunHome {
     /// Restore-only import. Original encrypted records and tombstones remain unchanged.
     pub fn replay_commit_file(&self, source: &Path, before: u64, after: u64) -> Result<RunCommit> {
@@ -57,7 +100,7 @@ impl RunHome {
         let working = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
         let run =
             RunReader::open_bounded(source, &self.key, working, 0)?.verified_summary(source)?;
-        let (run_id, records, run_bytes) = (run.run_id, run.records, run.file_bytes);
+        let (run_id, run_bytes) = (run.run_id, run.file_bytes);
         let (_commit, _publish) = (self.commit_lock()?, self.publish_lock()?);
         self.refuse_if_poisoned()?;
         let held = self.held();
@@ -67,17 +110,19 @@ impl RunHome {
                 .find(|f| f.meta.run_id == run_id)
                 .ok_or_else(|| invalid("replayed log run is absent"))?;
             return (ok.meta == run && equal_files(&ok.path, source)?)
-                .then(|| RunCommit::from_manifest(run_id, records, run_bytes, held))
+                .then(|| RunCommit::new(run_id, run_bytes, held))
                 .ok_or_else(|| invalid("replayed log bytes differ"));
         }
         if held.frontier != before || held.newest_first().any(|f| f.meta.run_id == run_id) {
             return Err(invalid("log replay frontier or run identity"));
         }
         let target = self.runs.join(format!("{run_id}{RUN_SUFFIX}"));
-        if !target.try_exists()? {
+        if target.try_exists()? {
+            if !equal_files(&target, source)? {
+                return Err(invalid("log staged run differs"));
+            }
+        } else {
             link_synced(source, &target, run_bytes)?;
-        } else if !equal_files(&target, source)? {
-            return Err(invalid("log staged run differs"));
         }
         let file = RunFile::new(&self.runs, run);
         let res = self
@@ -86,7 +131,7 @@ impl RunHome {
         if res.is_err() && !self.is_poisoned() {
             file.retire();
         }
-        Ok(RunCommit::from_manifest(run_id, records, run_bytes, res?))
+        Ok(RunCommit::new(run_id, run_bytes, res?))
     }
 
     pub(super) fn count_hidden(&self, held: &Manifest) -> Result<()> {
@@ -103,7 +148,9 @@ impl RunHome {
         let older: Vec<_> = older
             .iter()
             .copied()
-            .filter(|o| o.meta.meets(&run.meta))
+            .filter(|o| {
+                o.meta.first_key <= run.meta.last_key && run.meta.first_key <= o.meta.last_key
+            })
             .collect();
         if older.is_empty() {
             return Ok(0);
@@ -131,9 +178,10 @@ impl RunHome {
                     .filter_map(|&at| o.meta.covers(&keys[at]).then_some(keys[at].as_slice()))
                     .collect();
                 if !lookups.is_empty() {
-                    let r = match &mut readers[slot] {
-                        Some(r) => r,
-                        None => readers[slot].insert(RunReader::open(&o.path, &self.key)?),
+                    let r = if let Some(r) = &mut readers[slot] {
+                        r
+                    } else {
+                        readers[slot].insert(RunReader::open(&o.path, &self.key)?)
                     };
                     let mut hits = r
                         .get_many_with(&lookups, &mut MetadataMemo::new(0))?
@@ -147,10 +195,9 @@ impl RunHome {
                         else {
                             return true;
                         };
-                        let vlen = if let Found::Value(v) = found {
-                            v.len()
-                        } else {
-                            0
+                        let vlen = match found {
+                            Found::Value(v) => v.len(),
+                            Found::Tombstone => 0,
                         };
                         hidden = hidden.saturating_add((keys[at].len() + vlen) as u64);
                         false
@@ -166,27 +213,11 @@ impl RunHome {
         }
     }
 
-    /// Whether the current files contain no known or uncounted hidden versions.
-    pub fn snapshot_has_clean_runs(&self) -> bool {
-        clean_runs(&self.held())
-    }
-
-    /// Remove hidden versions below the ordinary merge thresholds before a new cloud snapshot.
-    pub fn snapshot_cleanup_step_with_space(&self, policy: &SpacePolicy) -> Result<bool> {
-        self.cleanup_step(policy, true)
-    }
-
-    /// Run one explicit base-compaction step under `policy`, optionally stopping once snapshot-clean.
-    pub fn cleanup_step(&self, policy: &SpacePolicy, snapshot: bool) -> Result<bool> {
+    /// Run one explicit base-compaction step under `policy`.
+    pub fn cleanup_step(&self, policy: &SpacePolicy) -> Result<bool> {
         self.refuse_if_poisoned()?;
-        let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
+        let _merge = self.locks.2.lock().unwrap_or_else(|e| e.into_inner());
         let held = self.held();
-        if snapshot {
-            self.count_hidden(&held)?;
-            if clean_runs(&held) {
-                return Ok(false);
-            }
-        }
         if !held.merging.is_empty() {
             return self.base_step(None, policy).map(|()| true);
         }
@@ -218,16 +249,13 @@ impl RunHome {
         (&mut file)
             .take((maximum + 4097) as u64)
             .read_to_end(&mut bytes)?;
-        let payload = decode_frame_bounded(&self.key, &bytes, maximum + 24)?;
-        if payload.len() < 24
-            || &payload[..8] != magic
-            || &payload[8..24] != self.identity.as_bytes()
-        {
-            return Err(Error::Corrupt(
-                "cleanup checkpoint belongs to another role or home".into(),
-            ));
-        }
-        Ok(Some(payload[24..].to_vec()))
+        let payload = decode_frame(&self.key, &bytes, maximum + 24, None, None)?.2;
+        (payload.len() >= 24
+            && &payload[..8] == magic
+            && &payload[8..24] == self.identity.as_bytes())
+        .then(|| payload[24..].to_vec())
+        .ok_or_else(|| Error::Corrupt("cleanup checkpoint belongs to another role or home".into()))
+        .map(Some)
     }
 
     /// Durably replace one authenticated private checkpoint.
@@ -238,7 +266,7 @@ impl RunHome {
                 "cleanup checkpoint exceeds its byte bound".into(),
             ));
         }
-        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let _publish = self.locks.1.lock().unwrap_or_else(|e| e.into_inner());
         self.refuse_if_poisoned()?;
         let id = Uuid::new_v4();
         let payload = [magic.as_slice(), self.identity.as_bytes(), bytes].concat();
@@ -261,23 +289,16 @@ impl RunHome {
 
     /// Remove unnamed files after writers/mergers finish, returning `(held_bytes, removed_files)`.
     pub fn cleanup_files(&self) -> Result<(u64, u64)> {
-        let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
+        let _merge = self.locks.2.lock().unwrap_or_else(|e| e.into_inner());
         let (_commit, _publish) = (self.commit_lock()?, self.publish_lock()?);
         self.refuse_if_poisoned()?;
         let current = self.held();
-        let held: Vec<_> = {
-            let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
-            retired.retain(|r| r.strong_count() > 0);
-            if retired.len() > MAX_ENTRIES {
-                return Err(Error::WriteCapacity(
-                    "cleanup held-file bound exceeded".into(),
-                ));
-            }
-            retired
-                .iter()
-                .filter_map(std::sync::Weak::upgrade)
-                .collect()
-        };
+        let (retired_len, held) = self.live_retired();
+        if retired_len > MAX_ENTRIES {
+            return Err(Error::WriteCapacity(
+                "cleanup held-file bound exceeded".into(),
+            ));
+        }
         let keep: HashSet<_> = current
             .newest_first()
             .chain(&held)
@@ -301,8 +322,8 @@ impl RunHome {
         }
         sync_directory(&self.runs)?;
         for run in current.newest_first() {
-            let meta = fs::symlink_metadata(&run.path)?;
-            if !meta.is_file() || meta.len() != run.meta.file_bytes {
+            let m = fs::symlink_metadata(&run.path)?;
+            if !m.is_file() || m.len() != run.meta.file_bytes {
                 return Err(Error::Corrupt(
                     "cleanup found an invalid current run file".into(),
                 ));
@@ -310,14 +331,6 @@ impl RunHome {
         }
         Ok((held.iter().map(|r| r.meta.file_bytes).sum(), removed))
     }
-}
-
-pub(super) fn euid() -> u32 {
-    rustix::process::geteuid().as_raw()
-}
-
-fn clean_runs(held: &Manifest) -> bool {
-    held.merging.is_empty() && held.tiered().all(|r| r.hidden() == Some(0))
 }
 
 fn equal_files(left: &Path, right: &Path) -> Result<bool> {
@@ -332,11 +345,12 @@ fn equal_files(left: &Path, right: &Path) -> Result<bool> {
         (File::open(left)?, File::open(right)?, [0; 8192], [0; 8192]);
     loop {
         let n = l.read(&mut a)?;
-        if n == 0 || {
-            r.read_exact(&mut b[..n])?;
-            a[..n] != b[..n]
-        } {
-            return Ok(n == 0);
+        if n == 0 {
+            return Ok(true);
+        }
+        r.read_exact(&mut b[..n])?;
+        if a[..n] != b[..n] {
+            return Ok(false);
         }
     }
 }

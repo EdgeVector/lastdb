@@ -35,16 +35,9 @@ pub enum NativeProofCause {
         kind: ErrorKind,
         os_code: Option<i32>,
     },
-    ReadResource,
-    WriteResource,
-    StorageFull,
     Authentication,
     NativeFormat,
     Configuration,
-    InvalidOperation,
-    Encryption,
-    Backend,
-    Other,
 }
 
 impl fmt::Display for NativeProofCause {
@@ -52,16 +45,9 @@ impl fmt::Display for NativeProofCause {
         match self {
             Self::Io { kind, os_code } => write!(out, "io kind={kind:?} os_code={os_code:?}"),
             Self::Static(code) => out.write_str(code),
-            Self::ReadResource => out.write_str("read_resource_limit"),
-            Self::WriteResource => out.write_str("write_resource_limit"),
-            Self::StorageFull => out.write_str("storage_full"),
             Self::Authentication => out.write_str("authentication"),
             Self::NativeFormat => out.write_str("native_format"),
             Self::Configuration => out.write_str("configuration"),
-            Self::InvalidOperation => out.write_str("invalid_operation"),
-            Self::Encryption => out.write_str("encryption"),
-            Self::Backend => out.write_str("backend"),
-            Self::Other => out.write_str("other"),
         }
     }
 }
@@ -87,10 +73,6 @@ pub enum StorageError {
     RecordTooLarge { size: usize, limit: usize },
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
-    #[error("snapshot is waiting for native compaction")]
-    SnapshotCompactionPending,
-    #[error("share publication is waiting for an unfinished edit")]
-    PublicationEditPending,
     #[error("share publication supports inline files only")]
     PublicationFile,
     #[error("IO error: {0}")]
@@ -104,6 +86,22 @@ pub enum StorageError {
 }
 
 impl StorageError {
+    pub(in crate::storage) fn read_limit(d: impl Into<String>) -> Self {
+        Self::ReadResourceLimit { detail: d.into() }
+    }
+    pub(in crate::storage) fn write_limit(d: impl Into<String>) -> Self {
+        Self::WriteResourceLimit { detail: d.into() }
+    }
+    pub(in crate::storage) fn mutation_limit(d: impl Into<String>) -> Self {
+        Self::MutationLimit { detail: d.into() }
+    }
+    pub(in crate::storage) fn backend(detail: impl Into<String>) -> Self {
+        Self::BackendError(detail.into())
+    }
+    pub(in crate::storage) fn invalid(detail: impl Into<String>) -> Self {
+        Self::InvalidOperation(detail.into())
+    }
+
     #[must_use]
     pub fn is_storage_full_io(error: &std::io::Error) -> bool {
         error.kind() == ErrorKind::StorageFull || error.raw_os_error() == Some(28)
@@ -113,26 +111,30 @@ impl StorageError {
         &self,
         stage: NativeProofStage,
     ) -> (NativeProofStage, NativeProofCause) {
+        use NativeProofCause::{Io, Static};
+        use NativeProofStage::{NativeReader, Validation};
         if let Self::NativeProof { stage: p, cause } = self {
-            let keep = !matches!(
-                p,
-                NativeProofStage::Validation | NativeProofStage::NativeReader
-            );
-            return (if keep { *p } else { stage }, *cause);
+            let s = if matches!(p, Validation | NativeReader) {
+                stage
+            } else {
+                *p
+            };
+            return (s, *cause);
         }
-        use NativeProofCause as C;
         let cause = match self {
-            Self::IoError(io) => C::Io {
+            Self::IoError(io) => Io {
                 kind: io.kind(),
                 os_code: io.raw_os_error(),
             },
-            Self::ReadResourceLimit { .. } => C::ReadResource,
-            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => C::WriteResource,
-            Self::StorageFull { .. } => C::StorageFull,
-            Self::BackendError(_) => C::Backend,
-            Self::InvalidOperation(_) => C::InvalidOperation,
-            Self::EncryptionError(_) => C::Encryption,
-            _ => C::Other,
+            Self::ReadResourceLimit { .. } => Static("read_resource_limit"),
+            Self::WriteResourceLimit { .. } | Self::MutationLimit { .. } => {
+                Static("write_resource_limit")
+            }
+            Self::StorageFull { .. } => Static("storage_full"),
+            Self::BackendError(_) => Static("backend"),
+            Self::InvalidOperation(_) => Static("invalid_operation"),
+            Self::EncryptionError(_) => Static("encryption"),
+            _ => Static("other"),
         };
         (stage, cause)
     }
@@ -145,13 +147,13 @@ impl StorageError {
 
 impl From<tokio::task::JoinError> for StorageError {
     fn from(e: tokio::task::JoinError) -> Self {
-        Self::BackendError(e.to_string())
+        Self::backend(e.to_string())
     }
 }
 
 impl<T> From<std::sync::PoisonError<T>> for StorageError {
     fn from(e: std::sync::PoisonError<T>) -> Self {
-        Self::BackendError(format!("Lock poisoned: {e}"))
+        Self::backend(format!("Lock poisoned: {e}"))
     }
 }
 

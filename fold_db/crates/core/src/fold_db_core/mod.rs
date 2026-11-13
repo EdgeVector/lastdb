@@ -1,8 +1,6 @@
 //! FoldDB Core — embedded database coordinator, lifecycle, and record files.
 
-use async_trait::async_trait;
-use cloud_backup_protocol::v2::blobs::BlobPath;
-use lastdb_model::portable_mutation::Position;
+use async_trait as _;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use std::path::Path;
@@ -14,7 +12,6 @@ use crate::error::FoldDbError;
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::schema::SchemaCore;
 use crate::storage::current_keys::families::record_file_path;
-use crate::storage::format::records::RecordFormat;
 use crate::storage::StorageError;
 
 #[path = "factory/local/mod.rs"]
@@ -25,17 +22,11 @@ pub mod query;
 pub use mutation_manager::MutationManager;
 pub use query::QueryExecutor;
 
-#[async_trait]
-trait BlobSource: Send + Sync {
-    async fn fetch(&self, path: &BlobPath, sealed_bytes: u64) -> Option<Vec<u8>>;
-}
-
 pub struct FoldDB {
     pub(crate) schema_manager: Arc<SchemaCore>,
     pub(crate) db_ops: Arc<DbOperations>,
     pub(crate) query_executor: QueryExecutor,
     pub(crate) mutation_manager: Arc<MutationManager>,
-    blob_source: Option<Arc<dyn BlobSource>>,
 }
 
 impl FoldDB {
@@ -80,7 +71,6 @@ impl FoldDB {
             db_ops,
             query_executor,
             mutation_manager,
-            blob_source: None,
         })
     }
 
@@ -239,8 +229,7 @@ impl FoldDB {
         key: &KeyValue,
         revision: Option<&str>,
     ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        let local = self
-            .db_ops
+        self.db_ops
             .read_scope()
             .await?
             .run_result(async {
@@ -250,48 +239,22 @@ impl FoldDB {
                     .as_ref()
                     .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
                 else {
-                    return Ok::<_, FoldDbError>(None);
+                    return Ok(None);
                 };
-                let state = self
+                let bytes = self
                     .db_ops
                     .records()
                     .format
                     .open_record_file(&rk, ver, marker)
                     .await?
-                    .ok_or_else(|| (rk, ver.clone()));
-                Ok(Some((marker.clone(), state)))
+                    .ok_or_else(|| {
+                        FoldDbError::InProgress(
+                            "the record's file is not on this device and could not be downloaded: no cloud backup is configured on this node".into(),
+                        )
+                    })?;
+                Ok(Some((marker.clone(), bytes)))
             })
-            .await?;
-        let Some((marker, state)) = local else {
-            return Ok(None);
-        };
-        let bytes = match state {
-            Ok(bytes) => bytes,
-            Err((rk, ver)) => self.fetch_missing_file(&rk, &ver, &marker).await?,
-        };
-        Ok(Some((marker, bytes)))
-    }
-
-    async fn fetch_missing_file(
-        &self,
-        rk: &str,
-        ver: &Position,
-        marker: &FileMarker,
-    ) -> Result<Vec<u8>, FoldDbError> {
-        let src = self.blob_source.as_ref().ok_or_else(|| {
-            FoldDbError::InProgress(
-                "the record's file is not on this device and could not be downloaded: no cloud backup is configured on this node".into(),
-            )
-        })?;
-        let fmt = &self.db_ops.records().format;
-        let row = src
-            .fetch(
-                &fmt.record_blob_path(rk, ver)?,
-                RecordFormat::sealed_file_bytes(marker)?,
-            )
             .await
-            .ok_or_else(|| SchemaError::NotFound("the record's file is not in the cloud".into()))?;
-        fmt.install_record_file(rk, ver, marker, row).await
     }
 
     pub async fn read_record_inline_file(
