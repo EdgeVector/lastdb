@@ -258,9 +258,20 @@ async fn grants(
 
 async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Value, String> {
     let body = canonical_bytes(&body).map_err(|error| error.to_string())?;
-    let response = log
-        .post(ROUTE, body)
+    let (status, response) = log
+        .post_status_limit(ROUTE, body, Proof::Data, 400 * 1024)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| "signed snapshot request did not complete")?;
+    if !(200..300).contains(&status) {
+        let protocol = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(&response)
+            .ok()
+            .map_or_else(
+                || "unknown failure".to_owned(),
+                |error| format!("{:?}", error.code),
+            );
+        return Err(format!(
+            "signed snapshot request returned HTTP {status} {protocol}"
+        ));
+    }
     serde_json::from_slice(&response).map_err(|_| "invalid snapshot response".into())
 }
