@@ -30,10 +30,29 @@ pub(super) async fn open_all(
 ) -> Result<HashMap<String, Arc<FoldDB>>, String> {
     let mut stores = HashMap::new();
     for entry in owned {
-        let store = open(home, &entry.id, Arc::clone(signer), false).await?;
+        let store = open(
+            home,
+            &entry.id,
+            Arc::clone(signer),
+            initialize_first_snapshot(home, &entry.id),
+        )
+        .await?;
         stores.insert(entry.id.clone(), store);
     }
     Ok(stores)
+}
+
+/// A registry row whose store directory was never created. The snapshot gate
+/// writes `snapshot-first` before boot so that row can be initialized.
+/// A missing store without that file still refuses to boot.
+fn initialize_first_snapshot(home: &Path, id: &str) -> bool {
+    let data = home.join("databases").join(id).join("data");
+    !data.exists()
+        && home
+            .join("log-sync")
+            .join(id)
+            .join("snapshot-first")
+            .is_file()
 }
 
 pub(super) async fn open(
