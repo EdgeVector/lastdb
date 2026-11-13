@@ -22,6 +22,7 @@ use super::{cloud::CloudLog, registry, session};
 struct Manifest {
     through: DecimalU64,
     name: Option<String>,
+    upload_id: Id,
     files: Vec<files::FileEntry>,
 }
 
@@ -73,9 +74,20 @@ async fn publish(
         } else {
             None
         },
+        upload_id: Id::try_from(uuid::Uuid::new_v4().to_string())
+            .map_err(|error| error.to_string())?,
         files,
     };
-    let id = transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?;
+    let id = match previous.as_ref() {
+        Some((id, saved))
+            if manifest.through == saved.through
+                && manifest.name == saved.name
+                && manifest.files == saved.files =>
+        {
+            id.clone()
+        }
+        _ => transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?,
+    };
     if database.kind == "personal" {
         runtime
             .note_accepted_snapshot(cut.native_frontier)
