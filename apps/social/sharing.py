@@ -10,6 +10,7 @@ from lastdb import LastDBError, SocialError
 
 
 SPEC = {"name": "social", "version": 1}
+TRANSPORT_ERRORS = (OSError, http.client.HTTPException)
 PENDING_SCHEMA = "social-graph/SharingUpdate"
 UNREAD = object()
 PENDING = {
@@ -56,9 +57,20 @@ class Sharing:
             row for row in self.databases() if owns_social_database(row)
         ]
         with ThreadPoolExecutor(max_workers=4) as pool:
-            configs = list(pool.map(self.configuration, [row["id"] for row in databases]))
-        return [{**config, "name": database["name"]}
-                for database, config in zip(databases, configs)]
+            return list(pool.map(self.configuration_row, databases))
+
+    def configuration_row(self, database):
+        database_id = database["id"]
+        row = {"databaseId": database_id, "name": database["name"]}
+        try:
+            config = self.configuration(database_id)
+        except LastDBError as error:
+            if error.code == "share_update_pending":
+                return {**row, "status": "pending"}
+            return {**row, "status": "unavailable", "httpStatus": error.status}
+        except TRANSPORT_ERRORS:
+            return {**row, "status": "unavailable"}
+        return {**row, **config}
 
     @staticmethod
     def config_path(database_id):
@@ -76,6 +88,8 @@ class Sharing:
             members = {row["nodeKey"]: row for row in current["members"]}
             previous = members.get(node_key)
             desired = "active" if active else "revoked"
+            if active and previous and previous["state"] == "active" and previous["role"] != "read":
+                raise SocialError("this person already has contributor access; revoke it before granting reader access")
             if previous and previous["state"] == desired:
                 return current["revision"]
             if starting_member is not UNREAD and previous != starting_member:
@@ -83,7 +97,7 @@ class Sharing:
             starting_member = previous
             if previous is None and not active:
                 raise SocialError("the recipient has never been granted access to this database")
-            member = {"nodeKey": node_key, "role": previous["role"] if previous else "read",
+            member = {"nodeKey": node_key, "role": "read" if active else previous["role"],
                       "state": desired}
             if previous and active:
                 member["regrant"] = True
@@ -112,6 +126,8 @@ class Sharing:
 
     def finish_update(self, database_id, definition, saved):
         request = json.loads(saved["fields"]["request"])
+        if any(member.get("regrant") and member["role"] == "submit" for member in request["members"]):
+            raise SocialError("a pending contributor regrant requires owner review")
         try:
             revision = self.apply(database_id, request)
         except LastDBError as error:
@@ -136,7 +152,7 @@ class Sharing:
         for attempt in range(3):
             try:
                 ack = self.node.call("PUT", path, update)
-            except (LastDBError, OSError, http.client.HTTPException) as error:
+            except (LastDBError, *TRANSPORT_ERRORS) as error:
                 if isinstance(error, LastDBError) and error.status != 503:
                     raise
                 if attempt == 2:

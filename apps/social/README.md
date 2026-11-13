@@ -32,6 +32,11 @@ known names. `remove --database NAME --user Ana` revokes access. Calling `add`
 again restores a revoked reader. Calling it on an already active reader issues
 a fresh invitation at the same revision. You can omit `--contact` when Social
 already remembers the verified contact for that node key.
+An active contributor grant must be revoked before using `add` for reader
+access. A revoked contributor returns as a reader when you use `add`.
+An old pending contributor regrant requires owner review before retry.
+`list` and `grants` report a database with a pending or unavailable roster
+using its own status row. Other databases' confirmed access stays visible.
 
 Social reads and updates the whole LastDB share configuration, preserving
 other members. It records the exact pending request in the personal database
