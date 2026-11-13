@@ -11,6 +11,7 @@ from lastdb import LastDBError, SocialError
 
 SPEC = {"name": "social", "version": 1}
 PENDING_SCHEMA = "social-graph/SharingUpdate"
+UNREAD = object()
 PENDING = {
     "name": "SharingUpdate", "descriptive_name": "Sharing Update",
     "purpose_statement": "The last pending Social sharing update for one database.",
@@ -65,6 +66,7 @@ class Sharing:
 
     def update_member(self, database_id, node_key, active):
         definition = self.node.declare_private(PENDING)
+        starting_member = UNREAD
         for _ in range(3):
             previous_request = self.node.get_record(PENDING_SCHEMA, database_id)
             if previous_request and previous_request["fields"]["request"]:
@@ -76,6 +78,9 @@ class Sharing:
             desired = "active" if active else "revoked"
             if previous and previous["state"] == desired:
                 return current["revision"]
+            if starting_member is not UNREAD and previous != starting_member:
+                raise SocialError("this person's access changed concurrently; review the current grant")
+            starting_member = previous
             if previous is None and not active:
                 raise SocialError("the recipient has never been granted access to this database")
             member = {"nodeKey": node_key, "role": previous["role"] if previous else "read",
@@ -98,6 +103,12 @@ class Sharing:
             if revision is not None:
                 return revision
         raise SocialError("the sharing configuration changed concurrently; retry the operation")
+
+    def resume_pending(self, database_id):
+        definition = self.node.declare_private(PENDING)
+        saved = self.node.get_record(PENDING_SCHEMA, database_id)
+        if saved and saved["fields"]["request"]:
+            self.finish_update(database_id, definition, saved)
 
     def finish_update(self, database_id, definition, saved):
         request = json.loads(saved["fields"]["request"])

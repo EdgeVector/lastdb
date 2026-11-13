@@ -15,11 +15,12 @@ from sharing import Sharing, read_invitation
 
 def remove(sharing, people, args):
     database = sharing.owned(args.database)
-    config = sharing.configuration(database["id"])
-    keys = [row["nodeKey"] for row in config["members"]]
     if args.node_key:
         node_key = args.node_key
     else:
+        sharing.resume_pending(database["id"])
+        config = sharing.configuration(database["id"])
+        keys = [row["nodeKey"] for row in config["members"]]
         contacts = people.by_keys(keys)
         matches = [key for key, person in contacts.items() if person["display_name"] == args.user]
         if len(matches) != 1:
