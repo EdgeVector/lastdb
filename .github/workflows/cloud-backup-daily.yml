@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   recovery:
-    name: Signed private backup and recovery in DEV
+    name: Signed owner-device sync and recovery in DEV
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read

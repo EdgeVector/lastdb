@@ -56,6 +56,9 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let mut retained = 0u64;
     for sequence in &expected {
         let meta = files::read_meta(&entries.join(files::seq_name(*sequence)))?;
+        if meta.authored_at_ms.is_none() {
+            inner.legacy_through = *sequence;
+        }
         retained = retained
             .saturating_add(meta.envelope_bytes)
             .saturating_add(meta.file_bytes);
@@ -101,7 +104,16 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
         return files::gap(root, inner);
     }
     match files::install(root, inner, &pending) {
-        Ok(()) => files::retire_files(root),
+        Ok(()) => {
+            if let Some(note) = pending
+                .notes
+                .iter()
+                .rfind(|note| note.authored_at_ms.is_none())
+            {
+                inner.legacy_through = note.sequence;
+            }
+            files::retire_files(root)
+        }
         Err(Error::Gap) => files::gap(root, inner),
         Err(error) => Err(error),
     }
@@ -161,6 +173,7 @@ pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
         sequence,
         mutation_id: meta.mutation_id,
         envelope,
+        authored_at_ms: meta.authored_at_ms,
         file_ciphertext,
         file_reference: read_reference(&dir)?,
     })

@@ -1,12 +1,13 @@
 use std::sync::{mpsc, Arc};
 
-use cloud_backup_protocol::{CloudScope, Id};
+use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
     AppendBatch, AppendOutcome, Capability, ListPage, LogError, MutationLog, PrincipalId, Recovery,
     ScopedHead, Snapshot, SnapshotRef, Writer,
 };
 use mutation_log_sync::{Outcome, SyncEvent, SyncState};
+use serde::{Deserialize, Serialize};
 
 use crate::host::Host;
 
@@ -14,6 +15,18 @@ use super::account::{self, node_key};
 use super::http::{self, Endpoint, Proof};
 use super::paths;
 use super::wire;
+
+#[derive(Serialize)]
+struct WriterTipRequest<'a> {
+    database_id: &'a str,
+    device_id: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WriterTipResponse {
+    last_writer_seq: DecimalU64,
+}
 
 #[derive(Clone)]
 pub(crate) struct CloudLog {
@@ -294,17 +307,14 @@ impl MutationLog for CloudLog {
             return Err(LogError::Unauthorized);
         }
         self.same_device(&writer.device)?;
-        match self.head(reader)? {
-            None => Ok(0),
-            Some(head) => match head.stamp {
-                Some(stamp)
-                    if stamp.writer.key == writer.key && stamp.writer.device == writer.device =>
-                {
-                    Ok(stamp.sequence)
-                }
-                _ => Err(LogError::UnexpectedOutcome),
-            },
-        }
+        let body = canonical_bytes(&WriterTipRequest {
+            database_id: self.database_id.as_str(),
+            device_id: writer.device.as_str(),
+        })
+        .map_err(|_| LogError::InvalidEntry)?;
+        let response: WriterTipResponse = serde_json::from_slice(&self.call(paths::HEAD, body)?)
+            .map_err(|_| LogError::UnexpectedOutcome)?;
+        Ok(response.last_writer_seq.get())
     }
 }
 

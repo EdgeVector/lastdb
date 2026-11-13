@@ -22,6 +22,7 @@ mod apply;
 mod chain;
 mod decode;
 mod journal;
+mod owned;
 mod page;
 mod payload;
 mod types;
@@ -34,6 +35,7 @@ pub use types::{
 };
 pub use wire::{manifest_from_json, part_from_json};
 
+pub(crate) use owned::replay_owned;
 pub(crate) use page::DeliveredEntry;
 
 use std::fs;
@@ -52,10 +54,11 @@ use journal::Resume;
 /// Apply one verified snapshot chain to the database `request` selects.
 ///
 /// The returned prefix is durable. It is not an acknowledgement.
-pub async fn install(
+pub(crate) async fn install(
     host: &Host,
     request: &SnapshotInstall,
     files: &mut (dyn SnapshotFileSource + Send),
+    local_device: Option<&str>,
 ) -> Result<u64, RestoreError> {
     let target = resolve_target(host, &request.database_id)?;
     let chain = chain::order(
@@ -81,14 +84,18 @@ pub async fn install(
             journal.tip_ref.clone_from(&request.snapshot_ref);
             journal::save(&host.home, &journal)?;
         }
-        let replay = apply::replay(
-            store.as_ref(),
+        let owner = hex::encode(host.keypair.public_key_bytes());
+        let mut applier = apply::SnapshotApplier {
+            store: &store,
             decoder,
-            &host.home,
-            &chain,
-            &mut journal,
+            home: &host.home,
             files,
-        );
+            owner: match &target.place {
+                Place::Owned(_) if target.private => Some((&owner, local_device)),
+                _ => None,
+            },
+        };
+        let replay = applier.replay(&chain, &mut journal);
         store
             .db_ops()
             .native_runtime()

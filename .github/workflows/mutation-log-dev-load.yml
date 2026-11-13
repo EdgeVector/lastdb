@@ -5,7 +5,7 @@ name: Mutation log DEV load
 # exemem-infra #772, ref main, and the cloud-backup-dev environment. This
 # workflow does not create or change an IAM role. The job runs only on
 # main because that role trusts ref main. The signer is in process and uses
-# the existing DEV CI account secrets. Private recovery builds the exact client.
+# the existing DEV CI account secrets. Private sync and recovery build the exact client.
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ on:
         required: true
         type: string
       level:
-        description: "Writer load, trim, or owner-only private recovery"
+        description: "Writer load, trim, or owner-only device sync and private recovery"
         type: choice
         options: ["all", "5", "20", "100", "trim", "private"]
         default: "all"

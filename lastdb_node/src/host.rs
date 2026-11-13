@@ -57,6 +57,20 @@ pub struct Host {
 
 impl Host {
     pub async fn boot(home: &Path) -> Result<Self, String> {
+        Self::boot_inner(home, false).await
+    }
+
+    /// Boot a fresh, isolated signed-restore home. Record replay uses the
+    /// accepted spool's replay scope, and later local writes can be captured.
+    #[doc(hidden)]
+    pub async fn boot_for_signed_restore(home: &Path) -> Result<Self, String> {
+        if home.join("data").exists() {
+            return Err("signed restore capture requires a fresh staged home".to_owned());
+        }
+        Self::boot_inner(home, true).await
+    }
+
+    async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
         match std::fs::remove_file(home.join(SHUTDOWN_FLUSH_READY_FILE)) {
@@ -86,13 +100,16 @@ impl Host {
         let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|e| format!("E2E key derivation failed: {e}"))?;
         let inbox = fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
-        let capture_accepted = crate::cloud::load_saved_credentials(home).map_or_else(
-            |e| {
-                tracing::warn!(error = %e, "personal database stays local until cloud credentials load");
-                false
-            },
-            |s| s.is_some(),
-        );
+        let capture_accepted = signed_restore
+            || fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
+                .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?
+            || crate::cloud::load_saved_credentials(home).map_or_else(
+                |e| {
+                    tracing::warn!(error = %e, "personal database stays local until cloud credentials load");
+                    false
+                },
+                |s| s.is_some(),
+            );
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox.clone()),

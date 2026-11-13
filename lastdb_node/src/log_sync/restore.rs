@@ -27,7 +27,7 @@ pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<R
     if log.principal() != &reader.key || log.device() != &reader.device {
         return Err(LogError::Unauthorized);
     }
-    let through = log.wait(install(log.clone()))??;
+    let through = log.wait(install_for_sync(log.clone()))??;
     match log.list(&reader.key, through, mutation_log::LIST_PAGE_LIMIT, 0) {
         Ok(page) => Ok(Recovery {
             reset: None,
@@ -39,7 +39,15 @@ pub(super) fn recover(log: &CloudLog, reader: &mutation_log::Writer) -> Result<R
     }
 }
 
+async fn install_for_sync(log: CloudLog) -> Result<u64, LogError> {
+    install_with_mode(log, true).await
+}
+
 pub(super) async fn install(log: CloudLog) -> Result<u64, LogError> {
+    install_with_mode(log, false).await
+}
+
+async fn install_with_mode(log: CloudLog, live: bool) -> Result<u64, LogError> {
     let chain = walk(&log).await?;
     let tip = chain
         .first()
@@ -52,7 +60,8 @@ pub(super) async fn install(log: CloudLog) -> Result<u64, LogError> {
         objects: objects(&log, &chain).await?,
     };
     let mut files = Files { log: log.clone() };
-    match database_replay::install(log.host(), &request, &mut files).await {
+    let device = live.then(|| log.device().as_str());
+    match database_replay::install(log.host(), &request, &mut files, device).await {
         Ok(through) => Ok(through),
         Err(RestoreError::Scope(_)) => Err(LogError::SnapshotRequired),
         Err(_) => Err(LogError::UnexpectedOutcome),

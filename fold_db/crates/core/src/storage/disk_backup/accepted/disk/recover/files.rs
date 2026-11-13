@@ -159,6 +159,7 @@ pub(super) fn pending_note(sequence: u64, note: &Note) -> PendingNote {
         mutation_id: note.mutation_id.clone(),
         plaintext_sha256: note.plaintext_sha256.clone(),
         envelope_sha256: super::super::body::sha256_hex(&note.envelope),
+        authored_at_ms: note.authored_at_ms,
         file_sha256: note.file.as_deref().map(super::super::body::sha256_hex),
         envelope_bytes: note.envelope.len() as u64,
         file_bytes: note.file.as_ref().map_or(0, Vec::len) as u64,
@@ -281,6 +282,7 @@ fn meta_of(note: &PendingNote) -> Meta {
         mutation_id: note.mutation_id.clone(),
         plaintext_sha256: note.plaintext_sha256.clone(),
         envelope_sha256: note.envelope_sha256.clone(),
+        authored_at_ms: note.authored_at_ms,
         file_sha256: note.file_sha256.clone(),
         envelope_bytes: note.envelope_bytes,
         file_bytes: note.file_bytes,
@@ -307,6 +309,7 @@ fn verify_entry(dir: &Path, note: &PendingNote) -> Result<(), Error> {
         || meta.mutation_id != note.mutation_id
         || meta.plaintext_sha256 != note.plaintext_sha256
         || meta.envelope_sha256 != note.envelope_sha256
+        || meta.authored_at_ms != note.authored_at_ms
         || meta.file_sha256 != note.file_sha256
         || meta.envelope_bytes != note.envelope_bytes
         || meta.file_bytes != note.file_bytes

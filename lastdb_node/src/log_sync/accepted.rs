@@ -7,8 +7,10 @@ use std::sync::Arc;
 
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
+use fold_db::schema::types::KeyValue;
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, MutationLog, Namespace};
+use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Blocked, Item, Page, Publication};
@@ -22,21 +24,84 @@ use super::{upload, wire};
 
 const PAGE_LIMIT: u32 = 64;
 
-pub(super) async fn publish_owned(host: &Host, log: &CloudLog) {
+pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
     let Ok(Some((store, key))) = DatabaseContentKey::local_store(host, log.database_id()) else {
-        return;
+        return Err("local database or content key unavailable");
     };
     let runtime = store.db_ops().native_runtime();
     let Some(policy) = publication(host, log.database_id()) else {
-        return;
+        return Err("unknown database publication policy");
     };
+    let private = matches!(&policy, PublishPolicy::Private);
+    if private && !runtime.captures_accepted() {
+        return Err("local capture disabled until the enrolled node restarts");
+    }
     let material = Zeroizing::new(*key.encryption_bytes());
     let reader = Arc::clone(&runtime);
     let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
-    let Ok(Some(page)) = joined else {
-        return;
-    };
-    let _ = send_page(host, log, &runtime, &key, &page).await;
+    if let Ok(Some(page)) = joined {
+        if private {
+            let pending = legacy_pending(&page).ok_or("old accepted write metadata unreadable")?;
+            store
+                .mutation_manager()
+                .stage_legacy_replay_pending(&pending)
+                .await
+                .map_err(|_| "old accepted write could not be protected")?;
+        }
+        let _ = send_page(host, log, &runtime, &key, &page).await;
+    }
+    if private {
+        let status = accepted_writes::status(&runtime);
+        if status.gap {
+            return Err("local capture has a gap");
+        }
+        if status.snapshot_required {
+            return Err("recovery required for writes from before local capture");
+        }
+        if status.acked < status.legacy_through {
+            return Err("old local writes still await cloud acceptance");
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct AcceptedTarget {
+    schema: String,
+    key: Option<KeyValue>,
+    action: String,
+    file: Option<serde::de::IgnoredAny>,
+    inline_file: Option<serde::de::IgnoredAny>,
+}
+
+type LegacyPending<'a> = (String, Option<KeyValue>, &'a str, bool);
+
+fn legacy_pending(page: &Page) -> Option<Vec<LegacyPending<'_>>> {
+    page.items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Publish {
+                mutation_id,
+                kind,
+                canonical,
+                authored_at_ms: None,
+                ..
+            } => Some((mutation_id, kind, canonical)),
+            _ => None,
+        })
+        .map(|(id, kind, canonical)| {
+            let target: AcceptedTarget = serde_json::from_slice(canonical).ok()?;
+            let attachment_affected = target.file.is_some()
+                || target.inline_file.is_some()
+                || matches!(target.action.as_str(), "delete" | "purge");
+            ((kind == "schema") == target.key.is_none()).then_some((
+                target.schema,
+                target.key,
+                id.as_str(),
+                attachment_affected,
+            ))
+        })
+        .collect()
 }
 
 enum PublishPolicy {
@@ -125,6 +190,7 @@ async fn prepare_item(
         mutation_id,
         kind,
         canonical,
+        authored_at_ms,
         file_ciphertext,
         file_reference,
         ..
@@ -147,7 +213,7 @@ async fn prepare_item(
         None => {
             let seal = Seal {
                 writer_seq: next,
-                authored_at_ms: fold_db::clock::unix_millis(),
+                authored_at_ms: authored_at_ms.unwrap_or_else(fold_db::clock::unix_millis),
                 namespace,
             };
             prepare_payload(host, log, key, mutation_id, kind, source, seal).await

@@ -58,7 +58,7 @@ pub struct SnapshotPart {
 }
 
 /// One log entry inside a part. `payload_b64` is unpadded URL-safe base64.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct SnapshotEntry {
     /// Service accept time.
     pub accepted_at_ms: u64,
@@ -79,7 +79,7 @@ pub struct SnapshotEntry {
 }
 
 /// Writer identity an incorporated entry was copied from.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct IncorporatedFrom {
     /// Writer node key.
     pub writer_key: String,

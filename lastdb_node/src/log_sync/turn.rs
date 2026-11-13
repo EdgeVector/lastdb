@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mutation_log_sync::{SyncError, SyncState};
 use serde::Deserialize;
 use tracing::Instrument;
 
@@ -98,22 +97,12 @@ async fn finish_open(
             return Prep::Pause(Pause::Retry);
         }
     };
-    match resume_state(&log, state).await {
-        Ok(state) => Prep::Ready(Box::new(run::Ready {
-            database_id: database_id.to_owned(),
-            publisher: None,
-            log,
-            state,
-        })),
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync resume failed");
-            Prep::Pause(Pause::Retry)
-        }
-    }
-}
-
-async fn resume_state(log: &CloudLog, state: SyncState) -> Result<SyncState, SyncError> {
-    log.resumed(state).await
+    Prep::Ready(Box::new(run::Ready {
+        database_id: database_id.to_owned(),
+        publisher: None,
+        log,
+        state,
+    }))
 }
 
 /// Grant revision for the confirmation read. Personal databases use zero.

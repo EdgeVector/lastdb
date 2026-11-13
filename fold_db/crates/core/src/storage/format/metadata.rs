@@ -1,5 +1,10 @@
 //! Metadata namespace capability, applied-delete framing, and file-row crypto.
 
+mod replay;
+
+pub use replay::ReplayStamp;
+pub(crate) use replay::{ReplayTarget, SchemaReplayDrop};
+
 use super::{
     FILE_DEK_LABEL, FILE_ENVELOPE_VERSION, FILE_KEY_SALT, FILE_NONCE_LABEL, FILE_NONCE_SALT,
     FILE_NONCE_SIZE, FILE_TAG_SIZE,
@@ -115,14 +120,41 @@ impl Metadata {
         receipt_id: &[u8; 32],
         intent_digest: &[u8; 32],
     ) -> Result<bool, SchemaError> {
-        self.require_scope().map_err(read_err)?;
         let key = format!("share-contribution-receipt:{}", hex_lower(receipt_id));
-        if let Some(saved) = self.0.get(key.as_bytes()).await.map_err(read_err)? {
-            return (saved.as_slice() == intent_digest)
-                .then_some(true)
-                .ok_or_else(|| SchemaError::InvalidField("share mutation ID reused".into()));
+        self.stage_receipt(key, intent_digest, "share mutation ID reused")
+            .await
+    }
+
+    pub(crate) async fn stage_replay_receipt(
+        &self,
+        receipt_id: &[u8; 32],
+        payload_digest: &[u8; 32],
+    ) -> Result<bool, SchemaError> {
+        let key = format!("signed-replay-receipt:{}", hex_lower(receipt_id));
+        self.stage_receipt(key, payload_digest, "signed replay ID reused")
+            .await
+    }
+
+    pub(crate) async fn replay_receipt_exists(
+        &self,
+        receipt_id: &[u8; 32],
+        payload_digest: &[u8; 32],
+    ) -> Result<bool, SchemaError> {
+        let key = format!("signed-replay-receipt:{}", hex_lower(receipt_id));
+        self.receipt_exists(&key, payload_digest, "signed replay ID reused")
+            .await
+    }
+
+    async fn stage_receipt(
+        &self,
+        key: String,
+        digest: &[u8; 32],
+        reused: &str,
+    ) -> Result<bool, SchemaError> {
+        if self.receipt_exists(&key, digest, reused).await? {
+            return Ok(true);
         }
-        self.stage(vec![(key, Some(intent_digest.to_vec()))])
+        self.stage(vec![(key, Some(digest.to_vec()))])
             .await
             .map_err(read_err)?;
         Ok(false)

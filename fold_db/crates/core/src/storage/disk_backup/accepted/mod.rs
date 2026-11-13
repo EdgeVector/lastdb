@@ -9,11 +9,17 @@ mod capture;
 mod disk;
 mod io;
 
-pub(crate) use capture::{stage_records, stage_schema_drop, stage_schema_put};
+pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
 pub(in crate::storage) use disk::{Log, Note};
+
+use std::path::Path;
 
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
+
+pub(crate) fn schema_drop_id(name: &str) -> String {
+    body::schema_id(name, "drop")
+}
 
 /// Why a stream read, ack, or snapshot note refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +55,8 @@ pub struct Status {
     pub snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
     pub gap: bool,
+    /// Last outstanding sequence found at open without a captured author clock.
+    pub legacy_through: u64,
 }
 
 /// One sealed logical entry.
@@ -60,6 +68,8 @@ pub struct Entry {
     pub mutation_id: String,
     /// Content-key envelope of the canonical body.
     pub envelope: Vec<u8>,
+    /// Local author milliseconds from the durable commit, when recorded.
+    pub authored_at_ms: Option<u64>,
     /// Sealed file row when the entry has an external file.
     pub file_ciphertext: Option<Vec<u8>>,
     /// Admitted custody path for a local file. The bytes stay outside the spool.
@@ -75,6 +85,18 @@ pub struct Page {
     pub snapshot_required: bool,
     /// Entries with sequence `after + 1` through `through`.
     pub items: Vec<Entry>,
+}
+
+/// Check for the exact private spool of an already-captured database.
+pub fn has_spool(data_dir: &Path) -> StorageResult<bool> {
+    let root = data_dir
+        .join(crate::storage::disk_pack::RUN_DIR)
+        .join(disk::DIR);
+    match root.symlink_metadata() {
+        Ok(_) => io::require_dir(&root).map(|()| true).map_err(storage),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(in crate::storage) fn storage(error: Error) -> StorageError {
@@ -120,6 +142,7 @@ impl PackRuntime {
                 opened_frontier: 0,
                 snapshot_required: false,
                 gap: false,
+                legacy_through: 0,
             },
             Log::status,
         )

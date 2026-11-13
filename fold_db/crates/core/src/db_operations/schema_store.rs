@@ -3,7 +3,9 @@
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::schema_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
+use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::{Metadata, ReplayTarget, SchemaReplayDrop};
 use crate::storage::format::read::ReadStore;
 use crate::storage::format::schemas::keys::*;
 use crate::storage::format::schemas::{
@@ -17,9 +19,11 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod replay;
 mod retention;
 mod retention_sweep;
 
+pub(crate) use replay::SchemaDrop;
 pub use retention_sweep::RetentionFloors;
 
 #[derive(Clone)]
@@ -29,11 +33,12 @@ pub struct SchemaStore {
     pub(super) format: SchemaFormat,
     pub(super) runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     content_key: [u8; 32],
+    metadata: Metadata,
     pub(super) retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
-    pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32]) -> Self {
+    pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32], metadata: Metadata) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
         Self {
@@ -42,6 +47,7 @@ impl SchemaStore {
             format,
             runtime,
             content_key,
+            metadata,
             retention_floors: Arc::default(),
         }
     }
@@ -134,6 +140,9 @@ impl SchemaStore {
                 schema
                     .validate_definition()
                     .map_err(SchemaError::InvalidData)?;
+                if self.get_schema_state(schema_name).await? == Some(SchemaState::Blocked) {
+                    return Err(SchemaError::Blocked("schema removal is in progress".into()));
+                }
                 let next = schema_field_key_profiles(schema)?;
                 let input = schema_input(schema_name, schema)?;
                 if let Some(existing) = self.get_schema(schema_name).await? {
@@ -158,12 +167,13 @@ impl SchemaStore {
                     }
                 }
                 self.format.put_schema(input).await?;
-                crate::storage::disk_backup::accepted::stage_schema_put(
+                let mutation_id = accepted::stage_schema_put(
                     &self.runtime,
                     &self.content_key,
                     schema_name,
                     schema,
                 )?;
+                self.note_local_replay(schema_name, mutation_id).await?;
                 self.format.flush_schemas().await?;
                 Ok(())
             }
@@ -202,24 +212,17 @@ impl SchemaStore {
         .await
     }
 
-    pub(crate) async fn block_for_drop(
-        &self,
-        schema_name: &str,
-    ) -> Result<Option<Schema>, SchemaError> {
-        transaction::scope(Arc::clone(&self.runtime), async {
-            let Some(schema) = self.get_schema(schema_name).await? else {
-                return Ok(None);
-            };
-            if self.get_schema_state(schema_name).await? != Some(SchemaState::Blocked) {
-                self.store_schema_state(schema_name, &SchemaState::Blocked)
-                    .await?;
-            }
-            Ok(Some(schema))
-        })
-        .await
+    pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        self.drop_reserved_schema(schema_name, None, || Ok(()))
+            .await
     }
 
-    pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+    pub(crate) async fn drop_reserved_schema(
+        &self,
+        schema_name: &str,
+        replay: Option<&SchemaReplayDrop<'_>>,
+        publish: impl FnOnce() -> Result<(), SchemaError>,
+    ) -> Result<bool, SchemaError> {
         for (kind, prefix) in [
             (Tracking::Age, retention_age_prefix(schema_name)),
             (Tracking::Latest, retention_age_latest_prefix(schema_name)),
@@ -264,36 +267,20 @@ impl SchemaStore {
                 }
             }
         }
-        transaction::scope(
-            Arc::clone(&self.runtime),
-            async move {
-                let existed = self.get_schema(schema_name).await?.is_some();
-                self.format.delete_schema(schema_name).await?;
-                self.format
-                    .delete_states(vec![
-                        StateDelete::Key {
-                            schema: schema_name,
-                            kind: StateKey::State,
-                        },
-                        StateDelete::Key {
-                            schema: schema_name,
-                            kind: StateKey::Policy,
-                        },
-                    ])
-                    .await?;
-                if existed {
-                    crate::storage::disk_backup::accepted::stage_schema_drop(
-                        &self.runtime,
-                        &self.content_key,
-                        schema_name,
-                    )?;
-                }
-                self.flush().await?;
-                Ok(existed)
-            }
-            .boxed(),
-        )
-        .await
+        self.finish_drop(schema_name, replay, publish).await
+    }
+
+    async fn note_local_replay(
+        &self,
+        schema: &str,
+        mutation_id: Option<String>,
+    ) -> Result<(), SchemaError> {
+        if let Some(id) = mutation_id.as_deref() {
+            self.metadata
+                .stage_local_replay_targets([(ReplayTarget::Schema(schema), id)])
+                .await?;
+        }
+        Ok(())
     }
 }
 

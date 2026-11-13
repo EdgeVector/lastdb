@@ -85,7 +85,7 @@ fn authorize(host: &Host, database_id: &str, publisher: &str) -> Result<(), Rest
     Ok(())
 }
 
-fn check_page(
+pub(super) fn check_page(
     database_id: &str,
     publisher: &str,
     delivered: &[DeliveredEntry],
