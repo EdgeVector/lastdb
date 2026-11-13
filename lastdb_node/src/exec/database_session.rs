@@ -1,29 +1,13 @@
 //! Owner-approved, short-lived access for a single named content database.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
-
 use cloud_backup_protocol::Id;
-use rand::{rngs::OsRng, RngCore};
-use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::host::database_sessions::LIFETIME;
 use crate::lastdb_uds::{database_path, uds_router};
 
-const LIFETIME: std::time::Duration = std::time::Duration::from_secs(3600);
-const MAX_SESSIONS: usize = 1024;
 const HEADER: &str = "X-LastDB-Database-Session";
 const PATH: &str = "/api/databases/session";
-
-#[derive(Default)]
-pub(crate) struct DatabaseSessions(Mutex<HashMap<[u8; 32], Grant>>);
-
-struct Grant {
-    id: Id,
-    write: bool,
-    expires: Instant,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -57,27 +41,10 @@ pub(super) fn issue(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRe
                 "this database permits local read sessions only",
             ));
         }
-        let mut sessions = host
+        let token = host
             .database_sessions
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let now = Instant::now();
-        sessions.retain(|_, grant| grant.expires > now);
-        if sessions.len() >= MAX_SESSIONS {
-            return Err(HostError::new(503, "database session limit reached"));
-        }
-        let mut random = [0u8; 32];
-        OsRng.fill_bytes(&mut random);
-        let token = hex::encode(random);
-        sessions.insert(
-            token_hash(&token),
-            Grant {
-                id: body.database_id,
-                write,
-                expires: now + LIFETIME,
-            },
-        );
+            .issue(body.database_id, write)
+            .ok_or_else(|| HostError::new(503, "database session limit reached"))?;
         Ok(json!({"session": token, "expiresInSeconds": LIFETIME.as_secs()}))
     })();
     render(result, ctx)
@@ -109,30 +76,15 @@ fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
     }
 }
 
-fn token_hash(token: &str) -> [u8; 32] {
-    Sha256::digest(token.as_bytes()).into()
-}
-
 /// The owner socket remains an owner boundary. A request carrying a session
 /// header can only reach the selected database and its allowlisted routes.
 pub fn admit(req: &UdsRequest, host: &Host) -> bool {
     let Some(token) = req.header(HEADER) else {
         return true;
     };
-    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return false;
-    }
-    let sessions = host
-        .database_sessions
-        .0
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(grant) = sessions.get(&token_hash(token)) else {
+    let Some((database, write)) = host.database_sessions.get(token) else {
         return false;
     };
-    if grant.expires <= Instant::now() {
-        return false;
-    }
     if req.method == "GET" && req.target == "/api/version" {
         return true;
     }
@@ -140,7 +92,7 @@ pub fn admit(req: &UdsRequest, host: &Host) -> bool {
         return false;
     };
     let path = path.split(['?', '#']).next().unwrap_or_default();
-    grant.id.as_str() == id && allowed(&req.method, path, grant.write)
+    database.as_str() == id && allowed(&req.method, path, write)
 }
 
 fn allowed(method: &str, path: &str, write: bool) -> bool {
