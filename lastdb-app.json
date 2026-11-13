@@ -111,7 +111,7 @@
           "python3",
           "-B",
           "apps/social/social",
-          "--help"
+          "check"
         ],
         "timeout_s": 15
       }

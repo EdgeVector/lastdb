@@ -1,11 +1,13 @@
 """Serve Social's owner interface on a private loopback browser session."""
 
+from concurrent.futures import Future
 from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import secrets
 import subprocess
+from threading import Lock, Thread
 from urllib.parse import parse_qs, urlencode, urlsplit
 import webbrowser
 
@@ -23,12 +25,16 @@ class SocialServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
 
-    def __init__(self, node):
+    def __init__(self, node, picker=None):
         super().__init__(("127.0.0.1", 0), Handler)
         self.app = SocialApp(node)
         self.origin = f"http://127.0.0.1:{self.server_port}"
         self.session = secrets.token_urlsafe(32)
-        self.url = f"{self.origin}/#session={self.session}"
+        self.picker = picker
+        self.result = Future()
+        self.selection_lock = Lock()
+        path = "/?choose=1" if picker is not None else "/"
+        self.url = f"{self.origin}{path}#session={self.session}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -76,6 +82,9 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Social session is required"}, 403)
             return
         try:
+            if self.server.picker is not None:
+                self.select(target)
+                return
             result = handler(target)
         except (SocialError, ValueError, KeyError, TypeError, UnicodeError) as error:
             self.json({"error": str(error)}, 400)
@@ -83,6 +92,20 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "The local LastDB connection is unavailable"}, 503)
         else:
             self.json(result)
+
+    def select(self, target):
+        spec, intent = self.server.picker
+        if target.path == "/api/choices" and self.command == "GET":
+            self.json({"intent": intent, "databases": self.server.app.picker(spec, intent)})
+            return
+        if target.path != "/api/choose" or self.command != "POST":
+            raise SocialError("unknown picker operation")
+        with self.server.selection_lock:
+            if self.server.result.done():
+                raise SocialError("this selection is already complete")
+            selected = self.server.app.approve_pick(spec, intent, self.body()["databaseId"])
+            self.json({"done": True})
+            self.server.result.set_result(selected)
 
     def get(self, target):
         query = parse_qs(target.query)
@@ -97,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
             case _:
                 raise SocialError("unknown Social operation")
 
-    def post(self, target):
+    def body(self):
         if self.headers.get_content_type() != "application/json":
             raise SocialError("expected JSON")
         length = int(self.headers.get("Content-Length", "0"))
@@ -106,6 +129,10 @@ class Handler(BaseHTTPRequestHandler):
         args = json.loads(self.rfile.read(length))
         if not isinstance(args, dict):
             raise SocialError("expected a Social request")
+        return args
+
+    def post(self, target):
+        args = self.body()
         app = self.server.app
         match target.path:
             case "/api/remember":
@@ -141,3 +168,19 @@ def run_server(node, open_browser, database_id=None):
             server.serve_forever()
         except KeyboardInterrupt:
             pass
+
+
+def choose_database(node, spec, intent):
+    with SocialServer(node, picker=(spec, intent)) as server:
+        node.require_sessions()
+        if not webbrowser.open(server.url):
+            raise SocialError("could not open the browser for database selection")
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            return server.result.result(timeout=300)
+        except (TimeoutError, KeyboardInterrupt):
+            return None
+        finally:
+            server.shutdown()
+            worker.join()

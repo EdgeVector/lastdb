@@ -25,10 +25,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "signed-files = fresh Files transfer; social-share = two-user Social sharing"
+        description: "Run a DEV operation or prepare a Social registry declaration"
         type: choice
-        options: [signed-files, social-share]
+        options: [signed-files, social-share, social-prepare]
         default: signed-files
+      social_install_revision:
+        description: "For social-share, optionally install this exact signed DEV Social source before the operation"
+        type: string
 
 permissions:
   contents: read
@@ -90,8 +93,9 @@ jobs:
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
           OPERATION: ${{ inputs.mode }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          SOCIAL_INSTALL_REVISION: ${{ inputs.social_install_revision }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ inputs.mode != 'social-prepare' && secrets.LASTDB_CLOUD_DEV_API_KEY || '' }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ inputs.mode != 'social-prepare' && secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE || '' }}
         run: |
           set -euo pipefail
           client_bin_dir="$RUNNER_TEMP/cloud-backup-bin"
@@ -101,6 +105,7 @@ jobs:
           case "$OPERATION" in
             signed-files) recipe=signed_files ;;
             social-share) recipe=social_share ;;
+            social-prepare) recipe=social_prepare ;;
             *) exit 2 ;;
           esac
           python3 "scripts/cloud_backup/$recipe.py" \

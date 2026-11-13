@@ -65,6 +65,10 @@ class LastDB:
             raise SocialError(result.stderr.strip() or f"LastDB {arguments[0]} failed")
         return json.loads(result.stdout)
 
+    def require_sessions(self):
+        if self.call("GET", "/api/version").get("capabilities", {}).get("database_sessions_v1") is not True:
+            raise SocialError("Social needs a LastDB build with database sessions")
+
     def verify_contact(self, path, expected_key):
         return self.command("share", "verify-contact", str(path), "--recipient-key", expected_key)
 

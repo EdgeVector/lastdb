@@ -54,8 +54,9 @@ cloud access and downloaded record readiness are shown separately. Use
 
 The picker filters by spec and intent. For example, run
 `social --data-dir "$isolated_home" pick-database --spec social --version 1 --intent read`
-to see choices. Add `--database ID` for an explicit selection or `--cancel`
-for a null result. An owner-approved selection with `--session` includes a
+to see choices. Add `--choose` to open the browser picker and wait for the
+user's selection or cancellation. Add `--database ID --session` when an
+owner has already made the choice. An approved selection includes a
 short-lived `databaseSession`. A client uses the selected ID with the normal
 LastDB data API and sends that value in `X-LastDB-Database-Session`. Keep the
 session out of logs. The node limits a session to the selected database and
