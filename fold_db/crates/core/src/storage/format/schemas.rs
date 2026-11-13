@@ -1,15 +1,40 @@
-//! Schema/state format capability and catalog key framing.
+//! Schema/state format capability, catalog key framing, and schema release families.
 
-use super::read::ReadStore;
-use crate::schema::types::KeyValue;
-use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
-use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
-pub(crate) use crate::storage::format::{
+pub(crate) mod applied_deletes {
+    use crate::storage::{error::StorageResult, KvMutation, StorageError};
+    use lastdb_model::portable_mutation::{AppliedDelete, Stamp};
+
+    pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
+
+    pub(in crate::storage::format) fn encode(k: &str, s: &Stamp) -> StorageResult<KvMutation> {
+        serde_json::to_vec(&AppliedDelete::from(s.clone()))
+            .map(|v| KvMutation::put(format!("ad:{k}"), v))
+            .map_err(inv)
+    }
+    pub(in crate::storage::format) fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
+        if bytes.len() > 512 {
+            return Err(inv("encoded value exceeds its bound"));
+        }
+        let e: AppliedDelete = serde_json::from_slice(bytes).map_err(inv)?;
+        e.delete_position.validate().map_err(inv).map(|()| e.into())
+    }
+    pub(in crate::storage::format) fn inv(e: impl std::fmt::Display) -> StorageError {
+        StorageError::invalid(format!("applied delete: {e}"))
+    }
+}
+
+use super::{inline_files::INLINE_FILE_FAMILY, read::ReadStore};
+pub(crate) use super::{
     RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_HASH_PARTITION_KEY_PREFIX,
     RETENTION_POLICY_KEY_PREFIX,
 };
+use crate::schema::types::KeyValue;
+use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy, SchemaState};
+use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
+use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::hex::sha256_hex as fp;
+use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -20,6 +45,47 @@ pub(crate) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 
 pub(crate) mod keys {
     pub(crate) use super::*;
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ReleaseKind {
+    Records,
+    Alternates,
+    AppliedDeletes,
+    InlineFiles,
+}
+
+pub(crate) struct ReleaseFamily(
+    pub(in crate::storage::format) String,
+    pub(in crate::storage::format) ReleaseKind,
+);
+
+impl ReleaseFamily {
+    pub(crate) fn prefix(&self) -> &str {
+        &self.0
+    }
+    pub(crate) fn kind(&self) -> ReleaseKind {
+        self.1
+    }
+}
+
+pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, SchemaError> {
+    let base = format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name));
+    let ad = format!("{}:{base}", applied_deletes::APPLIED_DELETE_FAMILY);
+    let fi = format!("{INLINE_FILE_FAMILY}:{base}");
+    let mut out = vec![
+        ReleaseFamily(base, ReleaseKind::Records),
+        ReleaseFamily(ad, ReleaseKind::AppliedDeletes),
+        ReleaseFamily(fi, ReleaseKind::InlineFiles),
+    ];
+    for name in schema.require_record_keys()?.alternates.keys() {
+        let fk = alternate_field_key_id(schema, name);
+        out.push(ReleaseFamily(
+            format!("{ALTERNATE_ENTRY_PREFIX}{fk}:"),
+            ReleaseKind::Alternates,
+        ));
+    }
+    Ok(out)
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -78,35 +144,25 @@ pub(crate) enum StateChange<'a> {
     },
 }
 
-fn inv(m: impl Into<String>) -> StorageError {
-    StorageError::InvalidOperation(m.into())
+pub(crate) fn retention_policy_key(s: &str) -> String {
+    format!("{RETENTION_POLICY_KEY_PREFIX}{s}")
 }
-
-pub(crate) fn retention_policy_key(schema: &str) -> String {
-    format!("{RETENTION_POLICY_KEY_PREFIX}{schema}")
+pub(crate) fn retention_age_prefix(s: &str) -> String {
+    format!("{RETENTION_AGE_KEY_PREFIX}{}\0", fp(s))
 }
-pub(crate) fn retention_age_prefix(schema: &str) -> String {
-    format!("{RETENTION_AGE_KEY_PREFIX}{}\0", fp(schema))
+pub(crate) fn retention_age_latest_prefix(s: &str) -> String {
+    format!("{RETENTION_AGE_LATEST_PREFIX}{}\0", fp(s))
 }
-pub(crate) fn retention_age_latest_prefix(schema: &str) -> String {
-    format!("{RETENTION_AGE_LATEST_PREFIX}{}\0", fp(schema))
+pub(crate) fn retention_age_key(s: &str, at: u64, k: &KeyValue) -> String {
+    let pfx = retention_age_prefix(s);
+    format!("{pfx}{at:020}\0{}", fp(k.to_storage_key()))
 }
-pub(crate) fn retention_age_key(schema: &str, written_at: u64, key: &KeyValue) -> String {
-    format!(
-        "{}{written_at:020}\0{}",
-        retention_age_prefix(schema),
-        fp(key.to_storage_key())
-    )
+pub(crate) fn retention_age_latest_key(s: &str, k: &KeyValue) -> String {
+    let pfx = retention_age_latest_prefix(s);
+    format!("{pfx}{}", fp(k.to_storage_key()))
 }
-pub(crate) fn retention_age_latest_key(schema: &str, key: &KeyValue) -> String {
-    format!(
-        "{}{}",
-        retention_age_latest_prefix(schema),
-        fp(key.to_storage_key())
-    )
-}
-pub(crate) fn retention_hash_partition_prefix(schema: &str) -> String {
-    format!("{RETENTION_HASH_PARTITION_KEY_PREFIX}{}\0", fp(schema))
+pub(crate) fn retention_hash_partition_prefix(s: &str) -> String {
+    format!("{RETENTION_HASH_PARTITION_KEY_PREFIX}{}\0", fp(s))
 }
 pub(crate) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
     a == b
@@ -120,52 +176,43 @@ pub(crate) fn decode_catalog_schema(bytes: &[u8]) -> Result<Schema, String> {
 
 pub(crate) struct SchemaInput<'a>(&'a Schema);
 
-pub(crate) fn schema_input<'a>(
-    name: &str,
-    schema: &'a Schema,
-) -> Result<SchemaInput<'a>, SchemaError> {
+pub(crate) fn schema_input<'a>(name: &str, s: &'a Schema) -> Result<SchemaInput<'a>, SchemaError> {
     require_name(name)?;
-    if schema.name != name {
-        return Err(SchemaError::InvalidData(
-            "schema catalog key differs from its payload name".into(),
-        ));
+    if s.name != name {
+        let msg = "schema catalog key differs from payload name";
+        return Err(SchemaError::InvalidData(msg.into()));
     }
-    let keys = schema.require_record_keys()?;
-    schema
-        .validate_definition()
-        .and_then(|()| schema.validate_key_field_types())
+    let keys = s.require_record_keys()?;
+    s.validate_definition()
+        .and_then(|()| s.validate_key_field_types())
         .and_then(|()| keys.validate())
         .map_err(SchemaError::InvalidData)?;
-    if schema.file_required {
-        let mut c = schema.to_wire();
+    if s.file_required {
+        let mut c = s.to_wire();
         c.compute_identity_hash();
-        if (&schema.identity_hash, schema.identity_hash_algo_version)
+        if (&s.identity_hash, s.identity_hash_algo_version)
             != (&c.identity_hash, c.identity_hash_algo_version)
         {
-            return Err(SchemaError::InvalidData(
-                "required-file schema needs its exact catalog identity".into(),
-            ));
+            let msg = "required-file schema needs its exact catalog identity";
+            return Err(SchemaError::InvalidData(msg.into()));
         }
     }
-    Ok(SchemaInput(schema))
+    Ok(SchemaInput(s))
 }
 
+type Rt = Arc<PackRuntime>;
+
 #[derive(Clone)]
-pub(crate) struct SchemaFormat(PackKvStore, PackKvStore, Arc<PackRuntime>);
+pub(crate) struct SchemaFormat(PackKvStore, PackKvStore, Rt);
 
 impl SchemaFormat {
-    pub(in crate::storage::format) fn new(
-        schemas: PackKvStore,
-        states: PackKvStore,
-        runtime: Arc<PackRuntime>,
-    ) -> Self {
-        Self(schemas, states, runtime)
+    pub(in crate::storage::format) fn new(s: PackKvStore, st: PackKvStore, rt: Rt) -> Self {
+        Self(s, st, rt)
     }
-
     pub(crate) fn readers(&self) -> (ReadStore, ReadStore) {
         (self.0.clone(), self.1.clone())
     }
-    pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
+    pub(crate) fn runtime(&self) -> Rt {
         Arc::clone(&self.2)
     }
     pub(crate) async fn flush_schemas(&self) -> StorageResult<()> {
@@ -175,8 +222,8 @@ impl SchemaFormat {
         self.2.flush().await
     }
     pub(crate) async fn put_schema(&self, input: SchemaInput<'_>) -> StorageResult<()> {
-        self.stage(true, vec![put_json(input.0.name.clone(), input.0)?], &[])
-            .await
+        let ops = vec![put_json(input.0.name.clone(), input.0)?];
+        self.stage(true, ops, &[]).await
     }
     pub(crate) async fn delete_schema(&self, name: &str) -> StorageResult<()> {
         require_name(name)?;
@@ -185,49 +232,12 @@ impl SchemaFormat {
     pub(crate) async fn put_state(&self, change: StateChange<'_>) -> StorageResult<()> {
         self.batch_states(vec![change]).await
     }
-
     pub(crate) async fn batch_states(&self, changes: Vec<StateChange<'_>>) -> StorageResult<()> {
         let (mut entries, mut owners) = (Vec::with_capacity(changes.len()), Vec::new());
-        for change in changes {
-            let (schema, entry, tracked) = match change {
-                StateChange::State { schema, state } => {
-                    (schema, put_json(schema.into(), state)?, false)
-                }
-                StateChange::Policy { schema, policy } => {
-                    if policy.ttl_seconds == 0
-                        || policy.hash_partitions.iter().any(String::is_empty)
-                    {
-                        return Err(inv("invalid schema retention policy"));
-                    }
-                    (
-                        schema,
-                        put_json(retention_policy_key(schema), policy)?,
-                        false,
-                    )
-                }
-                StateChange::Age {
-                    schema,
-                    entry,
-                    latest,
-                } => {
-                    let k = if latest {
-                        retention_age_latest_key(schema, &entry.key)
-                    } else {
-                        retention_age_key(schema, entry.written_at, &entry.key)
-                    };
-                    (schema, put_json(k, &entry)?, true)
-                }
-                StateChange::Partition { schema, entry } => {
-                    let k = format!(
-                        "{}{}",
-                        retention_hash_partition_prefix(schema),
-                        fp(&entry.hash)
-                    );
-                    (schema, put_json(k, &entry)?, true)
-                }
-            };
+        for c in changes {
+            let (schema, op, tracked) = encode_state(c)?;
             require_name(schema)?;
-            entries.push(entry);
+            entries.push(op);
             if tracked {
                 owners.push(schema.to_owned());
             }
@@ -236,58 +246,23 @@ impl SchemaFormat {
         owners.dedup();
         self.stage(false, entries, &owners).await
     }
-
     pub(crate) async fn delete_states(&self, changes: Vec<StateDelete<'_>>) -> StorageResult<()> {
-        let bad = || inv("retention delete key differs from its owner/family");
-        let mut output = Vec::new();
-        for change in changes {
-            match change {
-                StateDelete::Key { schema, kind } => {
-                    require_name(schema)?;
-                    let k = match kind {
-                        StateKey::State => schema.to_owned(),
-                        StateKey::Policy => retention_policy_key(schema),
-                    };
-                    output.push(KvMutation::delete(k));
-                }
-                StateDelete::Selected { schema, kind, keys } => {
-                    require_name(schema)?;
-                    let pfx = match kind {
-                        Tracking::Age => retention_age_prefix(schema),
-                        Tracking::Latest => retention_age_latest_prefix(schema),
-                        Tracking::Partition => retention_hash_partition_prefix(schema),
-                    };
-                    for key in keys {
-                        let sfx = key.strip_prefix(&pfx).ok_or_else(bad)?;
-                        let dig = match kind {
-                            Tracking::Age => {
-                                let valid = |(c, _): &(&str, &str)| {
-                                    c.len() == 20 && c.parse::<u64>().is_ok()
-                                };
-                                sfx.split_once('\0').filter(valid).ok_or_else(bad)?.1
-                            }
-                            Tracking::Latest | Tracking::Partition => sfx,
-                        };
-                        if dig.len() != 64 || !dig.bytes().all(|b| b.is_ascii_hexdigit()) {
-                            return Err(bad());
-                        }
-                        output.push(KvMutation::delete(key));
-                    }
-                }
-            }
+        let mut out = Vec::new();
+        for c in changes {
+            encode_delete(c, &mut out)?;
         }
-        self.stage(false, output, &[]).await
+        self.stage(false, out, &[]).await
     }
-
     async fn stage(
         &self,
         schemas: bool,
-        mutations: Vec<KvMutation>,
+        ops: Vec<KvMutation>,
         owners: &[String],
     ) -> StorageResult<()> {
         transaction::scope(self.runtime(), async {
             if transaction::PendingBatch::current(&self.2).is_none() {
-                return Err(inv("schema write requires its native scope"));
+                let msg = "schema write requires its native scope";
+                return Err(StorageError::invalid(msg));
             }
             if !owners.is_empty() {
                 let keys = owners.iter().map(|n| n.as_bytes().to_vec()).collect();
@@ -298,30 +273,99 @@ impl SchemaFormat {
                 if states.len() != owners.len() || defs.len() != owners.len() {
                     return Err(StorageError::backend("tracking owner read is incomplete"));
                 }
-                for ((schema, state), def) in owners.iter().zip(states).zip(defs) {
-                    if def.is_none() || state == Some(SchemaState::Blocked) {
-                        return Err(inv(format!(
-                            "expiry tracking owner {schema} is blocked or not installed"
-                        )));
+                for ((s, st), d) in owners.iter().zip(states).zip(defs) {
+                    if d.is_none() || st == Some(SchemaState::Blocked) {
+                        let msg = format!("expiry tracking owner {s} is blocked or not installed");
+                        return Err(StorageError::invalid(msg));
                     }
                 }
             }
-            (if schemas { &self.0 } else { &self.1 })
-                .batch_mutate(mutations)
-                .await
+            let dst = if schemas { &self.0 } else { &self.1 };
+            dst.batch_mutate(ops).await
         })
         .await
     }
 }
 
+fn encode_state(change: StateChange<'_>) -> StorageResult<(&str, KvMutation, bool)> {
+    match change {
+        StateChange::State { schema, state } => {
+            Ok((schema, put_json(schema.into(), state)?, false))
+        }
+        StateChange::Policy { schema, policy } => {
+            if policy.ttl_seconds == 0 || policy.hash_partitions.iter().any(String::is_empty) {
+                return Err(StorageError::invalid("invalid schema retention policy"));
+            }
+            let op = put_json(retention_policy_key(schema), policy)?;
+            Ok((schema, op, false))
+        }
+        StateChange::Age {
+            schema,
+            entry,
+            latest,
+        } => {
+            let k = if latest {
+                retention_age_latest_key(schema, &entry.key)
+            } else {
+                retention_age_key(schema, entry.written_at, &entry.key)
+            };
+            Ok((schema, put_json(k, &entry)?, true))
+        }
+        StateChange::Partition { schema, entry } => {
+            let pfx = retention_hash_partition_prefix(schema);
+            let k = format!("{pfx}{}", fp(&entry.hash));
+            Ok((schema, put_json(k, &entry)?, true))
+        }
+    }
+}
+
+fn encode_delete(change: StateDelete<'_>, out: &mut Vec<KvMutation>) -> StorageResult<()> {
+    let bad = || StorageError::invalid("retention delete key differs from its owner/family");
+    match change {
+        StateDelete::Key { schema, kind } => {
+            require_name(schema)?;
+            let k = match kind {
+                StateKey::State => schema.to_owned(),
+                StateKey::Policy => retention_policy_key(schema),
+            };
+            out.push(KvMutation::delete(k));
+        }
+        StateDelete::Selected { schema, kind, keys } => {
+            require_name(schema)?;
+            let pfx = match kind {
+                Tracking::Age => retention_age_prefix(schema),
+                Tracking::Latest => retention_age_latest_prefix(schema),
+                Tracking::Partition => retention_hash_partition_prefix(schema),
+            };
+            for key in keys {
+                let sfx = key.strip_prefix(&pfx).ok_or_else(bad)?;
+                let dig = if matches!(kind, Tracking::Age) {
+                    let (c, d) = sfx.split_once('\0').ok_or_else(bad)?;
+                    if c.len() != 20 || c.parse::<u64>().is_err() {
+                        return Err(bad());
+                    }
+                    d
+                } else {
+                    sfx
+                };
+                if dig.len() != 64 || !dig.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(bad());
+                }
+                out.push(KvMutation::delete(key));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
     serde_json::to_vec(value)
-        .map(|bytes| KvMutation::put(key, bytes))
+        .map(|b| KvMutation::put(key, b))
         .map_err(|e| StorageError::SerializationError(e.to_string()))
 }
 
 fn require_name(name: &str) -> StorageResult<()> {
     (!name.is_empty() && !name.contains('\0'))
         .then_some(())
-        .ok_or_else(|| inv("schema keys require a nonempty name without NUL"))
+        .ok_or_else(|| StorageError::invalid("schema keys require a nonempty name without NUL"))
 }

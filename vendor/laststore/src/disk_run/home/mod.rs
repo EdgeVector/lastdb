@@ -5,18 +5,15 @@ mod commit;
 mod manifest;
 mod range;
 mod read;
-mod snapshot;
 
 pub use cleanup::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
 pub use commit::{HomeMutation, RunCommit};
 pub use manifest::{CURRENT, RUNS};
 pub use range::{RunHashRange, RunRangePage};
-pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot};
-pub use snapshot::RunSnapshot;
+pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot, RunSnapshot};
 
 use super::codec::corrupt;
-use super::merge::count_merged_keys;
-use super::{MergeSpace, PreparedRun, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
+use super::{count_merged_keys, MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
@@ -28,7 +25,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -46,6 +43,9 @@ pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 
 pub(super) fn invalid(msg: &str) -> Error {
     Error::Config(msg.into())
+}
+pub(super) fn unpoison<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub(super) fn require_path(root: &Path, lock: &File) -> Result<()> {
@@ -93,8 +93,7 @@ pub struct RunHomeDiagnostics {
 
 /// An open v2 home. One process owns it; reads and writes share it.
 pub struct RunHome {
-    root: PathBuf,
-    runs: PathBuf,
+    paths: (PathBuf, PathBuf),
     key: [u8; 32],
     identity: Uuid,
     current: RwLock<Arc<Manifest>>,
@@ -114,13 +113,16 @@ impl RunHome {
         }
         let name = root
             .file_name()
-            .ok_or_else(|| invalid("disk run home: root has no name"))?
-            .to_string_lossy();
+            .ok_or_else(|| invalid("disk run home: root has no name"))?;
         let parent = root
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        let dir = parent.join(format!(".{name}.create-{}", Uuid::new_v4()));
+        let dir = parent.join(format!(
+            ".{}.create-{}",
+            name.to_string_lossy(),
+            Uuid::new_v4()
+        ));
         let mkdir = |p: &Path| fs::DirBuilder::new().mode(0o700).create(p);
         mkdir(&dir)?;
         (|| -> Result<()> {
@@ -152,13 +154,13 @@ impl RunHome {
         let root = root.canonicalize()?;
         let identity = read_descriptor(&root.join(RUN_HOME_MARKER))?;
         let flags = (OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32;
-        let lock = OpenOptions::new()
-            .create(true)
+        let mut opts = OpenOptions::new();
+        opts.create(true)
             .truncate(false)
             .write(true)
             .mode(0o600)
-            .custom_flags(flags)
-            .open(root.join(LOCK))?;
+            .custom_flags(flags);
+        let lock = opts.open(root.join(LOCK))?;
         match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => require_path(&root, &lock)?,
             Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
@@ -170,35 +172,24 @@ impl RunHome {
         for e in fs::read_dir(&root)? {
             let e = e?;
             let s = e.file_name().to_string_lossy().into_owned();
-            if s.ends_with(".tmp")
-                && [CURRENT, NODE_CLEANUP, CAS_DELETE]
-                    .iter()
-                    .any(|f| s.starts_with(&format!(".{f}.")))
-            {
+            let tmp = [CURRENT, NODE_CLEANUP, CAS_DELETE]
+                .iter()
+                .any(|f| s.starts_with(&format!(".{f}.")));
+            if s.ends_with(".tmp") && tmp {
                 fs::remove_file(e.path())?;
             }
         }
         let runs = root.join(RUNS);
-        let named: HashSet<Uuid> = manifest.newest_first().map(|r| r.meta.run_id).collect();
-        for e in fs::read_dir(&runs)? {
-            let e = e?;
-            if is_removable_run(&e.file_name().to_string_lossy(), &named) {
-                fs::remove_file(e.path())?;
-            }
-        }
-        for run in manifest.newest_first() {
-            if fs::metadata(&run.path)?.len() != run.meta.file_bytes {
-                return Err(corrupt("a run that CURRENT names has the wrong size"));
-            }
-        }
+        let keep = manifest.newest_first().map(|r| r.0 .0).collect();
+        sweep_runs(&runs, &keep, usize::MAX)?;
+        manifest.verify_files("a run that CURRENT names has the wrong size")?;
         Ok(Self {
-            root,
-            runs,
+            paths: (root, runs),
             key: *key,
             identity,
             current: RwLock::new(Arc::new(manifest)),
-            locks: (Mutex::new(()), Mutex::new(()), Mutex::new(())),
-            retired: Mutex::new(Vec::new()),
+            locks: Default::default(),
+            retired: Mutex::default(),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
         })
@@ -206,7 +197,7 @@ impl RunHome {
 
     /// The home's directory.
     pub fn path(&self) -> &Path {
-        &self.root
+        &self.paths.0
     }
     /// The home identity from its descriptor.
     pub fn identity(&self) -> Uuid {
@@ -220,18 +211,20 @@ impl RunHome {
     /// Tiered run count, merging run count, and total active run file bytes.
     pub fn run_totals(&self) -> (usize, usize, u64) {
         let h = self.held();
-        let bytes = h.newest_first().map(|r| r.meta.file_bytes).sum();
-        (h.tiered().count(), h.merging.len(), bytes)
+        (
+            h.tiered().count(),
+            h.merging.len(),
+            h.newest_first().map(|r| r.0 .1[4]).sum(),
+        )
     }
 
     /// File bytes of replaced runs still held by an active root or read.
     pub fn retired_bytes(&self) -> u64 {
-        let (_, held) = self.live_retired();
-        held.iter().map(|f| f.meta.file_bytes).sum()
+        self.live_retired().1.iter().map(|f| f.0 .1[4]).sum()
     }
 
     fn live_retired(&self) -> (usize, Vec<Arc<RunFile>>) {
-        let mut r = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        let mut r = unpoison(&self.retired);
         r.retain(|w| w.strong_count() > 0);
         (r.len(), r.iter().filter_map(Weak::upgrade).collect())
     }
@@ -244,8 +237,7 @@ impl RunHome {
             ));
         }
         let root = {
-            let _c = self.locks.0.lock().unwrap_or_else(|e| e.into_inner());
-            let _m = self.locks.2.lock().unwrap_or_else(|e| e.into_inner());
+            let (_c, _m) = (unpoison(&self.locks.0), unpoison(&self.locks.2));
             self.refuse_if_poisoned()?;
             self.held()
         };
@@ -253,9 +245,9 @@ impl RunHome {
             let runs: Vec<_> = root
                 .tiered()
                 .chain(&root.merging)
-                .map(|r| r.path.clone())
+                .map(|r| r.1.clone())
                 .collect();
-            let base = root.base.iter().map(|r| r.path.clone()).collect();
+            let base = root.base.iter().map(|r| r.1.clone()).collect();
             let (complete, merged_keys) =
                 count_merged_keys(&self.key, root.retained_bytes(), &runs, base, deadline);
             LogicalInventory {
@@ -283,7 +275,7 @@ impl RunHome {
 
     fn install_merge(&self, next: Manifest, space: &MergeSpace) -> Result<Arc<Manifest>> {
         let res = next
-            .stage(&self.root, &self.key, Some(space))
+            .stage(&self.paths.0, &self.key, Some(space))
             .and_then(|s| self.publish_staged(next, &s));
         if res.is_ok() || self.is_poisoned() {
             space.keep_outputs();
@@ -291,28 +283,9 @@ impl RunHome {
         res
     }
 
-    fn install_prepared(&self, file: Arc<RunFile>, run: PreparedRun) -> Result<Arc<Manifest>> {
-        let slot = Mutex::new(Some(run));
-        let finish = || slot.lock().unwrap().take().unwrap().finish().map(|_| ());
-        std::thread::scope(|s| {
-            let w = std::thread::Builder::new()
-                .name("laststore-sync".into())
-                .spawn_scoped(s, finish);
-            let guard = self.publish_lock();
-            let staged = guard.as_ref().ok().map(|_| self.stage_new_run(&file));
-            let pan = |_| Err(invalid("disk run: durability worker panicked"));
-            let synced = w.map_or_else(|_| finish(), |h| h.join().unwrap_or_else(pan));
-            let (_g, (next, p)) = (guard?, staged.unwrap()?);
-            synced.inspect_err(|_| drop(fs::remove_file(&p)))?;
-            self.publish_staged(next, &p)
-        })
-    }
-
     fn retire_runs(&self, runs: &[Arc<RunFile>]) {
-        for r in runs {
-            r.retire();
-        }
-        let mut r = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        runs.iter().for_each(|r| r.retire());
+        let mut r = unpoison(&self.retired);
         r.retain(|w| w.strong_count() > 0);
         r.extend(runs.iter().map(Arc::downgrade));
     }
@@ -321,12 +294,13 @@ impl RunHome {
         Arc::clone(&self.current.read().unwrap_or_else(|e| e.into_inner()))
     }
 
-    fn refuse_if_poisoned(&self) -> Result<()> {
-        let msg =
-            "disk run home: an earlier publish failed; restart the process to reopen the home";
-        (!self.is_poisoned())
-            .then_some(())
-            .ok_or_else(|| Error::WriteCapacity(msg.into()))
+    pub(super) fn refuse_if_poisoned(&self) -> Result<()> {
+        (!self.is_poisoned()).then_some(()).ok_or_else(|| {
+            Error::WriteCapacity(
+                "disk run home: an earlier publish failed; restart the process to reopen the home"
+                    .into(),
+            )
+        })
     }
 }
 
@@ -356,19 +330,36 @@ pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     String::from_utf8(rk[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
 }
 
-pub(super) fn is_removable_run(name: &str, keep: &HashSet<Uuid>) -> bool {
-    name.strip_suffix(RUN_SUFFIX)
-        .and_then(|id| Uuid::parse_str(id).ok())
-        .is_some_and(|id| !keep.contains(&id))
-        || (name.starts_with('.') && name.ends_with(".tmp"))
+pub(super) fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Result<u64> {
+    let mut removed = 0;
+    for (idx, entry) in fs::read_dir(runs)?.enumerate() {
+        if idx >= cap {
+            return Err(Error::WriteCapacity(
+                "cleanup run-directory entry bound exceeded".into(),
+            ));
+        }
+        let entry = entry?;
+        let name = entry.file_name();
+        let s = name.to_string_lossy();
+        let orphan = s
+            .strip_suffix(RUN_SUFFIX)
+            .and_then(|id| Uuid::parse_str(id).ok())
+            .is_some_and(|id| !keep.contains(&id))
+            || (s.starts_with('.') && s.ends_with(".tmp"));
+        if orphan {
+            match fs::remove_file(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+    Ok(removed)
 }
 
 pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
+    let mut opts = OpenOptions::new();
+    let mut f = opts.write(true).create_new(true).mode(0o600).open(path)?;
     f.write_all(bytes)
         .map_err(Error::from)
         .and_then(|()| sync_dirty_file(&f))

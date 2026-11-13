@@ -22,42 +22,37 @@ pub const CURRENT: &str = "CURRENT";
 pub const RUNS: &str = "runs";
 pub(super) const MAX_LEVELS: usize = 32;
 const MAX_LEVEL_RUNS: usize = 4096;
-const MAX_CURRENT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CURRENT_BYTES: usize = 64 << 20;
 const ARC_HDR: usize = 2 * size_of::<usize>();
 
 #[derive(Debug)]
-pub(super) struct RunFile {
-    pub(super) meta: RunMeta,
-    pub(super) path: PathBuf,
-    state: (AtomicBool, AtomicU64),
-}
+pub(super) struct RunFile(
+    pub(super) RunMeta,
+    pub(super) PathBuf,
+    AtomicBool,
+    AtomicU64,
+);
 
 impl RunFile {
     pub(super) fn new(runs: &Path, meta: RunMeta) -> Arc<Self> {
-        let path = runs.join(format!("{}{RUN_SUFFIX}", meta.run_id));
-        Arc::new(Self {
-            path,
-            meta,
-            state: (AtomicBool::new(false), AtomicU64::new(0)),
-        })
+        let path = runs.join(format!("{}{RUN_SUFFIX}", meta.0));
+        Arc::new(Self(meta, path, AtomicBool::new(false), AtomicU64::new(0)))
     }
     pub(super) fn retire(&self) {
-        self.state.0.store(true, Ordering::Release);
+        self.2.store(true, Ordering::Release);
     }
     pub(super) fn hidden(&self) -> Option<u64> {
-        self.state.1.load(Ordering::Acquire).checked_sub(1)
+        self.3.load(Ordering::Acquire).checked_sub(1)
     }
     pub(super) fn set_hidden(&self, bytes: u64) {
-        self.state
-            .1
-            .store(bytes.saturating_add(1), Ordering::Release);
+        self.3.store(bytes.saturating_add(1), Ordering::Release);
     }
 }
 
 impl Drop for RunFile {
     fn drop(&mut self) {
-        if self.state.0.load(Ordering::Acquire) {
-            let _ = fs::remove_file(&self.path);
+        if self.2.load(Ordering::Acquire) {
+            let _ = fs::remove_file(&self.1);
         }
     }
 }
@@ -98,14 +93,14 @@ impl Manifest {
                 return Err(Error::ReadBudgetExceeded);
             }
             let mut r = VerifiedFrameReader::open(&f, 0, len, key)?;
-            let n = (r.payload_len.saturating_add(r.memory_bytes) <= max)
-                .then(|| usize::try_from(r.payload_len).ok())
-                .flatten()
+            let n = usize::try_from(r.3 .0)
+                .ok()
+                .filter(|_| r.3 .0.saturating_add(r.3 .1) <= max)
                 .ok_or(Error::ReadBudgetExceeded)?;
             let mut buf = Zeroizing::new(Vec::new());
             buf.try_reserve_exact(n)
                 .map_err(|_| Error::ReadBudgetExceeded)?;
-            if (buf.capacity() as u64).saturating_add(r.memory_bytes) > max {
+            if (buf.capacity() as u64).saturating_add(r.3 .1) > max {
                 return Err(Error::ReadBudgetExceeded);
             }
             buf.resize(n, 0);
@@ -118,8 +113,8 @@ impl Manifest {
         } else {
             let mut frame = Vec::with_capacity(len as usize);
             f.read_to_end(&mut frame)?;
-            let plain = decode_frame(key, &frame, MAX_CURRENT_BYTES, None, None)?.2;
-            Self::decode_bounded(&plain, 0, &runs, u64::MAX)?
+            let raw = decode_frame(key, &frame, MAX_CURRENT_BYTES, (None, None))?.2;
+            Self::decode_bounded(&raw, 0, &runs, u64::MAX)?
         };
         (decoded.home_id == id)
             .then_some(decoded)
@@ -128,12 +123,10 @@ impl Manifest {
 
     pub(super) fn encode(&self) -> Vec<u8> {
         let mut out = [MAGIC.as_slice(), self.home_id.as_bytes()].concat();
-        for v in [self.generation, self.frontier, self.levels.len() as u64] {
-            put_varint(&mut out, v);
-        }
-        for l in &self.levels {
-            put_runs(&mut out, l);
-        }
+        [self.generation, self.frontier, self.levels.len() as u64]
+            .into_iter()
+            .for_each(|v| put_varint(&mut out, v));
+        self.levels.iter().for_each(|l| put_runs(&mut out, l));
         put_runs(&mut out, &self.merging);
         put_varint(
             &mut out,
@@ -173,6 +166,16 @@ impl Manifest {
     pub(super) fn replace(root: &Path, staged: &Path) -> Result<()> {
         fs::rename(staged, root.join(CURRENT))?;
         sync_directory(root)
+    }
+
+    pub(super) fn verify_files(&self, msg: &'static str) -> Result<()> {
+        for run in self.newest_first() {
+            let m = fs::symlink_metadata(&run.1)?;
+            if !m.is_file() || m.len() != run.0 .1[4] {
+                return Err(Error::Corrupt(msg.into()));
+            }
+        }
+        Ok(())
     }
 
     fn decode_bounded(bytes: &[u8], cap: usize, runs: &Path, maximum: u64) -> Result<Self> {
@@ -216,11 +219,7 @@ impl Manifest {
             + self.levels.capacity() * size_of::<Vec<Arc<RunFile>>>()
             + self.merge_cut.as_ref().map_or(0, Vec::capacity);
         let rmem = |r: &Arc<RunFile>| {
-            size_of::<RunFile>()
-                + ARC_HDR
-                + r.path.capacity()
-                + r.meta.first_key.capacity()
-                + r.meta.last_key.capacity()
+            size_of::<RunFile>() + ARC_HDR + r.1.capacity() + r.0 .2.capacity() + r.0 .3.capacity()
         };
         let lists: usize = self
             .lists()
@@ -233,20 +232,11 @@ impl Manifest {
 fn put_runs(out: &mut Vec<u8>, runs: &[Arc<RunFile>]) {
     put_varint(out, runs.len() as u64);
     for r in runs {
-        let m = &r.meta;
-        out.extend_from_slice(m.run_id.as_bytes());
-        let hid = r.state.1.load(Ordering::Acquire);
-        for v in [
-            m.records,
-            m.tombstones,
-            m.record_bytes,
-            m.tombstone_bytes,
-            m.file_bytes,
-            hid,
-        ] {
-            put_varint(out, v);
-        }
-        for k in [&m.first_key, &m.last_key] {
+        let m = &r.0;
+        out.extend_from_slice(m.0.as_bytes());
+        m.1.into_iter().for_each(|v| put_varint(out, v));
+        put_varint(out, r.3.load(Ordering::Acquire));
+        for k in [&m.2, &m.3] {
             put_varint(out, k.len() as u64);
             out.extend_from_slice(k);
         }
@@ -262,46 +252,33 @@ fn run_list(
     let count = get_len(b, at, MAX_LEVEL_RUNS)?;
     let mut runs = adm.array(count)?;
     for _ in 0..count {
-        let run_id = Uuid::from_slice(get_slice(b, at, 16)?)
-            .map_err(|_| corrupt("bad run entry in CURRENT"))?;
-        let mut f = [0u64; 6];
-        for slot in &mut f {
+        let run_id =
+            Uuid::from_slice(get_slice(b, at, 16)?).map_err(|_| corrupt("bad run entry"))?;
+        let mut c = [0u64; 5];
+        for slot in &mut c {
             *slot = get_varint(b, at)?;
         }
-        let [records, tombstones, record_bytes, tombstone_bytes, file_bytes, hidden] = f;
-        let first_key = adm.copy(get_bytes(b, at, MAX_RUN_KEY_BYTES)?)?;
-        let last_key = adm.copy(get_bytes(b, at, MAX_RUN_KEY_BYTES)?)?;
-        if run_id.is_nil()
-            || records == 0
-            || tombstones > records
-            || tombstone_bytes > record_bytes
-            || first_key > last_key
-        {
+        let hidden = get_varint(b, at)?;
+        let first = adm.copy(get_bytes(b, at, MAX_RUN_KEY_BYTES)?)?;
+        let last = adm.copy(get_bytes(b, at, MAX_RUN_KEY_BYTES)?)?;
+        if run_id.is_nil() || c[0] == 0 || c[1] > c[0] || c[3] > c[2] || first > last {
             return Err(corrupt("bad run entry in CURRENT"));
         }
         adm.add((size_of::<RunFile>() + ARC_HDR) as u64)?;
-        let meta = RunMeta {
-            run_id,
-            records,
-            tombstones,
-            record_bytes,
-            tombstone_bytes,
-            file_bytes,
-            first_key,
-            last_key,
-        };
-        runs.push(Arc::new(RunFile {
-            path: adm.path(dir, run_id)?,
-            meta,
-            state: (AtomicBool::new(false), AtomicU64::new(hidden)),
-        }));
+        let path = adm.path(dir, run_id)?;
+        runs.push(Arc::new(RunFile(
+            RunMeta(run_id, c, first, last),
+            path,
+            AtomicBool::new(false),
+            AtomicU64::new(hidden),
+        )));
     }
     Ok(runs)
 }
 
 fn check_shape(m: &Manifest, b: &mut Admission) -> Result<()> {
     let mut ids = b.array(m.newest_first().count())?;
-    ids.extend(m.newest_first().map(|r| r.meta.run_id));
+    ids.extend(m.newest_first().map(|r| r.0 .0));
     ids.sort_unstable();
     if ids.windows(2).any(|p| p[0] == p[1]) {
         return Err(corrupt("CURRENT names a run twice"));
@@ -309,12 +286,9 @@ fn check_shape(m: &Manifest, b: &mut Admission) -> Result<()> {
     if m.merge_cut.is_some() && m.merging.is_empty() {
         return Err(corrupt("CURRENT has a base merge cut but no merging runs"));
     }
-    (m.base
-        .windows(2)
-        .all(|p| p[0].meta.last_key < p[1].meta.first_key)
-        && m.base.iter().all(|r| r.meta.tombstones == 0))
-    .then_some(())
-    .ok_or_else(|| corrupt("CURRENT has an unordered base"))
+    (m.base.windows(2).all(|p| p[0].0 .3 < p[1].0 .2) && m.base.iter().all(|r| r.0 .1[1] == 0))
+        .then_some(())
+        .ok_or_else(|| corrupt("CURRENT has an unordered base"))
 }
 
 struct Admission(u64, u64);
