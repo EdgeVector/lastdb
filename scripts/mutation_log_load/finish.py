@@ -29,9 +29,9 @@ def request_for(session, operation, fields, limit):
             "database_id": database,
             "device_id": device,
             "entries": [{
-                "authored_at_ms": session.clock(),
+                "authored_at_ms": fields["authored_at_ms"],
                 "namespace": "social",
-                "payload": PAYLOAD,
+                "payload_b64": PAYLOAD,
                 "writer_seq": fields["seq"],
             }],
         })

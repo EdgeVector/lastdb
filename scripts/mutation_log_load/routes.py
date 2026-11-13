@@ -67,7 +67,15 @@ def request_body(operation, fields):
     if operation == "revoke":
         _text(fields["principal"])
         _text(fields["capability"])
-    encoded = json.dumps(fields, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    wire = fields.copy()
+    for field in ("after", "limit"):
+        if field in wire:
+            wire[field] = str(wire[field])
+    if operation == "append":
+        wire["entries"] = [{**entry, "writer_seq": str(entry["writer_seq"]),
+                            "authored_at_ms": str(entry["authored_at_ms"])}
+                           for entry in wire["entries"]]
+    encoded = json.dumps(wire, separators=(",", ":"), sort_keys=True).encode("utf-8")
     parsed = json.loads(encoded)
     if set(parsed) != set(allowed):
         raise RouteError("body")
@@ -204,12 +212,12 @@ def _entries(entries):
     if not isinstance(entries, list) or not entries:
         raise RouteError("body")
     for entry in entries:
-        if set(entry) != {"authored_at_ms", "namespace", "payload", "writer_seq"}:
+        if set(entry) != {"authored_at_ms", "namespace", "payload_b64", "writer_seq"}:
             raise RouteError("body")
         _u64(entry["writer_seq"])
         _u64(entry["authored_at_ms"])
         _text(entry["namespace"])
-        if not isinstance(entry["payload"], str):
+        if not isinstance(entry["payload_b64"], str):
             raise RouteError("body")
 
 

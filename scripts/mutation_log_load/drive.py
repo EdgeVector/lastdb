@@ -151,13 +151,15 @@ class Session:
         return payload
 
     def exchange(self, operation, required=False, accept=(), **fields):
+        if operation == "append":
+            fields["authored_at_ms"] = self.clock()
+        body = self._body(operation, fields)
         tries = 0
         while True:
             if self.stop.is_set() and not self.in_logcheck:
                 if self.capped.is_set():
                     raise CapExceeded(self.ledger.snapshot())
                 raise LoadError("stopped")
-            body = self._body(operation, fields)
             self._charge(operation, body)
             status, payload, latency = self.transport("POST", path_for(operation), body)
             self._note_try(operation, latency)
