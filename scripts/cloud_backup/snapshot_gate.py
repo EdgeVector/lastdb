@@ -394,7 +394,9 @@ def cleanup():
         for partition in guard.load_partitions(database_id):
             deleted += purge_partition(guard, partition)
     summary(f"cleanup_rows={deleted}")
-    summary("provider_objects=unreferenced_no_delete_route")
+    # snapshot/bytes accepts read, prepare, download, and publish. It has no
+    # owner delete, and the DEV load role cannot reach the R2 or B2 objects.
+    summary("provider_objects=left_behind missing=snapshot/bytes delete")
 
 
 def main():
