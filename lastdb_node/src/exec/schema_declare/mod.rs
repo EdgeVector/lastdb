@@ -1,62 +1,36 @@
-//! App schema declarations own local values and reuse canonical definitions.
+//! App schema declarations and catalog synchronization.
+
+mod retention;
 
 use std::collections::{BTreeSet, HashMap};
 
 use fold_db::access::AccessContext;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema};
-use fold_db::schema::ManifestRetention;
-use schema_types::FieldValueType;
+use fold_db::schema::types::{DeclarativeSchemaDefinition, FieldValueType, Schema};
+use fold_db::schema::{ManifestRetention, ManifestRetentionPlan};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::reply::{envelope, error_response, json_ok};
+use super::reply::{render, HostError};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
-
-mod retention;
-
-use retention::{
-    finish_declare_retention, precheck_declare_retention, prepare_declare_retention,
-    validate_declare_retention,
-};
+use retention::{check_retention, finish_retention, validate_retention, RetentionLayout};
 
 static DECLARE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
 
-#[derive(Debug)]
-pub(super) struct DirectDeclareProposal {
+pub(super) struct Proposal {
     pub(super) namespace: String,
     pub(super) local_schema_id: String,
     pub(super) catalog_schema: DeclarativeSchemaDefinition,
     pub(super) retention: Option<ManifestRetention>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SchemaSyncIntent {
     #[default]
     CatalogSync,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AppsDeclareRequest {
-    app_id: String,
-    schema: DeclarativeSchemaDefinition,
-    #[serde(default)]
-    intent: SchemaSyncIntent,
-    #[serde(default)]
-    retention: Option<ManifestRetention>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SchemaDeclareRequest {
-    namespace: String,
-    schema: DeclarativeSchemaDefinition,
-    #[serde(default)]
-    intent: SchemaSyncIntent,
 }
 
 pub fn normalize_app_manifest_schema(
@@ -67,60 +41,18 @@ pub fn normalize_app_manifest_schema(
 }
 
 fn normalize_proposal(
-    namespace_label: &str,
+    label: &str,
     namespace: &str,
     mut schema: DeclarativeSchemaDefinition,
-) -> Result<DirectDeclareProposal, String> {
-    let schema_types::OwnedDeclaration {
-        namespace,
-        local_schema_id,
-    } = schema.normalize_owned_declaration(namespace_label, namespace)?;
+) -> Result<Proposal, String> {
+    let owned = schema.normalize_owned_declaration(label, namespace)?;
     schema.validate().map_err(|e| e.to_string())?;
-    Ok(DirectDeclareProposal {
-        namespace,
-        local_schema_id,
+    Ok(Proposal {
+        namespace: owned.namespace,
+        local_schema_id: owned.local_schema_id,
         catalog_schema: schema,
         retention: None,
     })
-}
-
-pub(in crate::exec) fn logical_layout_error(
-    ctx: &AccessContext,
-    schema: &DeclarativeSchemaDefinition,
-) -> Option<UdsResponse> {
-    fold_db::schema::require_logical_layout(&schema.schema_type)
-        .err()
-        .map(|error| error_response(400, &error.to_string(), ctx))
-}
-
-pub(super) struct DirectDeclareResolution {
-    pub(super) runtime_schema: String,
-    pub(super) reused: bool,
-}
-
-fn declare_resolution_payload(
-    declare: &DirectDeclareProposal,
-    resolution: &DirectDeclareResolution,
-) -> Result<Value, String> {
-    let catalog_id = declare
-        .catalog_schema
-        .identity_hash
-        .as_deref()
-        .ok_or("declared schema has no catalog identity")?;
-    let definition_id =
-        schema_types::PortableSchemaId::from_catalog(catalog_id, declare.catalog_schema.to_wire())?;
-    Ok(json!({
-        "app_id": declare.namespace,
-        "namespace": declare.namespace,
-        "schema": declare.local_schema_id,
-        "schema_name": declare.local_schema_id,
-        "descriptive_name": declare.catalog_schema.descriptive_name,
-        "canonical": resolution.runtime_schema,
-        "identity_hash": declare.catalog_schema.identity_hash,
-        "definition_id": definition_id.as_str(),
-        "resolution": if resolution.reused { "reuse" } else { "register" },
-        "bind_eligible": true,
-    }))
 }
 
 pub async fn execute_apps_declare_schema_route(
@@ -128,146 +60,163 @@ pub async fn execute_apps_declare_schema_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let embedded_retention = serde_json::from_slice::<Value>(&req.body)
-        .ok()
-        .and_then(|raw| raw.pointer("/schema/retention").cloned())
-        .is_some();
-    let body: AppsDeclareRequest = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Req {
+        app_id: String,
+        schema: DeclarativeSchemaDefinition,
+        #[serde(default)]
+        intent: SchemaSyncIntent,
+        #[serde(default)]
+        retention: Option<ManifestRetention>,
+    }
+    let res = async {
+        if serde_json::from_slice::<Value>(&req.body)
+            .ok()
+            .is_some_and(|raw| raw.pointer("/schema/retention").is_some())
+        {
+            return Err(HostError::new(
                 400,
-                &format!("invalid /api/apps/declare-schema body: {e}"),
-                ctx,
-            )
+                "retention must sit beside `schema` in the declare body, not inside it",
+            ));
         }
-    };
-    let retention = match prepare_declare_retention(ctx, embedded_retention, body.retention) {
-        Ok(r) => r,
-        Err((status, e)) => return error_response(status, &e, ctx),
-    };
-    let mut declare = match normalize_proposal("app_id", &body.app_id, body.schema) {
-        Ok(d) => d,
-        Err(e) => return error_response(400, &e, ctx),
-    };
-    declare.retention = retention;
-    let SchemaSyncIntent::CatalogSync = body.intent;
-    dispatch_declare(ctx, host, declare).await
+        let b: Req = serde_json::from_slice(&req.body).map_err(|e| {
+            HostError::new(400, format!("invalid /api/apps/declare-schema body: {e}"))
+        })?;
+        if let Some(ret) = b.retention {
+            if !ctx.is_owner {
+                return Err(HostError::new(
+                    403,
+                    "a schema retention can be declared only on the owner socket",
+                ));
+            }
+            ret.ttl().map_err(|e| HostError::new(400, e))?;
+        }
+        let mut d = normalize_proposal("app_id", &b.app_id, b.schema)
+            .map_err(|e| HostError::new(400, e))?;
+        d.retention = b.retention;
+        let SchemaSyncIntent::CatalogSync = b.intent;
+        dispatch_declare(host, &d).await
+    }
+    .await;
+    render(res, ctx)
 }
 
-pub(in crate::exec) async fn execute_declare_schema_route(
+pub(in crate::exec) async fn declare_schema(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let body = match serde_json::from_slice::<SchemaDeclareRequest>(&req.body) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(400, &format!("invalid /api/schemas/declare body: {e}"), ctx)
-        }
-    };
-    let declare = match normalize_proposal("namespace", &body.namespace, body.schema) {
-        Ok(d) => d,
-        Err(e) => return error_response(400, &e, ctx),
-    };
-    let SchemaSyncIntent::CatalogSync = body.intent;
-    dispatch_declare(ctx, host, declare).await
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Req {
+        namespace: String,
+        schema: DeclarativeSchemaDefinition,
+        #[serde(default)]
+        intent: SchemaSyncIntent,
+    }
+    let res = async {
+        let b: Req = serde_json::from_slice(&req.body)
+            .map_err(|e| HostError::new(400, format!("invalid /api/schemas/declare body: {e}")))?;
+        let d = normalize_proposal("namespace", &b.namespace, b.schema)
+            .map_err(|e| HostError::new(400, e))?;
+        let SchemaSyncIntent::CatalogSync = b.intent;
+        dispatch_declare(host, &d).await
+    }
+    .await;
+    render(res, ctx)
 }
 
-async fn dispatch_declare(
-    ctx: &AccessContext,
-    host: &Host,
-    declare: DirectDeclareProposal,
-) -> UdsResponse {
-    if let Some(response) = logical_layout_error(ctx, &declare.catalog_schema) {
-        return response;
-    }
-    if let Err(error) = validate_declare_retention(&declare) {
-        return error_response(409, &error, ctx);
-    }
+async fn dispatch_declare(host: &Host, declare: &Proposal) -> Result<Value, HostError> {
+    fold_db::schema::require_logical_layout(&declare.catalog_schema.schema_type)
+        .map_err(|e| HostError::new(400, e.to_string()))?;
+    let conflict = |e| HostError::new(409, e);
+    let layout = validate_retention(declare).map_err(conflict)?;
     let _guard = DECLARE_LOCK.lock().await;
-    let resolution = match load_owned(host, &declare).await {
-        Ok(r) => r,
-        Err(e) => return error_response(409, &e, ctx),
-    };
-    let mut payload = match declare_resolution_payload(&declare, &resolution) {
-        Ok(p) => p,
-        Err(e) => return error_response(409, &e, ctx),
-    };
-    match finish_declare_retention(host, &declare, &resolution).await {
-        Ok(Some(r)) => payload["retention"] = r,
-        Ok(None) => {}
-        Err(e) => {
-            return error_response(
+    let (runtime_schema, reused, checked) = load_owned(host, declare, layout.as_ref())
+        .await
+        .map_err(conflict)?;
+    let cat_id = declare
+        .catalog_schema
+        .identity_hash
+        .as_deref()
+        .ok_or_else(|| HostError::new(409, "declared schema has no catalog identity"))?;
+    let def_id =
+        schema_types::PortableSchemaId::from_catalog(cat_id, declare.catalog_schema.to_wire())
+            .map_err(conflict)?;
+    let mut payload = json!({
+        "app_id": declare.namespace, "namespace": declare.namespace,
+        "schema": declare.local_schema_id, "schema_name": declare.local_schema_id,
+        "descriptive_name": declare.catalog_schema.descriptive_name,
+        "canonical": runtime_schema, "identity_hash": declare.catalog_schema.identity_hash,
+        "definition_id": def_id.as_str(),
+        "resolution": if reused { "reuse" } else { "register" }, "bind_eligible": true,
+    });
+    if let Some(r) = finish_retention(host, declare, &runtime_schema, layout, checked.as_ref())
+        .await
+        .map_err(|e| {
+            HostError::new(
                 409,
-                &format!("schema declared and bound, but its retention step failed: {e}"),
-                ctx,
-            );
-        }
+                format!("schema declared and bound, but its retention step failed: {e}"),
+            )
+        })?
+    {
+        payload["retention"] = r;
     }
-    json_ok(&envelope(&payload, ctx.user_id.as_str()))
+    Ok(payload)
+}
+
+fn field_set(s: &Schema) -> BTreeSet<&str> {
+    s.fields.iter().flatten().map(String::as_str).collect()
 }
 
 fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
-    let stored_fields: BTreeSet<&str> =
-        stored.fields.iter().flatten().map(String::as_str).collect();
-    let proposed_fields: BTreeSet<&str> = proposed
-        .fields
-        .iter()
-        .flatten()
-        .map(String::as_str)
-        .collect();
-    let equal_defs = stored_fields.intersection(&proposed_fields).all(|f| {
+    let (sf, pf) = (field_set(stored), field_set(proposed));
+    let equal_defs = sf.intersection(&pf).all(|f| {
         let (st, pt) = (stored.field_types.get(*f), proposed.field_types.get(*f));
         let retyped_any = matches!(st, None | Some(FieldValueType::Any))
-            && pt.is_some_and(|kind| *kind != FieldValueType::Any);
+            && pt.is_some_and(|k| *k != FieldValueType::Any);
         (st == pt || retyped_any)
             && stored.field_descriptions.get(*f) == proposed.field_descriptions.get(*f)
     });
     if !equal_defs {
         return None;
     }
-    if stored_fields == proposed_fields {
+    if sf == pf {
         return (stored.identity_hash == proposed.identity_hash).then_some(true);
     }
-    if stored_fields.is_subset(&proposed_fields) {
-        return Some(true);
-    }
-    proposed_fields.is_subset(&stored_fields).then_some(false)
+    sf.is_subset(&pf)
+        .then_some(true)
+        .or_else(|| pf.is_subset(&sf).then_some(false))
 }
 
-fn check_local(
-    host: &Host,
-    declare: &DirectDeclareProposal,
-) -> Result<Option<(Schema, bool)>, String> {
-    let proposed = &declare.catalog_schema;
-    proposed.validate_owned_schema()?;
+fn check_local(host: &Host, declare: &Proposal) -> Result<Option<(Schema, bool)>, String> {
+    let p = &declare.catalog_schema;
+    p.validate_owned_schema()?;
     let schemas = host
         .records()
         .schema_manager()
         .get_schemas()
         .map_err(|e| e.to_string())?;
     let mut installed = None;
-    for stored in schemas.values() {
-        let related = stored.name == declare.local_schema_id
-            || stored.identity_hash == proposed.identity_hash
-            || (stored.owner_app_id == proposed.owner_app_id
-                && stored.descriptive_name == proposed.descriptive_name);
+    for s in schemas.values() {
+        let related = s.name == declare.local_schema_id
+            || s.identity_hash == p.identity_hash
+            || (s.owner_app_id == p.owner_app_id && s.descriptive_name == p.descriptive_name);
         if !related {
             continue;
         }
-        if stored.owner_app_id != proposed.owner_app_id
-            || stored.descriptive_name != proposed.descriptive_name
-            || stored.schema_type != proposed.schema_type
-            || stored.record_keys != proposed.record_keys
-            || stored.key != proposed.key
-            || stored.alternate_keys != proposed.alternate_keys
+        if s.owner_app_id != p.owner_app_id
+            || s.descriptive_name != p.descriptive_name
+            || s.schema_type != p.schema_type
+            || s.record_keys != p.record_keys
+            || s.key != p.key
+            || s.alternate_keys != p.alternate_keys
             || installed.is_some()
         {
             return Err(BREAKING_CHANGE.into());
         }
-        let needs_load = field_change(stored, proposed).ok_or(BREAKING_CHANGE)?;
-        installed = Some((stored.clone(), needs_load));
+        installed = Some((s.clone(), field_change(s, p).ok_or(BREAKING_CHANGE)?));
     }
     Ok(installed)
 }
@@ -278,75 +227,65 @@ fn copy_missing<V: Clone>(dst: &mut HashMap<String, V>, src: &HashMap<String, V>
     }
 }
 
-fn owned_schema(
-    declare: &DirectDeclareProposal,
-    installed: Option<&Schema>,
-) -> Result<Schema, String> {
-    let mut schema = declare.catalog_schema.clone();
-    schema.field_hashes.clear();
+fn owned_schema(declare: &Proposal, installed: Option<&Schema>) -> Result<Schema, String> {
+    let mut s = declare.catalog_schema.clone();
+    s.field_hashes.clear();
     if let Some(inst) = installed {
-        for field in schema.fields.clone().unwrap_or_default() {
-            let unchanged = inst.field_types.get(&field) == schema.field_types.get(&field)
-                && inst.field_descriptions.get(&field) == schema.field_descriptions.get(&field)
-                && schema
-                    .field_versions
-                    .get(&field)
-                    .is_none_or(|v| inst.field_versions.get(&field) == Some(v));
-            if unchanged {
-                if let Some(h) = inst.field_hashes.get(&field) {
-                    schema.field_hashes.insert(field.clone(), h.clone());
-                }
-                if let Some(&v) = inst.field_versions.get(&field) {
-                    schema.field_versions.insert(field.clone(), v);
-                }
+        for f in s.fields.clone().unwrap_or_default() {
+            if inst.field_types.get(&f) == s.field_types.get(&f)
+                && inst.field_descriptions.get(&f) == s.field_descriptions.get(&f)
+                && s.field_versions
+                    .get(&f)
+                    .is_none_or(|v| inst.field_versions.get(&f) == Some(v))
+            {
+                copy_missing(&mut s.field_versions, &inst.field_versions, &f);
+                copy_missing(&mut s.field_hashes, &inst.field_hashes, &f);
+                copy_missing(&mut s.field_declarations, &inst.field_declarations, &f);
                 copy_missing(
-                    &mut schema.field_declarations,
-                    &inst.field_declarations,
-                    &field,
-                );
-                copy_missing(
-                    &mut schema.field_classifications,
+                    &mut s.field_classifications,
                     &inst.field_classifications,
-                    &field,
+                    &f,
                 );
                 copy_missing(
-                    &mut schema.field_interest_categories,
+                    &mut s.field_interest_categories,
                     &inst.field_interest_categories,
-                    &field,
+                    &f,
                 );
             }
         }
-        schema.name.clone_from(&inst.name);
+        s.name.clone_from(&inst.name);
     }
-    schema.ensure_field_hashes();
-    schema.validate().map_err(|e| e.to_string())?;
-    schema.validate_owned_schema()?;
-    Ok(schema)
+    s.ensure_field_hashes();
+    s.validate().map_err(|e| e.to_string())?;
+    s.validate_owned_schema()?;
+    Ok(s)
 }
 
 async fn load_owned(
     host: &Host,
-    declare: &DirectDeclareProposal,
-) -> Result<DirectDeclareResolution, String> {
+    declare: &Proposal,
+    layout: Option<&(u64, RetentionLayout)>,
+) -> Result<(String, bool, Option<(ManifestRetentionPlan, bool)>), String> {
     let installed = check_local(host, declare)?;
-    if let Some((schema, false)) = &installed {
-        precheck_declare_retention(host, declare, &schema.name).await?;
-        return Ok(DirectDeclareResolution {
-            runtime_schema: schema.name.clone(),
-            reused: true,
-        });
-    }
     let inst = installed.as_ref().map(|(s, _)| s);
     let runtime = inst.map_or(declare.local_schema_id.as_str(), |s| s.name.as_str());
-    precheck_declare_retention(host, declare, runtime).await?;
+    let checked = if let Some((ttl, lay)) = layout {
+        Some(check_retention(host, declare, runtime, *ttl, lay).await?)
+    } else {
+        None
+    };
+    if let Some((schema, false)) = &installed {
+        return Ok((schema.name.clone(), true, checked));
+    }
     let schema = owned_schema(declare, inst)?;
     host.records()
         .schema_manager()
         .load_schema_internal(schema)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(DirectDeclareResolution {
-        runtime_schema: runtime.to_string(),
-        reused: inst.is_some_and(|s| s.identity_hash == declare.catalog_schema.identity_hash),
-    })
+    Ok((
+        runtime.to_string(),
+        inst.is_some_and(|s| s.identity_hash == declare.catalog_schema.identity_hash),
+        checked,
+    ))
 }

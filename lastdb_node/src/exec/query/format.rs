@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 
 use fold_db::access::AccessContext;
 use fold_db::fold_db_core::query::query_executor::AlternatePage;
+use fold_db::fold_db_core::query::Record;
 use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
@@ -17,7 +18,6 @@ use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 const QUERY_BATCH_MAX_QUERIES: usize = 64;
-const QUERY_BATCH_CONCURRENCY: usize = 4;
 const KEYED_FILTER_VARIANTS: &[&str] = &[
     "HashKey",
     "HashRangeKey",
@@ -32,49 +32,34 @@ struct QueryBatchRequest {
     queries: Vec<Value>,
 }
 
-pub(in crate::exec) async fn execute_query_batch_route(
+pub(in crate::exec) async fn query_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
     use futures::StreamExt as _;
     let queries = match parse_query_batch(req, ctx) {
-        Ok(queries) => queries,
-        Err(response) => return response,
+        Ok(q) => q,
+        Err(resp) => return resp,
     };
     let items = queries
         .into_iter()
         .enumerate()
-        .map(|(index, query)| async move {
+        .map(|(i, query)| async move {
             let Value::Object(obj) = query else {
-                return (index, Reject::malformed_body().response());
+                return (i, Reject::malformed_body().response());
             };
             let resp = match parse_query_body(obj) {
-                Ok(q) => render(
-                    execute_query(
-                        host,
-                        q.query,
-                        q.limit,
-                        q.offset,
-                        q.cursor,
-                        q.response_format,
-                    )
-                    .await,
-                    ctx,
-                ),
-                Err(resp) => resp,
+                Ok(q) => render(execute_query(host, q).await, ctx),
+                Err(r) => r,
             };
-            (index, resp)
+            (i, resp)
         });
     let Ok(scope) = host.records().db_ops().read_scope().await else {
         return error_response(503, "read scope unavailable", ctx);
     };
     let finished: Vec<(usize, UdsResponse)> = scope
-        .run_shared(
-            futures::stream::iter(items)
-                .buffer_unordered(QUERY_BATCH_CONCURRENCY)
-                .collect(),
-        )
+        .run_shared(futures::stream::iter(items).buffer_unordered(4).collect())
         .await;
     let results = batch_results(finished);
     render(
@@ -84,14 +69,14 @@ pub(in crate::exec) async fn execute_query_batch_route(
 }
 
 pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
-    finished.sort_by_key(|(index, _)| *index);
+    finished.sort_by_key(|(i, _)| *i);
     finished
         .into_iter()
-        .map(|(_, response)| {
-            let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
-                Value::String(String::from_utf8_lossy(&response.body).into_owned())
+        .map(|(_, resp)| {
+            let body = serde_json::from_slice::<Value>(&resp.body).unwrap_or_else(|_| {
+                Value::String(String::from_utf8_lossy(&resp.body).into_owned())
             });
-            json!({ "status": response.status, "response": body })
+            json!({ "status": resp.status, "response": body })
         })
         .collect()
 }
@@ -101,7 +86,7 @@ pub(in crate::exec) fn parse_query_batch(
     ctx: &AccessContext,
 ) -> Result<Vec<Value>, UdsResponse> {
     let queries = serde_json::from_value::<QueryBatchRequest>(Value::Object(body_object(req)?))
-        .map_err(|error| Reject::from_serde_error(&error, None).response())?
+        .map_err(|e| Reject::from_serde_error(&e, None).response())?
         .queries;
     if queries.is_empty() {
         return Err(error_response(
@@ -111,14 +96,11 @@ pub(in crate::exec) fn parse_query_batch(
         ));
     }
     if queries.len() > QUERY_BATCH_MAX_QUERIES {
-        return Err(error_response(
-            400,
-            &format!(
-                "Query batch carries {} queries; the limit is {QUERY_BATCH_MAX_QUERIES}",
-                queries.len()
-            ),
-            ctx,
-        ));
+        let msg = format!(
+            "Query batch carries {} queries; the limit is {QUERY_BATCH_MAX_QUERIES}",
+            queries.len()
+        );
+        return Err(error_response(400, &msg, ctx));
     }
     Ok(queries)
 }
@@ -126,83 +108,67 @@ pub(in crate::exec) fn parse_query_batch(
 fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
-    limit: usize,
-    offset: usize,
+    (limit, offset): (usize, usize),
     has_more: bool,
     next_cursor: Option<QueryCursor>,
     key_form: Option<&'static str>,
 ) -> Value {
-    let returned_count = page.len();
-    let next_cursor = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
+    let n = page.len();
     json!({
-        "results": Value::Array(page), "total_count": total_count, "returned_count": returned_count,
+        "results": Value::Array(page), "total_count": total_count, "returned_count": n,
         "limit": limit, "offset": offset, "has_more": has_more,
-        "next_cursor": next_cursor, "key_form": key_form,
+        "next_cursor": serde_json::to_value(next_cursor).unwrap_or(Value::Null), "key_form": key_form,
     })
 }
 
 pub(super) fn cursor_payload(
     mut page: Vec<Value>,
     total_count: Option<usize>,
-    limit: usize,
-    offset: usize,
+    (limit, offset): (usize, usize),
     resume: Option<KeyValue>,
     comparison: Option<String>,
+    with_cursor: bool,
 ) -> Value {
     let has_more = page.len() > limit || resume.is_some();
     page.truncate(limit);
-    let next_cursor = resume
-        .or_else(|| {
-            has_more
-                .then(|| page.last()?.get("key"))
-                .flatten()
-                .and_then(|k| serde_json::from_value::<KeyValue>(k.clone()).ok())
+    let next = with_cursor
+        .then(|| {
+            resume.or_else(|| {
+                has_more
+                    .then(|| serde_json::from_value(page.last()?.get("key")?.clone()).ok())
+                    .flatten()
+            })
         })
+        .flatten()
         .map(|key| QueryCursor::new(key, comparison));
-    page_payload(
-        page,
-        total_count,
-        limit,
-        offset,
-        has_more,
-        next_cursor,
-        None,
-    )
-}
-
-pub(super) fn overfetched_offset_payload(
-    mut page: Vec<Value>,
-    total_count: usize,
-    limit: usize,
-    offset: usize,
-) -> Value {
-    let has_more = page.len() > limit;
-    page.truncate(limit);
-    page_payload(page, Some(total_count), limit, offset, has_more, None, None)
+    page_payload(page, total_count, (limit, offset), has_more, next, None)
 }
 
 pub(super) fn materialized_page_payload(results: Vec<Value>, limit: usize, offset: usize) -> Value {
     let total_count = results.len();
     let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
     let has_more = offset.saturating_add(page.len()) < total_count;
-    page_payload(page, Some(total_count), limit, offset, has_more, None, None)
+    page_payload(
+        page,
+        Some(total_count),
+        (limit, offset),
+        has_more,
+        None,
+        None,
+    )
 }
 
 pub(super) fn format_rows(
-    records: fold_db::fold_db_core::query::QueryRecords,
+    records: impl IntoIterator<Item = (KeyValue, Record)>,
     compact: bool,
 ) -> Vec<Value> {
     records
         .into_iter()
-        .map(|(key, record)| format_row(&key, record, compact))
+        .map(|(k, r)| format_row(&k, r, compact))
         .collect()
 }
 
-fn format_row(
-    key: &KeyValue,
-    record: fold_db::fold_db_core::query::Record,
-    compact: bool,
-) -> Value {
+fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
     let mut row = serde_json::Map::from_iter([
         ("key".into(), json!(key)),
         ("revision".into(), Value::String(record.revision)),
@@ -219,7 +185,7 @@ fn format_row(
 }
 
 pub(in crate::exec) fn verified_query_page(
-    records: Vec<(KeyValue, fold_db::fold_db_core::query::Record)>,
+    records: Vec<(KeyValue, Record)>,
     compact: bool,
     total_count: Option<usize>,
     limit: usize,
@@ -228,15 +194,10 @@ pub(in crate::exec) fn verified_query_page(
     next_cursor: Option<QueryCursor>,
 ) -> Value {
     let key_form = (!records.is_empty()).then_some("api");
-    let rows = records
-        .into_iter()
-        .map(|(k, r)| format_row(&k, r, compact))
-        .collect();
     page_payload(
-        rows,
+        format_rows(records, compact),
         total_count,
-        limit,
-        offset,
+        (limit, offset),
         has_more,
         next_cursor,
         key_form,
@@ -252,11 +213,11 @@ pub(in crate::exec) fn format_alternate_page(
     for entry in &page.entries {
         let mut row = page.values.remove(&entry.primary).map_or_else(
             || {
-                let mut row = json!({ "key": entry.primary, "fields": {} });
+                let mut r = json!({ "key": entry.primary, "fields": {} });
                 if !compact {
-                    row["metadata"] = Value::Null;
+                    r["metadata"] = Value::Null;
                 }
-                row
+                r
             },
             |record| format_row(&entry.primary, record, compact),
         );
@@ -268,16 +229,15 @@ pub(in crate::exec) fn format_alternate_page(
         .has_more
         .then(|| page.entries.last())
         .flatten()
-        .map(|entry| {
-            let mut cursor = QueryCursor::new(entry.matched.clone(), Some(page.comparison));
-            cursor.alternate_primary = Some(entry.primary.clone());
-            cursor
+        .map(|e| {
+            let mut c = QueryCursor::new(e.matched.clone(), Some(page.comparison));
+            c.alternate_primary = Some(e.primary.clone());
+            c
         });
     Ok(page_payload(
         results,
         None,
-        limit,
-        0,
+        (limit, 0),
         page.has_more,
         next,
         None,
@@ -286,7 +246,7 @@ pub(in crate::exec) fn format_alternate_page(
 
 pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema>) -> HostError {
     let is_id = |v: &str| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit());
-    let schema_name = schema
+    let name = schema
         .and_then(|s| s.descriptive_name.clone())
         .or_else(|| (!is_id(requested)).then(|| requested.to_string()))
         .or_else(|| schema.and_then(|s| (!is_id(&s.name)).then(|| s.name.clone())))
@@ -296,65 +256,57 @@ pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema
                 .map(|o| format!("{o}/<unnamed-schema>"))
         })
         .unwrap_or_else(|| "<unnamed-product-schema>".to_string());
-    let message = format!(
-        "full_schema_scan_not_allowed: unfiltered query on product schema '{schema_name}' is not supported; add a keyed filter using the structured remediation"
+    let msg = format!(
+        "full_schema_scan_not_allowed: unfiltered query on product schema '{name}' is not supported; add a keyed filter using the structured remediation"
     );
     let body = json!({
-        "ok": false,
-        "kind": "full_schema_scan_not_allowed",
+        "ok": false, "kind": "full_schema_scan_not_allowed",
         "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
-        "message": message,
-        "schema_name": schema_name,
+        "message": msg, "schema_name": name,
         "schema_id": schema.map_or(requested, |s| s.name.as_str()),
         "remediation": {
-            "action": "add_key_filter",
-            "request_key": "filter",
+            "action": "add_key_filter", "request_key": "filter",
             "record_keys": schema.and_then(|s| s.record_keys.as_ref()),
             "filter_variants": KEYED_FILTER_VARIANTS,
         }
     });
-    HostError::structured(400, message, body)
+    HostError::structured(400, msg, body)
 }
 
 pub(super) fn sort_rows(
     rows: &mut [Value],
     sort_order: Option<&SortOrder>,
-    range_comparison: Option<&RangeKeyComparison>,
+    range_cmp: Option<&RangeKeyComparison>,
 ) -> Result<(), HostError> {
-    if let Some(cmp) = range_comparison {
-        for row in &*rows {
-            cmp.validate_value(row["key"]["range"].as_str().unwrap_or(""))
+    if let Some(cmp) = range_cmp {
+        for r in &*rows {
+            cmp.validate_value(r["key"]["range"].as_str().unwrap_or(""))
                 .map_err(SchemaError::InvalidData)?;
         }
     }
-    let mut error = None;
-    let desc = matches!(sort_order, Some(SortOrder::Desc));
+    let (mut err, desc) = (None, matches!(sort_order, Some(SortOrder::Desc)));
     rows.sort_by(|a, b| {
         let (ar, br) = (
             a["key"]["range"].as_str().unwrap_or(""),
             b["key"]["range"].as_str().unwrap_or(""),
         );
-        let range_order = match range_comparison {
-            Some(cmp) => match cmp.compare(ar, br) {
-                Ok(order) => order,
-                Err(detail) => {
-                    error.get_or_insert(SchemaError::InvalidData(detail));
+        let ord = if let Some(cmp) = range_cmp {
+            match cmp.compare(ar, br) {
+                Ok(o) => o,
+                Err(d) => {
+                    err.get_or_insert(SchemaError::InvalidData(d));
                     return Ordering::Equal;
                 }
-            },
-            None => ar.cmp(br),
-        };
-        let primary = if desc {
-            range_order.reverse()
+            }
         } else {
-            range_order
+            ar.cmp(br)
         };
-        primary.then(range_order).then_with(|| {
+        (if desc { ord.reverse() } else { ord }).then_with(|| {
             a["key"]["hash"]
                 .as_str()
                 .unwrap_or("")
                 .cmp(b["key"]["hash"].as_str().unwrap_or(""))
         })
     });
-    error.map_or(Ok(()), |e| Err(e.into()))
+    err.map_or(Ok(()), |e| Err(e.into()))
 }

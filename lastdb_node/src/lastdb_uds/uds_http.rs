@@ -6,54 +6,38 @@ use std::time::{Duration, Instant};
 
 use fold_db::access::AccessContext;
 
-/// Largest single request/header line accepted, in bytes (excluding CRLF).
 pub const MAX_LINE_LEN: usize = 8 * 1024;
-/// Largest total header-section size accepted, in bytes.
 pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
-/// Largest general request body accepted, in bytes.
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 
 const MAX_HEADER_COUNT: usize = 256;
 const UDS_CONN_BUDGET: Duration = Duration::from_secs(10);
 
-/// A request read off the control socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdsRequest {
-    /// Request method token (e.g. `GET`, `POST`), verbatim from the wire.
     pub method: String,
-    /// Request target (path and optional query), verbatim from the wire.
     pub target: String,
-    /// Header lines in wire order, each `(name, value)` trimmed.
     pub headers: Vec<(String, String)>,
-    /// Request body — `Content-Length` bytes, or empty when absent.
     pub body: Vec<u8>,
 }
 
 impl UdsRequest {
-    /// Look up a header by name, case-insensitively, returning the first match.
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
+            .find_map(|(n, v)| n.eq_ignore_ascii_case(name).then_some(v.as_str()))
     }
 }
 
-/// An HTTP/1.1 response to write back over the control socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UdsResponse {
-    /// Numeric HTTP status code.
     pub status: u16,
-    /// Reason phrase for the status line.
     pub reason: &'static str,
-    /// Extra response headers in wire order.
     pub headers: Vec<(String, String)>,
-    /// Response body bytes.
     pub body: Vec<u8>,
 }
 
 impl UdsResponse {
-    /// Build a response with status, reason, and body and no extra headers.
     pub fn new(status: u16, reason: &'static str, body: Vec<u8>) -> Self {
         Self {
             status,
@@ -63,7 +47,6 @@ impl UdsResponse {
         }
     }
 
-    /// Append a header to the response, returning `self` for chaining.
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.push((name.into(), value.into()));
         self
@@ -104,10 +87,7 @@ fn read_line<R: BufRead>(reader: &mut R, max: usize) -> Result<Option<Vec<u8>>, 
         .ok_or(UdsHttpError::HeadersTooLarge)
 }
 
-fn read_request<R: BufRead>(
-    mut reader: R,
-    allow_owner_blob: bool,
-) -> Result<UdsRequest, UdsHttpError> {
+fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpError> {
     let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::Silent)?;
     let [method, target, version] = std::str::from_utf8(&line)
         .map_err(|_| UdsHttpError::BadRequest)?
@@ -123,25 +103,25 @@ fn read_request<R: BufRead>(
         return Err(UdsHttpError::UnsupportedHttpVersion);
     }
     let (method, target) = (method.to_string(), target.to_string());
-    let (mut headers, mut header_bytes) = (Vec::new(), 0usize);
+    let (mut headers, mut total) = (Vec::new(), 0usize);
     loop {
         let line = read_line(&mut reader, MAX_LINE_LEN)?.ok_or(UdsHttpError::BadRequest)?;
         if line.is_empty() {
             break;
         }
-        header_bytes = header_bytes.saturating_add(line.len());
-        if header_bytes > MAX_HEADERS_TOTAL || headers.len() >= MAX_HEADER_COUNT {
+        total = total.saturating_add(line.len());
+        if total > MAX_HEADERS_TOTAL || headers.len() >= MAX_HEADER_COUNT {
             return Err(UdsHttpError::HeadersTooLarge);
         }
-        let (raw_name, value) = std::str::from_utf8(&line)
+        let (raw, val) = std::str::from_utf8(&line)
             .ok()
             .and_then(|s| s.split_once(':'))
             .ok_or(UdsHttpError::BadRequest)?;
-        let name = raw_name.trim();
+        let name = raw.trim();
         if name.is_empty() || name.bytes().any(|b| b == b' ' || b == b'\t') {
             return Err(UdsHttpError::BadRequest);
         }
-        headers.push((name.to_string(), value.trim().to_string()));
+        headers.push((name.to_string(), val.trim().to_string()));
     }
     if headers
         .iter()
@@ -149,7 +129,7 @@ fn read_request<R: BufRead>(
     {
         return Err(UdsHttpError::BadRequest);
     }
-    let body = read_body(&mut reader, &headers, &method, &target, allow_owner_blob)?;
+    let body = read_body(&mut reader, &headers, &method, &target)?;
     Ok(UdsRequest {
         method,
         target,
@@ -163,10 +143,8 @@ fn read_body(
     headers: &[(String, String)],
     method: &str,
     target: &str,
-    allow_owner_blob: bool,
 ) -> Result<Vec<u8>, UdsHttpError> {
-    let raw_blob = allow_owner_blob
-        && method == "POST"
+    let raw_blob = method == "POST"
         && (target == "/api/db/put-blob"
             || crate::lastdb_uds::database_path::split(target)
                 .is_some_and(|(_, p)| p == "db/put-blob"))
@@ -175,25 +153,25 @@ fn read_body(
             .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
             .and_then(|(_, v)| v.split(';').next())
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
-    let maximum = if raw_blob {
+    let max = if raw_blob {
         fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
     } else {
         MAX_BODY_LEN as u64
     };
     let (mut length, mut seen) = (0usize, false);
-    for (name, value) in headers {
-        if name.eq_ignore_ascii_case("content-length") {
-            let parsed = value
+    for (n, v) in headers {
+        if n.eq_ignore_ascii_case("content-length") {
+            let p = v
                 .trim()
                 .parse::<usize>()
                 .map_err(|_| UdsHttpError::BadRequest)?;
-            if seen && parsed != length {
+            if seen && p != length {
                 return Err(UdsHttpError::BadRequest);
             }
-            (length, seen) = (parsed, true);
+            (length, seen) = (p, true);
         }
     }
-    if length as u64 > maximum {
+    if length as u64 > max {
         return Err(UdsHttpError::BodyTooLarge);
     }
     let mut body = Vec::new();
@@ -221,14 +199,11 @@ pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
     write_with_budget(stream, &resp, Duration::from_secs(2))
 }
 
-struct DeadlineStream<'a> {
-    stream: &'a UnixStream,
-    deadline: Instant,
-}
+struct DeadlineStream<'a>(&'a UnixStream, Instant);
 
 impl DeadlineStream<'_> {
     fn arm(&self, set: impl Fn(Option<Duration>) -> io::Result<()>) -> io::Result<()> {
-        let rem = self.deadline.saturating_duration_since(Instant::now());
+        let rem = self.1.saturating_duration_since(Instant::now());
         if rem.is_zero() {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
@@ -241,19 +216,18 @@ impl DeadlineStream<'_> {
 
 impl Read for DeadlineStream<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.arm(|d| self.stream.set_read_timeout(d))?;
-        (&*self.stream).read(buf)
+        self.arm(|d| self.0.set_read_timeout(d))?;
+        self.0.read(buf)
     }
 }
 
 impl Write for DeadlineStream<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.arm(|d| self.stream.set_write_timeout(d))?;
-        (&*self.stream).write(buf)
+        self.arm(|d| self.0.set_write_timeout(d))?;
+        self.0.write(buf)
     }
-
     fn flush(&mut self) -> io::Result<()> {
-        (&*self.stream).flush()
+        self.0.flush()
     }
 }
 
@@ -262,10 +236,7 @@ fn write_with_budget(
     resp: &UdsResponse,
     budget: Duration,
 ) -> io::Result<()> {
-    let mut w = DeadlineStream {
-        stream,
-        deadline: Instant::now() + budget,
-    };
+    let mut w = DeadlineStream(stream, Instant::now() + budget);
     write!(
         w,
         "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n",
@@ -273,10 +244,9 @@ fn write_with_budget(
         resp.reason,
         resp.body.len()
     )?;
-    for (name, value) in &resp.headers {
-        if !name.eq_ignore_ascii_case("content-length") && !name.eq_ignore_ascii_case("connection")
-        {
-            write!(w, "{name}: {value}\r\n")?;
+    for (n, v) in &resp.headers {
+        if !n.eq_ignore_ascii_case("content-length") && !n.eq_ignore_ascii_case("connection") {
+            write!(w, "{n}: {v}\r\n")?;
         }
     }
     write!(w, "\r\n")?;
@@ -286,22 +256,19 @@ fn write_with_budget(
     Ok(())
 }
 
-/// Parse one request with the connection deadline and owner access context.
 pub fn receive_connection(
     stream: &mut UnixStream,
     owner_user_id: &str,
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
     let read_half = stream.try_clone()?;
-    let base = AccessContext::owner(owner_user_id);
-    let reader = io::BufReader::new(DeadlineStream {
-        stream: &read_half,
-        deadline: Instant::now() + UDS_CONN_BUDGET,
-    });
-    match read_request(reader, base.is_owner) {
-        Ok(request) => Ok(Some((request, base))),
+    match read_request(io::BufReader::new(DeadlineStream(
+        &read_half,
+        Instant::now() + UDS_CONN_BUDGET,
+    ))) {
+        Ok(req) => Ok(Some((req, AccessContext::owner(owner_user_id)))),
         Err(UdsHttpError::Silent) => Ok(None),
-        Err(error) => {
-            let (status, reason) = match error {
+        Err(err) => {
+            let (status, reason) = match err {
                 UdsHttpError::UnsupportedHttpVersion => (505, "HTTP Version Not Supported"),
                 UdsHttpError::HeadersTooLarge => (431, "Request Header Fields Too Large"),
                 UdsHttpError::BodyTooLarge => (413, "Payload Too Large"),
@@ -313,7 +280,6 @@ pub fn receive_connection(
     }
 }
 
-/// Write one final response with a fresh deadline and explicit EOF.
 pub fn finish_connection(stream: &mut UnixStream, response: &UdsResponse) -> io::Result<()> {
     write_with_budget(stream, response, UDS_CONN_BUDGET)
 }

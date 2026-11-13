@@ -2,48 +2,39 @@
 
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
-use app_cmds::*;
-#[path = "lastdb/record_get_cmds.rs"]
-mod record_get_cmds;
-use record_get_cmds::*;
+#[path = "lastdb/cli_defs.rs"]
+mod cli_defs;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
-#[path = "lastdb/share_cmds.rs"]
-mod share_cmds;
-use cloud_cmds::*;
-#[path = "lastdb/status_ops_cmds.rs"]
-mod status_ops_cmds;
-use status_ops_cmds::*;
-#[path = "lastdb/mutate_cmds.rs"]
-mod mutate_cmds;
-use mutate_cmds::*;
 #[path = "lastdb/database_cmds.rs"]
 mod database_cmds;
-use database_cmds::*;
+#[path = "lastdb/mutate_cmds.rs"]
+mod mutate_cmds;
+#[path = "lastdb/record_get_cmds.rs"]
+mod record_get_cmds;
+#[path = "lastdb/share_cmds.rs"]
+mod share_cmds;
+#[path = "lastdb/status_ops_cmds.rs"]
+mod status_ops_cmds;
 
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use app_cmds::*;
 use clap::{Args, Parser, Subcommand};
-
-#[path = "lastdb/cli_defs.rs"]
-mod cli_defs;
 use cli_defs::*;
+use cloud_cmds::*;
+use database_cmds::*;
+use mutate_cmds::*;
+use record_get_cmds::*;
+use status_ops_cmds::*;
 
-pub(crate) fn durable_mutation_client_timeout() -> Duration {
-    lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
-}
-
-pub(crate) fn admin_scan_client_timeout() -> Duration {
-    lastdb_node::exec::admin_handler_timeout()
-}
-
-mod socket_client {
+pub(crate) mod socket_client {
     use super::*;
 
-    type SocketRequestResult = Result<String, (&'static str, std::io::Error, Duration)>;
+    type RawErr = (&'static str, std::io::Error, Duration);
 
     pub(crate) fn client_headers() -> String {
         format!(
@@ -52,12 +43,59 @@ mod socket_client {
         )
     }
 
+    fn get_req(path: &str) -> String {
+        format!(
+            "GET {path} HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
+            client_headers()
+        )
+    }
+
+    pub(crate) fn get_path(socket: &Path, path: &str, timeout: Duration) -> Result<String, String> {
+        request_with_timeout(socket, get_req(path).as_bytes(), timeout)
+    }
+
+    pub(crate) fn get_path_retry(
+        socket: &Path,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        let (req, started) = (get_req(path), Instant::now());
+        for attempt in 1..=3usize {
+            let budget = timeout
+                .saturating_sub(started.elapsed())
+                .max(Duration::from_millis(1));
+            match raw_io(socket, req.as_bytes(), budget) {
+                Ok(resp) => {
+                    return String::from_utf8(resp)
+                        .map_err(|e| format!("failed to decode response: {e}"));
+                }
+                Err(("read response", err, elapsed))
+                    if err.kind() == ErrorKind::WouldBlock
+                        && elapsed < budget
+                        && elapsed < Duration::from_secs(1) =>
+                {
+                    if attempt == 3 {
+                        return Err("transient socket read remained unavailable after 3 attempts; retry this command. The node may be healthy but busy; this is not an outage.".into());
+                    }
+                    std::thread::sleep(Duration::from_millis(25 * attempt as u64));
+                }
+                Err((op, err, _)) => return Err(format_socket_io_error(op, &err, timeout)),
+            }
+        }
+        unreachable!()
+    }
+
     pub(crate) fn post_json_admin(
         socket: &Path,
         path: &str,
         body: &serde_json::Value,
     ) -> Result<String, String> {
-        post_json_with_timeout(socket, path, body, admin_scan_client_timeout())
+        post_json_with_timeout(
+            socket,
+            path,
+            body,
+            lastdb_node::exec::admin_handler_timeout(),
+        )
     }
 
     pub(crate) fn post_json_with_timeout(
@@ -88,159 +126,100 @@ mod socket_client {
         request_with_timeout(socket, &req, timeout)
     }
 
+    pub(crate) fn request_with_timeout_bytes(
+        socket: &Path,
+        bytes: &[u8],
+        timeout: Duration,
+    ) -> Result<Vec<u8>, String> {
+        raw_io(socket, bytes, timeout)
+            .map_err(|(op, err, _)| format_socket_io_error(op, &err, timeout))
+    }
+
     pub(crate) fn request_with_timeout(
         socket: &Path,
         bytes: &[u8],
         timeout: Duration,
     ) -> Result<String, String> {
-        request_with_timeout_raw(socket, bytes, timeout)
-            .map_err(|(op, err, _)| format_socket_io_error(op, &err, timeout))
+        String::from_utf8(request_with_timeout_bytes(socket, bytes, timeout)?)
+            .map_err(|e| format!("failed to decode response: {e}"))
     }
 
-    fn request_with_timeout_raw(
-        socket: &Path,
-        bytes: &[u8],
-        timeout: Duration,
-    ) -> SocketRequestResult {
-        let resp = request_with_timeout_raw_bytes(socket, bytes, timeout)?;
-        let started = Instant::now();
-        String::from_utf8(resp).map_err(|e| {
-            (
-                "decode response",
-                std::io::Error::new(ErrorKind::InvalidData, e),
-                started.elapsed(),
-            )
-        })
-    }
-
-    pub(crate) fn request_with_timeout_raw_bytes(
-        socket: &Path,
-        bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<Vec<u8>, (&'static str, std::io::Error, Duration)> {
-        let mut stream = UnixStream::connect(socket)
-            .map_err(|e| ("connect to daemon socket", e, Duration::ZERO))?;
-        stream
-            .set_read_timeout(Some(timeout))
-            .map_err(|e| ("set socket read timeout", e, Duration::ZERO))?;
-        stream
-            .set_write_timeout(Some(timeout))
-            .map_err(|e| ("set socket write timeout", e, Duration::ZERO))?;
-        stream
-            .write_all(bytes)
-            .map_err(|e| ("write request", e, Duration::ZERO))?;
-        let mut resp = Vec::new();
-        let started = Instant::now();
-        stream
-            .read_to_end(&mut resp)
+    fn raw_io(socket: &Path, bytes: &[u8], timeout: Duration) -> Result<Vec<u8>, RawErr> {
+        let zero = |op| move |e| (op, e, Duration::ZERO);
+        let mut s = UnixStream::connect(socket).map_err(zero("connect to daemon socket"))?;
+        s.set_read_timeout(Some(timeout))
+            .map_err(zero("set socket read timeout"))?;
+        s.set_write_timeout(Some(timeout))
+            .map_err(zero("set socket write timeout"))?;
+        s.write_all(bytes).map_err(zero("write request"))?;
+        let (mut resp, started) = (Vec::new(), Instant::now());
+        s.read_to_end(&mut resp)
             .map_err(|e| ("read response", e, started.elapsed()))?;
         Ok(resp)
     }
 
-    pub(crate) fn request_readonly_with_retry(
-        socket: &Path,
-        bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<String, String> {
-        let started = Instant::now();
-        for attempt in 1..=3usize {
-            let budget = timeout
-                .saturating_sub(started.elapsed())
-                .max(Duration::from_millis(1));
-            match request_with_timeout_raw(socket, bytes, budget) {
-                Ok(resp) => return Ok(resp),
-                Err(("read response", err, elapsed))
-                    if err.kind() == ErrorKind::WouldBlock
-                        && elapsed < budget
-                        && elapsed < Duration::from_secs(1) =>
-                {
-                    if attempt == 3 {
-                        return Err(
-                            "transient socket read remained unavailable after 3 attempts; retry this command. The node may be healthy but busy; this is not an outage.".into(),
-                        );
-                    }
-                    std::thread::sleep(Duration::from_millis(25 * attempt as u64));
-                }
-                Err((op, err, _)) => return Err(format_socket_io_error(op, &err, timeout)),
-            }
-        }
-        unreachable!()
-    }
-
-    pub(crate) fn format_socket_io_error(
-        op: &str,
-        err: &std::io::Error,
-        timeout: Duration,
-    ) -> String {
+    fn format_socket_io_error(op: &str, err: &std::io::Error, timeout: Duration) -> String {
         if matches!(
             err.kind(),
             ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
         ) {
             let secs = timeout.as_secs().max(1);
-            format!(
-                "client timeout after {secs}s while waiting to {op} (daemon may still be working). This is the CLI socket deadline, not node backpressure. Raise it with LASTDB_UDS_ADMIN_TIMEOUT_SECS=<secs> in the environment — the CLI and the daemon both read it, so server and client stay matched. Some subcommands also accept --timeout <secs>; not all define it."
-            )
+            format!("client timeout after {secs}s while waiting to {op} (daemon may still be working). This is the CLI socket deadline, not node backpressure. Raise it with LASTDB_UDS_ADMIN_TIMEOUT_SECS=<secs> in the environment — the CLI and the daemon both read it, so server and client stay matched. Some subcommands also accept --timeout <secs>; not all define it.")
         } else {
             format!("failed to {op}: {err}")
         }
     }
 
     pub(crate) fn probe_health(socket: &Path) -> Result<(), String> {
-        let raw = request_readonly_with_retry(
-            socket,
-            b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-            Duration::from_secs(2),
-        )?;
+        let raw = get_path_retry(socket, "/health", Duration::from_secs(2))?;
         let line = raw.lines().next().unwrap_or("");
-        if line.starts_with("HTTP/1.1 200") || line.starts_with("HTTP/1.0 200") {
-            Ok(())
-        } else {
-            Err(format!("unexpected /health status: {line}"))
+        (line.starts_with("HTTP/1.1 200") || line.starts_with("HTTP/1.0 200"))
+            .then_some(())
+            .ok_or_else(|| format!("unexpected /health status: {line}"))
+    }
+
+    pub(crate) fn require_reachable(socket: &Path) -> Result<(), String> {
+        probe_health(socket).map_err(|_| {
+            format!(
+                "lastdbd not reachable at {} — start the daemon first",
+                socket.display()
+            )
+        })
+    }
+
+    pub(crate) fn split_http_200<'a>(resp: &'a [u8], label: &str) -> Result<&'a [u8], String> {
+        let end = resp.windows(4).position(|w| w == b"\r\n\r\n");
+        let head = std::str::from_utf8(end.map_or(resp, |i| &resp[..i]))
+            .map_err(|e| format!("invalid {label} response headers: {e}"))?;
+        let line = head.lines().next().unwrap_or("<empty response>");
+        if !line.starts_with("HTTP/1.1 200 ") {
+            let body = end.map_or_else(String::new, |i| {
+                String::from_utf8_lossy(&resp[i + 4..]).trim().to_owned()
+            });
+            return Err(format!("{label} returned {line}: {body}"));
         }
+        let i = end.ok_or_else(|| format!("{label} response had no body"))?;
+        Ok(&resp[i + 4..])
     }
 
     pub(crate) fn parse_json_response(
         response: &str,
         label: &str,
     ) -> Result<serde_json::Value, String> {
-        let status_line = response.lines().next().unwrap_or("<empty response>");
-        if !response.starts_with("HTTP/1.1 200 ") {
-            let body = response
-                .split_once("\r\n\r\n")
-                .map_or("", |(_, b)| b.trim());
-            return Err(format!("{label} returned {status_line}: {body}"));
-        }
-        let (_, body) = response
-            .split_once("\r\n\r\n")
-            .ok_or_else(|| format!("{label} response had no body"))?;
-        serde_json::from_str(body).map_err(|e| format!("invalid {label} JSON: {e}"))
-    }
-
-    pub(crate) fn parse_binary_response(response: &[u8], label: &str) -> Result<Vec<u8>, String> {
-        let header_end = response
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .ok_or_else(|| format!("{label} response had no headers"))?;
-        let header = std::str::from_utf8(&response[..header_end])
-            .map_err(|e| format!("invalid {label} response headers: {e}"))?;
-        let status_line = header.lines().next().unwrap_or("<empty response>");
-        if !status_line.starts_with("HTTP/1.1 200 ") {
-            let body = String::from_utf8_lossy(&response[header_end + 4..]);
-            return Err(format!("{label} returned {status_line}: {}", body.trim()));
-        }
-        Ok(response[header_end + 4..].to_vec())
+        serde_json::from_slice(split_http_200(response.as_bytes(), label)?)
+            .map_err(|e| format!("invalid {label} JSON: {e}"))
     }
 }
 use socket_client::*;
 
 fn main() {
     std::panic::set_hook(Box::new(|info| {
-        let payload = info.payload();
-        let msg = payload
+        let p = info.payload();
+        let m = p
             .downcast_ref::<String>()
             .map(String::as_str)
-            .or_else(|| payload.downcast_ref::<&str>().copied());
-        if msg.is_some_and(|m| {
+            .or_else(|| p.downcast_ref::<&str>().copied());
+        if m.is_some_and(|m| {
             (m.starts_with("failed printing to stdout")
                 || m.starts_with("failed printing to stderr"))
                 && (m.contains("os error 32") || m.contains("Broken pipe"))
@@ -258,12 +237,12 @@ fn main() {
 fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf, PathBuf), String> {
     let explicit = data_dir.is_some();
     let home = lastdb_node::host::resolve_home(data_dir)?;
-    let env_sock = (!explicit)
+    let socket = if let Some(p) = (!explicit)
         .then(|| std::env::var_os("LASTDB_SOCKET_PATH"))
         .flatten()
-        .filter(|v| !v.is_empty());
-    let socket = if let Some(path) = env_sock {
-        lastdb_node::profile::paths::expand_tilde_path(path)?
+        .filter(|v| !v.is_empty())
+    {
+        lastdb_node::profile::paths::expand_tilde_path(p)?
     } else {
         lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"))
     };
@@ -271,13 +250,13 @@ fn resolve_client_home_and_socket(data_dir: Option<PathBuf>) -> Result<(PathBuf,
 }
 
 fn run(cli: Cli) -> Result<(), String> {
-    let command = cli.command.unwrap_or(Command::Status {
+    let cmd = cli.command.unwrap_or(Command::Status {
         json: false,
         timeout: None,
     });
     if cli.db.is_some()
         && !matches!(
-            &command,
+            &cmd,
             Command::Get { .. }
                 | Command::GetKeys(_)
                 | Command::Mutate { .. }
@@ -286,45 +265,76 @@ fn run(cli: Cli) -> Result<(), String> {
                         | ShareCommand::Accept { .. }
                         | ShareCommand::Contributors(
                             ShareContributorCommand::Grant { .. }
-                                | ShareContributorCommand::Revoke { .. },
+                                | ShareContributorCommand::Revoke { .. }
                         )
-                        | ShareCommand::Files(_),
+                        | ShareCommand::Files(_)
                 )
         )
     {
         return Err("--db requires a record command or a database-scoped share command".into());
     }
-    match command {
-        Command::Status { json, timeout } => match status(cli.data_dir, json, timeout)? {
-            StatusRun::Serving => Ok(()),
-            StatusRun::Unreachable => std::process::exit(STATUS_UNREACHABLE_EXIT),
-        },
-        Command::Backup { action } => cloud_command(cli.data_dir, action.into_cloud()?),
-        Command::Share(action) => share_cmds::run(cli.data_dir, cli.db.as_deref(), action),
-        Command::Db { action } => match action {
-            DatabaseCommand::List { json } => list_databases(cli.data_dir, json),
-            DatabaseCommand::Create {
-                name,
-                private,
-                spec_name,
-                spec_version,
-                json,
-            } => create_database(
-                cli.data_dir,
-                &name,
-                private,
-                spec_name.as_deref(),
-                spec_version,
-                json,
-            ),
-            DatabaseCommand::Select { selector, json } => {
-                select_database(cli.data_dir, &selector, json)
+    match cmd {
+        Command::Status { json, timeout } => {
+            if !status(cli.data_dir, json, timeout)? {
+                std::process::exit(1);
             }
-        },
-        Command::Admin { action } => run_admin(cli.data_dir, action),
-        cmd @ (Command::Mutate { .. } | Command::GetKeys(_) | Command::Get { .. }) => {
-            record_command(&DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?, cmd)
+            Ok(())
         }
-        Command::App { action } => app_command(cli.data_dir, action),
+        Command::Backup(b) => cloud_command(
+            cli.data_dir,
+            CloudCommand::BackupV2 {
+                action: match b {
+                    BackupCommand::Connect(a) => ByteBackupCommand::Connect(a),
+                    BackupCommand::Restore(a) => ByteBackupCommand::Restore(a),
+                },
+            },
+        ),
+        Command::Share(a) => share_cmds::run(cli.data_dir, cli.db.as_deref(), a),
+        Command::Db(DatabaseCommand::List { json }) => list_databases(cli.data_dir, json),
+        Command::Db(DatabaseCommand::Select { selector, json }) => {
+            select_database(cli.data_dir, &selector, json)
+        }
+        Command::Db(DatabaseCommand::Create {
+            name,
+            private,
+            spec_name,
+            spec_version,
+            json,
+        }) => create_database(
+            cli.data_dir,
+            &name,
+            private,
+            spec_name.as_deref(),
+            spec_version,
+            json,
+        ),
+        Command::Admin(a) => run_admin(cli.data_dir, a),
+        Command::App(a) => app_command(cli.data_dir, a),
+        c => {
+            let t = DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?;
+            match c {
+                Command::Mutate {
+                    request_file,
+                    durable,
+                    mutation_id,
+                } => mutate_command(&t, &request_file, durable, mutation_id),
+                Command::GetKeys(a) => list_record_keys(&t, &a),
+                Command::Get {
+                    schema,
+                    key_hash,
+                    key_range,
+                    json,
+                    hydrate,
+                    hydrate_inline,
+                } => get_record(
+                    &t,
+                    &schema,
+                    (key_hash.as_deref(), key_range.as_deref()),
+                    json,
+                    (hydrate.as_deref(), hydrate_inline.as_deref()),
+                ),
+                _ => unreachable!(),
+            }
+        }
     }
 }

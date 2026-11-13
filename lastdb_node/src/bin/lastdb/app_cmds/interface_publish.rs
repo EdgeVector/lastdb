@@ -9,21 +9,7 @@ use lastdb_node::exec::normalize_app_manifest_schema;
 use serde_json::{json, Value};
 use std::process::Command;
 
-pub(crate) struct InterfacePublish {
-    pub manifest: PathBuf,
-    pub environment: Option<String>,
-    pub registry_url: Option<String>,
-    pub channel: Option<String>,
-    pub key_file: Option<PathBuf>,
-    pub api_key: Option<String>,
-    pub prepare: Option<PathBuf>,
-}
-
-struct SchemaIdentity {
-    name: String,
-    descriptive_name: Option<String>,
-    identity_hash: Option<String>,
-}
+type SchemaIdentity = (String, Option<String>, Option<String>);
 
 fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     if path
@@ -34,10 +20,9 @@ fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     }
     let raw = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read dev key {}: {e}", path.display()))?;
-    let bytes = BASE64
+    let secret: [u8; 32] = BASE64
         .decode(raw.trim())
-        .map_err(|e| format!("dev key {} is not valid base64: {e}", path.display()))?;
-    let secret: [u8; 32] = bytes
+        .map_err(|e| format!("dev key {} is not valid base64: {e}", path.display()))?
         .try_into()
         .map_err(|_| format!("dev key {} is not a 32-byte Ed25519 secret", path.display()))?;
     Ok(SigningKey::from_bytes(&secret))
@@ -52,15 +37,16 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>,
     let untyped: Vec<String> = schemas
         .iter()
         .flat_map(|s| {
-            let name = s.get("name").and_then(Value::as_str).unwrap_or("?");
-            let typed = s.get("field_types").and_then(Value::as_object);
-            s.get("fields")
-                .and_then(Value::as_array)
+            let name = s["name"].as_str().unwrap_or("?");
+            let typed = s["field_types"].as_object();
+            s["fields"]
+                .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(Value::as_str)
-                .filter(move |f| !typed.is_some_and(|m| m.contains_key(*f)))
-                .map(move |f| format!("{name}.{f}"))
+                .filter_map(move |v| {
+                    let f = v.as_str()?;
+                    (!typed.is_some_and(|m| m.contains_key(f))).then(|| format!("{name}.{f}"))
+                })
         })
         .collect();
     if !untyped.is_empty() {
@@ -72,10 +58,7 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>,
     schemas
         .iter()
         .map(|entry| {
-            let label = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("<unnamed>");
+            let label = entry["name"].as_str().unwrap_or("<unnamed>");
             let mut entry = entry.clone();
             if let Some(obj) = entry.as_object_mut() {
                 obj.remove("retention");
@@ -88,40 +71,13 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>,
             if s.identity_hash.is_none() {
                 return Err(format!("manifest schema '{label}' has no identity hash"));
             }
-            Ok(SchemaIdentity {
-                name: s.name.clone(),
-                descriptive_name: s.descriptive_name.clone(),
-                identity_hash: s.identity_hash.clone(),
-            })
+            Ok((
+                s.name.clone(),
+                s.descriptive_name.clone(),
+                s.identity_hash.clone(),
+            ))
         })
         .collect()
-}
-
-fn held_schemas(socket: &Path, app_id: &str) -> Result<Vec<SchemaIdentity>, String> {
-    let req = format!(
-        "GET /api/schemas HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let value = parse_json_response(
-        &request_readonly_with_retry(socket, req.as_bytes(), Duration::from_secs(30))?,
-        "GET /api/schemas",
-    )?;
-    let rows = value
-        .get("data")
-        .unwrap_or(&value)
-        .get("schemas")
-        .and_then(Value::as_array)
-        .ok_or("the node's schema list has no schemas array")?;
-    let text = |row: &Value, k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
-    Ok(rows
-        .iter()
-        .filter(|row| row.get("owner_app_id").and_then(Value::as_str) == Some(app_id))
-        .map(|row| SchemaIdentity {
-            name: text(row, "name").unwrap_or_default(),
-            descriptive_name: text(row, "descriptive_name"),
-            identity_hash: text(row, "identity_hash"),
-        })
-        .collect())
 }
 
 fn require_held_schemas_listed(
@@ -129,34 +85,49 @@ fn require_held_schemas_listed(
     app_id: &str,
     listed: &[SchemaIdentity],
 ) -> Result<(), String> {
-    let held = held_schemas(socket, app_id).map_err(|e| {
-        format!(
-            "publish reads the running node at {} to check that the manifest lists every schema app '{app_id}' declares: {e}",
-            socket.display()
-        )
-    })?;
+    let held = get_path_retry(socket, "/api/schemas", Duration::from_secs(30))
+        .and_then(|raw| parse_json_response(&raw, "GET /api/schemas"))
+        .and_then(|v| {
+            let rows = v.get("data").unwrap_or(&v)["schemas"]
+                .as_array()
+                .ok_or_else(|| "the node's schema list has no schemas array".to_string())?;
+            let text = |r: &Value, k: &str| r[k].as_str().map(str::to_string);
+            Ok(rows
+                .iter()
+                .filter(|r| r["owner_app_id"].as_str() == Some(app_id))
+                .map(|r| {
+                    (
+                        text(r, "name").unwrap_or_default(),
+                        text(r, "descriptive_name"),
+                        text(r, "identity_hash"),
+                    )
+                })
+                .collect::<Vec<_>>())
+        })
+        .map_err(|e| {
+            format!(
+                "publish reads the running node at {} to check that the manifest lists every schema app '{app_id}' declares: {e}",
+                socket.display()
+            )
+        })?;
     let unlisted: Vec<String> = held
         .iter()
-        .filter_map(|h| {
-            let hid = h.identity_hash.as_deref();
+        .filter_map(|(h_name, h_desc, h_id)| {
+            let hid = h_id.as_deref();
             let rel: Vec<_> = listed
                 .iter()
-                .filter(|s| {
-                    s.name == h.name
-                        || (hid.is_some() && s.identity_hash.as_deref() == hid)
-                        || (h.descriptive_name.is_some() && s.descriptive_name == h.descriptive_name)
-                })
+                .filter(|(n, d, id)| n == h_name || (hid.is_some() && id.as_deref() == hid) || (h_desc.is_some() && d == h_desc))
                 .collect();
-            if rel.iter().any(|s| hid.is_some() && s.identity_hash.as_deref() == hid) {
+            if rel.iter().any(|(_, _, id)| hid.is_some() && id.as_deref() == hid) {
                 return None;
             }
             let shown = hid.unwrap_or("none");
             Some(rel.first().map_or_else(
-                || format!("{} (identity {shown}) is not listed", h.name),
-                |s| {
+                || format!("{h_name} (identity {shown}) is not listed"),
+                |(n, _, id)| {
                     format!(
-                        "{} has identity {shown} on the node, but the manifest's {} has identity {}",
-                        h.name, s.name, s.identity_hash.as_deref().unwrap_or("none")
+                        "{h_name} has identity {shown} on the node, but the manifest's {n} has identity {}",
+                        id.as_deref().unwrap_or("none")
                     )
                 },
             ))
@@ -183,55 +154,50 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
         .ok_or_else(|| format!("git {} failed", args.join(" ")))
 }
 
-fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, String> {
-    let manifest_path = input.manifest.canonicalize().map_err(|e| e.to_string())?;
-    let parent = manifest_path.parent().ok_or("manifest parent is missing")?;
-    let root = PathBuf::from(git(parent, &["rev-parse", "--show-toplevel"])?);
+fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
+    let path = input.manifest.canonicalize().map_err(|e| e.to_string())?;
+    let root = PathBuf::from(git(
+        path.parent().ok_or("manifest parent is missing")?,
+        &["rev-parse", "--show-toplevel"],
+    )?);
     if !git(&root, &["status", "--porcelain"])?.is_empty() {
         return Err("publish requires a clean git checkout".into());
     }
-    let manifest: Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
-    let app_id = manifest
-        .get("app_id")
-        .and_then(Value::as_str)
-        .ok_or("manifest requires app_id")?;
+    let m: Value = serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    let app_id = m["app_id"].as_str().ok_or("manifest requires app_id")?;
     if !registry::valid_app_id(app_id) {
         return Err("invalid app_id".into());
     }
-    let listed = listed_schemas(&manifest, app_id)?;
-    let version = manifest
-        .get("version")
-        .and_then(Value::as_str)
-        .ok_or("manifest requires version")?;
-    if version.trim() != version || version.is_empty() {
+    let listed = listed_schemas(&m, app_id)?;
+    let ver = m["version"].as_str().ok_or("manifest requires version")?;
+    if ver.trim() != ver || ver.is_empty() {
         return Err(
             "version must be a non-empty SemVer string without surrounding whitespace".into(),
         );
     }
-    semver::Version::parse(version).map_err(|e| format!("version must be valid SemVer: {e}"))?;
+    semver::Version::parse(ver).map_err(|e| format!("version must be valid SemVer: {e}"))?;
     let source = git(&root, &["remote", "get-url", "origin"])?;
     if !registry::valid_source(&source) {
         return Err("origin must be a public https://github.com/owner/repo.git URL".into());
     }
     let sha = git(&root, &["rev-parse", "HEAD"])?;
-    let socket = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
-    let (build, _, versions) = registry::running_node(&socket);
-    require_held_schemas_listed(&socket, app_id, &listed)?;
+    let (build, _, api_version, outbox) = registry::running_node(home);
+    let sock = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
+    require_held_schemas_listed(&sock, app_id, &listed)?;
     let channel = input
         .channel
         .as_deref()
         .unwrap_or(registry::DEFAULT_CHANNEL);
     registry::validate_channel(channel)?;
     let mut payload = json!({
-        "app_id": app_id, "app_version": version, "source": source, "sha": sha,
-        "channel": channel, "api_version": versions.api_version, "lastdb_build": build
+        "app_id": app_id, "app_version": ver, "source": source, "sha": sha,
+        "channel": channel, "api_version": api_version, "lastdb_build": build
     });
-    if manifest.get("outbox_format_version").is_some() {
-        payload["outbox_format_version"] = json!(versions.outbox_format_version);
+    if m.get("outbox_format_version").is_some() {
+        payload["outbox_format_version"] = json!(outbox);
     }
-    if let Some(aud) = manifest.get("audience") {
+    if let Some(aud) = m.get("audience") {
         if !aud
             .as_str()
             .is_some_and(|v| v == "public" || v == "private")
@@ -240,18 +206,18 @@ fn publish_payload(home: &Path, input: &InterfacePublish) -> Result<Value, Strin
         }
         payload["audience"] = aud.clone();
     }
-    if let Some(desc) = manifest
+    if let Some(d) = m
         .get("description")
-        .or_else(|| manifest.pointer("/metadata/description"))
+        .or_else(|| m.pointer("/metadata/description"))
     {
-        payload["description"] = desc.clone();
+        payload["description"] = d.clone();
     }
     Ok(payload)
 }
 
-pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<(), String> {
-    let mut payload = publish_payload(home, &input)?;
-    if let Some(path) = input.prepare {
+pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), String> {
+    let mut payload = publish_payload(home, input)?;
+    if let Some(path) = &input.prepare {
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -261,11 +227,8 @@ pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }
-    let key = load_dev_key(
-        &input
-            .key_file
-            .unwrap_or_else(|| home.join("dev-signing.key")),
-    )?;
+    let default_key = home.join("dev-signing.key");
+    let key = load_dev_key(input.key_file.as_deref().unwrap_or(&default_key))?;
     let mut stmt = payload
         .as_object()
         .ok_or("invalid publish payload")?
@@ -279,20 +242,22 @@ pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<
     payload["publisher_sig"] = json!(BASE64.encode(sig));
     let url = input
         .registry_url
+        .clone()
         .or_else(|| std::env::var("LASTDB_APP_REGISTRY_URL").ok())
         .ok_or("publish requires --registry-url or LASTDB_APP_REGISTRY_URL")?;
     if !url.starts_with("https://") {
         return Err("registry URL must use HTTPS".into());
     }
     if input
-        .environment
+        .env
         .as_deref()
-        .is_some_and(|env| env != "dev" && env != "prod")
+        .is_some_and(|e| e != "dev" && e != "prod")
     {
         return Err("--env must be dev or prod".into());
     }
     let api_key = input
         .api_key
+        .clone()
         .or_else(|| std::env::var("EXEMEM_DEV_API_KEY").ok())
         .filter(|k| !k.trim().is_empty())
         .ok_or("no developer API key — pass --api-key or set EXEMEM_DEV_API_KEY")?;
@@ -315,7 +280,7 @@ pub(crate) fn publish_interface(home: &Path, input: InterfacePublish) -> Result<
             .map_err(|e| e.to_string())
     })?;
     print_pretty_json(&response);
-    (response.get("status").and_then(Value::as_str) == Some("listed"))
+    (response["status"].as_str() == Some("listed"))
         .then_some(())
         .ok_or_else(|| "registry did not list the app".into())
 }

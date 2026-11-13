@@ -32,37 +32,21 @@ struct ThumbFile {
     media_type: Option<String>,
 }
 
-fn placement(value: Option<&str>) -> Result<&'static str, String> {
-    match value {
-        None | Some("blob") => Ok("blob"),
-        Some("inline") => Ok("inline"),
-        Some(other) => Err(format!(
-            "record input placement must be blob or inline, not {other}"
-        )),
-    }
-}
-
-fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), String> {
+fn write_mutate_receipt(response: &str) -> Result<(), String> {
     let (_, body) = response
         .split_once("\r\n\r\n")
         .ok_or("mutation response had no body")?;
     if response.starts_with("HTTP/1.1 202 ") {
-        let receipt: serde_json::Value =
+        let r: serde_json::Value =
             serde_json::from_str(body).map_err(|_| "invalid mutation submission receipt")?;
-        if receipt["status"] != "submitted" || receipt["mutation_id"].as_str().is_none() {
+        if r["status"] != "submitted" || r["mutation_id"].as_str().is_none() {
             return Err("invalid mutation submission receipt".into());
         }
     } else {
         parse_json_response(response, "mutation")?;
     }
-    (|| {
-        output.write_all(body.as_bytes())?;
-        if !body.ends_with('\n') {
-            output.write_all(b"\n")?;
-        }
-        output.flush()
-    })()
-    .map_err(|e| format!("write mutation receipt: {e}"))
+    println!("{}", body.trim_end_matches('\n'));
+    Ok(())
 }
 
 fn submit_input_file(
@@ -97,13 +81,10 @@ fn submit_input_file(
     let receipt = if file.local {
         metadata["local_path"] = serde_json::json!(std::fs::canonicalize(&source)
             .map_err(|e| format!("open {}: {e}", source.display()))?);
-        let raw = post_json_with_timeout(
-            &target.socket,
-            &target.path(PUT_BLOB_PATH),
-            &metadata,
-            admin_scan_client_timeout(),
-        )?;
-        parse_json_response(&raw, PUT_BLOB_PATH)?
+        parse_json_response(
+            &post_json_admin(&target.socket, &target.path(PUT_BLOB_PATH), &metadata)?,
+            PUT_BLOB_PATH,
+        )?
     } else {
         put_record_file(target, &metadata, &source)?
     };
@@ -138,8 +119,17 @@ pub(super) fn mutate_command(
         }
         let input: RecordInput =
             serde_json::from_value(body).map_err(|e| format!("invalid record input: {e}"))?;
+        let place = match input.placement.as_deref() {
+            None | Some("blob") => "blob",
+            Some("inline") => "inline",
+            Some(o) => {
+                return Err(format!(
+                    "record input placement must be blob or inline, not {o}"
+                ));
+            }
+        };
         body = input.mutation;
-        Some((input.file, placement(input.placement.as_deref())?))
+        Some((input.file, place))
     } else {
         None
     };
@@ -150,8 +140,8 @@ pub(super) fn mutate_command(
         obj.insert("durability".into(), serde_json::json!("durable"));
     }
     lastdb_node::exec::parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
-        .map_err(|reject| format!("invalid complete mutation: {reject:?}"))?;
-    let base = request_file.parent().unwrap_or_else(|| Path::new(""));
+        .map_err(|r| format!("invalid complete mutation: {r:?}"))?;
+    let base = request_file.parent().unwrap_or(Path::new(""));
     let (route, body) = match file {
         Some((Some(f), p)) => return submit_input_file(target, base, &body, &f, p),
         Some((None, p)) => (
@@ -162,21 +152,21 @@ pub(super) fn mutate_command(
     };
     let id = (target.is_explicit() && route == "/api/mutation")
         .then(|| mutation_id.unwrap_or_else(uuid::Uuid::new_v4));
-    let with_id = |err: String| {
+    let with_id = |e: String| {
         if let Some(id) = id {
-            format!("{err} (mutation ID {id})")
+            format!("{e} (mutation ID {id})")
         } else {
-            err
+            e
         }
     };
     let timeout = if durable {
-        durable_mutation_client_timeout()
+        lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
     } else {
         Duration::from_secs(10)
     };
     let raw = post_json_with_id(&target.socket, &target.path(route), &body, timeout, id)
         .map_err(with_id)?;
-    write_mutate_receipt(&mut std::io::stdout().lock(), &raw).map_err(with_id)
+    write_mutate_receipt(&raw).map_err(with_id)
 }
 
 fn admit_local(bytes: u64) -> Result<(), String> {
@@ -190,10 +180,9 @@ fn put_record_file(
     metadata: &serde_json::Value,
     source: &Path,
 ) -> Result<serde_json::Value, String> {
-    let max_bytes = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
-    let input =
-        std::fs::File::open(source).map_err(|e| format!("open {}: {e}", source.display()))?;
-    let len = input
+    let max = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
+    let f = std::fs::File::open(source).map_err(|e| format!("open {}: {e}", source.display()))?;
+    let len = f
         .metadata()
         .map_err(|e| format!("file metadata: {e}"))?
         .len();
@@ -202,8 +191,7 @@ fn put_record_file(
     bytes
         .try_reserve_exact(usize::try_from(len).map_err(|_| "local file input length overflow")?)
         .map_err(|_| "local file input allocation refused")?;
-    input
-        .take(max_bytes.saturating_add(1))
+    f.take(max.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| format!("read local file input: {e}"))?;
     admit_local(bytes.len() as u64)?;
@@ -218,19 +206,22 @@ fn put_record_file(
         client_headers(),
         json.len(),
     );
-    let capacity = head
+    let cap = head
         .len()
         .checked_add(body_len)
         .ok_or("local file request length overflow")?;
-    admit_local(capacity as u64)?;
-    let mut request = Vec::new();
-    request
-        .try_reserve_exact(capacity)
+    admit_local(cap as u64)?;
+    let mut req = Vec::new();
+    req.try_reserve_exact(cap)
         .map_err(|_| "local file request allocation refused")?;
-    request.extend_from_slice(head.as_bytes());
-    request.extend_from_slice(&json);
-    request.extend_from_slice(&bytes);
+    req.extend_from_slice(head.as_bytes());
+    req.extend_from_slice(&json);
+    req.extend_from_slice(&bytes);
     drop(bytes);
-    let response = request_with_timeout(&target.socket, &request, admin_scan_client_timeout())?;
-    parse_json_response(&response, PUT_BLOB_PATH)
+    let resp = request_with_timeout(
+        &target.socket,
+        &req,
+        lastdb_node::exec::admin_handler_timeout(),
+    )?;
+    parse_json_response(&resp, PUT_BLOB_PATH)
 }
