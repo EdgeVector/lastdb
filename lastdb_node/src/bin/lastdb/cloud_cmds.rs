@@ -212,7 +212,7 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     let destination = args.into;
     let parent = destination.parent().ok_or("missing recovery parent")?;
     FreshHome::preflight_empty(&destination)?;
-    let restored = block_on_cloud("signed restore", async {
+    let restored = signed_restore_worker(|| async {
         let account_id = lastdb_node::cloud::account_from_phrase(&phrase)?;
         let mut scope = lastdb_node::cloud::client_from_home(home)?
             .context(&ContextReadRequest {
@@ -251,6 +251,26 @@ fn run_restore(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         }),
         args.json,
     )
+}
+
+// Replay uses the same native write path as the daemon. Run it off the
+// process entry thread with the same stack allowance as a daemon worker.
+fn signed_restore_worker<T: Send, F>(make_future: impl FnOnce() -> F + Send) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    let stack = fold_db::env_flag::var_or("RUST_MIN_STACK", 0usize).max(64 * 1024 * 1024);
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("lastdb-signed-restore".to_owned())
+            .stack_size(stack)
+            .spawn_scoped(scope, move || {
+                block_on_cloud("signed restore", make_future())
+            })
+            .map_err(|_| "cannot start signed restore worker".to_owned())?
+            .join()
+            .map_err(|_| "signed restore worker stopped".to_owned())?
+    })
 }
 
 struct StagedHome {
