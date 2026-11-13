@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-import { socialClient } from '../../lastdb_app_sdk/dist/index.js';
+import { socialClient } from './package/dist/index.js';
 
-const [action, socialPath, dataDir, lastdbPath] = process.argv.slice(2);
+const [action, socialPath, , dataDir, , lastdbPath] = process.argv.slice(2);
 const social = socialClient({ dataDir, socialPath, lastdbPath });
 const input = JSON.parse(readFileSync(0, 'utf8'));
 

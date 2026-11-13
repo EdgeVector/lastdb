@@ -5,11 +5,14 @@ node's Unix-socket `/api/*` surface: connect, verify API compatibility, and run
 keyed queries, conditional record mutations, membership lists, and change-feed
 reads.
 
-## Install
+## Install a build of the SDK
 
 ```bash
-npm install @lastdb/app-sdk
+npm install /path/to/lastdb-app-sdk-0.8.0.tgz
 ```
+
+Use the tarball from the Social sharing DEV operation, or build one from
+this directory with `npm ci`, `npm run build`, and `npm pack --ignore-scripts`.
 
 ## Quickstart
 
@@ -71,7 +74,7 @@ const same = await connect({ appId: 'photos', databaseId: created.name ?? create
 
 ## Set up sharing with Social
 
-Use `socialClient` with the installed Social command and the same LastDB home
+Use `socialClient` with Social 0.2.0 or later and the same LastDB home
 as your data client. Give the database your app's versioned spec and declare
 its content schemas through the selected LastDB client.
 

@@ -25,9 +25,8 @@ def command(node):
 
 
 def sdk(node, action, **body):
-    executable, _, home, _, lastdb = command(node)
     result = subprocess.run(
-        ["node", str(ROOT / "scripts/cloud_backup/social_sdk.mjs"), action, executable, home, lastdb],
+        ["node", os.environ["SOCIAL_SDK_OPERATION"], action, *command(node)],
         input=json.dumps(body).encode(), capture_output=True, env=node.programs.environment, timeout=190,
     )
     require(result.returncode == 0, f"social_sdk_{action}")
