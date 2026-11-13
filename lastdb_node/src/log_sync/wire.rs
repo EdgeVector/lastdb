@@ -170,20 +170,28 @@ fn incorporation_wire(value: &Incorporation) -> IncorporatedWire<'_> {
     }
 }
 
-pub(crate) fn append_outcome(body: &[u8]) -> Result<AppendOutcome, LogError> {
+pub(crate) fn append_outcome(body: &[u8], batch: &AppendBatch) -> Result<AppendOutcome, LogError> {
     let response: AppendResponse =
         serde_json::from_slice(body).map_err(|_| LogError::UnexpectedOutcome)?;
+    let tail = batch.entries.last().ok_or(LogError::EmptyBatch)?.writer_seq;
+    let next = response.next_seq.get();
+    let delivery_seqs: Vec<u64> = response
+        .delivery_seqs
+        .into_iter()
+        .map(DecimalU64::get)
+        .collect();
     match response.result.as_str() {
-        "accepted" => Ok(AppendOutcome::Accepted {
-            delivery_seqs: response
-                .delivery_seqs
-                .into_iter()
-                .map(DecimalU64::get)
-                .collect(),
-        }),
-        "duplicate" => Ok(AppendOutcome::Duplicate {
-            next_seq: response.next_seq.get(),
-        }),
+        "accepted"
+            if delivery_seqs.first().is_some_and(|seq| *seq > 0)
+                && delivery_seqs.len() <= batch.entries.len()
+                && delivery_seqs
+                    .windows(2)
+                    .all(|pair| pair[0].checked_add(1) == Some(pair[1]))
+                && tail.checked_add(1) == Some(next) =>
+        {
+            Ok(AppendOutcome::Accepted { delivery_seqs })
+        }
+        "duplicate" if delivery_seqs.is_empty() => Ok(AppendOutcome::Duplicate { next_seq: next }),
         _ => Err(LogError::UnexpectedOutcome),
     }
 }

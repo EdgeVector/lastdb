@@ -238,7 +238,7 @@ impl MutationLog for CloudLog {
         self.same_reader(&batch.writer.key)?;
         self.same_device(&batch.writer.device)?;
         let body = wire::append_request(&batch)?;
-        wire::append_outcome(&self.call(paths::APPEND, body)?)
+        wire::append_outcome(&self.call(paths::APPEND, body)?, &batch)
     }
 
     fn head(&self, reader: &PrincipalId) -> Result<Option<ScopedHead>, LogError> {
