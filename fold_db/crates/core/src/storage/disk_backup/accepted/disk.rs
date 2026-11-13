@@ -1,6 +1,7 @@
 //! Durable sequence beside the main run home. A gap blocks the next commit.
 
 mod recover;
+pub(super) mod upload;
 
 use super::body;
 use super::io;
