@@ -15,8 +15,7 @@ from support import decode_json, require
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = {"name": "field-notes", "version": 2}
-SCHEMA = "field-notes/Note"
+SPEC = {"name": "social", "version": 1}
 
 
 def command(node):
@@ -112,7 +111,7 @@ def open_content_apps(recipient, browser, database):
     choices = call(browser, "/api/picker", args)
     require(any(row["databaseId"] == database for row in choices), "social_picker_received_database")
     require(call(browser, "/api/pick", {**args, "databaseId": None}) is None, "social_picker_cancel")
-    selections = [(name, call(browser, "/api/pick", args)) for name in ("field-reader", "trip-journal")]
+    selections = [(name, call(browser, "/api/pick", args)) for name in ("album-viewer", "photo-journal")]
     require(all(selection["databaseId"] == database and selection["spec"] == SPEC
                 for _, selection in selections), "social_picker_shared_database")
     for app, selection in selections:
@@ -122,9 +121,9 @@ def open_content_apps(recipient, browser, database):
     return selections
 
 
-def read_note(node, selections, database, key, title=None):
+def read_album(node, selections, database, key, title=None):
     path = f"/api/databases/{database}/query"
-    query = {"schema_name": SCHEMA, "filter": {"HashKey": key}}
+    query = {"schema_name": "social/Album", "filter": {"HashKey": key}}
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda item: scoped(node, item[1], item[0], "POST", path, query), selections))
     if title is None:
@@ -143,8 +142,8 @@ def observe_access(browser, database, state, revision=None):
 
 
 def report_content_flow():
-    message = ("Two content clients selected the same database, opened the same notes, and were refused "
-               "on personal data, the roster, and reader writes. Both retained cached notes after revoke "
+    message = ("Two content clients selected the same database, opened the same albums, and were refused "
+               "on personal data, the roster, and reader writes. Both retained cached albums after revoke "
                "and caught up after regrant.")
     print(message, flush=True)
     summary(message)

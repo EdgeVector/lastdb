@@ -1,16 +1,14 @@
 # Social
 
 Social remembers verified contacts in the local personal database and manages
-reader access to owned shareable LastDB databases with a spec. It uses the
+reader access to owned named LastDB databases set up for sharing. It uses the
 LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
-Create an owned database with `social create-db NAME --spec field-notes --version 1`.
-An app can also create the database with LastDB's SDK and open it in Social
-by database ID. Declare the content schemas and write records through LastDB.
-For a custom spec, put content in the matching namespace, such as
-`field-notes/Note` for `field-notes`.
-`social create-db NAME` still uses the default Social v1 spec.
+Create an owned database with `social create-db NAME`. This uses the existing
+Social format for albums and photos. You can also share an existing named
+database set up with LastDB's Social or Files format. Use the database name
+with the Social command, and use LastDB's schema and record APIs for content.
 `lastdb share contact --out PATH`
 exports a contact file and its public node key. Check the key independently
 with the person before granting access.

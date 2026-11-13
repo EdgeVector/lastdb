@@ -10,16 +10,16 @@ try {
   let result;
   switch (action) {
     case 'create':
-      result = await social.createDatabase(input.name, input.spec);
+      result = await social.createDatabase(input.name);
       break;
     case 'invite':
-      result = await social.inviteReader(input.databaseId, input.recipient);
+      result = await social.inviteReader(input.database, input.recipient);
       break;
     case 'accept':
       result = await social.acceptInvitation(input.receipt, input.publisher, input.name);
       break;
     case 'revoke':
-      result = await social.revokeAccess(input.databaseId, input.nodeKey);
+      result = await social.revokeAccess(input.database, input.nodeKey);
       break;
     default:
       throw new Error('Unknown SDK operation');

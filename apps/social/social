@@ -78,10 +78,8 @@ def parser():
     selection.add_argument("--database")
     selection.add_argument("--cancel", action="store_true")
     selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
-    create = actions.add_parser("create-db", help="Create a database for a share spec")
+    create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
     create.add_argument("name")
-    create.add_argument("--spec", default="social")
-    create.add_argument("--version", type=int, default=1)
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
     add.add_argument("--user", required=True)
     add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
@@ -112,7 +110,7 @@ def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
     if args.action == "create-db":
-        return sharing.create(args.name, {"name": args.spec, "version": args.version})
+        return sharing.create(args.name)
     if args.action == "remember":
         return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
     if args.action == "pick-database":
@@ -140,7 +138,7 @@ def run(args, node):
     if args.action == "declare":
         return {"definitionId": people.declare()}
     if args.action == "check":
-        node.require_app_share_specs()
+        node.require_sessions()
         return {"ready": True}
     if args.action == "show-records":
         return [{key: value for key, value in row.items() if key != "contact_code"}

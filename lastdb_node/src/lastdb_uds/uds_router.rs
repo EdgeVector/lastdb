@@ -18,7 +18,7 @@ pub const DATABASE_SCOPE_PREFIX: &str = "/api/databases/";
 
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
-const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"app_share_specs_v1":true}"#;
+const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true}"#;
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)

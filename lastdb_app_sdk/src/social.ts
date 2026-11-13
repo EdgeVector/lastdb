@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 
-import { parseListedDatabase, type DatabaseSpec, type ListedDatabase } from './databases.js';
+import { parseListedDatabase, type ListedDatabase } from './databases.js';
 import { LastDbError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 
@@ -52,22 +52,20 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   }
 
   return {
-    /** Create a shareable database for an app-defined spec. */
-    async createDatabase(name: string, spec: DatabaseSpec): Promise<ListedDatabase> {
-      return parseListedDatabase(await run('create-db', [
-        `--spec=${spec.name}`, `--version=${spec.version}`, '--', name,
-      ]));
+    /** Create a named database using Social's built-in sharing format. */
+    async createDatabase(name: string): Promise<ListedDatabase> {
+      return parseListedDatabase(await run('create-db', ['--', name]));
     },
 
     /** Omit contactPath when Social already remembers the verified recipient. */
-    async inviteReader(databaseId: string, recipient: {
+    async inviteReader(database: string, recipient: {
       name: string;
       nodeKey: string;
       contactPath?: string;
     }): Promise<SocialInvitation> {
-      const args = [`--database=${databaseId}`, `--user=${recipient.name}`, `--node-key=${recipient.nodeKey}`];
+      const args = [`--database=${database}`, `--user=${recipient.name}`, `--node-key=${recipient.nodeKey}`];
       if (recipient.contactPath !== undefined) args.push(`--contact=${recipient.contactPath}`);
-      return parseInvitation(await run('add', args), databaseId);
+      return parseInvitation(await run('add', args));
     },
 
     /** Accept using the independently verified publisher key. */
@@ -86,10 +84,10 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
     },
 
     /** Revoke a person's grant and return the applied revision. */
-    async revokeAccess(databaseId: string, nodeKey: string): Promise<string> {
-      const result = await run('remove', [`--database=${databaseId}`, `--node-key=${nodeKey}`]);
+    async revokeAccess(database: string, nodeKey: string): Promise<string> {
+      const result = await run('remove', [`--database=${database}`, `--node-key=${nodeKey}`]);
       if (!isObject(result) || typeof result['revision'] !== 'string' || result['state'] !== 'revoked'
-        || result['nodeKey'] !== nodeKey || result['databaseId'] !== databaseId) {
+        || result['nodeKey'] !== nodeKey || typeof result['databaseId'] !== 'string') {
         throw new UnexpectedResponseError('Social returned an invalid revoke receipt', 0, null);
       }
       return result['revision'];
@@ -97,10 +95,10 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   };
 }
 
-function parseInvitation(result: unknown, expectedDatabase: string): SocialInvitation {
+function parseInvitation(result: unknown): SocialInvitation {
   if (isObject(result)) {
     const { databaseId, revision, publisher, invitation } = result;
-    if (databaseId === expectedDatabase && typeof revision === 'string'
+    if (typeof databaseId === 'string' && typeof revision === 'string'
       && typeof publisher === 'string' && typeof invitation === 'string' && invitation.length > 0) {
       return { databaseId, revision, publisher, invitation };
     }

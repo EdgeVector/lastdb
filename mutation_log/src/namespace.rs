@@ -36,7 +36,10 @@ impl BoundPolicy {
         Self { binding: None }
     }
 
-    /// Admit namespaces through this database binding.
+    /// Admit namespaces through this catalog binding.
+    ///
+    /// `binding` must already be [`SpecBinding::admitted`]. The registry row,
+    /// the publication marker, and this policy share that value.
     pub fn new(binding: SpecBinding) -> Self {
         Self {
             binding: Some(binding),
@@ -45,12 +48,10 @@ impl BoundPolicy {
 
     /// Build the policy from the stored `{ "name", "version" }` object.
     ///
-    /// Built-in versions use the catalog. An app-defined spec names the
-    /// namespace of the database's content.
+    /// This is the same admission as [`SpecBinding::admitted`]. A missing spec
+    /// is [`Self::absent`], not this call, and is not `lastdb-files`.
     pub fn admitted(name: &str, version: u32) -> Result<Self, database_policy::PolicyError> {
-        let binding = SpecBinding::new(name, version)?;
-        binding.app_namespace()?;
-        Ok(Self::new(binding))
+        Ok(Self::new(SpecBinding::admitted(name, version)?))
     }
 
     /// Borrow the binding, when one was supplied.
@@ -61,17 +62,6 @@ impl BoundPolicy {
 
 impl NamespacePolicy for BoundPolicy {
     fn classify(&self, namespace: &Namespace) -> NamespaceKind {
-        if let Some(app) = self
-            .binding
-            .as_ref()
-            .and_then(|binding| binding.app_namespace().ok().flatten())
-        {
-            return if app == namespace.as_str() {
-                NamespaceKind::Official
-            } else {
-                NamespaceKind::AppPrivate
-            };
-        }
         if admit_namespace(self.binding.as_ref(), namespace.as_str())
             == Ok(NamespaceClass::Official)
         {

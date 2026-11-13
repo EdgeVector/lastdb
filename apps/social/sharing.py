@@ -23,7 +23,9 @@ PENDING = {
 
 
 def can_manage_sharing(database):
-    return database.get("kind") == "shareable" and bool(database.get("spec"))
+    return database.get("kind") == "shareable" and database.get("spec") in (
+        SPEC, {"name": "lastdb-files", "version": 1},
+    )
 
 
 class Sharing:
@@ -31,9 +33,9 @@ class Sharing:
         self.node = node
         self.people = people
 
-    def create(self, name, spec=SPEC):
+    def create(self, name):
         return self.node.call("POST", "/api/databases", {
-            "name": name, "kind": "shareable", "spec": spec,
+            "name": name, "kind": "shareable", "spec": SPEC,
         })["database"]
 
     def databases(self):
@@ -43,7 +45,7 @@ class Sharing:
         matches = [row for row in self.databases()
                    if selector in (row.get("id"), row.get("name"))]
         if len(matches) != 1 or not can_manage_sharing(matches[0]):
-            raise SocialError(f"{selector} needs an owned shareable database with a spec")
+            raise SocialError(f"{selector} needs an owned database with a supported sharing format")
         return matches[0]
 
     def configuration(self, database_id):

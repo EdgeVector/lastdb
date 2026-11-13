@@ -75,25 +75,19 @@ const same = await connect({ appId: 'photos', databaseId: created.name ?? create
 ## Set up sharing with Social
 
 Use `socialClient` with Social 0.2.0 or later and the same LastDB home
-as your data client. Give the database your app's versioned spec and declare
-its content schemas through the selected LastDB client.
-For a custom spec, use the spec name as the content schema namespace. For
-example, the `field-notes` spec syncs schemas such as `field-notes/Note`.
+as your data client. Use a database name to create, invite, or revoke.
+The create helper uses LastDB's existing Social format.
 
 ```ts
 import { connect, socialClient } from '@lastdb/app-sdk';
 
 const social = socialClient({ dataDir });
-const root = await connect({ appId: 'field-notes', socketPath });
-const database = await social.createDatabase('field-trip', {
-  name: 'field-notes',
-  version: 1,
-});
-const notes = root.select(database.id);
-await notes.declareSchema(noteDeclaration);
-// Write initial notes through the selected client.
+const root = await connect({ appId: 'photo-journal', socketPath });
+const database = await social.createDatabase('family');
+const family = root.select(database.id);
+// Use the regular LastDB client to declare schemas and write records.
 
-const receipt = await social.inviteReader(database.id, {
+const receipt = await social.inviteReader('family', {
   name: 'Ana',
   nodeKey: anaVerifiedKey,
   contactPath: anaContactFile,
@@ -104,14 +98,14 @@ const receipt = await social.inviteReader(database.id, {
 On Ana's device, call `social.acceptInvitation(receipt, verifiedPublisherKey)`.
 The returned database includes its verified spec. Use `root.select(database.id)`
 on that device to open it, and save the ID to reopen it later. The publisher
-can call `social.revokeAccess(database.id, anaVerifiedKey)`. Social remembers
+can call `social.revokeAccess('family', anaVerifiedKey)`. Social remembers
 verified contacts across databases, so later invitations can omit `contactPath`.
 Keep sealed receipts out of logs.
 
-For a database the app already created with `root.createDatabase`, pass that
-database's ID to Social's `inviteReader`. Social manages people and sharing
-through the existing owner connection. Content apps use LastDB's regular
-database APIs.
+For an existing named database set up with LastDB's Social or Files format,
+pass its name directly to `inviteReader`. The sealed invitation carries its
+stable ID. Social manages people and sharing through the existing owner
+connection. Content apps use LastDB's regular database APIs.
 
 ## Registered Shares
 

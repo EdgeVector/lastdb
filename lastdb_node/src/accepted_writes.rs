@@ -196,9 +196,6 @@ fn share_schema(binding: &SpecBinding, body: &Value) -> Result<bool, Blocked> {
             .and_then(Value::as_str)
             .ok_or(Blocked::Unclassified)?,
     )?;
-    if let Some(app) = binding.app_namespace().map_err(|_| Blocked::Unclassified)? {
-        return Ok(namespace == app);
-    }
     match admit_namespace(Some(binding), namespace) {
         Ok(NamespaceClass::Official) => Ok(true),
         Ok(NamespaceClass::AppPrivate) => Ok(false),
@@ -212,9 +209,6 @@ fn share_record(binding: &SpecBinding, body: &Value, file_bytes: bool) -> Result
         .and_then(Value::as_str)
         .ok_or(Blocked::Unclassified)?;
     let (namespace, name) = split_schema(schema)?;
-    if let Some(app) = binding.app_namespace().map_err(|_| Blocked::Unclassified)? {
-        return Ok(namespace == app);
-    }
     let fields = field_names(body);
     let file = file_bytes || body.get("file").is_some() || body.get("inline_file").is_some();
     match record_is_shareable(binding, namespace, name, &fields, file) {
