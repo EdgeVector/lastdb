@@ -1,8 +1,9 @@
 use super::*;
-
-mod signed;
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
-use cloud_backup_protocol::Id;
+use cloud_backup_protocol::{CloudScope, Id};
+use lastdb_node::Host;
+use std::os::unix::fs::MetadataExt;
+use std::sync::Arc;
 
 pub(super) fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let ByteBackupCommand::Restore(args) = action else {
@@ -21,14 +22,14 @@ pub(super) fn run_byte_backup(home: &Path, action: ByteBackupCommand) -> Result<
             .await
             .map_err(|error| error.to_string())?
             .scope;
-        signed::restore(home, &scope, &phrase, args).await
+        restore_signed(home, &scope, &phrase, args).await
     })
 }
 
 pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Result<(), String> {
     if let ByteBackupCommand::Connect(a) = action {
         if a.existing {
-            if !a.api_key_stdin || a.dev || a.invite_code_stdin || a.restored {
+            if !a.api_key_stdin || a.dev || a.invite_code_stdin {
                 return Err(
                     "existing connection requires only an environment and API key stdin".into(),
                 );
@@ -38,7 +39,7 @@ pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Re
                 .env
                 .as_deref()
                 .ok_or("existing connection requires --env")?;
-            return super::recovery_home::run_existing(
+            return super::setup_files::run_existing(
                 home,
                 env,
                 a.expected_user_hash.as_deref(),
@@ -55,13 +56,9 @@ pub(super) fn run_setup(source: Option<&Path>, action: &ByteBackupCommand) -> Re
             if !a.dev || a.env.is_some() || a.api_key_stdin || a.expected_user_hash.is_some() {
                 return Err("native backup connect requires --dev".into());
             }
-            if a.restored && a.invite_code_stdin {
-                return Err("restored account reconnect does not accept a new invite".into());
-            }
             super::connect(
                 source.ok_or("native backup connect requires an explicit --data-dir")?,
                 a.invite_code_stdin,
-                a.restored,
                 a.json,
             )
         }
@@ -97,17 +94,103 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     )
 }
 
-fn with_gen(
-    scope: &cloud_backup_protocol::CloudScope,
-    generation: Option<u64>,
-) -> cloud_backup_protocol::CloudScope {
-    let mut next = scope.clone();
-    if let Some(generation) = generation {
-        next.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
+async fn restore_signed(
+    connection_home: &Path,
+    scope: &CloudScope,
+    phrase: &str,
+    args: BackupRestoreArgs,
+) -> Result<(), String> {
+    let destination = args.into;
+    let database = Id::try_from(args.database)
+        .map_err(|_| "signed restore requires a canonical database id".to_owned())?;
+    let parent = destination.parent().ok_or("missing recovery parent")?;
+    FreshHome::preflight_empty(&destination)?;
+    let staged_path = parent.join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
+    let seed = Zeroizing::new(lastdb_node::backup_access::seed_from_phrase(phrase)?);
+    let mut fresh = FreshHome::preflight_empty(&staged_path)?.create()?;
+    fresh.write(IDENTITY_KEY_FILE, seed.as_ref())?;
+    fresh.commit()?;
+    drop(fresh);
+    let staged = StagedHome::open(staged_path)?;
+    let host = Arc::new(Host::boot(&staged.path).await?);
+    let mut next_scope = scope.clone();
+    if let Some(generation) = args.generation {
+        next_scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
     }
-    next
+    let result = lastdb_node::log_sync::recover_owned(
+        &host,
+        connection_home,
+        next_scope,
+        &database,
+        "recovered",
+    )
+    .await;
+    let owned_closed = host.shutdown_owned_databases().await;
+    let owner_closed = host.db.shutdown().await;
+    drop(host);
+    let restored = result?;
+    owned_closed?;
+    owner_closed.map_err(|error| error.to_string())?;
+    staged.publish(&destination)?;
+    print_backup(
+        &serde_json::json!({
+            "ok": true,
+            "database_id": database,
+            "name": restored.name,
+            "through_delivery_seq": restored.through,
+            "destination": destination,
+        }),
+        args.json,
+    )
 }
 
-fn id(value: String) -> Result<Id, String> {
-    Id::try_from(value).map_err(|_| "signed restore requires a canonical database id".into())
+struct StagedHome {
+    path: PathBuf,
+    inode: (u64, u64),
+}
+
+impl StagedHome {
+    fn open(path: PathBuf) -> Result<Self, String> {
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if !metadata.is_dir() {
+            return Err("the staged recovery home changed".into());
+        }
+        Ok(Self {
+            path,
+            inode: (metadata.dev(), metadata.ino()),
+        })
+    }
+
+    fn owns_path(&self) -> bool {
+        std::fs::symlink_metadata(&self.path)
+            .is_ok_and(|meta| meta.is_dir() && (meta.dev(), meta.ino()) == self.inode)
+    }
+
+    fn publish(&self, destination: &Path) -> Result<(), String> {
+        if !self.owns_path() {
+            return Err("the staged recovery home changed".into());
+        }
+        File::open(&self.path)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| format!("cannot sync the staged recovery home: {error}"))?;
+        rustix::fs::renameat_with(
+            fs::CWD,
+            &self.path,
+            fs::CWD,
+            destination,
+            fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(|error| format!("cannot publish the recovered home: {error}"))?;
+        File::open(destination.parent().ok_or("missing recovery parent")?)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| format!("cannot sync the recovered home parent: {error}"))
+    }
+}
+
+impl Drop for StagedHome {
+    fn drop(&mut self) {
+        if self.owns_path() {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 }

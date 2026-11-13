@@ -2,16 +2,14 @@
 use super::{
     local, reader_error, runs::Inventory, ByteBackupReader, RestoreError, RestoreSession, Result,
 };
-use cloud_backup_protocol::limits::{
-    DURABLE_LOCAL_SPOOL_MAX_BYTES, NATIVE_FILES_MAX, STREAM_BUFFER_MAX_BYTES,
-};
+use cloud_backup_protocol::limits::{DURABLE_LOCAL_SPOOL_MAX_BYTES, STREAM_BUFFER_MAX_BYTES};
 use cloud_backup_protocol::v2::{
     access::{ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector},
     limits::MAX_PAGES,
     Version,
 };
 use cloud_backup_protocol::Digest;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -37,7 +35,7 @@ pub(super) async fn grants(
     let resp = client
         .read_grants(&req, session.accepted())
         .await
-        .map_err(|e| reader_error(client, &e))?;
+        .map_err(|e| reader_error(&e))?;
     resp.validate_for(&req, session.accepted())?;
     resp.items
         .into_iter()
@@ -172,12 +170,7 @@ impl RestoreSession {
         Ok(())
     }
 
-    pub(super) fn write_spool_json(
-        &self,
-        path: &Path,
-        reserve: u64,
-        value: &impl Serialize,
-    ) -> Result<()> {
+    fn write_spool_json(&self, path: &Path, reserve: u64, value: &impl Serialize) -> Result<()> {
         let previous = allocated_if_present(path)?.unwrap_or(0);
         let pending = path.with_extension("pending");
         self.remove_spool_file(&pending)?;
@@ -232,53 +225,6 @@ impl RestoreSession {
         files.iter().try_for_each(|p| self.remove_spool_file(p))?;
         local::sync_dir(&root)
     }
-
-    pub(super) fn check_spool(&self) -> Result<()> {
-        let (mut bytes, mut count, mut routes) = (0u64, 0usize, 0usize);
-        for folder in ["cache", "entries", "chain"] {
-            let dir = self.root.join(folder);
-            local::directory(&dir)?;
-            for entry in fs::read_dir(dir)? {
-                let path = entry?.path();
-                if route_entry(folder, &path)? {
-                    routes += 1;
-                } else {
-                    count += 1;
-                }
-                if count > NATIVE_FILES_MAX + 2 * MAX_PAGES + 8
-                    || routes > 2 * super::logs::MAX_CHAIN as usize
-                {
-                    return Err(RestoreError::Limit("spool entries"));
-                }
-                let used = allocated_if_present(&path)?
-                    .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-                bytes = bytes
-                    .checked_add(used)
-                    .filter(|&n| n <= MAX_SPOOL)
-                    .ok_or(RestoreError::Limit("spool bytes"))?;
-            }
-        }
-        self.spool_bytes.store(bytes, Ordering::Relaxed);
-        Ok(())
-    }
-}
-
-fn route_entry(folder: &str, path: &Path) -> Result<bool> {
-    let Some(name) = path
-        .file_name()
-        .and_then(std::ffi::OsStr::to_str)
-        .and_then(|n| n.strip_prefix("routes-"))
-        .filter(|_| folder == "chain")
-    else {
-        return Ok(false);
-    };
-    name.strip_suffix(".json")
-        .or_else(|| name.strip_suffix(".pending"))
-        .filter(|s| s.len() == 8 && s.as_bytes().iter().all(u8::is_ascii_digit))
-        .and_then(|s| s.parse::<u32>().ok())
-        .filter(|&i| i < super::logs::MAX_CHAIN)
-        .map(|_| true)
-        .ok_or(RestoreError::Invalid("mutation route spool name"))
 }
 
 fn allocated_if_present(path: &Path) -> Result<Option<u64>> {
@@ -328,36 +274,4 @@ pub(super) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
         .filter(|&(a, r)| a >= r)
         .map(|_| ())
         .ok_or(RestoreError::Limit("disk capacity"))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Receipt {
-    version: u8,
-    session_id: uuid::Uuid,
-    report: ReceiptReport,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReceiptReport {
-    commit_sha256: String,
-    native_files: u64,
-    native_bytes: u64,
-    #[serde(rename = "verified_records")]
-    _verified_records: u64,
-    destination: PathBuf,
-}
-
-pub fn verify_restore_receipt(bytes: &[u8], destination: &Path) -> Result<()> {
-    let r: Receipt =
-        serde_json::from_slice(bytes).map_err(|_| RestoreError::Invalid("restore receipt"))?;
-    (r.version == 2
-        && !r.session_id.is_nil()
-        && r.report.destination == destination
-        && r.report.native_files > 0
-        && r.report.native_bytes > 0
-        && Digest::try_from(r.report.commit_sha256).is_ok())
-    .then_some(())
-    .ok_or(RestoreError::Invalid("restore provenance"))
 }

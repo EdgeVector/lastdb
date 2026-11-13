@@ -1,5 +1,4 @@
 //! Primary-home guard and descriptor-relative private home primitives.
-use crate::backup_runtime::{BackupError, Result as BackupResult};
 use crate::cloud::is_private_file;
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::fs::{File, Metadata};
@@ -11,6 +10,23 @@ use zeroize::Zeroizing;
 const MAX_BYTES: u64 = 16 * 1024;
 const SAFE: OFlags = OFlags::NOFOLLOW.union(OFlags::CLOEXEC);
 pub const DIR_FLAGS: OFlags = OFlags::RDONLY.union(OFlags::DIRECTORY).union(SAFE);
+
+#[derive(Debug)]
+pub struct DirectoryError(&'static str);
+
+impl std::fmt::Display for DirectoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for DirectoryError {}
+impl From<io::Error> for DirectoryError {
+    fn from(_: io::Error) -> Self {
+        Self("offline directory disk failure")
+    }
+}
+
+type DirectoryResult<T> = Result<T, DirectoryError>;
 
 /// Refuse `path` when it is, or lies under, the primary home `~/.lastdb`.
 pub fn refuse_primary(path: &Path) -> Result<(), String> {
@@ -201,14 +217,16 @@ fn openat(
 }
 
 impl Directory {
-    pub fn open(path: &Path) -> BackupResult<Self> {
+    pub fn open(path: &Path) -> DirectoryResult<Self> {
         Self::open_with_limit(path, MAX_BYTES)
     }
 
-    pub(crate) fn open_with_limit(path: &Path, max_bytes: u64) -> BackupResult<Self> {
-        require_absolute(path).map_err(|_| BackupError::Invalid)?;
-        let file = open_directory(path).map_err(|_| BackupError::Disk)?;
-        require_owned_directory(&file).map_err(|_| BackupError::Identity)?;
+    pub(crate) fn open_with_limit(path: &Path, max_bytes: u64) -> DirectoryResult<Self> {
+        require_absolute(path).map_err(|_| DirectoryError("invalid offline directory path"))?;
+        let file =
+            open_directory(path).map_err(|_| DirectoryError("offline directory disk failure"))?;
+        require_owned_directory(&file)
+            .map_err(|_| DirectoryError("offline directory identity changed"))?;
         Ok(Self {
             path: path.to_owned(),
             file,
@@ -216,13 +234,13 @@ impl Directory {
         })
     }
 
-    pub fn check(&self) -> BackupResult<()> {
+    pub fn check(&self) -> DirectoryResult<()> {
         eq_fd(&self.file, &Self::open(&self.path)?.file)?
             .then_some(())
-            .ok_or(BackupError::Identity)
+            .ok_or(DirectoryError("offline directory identity changed"))
     }
 
-    pub(crate) fn open_lock(&self, name: &str) -> BackupResult<File> {
+    pub(crate) fn open_lock(&self, name: &str) -> DirectoryResult<File> {
         self.check()?;
         let file = openat(
             &self.file,
@@ -232,18 +250,18 @@ impl Directory {
         )?;
         is_private_0600(&file.metadata()?, Some(MAX_BYTES))
             .then_some(file)
-            .ok_or(BackupError::Identity)
+            .ok_or(DirectoryError("offline directory identity changed"))
     }
 
-    pub(crate) fn remove_exact(&self, name: &str, expected: &[u8]) -> BackupResult<()> {
+    pub(crate) fn remove_exact(&self, name: &str, expected: &[u8]) -> DirectoryResult<()> {
         if self.read(name)?.as_deref().map(Vec::as_slice) != Some(expected) {
-            return Err(BackupError::Identity);
+            return Err(DirectoryError("offline directory identity changed"));
         }
         fs::unlinkat(&self.file, name, AtFlags::empty()).map_err(io::Error::from)?;
         Ok(self.file.sync_all()?)
     }
 
-    pub fn read(&self, name: &str) -> BackupResult<Option<Zeroizing<Vec<u8>>>> {
+    pub fn read(&self, name: &str) -> DirectoryResult<Option<Zeroizing<Vec<u8>>>> {
         self.check()?;
         let flags = OFlags::RDONLY | OFlags::NONBLOCK | SAFE;
         let mut file = match fs::openat(&self.file, name, flags, Mode::empty()) {
@@ -253,7 +271,7 @@ impl Directory {
         };
         let before = file.metadata()?;
         if !is_private_0600(&before, Some(self.max_bytes)) {
-            return Err(BackupError::Identity);
+            return Err(DirectoryError("offline directory identity changed"));
         }
         let mut bytes = Zeroizing::new(Vec::new());
         (&mut file)
@@ -267,14 +285,19 @@ impl Directory {
             || stamp(&before) != stamp(&after)
             || stamp(&after) != stamp(&cur)
         {
-            return Err(BackupError::Identity);
+            return Err(DirectoryError("offline directory identity changed"));
         }
         self.check().map(|()| Some(bytes))
     }
 
-    pub fn publish(&self, name: &str, expected: Option<&[u8]>, bytes: &[u8]) -> BackupResult<()> {
+    pub fn publish(
+        &self,
+        name: &str,
+        expected: Option<&[u8]>,
+        bytes: &[u8],
+    ) -> DirectoryResult<()> {
         if bytes.len() as u64 > self.max_bytes {
-            return Err(BackupError::Limit);
+            return Err(DirectoryError("offline directory file exceeds byte limit"));
         }
         let current = self.read(name)?;
         let slice = current.as_deref().map(Vec::as_slice);
@@ -282,7 +305,7 @@ impl Directory {
             return Ok(());
         }
         if slice != expected {
-            return Err(BackupError::Identity);
+            return Err(DirectoryError("offline directory identity changed"));
         }
         self.check()?;
         let temp = format!(".byte-backup-connection-{}.pending", uuid::Uuid::new_v4());
@@ -292,7 +315,7 @@ impl Directory {
             OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | SAFE,
             0o600,
         )?;
-        let res: BackupResult<()> = (|| {
+        let res: DirectoryResult<()> = (|| {
             file.write_all(bytes)?;
             file.sync_all()?;
             self.check()?;
@@ -308,7 +331,7 @@ impl Directory {
         self.file.sync_all()?;
         (self.read(name)?.as_deref().map(Vec::as_slice) == Some(bytes))
             .then_some(())
-            .ok_or(BackupError::Identity)
+            .ok_or(DirectoryError("offline directory identity changed"))
     }
 }
 

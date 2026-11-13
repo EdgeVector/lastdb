@@ -1,4 +1,4 @@
-//! Read-only owner and guest V2 backup transport reader.
+//! Read-only guest V2 backup transport reader.
 use super::{BackupTransport, BackupTransportError, GuestReadPermission, ObjectStream, Result};
 use crate::profile::endpoints::exemem_api_url_for;
 use cloud_backup_protocol::v2::{
@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 pub struct ByteBackupReader {
     transport: BackupTransport,
-    guest: Option<GuestAccess>,
+    guest: GuestAccess,
 }
 
 struct GuestAccess {
@@ -24,13 +24,6 @@ struct GuestAccess {
 }
 
 impl ByteBackupReader {
-    pub(super) fn from_transport(transport: BackupTransport) -> Self {
-        Self {
-            transport,
-            guest: None,
-        }
-    }
-
     pub fn guest_recovery(permission: GuestReadPermission) -> Result<Self> {
         let env = permission.environment().registry();
         let mut header = HeaderValue::from_str(permission.authorization())
@@ -39,12 +32,12 @@ impl ByteBackupReader {
         let (stream, expires_ms) = permission.into_read_scope();
         Ok(Self {
             transport: BackupTransport::for_guest(exemem_api_url_for(env))?,
-            guest: Some(GuestAccess {
+            guest: GuestAccess {
                 stream,
                 expires_ms,
                 header,
                 recovery: OnceLock::new(),
-            }),
+            },
         })
     }
 
@@ -52,31 +45,27 @@ impl ByteBackupReader {
         self.transport.endpoint("cloud/backups/v2/")
     }
 
-    pub fn guest_stream(&self) -> Option<&Stream> {
-        self.guest.as_ref().map(|g| &g.stream)
+    pub fn guest_stream(&self) -> &Stream {
+        &self.guest.stream
     }
 
     pub async fn guest_head(&self) -> Result<HeadReadResult> {
-        let access = self
-            .guest
-            .as_ref()
-            .ok_or(BackupTransportError::Configuration("guest reader"))?;
         let req = HeadReadRequest {
             version: Version::V2,
-            stream: access.stream.clone(),
+            stream: self.guest.stream.clone(),
         };
-        if let Some(&r) = access.recovery.get() {
+        if let Some(&r) = self.guest.recovery.get() {
             return self.read_guest_head(&req, r).await;
         }
         match self.read_guest_head(&req, true).await {
             Err(e) if recovery_route_missing(&e) => {
-                if *access.recovery.get_or_init(|| false) {
+                if *self.guest.recovery.get_or_init(|| false) {
                     return Err(e);
                 }
             }
             res => {
                 let res = res?;
-                if *access.recovery.get_or_init(|| true) {
+                if *self.guest.recovery.get_or_init(|| true) {
                     return Ok(res);
                 }
             }
@@ -84,11 +73,7 @@ impl ByteBackupReader {
         self.read_guest_head(&req, false).await
     }
 
-    pub(super) async fn post_head(
-        &self,
-        op: &str,
-        req: &HeadReadRequest,
-    ) -> Result<HeadReadResult> {
+    async fn post_head(&self, op: &str, req: &HeadReadRequest) -> Result<HeadReadResult> {
         req.validate()?;
         let res = match self.post(op, req).await {
             Ok(resp) => resp,
@@ -125,27 +110,19 @@ impl ByteBackupReader {
         Ok(res)
     }
 
-    async fn prepare_guest(&self, stream: &Stream) -> Result<Option<(&GuestAccess, bool)>> {
-        let Some(access) = &self.guest else {
-            return Ok(None);
-        };
-        if &access.stream != stream {
+    async fn prepare_guest(&self, stream: &Stream) -> Result<bool> {
+        if &self.guest.stream != stream {
             return Err(protocol(ErrorCode::Unauthorized, "guest.scope"));
         }
-        if access.recovery.get().is_none() {
+        if self.guest.recovery.get().is_none() {
             self.guest_head().await?;
         }
-        Ok(Some((access, access.recovery.get() != Some(&false))))
+        Ok(self.guest.recovery.get() != Some(&false))
     }
 
     pub async fn commit_status(&self, request: &CommitStatusRequest) -> Result<CommitResponse> {
         request.validate()?;
-        let Some((_, recovery)) = self.prepare_guest(&request.job.stream).await? else {
-            let resp: CommitResponse = self.post("commits/status", request).await?;
-            resp.validate_for_status(request)?;
-            return Ok(resp);
-        };
-        if recovery {
+        if self.prepare_guest(&request.job.stream).await? {
             let resp: CommitResponse = self.post("guest/recovery/commits/status", request).await?;
             resp.validate_for_status(request)?;
             return matches!(resp, CommitResponse::Accepted { .. })
@@ -178,21 +155,18 @@ impl ByteBackupReader {
         if &request.job != accepted.job() {
             return Err(BackupTransportError::Configuration("accepted selection"));
         }
-        let guest = self.prepare_guest(&request.job.stream).await?;
-        let op = match guest {
-            None => "objects/read",
-            Some((_, true)) => "guest/recovery/objects/read",
-            Some((_, false)) => {
-                require_independent(accepted)?;
-                "guest/objects/read"
-            }
+        let op = if self.prepare_guest(&request.job.stream).await? {
+            "guest/recovery/objects/read"
+        } else {
+            require_independent(accepted)?;
+            "guest/objects/read"
         };
         let resp: ReadGrantResponse = self.post(op, request).await?;
         resp.validate_for(request, accepted)?;
-        if let Some((access, _)) = guest {
-            if resp.items.iter().any(|i| matches!(i, ReadGrantItemResult::Ok { grant, .. } if grant.expires_ms.get() > access.expires_ms)) {
-                return Err(BackupTransportError::InvalidResponse("guest grant expiry"));
-            }
+        if resp.items.iter().any(|i| {
+            matches!(i, ReadGrantItemResult::Ok { grant, .. } if grant.expires_ms.get() > self.guest.expires_ms)
+        }) {
+            return Err(BackupTransportError::InvalidResponse("guest grant expiry"));
         }
         Ok(resp)
     }
@@ -212,9 +186,7 @@ impl ByteBackupReader {
 
     async fn post<Q: Serialize, R: DeserializeOwned>(&self, op: &str, request: &Q) -> Result<R> {
         let mut headers = HeaderMap::new();
-        if let Some(access) = &self.guest {
-            headers.insert(reqwest::header::AUTHORIZATION, access.header.clone());
-        }
+        headers.insert(reqwest::header::AUTHORIZATION, self.guest.header.clone());
         self.transport.post_v2(op, request, headers).await
     }
 }

@@ -1,11 +1,9 @@
-//! Client-owned encrypted metadata and disk V2 file path contract.
-use super::{invalid, protocol, StorageResult};
-use crate::storage::cloud_backup_plan::{
-    expected_receipt, ClientNativeFile, MAX_PAYLOAD_ENVELOPE_BYTES,
-};
+//! Client-owned encrypted metadata and disk V2 file path contract for recipient staging.
+use crate::storage::cloud_backup_plan::ClientNativeFile;
 use crate::storage::disk_pack::{NODE_MARKER, RUN_DIR};
+use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::{RECORD_NODE_BYTES, RECORD_PROFILE};
-use cloud_backup_protocol::v2::{transfer::TransferInput, Begin, Destination, Object};
+use cloud_backup_protocol::v2::{Begin, Destination};
 use cloud_backup_protocol::{
     bytes_sha256, DecimalU64, Digest, Id, NativeRoot, ProtocolError, RecoveryDescriptor,
 };
@@ -14,10 +12,18 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 pub const CODEC_PLAINTEXT_MAX_BYTES: u64 = 256 * 1024;
-pub const CODEC_ENVELOPE_MAX_BYTES: u64 = MAX_PAYLOAD_ENVELOPE_BYTES;
+pub const CODEC_ENVELOPE_MAX_BYTES: u64 = 256 * 1024 + 29;
 pub const CLIENT_VERSION: u16 = 8;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
+
+fn invalid(reason: &str) -> StorageError {
+    StorageError::InvalidOperation(reason.into())
+}
+
+fn protocol(_error: ProtocolError) -> StorageError {
+    invalid("byte protocol validation")
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,18 +34,7 @@ pub struct ClientPageReference {
     pub bytes: DecimalU64,
 }
 
-impl ClientPageReference {
-    pub fn for_object(page_index: u32, input: &TransferInput) -> Result<Self, ProtocolError> {
-        Ok(Self {
-            page_index,
-            receipt_id: expected_receipt(input)?.receipt_id,
-            sha256: input.object.sha256.clone(),
-            bytes: input.object.bytes,
-        })
-    }
-}
-
-pub fn begin_digests(begin: &Begin) -> StorageResult<(Digest, Digest)> {
+fn begin_digests(begin: &Begin) -> StorageResult<(Digest, Digest)> {
     Ok((
         begin.input_sha256().map_err(protocol)?,
         begin.descriptor.commitment().map_err(protocol)?,
@@ -52,7 +47,7 @@ pub fn validate_page_files(page_index: u32, files: &[ClientNativeFile]) -> Stora
     }
     let mut prev = None;
     for file in files {
-        file.validate()?;
+        file.validate().map_err(invalid)?;
         if prev
             .replace(file.path.as_str())
             .is_some_and(|p| p >= file.path.as_str())
@@ -73,7 +68,7 @@ pub fn validate_encoded_page(
 ) -> StorageResult<()> {
     validate_metadata_context(version, expected, digest, descriptor, begin)?;
     validate_page_files(page_index, files)?;
-    encode_metadata(value).map(|_| ())
+    check_metadata_size(value)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,22 +82,6 @@ pub struct ClientPage {
 }
 
 impl ClientPage {
-    pub fn new(
-        page_index: u32,
-        begin: &Begin,
-        native_files: Vec<ClientNativeFile>,
-    ) -> StorageResult<Self> {
-        let (begin_sha256, descriptor_sha256) = begin_digests(begin)?;
-        let page = Self {
-            version: CLIENT_VERSION,
-            page_index,
-            begin_sha256,
-            descriptor_sha256,
-            native_files,
-        };
-        page.validate_for(begin).map(|()| page)
-    }
-
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
         validate_encoded_page(
             self,
@@ -164,7 +143,7 @@ impl ClientRoot {
         {
             return Err(invalid("byte root identity or exact totals"));
         }
-        encode_metadata(self).map(|_| ())
+        check_metadata_size(self)
     }
 
     pub fn validate_page(&self, page: &ClientPage) -> StorageResult<()> {
@@ -197,10 +176,10 @@ pub fn validate_metadata_context(
         .ok_or_else(|| invalid("byte metadata frozen context"))
 }
 
-pub fn encode_metadata(value: &impl Serialize) -> StorageResult<Zeroizing<Vec<u8>>> {
+pub fn check_metadata_size(value: &impl Serialize) -> StorageResult<()> {
     let raw = serde_json::to_vec(value).map_err(|_| invalid("byte metadata encoding"))?;
     (raw.len() as u64 <= CODEC_PLAINTEXT_MAX_BYTES)
-        .then(|| Zeroizing::new(raw))
+        .then_some(())
         .ok_or_else(|| invalid("byte metadata bound"))
 }
 
@@ -223,31 +202,6 @@ pub fn valid_page_refs(pages: &[ClientPageReference]) -> bool {
         && pages.iter().enumerate().all(|(i, p)| {
             p.page_index as usize == i && (30..=CODEC_ENVELOPE_MAX_BYTES).contains(&p.bytes.get())
         })
-}
-
-pub fn seal_stored_envelope(
-    key: &[u8; 32],
-    plain: &[u8],
-    existing: Option<Vec<u8>>,
-) -> Result<(Object, Option<Vec<u8>>), &'static str> {
-    let (bytes, fresh) = if let Some(b) = existing {
-        let dec = crate::crypto::decrypt_envelope(key, &b)
-            .map_err(|_| "byte saved metadata encryption")?;
-        if Zeroizing::new(dec).as_slice() != plain {
-            return Err("byte frozen metadata differs");
-        }
-        (b, None)
-    } else {
-        let b =
-            crate::crypto::encrypt_envelope(key, plain).map_err(|_| "byte metadata encryption")?;
-        (b.clone(), Some(b))
-    };
-    let obj = Object {
-        sha256: bytes_sha256(&bytes),
-        bytes: DecimalU64::new(bytes.len() as u64),
-        destination: Destination::R2,
-    };
-    Ok((obj, fresh))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

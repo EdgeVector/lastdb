@@ -1,26 +1,56 @@
 //! Owned local restore session filesystem, checkpoint routing, and native file installation.
 use super::{
-    check_capacity, download, logs,
+    check_capacity, download,
+    logs::{self, MutationLogRoot, LOG_VERSION, MAX_BATCH_ENTRIES},
     runs::{stage_pages, Inventory},
     verify_file, ByteBackupReader, NativeFileProof, RecoveryDecryption, RestoreError,
     RestoreSession, Result,
 };
-use crate::byte_cloud_log::{MutationLogPage, MutationLogRoot, MAX_BATCH_ENTRIES};
 use crate::cloud::{is_owned_dir, open_private_path, read_private_path, PrivatePathError};
 use cloud_backup_protocol::v2::{
-    inventory::InventoryRoot,
     limits::{CONTROL_JSON_MAX_BYTES, MAX_BATCH_ITEMS},
-    AcceptedBackup, Destination,
+    AcceptedBackup, Begin, Destination,
 };
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, Digest};
 use fold_db::cloud_backup_plan::ClientNativeFile;
-use fold_db::storage::disk_pack::{mutation_log::LogPosition, run_restore, CAS_DIR, RUN_DIR};
+use fold_db::storage::disk_pack::{
+    byte_backup::{decode_metadata, validate_encoded_page},
+    run_restore, CAS_DIR, RUN_DIR,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MutationLogPage {
+    pub version: u16,
+    pub page_index: u32,
+    pub begin_sha256: Digest,
+    pub descriptor_sha256: Digest,
+    pub files: Vec<ClientNativeFile>,
+}
+
+impl MutationLogPage {
+    fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> Result<Self> {
+        let page: Self =
+            decode_metadata(bytes, key).map_err(|_| RestoreError::Invalid("mutation file page"))?;
+        let ctx = (&page.begin_sha256, &page.descriptor_sha256);
+        validate_encoded_page(
+            &page,
+            (page.version, LOG_VERSION),
+            page.page_index,
+            ctx,
+            &page.files,
+            begin,
+        )
+        .map_err(|_| RestoreError::Invalid("mutation file page"))?;
+        logs::require_log_destinations(begin).map(|()| page)
+    }
+}
 
 fn private_err(err: PrivatePathError, limit: &'static str) -> RestoreError {
     match err {
@@ -224,30 +254,7 @@ fn pending_path(session: &RestoreSession, path: &str) -> PathBuf {
         .join(format!("native-{}.pending", path_key(path)))
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Routing {
-    version: u16,
-    link_index: u32,
-    commit_sha256: Digest,
-    root_receipt_id: Digest,
-    inventory_root: InventoryRoot,
-    from: LogPosition,
-    through: LogPosition,
-    entry_sha256s: Vec<Digest>,
-    native_files: u64,
-    native_bytes: u64,
-    objects: u64,
-    metadata_objects: u64,
-    main_files: u64,
-}
-
-fn init_routing(
-    accepted: &AcceptedBackup,
-    root: &MutationLogRoot,
-    objects: u64,
-    link_index: u32,
-) -> Result<Routing> {
+fn check_route_entries(root: &MutationLogRoot) -> Result<u64> {
     let metadata_objects = u64::try_from(root.pages.len())
         .ok()
         .and_then(|c| c.checked_add(1))
@@ -255,44 +262,27 @@ fn init_routing(
     if !(1..=MAX_BATCH_ENTRIES).contains(&root.entries.len()) {
         return Err(RestoreError::Invalid("mutation route entry bound"));
     }
-    let (mut pos, mut entry_sha256s) = (root.from.clone(), Vec::with_capacity(root.entries.len()));
+    let mut pos = root.from.clone();
     for entry in &root.entries {
         pos = entry
             .position_after(&pos)
             .map_err(|_| RestoreError::Invalid("mutation route entry identity"))?;
-        entry_sha256s.push(pos.sha256.clone());
     }
     (pos == root.through)
-        .then_some(Routing {
-            version: 2,
-            link_index,
-            commit_sha256: accepted.commit_sha256.clone(),
-            root_receipt_id: accepted.root_receipt_id.clone(),
-            inventory_root: accepted.inventory_root.clone(),
-            from: root.from.clone(),
-            through: root.through.clone(),
-            entry_sha256s,
-            native_files: 0,
-            native_bytes: 0,
-            objects,
-            metadata_objects,
-            main_files: 0,
-        })
+        .then_some(metadata_objects)
         .ok_or(RestoreError::Invalid("mutation route complete position"))
 }
 
 fn decode_log_page(
-    routes: &mut Routing,
+    totals: &mut (u64, u64),
     accepted: &AcceptedBackup,
     root: &MutationLogRoot,
     key: &[u8; 32],
     index: u32,
     bytes: &[u8],
 ) -> Result<Vec<(ClientNativeFile, Destination)>> {
-    let page = MutationLogPage::decode(bytes, key, &accepted.begin)
-        .map_err(|_| RestoreError::Invalid("mutation file page"))?;
-    root.validate_page(&page)
-        .map_err(|_| RestoreError::Invalid("mutation file page context"))?;
+    let page = MutationLogPage::decode(bytes, key, &accepted.begin)?;
+    root.validate_page(&page)?;
     if page.page_index != index {
         return Err(RestoreError::Invalid("mutation page order"));
     }
@@ -300,17 +290,16 @@ fn decode_log_page(
         if file.path.as_str().split('/').nth(3) != Some("main") {
             return Err(RestoreError::Invalid("mutation route role"));
         }
-        routes.native_files = routes
-            .native_files
+        totals.0 = totals
+            .0
             .checked_add(1)
             .ok_or(RestoreError::Limit("mutation route total"))?;
-        routes.main_files = routes.native_files;
-        routes.native_bytes = routes
-            .native_bytes
+        totals.1 = totals
+            .1
             .checked_add(file.native_bytes.get())
             .ok_or(RestoreError::Limit("mutation route total"))?;
     }
-    if routes.native_files > root.native_file_count || routes.native_bytes > root.native_bytes {
+    if totals.0 > root.native_file_count || totals.1 > root.native_bytes {
         return Err(RestoreError::Invalid("mutation file totals"));
     }
     page.files
@@ -334,26 +323,20 @@ pub(super) async fn download_checkpoint(
     let accepted = session.accepted();
     let objects = u64::try_from(inventory.receipts.len())
         .map_err(|_| RestoreError::Limit("mutation route object count"))?;
-    let mut routes = init_routing(accepted, root, objects, link_index)?;
+    let metadata_objects = check_route_entries(root)?;
+    let mut totals = (0u64, 0u64);
     let target = session.root.join("replay-files");
     stage_pages(session, client, &root.pages, inventory, &target, |i, b| {
-        decode_log_page(&mut routes, accepted, root, &decryption.content, i, b)
+        decode_log_page(&mut totals, accepted, root, &decryption.content, i, b)
     })
     .await?;
-    if routes.main_files != routes.native_files
-        || routes.native_files != root.native_file_count
-        || routes.native_bytes != root.native_bytes
-        || routes.objects != routes.inventory_root.object_count.get()
-        || routes.metadata_objects > routes.objects
+    if totals != (root.native_file_count, root.native_bytes)
+        || objects != accepted.inventory_root.object_count.get()
+        || metadata_objects > objects
     {
         return Err(RestoreError::Invalid("complete mutation route totals"));
     }
-    if read_json::<AcceptedBackup>(&logs::link_path(session, link_index), 256 * 1024)? != *accepted
-    {
-        return Err(RestoreError::Invalid("mutation route accepted link"));
-    }
-    let dst = session
-        .root
-        .join(format!("chain/routes-{link_index:08}.json"));
-    session.save_or_verify_spool_json(&dst, logs::CHAIN_RESERVE, &routes, "saved route evidence")
+    (read_json::<AcceptedBackup>(&logs::link_path(session, link_index), 256 * 1024)? == *accepted)
+        .then_some(())
+        .ok_or(RestoreError::Invalid("mutation route accepted link"))
 }

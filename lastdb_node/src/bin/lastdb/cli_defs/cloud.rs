@@ -67,7 +67,7 @@ pub(crate) struct BackupConnectArgs {
         conflicts_with = "existing"
     )]
     pub(crate) dev: bool,
-    #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin", "restored"], requires_all = ["env", "api_key_stdin"])]
+    #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin"], requires_all = ["env", "api_key_stdin"])]
     pub(crate) existing: bool,
     #[arg(long, value_parser = ["dev", "prod"], requires = "existing")]
     pub(crate) env: Option<String>,
@@ -77,8 +77,6 @@ pub(crate) struct BackupConnectArgs {
     pub(crate) expected_user_hash: Option<String>,
     #[arg(long)]
     pub(crate) invite_code_stdin: bool,
-    #[arg(long, conflicts_with = "invite_code_stdin")]
-    pub(crate) restored: bool,
     #[arg(long)]
     pub(crate) json: bool,
 }

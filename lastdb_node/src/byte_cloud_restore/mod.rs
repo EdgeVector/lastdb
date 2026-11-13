@@ -1,10 +1,9 @@
-//! Verified recipient staging of accepted opaque-byte cloud backups and restore receipts.
+//! Verified recipient staging of accepted opaque-byte cloud backups.
 mod download;
 mod logs;
 mod native;
 mod runs;
 
-use crate::byte_cloud_log::MutationLogRoot;
 use crate::cloud_backup_client::byte_backup::{BackupTransportError, ByteBackupReader};
 use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::{
@@ -12,11 +11,11 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Version,
 };
 use cloud_backup_protocol::{Digest, ErrorCode, Id, NativeRoot, ProtocolError, RecoveryDescriptor};
-pub use download::verify_restore_receipt;
 use download::{bounded_bytes, check_capacity, verify_file};
 pub use fold_db::storage::disk_pack::run_restore::{StagedRecord, StagedRecordQuery};
 use fold_db::storage::disk_pack::{mutation_log::LogPosition, NativeCloudWorkGuard};
 use fold_db::storage::error::{NativeProofCause, NativeProofStage};
+use logs::MutationLogRoot;
 use native as local;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -26,7 +25,6 @@ use std::sync::{atomic::AtomicU64, Arc};
 use zeroize::Zeroizing;
 
 pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
-pub const RESTORE_RECEIPT_NAME: &str = "byte-cloud-restore-receipt.json";
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -106,27 +104,12 @@ pub(crate) struct GuestReplayCache<'a> {
     pub(crate) through: Option<&'a LogPosition>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum RestoreMode {
-    Recipient,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Selection {
-    version: u8,
-    session_id: uuid::Uuid,
+/// Durable exact V2 guest staging session.
+pub struct RestoreSession {
+    root: PathBuf,
     accepted: AcceptedBackup,
     destination: PathBuf,
     endpoint: Option<String>,
-    mode: RestoreMode,
-}
-
-/// Durable exact V2 selection.
-pub struct RestoreSession {
-    root: PathBuf,
-    selection: Selection,
     _lock: File,
     spool_bytes: Arc<AtomicU64>,
 }
@@ -158,15 +141,6 @@ impl RestoreSession {
         _lock
             .try_lock()
             .map_err(|_| RestoreError::Invalid("session already owned"))?;
-        let selection = Selection {
-            version: 2,
-            session_id,
-            accepted,
-            destination,
-            endpoint: None,
-            mode: RestoreMode::Recipient,
-        };
-        local::atomic_json(&root.join("selection.json"), &selection)?;
         for sub in ["cache", "entries", "chain", "home", "home/data"] {
             local::ensure_directory(&root.join(sub))?;
         }
@@ -174,7 +148,9 @@ impl RestoreSession {
         local::sync_dir(&parent)?;
         Ok(Self {
             root,
-            selection,
+            accepted,
+            destination,
+            endpoint: None,
             _lock,
             spool_bytes: Arc::new(AtomicU64::new(0)),
         })
@@ -183,43 +159,36 @@ impl RestoreSession {
     pub fn path(&self) -> &Path {
         &self.root
     }
+
     pub fn accepted(&self) -> &AcceptedBackup {
-        &self.selection.accepted
+        &self.accepted
     }
 
     pub(super) fn ancestor(&self, accepted: AcceptedBackup) -> Result<Self> {
         accepted.validate()?;
-        if accepted.job().stream != self.accepted().job().stream
-            || accepted.ordinal.get() > self.accepted().ordinal.get()
+        if accepted.job().stream != self.accepted.job().stream
+            || accepted.ordinal.get() > self.accepted.ordinal.get()
         {
             return Err(RestoreError::Invalid("accepted ancestor stream or order"));
         }
         Ok(Self {
             root: self.root.clone(),
-            selection: Selection {
-                accepted,
-                ..self.selection.clone()
-            },
+            accepted,
+            destination: self.destination.clone(),
+            endpoint: self.endpoint.clone(),
             _lock: self._lock.try_clone()?,
             spool_bytes: Arc::clone(&self.spool_bytes),
         })
     }
 
     pub(crate) async fn guest_accepted(reader: &ByteBackupReader) -> Result<AcceptedBackup> {
-        let stream = reader
-            .guest_stream()
-            .ok_or(RestoreError::Invalid("guest reader"))?;
-        let accepted = match reader
-            .guest_head()
-            .await
-            .map_err(|e| reader_error(reader, &e))?
-        {
+        let accepted = match reader.guest_head().await.map_err(|e| reader_error(&e))? {
             HeadReadResult::Ok { response } => response
                 .accepted
                 .ok_or(RestoreError::Source("share has no published backup"))?,
-            HeadReadResult::Error { error } => return Err(reader_error(reader, &error.into())),
+            HeadReadResult::Error { error } => return Err(reader_error(&error.into())),
         };
-        (&accepted.job().stream == stream)
+        (&accepted.job().stream == reader.guest_stream())
             .then_some(accepted)
             .ok_or(RestoreError::Invalid("guest stream"))
     }
@@ -255,17 +224,14 @@ impl RestoreSession {
         publisher_public_key: Digest,
         cache: Option<&GuestReplayCache<'_>>,
     ) -> Result<(PathBuf, NativeRoot, Option<LogPosition>)> {
-        let accepted = self.accepted();
-        if self.selection.mode != RestoreMode::Recipient
-            || reader.guest_stream() != Some(&accepted.job().stream)
-        {
+        if reader.guest_stream() != &self.accepted.job().stream {
             return Err(RestoreError::Invalid("recipient restore session"));
         }
         let recovery = RecoveryDescriptor {
             profile: RecoveryProfile::MiniPortableV1,
             account_public_key: publisher_public_key,
         };
-        recovery.validate_for(&accepted.job().stream.scope)?;
+        recovery.validate_for(&self.accepted.job().stream.scope)?;
         let dec = RecoveryDecryption {
             content: content_key,
             account_public_key: recovery.account_public_key.as_str().to_owned(),
@@ -275,14 +241,14 @@ impl RestoreSession {
         self.require_unactivated()?;
         self.authorize_read(reader).await?;
         let (inventory, bytes) = runs::load_closure(self, reader).await?;
-        let (proof, through) = if self.accepted().begin.dependencies().is_empty() {
+        let (proof, through) = if self.accepted.begin.dependencies().is_empty() {
             let root = runs::snapshot_closure(self, &dec, &bytes)?;
             (
                 runs::stage_and_verify(self, reader, &dec, &root, inventory).await?,
                 None,
             )
         } else {
-            let root = MutationLogRoot::decode(&bytes, &dec.content, &self.accepted().begin)
+            let root = MutationLogRoot::decode(&bytes, &dec.content, &self.accepted.begin)
                 .map_err(|_| RestoreError::Invalid("recipient mutation log root"))?;
             drop(inventory);
             let (p, t) = logs::stage_guest(self, reader, &dec, root, cache).await?;
@@ -296,7 +262,7 @@ impl RestoreSession {
     fn require_unactivated(&self) -> Result<()> {
         let home = self.root.join("home");
         for path in [
-            self.selection.destination.clone(),
+            self.destination.clone(),
             home.join(crate::identity::IDENTITY_KEY_FILE),
             crate::cloud::cloud_credentials_path(&home),
         ] {
@@ -311,44 +277,38 @@ impl RestoreSession {
 
     async fn authorize_read(&mut self, client: &ByteBackupReader) -> Result<()> {
         let ep = client.canonical_endpoint();
-        match &self.selection.endpoint {
+        match &self.endpoint {
             Some(saved) if *saved != ep => return Err(RestoreError::Invalid("restore endpoint")),
-            None => {
-                self.selection.endpoint = Some(ep);
-                local::atomic_json(&self.root.join("selection.json"), &self.selection)?;
-            }
+            None => self.endpoint = Some(ep),
             Some(_) => {}
         }
-        self.check_spool()?;
         let req = CommitStatusRequest {
             version: Version::V2,
-            job: self.accepted().job().clone(),
+            job: self.accepted.job().clone(),
         };
         let status = client
             .commit_status(&req)
             .await
-            .map_err(|e| reader_error(client, &e))?;
+            .map_err(|e| reader_error(&e))?;
         match status {
-            CommitResponse::Accepted { backup } if *backup == *self.accepted() => Ok(()),
+            CommitResponse::Accepted { backup } if *backup == self.accepted => Ok(()),
             _ => Err(RestoreError::Invalid("authoritative accepted selection")),
         }
     }
 }
 
-fn reader_error(reader: &ByteBackupReader, error: &BackupTransportError) -> RestoreError {
-    if reader.guest_stream().is_some() {
-        if matches!(error, BackupTransportError::Authentication)
-            || matches!(error, BackupTransportError::Protocol(e) if e.code == ErrorCode::Unauthorized)
-        {
-            return RestoreError::Source("guest permission refused");
-        }
-        if matches!(
-            error,
-            BackupTransportError::Protocol(e)
-                if e.code == ErrorCode::RetryLater && e.field == "guest.head_changed"
-        ) {
-            return RestoreError::Source("share changed, start a new guest stage");
-        }
+fn reader_error(error: &BackupTransportError) -> RestoreError {
+    if matches!(error, BackupTransportError::Authentication)
+        || matches!(error, BackupTransportError::Protocol(e) if e.code == ErrorCode::Unauthorized)
+    {
+        return RestoreError::Source("guest permission refused");
+    }
+    if matches!(
+        error,
+        BackupTransportError::Protocol(e)
+            if e.code == ErrorCode::RetryLater && e.field == "guest.head_changed"
+    ) {
+        return RestoreError::Source("share changed, start a new guest stage");
     }
     RestoreError::Source("byte transport")
 }

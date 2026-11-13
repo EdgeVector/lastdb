@@ -1,7 +1,7 @@
 //! Protected credential homes: offline transfer or explicit source-free registration.
 use super::{
-    block_on_cloud, print_backup, read_stdin_no_control, read_stdin_secret, require_disjoint,
-    CloudCommand, FreshHome, PrepareRecoveryArgs, RecoverCredentialsArgs,
+    block_on_cloud, read_stdin_secret, require_disjoint, CloudCommand, FreshHome,
+    PrepareRecoveryArgs, RecoverCredentialsArgs,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::AccountId;
@@ -17,9 +17,6 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use zeroize::Zeroizing;
-
-#[path = "existing_connection.rs"]
-mod existing_connection;
 
 const INTENT: &str = ".native_backup_registration.json";
 const RECOVERY_ERRS: [&str; 4] = [
@@ -90,43 +87,6 @@ pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(),
         }
         CloudCommand::BackupV2 { .. } => unreachable!("handled by signed restore dispatch"),
     }
-}
-
-pub(super) fn run_existing(
-    home: &Path,
-    env: &str,
-    expected: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
-    if !home.is_absolute() || !matches!(env, "dev" | "prod") {
-        return Err(
-            "existing connection requires an absolute home and dev or prod environment".into(),
-        );
-    }
-    let expected = expected
-        .map(|value| {
-            AccountId::try_from(value.to_owned()).map_err(|_| "invalid expected account identity")
-        })
-        .transpose()?;
-    let api_key = read_stdin_no_control(4096, "existing account API key")?;
-    if api_key.is_empty() || api_key.len() > 4096 || api_key.trim() != api_key.as_str() {
-        return Err("existing account API key was refused".into());
-    }
-    let account_id = existing_connection::home_account(home)?;
-    if expected.as_ref().is_some_and(|id| id != &account_id) {
-        return Err("expected account identity does not match this home".into());
-    }
-    existing_connection::save(home, env, &account_id, &api_key)?;
-    print_backup(
-        &serde_json::json!({
-            "ok": true,
-            "environment": env,
-            "account_id": account_id,
-            "credentials_saved": true,
-            "registration_attempted": false,
-        }),
-        json,
-    )
 }
 
 fn emit_receipt(json: bool, receipt: &serde_json::Value, text: &str) -> Result<(), String> {
