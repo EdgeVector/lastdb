@@ -140,7 +140,7 @@ def run(args, node):
     if args.action == "declare":
         return {"definitionId": people.declare()}
     if args.action == "check":
-        node.require_sessions()
+        node.require_app_share_specs()
         return {"ready": True}
     if args.action == "show-records":
         return [{key: value for key, value in row.items() if key != "contact_code"}

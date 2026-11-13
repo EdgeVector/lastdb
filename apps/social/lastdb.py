@@ -67,6 +67,10 @@ class LastDB:
         if self.call("GET", "/api/version").get("capabilities", {}).get("database_sessions_v1") is not True:
             raise SocialError("Social needs a LastDB build with database sessions")
 
+    def require_app_share_specs(self):
+        if self.call("GET", "/api/version").get("capabilities", {}).get("app_share_specs_v1") is not True:
+            raise SocialError("Social needs a LastDB build with app-defined share specs")
+
     def verify_contact(self, path, expected_key):
         return self.command("share", "verify-contact", str(path), "--recipient-key", expected_key)
 
