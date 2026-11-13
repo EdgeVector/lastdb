@@ -19,6 +19,8 @@ export type {
   DatabaseSpec,
   ListedDatabase,
 } from './databases.js';
+export { socialClient } from './social.js';
+export type { SocialClientOptions, SocialInvitation } from './social.js';
 
 export {
   LASTDB_API_ROUTES,

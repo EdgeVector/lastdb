@@ -69,6 +69,45 @@ const same = await connect({ appId: 'photos', databaseId: created.name ?? create
 
 `ownerClient({ appId, socketPath, databaseId })` selects the same way.
 
+## Set up sharing with Social
+
+Use `socialClient` with the installed Social command and the same LastDB home
+as your data client. Give the database your app's versioned spec and declare
+its content schemas through the selected LastDB client.
+
+```ts
+import { connect, socialClient } from '@lastdb/app-sdk';
+
+const social = socialClient({ dataDir });
+const root = await connect({ appId: 'field-notes', socketPath });
+const database = await social.createDatabase('field-trip', {
+  name: 'field-notes',
+  version: 1,
+});
+const notes = root.select(database.id);
+await notes.declareSchema(noteDeclaration);
+// Write initial notes through the selected client.
+
+const receipt = await social.inviteReader(database.id, {
+  name: 'Ana',
+  nodeKey: anaVerifiedKey,
+  contactPath: anaContactFile,
+});
+// Hand the sealed receipt to Ana through your chosen channel.
+```
+
+On Ana's device, call `social.acceptInvitation(receipt, verifiedPublisherKey)`.
+The returned database includes its verified spec. Use `root.select(database.id)`
+on that device to open it, and save the ID to reopen it later. The publisher
+can call `social.revokeAccess(database.id, anaVerifiedKey)`. Social remembers
+verified contacts across databases, so later invitations can omit `contactPath`.
+Keep sealed receipts out of logs.
+
+For a database the app already created with `root.createDatabase`, pass that
+database's ID to Social's `inviteReader`. Social manages people and sharing
+through the existing owner connection. Content apps use LastDB's regular
+database APIs.
+
 ## Registered Shares
 
 Pass the database ID or alias from `lastdb db list` to `connect` or `select`

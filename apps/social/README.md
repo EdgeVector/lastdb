@@ -1,12 +1,15 @@
 # Social
 
 Social remembers verified contacts in the local personal database and manages
-reader access to Social v1 databases. It uses the LastDB owner socket and an
-explicit, isolated LastDB home. Use Python 3.9 or later and the LastDB client
+reader access to owned shareable LastDB databases with a spec. It uses the
+LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
-Create an owned database with `social create-db NAME`. Use LastDB's normal
-schema and record APIs to put content in it. `lastdb share contact --out PATH`
+Create an owned database with `social create-db NAME --spec field-notes --version 1`.
+An app can also create the database with LastDB's SDK and open it in Social
+by database ID. Declare the content schemas and write records through LastDB.
+`social create-db NAME` still uses the default Social v1 spec.
+`lastdb share contact --out PATH`
 exports a contact file and its public node key. Check the key independently
 with the person before granting access.
 
@@ -45,12 +48,15 @@ until LastDB confirms the result or definitively rejects it. A later `add` or
 
 ## Open the local app
 
-Run `social --data-dir "$isolated_home" open` on a running LastDB node. The
+Run `social --data-dir "$lastdb_home" open` on a running LastDB node. The
 launcher opens a browser window for the local Social session. Add verified
 contacts under People. Use Databases to create a share, see the applied roster,
 revoke a reader, copy the sealed invitation, or accept one. The recipient's
 cloud access and downloaded record readiness are shown separately. Use
 `open --database ID` to go directly to a database's sharing settings.
+
+TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
+for database creation, invitation, acceptance and revocation.
 
 The picker filters by spec and intent. For example, run
 `social --data-dir "$isolated_home" pick-database --spec social --version 1 --intent read`

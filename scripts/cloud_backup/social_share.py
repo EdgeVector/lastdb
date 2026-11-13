@@ -3,21 +3,26 @@
 import fcntl
 import json
 import os
-from pathlib import Path
 import subprocess
 import time
 import uuid
 
 from signed_files import retry, run_operation, summary
-from social_app import (call as app_call, command as social_command, install, observe_access,
-                        open_content_apps, read_album, report_content_flow, window)
+from social_app import (SCHEMA, SPEC, call as app_call, command as social_command, install, observe_access,
+                        open_content_apps, read_note, report_content_flow, sdk, window)
 from support import OperationError, decode_json, require
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SPEC = {"name": "social", "version": 1}
-SCHEMA = "social/Album"
-ALBUMS = ("Before sharing", "While shared", "While revoked")
+NOTES = ("Before sharing", "While shared", "While revoked")
+DECLARATION = {
+    "namespace": "field-notes",
+    "schema": {
+        "name": "Note", "descriptive_name": "Note", "purpose_statement": "One note from a field trip.",
+        "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+        "fields": ["title"], "field_types": {"title": "String"},
+        "field_descriptions": {"title": "Title of a field note."},
+    },
+}
 
 
 def social(node, *arguments, receipt=None, refusal=None):
@@ -39,26 +44,25 @@ def social(node, *arguments, receipt=None, refusal=None):
     return decode_json(result.stdout)
 
 
-def album(node, database, index):
+def note(node, database, index):
     return node.call(f"/api/databases/{database}/query", {
         "schema_name": SCHEMA,
-        "filter": {"HashKey": f"album-{index}"},
+        "filter": {"HashKey": f"note-{index}"},
     })["results"]
 
 
-def write_album(node, database, definition, index):
+def write_note(node, database, definition, index):
     node.call(f"/api/databases/{database}/mutation", {
         "type": "mutation", "schema": SCHEMA, "definition_id": definition,
-        "key_value": {"hash": f"album-{index}", "range": None}, "alternates": {},
+        "key_value": {"hash": f"note-{index}", "range": None}, "alternates": {},
         "mutation_type": "create", "expected": {"type": "absent"},
-        "record": {"title": ALBUMS[index], "description": "Generated DEV record",
-                   "cover_photo_id": "none", "created_at": "2026-11-13T00:00:00Z"},
+        "record": {"title": NOTES[index]},
     })
 
 
-def wait_for_album(node, database, index):
-    retry(f"social_album_{index}", lambda: album(node, database, index),
-          lambda rows: len(rows) == 1 and rows[0]["fields"]["title"] == ALBUMS[index])
+def wait_for_note(node, database, index):
+    retry(f"social_note_{index}", lambda: note(node, database, index),
+          lambda rows: len(rows) == 1 and rows[0]["fields"]["title"] == NOTES[index])
 
 
 def roster(node, database):
@@ -97,14 +101,13 @@ def transfer(programs, root, publisher, recipient, api_key):
     if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
         install(publisher, root, revision)
     name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
-    created = social(publisher, "create-db", name)
+    created = sdk(publisher, "create", name=name, spec=SPEC)
     database = str(uuid.UUID(created["id"]))
     require(database == created["id"] and created["spec"] == SPEC, "social_created_database")
     summary(f"Owned DEV mutation log `{database}` for `{name}`.")
     print(f"Social DEV database {database}", flush=True)
-    schema = json.loads((ROOT / "spec/social/Album.json").read_text())
-    definition = publisher.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
-    write_album(publisher, database, definition, 0)
+    definition = publisher.call(f"/api/databases/{database}/schemas/declare", DECLARATION)["definition_id"]
+    write_note(publisher, database, definition, 0)
     connected = programs.command(publisher.home, [
         "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
         "--expected-user-hash", publisher.account, "--json",
@@ -128,23 +131,22 @@ def transfer(programs, root, publisher, recipient, api_key):
         })
         require(person == {"name": "Ana", "nodeKey": reader_key}
                 and person in app_call(owner_app, "/api/home")["people"], "social_app_saved_contact")
+        detail = app_call(owner_app, f"/api/database?databaseId={database}")
+        require(detail["sharing"]["revision"] == "0", "social_app_manages_custom_spec")
         with window(recipient) as recipient_app:
-            share_albums(publisher, recipient, database, definition, reader_key, publisher_key,
-                         owner_app, recipient_app)
+            share_notes(publisher, recipient, database, definition, reader_key, publisher_key, recipient_app)
     check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
 
 
-def share_albums(publisher, recipient, database, definition, reader_key, publisher_key, owner_app, recipient_app):
+def share_notes(publisher, recipient, database, definition, reader_key, publisher_key, recipient_app):
     try:
-        receipt = app_call(owner_app, "/api/invite", {"databaseId": database, "nodeKey": reader_key})
+        receipt = sdk(publisher, "invite", databaseId=database, recipient={"name": "Ana", "nodeKey": reader_key})
         require(receipt["publisher"] == publisher_key and receipt["revision"] == "1",
                 "social_publisher_identity")
-        received = app_call(recipient_app, "/api/accept", {
-            "publisher": publisher_key, "name": "family", "receipt": receipt,
-        })
+        received = sdk(recipient, "accept", publisher=publisher_key, name="family", receipt=receipt)
         require(received.get("id") == database and received.get("spec") == SPEC
                 and received.get("access") == "reader", "social_received_metadata")
-        wait_for_album(recipient, database, 0)
+        wait_for_note(recipient, database, 0)
         recipient.stop()
         recipient.start()
         listed = next(row for row in recipient.call("/api/databases")["databases"]
@@ -152,26 +154,27 @@ def share_albums(publisher, recipient, database, definition, reader_key, publish
         require(listed.get("spec") == SPEC, "social_spec_after_restart")
         observe_access(recipient_app, database, "active", 1)
         selections = open_content_apps(recipient, recipient_app, database)
-        require(read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_initial_album")
+        require(read_note(recipient, selections, database, "note-0", NOTES[0]), "social_apps_initial_note")
         grants = social(publisher, "list", "--database", database)
         require(len(grants) == 1 and grants[0]["user"] == "Ana", "social_remembers_contact")
         share(publisher, database, None, reader_key, 1)
-        write_album(publisher, database, definition, 1)
-        wait_for_album(recipient, database, 1)
-        require(read_album(recipient, selections, database, "album-1", ALBUMS[1]), "social_apps_second_album")
-        revoke(publisher, database, reader_key, 2)
-        write_album(publisher, database, definition, 2)
+        write_note(publisher, database, definition, 1)
+        wait_for_note(recipient, database, 1)
+        require(read_note(recipient, selections, database, "note-1", NOTES[1]), "social_apps_second_note")
+        require(sdk(publisher, "revoke", databaseId=database, nodeKey=reader_key) == "2", "social_sdk_revoke")
+        expect_roster(publisher, database, 2, {"nodeKey": reader_key, "role": "read", "state": "revoked"})
+        write_note(publisher, database, definition, 2)
         for _ in range(12):
-            require(album(recipient, database, 2) == [], "social_revoked_read_new_album")
+            require(note(recipient, database, 2) == [], "social_revoked_read_new_note")
             time.sleep(1)
         observe_access(recipient_app, database, "revoked")
-        require(read_album(recipient, selections, database, "album-2")
-                and read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_revoked")
-        wait_for_album(recipient, database, 0)
+        require(read_note(recipient, selections, database, "note-2")
+                and read_note(recipient, selections, database, "note-0", NOTES[0]), "social_apps_revoked")
+        wait_for_note(recipient, database, 0)
         share(publisher, database, None, reader_key, 3)
-        wait_for_album(recipient, database, 2)
+        wait_for_note(recipient, database, 2)
         observe_access(recipient_app, database, "active", 3)
-        require(read_album(recipient, selections, database, "album-2", ALBUMS[2]), "social_apps_caught_up")
+        require(read_note(recipient, selections, database, "note-2", NOTES[2]), "social_apps_caught_up")
     finally:
         applied = roster(publisher, database)
         if any(member["state"] == "active" for member in applied["members"]):
@@ -179,9 +182,10 @@ def share_albums(publisher, recipient, database, definition, reader_key, publish
             revoke(publisher, database, reader_key, final_revision)
             print(f"Final ExeMem revoke acknowledged at revision {final_revision}.", flush=True)
             summary(f"Final ExeMem revoke acknowledged at revision {final_revision}.")
-    message = ("Social returned a sealed invitation to the caller and the other Social instance accepted it. "
-               "ExeMem confirmed grant, revoke and regrant. The recipient kept the Social v1 spec across "
-               "restart, read later albums, stopped receiving them after revoke, and caught up after regrant.")
+    message = ("The Social SDK created a database with an app-defined spec and returned a sealed invitation. "
+               "The recipient accepted it through the SDK. ExeMem confirmed grant, revoke and regrant. "
+               "The recipient kept the app's spec across "
+               "restart, read later notes, stopped receiving them after revoke, and caught up after regrant.")
     print(message, flush=True)
     summary(message)
     report_content_flow()

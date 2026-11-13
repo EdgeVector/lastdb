@@ -22,8 +22,8 @@ PENDING = {
 }
 
 
-def owns_social_database(database):
-    return database.get("kind") == "shareable" and database.get("spec") == SPEC
+def can_manage_sharing(database):
+    return database.get("kind") == "shareable" and bool(database.get("spec"))
 
 
 class Sharing:
@@ -31,9 +31,9 @@ class Sharing:
         self.node = node
         self.people = people
 
-    def create(self, name):
+    def create(self, name, spec=SPEC):
         return self.node.call("POST", "/api/databases", {
-            "name": name, "kind": "shareable", "spec": SPEC,
+            "name": name, "kind": "shareable", "spec": spec,
         })["database"]
 
     def databases(self):
@@ -42,8 +42,8 @@ class Sharing:
     def owned(self, selector):
         matches = [row for row in self.databases()
                    if selector in (row.get("id"), row.get("name"))]
-        if len(matches) != 1 or not owns_social_database(matches[0]):
-            raise SocialError(f"{selector} is not an owned social v1 database")
+        if len(matches) != 1 or not can_manage_sharing(matches[0]):
+            raise SocialError(f"{selector} needs an owned shareable database with a spec")
         return matches[0]
 
     def configuration(self, database_id):
@@ -54,7 +54,7 @@ class Sharing:
 
     def all_configurations(self, selector):
         databases = [self.owned(selector)] if selector else [
-            row for row in self.databases() if owns_social_database(row)
+            row for row in self.databases() if can_manage_sharing(row)
         ]
         with ThreadPoolExecutor(max_workers=4) as pool:
             return list(pool.map(self.configuration_row, databases))

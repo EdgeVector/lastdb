@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remember people and share LastDB databases from an isolated Social home."""
+"""Remember people and share databases from the selected LastDB home."""
 
 import argparse
 from http.client import HTTPException
@@ -78,8 +78,10 @@ def parser():
     selection.add_argument("--database")
     selection.add_argument("--cancel", action="store_true")
     selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
-    create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
+    create = actions.add_parser("create-db", help="Create a database for a share spec")
     create.add_argument("name")
+    create.add_argument("--spec", default="social")
+    create.add_argument("--version", type=int, default=1)
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
     add.add_argument("--user", required=True)
     add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
@@ -110,7 +112,7 @@ def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
     if args.action == "create-db":
-        return sharing.create(args.name)
+        return sharing.create(args.name, {"name": args.spec, "version": args.version})
     if args.action == "remember":
         return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
     if args.action == "pick-database":
