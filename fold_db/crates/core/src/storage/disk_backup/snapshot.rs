@@ -47,7 +47,7 @@ impl PackRuntime {
             ));
         }
         cas_delete::require_clear(&self.physical)?;
-        if self.has_external_file_references().await? {
+        if crate::storage::local_file_ref::has_references(self)? {
             return Err(StorageError::invalid(
                 "snapshot cannot include files referenced outside the database",
             ));
