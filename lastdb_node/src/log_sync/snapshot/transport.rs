@@ -7,7 +7,7 @@ use std::time::Duration;
 use cloud_backup_protocol::v2::share_access::MUTATION_LOG_SNAPSHOT_BYTES_PATH as ROUTE;
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, Digest, Id};
 use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use serde_json::json;
@@ -91,14 +91,13 @@ pub(super) async fn publish(
             page.len(),
         )
         .await?;
-        stream::iter(
-            page.iter()
-                .zip(grants)
-                .map(|(entry, grant)| upload(&client, cut, entry, grant)),
-        )
-        .buffer_unordered(PARALLEL)
-        .try_collect::<Vec<_>>()
-        .await?;
+        for (entries, grants) in page.chunks(PARALLEL).zip(grants.chunks(PARALLEL)) {
+            let mut transfers = Vec::with_capacity(entries.len());
+            for (entry, grant) in entries.iter().zip(grants) {
+                transfers.push(upload(&client, cut, entry, grant));
+            }
+            futures::future::try_join_all(transfers).await?;
+        }
     }
     let value = call(
         log,
@@ -120,13 +119,13 @@ async fn upload(
     client: &Client,
     cut: &DatabaseSnapshot,
     entry: &files::FileEntry,
-    grant: Grant,
+    grant: &Grant,
 ) -> Result<(), String> {
     let file = cut
         .open_file(Path::new(entry.path.as_str()))
         .map_err(|error| error.to_string())?;
     let body = reqwest::Body::wrap_stream(ReaderStream::new(tokio::fs::File::from_std(file)));
-    let response = request(client.put(grant.url), grant.headers)
+    let response = request(client.put(&grant.url), &grant.headers)
         .header(reqwest::header::CONTENT_LENGTH, entry.bytes.get())
         .body(body)
         .send()
@@ -162,28 +161,29 @@ pub(super) async fn download(
             entries.len(),
         )
         .await?;
-        stream::iter(
-            entries.iter().zip(grants).map(|(entry, grant)| {
-                let client = &client;
-                async move {
-                    receive(client, &destination.join(entry.path.as_str()), entry, grant).await
-                }
-            }),
-        )
-        .buffer_unordered(PARALLEL)
-        .try_collect::<Vec<_>>()
-        .await?;
+        for (entries, grants) in entries.chunks(PARALLEL).zip(grants.chunks(PARALLEL)) {
+            let mut transfers = Vec::with_capacity(entries.len());
+            for (entry, grant) in entries.iter().zip(grants) {
+                transfers.push(receive(
+                    &client,
+                    destination.join(entry.path.as_str()),
+                    entry,
+                    grant,
+                ));
+            }
+            futures::future::try_join_all(transfers).await?;
+        }
     }
     files::sync_layout(destination).map_err(|error| error.to_string())
 }
 
 async fn receive(
     client: &Client,
-    path: &Path,
+    path: std::path::PathBuf,
     entry: &files::FileEntry,
-    grant: Grant,
+    grant: &Grant,
 ) -> Result<(), String> {
-    let response = request(client.get(grant.url), grant.headers)
+    let response = request(client.get(&grant.url), &grant.headers)
         .send()
         .await
         .map_err(|_| "snapshot download did not complete")?;
@@ -195,7 +195,7 @@ async fn receive(
     }
     let mut input = response.bytes_stream();
     let mut output =
-        tokio::fs::File::from_std(files::create_file(path).map_err(|error| error.to_string())?);
+        tokio::fs::File::from_std(files::create_file(&path).map_err(|error| error.to_string())?);
     let mut hash = Sha256::new();
     let mut length = 0;
     while let Some(chunk) = input
@@ -231,7 +231,7 @@ fn client() -> Result<Client, String> {
 
 fn request(
     mut request: reqwest::RequestBuilder,
-    headers: BTreeMap<String, String>,
+    headers: &BTreeMap<String, String>,
 ) -> reqwest::RequestBuilder {
     for (name, value) in headers {
         if !name.eq_ignore_ascii_case("content-length") {
