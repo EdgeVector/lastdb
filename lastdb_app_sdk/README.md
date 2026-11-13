@@ -77,6 +77,8 @@ const same = await connect({ appId: 'photos', databaseId: created.name ?? create
 Use `socialClient` with Social 0.2.0 or later and the same LastDB home
 as your data client. Give the database your app's versioned spec and declare
 its content schemas through the selected LastDB client.
+For a custom spec, use the spec name as the content schema namespace. For
+example, the `field-notes` spec syncs schemas such as `field-notes/Note`.
 
 ```ts
 import { connect, socialClient } from '@lastdb/app-sdk';

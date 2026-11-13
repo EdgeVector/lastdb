@@ -8,6 +8,8 @@ and daemon from the same build. The publisher needs a connected ExeMem account.
 Create an owned database with `social create-db NAME --spec field-notes --version 1`.
 An app can also create the database with LastDB's SDK and open it in Social
 by database ID. Declare the content schemas and write records through LastDB.
+For a custom spec, put content in the matching namespace, such as
+`field-notes/Note` for `field-notes`.
 `social create-db NAME` still uses the default Social v1 spec.
 `lastdb share contact --out PATH`
 exports a contact file and its public node key. Check the key independently

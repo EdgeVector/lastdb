@@ -85,6 +85,21 @@ impl SpecBinding {
         self.version
     }
 
+    /// A named database with an app-defined spec publishes the namespace of
+    /// that spec. Built-in specs keep their catalog and version checks.
+    pub fn app_namespace(&self) -> Result<Option<&str>, PolicyError> {
+        match catalog::share_spec(&self.name, self.version) {
+            Ok(_) => Ok(None),
+            Err(PolicyError::UnknownSpec)
+                if !self.name.eq_ignore_ascii_case(PERSONAL)
+                    && !self.name.eq_ignore_ascii_case("social-graph") =>
+            {
+                Ok(Some(&self.name))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// The binding the registry, the publication marker, and the daemon share.
     ///
     /// `name` and `version` are the stored `{ "name", "version" }` object.
