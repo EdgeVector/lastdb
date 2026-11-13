@@ -1,10 +1,8 @@
-//! Format-driven record encoding, addresses, and staging.
+//! Format-driven record encoding, addresses, and release families.
 
-mod file_crypto;
 mod store;
 
-pub(in crate::storage) use file_crypto::{applied_deletes, inline_files};
-pub(crate) use file_crypto::{decrypt_file_row, require_row};
+pub(crate) use super::metadata::{applied_deletes, decrypt_file_row, require_row};
 pub(crate) use store::RecordFormat;
 
 use crate::schema::types::{field::HashRangeFilter, FileWrite, KeyValue, Schema};
@@ -23,6 +21,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
+
+fn inv(msg: impl Into<String>) -> SchemaError {
+    SchemaError::InvalidData(msg.into())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordDeleteLedgerEntry {
@@ -43,17 +45,7 @@ pub struct AlternateEntry {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct RecordAddress {
-    storage: String,
-    api: KeyValue,
-}
-
-impl PartialEq for RecordAddress {
-    fn eq(&self, other: &Self) -> bool {
-        self.storage == other.storage
-    }
-}
-impl Eq for RecordAddress {}
+pub(crate) struct RecordAddress(pub(super) String, pub(super) KeyValue);
 
 impl RecordAddress {
     pub(crate) fn new(
@@ -64,30 +56,24 @@ impl RecordAddress {
         let hash = key
             .hash
             .as_deref()
-            .ok_or_else(|| SchemaError::InvalidData("a record key requires a hash".into()))?;
+            .ok_or_else(|| inv("a record key requires a hash"))?;
         codec
             .api_record_key(space, hash, key.range.as_deref().unwrap_or_default())
-            .map(|storage| Self {
-                storage,
-                api: key.clone(),
-            })
-            .map_err(|e| SchemaError::InvalidData(format!("invalid record key: {e}")))
+            .map(|s| Self(s, key.clone()))
+            .map_err(|e| inv(format!("invalid record key: {e}")))
     }
 
     pub(crate) fn as_str(&self) -> &str {
-        &self.storage
+        &self.0
     }
     pub(crate) fn into_string(self) -> String {
-        self.storage
-    }
-    pub(crate) fn api_key(&self) -> &KeyValue {
-        &self.api
+        self.0
     }
 }
 
 impl AsRef<str> for RecordAddress {
     fn as_ref(&self) -> &str {
-        &self.storage
+        &self.0
     }
 }
 
@@ -104,7 +90,7 @@ impl AlternateAddress {
         let base = alternate_range_key(codec, field_key, key)?;
         Ok(Self(format!(
             "{base}\0{:x}",
-            Sha256::digest(primary.as_str().as_bytes())
+            Sha256::digest(primary.0.as_bytes())
         )))
     }
 
@@ -125,9 +111,7 @@ fn alternate_range_key(
     codec
         .api_hash_range_member_prefix(field_key, h, r)
         .map(|s| format!("{ALTERNATE_ENTRY_PREFIX}{s}"))
-        .map_err(|_| {
-            SchemaError::InvalidData("alternate key coordinate has an invalid type".into())
-        })
+        .map_err(|_| inv("alternate key coordinate has an invalid type"))
 }
 
 pub(crate) fn alternate_bounds(
@@ -135,8 +119,7 @@ pub(crate) fn alternate_bounds(
     field_key: &str,
     filter: &HashRangeFilter,
 ) -> Result<(String, String), SchemaError> {
-    let invalid = |m: &str| SchemaError::InvalidData(m.into());
-    let encode = |h: &str, r: &str| {
+    let enc = |h: &str, r: &str| {
         alternate_range_key(
             codec,
             field_key,
@@ -145,22 +128,22 @@ pub(crate) fn alternate_bounds(
     };
     match filter {
         HashRangeFilter::HashRangeKey { hash, range } => {
-            Ok(exact_prefix_bounds(&format!("{}\0", encode(hash, range)?)))
+            Ok(exact_prefix_bounds(&format!("{}\0", enc(hash, range)?)))
         }
         HashRangeFilter::HashKey(hash) => codec
             .api_hash_range_scan_prefix_for_hash(field_key, hash)
             .map(|p| exact_prefix_bounds(&format!("{ALTERNATE_ENTRY_PREFIX}{p}")))
-            .map_err(|_| invalid("invalid alternate hash")),
+            .map_err(|_| inv("invalid alternate hash")),
         HashRangeFilter::HashRangePrefix { hash, prefix } => {
             codec
                 .require_text_range_prefix()
-                .map_err(|_| invalid("alternate range prefix requires a text field"))?;
-            Ok(exact_prefix_bounds(&encode(hash, prefix)?))
+                .map_err(|_| inv("alternate range prefix requires a text field"))?;
+            Ok(exact_prefix_bounds(&enc(hash, prefix)?))
         }
         HashRangeFilter::HashRangeRange { hash, start, end } => {
-            Ok((encode(hash, start)?, encode(hash, end)?))
+            Ok((enc(hash, start)?, enc(hash, end)?))
         }
-        HashRangeFilter::HashRangeKeys(_) => Err(invalid(
+        HashRangeFilter::HashRangeKeys(_) => Err(inv(
             "alternate reads require an exact key or a range under one hash",
         )),
     }
@@ -174,41 +157,88 @@ pub(crate) enum ReleaseKind {
     InlineFiles,
 }
 
-pub(crate) struct ReleaseFamily {
-    prefix: String,
-    kind: ReleaseKind,
-}
+pub(crate) struct ReleaseFamily(pub(super) String, pub(super) ReleaseKind);
 
 impl ReleaseFamily {
     pub(crate) fn prefix(&self) -> &str {
-        &self.prefix
+        &self.0
     }
     pub(crate) fn kind(&self) -> ReleaseKind {
-        self.kind
+        self.1
     }
 }
 
 pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, SchemaError> {
     let base = format!("{RECORD_PREFIX}{}:", record_space_uuid(&schema.name));
-    let (ad, inf) = (
-        applied_deletes::APPLIED_DELETE_FAMILY,
-        inline_files::INLINE_FILE_FAMILY,
-    );
-    let fam = |prefix, kind| ReleaseFamily { prefix, kind };
     let mut out = vec![
-        fam(base.clone(), ReleaseKind::Records),
-        fam(format!("{ad}:{base}"), ReleaseKind::AppliedDeletes),
-        fam(format!("{inf}:{base}"), ReleaseKind::InlineFiles),
+        ReleaseFamily(base.clone(), ReleaseKind::Records),
+        ReleaseFamily(
+            format!("{}:{base}", applied_deletes::APPLIED_DELETE_FAMILY),
+            ReleaseKind::AppliedDeletes,
+        ),
+        ReleaseFamily(
+            format!("{}:{base}", inline_files::INLINE_FILE_FAMILY),
+            ReleaseKind::InlineFiles,
+        ),
     ];
     for name in schema.require_record_keys()?.alternates.keys() {
-        let p = format!(
-            "{ALTERNATE_ENTRY_PREFIX}{}:",
-            alternate_field_key_id(schema, name)
-        );
-        out.push(fam(p, ReleaseKind::Alternates));
+        out.push(ReleaseFamily(
+            format!(
+                "{ALTERNATE_ENTRY_PREFIX}{}:",
+                alternate_field_key_id(schema, name)
+            ),
+            ReleaseKind::Alternates,
+        ));
     }
     Ok(out)
 }
+
+pub(in crate::storage) mod inline_files {
+    use super::RecordAddress;
+    use crate::storage::{error::StorageResult, KvMutation, StorageError};
+    use lastdb_model::record_value::{FileMarker, InlineFile};
+
+    pub(in crate::storage) const INLINE_FILE_FAMILY: &str = "fi";
+
+    pub(super) fn put(key: &RecordAddress, file: &InlineFile) -> StorageResult<KvMutation> {
+        Ok(KvMutation::put(
+            address(key.as_str()),
+            file.encode().map_err(StorageError::invalid)?,
+        ))
+    }
+
+    pub(super) fn delete(key: &RecordAddress) -> KvMutation {
+        KvMutation::delete(address(key.as_str()))
+    }
+
+    pub(crate) fn record_key(key: &str) -> Option<&str> {
+        key.strip_prefix("fi:")
+    }
+
+    pub(in crate::storage) fn address(record: &str) -> String {
+        format!("fi:{record}")
+    }
+
+    pub(in crate::storage) fn decode_for(
+        bytes: &[u8],
+        marker: &FileMarker,
+    ) -> StorageResult<InlineFile> {
+        let file = InlineFile::decode(bytes).map_err(StorageError::invalid)?;
+        (&file.marker == marker).then_some(file).ok_or_else(|| {
+            StorageError::invalid("the inline file row differs from its record marker")
+        })
+    }
+}
+
+pub(crate) struct RecordChange {
+    pub key: RecordAddress,
+    pub before: Option<Arc<StoredRecord>>,
+    pub after: StoredRecord,
+    pub file_write: Option<FileWrite>,
+    pub inline_write: Option<InlineWrite>,
+}
+
+pub(super) type EncodedFile = (RecordAddress, Arc<StoredRecord>, Option<FileWrite>);
 
 fn encode_alternates(
     schema: &Schema,
@@ -220,9 +250,9 @@ fn encode_alternates(
         return Ok(Vec::new());
     }
     let mut pointers = Vec::new();
-    for change in changes {
-        let before = change.before.as_ref().filter(|r| r.is_live());
-        let after = change.after.is_live().then_some(&change.after);
+    for c in changes {
+        let before = c.before.as_ref().filter(|r| r.is_live());
+        let after = c.after.is_live().then_some(&c.after);
         for (name, def) in &defs.alternates {
             let old = before.and_then(|r| r.alternates.get(name)?.as_ref());
             let new = after.and_then(|r| r.alternates.get(name)?.as_ref());
@@ -230,68 +260,50 @@ fn encode_alternates(
                 continue;
             }
             let fk = alternate_field_key_id(schema, name);
-            let codec = FieldKeyCodec::from_node_key(
-                node_key,
-                &fk,
-                def.range_profile().map_err(SchemaError::InvalidData)?,
-            );
+            let codec =
+                FieldKeyCodec::from_node_key(node_key, &fk, def.range_profile().map_err(inv)?);
             if let Some(old) = old {
                 pointers.push(KvMutation::delete(
-                    AlternateAddress::new(&codec, &fk, old, &change.key)?.into_string(),
+                    AlternateAddress::new(&codec, &fk, old, &c.key)?.0,
                 ));
             }
             if let Some(new) = new {
-                let key = AlternateAddress::new(&codec, &fk, new, &change.key)?.into_string();
                 let entry = AlternateEntry {
-                    primary: change.key.api_key().clone(),
+                    primary: c.key.1.clone(),
                     matched: new.clone(),
                 };
-                let bytes = serde_json::to_vec(&entry)
-                    .map_err(|_| SchemaError::InvalidData("encode alternate entry".into()))?;
-                pointers.push(KvMutation::put(key, bytes));
+                let bytes =
+                    serde_json::to_vec(&entry).map_err(|_| inv("encode alternate entry"))?;
+                pointers.push(KvMutation::put(
+                    AlternateAddress::new(&codec, &fk, new, &c.key)?.0,
+                    bytes,
+                ));
             }
             if pointers.len() > MAX_ALTERNATE_ENTRIES {
-                return Err(SchemaError::InvalidData(
-                    "alternate change batch exceeds 4096 entries".into(),
-                ));
+                return Err(inv("alternate change batch exceeds 4096 entries"));
             }
         }
     }
     Ok(pointers)
 }
 
-pub(crate) struct RecordChange {
-    pub key: RecordAddress,
-    pub before: Option<Arc<StoredRecord>>,
-    pub after: StoredRecord,
-    pub file_write: Option<FileWrite>,
-    pub inline_write: Option<InlineWrite>,
-}
+type EncodedBatch = (Vec<KvMutation>, Vec<EncodedFile>, Vec<WrittenRecord>);
 
-type EncodedFile = (RecordAddress, Arc<StoredRecord>, Option<FileWrite>);
-
-struct EncodedRecords {
-    main: Vec<KvMutation>,
-    files: Vec<EncodedFile>,
-    written: Vec<WrittenRecord>,
-}
-
-fn encode(
+pub(super) fn encode_batch(
+    schema: &Schema,
     changes: Vec<RecordChange>,
-    alternates: Vec<KvMutation>,
-) -> Result<EncodedRecords, SchemaError> {
-    let invalid = |m: &str| SchemaError::InvalidData(m.into());
+    node_key: &[u8; 32],
+) -> Result<EncodedBatch, SchemaError> {
+    let alternates = encode_alternates(schema, &changes, node_key)?;
     let (n, mut seen) = (changes.len(), HashSet::with_capacity(changes.len()));
     if !changes.iter().all(|c| seen.insert(c.key.as_str())) {
-        return Err(invalid("a record batch repeats a record address"));
+        return Err(inv("a record batch repeats a record address"));
     }
     let mut main = Vec::with_capacity(n + alternates.len());
     let (mut files, mut written) = (Vec::with_capacity(n), Vec::with_capacity(n));
     for c in changes {
-        if c.after.is_live() && &c.after.key != c.key.api_key() {
-            return Err(invalid(
-                "record payload differs from its bound primary address",
-            ));
+        if c.after.is_live() && c.after.key != c.key.1 {
+            return Err(inv("record payload differs from its bound primary address"));
         }
         let after = Arc::new(c.after);
         files.push((c.key.clone(), Arc::clone(&after), c.file_write));
@@ -304,56 +316,50 @@ fn encode(
                     main.push(inline_files::delete(&c.key));
                 }
                 None => {}
-                Some(_) => {
-                    return Err(invalid(
-                        "the inline file write differs from the record marker",
-                    ))
-                }
+                Some(_) => return Err(inv("the inline file write differs from the record marker")),
             }
-            let value = after.encode_uncapped().map_err(record_value_error)?;
-            written.push(WrittenRecord::new(c.key.as_str(), after, &value));
-            main.push(KvMutation::put(c.key.into_string(), value));
+            let value = after
+                .encode_uncapped()
+                .map_err(|e| record_value_error(&e))?;
+            written.push(WrittenRecord::new(&c.key.0, after, &value));
+            main.push(KvMutation::put(c.key.0, value));
         } else {
             main.push(inline_files::delete(&c.key));
             main.push(applied_deletes::encode(&c.key, &after.stamp)?);
-            main.push(KvMutation::delete(c.key.into_string()));
+            main.push(KvMutation::delete(c.key.0));
         }
     }
     main.extend(alternates);
-    Ok(EncodedRecords {
-        main,
-        files,
-        written,
-    })
+    Ok((main, files, written))
 }
 
 pub(in crate::storage) fn require_final_record_sizes<'a>(
     max_body_bytes: usize,
     records: impl Iterator<Item = (&'a str, &'a str, usize)>,
 ) -> StorageResult<()> {
-    if max_body_bytes <= MAX_RECORD_BYTES {
-        return Ok(());
-    }
-    for (col, key, size) in records {
-        if col == super::RECORDS_COLLECTION
-            && key.starts_with(RECORD_PREFIX)
-            && size > MAX_RECORD_BYTES
-        {
-            return Err(StorageError::RecordTooLarge {
-                size,
-                limit: MAX_RECORD_BYTES,
-            });
+    if max_body_bytes > MAX_RECORD_BYTES {
+        for (col, key, size) in records {
+            if col == super::RECORDS_COLLECTION
+                && key.starts_with(RECORD_PREFIX)
+                && size > MAX_RECORD_BYTES
+            {
+                return Err(StorageError::RecordTooLarge {
+                    size,
+                    limit: MAX_RECORD_BYTES,
+                });
+            }
         }
     }
     Ok(())
 }
 
-fn record_value_error(error: RecordValueError) -> SchemaError {
-    match error {
-        RecordValueError::TooLarge { bytes } => SchemaError::RecordTooLarge {
+pub(super) fn record_value_error(error: &RecordValueError) -> SchemaError {
+    if let RecordValueError::TooLarge { bytes } = *error {
+        SchemaError::RecordTooLarge {
             size: bytes,
             limit: MAX_RECORD_BYTES,
-        },
-        other => SchemaError::InvalidData(format!("the record write is refused: {other}")),
+        }
+    } else {
+        inv(format!("the record write is refused: {error}"))
     }
 }

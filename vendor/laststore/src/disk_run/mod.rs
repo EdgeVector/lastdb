@@ -9,6 +9,7 @@ pub(crate) use merge::{merge_runs, MergeIter, MergeSpace, RunRange};
 pub(crate) use reader::{MetadataMemo, RunReader};
 pub(crate) use writer::{bloom, PreparedRun, RunWriter};
 
+use crate::{Error, Result};
 use uuid::Uuid;
 
 pub(crate) const RUN_SUFFIX: &str = ".ldrun";
@@ -28,7 +29,7 @@ pub(crate) enum Found {
     Tombstone,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RunMeta {
     pub(crate) run_id: Uuid,
     pub(crate) records: u64,
@@ -41,19 +42,29 @@ pub(crate) struct RunMeta {
 }
 
 impl RunMeta {
+    pub(crate) fn note_record(&mut self, key: &[u8], body: Option<u64>) -> Result<()> {
+        self.records = self
+            .records
+            .checked_add(1)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        self.record_bytes = (key.len() as u64)
+            .checked_add(body.unwrap_or(0))
+            .and_then(|n| self.record_bytes.checked_add(n))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        if body.is_none() {
+            self.tombstones += 1;
+            self.tombstone_bytes += key.len() as u64;
+        }
+        if self.records == 1 {
+            self.first_key = key.to_vec();
+        }
+        self.last_key.clear();
+        self.last_key.extend_from_slice(key);
+        Ok(())
+    }
+
     pub(crate) fn covers(&self, key: &[u8]) -> bool {
         self.first_key.as_slice() <= key && key <= self.last_key.as_slice()
-    }
-    pub(crate) fn meets(&self, other: &Self) -> bool {
-        self.first_key <= other.last_key && other.first_key <= self.last_key
-    }
-    pub(crate) fn meets_merge_interval(
-        &self,
-        after: Option<&[u8]>,
-        through: Option<&[u8]>,
-    ) -> bool {
-        after.is_none_or(|a| self.last_key.as_slice() > a)
-            && through.is_none_or(|t| self.first_key.as_slice() <= t)
     }
     pub(crate) fn overlaps(&self, lower: &[u8], upper: Option<&[u8]>) -> bool {
         self.last_key.as_slice() >= lower && upper.is_none_or(|u| self.first_key.as_slice() < u)
@@ -141,9 +152,9 @@ pub(crate) mod footer {
         let mut prev: &[u8] = &[];
         for b in refs {
             put_key(out, prev, &b.first_key);
-            [b.number, b.offset, u64::from(b.len)]
-                .into_iter()
-                .for_each(|v| put_varint(out, v));
+            for v in [b.number, b.offset, u64::from(b.len)] {
+                put_varint(out, v);
+            }
             prev = &b.first_key;
         }
     }
@@ -191,9 +202,7 @@ pub(crate) mod footer {
 
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
     pub(crate) struct Top {
-        pub(crate) records: u64,
-        pub(crate) data_blocks: u64,
-        pub(crate) max_payload: u64,
+        pub(crate) counts: (u64, u64, u64),
         pub(crate) indexes: Vec<BlockRef>,
         pub(crate) last_key: Vec<u8>,
     }
@@ -201,9 +210,9 @@ pub(crate) mod footer {
     impl Top {
         pub(crate) fn encode(&self) -> Vec<u8> {
             let mut out = Vec::new();
-            [self.records, self.data_blocks, self.max_payload]
-                .into_iter()
-                .for_each(|v| put_varint(&mut out, v));
+            for v in [self.counts.0, self.counts.1, self.counts.2] {
+                put_varint(&mut out, v);
+            }
             put_refs(&mut out, &self.indexes);
             put_varint(&mut out, self.last_key.len() as u64);
             out.extend_from_slice(&self.last_key);
@@ -212,7 +221,7 @@ pub(crate) mod footer {
 
         pub(crate) fn decode_bounded(bytes: &[u8], max: u64) -> Result<Self> {
             let mut at = 0;
-            let (records, data_blocks, max_payload) = (
+            let (c0, c1, c2) = (
                 get_varint(bytes, &mut at)?,
                 get_varint(bytes, &mut at)?,
                 get_varint(bytes, &mut at)?,
@@ -226,9 +235,7 @@ pub(crate) mod footer {
             admit(used, last_key.capacity(), max)?;
             last_key.extend_from_slice(last);
             Ok(Self {
-                records,
-                data_blocks,
-                max_payload,
+                counts: (c0, c1, c2),
                 indexes,
                 last_key,
             })
@@ -248,7 +255,7 @@ pub(crate) mod codec {
         out.push(value as u8);
     }
 
-    pub(crate) fn varint_len(value: u64) -> usize {
+    fn varint_len(value: u64) -> usize {
         ((64 - value.leading_zeros().min(63)) as usize).div_ceil(7)
     }
 
@@ -276,7 +283,7 @@ pub(crate) mod codec {
         let end = at
             .checked_add(len)
             .filter(|&e| e <= bytes.len())
-            .ok_or_else(|| corrupt("slice eof"))?;
+            .ok_or_else(|| corrupt("eof"))?;
         let slice = &bytes[*at..end];
         *at = end;
         Ok(slice)
@@ -291,7 +298,7 @@ pub(crate) mod codec {
         a.iter().zip(b).take_while(|(x, y)| x == y).count()
     }
 
-    pub(crate) fn put_key(out: &mut Vec<u8>, prev: &[u8], key: &[u8]) {
+    pub(super) fn put_key(out: &mut Vec<u8>, prev: &[u8], key: &[u8]) {
         let shared = shared_prefix(prev, key);
         put_varint(out, shared as u64);
         put_varint(out, (key.len() - shared) as u64);
@@ -321,15 +328,19 @@ pub(crate) mod codec {
             let suffix = get_bytes(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?;
             key.truncate(shared);
             key.extend_from_slice(suffix);
-            if !records
-                .last()
-                .map_or(!key.is_empty(), |(b, _): &(Vec<u8>, Found)| *b < key)
+            if key.is_empty()
+                || records
+                    .last()
+                    .is_some_and(|(b, _): &(Vec<u8>, Found)| *b >= key)
             {
                 return Err(corrupt("block keys not ascending"));
             }
-            let found = match get_len(payload, &mut at, MAX_RUN_VALUE_BYTES + 1)?.checked_sub(1) {
-                Some(len) => Found::Value(get_slice(payload, &mut at, len)?.to_vec()),
-                None => Found::Tombstone,
+            let found = if let Some(len) =
+                get_len(payload, &mut at, MAX_RUN_VALUE_BYTES + 1)?.checked_sub(1)
+            {
+                Found::Value(get_slice(payload, &mut at, len)?.to_vec())
+            } else {
+                Found::Tombstone
             };
             records.push((key.clone(), found));
         }

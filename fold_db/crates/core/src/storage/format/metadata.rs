@@ -1,12 +1,24 @@
-//! The metadata namespace's typed capability and its only staging writer.
+//! Metadata namespace capability, applied-delete framing, and file-row crypto.
 
+use super::{
+    FILE_DEK_LABEL, FILE_ENVELOPE_VERSION, FILE_KEY_SALT, FILE_NONCE_LABEL, FILE_NONCE_SALT,
+    FILE_NONCE_SIZE, FILE_TAG_SIZE,
+};
+use crate::crypto::envelope::decrypt_envelope;
+use crate::error::FoldDbError;
 use crate::schema::types::MutationAuthorClockState;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
-use lastdb_model::hex::hex_lower;
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
+use hkdf::Hkdf;
+use lastdb_model::hex::{hex_decode_array, hex_lower};
 use lastdb_model::portable_mutation::{Position, Stamp, StreamId, StreamProgress};
+use lastdb_model::record_value::FileMarker;
+use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,7 +27,6 @@ pub(in crate::storage) const FILE_REFERENCE_PREFIX: &str = "portable-file-refere
 pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
 pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
-
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
 #[derive(Deserialize, Serialize, Default)]
@@ -35,71 +46,37 @@ struct LocalAuthor {
 }
 
 pub(in crate::storage) fn initial_local_author(home: uuid::Uuid) -> StorageResult<Vec<u8>> {
-    serde_json::to_vec(&LocalAuthor {
-        stream: StreamId::try_from(home.to_string()).map_err(invalid_author)?,
+    let stream = StreamId::try_from(home.to_string()).map_err(invalid_author)?;
+    let author = LocalAuthor {
+        stream,
         progress: StreamProgress::default(),
         clock_floor_ms: None,
-    })
-    .map_err(invalid_author)
+    };
+    serde_json::to_vec(&author).map_err(invalid_author)
 }
 
 pub(in crate::storage) fn validate_local_author(bytes: Option<&[u8]>) -> StorageResult<()> {
-    LocalAuthor::decode(bytes).map(|_| ())
+    decode_author(bytes).map(|_| ())
 }
 
-impl LocalAuthor {
-    fn decode(bytes: Option<&[u8]>) -> StorageResult<Self> {
-        let bytes = bytes.ok_or_else(|| invalid_author("local stream state is missing"))?;
-        if bytes.len() > MAX_LOCAL_AUTHOR_BYTES {
-            return Err(invalid_author("local stream state exceeds its bound"));
-        }
-        let state: Self = serde_json::from_slice(bytes).map_err(invalid_author)?;
-        state.progress.validate().map_err(invalid_author)?;
-        Ok(state)
-    }
-
-    fn author(&mut self, now_ms: u64) -> StorageResult<Stamp> {
-        let sequence = self
-            .progress
-            .applied_through
-            .checked_add(1)
-            .ok_or_else(|| invalid_author("local stream sequence exhausted"))?;
-        let authored_at_ms = now_ms
-            .max(self.clock_floor_ms.unwrap_or_default())
-            .max(self.progress.applied_through_ms.unwrap_or_default());
-        self.progress.applied_through = sequence;
-        self.progress.applied_through_ms = Some(authored_at_ms);
-        Ok(Stamp {
-            authored_at_ms,
-            position: Position {
-                source_stream: self.stream.clone(),
-                sequence,
-            },
-        })
-    }
+fn decode_author(bytes: Option<&[u8]>) -> StorageResult<LocalAuthor> {
+    let b = bytes
+        .filter(|b| b.len() <= MAX_LOCAL_AUTHOR_BYTES)
+        .ok_or_else(|| invalid_author("local stream state missing or exceeds bound"))?;
+    let s: LocalAuthor = serde_json::from_slice(b).map_err(invalid_author)?;
+    s.progress.validate().map_err(invalid_author).map(|()| s)
 }
-
-type Staged = (String, Option<Vec<u8>>);
 
 #[derive(Clone)]
-pub(crate) struct Metadata {
-    metadata_store: PackKvStore,
-    runtime: Arc<PackRuntime>,
-}
+pub(crate) struct Metadata(PackKvStore, Arc<PackRuntime>);
 
 impl Metadata {
-    pub(in crate::storage::format) fn new(
-        metadata_store: PackKvStore,
-        runtime: Arc<PackRuntime>,
-    ) -> Self {
-        Self {
-            metadata_store,
-            runtime,
-        }
+    pub(in crate::storage::format) fn new(s: PackKvStore, r: Arc<PackRuntime>) -> Self {
+        Self(s, r)
     }
 
     pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.metadata_store.flush().await
+        self.1.flush().await
     }
 
     pub(crate) async fn author_clock(
@@ -107,17 +84,10 @@ impl Metadata {
         writer: &str,
     ) -> Result<Option<MutationAuthorClockState>, SchemaError> {
         let key = super::mutation_author_clock_key(writer);
-        let raw = self
-            .metadata_store
-            .get(key.as_bytes())
+        self.0
+            .get_item(&key)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))?;
-        raw.map(|b| {
-            serde_json::from_slice(&b).map_err(|e| {
-                SchemaError::InvalidData(format!("metadata get {key}: Serialization error: {e}"))
-            })
-        })
-        .transpose()
+            .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))
     }
 
     pub(crate) async fn stage_author_clock(
@@ -131,11 +101,12 @@ impl Metadata {
         })?;
         self.stage(vec![(key.clone(), Some(bytes))])
             .await
-            .map_err(|e| match e {
-                StorageError::WriteResourceLimit { detail } => {
+            .map_err(|e| {
+                if let StorageError::WriteResourceLimit { detail } = e {
                     SchemaError::WriteResourceLimit { detail }
+                } else {
+                    SchemaError::InvalidData(format!("metadata put {key}: {e}"))
                 }
-                other => SchemaError::InvalidData(format!("metadata put {key}: {other}")),
             })
     }
 
@@ -146,12 +117,7 @@ impl Metadata {
     ) -> Result<bool, SchemaError> {
         self.require_scope().map_err(read_err)?;
         let key = format!("share-contribution-receipt:{}", hex_lower(receipt_id));
-        if let Some(saved) = self
-            .metadata_store
-            .get(key.as_bytes())
-            .await
-            .map_err(read_err)?
-        {
+        if let Some(saved) = self.0.get(key.as_bytes()).await.map_err(read_err)? {
             return (saved.as_slice() == intent_digest)
                 .then_some(true)
                 .ok_or_else(|| SchemaError::InvalidField("share mutation ID reused".into()));
@@ -175,7 +141,7 @@ impl Metadata {
             .map(|p| format!("{FILE_REFERENCE_PREFIX}{p}"))
             .collect();
         let rows = self
-            .metadata_store
+            .0
             .get_many(keys.iter().map(|k| k.as_bytes().to_vec()).collect())
             .await?;
         if rows.len() != keys.len() {
@@ -208,16 +174,33 @@ impl Metadata {
         if schemas.is_empty() {
             return Ok(Vec::new());
         }
-        let elapsed = SystemTime::now()
+        let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(invalid_author)?;
-        let now_ms = u64::try_from(elapsed.as_millis()).map_err(invalid_author)?;
-        let raw = self.metadata_store.get(LOCAL_AUTHOR_KEY.as_bytes()).await?;
-        let mut state = LocalAuthor::decode(raw.as_deref())?;
-        let stamps = schemas
-            .iter()
-            .map(|_| state.author(now_ms))
-            .collect::<StorageResult<Vec<_>>>()?;
+            .map_err(invalid_author)
+            .and_then(|d| u64::try_from(d.as_millis()).map_err(invalid_author))?;
+        let mut state = decode_author(self.0.get(LOCAL_AUTHOR_KEY.as_bytes()).await?.as_deref())?;
+        let mut stamps = Vec::with_capacity(schemas.len());
+        for _ in schemas {
+            let seq = state
+                .progress
+                .applied_through
+                .checked_add(1)
+                .ok_or_else(|| invalid_author("local stream sequence exhausted"))?;
+            let at = now_ms
+                .max(state.clock_floor_ms.unwrap_or_default())
+                .max(state.progress.applied_through_ms.unwrap_or_default());
+            (
+                state.progress.applied_through,
+                state.progress.applied_through_ms,
+            ) = (seq, Some(at));
+            stamps.push(Stamp {
+                authored_at_ms: at,
+                position: Position {
+                    source_stream: state.stream.clone(),
+                    sequence: seq,
+                },
+            });
+        }
         let bytes = serde_json::to_vec(&state).map_err(invalid_author)?;
         if bytes.len() > MAX_LOCAL_AUTHOR_BYTES {
             return Err(invalid_author("local stream state exceeds its bound"));
@@ -228,42 +211,154 @@ impl Metadata {
     }
 
     fn require_scope(&self) -> StorageResult<()> {
-        transaction::PendingBatch::current(&self.runtime)
-            .is_some()
-            .then_some(())
+        transaction::PendingBatch::current(&self.1)
+            .map(|_| ())
             .ok_or_else(|| {
-                StorageError::InvalidOperation(
-                    "a metadata write requires a complete native write scope".into(),
-                )
+                StorageError::invalid("a metadata write requires a complete native write scope")
             })
     }
 
-    async fn stage(&self, entries: Vec<Staged>) -> StorageResult<()> {
+    async fn stage(&self, entries: Vec<(String, Option<Vec<u8>>)>) -> StorageResult<()> {
         self.require_scope()?;
         if !entries.is_empty() {
-            let mutations = entries
+            let ops = entries
                 .into_iter()
                 .map(|(k, v)| match v {
                     Some(b) => KvMutation::put(k, b),
                     None => KvMutation::delete(k),
                 })
                 .collect();
-            self.metadata_store.batch_mutate(mutations).await?;
+            self.0.batch_mutate(ops).await?;
         }
         Ok(())
     }
 }
 
 fn invalid_file_ref(detail: impl std::fmt::Display) -> StorageError {
-    StorageError::InvalidOperation(format!("file reference index: {detail}"))
+    StorageError::invalid(format!("file reference index: {detail}"))
 }
 
 fn invalid_author(error: impl std::fmt::Display) -> StorageError {
-    StorageError::InvalidOperation(format!("portable author state: {error}"))
+    StorageError::invalid(format!("portable author state: {error}"))
 }
 
 fn read_err(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::StorageRead {
         detail: error.to_string(),
     }
+}
+
+pub(crate) mod applied_deletes {
+    use super::super::records::RecordAddress;
+    use crate::storage::{error::StorageResult, KvMutation, StorageError};
+    use lastdb_model::portable_mutation::{AppliedDelete, Stamp};
+
+    pub(in crate::storage) const APPLIED_DELETE_FAMILY: &str = "ad";
+
+    pub(in crate::storage::format) fn encode(
+        key: &RecordAddress,
+        stamp: &Stamp,
+    ) -> StorageResult<KvMutation> {
+        let val = serde_json::to_vec(&AppliedDelete::from(stamp.clone())).map_err(inv)?;
+        Ok(KvMutation::put(format!("ad:{}", key.as_str()), val))
+    }
+
+    pub(crate) fn record_key(key: &str) -> Option<&str> {
+        key.strip_prefix("ad:")
+    }
+
+    pub(in crate::storage::format) fn decode(bytes: &[u8]) -> StorageResult<Stamp> {
+        if bytes.len() > 512 {
+            return Err(inv("encoded value exceeds its bound"));
+        }
+        let e: AppliedDelete = serde_json::from_slice(bytes).map_err(inv)?;
+        e.delete_position.validate().map_err(inv).map(|()| e.into())
+    }
+
+    pub(in crate::storage::format) fn inv(error: impl std::fmt::Display) -> StorageError {
+        StorageError::invalid(format!("applied delete: {error}"))
+    }
+}
+
+fn crypto_err(detail: impl std::fmt::Display) -> FoldDbError {
+    FoldDbError::SecurityError(format!("record file encryption: {detail}"))
+}
+
+fn file_key(
+    account_key: &[u8; 32],
+    sha256: &str,
+) -> Result<([u8; 32], [u8; FILE_NONCE_SIZE]), FoldDbError> {
+    let hash = hex_decode_array::<32>(sha256)
+        .ok_or_else(|| crypto_err("the file hash is not 64 hex digits"))?;
+    let mut key = [0u8; 32];
+    Hkdf::<Sha256>::new(Some(FILE_KEY_SALT), account_key)
+        .expand(&[FILE_DEK_LABEL, hash.as_slice()].concat(), &mut key)
+        .map_err(crypto_err)?;
+    let mut nonce = [0u8; FILE_NONCE_SIZE];
+    Hkdf::<Sha256>::new(Some(FILE_NONCE_SALT), &key)
+        .expand(FILE_NONCE_LABEL, &mut nonce)
+        .map_err(crypto_err)?;
+    Ok((key, nonce))
+}
+
+pub(in crate::storage::format) fn seal_row(
+    content_key: &[u8; 32],
+    plaintext: &[u8],
+) -> Result<(String, Vec<u8>), FoldDbError> {
+    if plaintext.len() as u64 > LOCAL_FILE_INPUT_MEMORY_BYTES {
+        return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
+            detail: "local file input exceeds native pending memory allowance".into(),
+        }));
+    }
+    let sha256 = hex_lower(Sha256::digest(plaintext));
+    let (key, nonce) = file_key(content_key, &sha256)?;
+    let ct = Aes256Gcm::new_from_slice(&key)
+        .map_err(crypto_err)?
+        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .map_err(crypto_err)?;
+    Ok((sha256, [&[FILE_ENVELOPE_VERSION][..], &nonce, &ct].concat()))
+}
+
+fn verify_row_key(
+    content_key: &[u8; 32],
+    marker: &FileMarker,
+    row: &[u8],
+) -> Result<[u8; 32], SchemaError> {
+    let inv =
+        || SchemaError::InvalidData("record file row differs from its format or marker".into());
+    let expected = marker
+        .size_bytes
+        .checked_add((1 + FILE_NONCE_SIZE + FILE_TAG_SIZE) as u64);
+    if !marker.has_valid_hash()
+        || marker.size_bytes > LOCAL_FILE_INPUT_MEMORY_BYTES
+        || expected != Some(row.len() as u64)
+        || row.first() != Some(&FILE_ENVELOPE_VERSION)
+    {
+        return Err(inv());
+    }
+    let (key, nonce) = file_key(content_key, &marker.sha256).map_err(|_| inv())?;
+    (row.get(1..1 + FILE_NONCE_SIZE) == Some(nonce.as_slice()))
+        .then_some(key)
+        .ok_or_else(inv)
+}
+
+pub(crate) fn require_row(
+    content_key: &[u8; 32],
+    marker: &FileMarker,
+    row: &[u8],
+) -> Result<(), SchemaError> {
+    verify_row_key(content_key, marker, row).map(|_| ())
+}
+
+pub(crate) fn decrypt_file_row(
+    content_key: &[u8; 32],
+    marker: &FileMarker,
+    row: &[u8],
+) -> Result<Vec<u8>, FoldDbError> {
+    let mismatch = || FoldDbError::SecurityError("record file differs from its marker".into());
+    let key = verify_row_key(content_key, marker, row).map_err(|_| mismatch())?;
+    let plain = decrypt_envelope(&key, row).map_err(crypto_err)?;
+    (plain.len() as u64 == marker.size_bytes && hex_lower(Sha256::digest(&plain)) == marker.sha256)
+        .then_some(plain)
+        .ok_or_else(mismatch)
 }

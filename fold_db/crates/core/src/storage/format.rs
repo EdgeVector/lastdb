@@ -32,15 +32,12 @@ pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 pub(in crate::storage) const CURRENT_FAMILIES: &[&str] = &[
     "rk",
     "ak",
-    records::applied_deletes::APPLIED_DELETE_FAMILY,
+    metadata::applied_deletes::APPLIED_DELETE_FAMILY,
     records::inline_files::INLINE_FILE_FAMILY,
     DELETE_AUDIT_FAMILY,
 ];
 
 pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
-pub(crate) const RECORD_FILE_UPLOADED_PREFIX: &str = "fu:";
-pub(crate) const PENDING_UPLOAD_PREFIX: &str = "fp:";
-pub(crate) const RELEASED_FILE_PREFIX: &str = "fr:";
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
 pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
@@ -70,7 +67,7 @@ pub(crate) mod retired {
     use std::path::Path;
 
     pub(in crate::storage) const JOURNAL_RETIRED: &str = "a portable journal key is retired";
-    const METADATA_PREFIXES: &[&str] = &[
+    const META_PFX: &[&str] = &[
         "portable-entry:",
         "portable-inbox:",
         "portable-inbox-index:",
@@ -84,43 +81,36 @@ pub(crate) mod retired {
     ];
 
     pub(in crate::storage) fn refuse_shared_home(root: &Path, marker: &[u8]) -> StorageResult<()> {
-        if marker == RETIRED_SHARED_NODE_BYTES
-            || std::fs::symlink_metadata(root.join(RETIRED_SHARED_DIR)).is_ok_and(|m| m.is_dir())
-        {
-            return Err(StorageError::RetiredFormat(
+        let shared =
+            std::fs::symlink_metadata(root.join(RETIRED_SHARED_DIR)).is_ok_and(|m| m.is_dir());
+        (marker != RETIRED_SHARED_NODE_BYTES && !shared)
+            .then_some(())
+            .ok_or(StorageError::RetiredFormat(
                 "the dedicated shared home format is retired",
-            ));
-        }
-        Ok(())
+            ))
     }
 
     pub(in crate::storage) fn is_journal_key(namespace: &str, key: &[u8]) -> bool {
-        let Ok(key) = std::str::from_utf8(key) else {
-            return false;
-        };
-        match namespace {
-            METADATA_NAMESPACE => METADATA_PREFIXES.iter().any(|p| key.starts_with(p)),
-            MAIN_NAMESPACE => key.starts_with("ade:"),
+        std::str::from_utf8(key).is_ok_and(|k| match namespace {
+            METADATA_NAMESPACE => META_PFX.iter().any(|p| k.starts_with(p)),
+            MAIN_NAMESPACE => k.starts_with("ade:"),
             _ => false,
-        }
+        })
     }
 
     pub(in crate::storage) fn refuse_journal(main: &mut RunRead) -> StorageResult<()> {
-        for (ns, prefix) in METADATA_PREFIXES
+        for (ns, pfx) in META_PFX
             .iter()
             .map(|&p| (METADATA_NAMESPACE, p))
             .chain([(MAIN_NAMESPACE, "ade:")])
         {
-            let mut end = prefix.as_bytes().to_vec();
+            let mut end = pfx.as_bytes().to_vec();
             if let Some(last) = end.last_mut() {
                 *last += 1;
             }
+            let col = native_routing::collection_for_namespace(ns);
             let mut range = main
-                .administrative_range(
-                    native_routing::collection_for_namespace(ns),
-                    prefix.as_bytes(),
-                    &end,
-                )
+                .administrative_range(col, pfx.as_bytes(), &end)
                 .map_err(map)?;
             if !range.next_page(1).map_err(map)?.records.is_empty() {
                 return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
@@ -169,7 +159,6 @@ pub(crate) mod bind {
     };
     use crate::storage::disk_pack::{transaction, PackNamespacedStore, PackRuntime};
     use crate::storage::error::{StorageError, StorageResult};
-    use lastdb_model::field_key_codec::current_key_format;
     use std::sync::Arc;
 
     pub(crate) struct BoundFormat {
@@ -184,28 +173,25 @@ pub(crate) mod bind {
         content_key: [u8; 32],
     ) -> StorageResult<BoundFormat> {
         let runtime = Arc::clone(&store.runtime);
-        let main = store.open_namespace(MAIN_NAMESPACE).await?;
-        let meta_kv = store.open_namespace(METADATA_NAMESPACE).await?;
-        let states = store.open_namespace(SCHEMA_STATES_NAMESPACE).await?;
+        let (main, meta_kv) = (
+            store.open_namespace(MAIN_NAMESPACE).await?,
+            store.open_namespace(METADATA_NAMESPACE).await?,
+        );
         let schemas = SchemaFormat::new(
             store.open_namespace(SCHEMAS_NAMESPACE).await?,
-            states,
+            store.open_namespace(SCHEMA_STATES_NAMESPACE).await?,
             Arc::clone(&runtime),
         );
         let metadata = Metadata::new(meta_kv.clone(), Arc::clone(&runtime));
         transaction::scope(Arc::clone(&runtime), async {
             let keys =
                 [CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY].map(|k| k.as_bytes().to_vec());
-            let controls = main.get_many(keys.into()).await?;
-            if controls.len() != 2 {
-                return Err(control::invalid("incomplete fence read"));
-            }
-            if !controls[0].as_deref().is_some_and(current_key_format) {
-                return Err(StorageError::InvalidOperation(
-                    "the logical key format does not match this node home".into(),
-                ));
-            }
-            control::validate_frozen_replay_floor(controls[0].as_deref(), controls[1].as_deref())?;
+            let [fmt, cutoff]: [Option<Vec<u8>>; 2] = main
+                .get_many(keys.into())
+                .await?
+                .try_into()
+                .map_err(|_| control::invalid("incomplete fence read"))?;
+            control::validate_frozen_replay_floor(fmt.as_deref(), cutoff.as_deref())?;
             let stored = meta_kv.get(content_key_proof::KEY).await?.ok_or_else(|| {
                 StorageError::EncryptionError(
                     "content key proof is missing; this program opens only a home it created"
@@ -232,7 +218,7 @@ pub(crate) mod control {
     use serde::Deserialize;
 
     pub(in crate::storage::format) fn invalid(text: impl std::fmt::Display) -> StorageError {
-        StorageError::InvalidOperation(format!("delete replay cutoff: {text}"))
+        StorageError::invalid(format!("delete replay cutoff: {text}"))
     }
 
     pub(crate) fn validate_frozen_replay_floor(
@@ -262,7 +248,7 @@ pub(crate) mod read {
 
     pub(crate) type ReadStore = PackKvStore;
 
-    fn parse_item<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
+    fn parse<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
         serde_json::from_slice(bytes).map_err(|e| {
             StorageError::SerializationError(format!("Failed to deserialize {key}: {e}"))
         })
@@ -274,7 +260,7 @@ pub(crate) mod read {
         rows.iter()
             .map(|(k, v)| {
                 let key = String::from_utf8_lossy(k).into_owned();
-                parse_item(&key, v).map(|val| (key, val))
+                parse(&key, v).map(|val| (key, val))
             })
             .collect()
     }
@@ -286,7 +272,7 @@ pub(crate) mod read {
         ) -> StorageResult<Option<T>> {
             self.get(key.as_bytes())
                 .await?
-                .map(|b| parse_item(key, &b))
+                .map(|b| parse(key, &b))
                 .transpose()
         }
         pub(crate) async fn get_items<T: DeserializeOwned + Send + Sync>(
@@ -300,7 +286,7 @@ pub(crate) mod read {
                 .await?
                 .into_iter()
                 .zip(keys)
-                .map(|(raw, key)| raw.map(|b| parse_item(key, &b)).transpose())
+                .map(|(raw, key)| raw.map(|b| parse(key, &b)).transpose())
                 .collect()
         }
         pub(crate) async fn list_keys_with_prefix(&self, p: &str) -> StorageResult<Vec<String>> {

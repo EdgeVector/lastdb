@@ -182,13 +182,6 @@ impl RecordStore {
         transaction::scope(self.runtime.clone(), work).boxed()
     }
 
-    pub fn in_background_scope<'a, T: Send + 'a>(
-        &'a self,
-        work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
-    ) -> BoxFuture<'a, Result<T, SchemaError>> {
-        transaction::background_scope(self.runtime.clone(), work).boxed()
-    }
-
     pub(super) async fn record_read_scope<T>(
         &self,
         future: impl Future<Output = Result<T, SchemaError>>,

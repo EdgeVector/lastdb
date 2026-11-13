@@ -2,11 +2,14 @@
 
 use super::run_commit::PreparedCommit;
 use super::*;
-use std::time::Instant;
 use tokio::sync::OwnedMutexGuard;
 use tracing::Instrument;
 
 const MAX_REQUESTS: usize = 1024;
+
+fn berr(m: &str) -> StorageError {
+    StorageError::BackendError(m.into())
+}
 
 #[derive(serde::Serialize)]
 pub struct NativeFlushReceipt {
@@ -14,11 +17,6 @@ pub struct NativeFlushReceipt {
     pub frontier: u64,
     pub target_sequence: u64,
     pub completed_sequence: u64,
-}
-
-pub(in crate::storage) struct WriteGuard {
-    _preparation: OwnedMutexGuard<()>,
-    _publication: OwnedMutexGuard<()>,
 }
 
 #[derive(Default)]
@@ -37,7 +35,7 @@ impl PackRuntime {
     pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
         let target_sequence = self.seal_queue();
         self.wait_for_queue(target_sequence).await?;
-        let cur = &self.view.read().expect("native durable flush view").current;
+        let cur = &self.view.read().expect("native durable flush view").0;
         Ok(NativeFlushReceipt {
             generation: cur.generation(),
             frontier: cur.frontier(),
@@ -46,22 +44,21 @@ impl PackRuntime {
         })
     }
 
-    pub(in crate::storage::disk_pack) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
+    pub(in crate::storage) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
         if transaction::PendingBatch::current(self).is_some() {
             return Ok(());
         }
         self.wait_for_queue(self.seal_queue()).await
     }
 
-    pub(in crate::storage) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
+    pub(in crate::storage) async fn enter_write(
+        self: &Arc<Self>,
+    ) -> (OwnedMutexGuard<()>, OwnedMutexGuard<()>) {
         loop {
             let gate = self.enter_prepare().await;
             let target = self.seal_queue();
-            if target <= *self.completed.borrow() || self.failed.load(Ordering::Acquire) {
-                return WriteGuard {
-                    _preparation: gate,
-                    _publication: Arc::clone(&self.write_gate).lock_owned().await,
-                };
+            if target <= *self.completed.borrow() || self.requires_recovery() {
+                return (gate, Arc::clone(&self.write_gate).lock_owned().await);
             }
             drop(gate);
             let _ = self.wait_for_queue(target).await;
@@ -75,17 +72,12 @@ impl PackRuntime {
                 let q = self.queue.lock().expect("native accepted queue");
                 q.sealed.then_some(q.next_sequence)
             };
-            let Some(target) = target.filter(|_| !self.failed.load(Ordering::Acquire)) else {
+            let Some(target) = target.filter(|_| !self.requires_recovery()) else {
                 return gate;
             };
             drop(gate);
             let _ = self.wait_for_queue(target).await;
         }
-    }
-
-    pub(super) fn preparation_prefix(&self) -> Arc<Vec<Arc<transaction::PendingBatch>>> {
-        let q = self.queue.lock().expect("native preparation prefix");
-        Arc::new(q.requests.iter().map(|(p, _)| Arc::clone(p)).collect())
     }
 
     pub(super) fn prepare_queued(
@@ -94,9 +86,9 @@ impl PackRuntime {
     ) -> StorageResult<Option<PreparedCommit>> {
         let q = self.queue.lock().expect("native accepted queue");
         if q.requests.len() >= MAX_REQUESTS {
-            return Err(StorageError::WriteResourceLimit {
-                detail: "native accepted queue reached 1024 requests; retry after flush".into(),
-            });
+            return Err(StorageError::write_limit(
+                "native accepted queue reached 1024 requests; retry after flush",
+            ));
         }
         (!incoming.is_empty())
             .then(|| self.prepare_commit(incoming, q.prepared.as_ref()))
@@ -112,22 +104,20 @@ impl PackRuntime {
         let seq = q
             .next_sequence
             .checked_add(1)
-            .ok_or_else(|| StorageError::BackendError("native sequence exhausted".into()))?;
+            .ok_or_else(|| berr("native sequence exhausted"))?;
         let first = q.requests.is_empty();
         if let (Some(inc), Some(prev)) = (&prepared, q.prepared.as_mut()) {
-            prev.operations
-                .try_reserve(inc.operations.len())
-                .map_err(|_| StorageError::WriteResourceLimit {
-                    detail: "native prefix operation allocation refused".into(),
-                })?;
+            prev.0.try_reserve(inc.0.len()).map_err(|_| {
+                StorageError::write_limit("native prefix operation allocation refused")
+            })?;
         }
         q.requests.push((pending, seq));
         q.next_sequence = seq;
         if let Some(mut inc) = prepared {
             if let Some(mut prev) = q.prepared.take() {
-                prev.operations.append(&mut inc.operations);
-                inc.operations = prev.operations;
-                inc.space.absorb(prev.space);
+                prev.0.append(&mut inc.0);
+                inc.0 = prev.0;
+                inc.2.absorb(prev.2);
             }
             q.prepared = Some(inc);
         }
@@ -149,19 +139,16 @@ impl PackRuntime {
     pub(super) async fn wait_for_queue(&self, target: u64) -> StorageResult<()> {
         let mut completed = self.completed.subscribe();
         loop {
-            if self.failed.load(Ordering::Acquire) {
-                return Err(StorageError::BackendError(
-                    "native accepted queue requires complete recovery after publication failure"
-                        .into(),
+            if self.requires_recovery() {
+                return Err(berr(
+                    "native accepted queue requires complete recovery after publication failure",
                 ));
             }
             if *completed.borrow_and_update() >= target {
                 return Ok(());
             }
             completed.changed().await.map_err(|_| {
-                StorageError::BackendError(
-                    "native accepted queue owner stopped before its durable result".into(),
-                )
+                berr("native accepted queue owner stopped before its durable result")
             })?;
         }
     }
@@ -170,7 +157,7 @@ impl PackRuntime {
         let prep = Arc::clone(&self.prepare_gate).lock_owned().await;
         self.seal_queue();
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
-        let (gate_from, rt) = (Instant::now(), Arc::clone(&self));
+        let rt = Arc::clone(&self);
         let result = run_blocking(move || {
             let (_prep, _gate) = (prep, gate);
             rt.commit_queue()
@@ -188,10 +175,6 @@ impl PackRuntime {
                 }
                 {
                     let mut q = self.queue.lock().expect("native accepted queue");
-                    let us = u64::try_from(gate_from.elapsed().as_micros()).unwrap_or(u64::MAX);
-                    for r in &requests {
-                        r.flush_blocked_us.store(us, Ordering::Release);
-                    }
                     q.sealed = false;
                     q.requests.clear();
                 }
@@ -212,37 +195,34 @@ impl PackRuntime {
     }
 
     fn commit_queue(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
-        let (prepared, hidden, requests) = {
+        let (prepared, hidden, requests, seq) = {
             let mut q = self.queue.lock().expect("native accepted queue");
             q.sealed = true;
-            let hidden = q
+            let hidden: Vec<_> = q
                 .requests
                 .iter()
                 .flat_map(|(p, _)| p.changed_coordinates())
-                .collect::<Vec<_>>();
+                .collect();
             let reqs: Vec<_> = q.requests.iter().map(|(p, _)| Arc::clone(p)).collect();
-            (q.prepared.take(), hidden, reqs)
+            let seq = q.requests.last().map_or(q.next_sequence, |(_, s)| *s);
+            (q.prepared.take(), hidden, reqs, seq)
         };
         if let Some(prepared) = prepared {
             self.commit_prepared(prepared, &hidden, &requests)?;
         } else {
             if transaction::has_accepted(&requests) {
-                return Err(StorageError::InvalidOperation(
-                    "accepted notes require a native commit".into(),
+                return Err(StorageError::invalid(
+                    "accepted notes require a native commit",
                 ));
             }
             self.prepare_accepted(self.physical.current_root().frontier(), &[])?;
-            let cur = self.view.read().expect("empty prefix root").current.clone();
+            let cur = self.view.read().expect("empty prefix root").0.clone();
             self.install_committed(cur, &hidden, &requests)?;
         }
-        let q = self.queue.lock().expect("native accepted queue");
-        for (pending, _) in &q.requests {
+        for pending in &requests {
             pending.publications.finish()?;
         }
-        Ok((
-            q.requests.last().map_or(q.next_sequence, |(_, seq)| *seq),
-            requests,
-        ))
+        Ok((seq, requests))
     }
 }
 
@@ -265,21 +245,9 @@ pub(crate) mod publication {
         }
 
         fn lock(&self) -> StorageResult<std::sync::MutexGuard<'_, ChangeMap>> {
-            self.0.lock().map_err(|_| {
-                StorageError::BackendError("native metadata publication lock is poisoned".into())
-            })
-        }
-
-        fn stage(&self, key: (usize, String), val: Value, act: Action) -> StorageResult<()> {
-            let mut c = self.lock()?;
-            if c.1 >= 4096 {
-                return Err(StorageError::InvalidOperation(
-                    "native mutation exceeds 4096 metadata publications".into(),
-                ));
-            }
-            c.0.insert(key, (val, act));
-            c.1 += 1;
-            Ok(())
+            self.0
+                .lock()
+                .map_err(|_| StorageError::backend("native metadata publication lock is poisoned"))
         }
 
         pub(in crate::storage::disk_pack) fn finish(&self) -> StorageResult<()> {
@@ -300,18 +268,24 @@ pub(crate) mod publication {
         val: T,
         act: impl FnOnce() -> StorageResult<()> + Send + 'static,
     ) -> StorageResult<()> {
-        match PendingBatch::current(rt) {
-            Some(p) => p
-                .publications
-                .stage((cache, name), Arc::new(val), Box::new(act)),
-            None => act(),
+        let Some(p) = PendingBatch::current(rt) else {
+            return act();
+        };
+        let mut c = p.publications.lock()?;
+        if c.1 >= 4096 {
+            return Err(StorageError::invalid(
+                "native mutation exceeds 4096 metadata publications",
+            ));
         }
+        c.0.insert((cache, name), (Arc::new(val), Box::new(act)));
+        c.1 += 1;
+        Ok(())
     }
 
     fn downcast<T: Any + Send + Sync>(val: &Value) -> StorageResult<Arc<T>> {
         Arc::clone(val)
             .downcast::<T>()
-            .map_err(|_| StorageError::BackendError("native metadata cache type differs".into()))
+            .map_err(|_| StorageError::backend("native metadata cache type differs"))
     }
 
     pub(crate) fn get<T: Any + Send + Sync>(

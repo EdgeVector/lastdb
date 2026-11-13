@@ -78,6 +78,10 @@ pub(crate) enum StateChange<'a> {
     },
 }
 
+fn inv(m: impl Into<String>) -> StorageError {
+    StorageError::InvalidOperation(m.into())
+}
+
 pub(crate) fn retention_policy_key(schema: &str) -> String {
     format!("{RETENTION_POLICY_KEY_PREFIX}{schema}")
 }
@@ -147,48 +151,37 @@ pub(crate) fn schema_input<'a>(
 }
 
 #[derive(Clone)]
-pub(crate) struct SchemaFormat {
-    schemas_store: PackKvStore,
-    schema_states_store: PackKvStore,
-    runtime: Arc<PackRuntime>,
-}
+pub(crate) struct SchemaFormat(PackKvStore, PackKvStore, Arc<PackRuntime>);
 
 impl SchemaFormat {
     pub(in crate::storage::format) fn new(
-        s: PackKvStore,
-        st: PackKvStore,
-        rt: Arc<PackRuntime>,
+        schemas: PackKvStore,
+        states: PackKvStore,
+        runtime: Arc<PackRuntime>,
     ) -> Self {
-        Self {
-            schemas_store: s,
-            schema_states_store: st,
-            runtime: rt,
-        }
+        Self(schemas, states, runtime)
     }
 
     pub(crate) fn readers(&self) -> (ReadStore, ReadStore) {
-        (self.schemas_store.clone(), self.schema_states_store.clone())
+        (self.0.clone(), self.1.clone())
     }
     pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
-        Arc::clone(&self.runtime)
+        Arc::clone(&self.2)
     }
     pub(crate) async fn flush_schemas(&self) -> StorageResult<()> {
-        self.schemas_store.flush().await
+        self.2.flush().await
     }
     pub(crate) async fn flush_states(&self) -> StorageResult<()> {
-        self.schema_states_store.flush().await
+        self.2.flush().await
     }
-
     pub(crate) async fn put_schema(&self, input: SchemaInput<'_>) -> StorageResult<()> {
         self.stage(true, vec![put_json(input.0.name.clone(), input.0)?], &[])
             .await
     }
-
     pub(crate) async fn delete_schema(&self, name: &str) -> StorageResult<()> {
         require_name(name)?;
         self.stage(true, vec![KvMutation::delete(name)], &[]).await
     }
-
     pub(crate) async fn put_state(&self, change: StateChange<'_>) -> StorageResult<()> {
         self.batch_states(vec![change]).await
     }
@@ -196,9 +189,48 @@ impl SchemaFormat {
     pub(crate) async fn batch_states(&self, changes: Vec<StateChange<'_>>) -> StorageResult<()> {
         let (mut entries, mut owners) = (Vec::with_capacity(changes.len()), Vec::new());
         for change in changes {
-            let (entry, owner) = encode_state(change)?;
+            let (schema, entry, tracked) = match change {
+                StateChange::State { schema, state } => {
+                    (schema, put_json(schema.into(), state)?, false)
+                }
+                StateChange::Policy { schema, policy } => {
+                    if policy.ttl_seconds == 0
+                        || policy.hash_partitions.iter().any(String::is_empty)
+                    {
+                        return Err(inv("invalid schema retention policy"));
+                    }
+                    (
+                        schema,
+                        put_json(retention_policy_key(schema), policy)?,
+                        false,
+                    )
+                }
+                StateChange::Age {
+                    schema,
+                    entry,
+                    latest,
+                } => {
+                    let k = if latest {
+                        retention_age_latest_key(schema, &entry.key)
+                    } else {
+                        retention_age_key(schema, entry.written_at, &entry.key)
+                    };
+                    (schema, put_json(k, &entry)?, true)
+                }
+                StateChange::Partition { schema, entry } => {
+                    let k = format!(
+                        "{}{}",
+                        retention_hash_partition_prefix(schema),
+                        fp(&entry.hash)
+                    );
+                    (schema, put_json(k, &entry)?, true)
+                }
+            };
+            require_name(schema)?;
             entries.push(entry);
-            owners.extend(owner);
+            if tracked {
+                owners.push(schema.to_owned());
+            }
         }
         owners.sort();
         owners.dedup();
@@ -206,11 +238,7 @@ impl SchemaFormat {
     }
 
     pub(crate) async fn delete_states(&self, changes: Vec<StateDelete<'_>>) -> StorageResult<()> {
-        let bad = || {
-            StorageError::InvalidOperation(
-                "retention delete key differs from its owner/family".into(),
-            )
-        };
+        let bad = || inv("retention delete key differs from its owner/family");
         let mut output = Vec::new();
         for change in changes {
             match change {
@@ -232,11 +260,12 @@ impl SchemaFormat {
                     for key in keys {
                         let sfx = key.strip_prefix(&pfx).ok_or_else(bad)?;
                         let dig = match kind {
-                            Tracking::Age => sfx
-                                .split_once('\0')
-                                .filter(|(c, _)| c.len() == 20 && c.parse::<u64>().is_ok())
-                                .map(|(_, d)| d)
-                                .ok_or_else(bad)?,
+                            Tracking::Age => {
+                                let valid = |(c, _): &(&str, &str)| {
+                                    c.len() == 20 && c.parse::<u64>().is_ok()
+                                };
+                                sfx.split_once('\0').filter(valid).ok_or_else(bad)?.1
+                            }
                             Tracking::Latest | Tracking::Partition => sfx,
                         };
                         if dig.len() != 64 || !dig.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -257,79 +286,32 @@ impl SchemaFormat {
         owners: &[String],
     ) -> StorageResult<()> {
         transaction::scope(self.runtime(), async {
-            if transaction::PendingBatch::current(&self.runtime).is_none() {
-                return Err(StorageError::InvalidOperation(
-                    "schema write requires its native scope".into(),
-                ));
+            if transaction::PendingBatch::current(&self.2).is_none() {
+                return Err(inv("schema write requires its native scope"));
             }
             if !owners.is_empty() {
                 let keys = owners.iter().map(|n| n.as_bytes().to_vec()).collect();
                 let (states, defs) = tokio::try_join!(
-                    self.schema_states_store.get_items::<SchemaState>(owners),
-                    self.schemas_store.get_many(keys),
+                    self.1.get_items::<SchemaState>(owners),
+                    self.0.get_many(keys)
                 )?;
                 if states.len() != owners.len() || defs.len() != owners.len() {
-                    return Err(StorageError::BackendError(
-                        "tracking owner read is incomplete".into(),
-                    ));
+                    return Err(StorageError::backend("tracking owner read is incomplete"));
                 }
                 for ((schema, state), def) in owners.iter().zip(states).zip(defs) {
                     if def.is_none() || state == Some(SchemaState::Blocked) {
-                        return Err(StorageError::InvalidOperation(format!(
+                        return Err(inv(format!(
                             "expiry tracking owner {schema} is blocked or not installed"
                         )));
                     }
                 }
             }
-            let store = if schemas {
-                &self.schemas_store
-            } else {
-                &self.schema_states_store
-            };
-            store.batch_mutate(mutations).await
+            (if schemas { &self.0 } else { &self.1 })
+                .batch_mutate(mutations)
+                .await
         })
         .await
     }
-}
-
-fn encode_state(change: StateChange<'_>) -> StorageResult<(KvMutation, Option<String>)> {
-    let (schema, entry, tracked) = match change {
-        StateChange::State { schema, state } => (schema, put_json(schema.into(), state)?, false),
-        StateChange::Policy { schema, policy } => {
-            if policy.ttl_seconds == 0 || policy.hash_partitions.iter().any(String::is_empty) {
-                return Err(StorageError::InvalidOperation(
-                    "invalid schema retention policy".into(),
-                ));
-            }
-            (
-                schema,
-                put_json(retention_policy_key(schema), policy)?,
-                false,
-            )
-        }
-        StateChange::Age {
-            schema,
-            entry,
-            latest,
-        } => {
-            let k = if latest {
-                retention_age_latest_key(schema, &entry.key)
-            } else {
-                retention_age_key(schema, entry.written_at, &entry.key)
-            };
-            (schema, put_json(k, &entry)?, true)
-        }
-        StateChange::Partition { schema, entry } => {
-            let k = format!(
-                "{}{}",
-                retention_hash_partition_prefix(schema),
-                fp(&entry.hash)
-            );
-            (schema, put_json(k, &entry)?, true)
-        }
-    };
-    require_name(schema)?;
-    Ok((entry, tracked.then(|| schema.to_owned())))
 }
 
 fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
@@ -339,9 +321,7 @@ fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
 }
 
 fn require_name(name: &str) -> StorageResult<()> {
-    (!(name.is_empty() || name.contains('\0')))
+    (!name.is_empty() && !name.contains('\0'))
         .then_some(())
-        .ok_or_else(|| {
-            StorageError::InvalidOperation("schema keys require a nonempty name without NUL".into())
-        })
+        .ok_or_else(|| inv("schema keys require a nonempty name without NUL"))
 }

@@ -1,10 +1,2 @@
 # Recognized direct writers. Format: path|function|reason
 # Every recognized writer needs an entry. Every entry must match a writer.
-
-fold_db/crates/core/src/storage/format/records/store.rs|stage_records|consumes the format-minted opaque record and pointer batches in one staging call inside the existing write scope; never starts or commits an independent request
-fold_db/crates/core/src/storage/format/metadata.rs|stage|private metadata writer stages format-minted author clocks, contribution receipts, local stream state, and file-reference rows inside the existing native request
-fold_db/crates/core/src/storage/format/schemas.rs|stage|private schema/state writer consumes only format-minted definition/state/retention batches and validated deletions in its native scope; providers hold read-only views
-fold_db/crates/core/src/storage/format/records/store.rs|stage_files|private record-file sink consumes only file rows encoded by record changes, schema release, or reference reclamation; requires the existing native scope, with no provider raw append operation
-fold_db/crates/core/src/storage/format/records/file_crypto.rs|install_record_file|downloaded record file: authenticates the sealed row against the record marker, then in its own native scope re-reads the record and puts only that version's exact fb row and its fu uploaded marker when the record still selects it and the row is absent; never changes the record
-fold_db/crates/core/src/storage/format/records/store.rs|release_schema_batch|format-minted schema family validates selected keys and re-reads at most 256 under the same native scope, composing exact record/alternate/file cleanup
-fold_db/crates/core/src/storage/format/records/store.rs|record_delete_audit|format selects the audit family/key and serializes typed erase facts inside the existing erase scope

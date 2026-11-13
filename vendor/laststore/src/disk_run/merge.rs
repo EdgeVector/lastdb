@@ -1,5 +1,6 @@
 //! Bounded run ranges, merge space reservations, and ordered k-way merge of runs.
 
+use super::codec::corrupt;
 use super::reader::{IndexBlock, RunReader};
 use super::writer::RunWriter;
 use super::Found;
@@ -9,6 +10,7 @@ use std::fs;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 const PUBLICATION_BYTES: u64 = 4096;
 const OUTPUT_CHUNK_BYTES: u64 = 1 << 20;
@@ -21,6 +23,10 @@ struct Pending {
     ticket: SpaceReservation,
     outputs: Vec<PathBuf>,
     keep: bool,
+}
+
+fn overflow() -> Error {
+    Error::WriteCapacity("disk run: replacement reservation overflow".into())
 }
 
 impl MergeSpace {
@@ -40,26 +46,33 @@ impl MergeSpace {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn admit_run(&self, bytes: u64) -> Result<()> {
+    pub(crate) fn admit(&self, bytes: u64, chunked: bool) -> Result<()> {
+        let req = if chunked {
+            bytes.checked_add(PUBLICATION_BYTES).ok_or_else(overflow)?
+        } else {
+            bytes
+        };
         let mut p = self.lock();
-        let ovf = || Error::WriteCapacity("disk run: replacement reservation overflow".into());
-        let req = bytes.checked_add(PUBLICATION_BYTES).ok_or_else(ovf)?;
-        if req <= p.ticket.bytes() {
+        if req <= p.ticket.bytes {
             return Ok(());
         }
-        let chunk = p
-            .ticket
-            .bytes()
-            .checked_add(OUTPUT_CHUNK_BYTES)
-            .ok_or_else(ovf)?
-            .max(req);
-        let nospc = rustix::io::Errno::NOSPC.raw_os_error();
-        let extra = match p.ticket.reserve_extension(&p.policy, chunk) {
-            Err(Error::Io(io)) if io.raw_os_error() == Some(nospc) => {
-                p.ticket.reserve_extension(&p.policy, req)
-            }
-            other => other,
-        }?;
+        let extra = if chunked {
+            let chunk = p
+                .ticket
+                .bytes
+                .checked_add(OUTPUT_CHUNK_BYTES)
+                .ok_or_else(overflow)?
+                .max(req);
+            let nospc = rustix::io::Errno::NOSPC.raw_os_error();
+            match p.ticket.reserve_extension(&p.policy, chunk) {
+                Err(Error::Io(io)) if io.raw_os_error() == Some(nospc) => {
+                    p.ticket.reserve_extension(&p.policy, req)
+                }
+                other => other,
+            }?
+        } else {
+            p.ticket.reserve_extension(&p.policy, req)?
+        };
         p.ticket.absorb(extra);
         Ok(())
     }
@@ -67,20 +80,9 @@ impl MergeSpace {
     pub(crate) fn materialize(&self, bytes: u64) -> Result<()> {
         self.lock().ticket.materialize(bytes)
     }
-
-    pub(crate) fn admit_current(&self, bytes: u64) -> Result<()> {
-        let mut p = self.lock();
-        if bytes > p.ticket.bytes() {
-            let extra = p.ticket.reserve_extension(&p.policy, bytes)?;
-            p.ticket.absorb(extra);
-        }
-        Ok(())
-    }
-
     pub(crate) fn output(&self, path: &Path) {
         self.lock().outputs.push(path.to_path_buf());
     }
-
     pub(crate) fn keep_outputs(&self) {
         self.lock().keep = true;
     }
@@ -89,9 +91,9 @@ impl MergeSpace {
 impl Drop for Pending {
     fn drop(&mut self) {
         if !self.keep {
-            self.outputs.iter().for_each(|p| {
+            for p in &self.outputs {
                 let _ = fs::remove_file(p);
-            });
+            }
         }
     }
 }
@@ -100,20 +102,20 @@ pub(crate) struct RunRange {
     reader: Option<Arc<RunReader>>,
     tail: std::vec::IntoIter<PathBuf>,
     key: [u8; 32],
-    lower: Bound<Vec<u8>>,
-    upper: Bound<Vec<u8>>,
-    next_index: usize,
-    index: Option<IndexBlock>,
-    next_block: usize,
-    positioned: bool,
-    current: std::vec::IntoIter<(Vec<u8>, Found)>,
+    bounds: (Bound<Vec<u8>>, Bound<Vec<u8>>),
+    cur: (usize, Option<IndexBlock>, usize, bool),
+    records: std::vec::IntoIter<(Vec<u8>, Found)>,
     done: bool,
 }
 
 impl RunRange {
     pub(super) fn new(reader: Arc<RunReader>, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Self {
-        let (lo, up) = (lower.map(<[u8]>::to_vec), upper.map(<[u8]>::to_vec));
-        let mut s = Self::sequence(vec![], &[0; 32], lo, up);
+        let mut s = Self::sequence(
+            vec![],
+            &[0; 32],
+            lower.map(<[u8]>::to_vec),
+            upper.map(<[u8]>::to_vec),
+        );
         s.set_reader(reader);
         s
     }
@@ -128,27 +130,23 @@ impl RunRange {
             reader: None,
             tail: paths.into_iter(),
             key: *key,
-            lower,
-            upper,
-            next_index: 0,
-            index: None,
-            next_block: 0,
-            positioned: false,
-            current: Vec::new().into_iter(),
+            bounds: (lower, upper),
+            cur: (0, None, 0, false),
+            records: Vec::new().into_iter(),
             done: false,
         }
     }
 
     fn set_reader(&mut self, r: Arc<RunReader>) {
-        self.next_index = match &self.lower {
+        let next_idx = match &self.bounds.0 {
             Bound::Included(k) | Bound::Excluded(k) => r.index_for(k).unwrap_or(0),
             Bound::Unbounded => 0,
         };
-        (self.index, self.next_block, self.positioned, self.reader) = (None, 0, false, Some(r));
+        (self.cur, self.reader) = ((next_idx, None, 0, false), Some(r));
     }
 
     fn above_upper(&self, key: &[u8]) -> bool {
-        match &self.upper {
+        match &self.bounds.1 {
             Bound::Included(u) => key > u.as_slice(),
             Bound::Excluded(u) => key >= u.as_slice(),
             Bound::Unbounded => false,
@@ -165,32 +163,34 @@ impl RunRange {
                 continue;
             };
             if self
-                .index
+                .cur
+                .1
                 .as_ref()
-                .is_none_or(|idx| self.next_block >= idx.blocks.len())
+                .is_none_or(|idx| self.cur.2 >= idx.0.len())
             {
-                if self.next_index >= reader.top.indexes.len() {
+                if self.cur.0 >= reader.top.indexes.len() {
                     self.reader = None;
                     continue;
                 }
-                let idx = reader.read_index(self.next_index, None)?;
-                self.next_index += 1;
-                self.next_block =
-                    match (&self.lower, !std::mem::replace(&mut self.positioned, true)) {
-                        (Bound::Included(k) | Bound::Excluded(k), true) => {
-                            idx.block_pos(k).unwrap_or(0)
-                        }
-                        _ => 0,
-                    };
-                self.index = Some(idx);
+                let idx = reader.read_index(self.cur.0, None, None)?;
+                self.cur.0 += 1;
+                let first = !std::mem::replace(&mut self.cur.3, true);
+                self.cur.2 = if let (Bound::Included(k) | Bound::Excluded(k), true) =
+                    (&self.bounds.0, first)
+                {
+                    idx.block_pos(k).unwrap_or(0)
+                } else {
+                    0
+                };
+                self.cur.1 = Some(idx);
                 continue;
             }
-            let block = &self.index.as_ref().unwrap().blocks[self.next_block];
+            let block = &self.cur.1.as_ref().unwrap().0[self.cur.2];
             if self.above_upper(&block.first_key) {
                 return Ok(false);
             }
-            self.current = reader.read_data(block, None)?.into_iter();
-            self.next_block += 1;
+            self.records = reader.read_data(block, None)?.into_iter();
+            self.cur.2 += 1;
             return Ok(true);
         }
     }
@@ -201,8 +201,8 @@ impl Iterator for RunRange {
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.done {
-            for (key, found) in self.current.by_ref() {
-                if match &self.lower {
+            for (key, found) in self.records.by_ref() {
+                if match &self.bounds.0 {
                     Bound::Included(l) => key < *l,
                     Bound::Excluded(l) => key <= *l,
                     Bound::Unbounded => false,
@@ -227,26 +227,21 @@ impl Iterator for RunRange {
     }
 }
 
+type Head = Option<(Vec<u8>, Found)>;
+
 pub(crate) struct MergeIter {
     sources: Vec<RunRange>,
-    heads: Vec<Option<(Vec<u8>, Found)>>,
-    started: bool,
+    heads: Option<Vec<Head>>,
     done: bool,
 }
 
 impl MergeIter {
     pub(crate) fn new(sources: Vec<RunRange>) -> Self {
         Self {
-            heads: vec![None; sources.len()],
             sources,
-            started: false,
+            heads: None,
             done: false,
         }
-    }
-
-    fn advance(&mut self, i: usize) -> Result<()> {
-        self.heads[i] = self.sources[i].next().transpose()?;
-        Ok(())
     }
 }
 
@@ -258,13 +253,17 @@ impl Iterator for MergeIter {
             return None;
         }
         let step = (|| -> Result<Option<(Vec<u8>, Found)>> {
-            if !std::mem::replace(&mut self.started, true) {
-                for s in 0..self.sources.len() {
-                    self.advance(s)?;
-                }
-            }
-            let Some((_, winner)) = self
-                .heads
+            let heads = if let Some(h) = &mut self.heads {
+                h
+            } else {
+                self.heads.insert(
+                    self.sources
+                        .iter_mut()
+                        .map(|s| s.next().transpose())
+                        .collect::<Result<_>>()?,
+                )
+            };
+            let Some((_, winner)) = heads
                 .iter()
                 .enumerate()
                 .filter_map(|(i, h)| h.as_ref().map(|(k, _)| (k, i)))
@@ -272,13 +271,16 @@ impl Iterator for MergeIter {
             else {
                 return Ok(None);
             };
-            let record = self.heads[winner].take().unwrap();
-            for s in winner + 1..self.heads.len() {
-                if self.heads[s].as_ref().is_some_and(|(k, _)| *k == record.0) {
-                    self.advance(s)?;
+            let record = heads[winner].take().unwrap();
+            for (slot, src) in heads[winner + 1..]
+                .iter_mut()
+                .zip(&mut self.sources[winner + 1..])
+            {
+                if slot.as_ref().is_some_and(|(k, _)| *k == record.0) {
+                    *slot = src.next().transpose()?;
                 }
             }
-            self.advance(winner)?;
+            heads[winner] = self.sources[winner].next().transpose()?;
             Ok(Some(record))
         })();
         self.done |= !matches!(step, Ok(Some(_)));
@@ -286,20 +288,67 @@ impl Iterator for MergeIter {
     }
 }
 
-pub(crate) fn merge_runs(
-    sources: Vec<RunRange>,
-    writer: &mut RunWriter,
-    keep_tombstones: bool,
-) -> Result<u64> {
+pub(crate) fn merge_runs(sources: Vec<RunRange>, writer: &mut RunWriter) -> Result<u64> {
     let mut written = 0;
     for record in MergeIter::new(sources) {
         let (key, found) = record?;
-        match found {
-            Found::Value(v) => writer.push(&key, Some(&v))?,
-            Found::Tombstone if keep_tombstones => writer.push(&key, None)?,
-            Found::Tombstone => continue,
-        }
+        writer.push(
+            &key,
+            if let Found::Value(v) = &found {
+                Some(v.as_slice())
+            } else {
+                None
+            },
+        )?;
         written += 1;
     }
     Ok(written)
+}
+
+pub(crate) fn count_merged_keys(
+    key: &[u8; 32],
+    retained: u64,
+    runs: &[PathBuf],
+    base: Vec<PathBuf>,
+    deadline: Instant,
+) -> (bool, u64) {
+    let mut merged_keys = 0u64;
+    let complete = (|| -> Result<()> {
+        let count = runs.len() + usize::from(!base.is_empty());
+        if count == 0 {
+            return Ok(());
+        }
+        if count > 512 || retained > 56 << 20 {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let allow = ((56 << 20) - retained) / count as u64;
+        let mut sources: Vec<_> = runs
+            .iter()
+            .map(|p| Ok(Arc::new(RunReader::open_bounded(p, key, allow, 0)?).iter()))
+            .collect::<Result<_>>()?;
+        if !base.is_empty() {
+            sources.push(RunRange::sequence(
+                base,
+                key,
+                Bound::Unbounded,
+                Bound::Unbounded,
+            ));
+        }
+        for item in MergeIter::new(sources) {
+            if merged_keys >= 50_000_000 || Instant::now() >= deadline {
+                return Err(Error::ReadBudgetExceeded);
+            }
+            let (rk, _) = item?;
+            if rk
+                .get(..2)
+                .is_none_or(|p| rk.len() < 2 + u16::from_be_bytes([p[0], p[1]]) as usize)
+            {
+                return Err(corrupt("diagnostic prefix"));
+            }
+            merged_keys += 1;
+        }
+        Ok(())
+    })()
+    .is_ok();
+    (complete, merged_keys)
 }
