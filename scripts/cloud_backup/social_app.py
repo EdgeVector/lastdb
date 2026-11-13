@@ -16,7 +16,6 @@ from support import decode_json, require
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = {"name": "social", "version": 1}
-DEV_INDEX = "https://lastdb-app-registry-dev-152335099025.s3.us-east-1.amazonaws.com/v1/lists"
 
 
 def command(node):
@@ -31,8 +30,9 @@ def install(publisher, root, revision):
     home.mkdir(mode=0o700)
     extra = {"HOME": str(home), "LASTDB_APPS_ROOT": str(root / "apps"),
              "PATH": f"{programs.directory}:{os.environ['PATH']}"}
+    index = decode_json((ROOT / "lastdb_node/environments.json").read_bytes())["environments"]["dev"]["registry_index"]
     receipt = programs.command(publisher.home, [
-        "app", "install", "social-graph", "--channel", "next", "--index", DEV_INDEX, "--accept-install", "--json",
+        "app", "install", "social-graph", "--channel", "next", "--index", index, "--accept-install", "--json",
     ], extra=extra, timeout=150)
     require(isinstance(receipt, list) and len(receipt) == 1 and receipt[0]["sha"] == revision,
             "social_install_exact_source")

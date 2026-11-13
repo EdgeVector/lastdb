@@ -1,6 +1,6 @@
 """Serve Social's owner interface on a private loopback browser session."""
 
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -110,15 +110,13 @@ class Handler(BaseHTTPRequestHandler):
     def get(self, target):
         query = parse_qs(target.query)
         app = self.server.app
-        match target.path:
-            case "/api/home":
-                return app.home()
-            case "/api/person":
-                return app.person(query["nodeKey"][0])
-            case "/api/database":
-                return app.database(query["databaseId"][0])
-            case _:
-                raise SocialError("unknown Social operation")
+        if target.path == "/api/home":
+            return app.home()
+        if target.path == "/api/person":
+            return app.person(query["nodeKey"][0])
+        if target.path == "/api/database":
+            return app.database(query["databaseId"][0])
+        raise SocialError("unknown Social operation")
 
     def body(self):
         if self.headers.get_content_type() != "application/json":
@@ -134,25 +132,23 @@ class Handler(BaseHTTPRequestHandler):
     def post(self, target):
         args = self.body()
         app = self.server.app
-        match target.path:
-            case "/api/remember":
-                return app.remember(args)
-            case "/api/create":
-                return app.create(args["name"])
-            case "/api/invite":
-                return app.invite(args)
-            case "/api/revoke":
-                return app.revoke(args)
-            case "/api/retry":
-                return app.retry(args["databaseId"])
-            case "/api/accept":
-                return app.accept(args["receipt"], args["publisher"], args.get("name"))
-            case "/api/picker":
-                return app.picker(args["spec"], args["intent"])
-            case "/api/pick":
-                return app.approve_pick(args["spec"], args["intent"], args["databaseId"])
-            case _:
-                raise SocialError("unknown Social operation")
+        if target.path == "/api/remember":
+            return app.remember(args)
+        if target.path == "/api/create":
+            return app.create(args["name"])
+        if target.path == "/api/invite":
+            return app.invite(args)
+        if target.path == "/api/revoke":
+            return app.revoke(args)
+        if target.path == "/api/retry":
+            return app.retry(args["databaseId"])
+        if target.path == "/api/accept":
+            return app.accept(args["receipt"], args["publisher"], args.get("name"))
+        if target.path == "/api/picker":
+            return app.picker(args["spec"], args["intent"])
+        if target.path == "/api/pick":
+            return app.approve_pick(args["spec"], args["intent"], args["databaseId"])
+        raise SocialError("unknown Social operation")
 
 
 def run_server(node, open_browser, database_id=None):
@@ -179,7 +175,7 @@ def choose_database(node, spec, intent):
         worker.start()
         try:
             return server.result.result(timeout=300)
-        except (TimeoutError, KeyboardInterrupt):
+        except (FutureTimeout, KeyboardInterrupt):
             return None
         finally:
             server.shutdown()

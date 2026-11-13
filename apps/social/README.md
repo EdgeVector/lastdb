@@ -2,7 +2,7 @@
 
 Social remembers verified contacts in the local personal database and manages
 reader access to Social v1 databases. It uses the LastDB owner socket and an
-explicit, isolated LastDB home. Use Python 3.10 or later and the LastDB client
+explicit, isolated LastDB home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
 Create an owned database with `social create-db NAME`. Use LastDB's normal

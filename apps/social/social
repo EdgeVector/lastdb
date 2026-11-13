@@ -109,41 +109,40 @@ def resolve_node(args):
 def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
-    match args.action:
-        case "create-db":
-            return sharing.create(args.name)
-        case "remember":
-            return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
-        case "pick-database":
-            app = SocialApp(node)
-            spec = {"name": args.spec, "version": args.version}
-            if args.cancel:
-                return None
-            if args.choose:
-                return choose_database(node, spec, args.intent)
-            if args.session:
-                if not args.database:
-                    raise SocialError("--session requires an explicit database selection")
-                return app.approve_pick(spec, args.intent, args.database)
-            return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
-        case "add":
-            return sharing.invite(args.database, args.user, args.node_key, args.contact)
-        case "remove":
-            return remove(sharing, people, args)
-        case "grants":
-            return sharing.all_configurations(args.database)
-        case "list":
-            return list_grants(sharing, people, args.database)
-        case "accept":
-            return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
-        case "declare":
-            return {"definitionId": people.declare()}
-        case "check":
-            node.require_sessions()
-            return {"ready": True}
-        case "show-records":
-            return [{key: value for key, value in row.items() if key != "contact_code"}
-                    for row in people.all()]
+    if args.action == "create-db":
+        return sharing.create(args.name)
+    if args.action == "remember":
+        return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
+    if args.action == "pick-database":
+        app = SocialApp(node)
+        spec = {"name": args.spec, "version": args.version}
+        if args.cancel:
+            return None
+        if args.choose:
+            return choose_database(node, spec, args.intent)
+        if args.session:
+            if not args.database:
+                raise SocialError("--session requires an explicit database selection")
+            return app.approve_pick(spec, args.intent, args.database)
+        return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
+    if args.action == "add":
+        return sharing.invite(args.database, args.user, args.node_key, args.contact)
+    if args.action == "remove":
+        return remove(sharing, people, args)
+    if args.action == "grants":
+        return sharing.all_configurations(args.database)
+    if args.action == "list":
+        return list_grants(sharing, people, args.database)
+    if args.action == "accept":
+        return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
+    if args.action == "declare":
+        return {"definitionId": people.declare()}
+    if args.action == "check":
+        node.require_sessions()
+        return {"ready": True}
+    if args.action == "show-records":
+        return [{key: value for key, value in row.items() if key != "contact_code"}
+                for row in people.all()]
 
 
 def main():
