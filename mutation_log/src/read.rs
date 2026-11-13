@@ -160,13 +160,34 @@ impl LogState {
         now_ms: u64,
         policy: &impl NamespacePolicy,
     ) -> Result<ListPage, LogError> {
+        self.list_after_floor(reader, after, limit, self.effective_floor(now_ms), policy)
+    }
+
+    /// List after the caller's position using the last persisted trim boundary.
+    pub fn list_retained(
+        &self,
+        reader: &PrincipalId,
+        after: u64,
+        limit: usize,
+        policy: &impl NamespacePolicy,
+    ) -> Result<ListPage, LogError> {
+        self.list_after_floor(reader, after, limit, self.trimmed_through, policy)
+    }
+
+    fn list_after_floor(
+        &self,
+        reader: &PrincipalId,
+        after: u64,
+        limit: usize,
+        floor: u64,
+        policy: &impl NamespacePolicy,
+    ) -> Result<ListPage, LogError> {
         if limit == 0 || limit > LIST_PAGE_LIMIT {
             return Err(LogError::InvalidPage);
         }
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        let floor = self.effective_floor(now_ms);
         if after < floor {
             return Err(LogError::CursorExpired {
                 snapshot_through: self

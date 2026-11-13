@@ -109,6 +109,11 @@ def sub_partition(database_id):
     return allow_stream(database_id) + "#sub"
 
 
+def writes_partition(database_id):
+    """Accepted-write facts use exactly the load id plus ``#writes``."""
+    return allow_stream(database_id) + "#writes"
+
+
 def _record_label(value):
     if not isinstance(value, str) or not value or "#" in value:
         raise GuardError("record")
@@ -138,13 +143,14 @@ def snap_part_key(reference, index):
 
 
 def load_partitions(database_id):
-    """The load id, its snapshot partition, and its submission partition."""
+    """The exact partitions owned by this one DEV load."""
     base = allow_stream(database_id)
-    return (base, snap_partition(base), sub_partition(base))
+    return (base, snap_partition(base), sub_partition(base), writes_partition(base))
 
 
 def allow_partition(value):
-    for suffix, builder in (("#snap", snap_partition), ("#sub", sub_partition)):
+    for suffix, builder in (("#snap", snap_partition), ("#sub", sub_partition),
+                            ("#writes", writes_partition)):
         if isinstance(value, str) and value.endswith(suffix):
             base = value[:-len(suffix)]
             if value != builder(base):
