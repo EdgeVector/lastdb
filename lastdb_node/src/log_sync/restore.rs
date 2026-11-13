@@ -62,7 +62,7 @@ async fn install_with_mode(log: CloudLog, live: bool) -> Result<u64, LogError> {
     };
     let mut files = Files { log: log.clone() };
     let device = live.then(|| log.device().as_str());
-    match database_replay::install(log.host(), &request, &mut files, device).await {
+    match database_replay::install(log.host()?, &request, &mut files, device).await {
         Ok(through) => Ok(through),
         Err(RestoreError::Scope(_)) => Err(LogError::SnapshotRequired),
         Err(_) => Err(LogError::UnexpectedOutcome),

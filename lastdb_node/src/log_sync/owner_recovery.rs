@@ -35,6 +35,7 @@ pub async fn recover_owned(
     scope: CloudScope,
     database_id: &Id,
     name: &str,
+    snapshot: Option<super::RestoredBase>,
 ) -> Result<RecoveredPrefix, String> {
     if scope.account_id.as_str() != host.user_hash {
         return Err("signed recovery account differs from the recovery key".into());
@@ -47,7 +48,7 @@ pub async fn recover_owned(
         scope,
         database_id: database_id.clone(),
         device: &device,
-        member_revision: 0,
+        member_revision: snapshot.as_ref().map_or(0, |base| base.member_revision),
         environment_label: selected.label,
     })?;
     let body = wire::database_body(log.database_id())
@@ -62,8 +63,24 @@ pub async fn recover_owned(
         return Err("the signed cloud database is unavailable to this owner".into());
     }
     let through = head(&log).await?;
-    let placed = place(host, &log, name, database_id, through).await?;
-    apply_through(&log, through).await?;
+    let (placed, start) = if let Some(base) = snapshot {
+        if base.through > through {
+            return Err("signed snapshot is ahead of the cloud log".into());
+        }
+        let (store, _) = DatabaseContentKey::local_store(host, database_id.as_str())
+            .map_err(|e| e.to_string())?
+            .ok_or("restored snapshot store is missing")?;
+        store
+            .db_ops()
+            .native_runtime()
+            .adopt_restored_snapshot()
+            .await
+            .map_err(|e| e.to_string())?;
+        (base.name, base.through)
+    } else {
+        (place(host, &log, name, database_id, through).await?, 0)
+    };
+    apply_through(&log, start, through).await?;
     session::store_cursor(&host.home, database_id.as_str(), through)?;
     session::mark_prefix(&host.home, database_id.as_str(), through)?;
     Ok(RecoveredPrefix {
@@ -97,7 +114,7 @@ async fn place(
     Ok(name.to_owned())
 }
 
-async fn head(log: &CloudLog) -> Result<u64, String> {
+pub(super) async fn head(log: &CloudLog) -> Result<u64, String> {
     let log = log.clone();
     tokio::task::spawn_blocking(move || log.head(log.principal()))
         .await
@@ -214,9 +231,8 @@ async fn read_page(log: &CloudLog, after: u64) -> Result<ListPage, LogError> {
     .map_err(|_| LogError::UnexpectedOutcome)?
 }
 
-async fn apply_through(log: &CloudLog, through: u64) -> Result<(), String> {
-    let mut cursor = 0u64;
-    let mut recovered_snapshot = false;
+async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<(), String> {
+    let mut recovered_snapshot = cursor != 0;
     let mut files = restore::file_source(log.clone());
     while cursor < through {
         let page = match read_page(log, cursor).await {
@@ -250,7 +266,8 @@ async fn apply_through(log: &CloudLog, through: u64) -> Result<(), String> {
         if delivered.is_empty() || cursor != expected {
             return Err("signed recovery log stopped before the selected head".into());
         }
-        database_replay::replay_owned(log.host(), log.database_id(), None, &delivered, &mut files)
+        let host = log.host().map_err(|e| e.to_string())?;
+        database_replay::replay_owned(host, log.database_id(), None, &delivered, &mut files)
             .await
             .map_err(|error| error.to_string())?;
     }

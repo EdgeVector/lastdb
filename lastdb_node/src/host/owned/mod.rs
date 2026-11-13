@@ -22,6 +22,8 @@ mod lookup;
 mod registry;
 mod store;
 
+pub(crate) use registry::prepare_snapshot_restore;
+
 pub(crate) use lookup::{find_shareable, registry_claims};
 pub(crate) use registry::validate_create;
 

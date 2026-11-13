@@ -79,7 +79,7 @@ pub const MUTATION_LOG_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/lis
 pub const MUTATION_LOG_ACK_PATH: &str = "/api/cloud/backups/v2/mutation-log/ack";
 /// Cut a published snapshot.
 pub const MUTATION_LOG_SNAPSHOT_PATH: &str = "/api/cloud/backups/v2/mutation-log/snapshot";
-/// Read published snapshot bytes by `snapshot_ref`.
+/// Read or publish the reference to a client-uploaded encrypted snapshot.
 pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
 /// Read a signed delivery page.

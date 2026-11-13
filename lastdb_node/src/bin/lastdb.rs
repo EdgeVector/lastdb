@@ -284,6 +284,9 @@ fn run(cli: Cli) -> Result<(), String> {
                 action: match b {
                     BackupCommand::Connect(a) => ByteBackupCommand::Connect(a),
                     BackupCommand::Restore(a) => ByteBackupCommand::Restore(a),
+                    BackupCommand::Snapshot { database } => ByteBackupCommand::Snapshot(
+                        database.or(cli.db).unwrap_or_else(|| "personal".to_owned()),
+                    ),
                 },
             },
         ),

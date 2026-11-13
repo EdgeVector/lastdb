@@ -30,10 +30,6 @@ pub(super) async fn publisher_scope(
     Ok((context.scope, endpoint, selected.label))
 }
 
-pub(super) fn node_key(host: &Host) -> String {
-    hex::encode(host.keypair.public_key_bytes())
-}
-
 pub(super) fn account_of(host: &Host) -> Result<AccountId, String> {
     let derived = crate::identity::user_hash_from_pubkey(&host.public_key())?;
     if derived != host.user_hash {
