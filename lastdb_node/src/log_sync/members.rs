@@ -23,7 +23,7 @@ pub(super) async fn revision(log: &CloudLog) -> Option<u64> {
 pub(super) enum ObservedAccess {
     Active {
         revision: u64,
-        role: Option<&'static str>,
+        role: Option<ShareMemberRole>,
     },
     Revoked,
     Absent,
@@ -72,10 +72,7 @@ fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
         }
         return Some(ObservedAccess::Active {
             revision: view.revision.get(),
-            role: view.role.map(|role| match role {
-                ShareMemberRole::Read => "read",
-                ShareMemberRole::Submit => "submit",
-            }),
+            role: view.role,
         });
     }
     let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;

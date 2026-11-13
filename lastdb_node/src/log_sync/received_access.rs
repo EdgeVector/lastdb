@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cloud_backup_protocol::DecimalU64;
+use cloud_backup_protocol::{v2::share_access::ShareMemberRole, DecimalU64};
 use serde::{Deserialize, Serialize};
 
 use super::{disk, members::ObservedAccess};
@@ -11,7 +11,7 @@ use super::{disk, members::ObservedAccess};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AccessView {
     state: AccessState,
-    role: Option<String>,
+    role: Option<ShareMemberRole>,
     revision: Option<DecimalU64>,
     confirmed_at_ms: Option<DecimalU64>,
     stale: bool,
@@ -83,11 +83,9 @@ pub(super) fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
 
 fn confirmed(observed: &ObservedAccess) -> AccessView {
     let (state, role, revision) = match observed {
-        ObservedAccess::Active { revision, role } => (
-            AccessState::Active,
-            role.map(str::to_owned),
-            Some(DecimalU64::new(*revision)),
-        ),
+        ObservedAccess::Active { revision, role } => {
+            (AccessState::Active, *role, Some(DecimalU64::new(*revision)))
+        }
         ObservedAccess::Revoked => (AccessState::Revoked, None, None),
         ObservedAccess::Absent => (AccessState::Absent, None, None),
     };
