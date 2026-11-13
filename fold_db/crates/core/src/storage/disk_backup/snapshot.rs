@@ -2,8 +2,7 @@
 
 use crate::storage::disk_pack::{cas_delete, map, PackRuntime, CAS_DIR, NODE_MARKER, RUN_DIR};
 use crate::storage::error::{StorageError, StorageResult};
-use crate::storage::format::metadata::{Metadata, FILE_REFERENCE_PREFIX};
-use crate::storage::format::METADATA_NAMESPACE;
+use crate::storage::format::metadata::Metadata;
 use laststore::disk_run::home::RunSnapshot;
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
@@ -34,7 +33,7 @@ impl PackRuntime {
         })
         .await?;
         self.flush_native().await?;
-        let frontier = self.physical.current_root().main.frontier();
+        let frontier = self.physical.current_root().frontier();
         self.note_accepted_snapshot(frontier)
             .map_err(|e| StorageError::invalid(format!("restore snapshot coverage: {e:?}")))
     }
@@ -48,21 +47,11 @@ impl PackRuntime {
             ));
         }
         cas_delete::require_clear(&self.physical)?;
-        let view = crate::storage::disk_pack::PackReadScope::for_runtime(self).await?;
-        view.run_result(async {
-            let meta = self.open_store(METADATA_NAMESPACE).await?;
-            if !meta
-                .scan_prefix(FILE_REFERENCE_PREFIX.as_bytes())
-                .await?
-                .is_empty()
-            {
-                return Err(StorageError::invalid(
-                    "snapshot cannot include files referenced outside the database",
-                ));
-            }
-            Ok(())
-        })
-        .await?;
+        if self.has_external_file_references().await? {
+            return Err(StorageError::invalid(
+                "snapshot cannot include files referenced outside the database",
+            ));
+        }
         let parent = self
             .physical
             .path()
@@ -74,7 +63,7 @@ impl PackRuntime {
             .open(parent.join(NODE_MARKER))?;
         Ok(DatabaseSnapshot {
             accepted_head: self.accepted_status().head,
-            native_frontier: self.physical.current_root().main.frontier(),
+            native_frontier: self.physical.current_root().frontier(),
             marker,
             main: self.physical.home.snapshot().map_err(map)?,
             files: self.physical.cas.snapshot().map_err(map)?,

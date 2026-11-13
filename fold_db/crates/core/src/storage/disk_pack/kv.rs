@@ -86,6 +86,24 @@ impl PackRuntime {
         pending.stage(ops)
     }
 
+    pub(in crate::storage) async fn has_external_file_references(
+        self: &Arc<Self>,
+    ) -> StorageResult<bool> {
+        let context = ReadContext::current(self).await?;
+        let runtime = Arc::clone(self);
+        run_blocking(move || {
+            let end = prefix_end(FILE_REFERENCE_PREFIX);
+            let bounds = (
+                METADATA_NAMESPACE,
+                FILE_REFERENCE_PREFIX.as_bytes(),
+                end.as_slice(),
+            );
+            let (rows, _, _) = runtime.raw_range(&context, bounds, 1, None, None)?;
+            Ok(!rows.is_empty())
+        })
+        .await
+    }
+
     pub async fn has_external_backup_files(self: &Arc<Self>) -> StorageResult<bool> {
         let (ctx, pending, rt) = (
             ReadContext::current(self).await?,
