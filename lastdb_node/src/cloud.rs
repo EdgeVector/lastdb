@@ -147,17 +147,14 @@ pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, S
         .ok_or_else(|| "native backup credential is empty".into())
 }
 
-pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
-    let mut c =
-        load_saved_credentials(home)?.ok_or("cloud sync needs existing account credentials")?;
-    Ok(AuthClient::new(c.api_url, std::mem::take(&mut *c.api_key)))
-}
-
 /// Saved-credential client for account scope and sealed file upload.
 pub fn client_from_home(
     home: &Path,
 ) -> Result<crate::cloud_backup_client::byte_backup::ByteBackupClient, String> {
-    crate::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(auth_for_recovery(home)?)
+    let mut c =
+        load_saved_credentials(home)?.ok_or("cloud sync needs existing account credentials")?;
+    let auth = AuthClient::new(c.api_url, std::mem::take(&mut *c.api_key));
+    crate::cloud_backup_client::byte_backup::ByteBackupClient::from_auth(auth)
         .map_err(|error| error.to_string())
 }
 

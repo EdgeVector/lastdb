@@ -41,25 +41,22 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
     offline::run_byte_backup(&lastdb_node::host::resolve_home(data_dir)?, action)
 }
 
-fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Result<(), String> {
-    let dir = setup_files::PreparedHome::open(home, restored)?;
+fn connect(home: &Path, invite_stdin: bool, json: bool) -> Result<(), String> {
+    let dir = setup_files::PreparedHome::open(home)?;
     let seed = dir.seed()?;
     let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid native backup identity")?;
     let account = lastdb_node::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
     let api_url = exemem_api_url_for(Environment::Dev);
-    if restored {
-        dir.device_id()?;
-    }
     let emit = |registered| {
         print_backup(
             &serde_json::json!({
                 "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
                 "account_id": account, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
-                "cloud_sync_off": true, "local_store_opened": restored,
-                "local_store_read_only": restored, "database_writer_opened": false,
+                "cloud_sync_off": true, "local_store_opened": false,
+                "local_store_read_only": false, "database_writer_opened": false,
                 "registration_attempted": registered, "credentials_saved": true,
-                "api_key_output": false, "restored_home": restored, "automatic_backup_enabled": false,
+                "api_key_output": false, "restored_home": false, "automatic_backup_enabled": false,
             }),
             json,
         )

@@ -4,7 +4,7 @@ mod file_crypto;
 mod store;
 
 pub(in crate::storage) use file_crypto::{applied_deletes, inline_files};
-pub(crate) use file_crypto::{decrypt_file_row, require_row, seal_file_row};
+pub(crate) use file_crypto::{decrypt_file_row, require_row};
 pub(crate) use store::RecordFormat;
 
 use crate::schema::types::{field::HashRangeFilter, FileWrite, KeyValue, Schema};

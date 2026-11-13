@@ -2,8 +2,6 @@
 
 pub mod accepted_writes;
 pub mod app_registry_index;
-pub mod backup_runtime;
-pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
 pub mod cloud;
 pub use crate::cloud as backup_access;

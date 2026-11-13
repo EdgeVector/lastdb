@@ -17,7 +17,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
 pub use database::{SnapshotRecordPage, SnapshotSchema};
-pub use node::{validate_restored_node, RunNodeGuard};
+pub use node::RunNodeGuard;
 pub use record::{RunSnapshotReader, SnapshotAlternatePage, StagedRecord, StagedRecordQuery};
 
 pub type RunRestoreGuard = RunNodeGuard;
@@ -79,17 +79,6 @@ fn finish_restore_guard(
     }
     native.require_empty_local_cas()?;
     phase(Stage::FinalBinding, native.check_binding()).map(|()| native)
-}
-
-pub(in crate::storage::disk_backup) fn verify_captured_account(
-    main: &RunRead,
-    account_key: &[u8; 32],
-    version: u16,
-) -> StorageResult<()> {
-    phase(
-        Stage::Account,
-        node::verify_account(main, account_key, version),
-    )
 }
 
 pub fn install_empty_cas_home(data_root: &Path, account_key: &[u8; 32]) -> StorageResult<()> {

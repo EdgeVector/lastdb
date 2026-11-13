@@ -137,10 +137,6 @@ impl RunNodeGuard {
     }
 }
 
-pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunNodeGuard> {
-    RunNodeGuard::open(root, key, false)
-}
-
 pub(super) fn lock_node(
     root: &Path,
     shared: bool,

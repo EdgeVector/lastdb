@@ -64,10 +64,6 @@ impl ByteBackupClient {
         self.transport.endpoint("cloud/backups/v2/")
     }
 
-    pub fn reader(&self) -> ByteBackupReader {
-        ByteBackupReader::from_transport(self.transport.clone())
-    }
-
     async fn post<Q: Serialize, R: DeserializeOwned>(&self, op: &str, request: &Q) -> Result<R> {
         self.transport.post_v2(op, request, HeaderMap::new()).await
     }

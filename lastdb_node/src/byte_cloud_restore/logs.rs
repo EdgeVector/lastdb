@@ -4,12 +4,15 @@ use super::{
     runs::{self, load_closure, snapshot_closure, Inventory},
     ByteBackupReader, GuestReplayCache, RecoveryDecryption, RestoreError, RestoreSession, Result,
 };
-use crate::byte_cloud_log::MutationLogRoot;
-use cloud_backup_protocol::v2::AcceptedBackup;
-use cloud_backup_protocol::Digest;
+use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Destination};
+use cloud_backup_protocol::{Digest, RecoveryDescriptor};
+use fold_db::cloud_backup_plan::ClientNativeFile;
 use fold_db::storage::disk_pack::{
-    byte_backup::ClientRoot,
-    mutation_log::{log_path, LogPosition},
+    byte_backup::{
+        check_metadata_size, decode_metadata, valid_page_refs, validate_metadata_context,
+        ClientPageReference, ClientRoot, MAX_CLIENT_PAGES,
+    },
+    mutation_log::{log_path, LogAnchor, LogEntry, LogPosition},
     run_restore,
 };
 use serde::{Deserialize, Serialize};
@@ -17,37 +20,144 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-pub(super) const MAX_CHAIN: u32 = 32768;
-pub(super) const CHAIN_RESERVE: u64 = 2 * 256 * 1024;
+pub(super) const LOG_VERSION: u16 = 5;
+pub(super) const MAX_BATCH_ENTRIES: usize = 128;
+const MAX_CHAIN: u32 = 32768;
+const CHAIN_RESERVE: u64 = 2 * 256 * 1024;
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Plan {
-    version: u16,
-    head: Digest,
-    base: AcceptedBackup,
-    links: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cached: Option<CachedStart>,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LogKind {
+    NativeMutationLog,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CachedStart {
-    accepted: AcceptedBackup,
-    position: LogPosition,
+pub(super) struct MutationLogRoot {
+    pub version: u16,
+    pub kind: LogKind,
+    pub begin_sha256: Digest,
+    pub descriptor_sha256: Digest,
+    pub recovery: RecoveryDescriptor,
+    pub base: AcceptedBackup,
+    pub previous: AcceptedBackup,
+    pub anchor: LogAnchor,
+    pub from: LogPosition,
+    pub through: LogPosition,
+    pub entries: Vec<LogEntry>,
+    pub native_file_count: u64,
+    pub native_bytes: u64,
+    pub pages: Vec<ClientPageReference>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Cursor {
-    version: u16,
-    head: Digest,
-    remaining: u32,
-    previous: AcceptedBackup,
-    position: LogPosition,
-    entry: usize,
-    part: usize,
+impl MutationLogRoot {
+    pub fn decode(bytes: &[u8], key: &[u8; 32], begin: &Begin) -> Result<Self> {
+        let root: Self = decode_metadata(bytes, key)
+            .map_err(|_| RestoreError::Invalid("mutation log metadata"))?;
+        root.validate_for(begin).map(|()| root)
+    }
+
+    pub fn validate_for(&self, begin: &Begin) -> Result<()> {
+        let (b_sha, d_sha) = (&self.begin_sha256, &self.descriptor_sha256);
+        validate_metadata_context(self.version, LOG_VERSION, b_sha, d_sha, begin)
+            .map_err(|_| RestoreError::Invalid("mutation log metadata frozen context"))?;
+        require_log_destinations(begin)?;
+        self.base
+            .validate()
+            .and_then(|()| self.previous.validate())
+            .and_then(|()| self.recovery.validate_for(&begin.job.stream.scope))?;
+        let anchor = self
+            .anchor
+            .position()
+            .map_err(|_| RestoreError::Invalid("mutation log anchor"))?;
+        let deps = if self.previous == self.base {
+            vec![self.base.head()]
+        } else {
+            vec![self.base.head(), self.previous.head()]
+        };
+        if begin.recovery_dependencies != deps
+            || self.base.job().stream != begin.job.stream
+            || self.previous.job().stream != begin.job.stream
+            || begin.predecessor.as_ref() != Some(&self.previous.head())
+            || self.base.ordinal.get() > self.previous.ordinal.get()
+            || !(1..=MAX_BATCH_ENTRIES).contains(&self.entries.len())
+            || self.from.epoch != self.anchor.epoch
+            || self.through.epoch != self.anchor.epoch
+            || !(1..=MAX_CLIENT_PAGES).contains(&self.pages.len())
+            || ((self.from.sequence == 0 || self.previous == self.base) && self.from != anchor)
+        {
+            return Err(RestoreError::Invalid(
+                "mutation log root selection or boundary",
+            ));
+        }
+        let (mut pos, mut files, mut bytes) = (self.from.clone(), 0u64, 0u64);
+        for e in &self.entries {
+            pos = e
+                .position_after(&pos)
+                .map_err(|_| RestoreError::Invalid("mutation log sequence"))?;
+            files = files
+                .checked_add(e.parts.len() as u64)
+                .ok_or(RestoreError::Limit("mutation log file count"))?;
+            let sz = e
+                .bytes()
+                .map_err(|_| RestoreError::Invalid("mutation log entry size"))?;
+            bytes = bytes
+                .checked_add(sz)
+                .ok_or(RestoreError::Limit("mutation log byte count"))?;
+        }
+        if (pos, files, bytes)
+            != (
+                self.through.clone(),
+                self.native_file_count,
+                self.native_bytes,
+            )
+            || !valid_page_refs(&self.pages)
+        {
+            return Err(RestoreError::Invalid("mutation log complete range totals"));
+        }
+        check_metadata_size(self).map_err(|_| RestoreError::Invalid("mutation log metadata size"))
+    }
+
+    pub fn validate_page(&self, page: &local::MutationLogPage) -> Result<()> {
+        if (page.version, &page.begin_sha256, &page.descriptor_sha256)
+            != (self.version, &self.begin_sha256, &self.descriptor_sha256)
+            || self.pages.get(page.page_index as usize).is_none()
+        {
+            return Err(RestoreError::Invalid("mutation file page context"));
+        }
+        page.files
+            .iter()
+            .try_for_each(|f| self.validate_file(f).map(|_| ()))
+    }
+
+    pub fn validate_file(&self, file: &ClientNativeFile) -> Result<Destination> {
+        file.validate()
+            .map_err(|_| RestoreError::Invalid("mutation file extents"))?;
+        let epoch = &self.anchor.epoch;
+        let found = self
+            .entries
+            .iter()
+            .flat_map(|e| e.parts.iter().map(move |p| (e.sequence, p)))
+            .find(|(seq, p)| file.path.as_str() == log_path(epoch, *seq, p.role, &p.run_id));
+        match found {
+            Some((_, p)) if file.native_bytes.get() == p.bytes => Ok(Destination::R2),
+            _ => Err(RestoreError::Invalid("mutation native file identity")),
+        }
+    }
+
+    fn validate_previous(&self, prev: &Self) -> Result<()> {
+        (self.base == prev.base && self.anchor == prev.anchor && self.from == prev.through)
+            .then_some(())
+            .ok_or(RestoreError::Invalid("mutation ancestor prefix"))
+    }
+}
+
+pub(super) fn require_log_destinations(begin: &Begin) -> Result<()> {
+    (begin.required_destinations == [Destination::R2, Destination::B2])
+        .then_some(())
+        .ok_or(RestoreError::Invalid(
+            "mutation log metadata frozen context",
+        ))
 }
 
 pub(super) fn link_path(session: &RestoreSession, index: u32) -> PathBuf {
@@ -62,27 +172,29 @@ pub(super) async fn stage_guest(
     cache: Option<&GuestReplayCache<'_>>,
 ) -> Result<(run_restore::RunRestoreGuard, LogPosition)> {
     decryption.validate_account(&latest.recovery.account_public_key)?;
-    let plan = prepare(session, client, decryption, &latest, cache).await?;
-    let cursor = if let Some(c) = load_cursor(session, &plan)? {
-        c
+    let (links, cached) = prepare(session, client, decryption, &latest, cache).await?;
+    let (previous, position) = if let Some((accepted, pos)) = cached {
+        let c = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
+        let (data, key) = (session.root.join("home/data"), &decryption.content);
+        run_restore::RunSnapshotReader::open(c.data, key, c.native_root)
+            .and_then(|r| r.seed_replay(&data, &latest.anchor, &pos))
+            .map_err(RestoreError::native_proof)?;
+        local::prepare_native_ephemera(&data, key)?;
+        (accepted, pos)
     } else {
-        if let Some(start) = &plan.cached {
-            let c = cache.ok_or(RestoreError::Invalid("cached mutation predecessor"))?;
-            let (data, key) = (session.root.join("home/data"), &decryption.content);
-            run_restore::RunSnapshotReader::open(c.data, key, c.native_root)
-                .and_then(|r| r.seed_replay(&data, &latest.anchor, &start.position))
-                .map_err(RestoreError::native_proof)?;
-            local::prepare_native_ephemera(&data, key)?;
-        } else {
-            let (base, root, inv) = load_base(session, client, decryption, &latest).await?;
-            runs::stage_and_verify(&base, client, decryption, &root, inv).await?;
-        }
-        start_cursor(session, &plan, &latest)?
+        let (base, root, inv) = load_base(session, client, decryption, &latest).await?;
+        runs::stage_and_verify(&base, client, decryption, &root, inv).await?;
+        let pos = latest
+            .anchor
+            .position()
+            .map_err(RestoreError::native_proof)?;
+        (latest.base.clone(), pos)
     };
-    Ok((
-        replay(session, client, decryption, &latest, cursor).await?,
-        latest.through,
-    ))
+    let guard = replay(
+        session, client, decryption, &latest, links, previous, position,
+    )
+    .await?;
+    Ok((guard, latest.through))
 }
 
 async fn prepare(
@@ -91,24 +203,7 @@ async fn prepare(
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
     cache: Option<&GuestReplayCache<'_>>,
-) -> Result<Plan> {
-    let path = session.root.join("chain/plan.json");
-    if path.try_exists()? {
-        let p: Plan = local::read_json(&path, 256 * 1024)?;
-        let bad_cache = p
-            .cached
-            .as_ref()
-            .is_some_and(|s| !matches_cache(cache, &s.accepted, &s.position, &latest.base));
-        if p.version != 1
-            || p.head != session.accepted().commit_sha256
-            || p.base != latest.base
-            || !(1..=MAX_CHAIN).contains(&p.links)
-            || bad_cache
-        {
-            return Err(RestoreError::Invalid("saved mutation restore plan"));
-        }
-        return Ok(p);
-    }
+) -> Result<(u32, Option<(AcceptedBackup, LogPosition)>)> {
     let (mut accepted, mut root, mut count) = (session.accepted().clone(), latest.clone(), 0);
     let cached = loop {
         if count >= MAX_CHAIN {
@@ -127,15 +222,17 @@ async fn prepare(
         count += 1;
         session.clear_cache()?;
         if cache.is_some_and(|c| root.previous.head() == *c.head) {
-            if !matches_cache(cache, &root.previous, &root.from, &root.base) {
+            let ok = cache.is_some_and(|c| {
+                root.previous.head() == *c.head
+                    && c.through
+                        .map_or(root.previous == root.base, |s| *s == root.from)
+            });
+            if !ok {
                 return Err(RestoreError::Invalid(
                     "cached mutation checkpoint predecessor",
                 ));
             }
-            break Some(CachedStart {
-                accepted: root.previous.clone(),
-                position: root.from.clone(),
-            });
+            break Some((root.previous.clone(), root.from.clone()));
         }
         if root.previous == latest.base {
             break None;
@@ -144,32 +241,11 @@ async fn prepare(
         let (_, bytes) = load_closure(&ancestor, client).await?;
         let prev = MutationLogRoot::decode(&bytes, &decryption.content, &ancestor.accepted().begin)
             .map_err(|_| RestoreError::Invalid("mutation ancestor root"))?;
-        root.validate_previous(&prev)
-            .map_err(|_| RestoreError::Invalid("mutation ancestor prefix"))?;
+        root.validate_previous(&prev)?;
         accepted = root.previous;
         root = prev;
     };
-    let plan = Plan {
-        version: 1,
-        head: session.accepted().commit_sha256.clone(),
-        base: latest.base.clone(),
-        links: count,
-        cached,
-    };
-    session
-        .write_spool_json(&path, CHAIN_RESERVE, &plan)
-        .map(|()| plan)
-}
-
-fn matches_cache(
-    cache: Option<&GuestReplayCache<'_>>,
-    accepted: &AcceptedBackup,
-    position: &LogPosition,
-    base: &AcceptedBackup,
-) -> bool {
-    cache.is_some_and(|c| {
-        accepted.head() == *c.head && c.through.map_or(accepted == base, |s| *s == *position)
-    })
+    Ok((count, cached))
 }
 
 async fn load_base(
@@ -191,57 +267,32 @@ async fn load_base(
     Ok((base, root, inventory))
 }
 
-fn save_cursor(session: &RestoreSession, cursor: &Cursor) -> Result<()> {
-    session.write_spool_json(&session.root.join("chain/cursor.json"), 512 * 1024, cursor)
-}
-
-fn load_cursor(session: &RestoreSession, plan: &Plan) -> Result<Option<Cursor>> {
-    let path = session.root.join("chain/cursor.json");
-    if !path.try_exists()? {
-        return Ok(None);
-    }
-    let c: Cursor = local::read_json(&path, 256 * 1024)?;
-    (c.version == 2 && c.head == plan.head && c.remaining <= plan.links)
-        .then_some(Some(c))
-        .ok_or(RestoreError::Invalid("mutation replay cursor"))
-}
-
-fn start_cursor(session: &RestoreSession, plan: &Plan, latest: &MutationLogRoot) -> Result<Cursor> {
-    let (previous, position) = match &plan.cached {
-        Some(s) => (s.accepted.clone(), s.position.clone()),
-        None => (
-            plan.base.clone(),
-            latest
-                .anchor
-                .position()
-                .map_err(RestoreError::native_proof)?,
-        ),
-    };
-    let cursor = Cursor {
-        version: 2,
-        head: plan.head.clone(),
-        remaining: plan.links,
-        previous,
-        position,
-        entry: 0,
-        part: 0,
-    };
-    save_cursor(session, &cursor).map(|()| cursor)
-}
-
 async fn replay(
     session: &RestoreSession,
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
-    mut cursor: Cursor,
+    mut remaining: u32,
+    mut previous: AcceptedBackup,
+    mut position: LogPosition,
 ) -> Result<run_restore::RunRestoreGuard> {
     local::ensure_directory(&session.root.join("replay-files"))?;
     local::sync_dir(&session.root)?;
-    while cursor.remaining > 0 {
-        replay_checkpoint(session, client, decryption, latest, &mut cursor).await?;
+    while remaining > 0 {
+        let idx = remaining - 1;
+        replay_checkpoint(
+            session,
+            client,
+            decryption,
+            latest,
+            idx,
+            &mut previous,
+            &mut position,
+        )
+        .await?;
+        remaining = idx;
     }
-    if cursor.previous != *session.accepted() || cursor.position != latest.through {
+    if previous != *session.accepted() || position != latest.through {
         return Err(RestoreError::Invalid("mutation complete selected prefix"));
     }
     let (data, key) = (session.root.join("home/data"), &decryption.content);
@@ -258,9 +309,10 @@ async fn replay_checkpoint(
     client: &ByteBackupReader,
     decryption: &RecoveryDecryption,
     latest: &MutationLogRoot,
-    cursor: &mut Cursor,
+    idx: u32,
+    previous: &mut AcceptedBackup,
+    position: &mut LogPosition,
 ) -> Result<()> {
-    let idx = cursor.remaining - 1;
     let accepted: AcceptedBackup = local::read_json(&link_path(session, idx), 256 * 1024)?;
     let ancestor = session.ancestor(accepted.clone())?;
     let (inventory, bytes) = load_closure(&ancestor, client).await?;
@@ -269,53 +321,32 @@ async fn replay_checkpoint(
         .map_err(|_| RestoreError::Invalid("replayed checkpoint root"))?;
     if (&root.base, &root.anchor, &root.recovery)
         != (&latest.base, &latest.anchor, &latest.recovery)
-        || root.previous != cursor.previous
-        || cursor.entry > root.entries.len()
+        || root.previous != *previous
+        || *position != root.from
     {
         return Err(RestoreError::Invalid("replayed checkpoint predecessor"));
-    }
-    let pos = root.entries[..cursor.entry]
-        .iter()
-        .try_fold(root.from.clone(), |p, e| e.position_after(&p))
-        .map_err(|_| RestoreError::Invalid("saved complete replay position"))?;
-    if cursor.position != pos {
-        return Err(RestoreError::Invalid("saved complete replay position"));
     }
     local::download_checkpoint(&ancestor, client, decryption, &root, inventory, idx).await?;
     let data = session.root.join("home/data");
     let replay = run_restore::MutationReplay::open(&data, key, &root.anchor)
         .map_err(|_| RestoreError::Invalid("private native replay admission"))?;
-    while cursor.entry < root.entries.len() {
-        let entry = &root.entries[cursor.entry];
-        if cursor.part > entry.parts.len() {
-            return Err(RestoreError::Invalid("saved replay part"));
-        }
-        while cursor.part < entry.parts.len() {
-            let part = &entry.parts[cursor.part];
+    for entry in &root.entries {
+        for (part_idx, part) in entry.parts.iter().enumerate() {
             let rel = log_path(&root.anchor.epoch, entry.sequence, part.role, &part.run_id);
             let pfile = session.root.join("replay-files").join(rel);
             replay
-                .part(entry, cursor.part, &pfile)
+                .part(entry, part_idx, &pfile)
                 .map_err(|_| RestoreError::Invalid("original native mutation part replay"))?;
-            cursor.part += 1;
-            save_cursor(session, cursor)?;
         }
-        cursor.position = entry
-            .position_after(&cursor.position)
+        *position = entry
+            .position_after(position)
             .map_err(|_| RestoreError::Invalid("complete replay batch"))?;
-        cursor.entry += 1;
-        cursor.part = 0;
-        save_cursor(session, cursor)?;
     }
-    if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
+    if replay.frontiers() != root.through.frontiers || *position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
     }
     release_checkpoint(session, &root)?;
-    cursor.remaining = idx;
-    cursor.previous = accepted;
-    cursor.entry = 0;
-    cursor.part = 0;
-    save_cursor(session, cursor)?;
+    *previous = accepted;
     replay
         .settle()
         .map_err(|_| RestoreError::Invalid("checkpoint compaction"))

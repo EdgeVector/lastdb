@@ -203,46 +203,6 @@ impl MutationLog {
         Ok(())
     }
 
-    /// The caller holds the native write gate across this anchor and the paired snapshot.
-    pub fn snapshot_anchor(&self, v2: &V2Home) -> StorageResult<Option<LogAnchor>> {
-        let mut cache = self.lock()?;
-        let Some(index) = cache.index.as_mut() else {
-            return Ok(None);
-        };
-        if !index.enabled {
-            return Ok(None);
-        }
-        if index.epochs.len() + index.cleanup.len() >= store::MAX_EPOCHS {
-            return Err(invalid("mutation log retained epoch limit"));
-        }
-        let epoch = Id::try_from(uuid::Uuid::new_v4().to_string())
-            .map_err(|_| invalid("mutation log UUID"))?;
-        let anchor = LogAnchor {
-            version: LOG_VERSION,
-            epoch: epoch.clone(),
-            main_home: self.main_home.clone(),
-            frontiers: frontiers(v2),
-        };
-        let state = EpochState {
-            head: anchor.position()?,
-            released: anchor.position()?,
-            anchor: anchor.clone(),
-            acknowledged: 0,
-            retained_bytes: 0,
-            metadata_bytes: 0,
-            gap: None,
-        };
-        let directory = store::epoch(&self.root, &epoch);
-        store::create(&directory)?;
-        store::write(&directory.join("state.json"), &state)?;
-        let mut saved = index.clone();
-        saved.epochs.push(epoch.clone());
-        saved.active = Some(epoch);
-        store::write(&self.root.join("index.json"), &saved)?;
-        *index = saved;
-        Ok(Some(anchor))
-    }
-
     pub fn status(&self, v2: &V2Home) -> StorageResult<MutationLogStatus> {
         let cache = self.lock()?;
         let Some(index) = &cache.index else {

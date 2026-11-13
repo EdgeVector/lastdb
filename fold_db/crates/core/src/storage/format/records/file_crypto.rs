@@ -297,7 +297,7 @@ pub(crate) fn decrypt_file_row(
         .ok_or_else(mismatch)
 }
 
-pub(crate) fn seal_file_row(
+fn seal_file_row(
     account_key: &[u8; 32],
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, String), FoldDbError> {
