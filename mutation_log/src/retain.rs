@@ -84,13 +84,38 @@ impl LogState {
     pub fn trim(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
         self.authorize_maintainer(caller)?;
         let floor = self.covered_floor(now_ms)?;
-        let mut next = self.clone();
-        let dropped = drop_covered(&mut next, floor, now_ms);
-        if !dropped && floor == self.trimmed_through {
+        Ok(self.trim_through(floor, now_ms))
+    }
+
+    /// Drop covered entries after an explicit maintainer request.
+    ///
+    /// The persistent adapter verifies the referenced snapshot before using this
+    /// operation. Device upload and download positions are irrelevant to trim.
+    pub fn trim_snapshot(&self, caller: &PrincipalId, now_ms: u64) -> Result<Self, LogError> {
+        self.authorize_maintainer(caller)?;
+        let floor = self
+            .snapshot
+            .as_ref()
+            .ok_or(LogError::SnapshotRequired)?
+            .through_delivery_seq;
+        // A reader starting from the replacement snapshot would skip unresolved
+        // submissions it omits. Keep all existing positions usable until they settle.
+        let pending_in_snapshot = self
+            .entries
+            .iter()
+            .take_while(|stored| stored.delivery_seq <= floor)
+            .any(|stored| live_pending(self, stored, now_ms));
+        if pending_in_snapshot {
             return Ok(self.clone());
         }
+        Ok(self.trim_through(floor.max(self.trimmed_through), now_ms))
+    }
+
+    fn trim_through(&self, floor: u64, now_ms: u64) -> Self {
+        let mut next = self.clone();
+        drop_covered(&mut next, floor, now_ms);
         next.trimmed_through = floor;
-        Ok(next)
+        next
     }
 
     /// Mark one pending submission so a later trim can drop it.
@@ -144,6 +169,18 @@ impl LogState {
     #[must_use]
     pub fn snapshot_due(&self, now_ms: u64) -> bool {
         self.desired_floor(now_ms) > self.effective_floor(now_ms)
+    }
+
+    /// Whether aged retained entries need a newer snapshot before they can be dropped.
+    #[must_use]
+    pub fn snapshot_due_by_age(&self, now_ms: u64) -> bool {
+        self.retention_prefix(now_ms)
+            > self
+                .snapshot
+                .as_ref()
+                .map_or(self.trimmed_through, |snapshot| {
+                    snapshot.through_delivery_seq.max(self.trimmed_through)
+                })
     }
 
     /// Entries the latest snapshot covers.
@@ -221,19 +258,16 @@ impl LogState {
     }
 }
 
-fn drop_covered(state: &mut LogState, floor: u64, now_ms: u64) -> bool {
-    let mut dropped = false;
+fn drop_covered(state: &mut LogState, floor: u64, now_ms: u64) {
     let mut kept = Vec::new();
     for stored in std::mem::take(&mut state.entries) {
         if stored.delivery_seq > floor || live_pending(state, &stored, now_ms) {
             kept.push(stored);
             continue;
         }
-        dropped = true;
         note_dropped(state, &stored, now_ms);
     }
     state.entries = kept;
-    dropped
 }
 
 fn live_pending(state: &LogState, stored: &StoredEntry, now_ms: u64) -> bool {
