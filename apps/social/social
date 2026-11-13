@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Remember people and share LastDB databases from an isolated Social home."""
+
+import argparse
+from http.client import HTTPException
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+from lastdb import LastDB, SocialError
+from people import People
+from sharing import Sharing, read_invitation
+
+
+def remove(sharing, people, args):
+    database = sharing.owned(args.database)
+    config = sharing.configuration(database["id"])
+    keys = [row["nodeKey"] for row in config["members"]]
+    if args.node_key:
+        node_key = args.node_key
+    else:
+        contacts = people.by_keys(keys)
+        matches = [key for key, person in contacts.items() if person["display_name"] == args.user]
+        if len(matches) != 1:
+            raise SocialError(f"expected one matching contact for {args.user} on {args.database}")
+        node_key = matches[0]
+    revision = sharing.update_member(database["id"], node_key, False)
+    return {"databaseId": database["id"], "revision": revision, "nodeKey": node_key, "state": "revoked"}
+
+
+def list_grants(sharing, people, selector):
+    configs = sharing.all_configurations(selector)
+    keys = [row["nodeKey"] for config in configs for row in config["members"]]
+    contacts = people.by_keys(keys)
+    return [{**member, "database": config["name"], "databaseId": config["databaseId"],
+             "user": contacts.get(member["nodeKey"], {}).get("display_name", member["nodeKey"])}
+            for config in configs for member in config["members"] if member["state"] == "active"]
+
+
+def parser():
+    command = argparse.ArgumentParser(description=__doc__)
+    command.add_argument("--data-dir", required=True, type=Path)
+    command.add_argument("--lastdb", required=True, type=Path)
+    actions = command.add_subparsers(dest="action", required=True)
+    actions.add_parser("declare", help="Declare the private Person schema")
+    actions.add_parser("show-records", help="List private contacts without their contact codes")
+    create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
+    create.add_argument("name")
+    add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
+    add.add_argument("--user", required=True)
+    add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
+    add.add_argument("--contact", type=Path, help="Contact file for a new or updated contact")
+    add.add_argument("--database", required=True)
+    revoke = actions.add_parser("remove", help="Revoke a person's access")
+    who = revoke.add_mutually_exclusive_group(required=True)
+    who.add_argument("--user")
+    who.add_argument("--node-key")
+    revoke.add_argument("--database", required=True)
+    for name in ("list", "grants"):
+        show = actions.add_parser(name, help="Read applied access from ExeMem")
+        show.add_argument("--database")
+    accept = actions.add_parser("accept", help="Read the invitation receipt on stdin and open it")
+    accept.add_argument("--publisher", required=True, help="Independently verified publisher node key")
+    accept.add_argument("--name", help="Local database name")
+    return command
+
+
+def run(args):
+    node = LastDB(args.data_dir, args.lastdb)
+    people = People(node)
+    sharing = Sharing(node, people)
+    match args.action:
+        case "create-db":
+            return sharing.create(args.name)
+        case "add":
+            return sharing.invite(args.database, args.user, args.node_key, args.contact)
+        case "remove":
+            return remove(sharing, people, args)
+        case "grants":
+            return sharing.all_configurations(args.database)
+        case "list":
+            return list_grants(sharing, people, args.database)
+        case "accept":
+            return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
+        case "declare":
+            return {"definitionId": people.declare()}
+        case "show-records":
+            return [{key: value for key, value in row.items() if key != "contact_code"}
+                    for row in people.all()]
+
+
+def main():
+    try:
+        result = run(parser().parse_args())
+        print(json.dumps(result, sort_keys=True))
+    except (SocialError, OSError, HTTPException, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"social: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

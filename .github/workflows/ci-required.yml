@@ -2,7 +2,7 @@ name: CI required
 
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
-# this tree. Only the explicit Share invitation target is re-enabled.
+# this tree.
 # mutation_log, mutation_log_mem, and mutation_log_sync clippy checks --lib only.
 # The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
@@ -80,7 +80,7 @@ jobs:
       - name: Cloud recovery recipe syntax
         env:
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/cloud-recipe-pycache
-        run: bash scripts/ci/mini-gate-step.sh "Cloud recovery recipe syntax" -- python3 -m py_compile scripts/cloud_backup/*.py
+        run: bash scripts/ci/mini-gate-step.sh "Cloud recovery recipe and Social syntax" -- python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
       - name: No build-artifact blobs in tree
         run: bash scripts/ci/mini-gate-step.sh "No build-artifact blobs in tree" -- bash scripts/lints/lint-no-build-artifacts.sh --tree HEAD
       - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition)
