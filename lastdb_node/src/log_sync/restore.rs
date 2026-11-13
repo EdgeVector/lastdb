@@ -10,6 +10,7 @@ use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
 use mutation_log::{LogError, MutationLog, Recovery};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::database_replay::{
     self, RestoreError, SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest,
@@ -68,42 +69,59 @@ async fn install_with_mode(log: CloudLog, live: bool) -> Result<u64, LogError> {
     }
 }
 
-/// First sealed entry of a trimmed log. The caller uses it to select the content key.
+/// Find a sealed entry even when the latest snapshot has no new writes.
+/// The caller uses the entry to select the content key.
 pub(super) async fn sample_entry(
     log: &CloudLog,
 ) -> Result<database_replay::SnapshotEntry, LogError> {
-    let manifest = one_manifest(log, None).await?;
-    if manifest.parts == 0 {
-        return Err(LogError::UnexpectedOutcome);
+    let mut walk = SnapshotWalk::default();
+    while let Some(manifest) = walk.next(log).await? {
+        for index in 0..manifest.parts {
+            if let Some(entry) = part(log, &manifest, index)
+                .await?
+                .entries
+                .into_iter()
+                .next()
+            {
+                return Ok(entry);
+            }
+        }
     }
-    let loaded = part(log, &manifest, 0).await?;
-    loaded
-        .entries
-        .into_iter()
-        .next()
-        .ok_or(LogError::UnexpectedOutcome)
+    Err(LogError::UnexpectedOutcome)
 }
 
 async fn walk(log: &CloudLog) -> Result<Vec<SnapshotManifest>, LogError> {
     let mut chain = Vec::new();
-    let mut next: Option<String> = None;
-    loop {
-        if chain.len() >= CHAIN_LIMIT {
-            return Err(LogError::UnexpectedOutcome);
-        }
-        let manifest = one_manifest(log, next.as_deref()).await?;
-        if chain
-            .iter()
-            .any(|seen: &SnapshotManifest| seen.snapshot_ref == manifest.snapshot_ref)
-        {
-            return Err(LogError::UnexpectedOutcome);
-        }
-        let previous = manifest.previous_ref.clone();
+    let mut walk = SnapshotWalk::default();
+    while let Some(manifest) = walk.next(log).await? {
         chain.push(manifest);
-        match previous {
-            Some(reference) if !reference.is_empty() => next = Some(reference),
-            _ => return Ok(chain),
+    }
+    Ok(chain)
+}
+
+#[derive(Default)]
+struct SnapshotWalk {
+    seen: HashSet<String>,
+    previous: Option<String>,
+}
+
+impl SnapshotWalk {
+    async fn next(&mut self, log: &CloudLog) -> Result<Option<SnapshotManifest>, LogError> {
+        if !self.seen.is_empty() && self.previous.is_none() {
+            return Ok(None);
         }
+        if self.seen.len() >= CHAIN_LIMIT {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        let manifest = one_manifest(log, self.previous.as_deref()).await?;
+        if manifest.parts == 0 || !self.seen.insert(manifest.snapshot_ref.clone()) {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        self.previous = manifest
+            .previous_ref
+            .clone()
+            .filter(|value| !value.is_empty());
+        Ok(Some(manifest))
     }
 }
 
