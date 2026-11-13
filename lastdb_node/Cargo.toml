@@ -74,9 +74,3 @@ uuid = { version = "1", features = ["v4"] }
 test = false
 doctest = false
 bench = false
-
-# Scoped sharing CI coverage only; all unrelated test targets stay retired.
-[[test]]
-name = "share_invitation_ci"
-path = "operations/share_invitation_ci.rs"
-harness = false

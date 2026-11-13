@@ -22,6 +22,7 @@ pub struct RegisteredShare {
     pub id: Id,
     pub publisher: Digest,
     pub name: Option<String>,
+    pub spec: Option<crate::share_spec::PublicationSpec>,
     pub snapshot: Option<ShareSnapshot>,
     pub expires_ms: u64,
     #[serde(skip)]

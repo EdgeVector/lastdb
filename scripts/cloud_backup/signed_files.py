@@ -97,7 +97,7 @@ def transfer(programs, root, publisher, recipient, api_key):
     summary(message)
 
 
-def main():
+def main(operation):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", type=Path, required=True)
@@ -123,15 +123,19 @@ def main():
         ], timeout=20)
         recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
         with running(publisher, remove_saved=True), running(recipient):
-            transfer(programs, root, publisher, recipient, api_key)
+            operation(programs, root, publisher, recipient, api_key)
     message = "Both generated DEV daemons stopped cleanly and their temporary homes were removed."
     print(message, flush=True)
     summary(message)
 
 
-if __name__ == "__main__":
+def run_operation(operation):
     try:
-        main()
+        main(operation)
     except OperationError as error:
         print(json.dumps(failure(error)), flush=True)
         raise SystemExit(1) from None
+
+
+if __name__ == "__main__":
+    run_operation(transfer)

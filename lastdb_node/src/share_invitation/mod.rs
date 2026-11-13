@@ -12,9 +12,11 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 use zeroize::Zeroizing;
 
 mod contact;
+mod metadata;
 pub use contact::{ShareContact, ShareRecipient};
 
 const INVITATION_V1: &[u8] = b"lastdb-share-invite-v1\0";
+const INVITATION_V2: &[u8] = b"lastdb-share-invite-v2\0";
 const INVITATION_SIGNATURE: &[u8] = b"lastdb:share-invitation-signature:v1";
 const INVITATION_KEY: &[u8] = b"lastdb:share-invitation-aes:v1";
 const SIGNATURE_BYTES: usize = 64;
@@ -40,6 +42,7 @@ pub type Result<T> = std::result::Result<T, ShareInvitationError>;
 pub struct OpenedShareInvitation {
     pub permission: GuestReadPermission,
     pub publication_key: Zeroizing<[u8; 32]>,
+    pub spec: Option<crate::share_spec::PublicationSpec>,
 }
 
 /// Seal a signed stream permission and publication key to a verified contact.
@@ -50,6 +53,16 @@ pub fn seal_invitation(
     permission: &GuestReadPermission,
     publication_key: &[u8; 32],
     publisher: &Ed25519KeyPair,
+) -> Result<Vec<u8>> {
+    seal(contact, permission, publication_key, publisher, None)
+}
+
+pub(crate) fn seal(
+    contact: &ShareContact,
+    permission: &GuestReadPermission,
+    publication_key: &[u8; 32],
+    publisher: &Ed25519KeyPair,
+    spec: Option<&crate::share_spec::PublicationSpec>,
 ) -> Result<Vec<u8>> {
     if fold_db::hex::hex_lower(publisher.public_key_bytes())
         != permission.publisher_public_key().as_str()
@@ -71,19 +84,25 @@ pub fn seal_invitation(
     body.extend_from_slice(&contact.identity);
     body.extend_from_slice(contact.encryption.as_bytes());
     body.extend_from_slice(publication_key);
-    body.extend_from_slice(authorization);
-    let signature = publisher.sign(&signing_bytes(&body)).to_bytes();
+    let version = if let Some(spec) = spec {
+        metadata::encode(&mut body, spec, authorization)?;
+        INVITATION_V2
+    } else {
+        body.extend_from_slice(authorization);
+        INVITATION_V1
+    };
+    let signature = publisher.sign(&signing_bytes(version, &body)).to_bytes();
     body.extend_from_slice(&signature);
 
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
-    let aad = invitation_context(contact, &ephemeral_public);
+    let aad = invitation_context(version, contact, &ephemeral_public);
     cipher
         .encrypt_in_place(Nonce::from_slice(&nonce), &aad, &mut *body)
         .map_err(|_| ShareInvitationError("cannot seal share invitation"))?;
 
-    let mut sealed = Vec::with_capacity(INVITATION_V1.len() + 32 + nonce.len() + body.len());
-    sealed.extend_from_slice(INVITATION_V1);
+    let mut sealed = Vec::with_capacity(version.len() + 32 + nonce.len() + body.len());
+    sealed.extend_from_slice(version);
     sealed.extend_from_slice(ephemeral_public.as_bytes());
     sealed.extend_from_slice(&nonce);
     sealed.extend_from_slice(&body);
@@ -117,10 +136,12 @@ impl ShareRecipient {
         check_expiry: bool,
     ) -> Result<OpenedShareInvitation> {
         let invalid = || ShareInvitationError("invalid sealed share invitation");
-        let wire = sealed
-            .strip_prefix(INVITATION_V1)
+        let version = [INVITATION_V1, INVITATION_V2]
+            .into_iter()
+            .find(|prefix| sealed.starts_with(prefix))
             .filter(|_| sealed.len() <= MAX_SEALED_INVITATION_BYTES)
             .ok_or_else(invalid)?;
+        let wire = sealed.get(version.len()..).ok_or_else(invalid)?;
         let (ephemeral, rest) = wire.split_first_chunk::<32>().ok_or_else(invalid)?;
         let (nonce, ciphertext) = rest.split_first_chunk::<12>().ok_or_else(invalid)?;
         let ephemeral = PublicKey::from(*ephemeral);
@@ -130,15 +151,16 @@ impl ShareRecipient {
         let cipher = Aes256Gcm::new_from_slice(&*aes_key)
             .map_err(|_| ShareInvitationError("invalid share invitation key"))?;
         let mut plaintext = Zeroizing::new(ciphertext.to_vec());
-        let aad = invitation_context(&self.contact, &ephemeral);
+        let aad = invitation_context(version, &self.contact, &ephemeral);
         cipher
             .decrypt_in_place(Nonce::from_slice(nonce), &aad, &mut *plaintext)
             .map_err(|_| invalid())?;
-        self.verify_plaintext(&plaintext, expected_publisher, check_expiry)
+        self.verify_plaintext(version, &plaintext, expected_publisher, check_expiry)
     }
 
     fn verify_plaintext(
         &self,
+        version: &[u8],
         plaintext: &[u8],
         expected_publisher: &Digest,
         check_expiry: bool,
@@ -154,6 +176,12 @@ impl ShareRecipient {
         if identity != &self.contact.identity || encryption != self.contact.encryption.as_bytes() {
             return Err(ShareInvitationError("share invitation recipient differs"));
         }
+        let (spec, authorization) = if version == INVITATION_V2 {
+            let (spec, authorization) = metadata::decode(authorization)?;
+            (Some(spec), authorization)
+        } else {
+            (None, authorization)
+        };
         let authorization = std::str::from_utf8(authorization).map_err(|_| invalid())?;
         let permission = GuestReadPermission::parse(authorization)
             .map_err(|_| ShareInvitationError("invalid share invitation permission"))?;
@@ -164,27 +192,33 @@ impl ShareRecipient {
             .ok()
             .and_then(|bytes| bytes.try_into().ok())
             .ok_or(ShareInvitationError("invalid share invitation publisher"))?;
-        verify_signature(&publisher, signature, &signing_bytes(body))?;
+        verify_signature(&publisher, signature, &signing_bytes(version, body))?;
         if check_expiry {
             require_unexpired(&permission)?;
         }
         Ok(OpenedShareInvitation {
             permission,
             publication_key: Zeroizing::new(*publication_key),
+            spec,
         })
     }
 }
 
-fn signing_bytes(body: &[u8]) -> Vec<u8> {
+fn signing_bytes(version: &[u8], body: &[u8]) -> Vec<u8> {
+    let domain = if version == INVITATION_V2 {
+        &b"lastdb:share-invitation-signature:v2"[..]
+    } else {
+        INVITATION_SIGNATURE
+    };
     CanonicalWriter::new()
-        .field(INVITATION_SIGNATURE)
+        .field(domain)
         .field(&Sha256::digest(body))
         .finish()
 }
 
-fn invitation_context(contact: &ShareContact, ephemeral: &PublicKey) -> Vec<u8> {
+fn invitation_context(version: &[u8], contact: &ShareContact, ephemeral: &PublicKey) -> Vec<u8> {
     CanonicalWriter::new()
-        .field(INVITATION_V1)
+        .field(version)
         .field(contact.encryption.as_bytes())
         .field(ephemeral.as_bytes())
         .finish()

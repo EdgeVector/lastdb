@@ -43,6 +43,7 @@ mod database_mutation;
 mod database_owned;
 mod database_read;
 mod database_routes;
+mod database_share;
 mod database_signed;
 mod file_blob;
 mod mutation;
@@ -68,7 +69,7 @@ use reply::{content_free, envelope, error_response, json_ok, map_host_err, rende
 use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
 pub use database_routes::{
-    execute_database_request, execute_deferred_database_mutation, is_deferred_database_mutation,
+    execute_database_request, execute_deferred_database_request, is_deferred_database_request,
 };
 pub use mutation::execute_deferred_mutation;
 pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
