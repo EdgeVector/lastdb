@@ -31,6 +31,7 @@ async fn publish(
     host: &Arc<Host>,
     log: &CloudLog,
     database: &registry::Database,
+    nonce: &str,
 ) -> Result<(), String> {
     let _work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
     let (resolved, sibling) = host
@@ -88,6 +89,7 @@ async fn publish(
         }
         _ => transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?,
     };
+    let entries = confirmed(log, through).await?;
     if database.kind == "personal" {
         runtime
             .note_accepted_snapshot(cut.native_frontier)
@@ -96,21 +98,62 @@ async fn publish(
             .acknowledge_accepted(cut.accepted_head)
             .map_err(|error| format!("{error:?}"))?;
     }
+    remember(&host.home, log.database_id(), through, entries, nonce)?;
     tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");
     Ok(())
 }
 
+/// Hold log pages for a database that opted into a first snapshot, and for a
+/// snapshot request that is still queued. A database without either file
+/// publishes on the ordinary path.
+pub(super) fn holds_first_backup(home: &Path, database: &str) -> bool {
+    if established_path(home, database).is_file() {
+        return false;
+    }
+    first_path(home, database).is_file() || pending(home, database)
+}
+
+async fn confirmed(log: &super::cloud::CloudLog, through: u64) -> Result<u64, String> {
+    let saved = transport::current(log)
+        .await?
+        .ok_or("signed snapshot read is empty")?;
+    let head = super::owner_recovery::head(log).await?;
+    if saved.1.through.get() != through || head != through {
+        return Err("signed snapshot read is not the log head".into());
+    }
+    super::owner_recovery::count_entries(log, LOG_ENTRY_REPORT_CAP).await
+}
+
+fn remember(
+    home: &Path,
+    database: &str,
+    through: u64,
+    entries: u64,
+    nonce: &str,
+) -> Result<(), String> {
+    let report =
+        format!("through={through}\nhead={through}\nlog_entries={entries}\nrequest={nonce}\n");
+    super::disk::write_private(&result_path(home, database), report.as_bytes())
+        .map_err(|_| "cannot record the signed snapshot read")?;
+    super::disk::write_private(&established_path(home, database), b"snapshot-v1\n")
+        .map_err(|_| "cannot record the first snapshot")?;
+    Ok(())
+}
+
 /// Queue a direct cloud snapshot of one owned database.
-pub fn request(home: &std::path::Path, selector: &str) -> Result<String, String> {
+pub fn request(home: &std::path::Path, selector: &str) -> Result<(String, String), String> {
     let databases = registry::databases(home);
     let selected = databases
         .iter()
         .find(|db| db.id == selector || db.name.as_deref() == Some(selector))
         .ok_or("database is not owned by this node")?;
     Id::try_from(selected.id.clone()).map_err(|e| e.to_string())?;
-    super::disk::write_private(&request_path(home, &selected.id), b"snapshot-v1\n")
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let body = format!("snapshot-v1\n{nonce}\n");
+    std::fs::remove_file(result_path(home, &selected.id)).ok();
+    super::disk::write_private(&request_path(home, &selected.id), body.as_bytes())
         .map_err(|_| "cannot save the snapshot request")?;
-    Ok(selected.id.clone())
+    Ok((selected.id.clone(), nonce))
 }
 
 pub(super) fn pending(home: &Path, database: &str) -> bool {
@@ -123,21 +166,58 @@ pub(super) async fn requested(
     database: &registry::Database,
 ) -> Result<(), String> {
     let path = request_path(&host.home, log.database_id());
-    let request =
-        super::disk::read_limited(&path, 32).map_err(|_| "cannot read snapshot request")?;
+    let request = request_bytes(host, log.database_id())?;
     let Some(request) = request else {
         return Ok(());
     };
-    if request != b"snapshot-v1\n" {
-        return Err("snapshot request has an unsupported version".into());
+    let nonce = request_nonce(&request)?;
+    publish(host, log, database, &nonce).await?;
+    if request_bytes(host, log.database_id())?.as_deref() == Some(request.as_slice()) {
+        std::fs::remove_file(path).map_err(|_| "cannot retire the completed snapshot request")?;
     }
-    publish(host, log, database).await?;
-    std::fs::remove_file(path).map_err(|_| "cannot retire the completed snapshot request")?;
     Ok(())
 }
 
+fn request_bytes(host: &Host, database: &str) -> Result<Option<Vec<u8>>, String> {
+    super::disk::read_limited(&request_path(&host.home, database), 64)
+        .map_err(|_| "cannot read snapshot request".into())
+}
+
+fn request_nonce(bytes: &[u8]) -> Result<String, String> {
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| "snapshot request has an unsupported version")?;
+    let mut lines = text.lines();
+    if lines.next() != Some("snapshot-v1") {
+        return Err("snapshot request has an unsupported version".into());
+    }
+    match lines.next() {
+        Some(nonce)
+            if nonce.len() == 32
+                && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+                && lines.next().is_none() =>
+        {
+            Ok(nonce.to_owned())
+        }
+        _ => Err("snapshot request has an unsupported version".into()),
+    }
+}
+
+const LOG_ENTRY_REPORT_CAP: u64 = 9;
+
 fn request_path(home: &std::path::Path, id: &str) -> std::path::PathBuf {
     home.join("log-sync").join(id).join("snapshot-request")
+}
+
+fn result_path(home: &Path, id: &str) -> std::path::PathBuf {
+    home.join("log-sync").join(id).join("snapshot-result")
+}
+
+fn established_path(home: &Path, id: &str) -> std::path::PathBuf {
+    home.join("log-sync").join(id).join("snapshot-established")
+}
+
+fn first_path(home: &Path, id: &str) -> std::path::PathBuf {
+    home.join("log-sync").join(id).join("snapshot-first")
 }
 
 /// Restore the snapshot before booting the isolated destination.

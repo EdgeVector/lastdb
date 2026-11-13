@@ -83,7 +83,7 @@ jobs:
         with:
           name: stable-plan-${{ github.run_id }}
           path: ${{ runner.temp }}
-      - name: Require CI, benchmark completion, and every security analysis
+      - name: Require CI, benchmarks, the snapshot gate, and every security analysis
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/release/stable_plan.py gates --plan "$RUNNER_TEMP/stable-plan.json"

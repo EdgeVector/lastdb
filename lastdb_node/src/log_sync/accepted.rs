@@ -36,6 +36,9 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     if private && !runtime.captures_accepted() {
         return Err("local capture disabled until the enrolled node restarts");
     }
+    if super::snapshot::holds_first_backup(&host.home, log.database_id()) {
+        return Ok(());
+    }
     let material = Zeroizing::new(*key.encryption_bytes());
     let reader = Arc::clone(&runtime);
     let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;

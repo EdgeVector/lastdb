@@ -101,7 +101,7 @@ jobs:
         with:
           base: ${{ needs.plan.outputs.base }}
           head: ${{ needs.plan.outputs.source }}
-      - name: Require exact-source CI, benchmark completion, and security analysis
+      - name: Require exact-source CI, benchmarks, the snapshot gate, and security analysis
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/release/nightly_plan.py gates --plan "$RUNNER_TEMP/nightly-plan.json" --wait-seconds 1800

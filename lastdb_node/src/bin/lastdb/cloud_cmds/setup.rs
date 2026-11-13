@@ -1,5 +1,6 @@
 //! Store-free native backup home initialization, DEV enrollment, and existing connections.
-use super::{block_on_cloud, print_backup, read_stdin_no_control, FreshHome};
+use super::snapshot_wait::print_backup;
+use super::{block_on_cloud, read_stdin_no_control, FreshHome};
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{

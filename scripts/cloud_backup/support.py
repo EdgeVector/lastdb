@@ -70,6 +70,11 @@ def pairs(items):
 def decode_json(raw):
     def reject(_value):
         raise OperationError("nonfinite_json")
+    # Restore prints one machine-readable line before its JSON object.
+    if isinstance(raw, bytes) and raw.startswith(b"snapshot_through="):
+        line, separator, raw = raw.partition(b"\n")
+        if not separator or not re.fullmatch(rb"snapshot_through=[0-9]+ replayed=[0-9]+", line):
+            raise OperationError("invalid_json")
     try:
         return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject)
     except (ValueError, UnicodeError, RecursionError) as error:

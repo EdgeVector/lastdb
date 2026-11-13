@@ -47,7 +47,7 @@ pub(crate) enum ByteBackupCommand {
     Init(BackupInitArgs),
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
-    Snapshot(String),
+    Snapshot { database: String, wait: bool },
 }
 
 #[derive(Args, Debug)]
