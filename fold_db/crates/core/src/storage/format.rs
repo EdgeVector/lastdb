@@ -272,7 +272,7 @@ pub(crate) mod content_key_proof {
 }
 
 pub(crate) mod control {
-    pub(crate) use super::{CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY};
+    pub(crate) use super::DELETE_REPLAY_CUTOFF_KEY;
     use crate::storage::{error::StorageResult, StorageError};
     use serde::Deserialize;
 
