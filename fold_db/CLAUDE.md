@@ -1,6 +1,6 @@
 # fold_db
 
-Core library of the `EdgeVector/lastdb` workspace (`crates/{core,observability}`).
+Core library of the `EdgeVector/lastdb` workspace (`crates/{core,model,observability}`).
 Local database engine with disk format v2 storage and the core logical memory
 model. Empty homes initialize in the current format, and startup opens only
 that format.

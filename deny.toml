@@ -21,13 +21,10 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # Each ignore lists the crate, the dep path, and either why the bump is
 # blocked or why we're not exposed. Re-triage these when bumping the
-# anchoring dep (p256, reqwest, etc.). Delete an ignore when cargo-deny
-# reports it as `advisory-not-detected`: a dead ignore would hide the same
-# advisory if the crate came back.
-ignore = [
-  # ---- crypto-bigint 0.5.5 (p256 0.13 → app_identity_crypto) ----
-  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 via p256 0.13 → app_identity_crypto, which only verifies DevCert ECDSA signatures with public keys (dev_cert.rs: VerifyingKey + Verifier); no secret-dependent integer arithmetic; the fix is crypto-bigint 0.7 (p256 0.14 line), a breaking bump" },
-]
+# anchoring dep. Delete an ignore when cargo-deny reports it as
+# `advisory-not-detected`: a dead ignore would hide the same advisory if the
+# crate came back.
+ignore = []
 
 # ---------------------------------------------------------------------------
 # Licenses — workspace policy: permissive only.

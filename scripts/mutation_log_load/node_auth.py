@@ -11,8 +11,6 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
-import subprocess
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey, Ed25519PublicKey)
@@ -62,32 +60,6 @@ def account_id(public_key):
 
 def within_skew(issued_at_ms, now_ms):
     return abs(int(now_ms) - int(issued_at_ms)) <= SKEW_MS
-
-
-def helper_path():
-    override = os.environ.get("NODE_READ_TOKEN_BIN")
-    if override:
-        return Path(override)
-    return Path(__file__).resolve().parents[2] / "target" / "debug" / "node_read_token"
-
-
-def encode_request(payload):
-    """The helper token omits database_id. The live signer does not call this."""
-    binary = helper_path()
-    if not binary.is_file():
-        raise TokenError("helper")
-    result = subprocess.run(
-        [str(binary)], input=json.dumps(payload).encode("utf-8"),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=False)
-    if result.returncode != 0 or not result.stdout:
-        detail = result.stderr.decode("utf-8", "replace").strip().splitlines()
-        message = detail[-1] if detail else "helper"
-        raise TokenError(message[:200])
-    encoded = json.loads(result.stdout)
-    for key in ("digest", "token_json", "canonical"):
-        if not isinstance(encoded.get(key), str) or not encoded[key]:
-            raise TokenError("helper")
-    return encoded
 
 
 def _canonical(value):

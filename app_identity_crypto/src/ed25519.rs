@@ -14,10 +14,9 @@ pub const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 /// Parse a base64 (standard alphabet, padded) Ed25519 public key into a
 /// [`VerifyingKey`].
 ///
-/// This is the developer's `dev_pubkey` as it travels on the wire — both
-/// in a [`DevCert`](crate::DevCert) and as the key a `schema_claim` /
-/// `app_register` envelope is verified against. Centralised here so the
-/// base64 alphabet and length checks match across every consumer.
+/// This is the publisher or registry Ed25519 public key as it travels on the
+/// wire. Centralised here so the base64 alphabet and length checks match
+/// across every consumer.
 ///
 /// Per RFC 8032 §5.1.3 the y-coordinate of an Ed25519 public key must lie
 /// in `[0, p)` where `p = 2^255 - 19`. `VerifyingKey::from_bytes` is lenient
@@ -92,9 +91,7 @@ pub const SIGNATURE_LEN: usize = ed25519_dalek::SIGNATURE_LENGTH;
 
 /// Sign `payload` with `signing_key`. Returns the raw 64-byte signature.
 ///
-/// The payload is whatever the caller wants signed — for envelope use,
-/// this is the JCS canonicalization of the envelope minus its `sig`
-/// field (see [`crate::sign_envelope`]).
+/// The payload is whatever canonical byte slice the caller wants signed.
 pub fn sign(signing_key: &SigningKey, payload: &[u8]) -> [u8; SIGNATURE_LEN] {
     signing_key.sign(payload).to_bytes()
 }

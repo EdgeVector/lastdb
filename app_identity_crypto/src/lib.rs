@@ -1,37 +1,20 @@
-//! Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers.
+//! Shared Ed25519, JCS (RFC 8785), and signed registry-list helpers.
 //!
-//! schema_service and lastdb_node use this crate for Ed25519 and JCS
-//! envelope signatures.
-//!
-//! Scope of `verify_envelope` is intentionally intrinsic: it checks alg,
-//! key_id, expiry, and the signature itself. Deployment-context checks
-//! (`env` matches the runtime, `payload_hash` matches a recomputed
-//! payload digest) belong to callers — they need information the
-//! envelope alone doesn't carry. Helpers for both are exposed:
-//! [`compute_payload_hash`] for the payload side and
-//! [`SignatureEnvelope::env`] for the deployment side.
+//! Used by `lastdb_node` for Ed25519 key parsing/signing/verification, RFC 8785
+//! JSON canonicalization, and verification of signed app registry interface lists.
 #![warn(missing_docs)]
 
-mod dev_cert;
 mod ed25519;
-mod envelope;
 mod error;
 mod hex;
 mod jcs;
 mod registry_list;
 
-pub use dev_cert::{
-    root_key_id, verify_dev_cert, DevCert, ALG_ES256, DEV_CERT_VERSION, PURPOSE_DEV_CERT,
-};
 pub use ed25519::{
     key_id, sign, verify, verifying_key_from_base64, SigningKey, VerifyingKey, PUBLIC_KEY_LEN,
     SIGNATURE_LEN,
 };
-pub use envelope::{
-    compute_payload_hash, sign_envelope, verify_envelope, Env, Purpose, SignatureEnvelope,
-    ALG_ED25519, ENVELOPE_VERSION,
-};
-pub use error::{CanonicalizeError, DevCertVerifyError, KeyParseError, SignError, VerifyError};
+pub use error::{CanonicalizeError, KeyParseError};
 pub use hex::hex_lower;
 pub use jcs::canonicalize;
 pub use registry_list::{

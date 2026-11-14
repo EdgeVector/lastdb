@@ -4,6 +4,25 @@ use crate::{DeclarativeSchemaDefinition, FieldValueType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[derive(Serialize)]
+struct FieldHashInput<'a> {
+    description: &'a str,
+    name: &'a str,
+    #[serde(rename = "type")]
+    field_type: &'a FieldValueType,
+    version: u32,
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
 #[must_use]
 pub fn compute_field_hash(
     name: &str,
@@ -11,14 +30,16 @@ pub fn compute_field_hash(
     field_type: &FieldValueType,
     version: u32,
 ) -> String {
-    let type_json = serde_json::to_string(field_type).unwrap_or_else(|_| "\"Any\"".into());
-    let quote = |s: &str| serde_json::to_string(s.trim()).unwrap_or_else(|_| "\"\"".into());
-    let payload = format!(
-        r#"{{"description":{},"name":{},"type":{type_json},"version":{version}}}"#,
-        quote(description),
-        quote(name),
-    );
-    app_identity_crypto::hex_lower(&Sha256::digest(payload.as_bytes()))
+    // Serialize with `serde_json` rather than JCS so nested `FieldValueType::Object`
+    // maps retain `BTreeMap` UTF-8 key order and existing field digests stay identical.
+    let payload = serde_json::to_vec(&FieldHashInput {
+        description: description.trim(),
+        name: name.trim(),
+        field_type,
+        version,
+    })
+    .expect("FieldHashInput serialization is infallible");
+    hex_lower(&Sha256::digest(&payload))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -51,12 +72,12 @@ impl PortableSchemaId {
         def.ensure_field_hashes();
         let val =
             serde_json::to_value(&def).map_err(|_| "cannot encode portable schema definition")?;
-        let bytes = app_identity_crypto::canonicalize(&val)
+        let bytes = json_canon::to_vec(&val)
             .map_err(|_| "cannot canonicalize portable schema definition")?;
         let mut digest = Sha256::new();
         digest.update(b"lastdb:portable-schema-definition:v1\0");
         digest.update(bytes);
-        Ok(Self(app_identity_crypto::hex_lower(&digest.finalize())))
+        Ok(Self(hex_lower(&digest.finalize())))
     }
 
     #[must_use]
