@@ -144,7 +144,7 @@ impl SchemaCore {
             self.catalog_id(),
             schema_name,
         )? {
-            return Ok((s.schema, s.state));
+            return Ok((s.schema.clone(), s.state));
         }
         let c = self.snapshot()?;
         Ok((

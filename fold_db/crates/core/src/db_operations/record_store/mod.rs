@@ -4,7 +4,7 @@ mod reads;
 mod walk;
 
 pub(crate) use reads::KeyedRecord;
-pub(crate) use walk::{RangeWalk, SchemaRelease};
+pub(crate) use walk::RangeWalk;
 
 use crate::error::FoldDbError;
 use crate::schema::types::{
