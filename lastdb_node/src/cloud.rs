@@ -22,10 +22,21 @@ use std::path::Path;
 use zeroize::Zeroizing;
 
 pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
+pub const PAYMENT_REQUIRED_MESSAGE: &str =
+    "active paid cloud subscription required — run 'lastdb cloud payment checkout' first";
 #[doc(hidden)]
 pub const FIRST_BACKUP_INTENT_FILE: &str = ".native-first-backup";
 #[doc(hidden)]
 pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
+
+#[must_use]
+pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
+    status == 403
+        && serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(body).is_ok_and(|err| {
+            err.code == cloud_backup_protocol::ErrorCode::Unauthorized
+                && err.field == "payment.subscription"
+        })
+}
 
 pub(crate) fn first_backup_intent(home: &Path) -> bool {
     read_private_named(

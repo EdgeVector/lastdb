@@ -43,7 +43,9 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         ByteBackupCommand::Connect(a) => setup::run_connect(data_dir.as_deref(), &a),
         ByteBackupCommand::Restore(args) => {
             if data_dir.as_deref().is_none_or(|h| !h.is_absolute()) {
-                return Err("V2 backup requires an explicit absolute --data-dir home".into());
+                return Err(
+                    "signed backup restore requires an explicit absolute --data-dir home".into(),
+                );
             }
             restore::run(&lastdb_node::host::resolve_home(data_dir)?, args)
         }
@@ -58,7 +60,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
 }
 
 fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
-    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
+    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
     let raw = post_json_admin(
         &socket,
@@ -75,7 +77,7 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
         .filter(|s| !s.is_empty())
         .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return snapshot_wait::until_head(&socket, id, nonce);
+        return snapshot_wait::until_head(&home, &socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())

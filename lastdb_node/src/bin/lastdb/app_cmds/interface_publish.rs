@@ -5,7 +5,12 @@ use crate::app_registry_index as registry;
 use app_identity_crypto::{canonicalize, sign, SigningKey};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
+use lastdb_node::cloud_backup_client::build_shared_http_client;
 use lastdb_node::exec::normalize_app_manifest_schema;
+use lastdb_node::profile::endpoints::{
+    environment_for_exemem_api_url, environment_for_registry_api_url, registry_api_url_for,
+    Environment,
+};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::Command;
@@ -218,6 +223,12 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
 }
 
 pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), String> {
+    let flag_env = match input.env.as_deref() {
+        None => None,
+        Some("dev") => Some(Environment::Dev),
+        Some("prod") => Some(Environment::Prod),
+        Some(_) => return Err("--env must be dev or prod".into()),
+    };
     let mut payload = publish_payload(home, input)?;
     if let Some(path) = &input.prepare {
         std::fs::OpenOptions::new()
@@ -242,49 +253,112 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     );
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
-    let url = input
-        .registry_url
-        .clone()
-        .or_else(|| std::env::var("LASTDB_APP_REGISTRY_URL").ok())
-        .ok_or("publish requires --registry-url or LASTDB_APP_REGISTRY_URL")?;
-    if !url.starts_with("https://") {
-        return Err("registry URL must use HTTPS".into());
-    }
-    if input
-        .env
-        .as_deref()
-        .is_some_and(|e| e != "dev" && e != "prod")
-    {
-        return Err("--env must be dev or prod".into());
-    }
-    let api_key = resolve_publish_api_key(home, input)?;
-    let response = block_on_app(async {
-        // trace-egress: propagate (explicit registry publish; bearer never logged)
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| e.to_string())?
-            .post(format!("{}/v1/apps", url.trim_end_matches('/')))
-            .bearer_auth(api_key.as_str())
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .json::<Value>()
-            .await
-            .map_err(|e| e.to_string())
-    })?;
+    let home_env = home_cloud_environment(home)?;
+    let target_env = flag_env
+        .or(home_env)
+        .or_else(Environment::explicit_from_env)
+        .unwrap_or(Environment::Prod);
+    let url = resolve_registry_url(input, target_env)?;
+    let api_key = resolve_publish_api_key(home, input, home_env, target_env, &url)?;
+    let response = block_on_app(post_publish(&url, api_key.as_str(), &payload))?;
     print_pretty_json(&response);
     (response["status"].as_str() == Some("listed"))
         .then_some(())
         .ok_or_else(|| "registry did not list the app".into())
 }
 
+fn home_cloud_environment(home: &Path) -> Result<Option<Environment>, String> {
+    let Some(creds) = lastdb_node::cloud::load_saved_credentials(home)? else {
+        return Ok(None);
+    };
+    Ok(environment_for_exemem_api_url(&creds.api_url).or_else(|| {
+        creds
+            .connection
+            .as_ref()
+            .and_then(|c| match c.environment.as_str() {
+                "dev" => Some(Environment::Dev),
+                "prod" => Some(Environment::Prod),
+                _ => None,
+            })
+    }))
+}
+
+fn resolve_registry_url(input: &PublishArgs, target_env: Environment) -> Result<String, String> {
+    let non_empty = |s: &str| {
+        let trimmed = s.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    };
+    let explicit = input
+        .registry_url
+        .as_deref()
+        .and_then(non_empty)
+        .or_else(|| {
+            std::env::var("LASTDB_APP_REGISTRY_URL")
+                .ok()
+                .and_then(|u| non_empty(&u))
+        });
+    let url = explicit.unwrap_or_else(|| registry_api_url_for(target_env).to_owned());
+    if !url.starts_with("https://") {
+        return Err("registry URL must use HTTPS".into());
+    }
+    Ok(url)
+}
+
+async fn post_publish(url: &str, api_key: &str, payload: &Value) -> Result<Value, String> {
+    let endpoint = reqwest::Url::parse(&format!("{}/v1/apps", url.trim_end_matches('/')))
+        .map_err(|_| "invalid registry URL".to_owned())?;
+    if endpoint.scheme() != "https" || endpoint.host_str().is_none() {
+        return Err("registry URL must use HTTPS".into());
+    }
+    let req = build_shared_http_client()
+        .map_err(|e| format!("cannot construct registry HTTP client: {e}"))?
+        .post(endpoint.clone())
+        .timeout(Duration::from_secs(120))
+        .bearer_auth(api_key)
+        .json(payload);
+    let resp = observability::propagation::inject_w3c(req)
+        .send()
+        .await
+        .map_err(|e| format!("registry publish request failed: {e}"))?;
+    if resp.status().is_redirection() || resp.url() != &endpoint {
+        return Err("registry publish request redirected unexpectedly".into());
+    }
+    let status = resp.status();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("failed to read registry response: {e}"))?;
+    if bytes.len() > 262_144 {
+        return Err("registry response exceeds byte limit".into());
+    }
+    if !status.is_success() {
+        let detail = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| {
+            v.get("error")
+                .or_else(|| v.get("message"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control))
+                .map(str::to_owned)
+        });
+        return Err(detail.map_or_else(
+            || {
+                format!(
+                    "registry publish failed with HTTP status {}",
+                    status.as_u16()
+                )
+            },
+            |msg| format!("registry publish failed (HTTP {}): {msg}", status.as_u16()),
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|e| format!("registry response was not valid JSON: {e}"))
+}
+
 fn resolve_publish_api_key(
     home: &Path,
     input: &PublishArgs,
+    home_env: Option<Environment>,
+    target_env: Environment,
+    registry_url: &str,
 ) -> Result<zeroize::Zeroizing<String>, String> {
     if let Some(explicit) = input
         .api_key
@@ -298,6 +372,22 @@ fn resolve_publish_api_key(
         let trimmed = env_key.trim();
         if !trimmed.is_empty() {
             return Ok(zeroize::Zeroizing::new(trimmed.to_owned()));
+        }
+    }
+    if let Some(saved_env) = home_env {
+        if saved_env != target_env {
+            return Err(format!(
+                "saved developer-api-key belongs to this home's {saved_env} cloud account, \
+                 but publish targets {target_env} — pass --api-key or set EXEMEM_DEV_API_KEY for {target_env}"
+            ));
+        }
+        if let Some(url_env) =
+            environment_for_registry_api_url(registry_url).filter(|&e| e != saved_env)
+        {
+            return Err(format!(
+                "saved developer-api-key belongs to this home's {saved_env} cloud account, \
+                 but registry URL belongs to {url_env} — pass --api-key or set EXEMEM_DEV_API_KEY for {url_env}"
+            ));
         }
     }
     lastdb_node::cloud::load_saved_developer_key(home)?.ok_or_else(|| {
