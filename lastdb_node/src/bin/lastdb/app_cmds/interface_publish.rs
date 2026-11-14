@@ -255,12 +255,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     {
         return Err("--env must be dev or prod".into());
     }
-    let api_key = input
-        .api_key
-        .clone()
-        .or_else(|| std::env::var("EXEMEM_DEV_API_KEY").ok())
-        .filter(|k| !k.trim().is_empty())
-        .ok_or("no developer API key — pass --api-key or set EXEMEM_DEV_API_KEY")?;
+    let api_key = resolve_publish_api_key(home, input)?;
     let response = block_on_app(async {
         // trace-egress: propagate (explicit registry publish; bearer never logged)
         reqwest::Client::builder()
@@ -270,7 +265,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
             .build()
             .map_err(|e| e.to_string())?
             .post(format!("{}/v1/apps", url.trim_end_matches('/')))
-            .bearer_auth(api_key)
+            .bearer_auth(api_key.as_str())
             .json(&payload)
             .send()
             .await
@@ -283,4 +278,28 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     (response["status"].as_str() == Some("listed"))
         .then_some(())
         .ok_or_else(|| "registry did not list the app".into())
+}
+
+fn resolve_publish_api_key(
+    home: &Path,
+    input: &PublishArgs,
+) -> Result<zeroize::Zeroizing<String>, String> {
+    if let Some(explicit) = input
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
+        return Ok(zeroize::Zeroizing::new(explicit.to_owned()));
+    }
+    if let Ok(env_key) = std::env::var("EXEMEM_DEV_API_KEY") {
+        let trimmed = env_key.trim();
+        if !trimmed.is_empty() {
+            return Ok(zeroize::Zeroizing::new(trimmed.to_owned()));
+        }
+    }
+    lastdb_node::cloud::load_saved_developer_key(home)?.ok_or_else(|| {
+        "no developer API key — pass --api-key, set EXEMEM_DEV_API_KEY, or run 'lastdb cloud developer-key create --save'"
+            .into()
+    })
 }

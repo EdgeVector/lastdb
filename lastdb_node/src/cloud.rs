@@ -1,17 +1,20 @@
-//! Account identity, the saved credentials loader, and explicit backup enrollment.
+//! Account identity, saved cloud/developer credentials, and explicit backup enrollment.
 use crate::cloud_backup_client::{bounded, build_shared_http_client, https, AuthClient};
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
+use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use cloud_backup_protocol::{limits::REQUEST_JSON_MAX_BYTES, AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
+use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fs::{self, Metadata, OpenOptions};
-use std::io::{self, Read};
+use std::fs::{self, File, Metadata, OpenOptions};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
 pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
+pub const DEVELOPER_API_KEY_FILE: &str = "developer-api-key";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,39 +68,49 @@ pub(crate) fn is_private_file(meta: &Metadata) -> bool {
         && meta.nlink() == 1
 }
 
-fn read_private(path: &Path, max_bytes: u64) -> Result<Option<Vec<u8>>, &'static str> {
-    const PRIV_ERR: &str = "native backup credentials must be a private owner file";
-    const LIM_ERR: &str = "native backup credential file exceeds its byte limit";
+fn read_private_named(
+    path: &Path,
+    max_bytes: u64,
+    priv_err: &'static str,
+    lim_err: &'static str,
+) -> Result<Option<Vec<u8>>, &'static str> {
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(PRIV_ERR),
+        Err(_) => return Err(priv_err),
     };
     if !meta.is_file() {
-        return Err(PRIV_ERR);
+        return Err(priv_err);
     }
     if meta.len() > max_bytes {
-        return Err(LIM_ERR);
+        return Err(lim_err);
     }
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
-        .map_err(|_| PRIV_ERR)?;
-    if !is_private_file(&file.metadata().map_err(|_| PRIV_ERR)?) {
-        return Err(PRIV_ERR);
+        .map_err(|_| priv_err)?;
+    if !is_private_file(&file.metadata().map_err(|_| priv_err)?) {
+        return Err(priv_err);
     }
     let mut bytes = Vec::new();
     file.take(max_bytes + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| PRIV_ERR)?;
+        .map_err(|_| priv_err)?;
     (bytes.len() as u64 <= max_bytes)
         .then_some(Some(bytes))
-        .ok_or(LIM_ERR)
+        .ok_or(lim_err)
 }
 
 pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, String> {
-    let Some(raw) = read_private(&home.join(CLOUD_CREDENTIALS_FILE), REQUEST_JSON_MAX_BYTES)?
+    const PRIV_ERR: &str = "native backup credentials must be a private owner file";
+    const LIM_ERR: &str = "native backup credential file exceeds its byte limit";
+    let Some(raw) = read_private_named(
+        &home.join(CLOUD_CREDENTIALS_FILE),
+        REQUEST_JSON_MAX_BYTES,
+        PRIV_ERR,
+        LIM_ERR,
+    )?
     else {
         return Ok(None);
     };
@@ -106,6 +119,132 @@ pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, S
     (!creds.api_key.is_empty())
         .then_some(Some(creds))
         .ok_or_else(|| "native backup credential is empty".into())
+}
+
+pub fn is_valid_developer_key(key: &str) -> bool {
+    key.strip_prefix("em_")
+        .is_some_and(|h| h.len() == 48 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+pub fn developer_key_prefix(key: &str) -> Option<String> {
+    let hex_part = key.strip_prefix("em_")?;
+    if hex_part.len() < 10 || !hex_part.bytes().take(10).all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let short: String = hex_part.chars().take(10).collect();
+    Some(format!("em_{short}..."))
+}
+
+pub fn is_valid_key_prefix(prefix: &str) -> bool {
+    prefix
+        .strip_prefix("em_")
+        .and_then(|s| s.strip_suffix("..."))
+        .is_some_and(|h| h.len() == 10 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+pub fn load_saved_developer_key(home: &Path) -> Result<Option<Zeroizing<String>>, String> {
+    const PRIV_ERR: &str = "developer API key file must be a private 0600 owner file";
+    const LIM_ERR: &str = "developer API key file exceeds its byte limit";
+    let Some(raw) = read_private_named(&home.join(DEVELOPER_API_KEY_FILE), 256, PRIV_ERR, LIM_ERR)?
+    else {
+        return Ok(None);
+    };
+    let raw = Zeroizing::new(raw);
+    let trimmed = std::str::from_utf8(&raw)
+        .map_err(|_| "saved developer API key file is not UTF-8")?
+        .trim();
+    is_valid_developer_key(trimmed)
+        .then(|| Some(Zeroizing::new(trimmed.to_owned())))
+        .ok_or_else(|| "saved developer API key file has an invalid key format".into())
+}
+
+fn open_owned_home_dir(home: &Path) -> Result<File, String> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let dir = File::from(
+        rfs::open(home, flags, Mode::empty())
+            .map_err(|_| format!("cannot open home directory {}", home.display()))?,
+    );
+    let meta = dir
+        .metadata()
+        .map_err(|_| "cannot inspect home directory")?;
+    (meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o022 == 0)
+        .then_some(dir)
+        .ok_or_else(|| "home directory must be owner-held and not writable by others".into())
+}
+
+pub fn save_developer_key(home: &Path, key: &str) -> Result<PathBuf, String> {
+    if !is_valid_developer_key(key) {
+        return Err("developer API key has an invalid format".into());
+    }
+    let dir = open_owned_home_dir(home)?;
+    match rfs::statat(&dir, DEVELOPER_API_KEY_FILE, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(st) => {
+            let reg = rfs::FileType::from_raw_mode(st.st_mode) == rfs::FileType::RegularFile;
+            if !reg || st.st_uid != unsafe { libc::geteuid() } || st.st_nlink != 1 {
+                return Err("refusing to replace non-regular developer-api-key entry".into());
+            }
+        }
+        Err(rustix::io::Errno::NOENT) => {}
+        Err(_) => return Err("cannot inspect existing developer-api-key entry".into()),
+    }
+    let temp = format!(".developer-api-key.{}.pending", uuid::Uuid::new_v4());
+    let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut file = File::from(
+        rfs::openat(&dir, temp.as_str(), flags, Mode::from_raw_mode(0o600))
+            .map_err(|_| "cannot create staged developer-api-key file")?,
+    );
+    let write_res = (|| -> Result<(), String> {
+        rfs::fchmod(&file, Mode::from_raw_mode(0o600))
+            .map_err(|_| "cannot set 0600 mode on developer-api-key")?;
+        let line = Zeroizing::new(format!("{key}\n").into_bytes());
+        file.write_all(&line)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| "cannot write developer-api-key")?;
+        rfs::renameat(&dir, temp.as_str(), &dir, DEVELOPER_API_KEY_FILE)
+            .map_err(|_| "cannot publish developer-api-key".to_owned())
+    })();
+    if write_res.is_err() {
+        let _ = rfs::unlinkat(&dir, temp.as_str(), AtFlags::empty());
+    }
+    write_res?;
+    dir.sync_all()
+        .map_err(|_| "cannot sync home directory after saving developer-api-key".to_owned())?;
+    Ok(home.join(DEVELOPER_API_KEY_FILE))
+}
+
+pub fn remove_saved_developer_key_if_prefix(home: &Path, prefix: &str) -> Result<bool, String> {
+    let Some(saved) = load_saved_developer_key(home)? else {
+        return Ok(false);
+    };
+    if developer_key_prefix(&saved).as_deref() != Some(prefix) {
+        return Ok(false);
+    }
+    let dir = open_owned_home_dir(home)?;
+    match rfs::unlinkat(&dir, DEVELOPER_API_KEY_FILE, AtFlags::empty()) {
+        Ok(()) => {}
+        Err(rustix::io::Errno::NOENT) => return Ok(false),
+        Err(_) => return Err("cannot remove revoked developer-api-key file".into()),
+    }
+    dir.sync_all()
+        .map_err(|_| "cannot sync home directory after removing developer-api-key".to_owned())?;
+    Ok(true)
+}
+
+pub fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
+    const PRIV_ERR: &str = "home identity.key must be a private owner file";
+    const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
+    let Some(raw) = read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)?
+    else {
+        return Ok(None);
+    };
+    let seed: Zeroizing<[u8; 32]> = raw
+        .as_slice()
+        .try_into()
+        .map(Zeroizing::new)
+        .map_err(|_| "home identity.key must contain exactly 32 bytes".to_owned())?;
+    let pair =
+        Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid home identity.key")?;
+    user_hash_from_pubkey(&pair.public_key_base64()).map(Some)
 }
 
 pub fn client_from_home(
@@ -134,7 +273,7 @@ pub fn account_from_phrase(phrase: &str) -> Result<AccountId, String> {
     let seed = Zeroizing::new(seed_from_phrase(phrase).map_err(|_| "invalid recovery phrase")?);
     let pair =
         Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid recovery identity")?;
-    let hash = crate::identity::user_hash_from_pubkey(&pair.public_key_base64())?;
+    let hash = user_hash_from_pubkey(&pair.public_key_base64())?;
     AccountId::try_from(hash).map_err(|_| "invalid recovery account".into())
 }
 
@@ -174,9 +313,10 @@ pub async fn register_native_device(
     device_id: &str,
     invite_code: Option<&str>,
 ) -> Result<(String, String), String> {
-    let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid DEV recovery device ID")?;
+    let parsed =
+        uuid::Uuid::parse_str(device_id).map_err(|_| "invalid native registration device ID")?;
     if parsed.get_version() != Some(uuid::Version::Random) {
-        return Err("DEV recovery requires a random device ID".into());
+        return Err("native registration requires a random UUIDv4 device ID".into());
     }
     let (pub_hex, ts) = (
         fold_db::hex::hex_lower(keypair.public_key_bytes()),
@@ -194,28 +334,29 @@ pub async fn register_native_device(
         exemem_api_url_for(environment)
     ))
     .map_err(|_| "Invalid Exemem API URL for register".to_owned())?;
-    let expected = crate::identity::user_hash_from_pubkey(&keypair.public_key_base64())
+    let expected = user_hash_from_pubkey(&keypair.public_key_base64())
         .map_err(|_| "Cannot derive native account identity".to_owned())?;
-    let resp = build_shared_http_client()
-        .map_err(|_| "cannot construct DEV recovery register client")?
+    let req = build_shared_http_client()
+        .map_err(|_| "cannot construct native registration client")?
         .post(url.clone())
         .timeout(Duration::from_secs(30))
-        .json(&body)
+        .json(&body);
+    let resp = observability::propagation::inject_w3c(req)
         .send()
         .await
-        .map_err(|_| "DEV recovery register request failed")?;
+        .map_err(|_| "native registration request failed")?;
     if resp.status().is_redirection() || resp.url() != &url {
-        return Err("DEV recovery register redirected".into());
+        return Err("native registration redirected".into());
     }
     if !resp.status().is_success() {
         return Err(format!(
-            "DEV recovery register HTTP status {}",
+            "native registration ({environment}) HTTP status {}",
             resp.status().as_u16()
         ));
     }
     let bytes = bounded(resp, 65_536)
         .await
-        .map_err(|_| "cannot read DEV recovery response")?;
+        .map_err(|_| "cannot read native registration response")?;
     let json: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|_| "Register response was not valid JSON")?;
     if json.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {

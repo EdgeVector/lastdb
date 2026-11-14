@@ -291,6 +291,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 },
             },
         ),
+        Command::Cloud(c) => cloud_account_command(cli.data_dir, c),
         Command::Share(a) => share_cmds::run(cli.data_dir, cli.db.as_deref(), a),
         Command::Db(DatabaseCommand::List { json }) => list_databases(cli.data_dir, json),
         Command::Db(DatabaseCommand::Select { selector, json }) => {
