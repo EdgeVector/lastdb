@@ -353,7 +353,6 @@ base64 = "0.22"
 # derive surface. Converging thiserror needs the opentelemetry 0.27 -> 0.28+
 # bump first.
 thiserror = "1"
-async-trait = "0.1"
 sha2 = "0.10"
 uuid = "1.0"
 sentry = { version = "0.47", default-features = false }

@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 use super::config::{self, ConfigError};
 
 /// Seal this database's AES key to `contact`. Opens a fresh publisher session.
-pub async fn seal_named_invitation(
+pub(crate) async fn seal_named_invitation(
     home: &Path,
     database_id: &str,
     contact: &ShareContact,

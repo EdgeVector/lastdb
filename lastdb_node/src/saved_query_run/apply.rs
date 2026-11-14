@@ -7,23 +7,21 @@ use crate::saved_query::{FileMark, LiveRow, RecordKey, Remove, Step, Write};
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
 
-use super::store::QueryStore;
+use super::store::TargetStore;
 
-pub(super) async fn apply<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    destination: &S::Db,
+pub(super) async fn apply(
+    source: &TargetStore<'_>,
+    destination: &TargetStore<'_>,
     step: &Step,
 ) -> Result<(), String> {
     match step {
-        Step::Write(write) => apply_write(store, source, destination, write).await,
-        Step::Remove(remove) => apply_remove(store, destination, remove).await,
+        Step::Write(write) => apply_write(source, destination, write).await,
+        Step::Remove(remove) => apply_remove(destination, remove).await,
     }
 }
 
-pub(super) async fn read_live<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+pub(super) async fn read_live(
+    destination: &TargetStore<'_>,
     keys: &[RecordKey],
 ) -> Result<BTreeMap<RecordKey, LiveRow>, String> {
     let mut grouped: BTreeMap<(String, String), Vec<&RecordKey>> = BTreeMap::new();
@@ -36,15 +34,14 @@ pub(super) async fn read_live<S: QueryStore>(
     let mut live = BTreeMap::new();
     for ((namespace, schema), keys) in grouped {
         for chunk in keys.chunks(crate::saved_query::MAX_RECORDS) {
-            read_chunk(store, destination, &namespace, &schema, chunk, &mut live).await?;
+            read_chunk(destination, &namespace, &schema, chunk, &mut live).await?;
         }
     }
     Ok(live)
 }
 
-async fn read_chunk<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn read_chunk(
+    destination: &TargetStore<'_>,
     namespace: &str,
     schema: &str,
     keys: &[&RecordKey],
@@ -55,8 +52,8 @@ async fn read_chunk<S: QueryStore>(
         .map(|key| (key.hash.as_str(), key.range.as_deref().unwrap_or("")))
         .collect();
     let qualified = format!("{namespace}/{schema}");
-    let rows = store
-        .query(destination, &qualified, &json!({"HashRangeKeys": pairs}))
+    let rows = destination
+        .query(&qualified, &json!({"HashRangeKeys": pairs}))
         .await?;
     for row in rows {
         let parsed = LiveRow::from_query(namespace, schema, &row)
@@ -66,10 +63,9 @@ async fn read_chunk<S: QueryStore>(
     Ok(())
 }
 
-async fn apply_write<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    destination: &S::Db,
+async fn apply_write(
+    source: &TargetStore<'_>,
+    destination: &TargetStore<'_>,
     write: &Write,
 ) -> Result<(), String> {
     let mut revision = write.revision.clone();
@@ -78,7 +74,6 @@ async fn apply_write<S: QueryStore>(
         let operation = if write.creating { "create" } else { "replace" };
         revision = Some(
             mutate(
-                store,
                 destination,
                 &write.key,
                 &write.fields,
@@ -91,13 +86,12 @@ async fn apply_write<S: QueryStore>(
     }
     if let Some(mark) = &write.copy_blob {
         let inline = match &write.copy_inline {
-            Some(inline) => Some(fetched(store, source, &write.key, inline, "inline").await?),
+            Some(inline) => Some(fetched(source, &write.key, inline, "inline").await?),
             None => None,
         };
-        let blob = fetched(store, source, &write.key, mark, "blob").await?;
+        let blob = fetched(source, &write.key, mark, "blob").await?;
         revision = Some(
             put_files(
-                store,
                 destination,
                 write,
                 revision.as_deref(),
@@ -107,34 +101,28 @@ async fn apply_write<S: QueryStore>(
             .await?,
         );
     } else if let Some(mark) = &write.copy_inline {
-        let bytes = fetched(store, source, &write.key, mark, "inline").await?;
-        revision =
-            Some(put_inline(store, destination, write, revision.as_deref(), mark, &bytes).await?);
+        let bytes = fetched(source, &write.key, mark, "inline").await?;
+        revision = Some(put_inline(destination, write, revision.as_deref(), mark, &bytes).await?);
     }
     if write.clear_blob {
-        revision = Some(clear(store, destination, write, revision.as_deref(), "blob").await?);
+        revision = Some(clear(destination, write, revision.as_deref(), "blob").await?);
     }
     if write.clear_inline {
-        revision = Some(clear(store, destination, write, revision.as_deref(), "inline").await?);
+        revision = Some(clear(destination, write, revision.as_deref(), "inline").await?);
     }
     let _latest = revision;
     Ok(())
 }
 
-async fn apply_remove<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
-    remove: &Remove,
-) -> Result<(), String> {
+async fn apply_remove(destination: &TargetStore<'_>, remove: &Remove) -> Result<(), String> {
     let mut revision = remove.revision.clone();
     if remove.clear_blob {
-        revision = clear_row(store, destination, remove, &revision, "blob").await?;
+        revision = clear_row(destination, remove, &revision, "blob").await?;
     }
     if remove.clear_inline {
-        revision = clear_row(store, destination, remove, &revision, "inline").await?;
+        revision = clear_row(destination, remove, &revision, "inline").await?;
     }
     mutate(
-        store,
         destination,
         &remove.key,
         &BTreeMap::new(),
@@ -146,16 +134,15 @@ async fn apply_remove<S: QueryStore>(
     Ok(())
 }
 
-async fn fetched<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
+async fn fetched(
+    source: &TargetStore<'_>,
     key: &RecordKey,
     mark: &FileMark,
     placement: &str,
 ) -> Result<Vec<u8>, String> {
     let schema = key.qualified_schema();
-    let (sha, bytes) = store
-        .fetch_file(source, &schema, &key.hash, key.range.as_deref(), placement)
+    let (sha, bytes) = source
+        .fetch_file(&schema, &key.hash, key.range.as_deref(), placement)
         .await?;
     if sha != mark.sha256 {
         return Err("file bytes do not match the record".into());
@@ -163,9 +150,8 @@ async fn fetched<S: QueryStore>(
     Ok(bytes)
 }
 
-async fn put_files<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn put_files(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     blob: &[u8],
@@ -187,12 +173,11 @@ async fn put_files<S: QueryStore>(
             "media_type": inline_mark.media_type,
         });
     }
-    record_revision(&store.put_file(destination, &body).await?)
+    record_revision(&destination.put_file(&body).await?)
 }
 
-async fn put_inline<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn put_inline(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     mark: &FileMark,
@@ -206,12 +191,11 @@ async fn put_inline<S: QueryStore>(
         "media_type": mark.media_type,
         "placement": "inline",
     });
-    record_revision(&store.put_file(destination, &body).await?)
+    record_revision(&destination.put_file(&body).await?)
 }
 
-async fn clear<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn clear(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     placement: &str,
@@ -227,12 +211,11 @@ async fn clear<S: QueryStore>(
         )?,
         "placement": placement,
     });
-    record_revision(&store.delete_file(destination, &body).await?)
+    record_revision(&destination.delete_file(&body).await?)
 }
 
-async fn clear_row<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn clear_row(
+    destination: &TargetStore<'_>,
     remove: &Remove,
     revision: &str,
     placement: &str,
@@ -241,12 +224,11 @@ async fn clear_row<S: QueryStore>(
         "mutation": row_mutation(&remove.key, &remove.fields, &remove.alternates, false, Some(revision), "replace")?,
         "placement": placement,
     });
-    record_revision(&store.delete_file(destination, &body).await?)
+    record_revision(&destination.delete_file(&body).await?)
 }
 
-async fn mutate<S: QueryStore>(
-    store: &S,
-    destination: &S::Db,
+async fn mutate(
+    destination: &TargetStore<'_>,
     key: &RecordKey,
     fields: &BTreeMap<String, Value>,
     alternates: &Value,
@@ -261,7 +243,7 @@ async fn mutate<S: QueryStore>(
         revision,
         operation,
     )?;
-    record_revision(&store.mutate(destination, &body).await?)
+    record_revision(&destination.mutate(&body).await?)
 }
 
 fn mutation_body(write: &Write, revision: Option<&str>, operation: &str) -> Result<Value, String> {

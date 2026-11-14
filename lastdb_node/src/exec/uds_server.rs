@@ -1,85 +1,41 @@
 //! Owner-socket request framing, body-budget admission, and worker dispatch.
 
-use std::future::Future;
 use std::os::unix::net::UnixStream;
-use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use fold_db::access::AccessContext;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
-use super::uds_http::{self, UdsRequest, UdsResponse};
-use super::uds_router::{self, ControlRoute, DataRoute};
-use super::{ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool};
+use super::{block_on_data_route, block_on_route, database_routes, database_session, mutation};
+use crate::host::Host;
+use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
+use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
+use crate::lastdb_uds::{ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool};
 
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
 const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
 
-pub type BoxedResponseFuture<'a> = Pin<Box<dyn Future<Output = UdsResponse> + Send + 'a>>;
-
-pub trait UdsHandler: Send + Sync + 'static {
-    fn user_hash(&self) -> &str;
-    fn requires_recovery(&self) -> bool;
-    fn admit_session(&self, req: &UdsRequest) -> bool;
-    fn is_deferred_database_request(&self, req: &UdsRequest) -> bool;
-    fn execute_deferred_mutation<'a>(
-        &'a self,
-        route: DataRoute,
-        req: &'a UdsRequest,
-        ctx: &'a AccessContext,
-    ) -> BoxedResponseFuture<'a>;
-    fn execute_deferred_database<'a>(
-        &'a self,
-        req: &'a mut UdsRequest,
-        ctx: &'a AccessContext,
-    ) -> BoxedResponseFuture<'a>;
-    fn execute_database_sync(
-        &self,
-        handle: &tokio::runtime::Handle,
-        req: &mut UdsRequest,
-        ctx: &AccessContext,
-    ) -> UdsResponse;
-    fn execute_data_sync(
-        &self,
-        handle: &tokio::runtime::Handle,
-        route: DataRoute,
-        req: &UdsRequest,
-        ctx: &AccessContext,
-    ) -> UdsResponse;
-}
-
-pub struct UdsServer<H> {
-    handler: Arc<H>,
+#[derive(Clone)]
+pub struct UdsServer {
+    host: Arc<Host>,
     handle: tokio::runtime::Handle,
     pool: UdsWorkerPool,
     body_budget: Arc<Semaphore>,
     mutation_replies: Arc<Semaphore>,
 }
 
-impl<H> Clone for UdsServer<H> {
-    fn clone(&self) -> Self {
-        Self {
-            handler: Arc::clone(&self.handler),
-            handle: self.handle.clone(),
-            pool: self.pool.clone(),
-            body_budget: Arc::clone(&self.body_budget),
-            mutation_replies: Arc::clone(&self.mutation_replies),
-        }
-    }
-}
-
-impl<H: UdsHandler> UdsServer<H> {
-    pub fn new(handler: Arc<H>, handle: tokio::runtime::Handle, pool: UdsWorkerPool) -> Self {
+impl UdsServer {
+    #[must_use]
+    pub fn new(host: Arc<Host>, handle: tokio::runtime::Handle, pool: UdsWorkerPool) -> Self {
         let snapshot = pool.snapshot();
         let permits = snapshot
             .workers
             .saturating_mul(MAX_PARSE_BYTES)
             .min(Semaphore::MAX_PERMITS);
         Self {
-            handler,
+            host,
             handle,
             pool,
             body_budget: Arc::new(Semaphore::new(permits)),
@@ -144,12 +100,11 @@ impl<H: UdsHandler> UdsServer<H> {
         comp: ConnectionWork,
         mut lease: OwnedSemaphorePermit,
     ) -> std::io::Result<()> {
-        let Some((mut req, ctx)) =
-            uds_http::receive_connection(&mut stream, self.handler.user_hash())?
+        let Some((mut req, ctx)) = uds_http::receive_connection(&mut stream, &self.host.user_hash)?
         else {
             return Ok(());
         };
-        if !self.handler.admit_session(&req) {
+        if !database_session::admit(&req, &self.host) {
             let response = UdsResponse::new(403, "Forbidden", b"database session refused".to_vec());
             return uds_http::finish_connection(&mut stream, &response);
         }
@@ -158,23 +113,23 @@ impl<H: UdsHandler> UdsServer<H> {
             ControlRoute::Data(r @ (DataRoute::Mutation | DataRoute::MutationBatch)) => {
                 Some(Some(*r))
             }
-            ControlRoute::Database if self.handler.is_deferred_database_request(&req) => Some(None),
+            ControlRoute::Database if database_routes::is_deferred_database_request(&req) => {
+                Some(None)
+            }
             _ => None,
         };
         if let Some(route) = deferred.filter(|_| retain_permits(&mut lease, &req)) {
-            let (handler, replies) = (
-                Arc::clone(&self.handler),
-                Arc::clone(&self.mutation_replies),
-            );
+            let (host, replies) = (Arc::clone(&self.host), Arc::clone(&self.mutation_replies));
             self.handle.spawn(
                 async move {
                     let Ok(slot) = replies.acquire_owned().await else {
                         return;
                     };
                     let resp = if let Some(r) = route {
-                        handler.execute_deferred_mutation(r, &req, &ctx).await
+                        mutation::execute_deferred_mutation(r, &req, &ctx, &host).await
                     } else {
-                        handler.execute_deferred_database(&mut req, &ctx).await
+                        database_routes::execute_deferred_database_request(&mut req, &ctx, &host)
+                            .await
                     };
                     drop((req, lease));
                     comp.resume(stream, move |mut s, _| {
@@ -188,13 +143,17 @@ impl<H: UdsHandler> UdsServer<H> {
             return Ok(());
         }
         let resp = match routed {
-            ControlRoute::Health => uds_router::health_response(self.handler.requires_recovery()),
+            ControlRoute::Health => uds_router::health_response(
+                self.host.db.db_ops().native_runtime().requires_recovery(),
+            ),
             ControlRoute::Version => uds_router::version_response(),
-            ControlRoute::Database => {
-                self.handler
-                    .execute_database_sync(&self.handle, &mut req, &ctx)
-            }
-            ControlRoute::Data(r) => self.handler.execute_data_sync(&self.handle, r, &req, &ctx),
+            ControlRoute::Database => block_on_route(
+                &self.handle,
+                &ctx,
+                false,
+                database_routes::execute_database_request(&mut req, &ctx, &self.host),
+            ),
+            ControlRoute::Data(r) => block_on_data_route(&self.handle, r, &req, &ctx, &self.host),
             ControlRoute::MethodNotAllowed { allow } => {
                 uds_router::method_not_allowed_response(allow)
             }

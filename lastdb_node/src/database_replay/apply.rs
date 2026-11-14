@@ -21,7 +21,7 @@ pub(super) async fn stage_file(
     database_id: &str,
     entry: &SnapshotEntry,
     change: &mut payload::RecordChange,
-    files: &mut (dyn super::SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     match &change.file {
         RecordFile::Keep => {}
@@ -41,7 +41,7 @@ async fn load_file(
     database_id: &str,
     entry: &SnapshotEntry,
     fetch: &FileFetch,
-    files: &mut (dyn super::SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<FileWrite, RestoreError> {
     let sealed = files
         .read_blob(&SnapshotFileRequest {

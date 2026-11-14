@@ -16,7 +16,7 @@ pub(super) struct SnapshotApplier<'a> {
     pub store: &'a FoldDB,
     pub decoder: decode::EntryDecoder<'a>,
     pub home: &'a Path,
-    pub files: &'a mut (dyn super::SnapshotFileSource + Send),
+    pub files: &'a mut crate::log_sync::SnapshotFiles,
     pub scope: SnapshotReplay<'a>,
 }
 
@@ -124,7 +124,7 @@ async fn apply_one(
     home: &Path,
     journal: &mut Journal,
     entry: &SnapshotEntry,
-    files: &mut (dyn super::SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     let database_id = decoder.database_id;
     let prepared = decoder.open(entry)?;

@@ -16,7 +16,7 @@ use super::apply;
 use super::decode;
 use super::journal;
 use super::payload;
-use super::types::{SnapshotEntry, SnapshotFileSource};
+use super::types::SnapshotEntry;
 use super::RestoreError;
 
 const ATTEMPT_LIMIT: usize = 4096;
@@ -43,7 +43,7 @@ pub(super) async fn replay(
     database_id: &str,
     publisher: &str,
     delivered: &[DeliveredEntry],
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     let target = super::resolve_target(host, database_id)?;
     match &target.place {
@@ -108,7 +108,7 @@ async fn apply_item(
     decoder: decode::EntryDecoder<'_>,
     home: &Path,
     item: &DeliveredEntry,
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     let database_id = decoder.database_id;
     let prepared = decoder.open(&item.entry)?;
@@ -141,7 +141,7 @@ async fn apply_change(
     key: &DatabaseContentKey,
     database_id: &str,
     entry: &SnapshotEntry,
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
     change: payload::Change,
     resumed: bool,
 ) -> Result<bool, RestoreError> {

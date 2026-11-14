@@ -60,7 +60,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
 }
 
 fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
-    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
+    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
     let raw = post_json_admin(
         &socket,
@@ -77,7 +77,7 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
         .filter(|s| !s.is_empty())
         .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return snapshot_wait::until_head(&home, &socket, id, nonce);
+        return snapshot_wait::until_head(&socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())
