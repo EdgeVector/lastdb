@@ -53,7 +53,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 async-trait = { workspace = true }
 libc = "0.2"
 dirs = "6"
-ring = "0.17"
 signal-hook-registry = "1"
 # `connect` / cloud-sync deps (pinned like fold_db_node's — reqwest/chrono are
 # deliberately not workspace deps, feature sets diverge per member).

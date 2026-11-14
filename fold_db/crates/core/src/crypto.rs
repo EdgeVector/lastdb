@@ -1,6 +1,5 @@
 //! Cryptographic primitives: content cipher keys, AES-GCM envelopes, at-rest sealing, and Ed25519 signing.
 
-use ed25519_compact::x25519;
 use hkdf::Hkdf;
 use sha2::Sha256;
 use thiserror::Error;
@@ -37,12 +36,16 @@ pub type E2eKeys = ContentCipherKey;
 
 impl ContentCipherKey {
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> CryptoResult<Self> {
-        let ed_kp = ed25519_compact::KeyPair::from_seed(ed25519_compact::Seed::new(*seed));
-        let x25519_sk = x25519::SecretKey::from_ed25519(&ed_kp.sk).map_err(|e| {
-            CryptoError::KeyError(format!("Ed25519→X25519 conversion failed: {e:?}"))
-        })?;
-        let mut secret = Zeroizing::new([0u8; 32]);
-        secret.copy_from_slice(x25519_sk.as_ref());
+        if *seed == [0u8; 32] {
+            return Err(CryptoError::KeyError("Ed25519 seed is empty".into()));
+        }
+        // Derive the exact RFC 8032 / X25519 clamped scalar bytes (`SHA-512(seed)[..32]`
+        // with RFC 7748 bit clamping and no mod-l reduction) used by existing homes.
+        let mut secret =
+            Zeroizing::new(ed25519_dalek::SigningKey::from_bytes(seed).to_scalar_bytes());
+        secret[0] &= 248;
+        secret[31] &= 63;
+        secret[31] |= 64;
         let hk = Hkdf::<Sha256>::new(Some(b"fold:e2e:v1"), &*secret);
         let mut encryption_key = [0u8; 32];
         hk.expand(b"fold:content-key", &mut encryption_key)

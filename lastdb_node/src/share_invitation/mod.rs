@@ -1,5 +1,5 @@
 //! Recipient-encrypted invitations for ordinary Backup V2 share streams.
-use crate::cloud_backup_client::byte_backup::GuestReadPermission;
+use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use cloud_backup_protocol::Digest;
