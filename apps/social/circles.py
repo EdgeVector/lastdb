@@ -106,7 +106,7 @@ def merge(current, before, desired, restore):
     for key in before.keys() - desired.keys():
         previous = members.get(key)
         if previous and previous["state"] == "active":
-            members[key] = {"nodeKey": key, "state": "revoked", "role": "read", "writeSchemas": []}
+            members[key] = {"nodeKey": key, "state": "revoked", "role": previous["role"], "writeSchemas": []}
     for key, scope in desired.items():
         previous = members.get(key)
         if previous and previous["state"] == "revoked" and key not in restore:

@@ -101,7 +101,7 @@ class Sharing:
             if previous is None and not active:
                 raise SocialError("the recipient has never been granted access to this database")
             scoped = previous is not None and "writeSchemas" in previous
-            member = {"nodeKey": node_key, "role": "read" if active or scoped else previous["role"],
+            member = {"nodeKey": node_key, "role": "read" if active else previous["role"],
                       "state": desired}
             if scoped:
                 member["writeSchemas"] = []
