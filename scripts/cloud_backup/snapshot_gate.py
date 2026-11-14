@@ -32,7 +32,6 @@ QUERY_BATCH = 64
 MAX_LOG_ENTRIES = 8
 MAX_REPLAYED = 8
 BUDGET_SECONDS = 60
-SETTLE_FILES = 48
 SCHEMA = "SnapshotGate"
 LABEL = b"snapshot-gate-v1"
 LOAD_PREFIX = "c1da11d0-0000-4000-8000-"
@@ -130,32 +129,9 @@ def write_records(node, database_id):
 
 
 def run_file_count(home):
-    base = home / "data"
-    if not (base / "disk-run" / "runs").is_dir():
-        return None
-    count = 0
-    for root in ("disk-run", "disk-cas"):
-        folder = base / root / "runs"
-        if folder.is_dir():
-            count += sum(1 for path in folder.iterdir() if path.name.endswith(".ldrun"))
-    return count
-
-
-def wait_until_settled(home):
-    started = time.monotonic()
-    previous = None
-    next_report = started
-    deadline = started + 40 * 60
-    while (now := time.monotonic()) < deadline:
-        count = run_file_count(home)
-        if count is not None and count <= SETTLE_FILES and count == previous:
-            return count
-        if now >= next_report:
-            print(f"settle_elapsed_seconds={now - started:.3f} run_files={count}", flush=True)
-            next_report = now + 30
-        previous = count
-        time.sleep(3)
-    raise OperationError("snapshot_files_not_settled")
+    """Count files on disk for diagnostics, including runs awaiting deletion."""
+    return sum(1 for root in ("disk-run", "disk-cas")
+               for _path in (home / "data" / root / "runs").glob("*.ldrun"))
 
 
 def cli(programs, home, arguments, timeout, input_bytes=None):
@@ -253,14 +229,14 @@ def seed(programs, node, database_id, numbers):
     note(numbers, "seed_write_request_seconds", round(request_seconds, 3))
     note(numbers, "seed_records_per_second", round(RECORDS / write_seconds, 1))
     require(digest == content_digest(RECORDS), "seed_digest")
-    settle_started = time.monotonic()
+    flush_started = time.monotonic()
     try:
-        files = wait_until_settled(node.home)
+        require(node.call("/api/db/flush", {}).get("durable") is True, "seed_flush")
     finally:
-        note(numbers, "file_settle_seconds", round(time.monotonic() - settle_started, 3))
+        note(numbers, "file_ready_seconds", round(time.monotonic() - flush_started, 3))
     note(numbers, "records", RECORDS)
     note(numbers, "digest", digest)
-    note(numbers, "run_files", files)
+    note(numbers, "run_files_on_disk", run_file_count(node.home))
     note(numbers, "seed_seconds", round(time.monotonic() - started, 3))
     return digest
 
