@@ -3,11 +3,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use base64::Engine as _;
 use cloud_backup_protocol::{CloudScope, Id};
 use mutation_log::{ListPage, LogError, MutationLog};
 use zeroize::Zeroizing;
 
-use crate::database_replay;
+use crate::database_replay::{self, SnapshotEntry};
 use crate::host::owned::Resolved;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, IncorporatedRef, LogBinding};
@@ -132,17 +133,33 @@ async fn owner_envelope(host: &Host, log: &CloudLog, through: u64) -> Result<boo
     if through == 0 {
         return Ok(false);
     }
-    let page = read_page(log, 0).await.map_err(|error| error.to_string())?;
-    let stored = page
-        .entries
-        .first()
-        .ok_or("signed recovery log has no entry")?;
-    owner_opens(
-        host,
-        log.database_id(),
-        &stored_binding(log.database_id(), stored),
-        &stored.entry.payload,
-    )
+    match read_page(log, 0).await {
+        Ok(page) => {
+            let stored = page
+                .entries
+                .first()
+                .ok_or("signed recovery log has no entry")?;
+            owner_opens(
+                host,
+                log.database_id(),
+                &stored_binding(log.database_id(), stored),
+                &stored.entry.payload,
+            )
+        }
+        Err(LogError::CursorExpired { .. }) => {
+            let entry = restore::sample_entry(log)
+                .await
+                .map_err(|error| error.to_string())?;
+            let payload = decode_payload(&entry)?;
+            owner_opens(
+                host,
+                log.database_id(),
+                &snapshot_binding(log.database_id(), &entry),
+                &payload,
+            )
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn owner_opens(
@@ -185,6 +202,32 @@ fn stored_source(source: &mutation_log::Incorporation) -> IncorporatedRef<'_> {
     }
 }
 
+fn snapshot_binding<'a>(database_id: &'a str, entry: &'a SnapshotEntry) -> LogBinding<'a> {
+    LogBinding {
+        database_id,
+        writer_key: &entry.writer_key,
+        writer_device: &entry.writer_device,
+        writer_seq: entry.writer_seq,
+        authored_at_ms: entry.authored_at_ms,
+        namespace: &entry.namespace,
+        incorporated_from: entry.incorporated_from.as_ref().map(snapshot_source),
+    }
+}
+
+fn snapshot_source(source: &database_replay::IncorporatedFrom) -> IncorporatedRef<'_> {
+    IncorporatedRef {
+        writer_key: &source.writer_key,
+        writer_device: &source.writer_device,
+        writer_seq: source.writer_seq,
+    }
+}
+
+fn decode_payload(entry: &SnapshotEntry) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(entry.payload_b64.as_bytes())
+        .map_err(|_| "signed recovery snapshot entry is not sealed".to_owned())
+}
+
 async fn read_page(log: &CloudLog, after: u64) -> Result<ListPage, LogError> {
     let log = log.clone();
     tokio::task::spawn_blocking(move || {
@@ -218,12 +261,22 @@ pub(super) async fn count_entries(log: &CloudLog, cap: u64) -> Result<u64, Strin
 }
 
 async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<u64, String> {
+    let mut recovered_snapshot = cursor != 0;
     let mut replayed = 0u64;
     let mut files = restore::file_source(log.clone());
     while cursor < through {
-        let page = read_page(log, cursor)
-            .await
-            .map_err(|error| error.to_string())?;
+        let page = match read_page(log, cursor).await {
+            Ok(page) => page,
+            Err(LogError::CursorExpired { snapshot_through }) if !recovered_snapshot => {
+                let first = cursor.saturating_add(1).max(snapshot_through);
+                cursor = restore::install(log.clone(), first..=through, false)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                recovered_snapshot = true;
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         let mut delivered = Vec::new();
         let expected = page.next.min(through);
         for stored in page

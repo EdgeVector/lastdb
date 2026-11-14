@@ -102,8 +102,8 @@ pub struct PathPostTarget<'a> {
 
 /// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
 ///
-/// Signed append, head, list, ack, `snapshot/bytes`, and `delivery/object`
-/// use this. The path in the token is `target.path`.
+/// Signed append, head, list, ack, `snapshot/bytes`, `delivery/snapshot`,
+/// and `delivery/object` use this. The path in the token is `target.path`.
 pub fn authorization_post(
     keypair: &Ed25519KeyPair,
     target: PathPostTarget<'_>,

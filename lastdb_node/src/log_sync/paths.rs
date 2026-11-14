@@ -9,4 +9,7 @@ pub(crate) const ACCESS: &str = "/api/cloud/backups/v2/mutation-log/access";
 pub(crate) const APPEND: &str = "/api/cloud/backups/v2/mutation-log/append";
 pub(crate) const HEAD: &str = "/api/cloud/backups/v2/mutation-log/head";
 pub(crate) const LIST: &str = "/api/cloud/backups/v2/mutation-log/list";
-pub(crate) use cloud_backup_protocol::v2::share_access::MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT;
+pub(crate) use cloud_backup_protocol::v2::share_access::{
+    MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT,
+    MUTATION_LOG_DELIVERY_SNAPSHOT_PATH as DELIVERY_SNAPSHOT,
+};
