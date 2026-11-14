@@ -27,7 +27,7 @@ pub(super) fn run_init(data_dir: Option<&Path>, args: &BackupInitArgs) -> Result
 
 pub(super) fn run_connect(data_dir: Option<&Path>, args: &BackupConnectArgs) -> Result<(), String> {
     if args.existing {
-        if !args.api_key_stdin || args.dev || args.invite_code_stdin {
+        if !args.api_key_stdin || args.dev {
             return Err(
                 "existing connection requires only an environment and API key stdin".into(),
             );
@@ -48,7 +48,7 @@ pub(super) fn run_connect(data_dir: Option<&Path>, args: &BackupConnectArgs) -> 
         _ => return Err("native backup connect requires --env <dev|prod> or --dev".into()),
     };
     let home = data_dir.ok_or("native backup connect requires an explicit --data-dir")?;
-    connect(home, env, args.invite_code_stdin, args.json)
+    connect(home, env, args.json)
 }
 
 fn initialize(
@@ -126,36 +126,31 @@ fn account_from_seed_bytes(seed: &[u8]) -> Result<(Ed25519KeyPair, AccountId), S
     Ok((pair, account_id))
 }
 
-fn connect(home: &Path, env: Environment, invite_stdin: bool, json: bool) -> Result<(), String> {
+fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
     let dir = PreparedHome::open(home)?;
     let seed = dir.seed()?;
     let (pair, account_id) = account_from_seed_bytes(seed.as_ref())?;
-    let emit = |registered: bool| -> Result<(), String> {
-        print_backup(
-            &serde_json::json!({
-                "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": env.as_str(),
-                "account_id": account_id, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
-                "cloud_sync_off": false, "local_store_opened": false,
-                "local_store_read_only": false, "database_writer_opened": false,
-                "registration_attempted": registered, "credentials_saved": true,
-                "api_key_output": false, "restored_home": false, "automatic_backup_enabled": true,
-            }),
-            json,
-        )
+    let emit = |registered: bool, api_key: Option<Zeroizing<String>>| -> Result<(), String> {
+        let mut out = serde_json::json!({
+            "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": env.as_str(),
+            "account_id": account_id, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
+            "cloud_sync_off": false, "local_store_opened": false,
+            "local_store_read_only": false, "database_writer_opened": false,
+            "registration_attempted": registered, "credentials_saved": true,
+            "api_key_output": false, "restored_home": false, "automatic_backup_enabled": true,
+        });
+        attach_prod_payment_guidance(env, &account_id, api_key, &mut out, json);
+        print_backup(&out, json)
     };
     if dir.finish_saved_credentials(env, &account_id)? {
-        return emit(false);
+        let saved_key = lastdb_node::cloud::load_saved_credentials(home)
+            .ok()
+            .flatten()
+            .map(|c| c.api_key);
+        return emit(false, saved_key);
     }
-    let invite = invite_stdin
-        .then(|| read_stdin_no_control(4096, "native enrollment invite"))
-        .transpose()?;
     let device_id = dir.device_id()?;
-    let fut = register_native_device(
-        env,
-        &pair,
-        &device_id,
-        invite.as_deref().map(String::as_str),
-    );
+    let fut = register_native_device(env, &pair, &device_id);
     let (api_key, user_hash) = block_on_cloud("native enrollment", fut).map_err(|e| {
         format!("{e}; registration may have committed; retry only by an explicit request")
     })?;
@@ -165,12 +160,13 @@ fn connect(home: &Path, env: Environment, invite_stdin: bool, json: bool) -> Res
     {
         return Err("native enrollment identity changed; registration may have committed".into());
     }
+    let probe_key = Zeroizing::new(api_key.clone());
     let creds = encode_connected_credentials(env, &account_id, api_key, None)?;
     dir.mark_first_backup()
         .and_then(|()| dir.write_new(PENDING_FILE, &creds))
         .and_then(|()| dir.publish())
         .map_err(|e| format!("{e}; registration may have committed; retain this home"))?;
-    emit(true)
+    emit(true, Some(probe_key))
 }
 
 fn connect_existing(
@@ -235,11 +231,85 @@ fn connect_existing(
         &encoded,
     )
     .map_err(|e| e.to_string())?;
-    print_backup(
-        &serde_json::json!({
-            "ok": true, "environment": env.as_str(), "account_id": account_id,
-            "credentials_saved": true, "registration_attempted": false,
-        }),
-        json,
-    )
+    let mut out = serde_json::json!({
+        "ok": true, "environment": env.as_str(), "account_id": account_id,
+        "credentials_saved": true, "registration_attempted": false,
+    });
+    attach_prod_payment_guidance(env, &account_id, Some(api_key), &mut out, json);
+    print_backup(&out, json)
+}
+
+fn attach_prod_payment_guidance(
+    env: Environment,
+    account_id: &AccountId,
+    api_key: Option<Zeroizing<String>>,
+    output: &mut serde_json::Value,
+    json: bool,
+) {
+    if env != Environment::Prod {
+        return;
+    }
+    let status = api_key.and_then(|api_key| {
+        let session = super::account::CloudSession {
+            env,
+            api_url: exemem_api_url_for(env),
+            api_key,
+            expected_account_id: Some(account_id.as_str().to_owned()),
+        };
+        let (code, body) = block_on_cloud(
+            "payment status",
+            super::account::exchange_json(
+                &session,
+                reqwest::Method::GET,
+                "/api/auth/payments/status",
+                None,
+            ),
+        )
+        .ok()?;
+        ((200..300).contains(&code)
+            && body.get("ok").and_then(serde_json::Value::as_bool) == Some(true))
+        .then(|| {
+            let sub = body
+                .get("status")
+                .and_then(serde_json::Value::as_str)?
+                .trim()
+                .to_owned();
+            let configured = body
+                .get("configured")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true);
+            Some((sub, configured))
+        })
+        .flatten()
+    });
+    let (sub_status, payment_required) = match status {
+        Some((sub, configured)) => {
+            let active = !configured || matches!(sub.as_str(), "active" | "trialing");
+            (Some(sub), !active)
+        }
+        None => (None, true),
+    };
+    if let Some(obj) = output.as_object_mut() {
+        if let Some(sub) = sub_status {
+            obj.insert("subscription_status".into(), serde_json::json!(sub));
+        }
+        obj.insert(
+            "payment_required".into(),
+            serde_json::json!(payment_required),
+        );
+        if payment_required {
+            obj.insert(
+                "next_step".into(),
+                serde_json::json!(
+                    "run 'lastdb cloud payment checkout' to activate prod cloud writes"
+                ),
+            );
+        }
+    }
+    if !json && payment_required {
+        println!(
+            "Note: {} before prod cloud writes can sync.",
+            lastdb_node::cloud::PAYMENT_REQUIRED_MESSAGE
+        );
+    }
 }

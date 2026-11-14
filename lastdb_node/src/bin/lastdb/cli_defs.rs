@@ -39,7 +39,7 @@ pub(crate) enum AdminBackupCommand {
     RecoverCredentialsHome {
         #[command(flatten)]
         args: RecoverCredentialsArgs,
-        #[arg(long, conflicts_with = "invite_code_file")]
+        #[arg(long)]
         existing_dev: bool,
     },
     PrepareRecoveryHome(PrepareRecoveryArgs),

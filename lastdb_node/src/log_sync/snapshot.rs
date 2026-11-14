@@ -205,6 +205,7 @@ pub(crate) fn request(home: &std::path::Path, selector: &str) -> Result<(String,
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let body = format!("snapshot-v1\n{nonce}\n");
     std::fs::remove_file(result_path(home, &selected.id)).ok();
+    std::fs::remove_file(error_path(home, &selected.id)).ok();
     super::disk::write_private(&request_path(home, &selected.id), body.as_bytes())
         .map_err(|_| "cannot save the snapshot request")?;
     Ok((selected.id.clone(), nonce))
@@ -233,6 +234,15 @@ pub(super) fn pending(home: &Path, database: &str) -> bool {
     request_path(home, database).exists()
 }
 
+pub(super) fn fail_pending(home: &Path, database: &str, error: &str) {
+    let path = request_path(home, database);
+    if !path.exists() {
+        return;
+    }
+    let _ = super::disk::write_private(&error_path(home, database), error.as_bytes());
+    let _ = std::fs::remove_file(path);
+}
+
 pub(super) async fn requested(
     host: &Arc<Host>,
     log: &CloudLog,
@@ -244,10 +254,17 @@ pub(super) async fn requested(
         return Ok(());
     };
     let nonce = request_nonce(&request)?;
-    let failure = path.with_file_name("snapshot-error");
+    let failure = error_path(&host.home, log.database_id());
+    std::fs::remove_file(&failure).ok();
     if let Err(error) = publish(host, log, database, Some(&nonce)).await {
+        if error == AWAIT_INCOMING || error == AWAIT_LOCAL_UPLOAD {
+            return Err(error);
+        }
         super::disk::write_private(&failure, error.as_bytes())
             .map_err(|_| "cannot save the snapshot failure")?;
+        if request_bytes(host, log.database_id())?.as_deref() == Some(request.as_slice()) {
+            std::fs::remove_file(path).ok();
+        }
         return Err(error);
     }
     match std::fs::remove_file(failure) {
@@ -293,6 +310,10 @@ fn request_path(home: &std::path::Path, id: &str) -> std::path::PathBuf {
 
 fn result_path(home: &Path, id: &str) -> std::path::PathBuf {
     home.join("log-sync").join(id).join("snapshot-result")
+}
+
+fn error_path(home: &Path, id: &str) -> PathBuf {
+    home.join("log-sync").join(id).join("snapshot-error")
 }
 
 /// Restore the snapshot before booting the isolated destination.

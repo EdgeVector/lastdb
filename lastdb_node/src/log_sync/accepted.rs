@@ -5,16 +5,15 @@
 
 mod position;
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
 use fold_db::schema::types::KeyValue;
 use fold_db::storage::disk_backup::accepted::UploadPosition;
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{
-    AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, MutationLog, Namespace,
-};
+use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Namespace};
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
@@ -30,6 +29,22 @@ use super::retry::{self, Seal};
 use super::{upload, wire};
 
 const PAGE_LIMIT: u32 = 64;
+
+pub(super) fn take_payment_hold(database_id: &str) -> bool {
+    payment_holds().remove(database_id)
+}
+
+fn mark_payment_hold(database_id: &str) {
+    payment_holds().insert(database_id.to_owned());
+}
+
+fn payment_holds() -> std::sync::MutexGuard<'static, HashSet<String>> {
+    static HOLDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    HOLDS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
     let Ok(Some((store, key))) = DatabaseContentKey::local_store(host, log.database_id()) else {
@@ -58,6 +73,9 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
         if let Err(reason) = send_page(host, log, &runtime, &key, &page).await {
             tracing::warn!(target: "lastdbd::log_sync", database_id = %log.database_id(),
                 reason, "pending local writes were retained");
+            if reason == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+                return Err(reason);
+            }
         }
     }
     if private {
@@ -288,42 +306,56 @@ async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> Result<(), &'sta
     if entries.is_empty() {
         return Ok(());
     }
-    let mut log = log.clone();
-    tokio::task::spawn_blocking(move || {
-        // A byte-limited retry must keep its original ciphertext and sequence.
-        let mut pending = vec![entries];
-        while let Some(mut entries) = pending.pop() {
-            let Some(through) = entries.last().map(|entry| entry.writer_seq) else {
-                continue;
-            };
-            let mut batch = AppendBatch {
-                writer: log.reader(),
-                entries,
-                accepted_at_ms: fold_db::clock::unix_millis(),
-            };
-            let body = wire::append_request(&batch).map_err(|_| "invalid local upload batch")?;
-            if body.len() as u64 > CONTROL_JSON_MAX_BYTES {
-                entries = std::mem::take(&mut batch.entries);
-                if entries.len() == 1 {
-                    return Err("signed entry exceeds the request limit");
-                }
-                pending.push(entries.split_off(entries.len() / 2));
-                pending.push(entries);
-                continue;
+    // A byte-limited retry must keep its original ciphertext and sequence.
+    let mut pending = vec![entries];
+    while let Some(mut entries) = pending.pop() {
+        let Some(through) = entries.last().map(|entry| entry.writer_seq) else {
+            continue;
+        };
+        let mut batch = AppendBatch {
+            writer: log.reader(),
+            entries,
+            accepted_at_ms: fold_db::clock::unix_millis(),
+        };
+        let body = wire::append_request(&batch).map_err(|_| "invalid local upload batch")?;
+        if body.len() as u64 > CONTROL_JSON_MAX_BYTES {
+            entries = std::mem::take(&mut batch.entries);
+            if entries.len() == 1 {
+                return Err("signed entry exceeds the request limit");
             }
-            match MutationLog::append(&mut log, batch) {
+            pending.push(entries.split_off(entries.len() / 2));
+            pending.push(entries);
+            continue;
+        }
+        let Ok((status, reply)) = log
+            .post_status_limit(
+                super::paths::APPEND,
+                body,
+                super::http::Proof::Data,
+                super::http::JSON_LIMIT,
+            )
+            .await
+        else {
+            return Err("cloud did not confirm the upload");
+        };
+        if (200..300).contains(&status) {
+            match wire::append_outcome(&reply, &batch) {
                 Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {}
                 Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
-                Err(LogError::Conflict) => {
-                    return Err("cloud already has a different edit at this local writer sequence")
-                }
                 _ => return Err("cloud did not confirm the upload"),
             }
+            continue;
         }
-        Ok(())
-    })
-    .await
-    .map_err(|_| "local upload sender stopped")?
+        if wire::payment_subscription(status, &reply) {
+            mark_payment_hold(log.database_id());
+            return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+        }
+        if wire::service_error(&reply) == Some(LogError::Conflict) {
+            return Err("cloud already has a different edit at this local writer sequence");
+        }
+        return Err("cloud did not confirm the upload");
+    }
+    Ok(())
 }
 
 fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {

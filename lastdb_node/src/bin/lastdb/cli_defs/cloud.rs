@@ -78,8 +78,6 @@ pub(crate) struct RecoverCredentialsArgs {
     #[arg(long, required = true)]
     pub(crate) identity_seed_stdin: bool,
     #[arg(long)]
-    pub(crate) invite_code_file: Option<PathBuf>,
-    #[arg(long)]
     pub(crate) json: bool,
 }
 
@@ -164,7 +162,7 @@ pub(crate) struct BackupConnectArgs {
         conflicts_with_all = ["env", "existing"]
     )]
     pub(crate) dev: bool,
-    #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin"], requires_all = ["env", "api_key_stdin"])]
+    #[arg(long, conflicts_with = "dev", requires_all = ["env", "api_key_stdin"])]
     pub(crate) existing: bool,
     #[arg(
         long,
@@ -177,8 +175,6 @@ pub(crate) struct BackupConnectArgs {
     pub(crate) api_key_stdin: bool,
     #[arg(long, requires = "existing")]
     pub(crate) expected_user_hash: Option<String>,
-    #[arg(long)]
-    pub(crate) invite_code_stdin: bool,
     #[arg(long)]
     pub(crate) json: bool,
 }

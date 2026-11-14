@@ -72,7 +72,7 @@ async fn read(
         return Ok(None);
     }
     if status != 200 {
-        return Err(format!("signed snapshot lookup returned HTTP {status}"));
+        return Err(protocol_failure("signed snapshot lookup", status, &raw));
     }
     let value: Read = serde_json::from_slice(&raw).map_err(|_| "invalid signed snapshot reply")?;
     if value.database_id.as_str() != log.database_id() {
@@ -314,15 +314,24 @@ async fn raw_call(log: &CloudLog, body: &serde_json::Value) -> Result<(u16, Vec<
 
 fn decode_reply(status: u16, response: &[u8]) -> Result<serde_json::Value, String> {
     if !(200..300).contains(&status) {
-        let protocol = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(response)
-            .ok()
-            .map_or_else(
-                || "unknown failure".to_owned(),
-                |error| format!("{:?}", error.code),
-            );
-        return Err(format!(
-            "signed snapshot request returned HTTP {status} {protocol}"
+        return Err(protocol_failure(
+            "signed snapshot request",
+            status,
+            response,
         ));
     }
     serde_json::from_slice(response).map_err(|_| "invalid snapshot response".into())
+}
+
+fn protocol_failure(action: &str, status: u16, response: &[u8]) -> String {
+    if crate::cloud::is_payment_subscription_error(status, response) {
+        return crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned();
+    }
+    let detail = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(response)
+        .ok()
+        .map_or_else(
+            || "unknown failure".to_owned(),
+            |error| format!("{:?} ({})", error.code, error.field),
+        );
+    format!("{action} returned HTTP {status} {detail}")
 }

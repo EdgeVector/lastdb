@@ -22,11 +22,14 @@ const GRANTS_LIMIT: usize = 65_536;
 
 static AUTHORITY_WARNED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
     Reopen,
     Idle,
     Retry,
     Snapshot,
+    Backoff,
+    PaymentHold,
 }
 
 enum Prep {
@@ -57,11 +60,13 @@ pub fn spawn(
 
 async fn one_turn(host: &Arc<Host>) -> Pause {
     let databases = registry::databases(&host.home);
-    let mut pause = if databases.is_empty() {
-        Pause::Idle
-    } else {
-        Pause::Snapshot
-    };
+    let has_received = crate::registered_share::list(&host.home)
+        .map(|shares| shares.iter().any(|share| share.signed_log))
+        .unwrap_or(true);
+    if databases.is_empty() && !has_received {
+        return Pause::Idle;
+    }
+    let mut pause = Pause::PaymentHold;
     for database in &databases {
         let next = native::turn(host, database).await;
         if matches!(next, Pause::Reopen) {
@@ -69,7 +74,10 @@ async fn one_turn(host: &Arc<Host>) -> Pause {
         }
         pause = shorter(pause, next);
     }
-    shorter(pause, received::turn(host).await)
+    if has_received {
+        pause = shorter(pause, received::turn(host).await);
+    }
+    pause
 }
 
 pub(super) async fn open_native(
@@ -94,12 +102,28 @@ pub(super) async fn open_native(
                 super::snapshot::ensure_initial(host, &ready.log, database).await
             };
             if let Err(reason) = snapshot {
+                if reason == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+                    super::snapshot::fail_pending(&host.home, &database.id, &reason);
+                    return native::hold_payment(&database.id);
+                }
                 tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
                 if reason == super::snapshot::AWAIT_INCOMING {
                     return shorter(Pause::Snapshot, run::run_ready(host, *ready).await);
                 }
             }
-            run::run_ready(host, *ready).await
+            let next = run::run_ready(host, *ready).await;
+            if super::accepted::take_payment_hold(&database.id) {
+                super::snapshot::fail_pending(
+                    &host.home,
+                    &database.id,
+                    crate::cloud::PAYMENT_REQUIRED_MESSAGE,
+                );
+                return native::hold_payment(&database.id);
+            }
+            if matches!(next, Pause::Idle) {
+                native::clear_hold(&database.id);
+            }
+            next
         }
     }
 }
@@ -163,6 +187,8 @@ fn pause_rank(pause: &Pause) -> u8 {
         Pause::Idle => 1,
         Pause::Retry => 2,
         Pause::Snapshot => 3,
+        Pause::Backoff => 4,
+        Pause::PaymentHold => 5,
     }
 }
 
@@ -178,6 +204,8 @@ async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
         Pause::Idle => 1,
         Pause::Retry => 5,
         Pause::Snapshot => 30,
+        Pause::Backoff => 60,
+        Pause::PaymentHold => 300,
     };
     for _ in 0..seconds {
         if shutdown.load(Ordering::Acquire) {

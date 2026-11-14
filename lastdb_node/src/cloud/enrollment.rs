@@ -95,7 +95,6 @@ pub async fn register_native_device(
     environment: Environment,
     keypair: &Ed25519KeyPair,
     device_id: &str,
-    invite_code: Option<&str>,
 ) -> Result<(String, String), String> {
     let parsed =
         uuid::Uuid::parse_str(device_id).map_err(|_| "invalid native registration device ID")?;
@@ -109,10 +108,7 @@ pub async fn register_native_device(
     let sig = fold_db::security::KeyUtils::signature_to_base64(
         &keypair.sign(format!("{pub_hex}:{ts}").as_bytes()),
     );
-    let mut body = serde_json::json!({ "public_key": pub_hex, "timestamp": ts, "signature": sig, "device_id": device_id });
-    if let Some(code) = invite_code {
-        body["invite_code"] = serde_json::Value::String(code.to_owned());
-    }
+    let body = serde_json::json!({ "public_key": pub_hex, "timestamp": ts, "signature": sig, "device_id": device_id });
     let url = https(&format!(
         "{}/api/auth/cli/register",
         exemem_api_url_for(environment)
