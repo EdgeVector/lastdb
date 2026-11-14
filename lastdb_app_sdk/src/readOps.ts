@@ -14,6 +14,7 @@ import {
 import { QueryPaginationError } from './errors.js';
 import { parseListResponse, parseQueryResponse } from './responseParsers.js';
 import type {
+  JsonValue,
   ListOptions,
   ListResult,
   QueryAllOptions,
@@ -76,7 +77,7 @@ export async function executeGet(
   key: RecordKeyInput,
 ): Promise<QueryRow | null> {
   const normalized = normalizeRecordKeyInput(key, 'get');
-  const filter =
+  const filter: JsonValue =
     normalized.range !== null
       ? { HashRangeKey: { hash: normalized.hash, range: normalized.range } }
       : { HashKey: normalized.hash };

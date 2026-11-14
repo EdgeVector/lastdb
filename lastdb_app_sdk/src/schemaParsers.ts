@@ -105,7 +105,7 @@ export function resolveLoadedSchema(
       matches,
     );
   }
-  return matches[0]!;
+  return matches[0] ?? null;
 }
 
 export function parseLoadedSchema(schema: Record<string, JsonValue>): LoadedSchema {
