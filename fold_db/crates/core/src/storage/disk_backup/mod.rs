@@ -1,10 +1,6 @@
-//! Byte backup, mutation log, restore proof, and the native cloud work guard.
-//! Backup V2 is a separate module. The disk home opens format v2 run files.
+//! Accepted mutation log, database snapshots, and the native cloud work guard.
 
 pub mod accepted;
-pub mod byte_backup;
-pub mod mutation_log;
-pub mod run_restore;
 pub mod snapshot;
 
 use crate::storage::error::{StorageError, StorageResult};

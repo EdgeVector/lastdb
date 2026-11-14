@@ -22,4 +22,4 @@ pub use crate::schema::SchemaState;
 pub use lastdb_model::{
     canonical, hex, portable_mutation, record_replacement, record_value, storage_policy,
 };
-pub use storage::{cloud_backup_plan, DatabaseConfig};
+pub use storage::DatabaseConfig;

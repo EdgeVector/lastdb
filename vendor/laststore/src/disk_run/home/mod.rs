@@ -2,23 +2,27 @@
 
 mod cleanup;
 mod commit;
+mod compaction;
+mod diagnostics;
 mod manifest;
 mod range;
 mod read;
+mod snapshot;
 
-pub use cleanup::{CheckpointKind, MAX_CAS_DELETE_CHECKPOINT_BYTES};
+pub use cleanup::CheckpointSpec;
 pub use commit::{HomeMutation, RunCommit};
+pub use diagnostics::{LogicalInventory, RunHomeDiagnostics};
 pub use manifest::{CURRENT, RUNS};
 pub use range::{RunHashRange, RunRangePage};
-pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot, RunSnapshot};
+pub use read::{ReadBudget, RunRead, RunReadCosts};
+pub use snapshot::{RunRoot, RunSnapshot};
 
 use super::codec::corrupt;
-use super::{count_merged_keys, MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
+use super::{MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
 use rustix::fs::{FlockOperation, OFlags};
-use serde::Serialize;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -26,16 +30,11 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
-use std::time::Instant;
 use uuid::Uuid;
 
 const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
-pub(super) const NODE_CLEANUP: &str = "NODE_CLEANUP";
-pub(super) const CAS_DELETE: &str = "CAS_DELETE";
-/// Directory of the home owner's mutation log, beside `runs/`.
-pub const MUTATION_LOG_DIR: &str = "mutation-log-v1";
 /// Directory of the home owner's cloud backup: the capture source and the run holds.
 pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
@@ -44,63 +43,50 @@ pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 pub(super) fn invalid(msg: &str) -> Error {
     Error::Config(msg.into())
 }
-pub(super) fn unpoison<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+
+pub(super) fn unpoison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub(super) fn require_path(root: &Path, lock: &File) -> Result<()> {
-    let (h, c) = (lock.metadata()?, fs::symlink_metadata(root.join(LOCK))?);
-    (c.is_file() && (h.dev(), h.ino()) == (c.dev(), c.ino()))
+    let (held, cur) = (lock.metadata()?, fs::symlink_metadata(root.join(LOCK))?);
+    (cur.is_file() && (held.dev(), held.ino()) == (cur.dev(), cur.ino()))
         .then_some(())
         .ok_or_else(|| invalid("disk run home: owner lock moved"))
 }
 
 pub(super) fn read_descriptor(path: &Path) -> Result<Uuid> {
-    let (mut f, mut b) = (File::open(path)?, [0u8; 64]);
-    if f.metadata()?.len() != 64 {
+    let (mut file, mut buf) = (File::open(path)?, [0u8; 64]);
+    if file.metadata()?.len() != 64 {
         return Err(corrupt("home descriptor length"));
     }
-    f.read_exact(&mut b)?;
-    let crc = u32::from_le_bytes(b[60..].try_into().unwrap());
-    if &b[..8] != DESCRIPTOR_MAGIC || b[8..12] != [1, 0, 0, 0] || crc != crc32fast::hash(&b[..60]) {
+    file.read_exact(&mut buf)?;
+    let crc = u32::from_le_bytes(buf[60..].try_into().unwrap());
+    if &buf[..8] != DESCRIPTOR_MAGIC
+        || buf[8..12] != [1, 0, 0, 0]
+        || crc != crc32fast::hash(&buf[..60])
+    {
         return Err(corrupt("unsupported home descriptor"));
     }
-    let id = Uuid::from_slice(&b[16..32]).unwrap();
+    let id = Uuid::from_slice(&buf[16..32]).unwrap();
     (!id.is_nil())
         .then_some(id)
         .ok_or_else(|| corrupt("nil home identity"))
 }
 
-/// A complete newest-key inventory, or an explicitly partial prefix after an audit cap.
-#[derive(Debug, Serialize)]
-pub struct LogicalInventory {
-    /// True only after every selected run record enters the merge.
-    pub complete: bool,
-    /// Distinct newest keys counted, including live keys and tombstones.
-    pub merged_keys: u64,
-}
-
-/// Published root coordinates and optional logical key inventory for diagnostics.
-#[derive(Debug, Serialize)]
-pub struct RunHomeDiagnostics {
-    /// Generation of the captured published root.
-    pub generation: u64,
-    /// Complete-commit frontier of the captured published root.
-    pub frontier: u64,
-    /// Optional newest-key inventory.
-    pub inventory: Option<LogicalInventory>,
-}
-
 /// An open v2 home. One process owns it; reads and writes share it.
 pub struct RunHome {
-    paths: (PathBuf, PathBuf),
-    key: [u8; 32],
-    identity: Uuid,
-    current: RwLock<Arc<Manifest>>,
-    locks: (Mutex<()>, Mutex<()>, Mutex<()>),
+    pub(super) root_dir: PathBuf,
+    pub(super) runs_dir: PathBuf,
+    pub(super) key: [u8; 32],
+    pub(super) identity: Uuid,
+    pub(super) current: RwLock<Arc<Manifest>>,
+    pub(super) commit_mutex: Mutex<()>,
+    pub(super) publish_mutex: Mutex<()>,
+    pub(super) merge_mutex: Mutex<()>,
     retired: Mutex<Vec<Weak<RunFile>>>,
-    poisoned: AtomicBool,
-    lock: Arc<File>,
+    pub(super) poisoned: AtomicBool,
+    pub(super) lock: Arc<File>,
 }
 
 impl RunHome {
@@ -151,8 +137,8 @@ impl RunHome {
 
     /// Open an existing home, take its owner lock, and remove crash leftovers.
     pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        let root = root.canonicalize()?;
-        let identity = read_descriptor(&root.join(RUN_HOME_MARKER))?;
+        let root_dir = root.canonicalize()?;
+        let identity = read_descriptor(&root_dir.join(RUN_HOME_MARKER))?;
         let flags = (OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32;
         let mut opts = OpenOptions::new();
         opts.create(true)
@@ -160,35 +146,38 @@ impl RunHome {
             .write(true)
             .mode(0o600)
             .custom_flags(flags);
-        let lock = opts.open(root.join(LOCK))?;
+        let lock = opts.open(root_dir.join(LOCK))?;
         match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => require_path(&root, &lock)?,
+            Ok(()) => require_path(&root_dir, &lock)?,
             Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
-                return Err(invalid("disk run home: another owner holds the home"))
+                return Err(Error::HomeBusy(
+                    "disk run home: another owner holds the home".into(),
+                ))
             }
             Err(e) => return Err(std::io::Error::from(e).into()),
         }
-        let manifest = Manifest::load(&root, key, identity, None)?;
-        for e in fs::read_dir(&root)? {
-            let e = e?;
-            let s = e.file_name().to_string_lossy().into_owned();
-            let tmp = [CURRENT, NODE_CLEANUP, CAS_DELETE]
-                .iter()
-                .any(|f| s.starts_with(&format!(".{f}.")));
-            if s.ends_with(".tmp") && tmp {
-                fs::remove_file(e.path())?;
+        let manifest = Manifest::load(&root_dir, key, identity, None)?;
+        for entry in fs::read_dir(&root_dir)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let text = name.to_string_lossy();
+            if text.starts_with('.') && text.ends_with(".tmp") && entry.file_type()?.is_file() {
+                fs::remove_file(entry.path())?;
             }
         }
-        let runs = root.join(RUNS);
-        let keep = manifest.newest_first().map(|r| r.0 .0).collect();
-        sweep_runs(&runs, &keep, usize::MAX)?;
+        let runs_dir = root_dir.join(RUNS);
+        let keep = manifest.newest_first().map(|r| r.meta.id).collect();
+        sweep_runs(&runs_dir, &keep, usize::MAX)?;
         manifest.verify_files("a run that CURRENT names has the wrong size")?;
         Ok(Self {
-            paths: (root, runs),
+            root_dir,
+            runs_dir,
             key: *key,
             identity,
             current: RwLock::new(Arc::new(manifest)),
-            locks: Default::default(),
+            commit_mutex: Mutex::new(()),
+            publish_mutex: Mutex::new(()),
+            merge_mutex: Mutex::new(()),
             retired: Mutex::default(),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
@@ -197,12 +186,14 @@ impl RunHome {
 
     /// The home's directory.
     pub fn path(&self) -> &Path {
-        &self.paths.0
+        &self.root_dir
     }
+
     /// The home identity from its descriptor.
     pub fn identity(&self) -> Uuid {
         self.identity
     }
+
     /// True after a failed publish or a poisoned commit or publication lock.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.load(Ordering::Acquire)
@@ -210,59 +201,33 @@ impl RunHome {
 
     /// Tiered run count, merging run count, and total active run file bytes.
     pub fn run_totals(&self) -> (usize, usize, u64) {
-        let h = self.held();
+        let held = self.held();
         (
-            h.tiered().count(),
-            h.merging.len(),
-            h.newest_first().map(|r| r.0 .1[4]).sum(),
+            held.tiered().count(),
+            held.merging.len(),
+            held.newest_first().map(|r| r.meta.file_bytes).sum(),
         )
     }
 
     /// File bytes of replaced runs still held by an active root or read.
     pub fn retired_bytes(&self) -> u64 {
-        self.live_retired().1.iter().map(|f| f.0 .1[4]).sum()
+        self.live_retired()
+            .1
+            .iter()
+            .map(|f| f.meta.file_bytes)
+            .sum()
     }
 
-    fn live_retired(&self) -> (usize, Vec<Arc<RunFile>>) {
-        let mut r = unpoison(&self.retired);
-        r.retain(|w| w.strong_count() > 0);
-        (r.len(), r.iter().filter_map(Weak::upgrade).collect())
+    pub(super) fn live_retired(&self) -> (usize, Vec<Arc<RunFile>>) {
+        let mut retired = unpoison(&self.retired);
+        retired.retain(|w| w.strong_count() > 0);
+        (
+            retired.len(),
+            retired.iter().filter_map(Weak::upgrade).collect(),
+        )
     }
 
-    /// Capture isolated storage diagnostics for the current published root.
-    pub fn diagnostics(&self, with_inv: bool, deadline: Instant) -> Result<RunHomeDiagnostics> {
-        if !crate::diagnostics_enabled() {
-            return Err(invalid(
-                "storage diagnostics require an isolated timing capture",
-            ));
-        }
-        let root = {
-            let (_c, _m) = (unpoison(&self.locks.0), unpoison(&self.locks.2));
-            self.refuse_if_poisoned()?;
-            self.held()
-        };
-        let inventory = with_inv.then(|| {
-            let runs: Vec<_> = root
-                .tiered()
-                .chain(&root.merging)
-                .map(|r| r.1.clone())
-                .collect();
-            let base = root.base.iter().map(|r| r.1.clone()).collect();
-            let (complete, merged_keys) =
-                count_merged_keys(&self.key, root.retained_bytes(), &runs, base, deadline);
-            LogicalInventory {
-                complete,
-                merged_keys,
-            }
-        });
-        Ok(RunHomeDiagnostics {
-            generation: root.generation,
-            frontier: root.frontier,
-            inventory,
-        })
-    }
-
-    fn next_manifest(&self, bump_frontier: bool) -> Result<Manifest> {
+    pub(super) fn next_manifest(&self, bump_frontier: bool) -> Result<Manifest> {
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         let ovf = || Error::WriteCapacity("disk run home: generation counter is full".into());
@@ -273,9 +238,13 @@ impl RunHome {
         Ok(next)
     }
 
-    fn install_merge(&self, next: Manifest, space: &MergeSpace) -> Result<Arc<Manifest>> {
+    pub(super) fn install_merge(
+        &self,
+        next: Manifest,
+        space: &MergeSpace,
+    ) -> Result<Arc<Manifest>> {
         let res = next
-            .stage(&self.paths.0, &self.key, Some(space))
+            .stage(&self.root_dir, &self.key, Some(space))
             .and_then(|s| self.publish_staged(next, &s));
         if res.is_ok() || self.is_poisoned() {
             space.keep_outputs();
@@ -283,14 +252,16 @@ impl RunHome {
         res
     }
 
-    fn retire_runs(&self, runs: &[Arc<RunFile>]) {
-        runs.iter().for_each(|r| r.retire());
-        let mut r = unpoison(&self.retired);
-        r.retain(|w| w.strong_count() > 0);
-        r.extend(runs.iter().map(Arc::downgrade));
+    pub(super) fn retire_runs(&self, runs: &[Arc<RunFile>]) {
+        for run in runs {
+            run.retire();
+        }
+        let mut retired = unpoison(&self.retired);
+        retired.retain(|w| w.strong_count() > 0);
+        retired.extend(runs.iter().map(Arc::downgrade));
     }
 
-    fn held(&self) -> Arc<Manifest> {
+    pub(super) fn held(&self) -> Arc<Manifest> {
         Arc::clone(&self.current.read().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -340,12 +311,12 @@ pub(super) fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Resul
         }
         let entry = entry?;
         let name = entry.file_name();
-        let s = name.to_string_lossy();
-        let orphan = s
+        let text = name.to_string_lossy();
+        let orphan = text
             .strip_suffix(RUN_SUFFIX)
             .and_then(|id| Uuid::parse_str(id).ok())
             .is_some_and(|id| !keep.contains(&id))
-            || (s.starts_with('.') && s.ends_with(".tmp"));
+            || (text.starts_with('.') && text.ends_with(".tmp"));
         if orphan {
             match fs::remove_file(entry.path()) {
                 Ok(()) => removed += 1,
@@ -359,9 +330,9 @@ pub(super) fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Resul
 
 pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut opts = OpenOptions::new();
-    let mut f = opts.write(true).create_new(true).mode(0o600).open(path)?;
-    f.write_all(bytes)
+    let mut file = opts.write(true).create_new(true).mode(0o600).open(path)?;
+    file.write_all(bytes)
         .map_err(Error::from)
-        .and_then(|()| sync_dirty_file(&f))
+        .and_then(|()| sync_dirty_file(&file))
         .inspect_err(|_| drop(fs::remove_file(path)))
 }
