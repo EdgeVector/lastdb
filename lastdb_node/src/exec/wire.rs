@@ -14,7 +14,7 @@ const LIMIT_REMEDIATION: &str =
     r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::exec) enum RejectKind {
+pub(crate) enum RejectKind {
     MalformedBody,
     MissingRequiredKey,
     InvalidValue,
@@ -22,7 +22,7 @@ pub(in crate::exec) enum RejectKind {
 }
 
 impl RejectKind {
-    pub(in crate::exec) const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::MalformedBody => "malformed_body",
             Self::MissingRequiredKey => "missing_required_key",
@@ -43,7 +43,7 @@ impl RejectKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reject {
-    pub(in crate::exec) kind: RejectKind,
+    pub(crate) kind: RejectKind,
     key: Option<(&'static str, &'static str)>,
 }
 
@@ -181,7 +181,7 @@ pub(in crate::exec) fn body_object(req: &UdsRequest) -> Result<Map<String, Value
     }
 }
 
-pub(in crate::exec) struct QueryRequest {
+pub(crate) struct QueryRequest {
     pub(in crate::exec) query: Query,
     pub(in crate::exec) limit: Option<usize>,
     pub(in crate::exec) offset: Option<usize>,
@@ -189,9 +189,7 @@ pub(in crate::exec) struct QueryRequest {
     pub(in crate::exec) response_format: QueryResponseFormat,
 }
 
-pub(in crate::exec) fn parse_query_body(
-    mut obj: Map<String, Value>,
-) -> Result<QueryRequest, UdsResponse> {
+pub(crate) fn parse_query_body(mut obj: Map<String, Value>) -> Result<QueryRequest, UdsResponse> {
     let bad = |n, r| Reject::kv(RejectKind::InvalidValue, n, r).response();
     let take_num = |m: &mut Map<String, Value>, n: &'static str, r: &'static str| match m.remove(n)
     {

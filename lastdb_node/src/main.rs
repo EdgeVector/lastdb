@@ -8,9 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use lastdb_node::exec::UdsServer;
 use lastdb_node::host::{self, Host};
-use lastdb_node::lastdb_uds::{self, UdsServer, UdsSocket, UdsWorkerPool};
-use lastdb_node::{cloud, exec, jobs, log_sync};
+use lastdb_node::lastdb_uds::{self, UdsSocket, UdsWorkerPool};
+use lastdb_node::{cloud, jobs, log_sync};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
@@ -53,11 +54,7 @@ fn spawn_background(
         ("log sync", sync),
         (
             "saved queries",
-            jobs::saved_query::spawn(
-                Arc::clone(host),
-                Arc::clone(stop),
-                exec::reconcile_saved_query_catalog,
-            ),
+            jobs::saved_query::spawn(Arc::clone(host), Arc::clone(stop)),
         ),
     ]
 }
@@ -179,8 +176,7 @@ fn serve_node(
         absolute_max = cl::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
         "peer field value size limit"
     );
-    let handler = Arc::new(exec::HostUdsHandler::new(Arc::clone(&host)));
-    let server = UdsServer::new(handler, rt.handle().clone(), pool.clone());
+    let server = UdsServer::new(Arc::clone(&host), rt.handle().clone(), pool.clone());
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
     let accept_err = server.serve(&socket, &stop);
     stop.store(true, Ordering::Release);

@@ -50,7 +50,6 @@ tokio-util = { version = "0.7", features = ["io"] }
 futures = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-async-trait = { workspace = true }
 libc = "0.2"
 dirs = "6"
 signal-hook-registry = "1"

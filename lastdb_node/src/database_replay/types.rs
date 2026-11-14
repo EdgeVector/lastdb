@@ -3,7 +3,6 @@
 //! Parsers live in [`super::wire`]. This module does not open a socket and
 //! does not acknowledge a delivery cursor.
 
-use async_trait::async_trait;
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::CloudScope;
 
@@ -98,17 +97,6 @@ pub struct SnapshotFileRequest {
     pub scope: CloudScope,
     /// Blob path from the record payload.
     pub path: BlobPath,
-}
-
-/// Reads one uploaded file envelope. E implements this.
-///
-/// `read_blob` returns bytes only when `request.scope` is the publisher
-/// account on the upload receipt for `request.path`. A clear, an inline
-/// file, and a content hash with no object do not use this source.
-#[async_trait]
-pub trait SnapshotFileSource: Send {
-    /// Return the stored envelope. The bytes are not plaintext.
-    async fn read_blob(&mut self, request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError>;
 }
 
 /// Static install failure. The text is a class, never record bytes or a path.

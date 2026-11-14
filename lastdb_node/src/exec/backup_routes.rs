@@ -34,17 +34,20 @@ pub(super) async fn backup_snapshot(
             }
             cloud_backup_protocol::Id::try_from(db.clone())
                 .map_err(|e| HostError::new(400, e.to_string()))?;
-            return Ok(
-                match crate::log_sync::snapshot_completed(&host.home, &db, &nonce) {
-                    Some((through, entries)) => json!({
-                        "ready": true,
-                        "snapshot_through": through,
-                        "log_head": through,
-                        "log_entries": entries,
-                    }),
-                    None => json!({ "ready": false }),
-                },
-            );
+            if let Some((through, entries)) =
+                crate::log_sync::snapshot_completed(&host.home, &db, &nonce)
+            {
+                return Ok(json!({
+                    "ready": true,
+                    "snapshot_through": through,
+                    "log_head": through,
+                    "log_entries": entries,
+                }));
+            }
+            return Ok(match crate::log_sync::snapshot_error(&host.home, &db) {
+                Some(error) => json!({ "ready": false, "error": error }),
+                None => json!({ "ready": false }),
+            });
         }
         let b: Body = serde_json::from_slice(&req.body)
             .map_err(|e| HostError::new(400, format!("invalid /api/backup/snapshot body: {e}")))?;

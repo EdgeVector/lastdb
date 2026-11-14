@@ -46,20 +46,18 @@ pub(in crate::exec) async fn batch_route(
     }
 }
 
-pub fn execute_deferred_mutation<'a>(
+pub(in crate::exec) async fn execute_deferred_mutation(
     route: DataRoute,
-    req: &'a UdsRequest,
-    ctx: &'a AccessContext,
-    host: &'a Host,
-) -> ErasedRoute<'a> {
-    Box::pin(async move {
-        let work = match route {
-            DataRoute::Mutation => heap_route!(mutation_route, req, ctx, host),
-            DataRoute::MutationBatch => heap_route!(batch_route, req, ctx, host),
-            _ => return content_free(404, "Not Found"),
-        };
-        with_handler_timeout_budget(ctx, data_route_budget(route), work).await
-    })
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    let work = match route {
+        DataRoute::Mutation => heap_route!(mutation_route, req, ctx, host),
+        DataRoute::MutationBatch => heap_route!(batch_route, req, ctx, host),
+        _ => return content_free(404, "Not Found"),
+    };
+    with_handler_timeout_budget(ctx, data_route_budget(route), work).await
 }
 
 async fn stamp_and_validate(
@@ -77,7 +75,7 @@ async fn stamp_and_validate(
     Ok(())
 }
 
-pub(in crate::exec) async fn commit_parsed_mutation(
+pub(crate) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {

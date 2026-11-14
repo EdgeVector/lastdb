@@ -1,6 +1,5 @@
 //! FoldDB Core — embedded database coordinator and lifecycle.
 
-use async_trait as _;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;

@@ -12,12 +12,11 @@ use cloud_backup_protocol::{DecimalU64, Digest, Id};
 use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard, PackRuntime};
 use serde::{Deserialize, Serialize};
 
-use crate::host::owned;
-use crate::host::owned::Resolved;
-use crate::host::Host;
-use fold_db::crypto::E2eKeys;
-use fold_db::security::Ed25519KeyPair;
-use fold_db::storage::StorageError;
+use crate::host::{
+    owned::{self, Resolved},
+    Host,
+};
+use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair, storage::StorageError};
 use zeroize::Zeroizing;
 
 use super::{cloud::CloudLog, registry, session};
@@ -84,16 +83,15 @@ async fn publish(
     .map_err(|_| "snapshot inventory stopped")??;
     let manifest = Manifest {
         through: DecimalU64::new(through),
-        name: if database.native {
-            Some(
+        name: database
+            .native
+            .then(|| {
                 database
                     .name
                     .clone()
-                    .ok_or("snapshot database has no local name")?,
-            )
-        } else {
-            None
-        },
+                    .ok_or("snapshot database has no local name")
+            })
+            .transpose()?,
         upload_id: Id::try_from(uuid::Uuid::new_v4().to_string())
             .map_err(|error| error.to_string())?,
         files,
@@ -189,13 +187,16 @@ fn remember(
     };
     let report =
         format!("through={through}\nhead={through}\nlog_entries={entries}\nrequest={nonce}\n");
-    super::disk::write_private(&result_path(home, database), report.as_bytes())
-        .map_err(|_| "cannot record the signed snapshot read")?;
+    super::disk::write_private(
+        &sync_file(home, database, "snapshot-result"),
+        report.as_bytes(),
+    )
+    .map_err(|_| "cannot record the signed snapshot read")?;
     Ok(())
 }
 
 /// Queue a direct cloud snapshot of one owned database.
-pub(crate) fn request(home: &std::path::Path, selector: &str) -> Result<(String, String), String> {
+pub(crate) fn request(home: &Path, selector: &str) -> Result<(String, String), String> {
     let databases = registry::databases(home);
     let selected = databases
         .iter()
@@ -204,15 +205,18 @@ pub(crate) fn request(home: &std::path::Path, selector: &str) -> Result<(String,
     Id::try_from(selected.id.clone()).map_err(|e| e.to_string())?;
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let body = format!("snapshot-v1\n{nonce}\n");
-    std::fs::remove_file(result_path(home, &selected.id)).ok();
-    std::fs::remove_file(error_path(home, &selected.id)).ok();
-    super::disk::write_private(&request_path(home, &selected.id), body.as_bytes())
-        .map_err(|_| "cannot save the snapshot request")?;
+    std::fs::remove_file(sync_file(home, &selected.id, "snapshot-result")).ok();
+    std::fs::remove_file(sync_file(home, &selected.id, "snapshot-error")).ok();
+    super::disk::write_private(
+        &sync_file(home, &selected.id, "snapshot-request"),
+        body.as_bytes(),
+    )
+    .map_err(|_| "cannot save the snapshot request")?;
     Ok((selected.id.clone(), nonce))
 }
 
 pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string(result_path(home, database)).ok()?;
+    let text = std::fs::read_to_string(sync_file(home, database, "snapshot-result")).ok()?;
     let (mut through, mut head, mut entries, mut request) = (None, None, None, None);
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("through=") {
@@ -230,16 +234,26 @@ pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64
     (through == head && request == Some(nonce)).then_some((through?, entries?))
 }
 
+pub(crate) fn error(home: &Path, database: &str) -> Option<String> {
+    let text = std::fs::read_to_string(sync_file(home, database, "snapshot-error")).ok()?;
+    let trimmed = text.trim();
+    (!trimmed.is_empty() && trimmed != AWAIT_INCOMING && trimmed != AWAIT_LOCAL_UPLOAD)
+        .then(|| trimmed.to_owned())
+}
+
 pub(super) fn pending(home: &Path, database: &str) -> bool {
-    request_path(home, database).exists()
+    sync_file(home, database, "snapshot-request").exists()
 }
 
 pub(super) fn fail_pending(home: &Path, database: &str, error: &str) {
-    let path = request_path(home, database);
+    let path = sync_file(home, database, "snapshot-request");
     if !path.exists() {
         return;
     }
-    let _ = super::disk::write_private(&error_path(home, database), error.as_bytes());
+    let _ = super::disk::write_private(
+        &sync_file(home, database, "snapshot-error"),
+        error.as_bytes(),
+    );
     let _ = std::fs::remove_file(path);
 }
 
@@ -248,13 +262,13 @@ pub(super) async fn requested(
     log: &CloudLog,
     database: &registry::Database,
 ) -> Result<(), String> {
-    let path = request_path(&host.home, log.database_id());
-    let request = request_bytes(host, log.database_id())?;
-    let Some(request) = request else {
+    let id = log.database_id();
+    let path = sync_file(&host.home, id, "snapshot-request");
+    let Some(request) = request_bytes(host, id)? else {
         return Ok(());
     };
     let nonce = request_nonce(&request)?;
-    let failure = error_path(&host.home, log.database_id());
+    let failure = sync_file(&host.home, id, "snapshot-error");
     std::fs::remove_file(&failure).ok();
     if let Err(error) = publish(host, log, database, Some(&nonce)).await {
         if error == AWAIT_INCOMING || error == AWAIT_LOCAL_UPLOAD {
@@ -262,7 +276,7 @@ pub(super) async fn requested(
         }
         super::disk::write_private(&failure, error.as_bytes())
             .map_err(|_| "cannot save the snapshot failure")?;
-        if request_bytes(host, log.database_id())?.as_deref() == Some(request.as_slice()) {
+        if request_bytes(host, id)?.as_deref() == Some(request.as_slice()) {
             std::fs::remove_file(path).ok();
         }
         return Err(error);
@@ -272,14 +286,14 @@ pub(super) async fn requested(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err("cannot clear the previous snapshot failure".into()),
     }
-    if request_bytes(host, log.database_id())?.as_deref() == Some(request.as_slice()) {
+    if request_bytes(host, id)?.as_deref() == Some(request.as_slice()) {
         std::fs::remove_file(path).map_err(|_| "cannot retire the completed snapshot request")?;
     }
     Ok(())
 }
 
 fn request_bytes(host: &Host, database: &str) -> Result<Option<Vec<u8>>, String> {
-    super::disk::read_limited(&request_path(&host.home, database), 64)
+    super::disk::read_limited(&sync_file(&host.home, database, "snapshot-request"), 64)
         .map_err(|_| "cannot read snapshot request".into())
 }
 
@@ -304,16 +318,8 @@ fn request_nonce(bytes: &[u8]) -> Result<String, String> {
 
 const LOG_ENTRY_REPORT_CAP: u64 = 9;
 
-fn request_path(home: &std::path::Path, id: &str) -> std::path::PathBuf {
-    home.join("log-sync").join(id).join("snapshot-request")
-}
-
-fn result_path(home: &Path, id: &str) -> std::path::PathBuf {
-    home.join("log-sync").join(id).join("snapshot-result")
-}
-
-fn error_path(home: &Path, id: &str) -> PathBuf {
-    home.join("log-sync").join(id).join("snapshot-error")
+fn sync_file(home: &Path, id: &str, name: &str) -> PathBuf {
+    home.join("log-sync").join(id).join(name)
 }
 
 /// Restore the snapshot before booting the isolated destination.
@@ -362,7 +368,11 @@ async fn install_base(
     manifest: &Manifest,
 ) -> Result<RestoredBase, String> {
     let name = manifest.name.as_deref();
-    let data = data_path(home, database, name.is_some());
+    let data = if name.is_some() {
+        home.join("databases").join(database.as_str()).join("data")
+    } else {
+        home.join("data")
+    };
     if let Some(parent) = data.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -373,14 +383,6 @@ async fn install_base(
         name: name.unwrap_or("personal").to_owned(),
         member_revision: log.member_revision,
     })
-}
-
-fn data_path(home: &Path, database: &Id, named: bool) -> PathBuf {
-    if named {
-        home.join("databases").join(database.as_str()).join("data")
-    } else {
-        home.join("data")
-    }
 }
 
 /// A cloud-delivery position whose database files were installed locally.

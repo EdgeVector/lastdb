@@ -1,36 +1,165 @@
-//! In-process store contract and listed-database metadata for saved-query execution.
+//! Concrete in-process store handle and listed-database metadata for saved-query execution.
 
 use std::future::Future;
-use std::pin::Pin;
+use std::sync::Arc;
 
-use serde_json::Value;
+use fold_db::fold_db_core::FoldDB;
+use fold_db::schema::types::KeyValue;
+use serde_json::{json, Value};
 
-pub(crate) type StoreFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send + 'a>>;
+use crate::exec;
+use crate::host::owned::Resolved;
+use crate::host::Host;
+use crate::lastdb_uds::uds_http::UdsRequest;
 
-pub(crate) trait QueryStore: Sync {
-    type Db: Send + Sync;
+pub(super) struct TargetStore<'a> {
+    host: &'a Host,
+    db: Option<Arc<FoldDB>>,
+}
 
-    fn list(&self) -> Result<Vec<Value>, String>;
-    fn database(&self, selector: &str) -> Result<Self::Db, String>;
-    fn schema<'a>(&'a self, db: &'a Self::Db, name: &'a str) -> StoreFuture<'a, Value>;
-    fn declare<'a>(&'a self, db: &'a Self::Db, body: &'a Value) -> StoreFuture<'a, Value>;
-    fn query<'a>(
-        &'a self,
-        db: &'a Self::Db,
-        schema: &'a str,
-        filter: &'a Value,
-    ) -> StoreFuture<'a, Vec<Value>>;
-    fn mutate<'a>(&'a self, db: &'a Self::Db, body: &'a Value) -> StoreFuture<'a, Value>;
-    fn fetch_file<'a>(
-        &'a self,
-        db: &'a Self::Db,
-        schema: &'a str,
-        hash: &'a str,
-        range: Option<&'a str>,
-        placement: &'a str,
-    ) -> StoreFuture<'a, (String, Vec<u8>)>;
-    fn put_file<'a>(&'a self, db: &'a Self::Db, body: &'a Value) -> StoreFuture<'a, Value>;
-    fn delete_file<'a>(&'a self, db: &'a Self::Db, body: &'a Value) -> StoreFuture<'a, Value>;
+pub(super) fn list_databases(host: &Host) -> Result<Vec<Value>, String> {
+    exec::list_database_rows(host).map_err(|e| format_err(&e))
+}
+
+impl<'a> TargetStore<'a> {
+    pub(super) fn open(host: &'a Host, selector: &str) -> Result<Self, String> {
+        if !crate::lastdb_uds::valid_selector(selector) {
+            return Err("invalid database ID or name".into());
+        }
+        let db = if selector == "personal" {
+            None
+        } else {
+            match host.owned.resolve(selector) {
+                Ok((Resolved::Owner, _)) => None,
+                Ok((Resolved::Owned, Some(store))) => Some(store),
+                Ok((Resolved::Owned, None) | (Resolved::Absent, Some(_))) => {
+                    return Err("database registry is unavailable".into());
+                }
+                Ok((Resolved::Absent, None)) => {
+                    return Err("database is not registered on this node".into());
+                }
+                Err(error) => return Err(error.status().1.to_owned()),
+            }
+        };
+        Ok(Self { host, db })
+    }
+}
+
+impl TargetStore<'_> {
+    async fn run<T>(&self, fut: impl Future<Output = T>) -> T {
+        match &self.db {
+            None => fut.await,
+            Some(store) => self.host.with_records(Arc::clone(store), fut).await,
+        }
+    }
+
+    pub(super) async fn schema(&self, name: &str) -> Result<Value, String> {
+        self.run(async {
+            exec::get_schema_value(self.host, name).map_err(|err| {
+                if err.status == 404 {
+                    format!("source schema {name} is not installed")
+                } else {
+                    format_err(&err)
+                }
+            })
+        })
+        .await
+    }
+
+    pub(super) async fn declare(&self, body: &Value) -> Result<Value, String> {
+        let bytes = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+        self.run(exec::declare_schema_slice(&bytes, self.host))
+            .await
+            .map_err(|e| format_err(&e))
+    }
+
+    pub(super) async fn query(&self, schema: &str, filter: &Value) -> Result<Vec<Value>, String> {
+        let Value::Object(obj) = json!({
+            "schema_name": schema,
+            "filter": filter,
+            "limit": crate::saved_query::MAX_RECORDS,
+        }) else {
+            return Err("invalid saved query request".into());
+        };
+        let req =
+            exec::parse_query_body(obj).map_err(|_| "invalid saved query filter".to_owned())?;
+        let response = self
+            .run(exec::execute_query(self.host, req))
+            .await
+            .map_err(|e| format_err(&e))?;
+        if response.get("has_more").and_then(Value::as_bool) == Some(true) {
+            return Err("saved query read exceeds 256 records".into());
+        }
+        response
+            .get("results")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| "query returned no results".to_owned())
+    }
+
+    pub(super) async fn mutate(&self, body: &Value) -> Result<Value, String> {
+        let bytes = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+        let parsed = exec::parse_mutation_body(&bytes)
+            .map_err(|r| format!("invalid saved query mutation: {}", r.kind.as_str()))?;
+        self.run(exec::commit_parsed_mutation(self.host, parsed))
+            .await
+            .map_err(|e| format_err(&e))
+    }
+
+    pub(super) async fn fetch_file(
+        &self,
+        schema: &str,
+        hash: &str,
+        range: Option<&str>,
+        placement: &str,
+    ) -> Result<(String, Vec<u8>), String> {
+        self.run(async {
+            let s = exec::resolve_schema_name(self.host, schema)
+                .map_err(|e| format_err(&e))?
+                .ok_or_else(|| format!("schema '{schema}' not found"))?;
+            let key = KeyValue::new(Some(hash.to_owned()), range.map(str::to_owned));
+            let (marker, bytes) = if placement == "inline" {
+                self.host
+                    .records()
+                    .read_record_inline_file(&s, &key, None)
+                    .await
+                    .map_err(|e| format_err(&exec::HostError::from(e)))?
+                    .ok_or_else(|| "the record has no inline file".to_owned())?
+            } else {
+                self.host
+                    .records()
+                    .read_record_file(&s, &key, None)
+                    .await
+                    .map_err(|e| format_err(&exec::HostError::from(e)))?
+                    .ok_or_else(|| "the record has no file".to_owned())?
+            };
+            Ok((marker.sha256, bytes))
+        })
+        .await
+    }
+
+    pub(super) async fn put_file(&self, body: &Value) -> Result<Value, String> {
+        let req = UdsRequest {
+            method: "POST".into(),
+            target: "/api/db/put-blob".into(),
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: serde_json::to_vec(body).map_err(|e| e.to_string())?,
+        };
+        self.run(exec::put_blob_inner(&req, self.host))
+            .await
+            .map_err(|e| format_err(&e))
+    }
+
+    pub(super) async fn delete_file(&self, body: &Value) -> Result<Value, String> {
+        let bytes = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+        self.run(exec::delete_blob_slice(&bytes, self.host))
+            .await
+            .map_err(|e| format_err(&e))
+    }
+}
+
+fn format_err(err: &exec::HostError) -> String {
+    format!("HTTP {}: {}", err.status, err.message)
 }
 
 pub(super) struct ListedDatabase {
