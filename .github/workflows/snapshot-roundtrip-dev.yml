@@ -80,7 +80,10 @@ jobs:
       client: ${{ github.event_name == 'workflow_dispatch' && inputs.client || 'build' }}
 
   snapshot-roundtrip-dev:
-    name: snapshot-roundtrip-dev
+    # Release gates accept the newest snapshot-roundtrip-dev check on a source
+    # commit. A published nightly client is not that commit's build, so this
+    # run must not emit that check name.
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: cloud-backup-dev
