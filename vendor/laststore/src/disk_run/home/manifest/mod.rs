@@ -23,16 +23,16 @@ pub const CURRENT: &str = "CURRENT";
 /// Directory name of the immutable run files.
 pub const RUNS: &str = "runs";
 pub(in crate::disk_run::home) const MAX_LEVELS: usize = 32;
-pub(super) const MAX_LEVEL_RUNS: usize = 4096;
+const MAX_LEVEL_RUNS: usize = 4096;
 const MAX_CURRENT_BYTES: usize = 64 << 20;
-pub(super) const ARC_HDR: usize = 2 * size_of::<usize>();
+const ARC_HDR: usize = 2 * size_of::<usize>();
 
 #[derive(Debug)]
 pub(in crate::disk_run::home) struct RunFile {
     pub(in crate::disk_run::home) meta: RunMeta,
     pub(in crate::disk_run::home) path: PathBuf,
-    pub(super) retired: AtomicBool,
-    pub(super) hidden_plus_one: AtomicU64,
+    retired: AtomicBool,
+    hidden_plus_one: AtomicU64,
 }
 
 impl RunFile {

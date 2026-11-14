@@ -237,9 +237,11 @@ impl Iterator for RunRange {
     }
 }
 
+type MergeHead = Option<(Vec<u8>, Found)>;
+
 pub(crate) struct MergeIter {
     sources: Vec<RunRange>,
-    heads: Option<Vec<Option<(Vec<u8>, Found)>>>,
+    heads: Option<Vec<MergeHead>>,
     finished: bool,
 }
 

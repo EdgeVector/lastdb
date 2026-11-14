@@ -15,20 +15,20 @@ use zeroize::{Zeroize, Zeroizing};
 
 const MAGIC: [u8; 4] = *b"LSF1";
 const VERSION: u8 = 2;
-pub(super) const FLAG_ZSTD: u8 = 1;
-pub(super) const LEN_BYTES: usize = 8;
-pub(super) const HEADER_SIZE: usize = 48;
-pub(super) const TAG_SIZE: usize = 16;
+const FLAG_ZSTD: u8 = 1;
+const LEN_BYTES: usize = 8;
+const HEADER_SIZE: usize = 48;
+const TAG_SIZE: usize = 16;
 pub(crate) const MAX_DECOMPRESSED_FRAME_BYTES: usize = 64 << 20;
 pub(crate) const MIN_ENCODED_LEN: usize = HEADER_SIZE + TAG_SIZE;
 
 pub(crate) type DecodeCtx<'a> = (Option<(Uuid, &'a Aes256Gcm)>, Option<&'a mut DecodeScratch>);
 
-pub(super) fn corrupt(msg: &str) -> Error {
+fn corrupt(msg: &str) -> Error {
     Error::Corrupt(msg.into())
 }
 
-pub(super) fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<Zeroizing<[u8; 32]>> {
+fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<Zeroizing<[u8; 32]>> {
     let mut out = Zeroizing::new([0u8; 32]);
     Hkdf::<Sha256>::new(Some(chunk_uuid.as_bytes()), data_key)
         .expand(b"laststore/frame/aes-256-gcm/v1", out.as_mut())
@@ -36,13 +36,13 @@ pub(super) fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<Zeroizi
     Ok(out)
 }
 
-pub(super) fn nonce_for(counter: u64) -> [u8; 12] {
+fn nonce_for(counter: u64) -> [u8; 12] {
     let mut nonce = [0u8; 12];
     nonce[4..].copy_from_slice(&counter.to_be_bytes());
     nonce
 }
 
-pub(super) fn decode_header(bytes: &[u8; HEADER_SIZE]) -> Result<(Uuid, u64, usize, u8)> {
+fn decode_header(bytes: &[u8; HEADER_SIZE]) -> Result<(Uuid, u64, usize, u8)> {
     if bytes[..4] != MAGIC || bytes[4] != VERSION || bytes[5] & !FLAG_ZSTD != 0 {
         return Err(Error::AeadAuthFail);
     }

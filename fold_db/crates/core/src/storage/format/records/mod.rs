@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-pub(super) fn inv(msg: impl Into<String>) -> SchemaError {
+fn inv(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
 }
 

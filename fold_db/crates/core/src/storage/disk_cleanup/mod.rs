@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use uuid::Uuid;
 use NativeCleanupPhase::*;
 
-pub(super) const NODE_CLEANUP_CHECKPOINT: CheckpointSpec = CheckpointSpec {
+const NODE_CLEANUP_CHECKPOINT: CheckpointSpec = CheckpointSpec {
     file_name: "NODE_CLEANUP",
     magic: b"LDRCLN1\0",
     max_bytes: 16 * 1024,
@@ -40,7 +40,7 @@ pub struct NativeCleanupBoundary {
 }
 
 impl NativeCleanupBoundary {
-    pub(super) fn capture(v2: &physical::V2Home) -> Self {
+    fn capture(v2: &physical::V2Home) -> Self {
         let (main, cas) = (v2.home.current_root(), v2.cas.current_root());
         Self {
             main_frontier: main.frontier(),
@@ -50,7 +50,7 @@ impl NativeCleanupBoundary {
         }
     }
 
-    pub(super) fn covers(self, earlier: Self) -> bool {
+    fn covers(self, earlier: Self) -> bool {
         self.main_frontier >= earlier.main_frontier
             && self.cas_frontier >= earlier.cas_frontier
             && self.main_generation >= earlier.main_generation
@@ -90,7 +90,7 @@ pub struct NativeCleanupStatus {
 }
 
 impl NativeCleanupStatus {
-    pub(super) fn idle(v2: &physical::V2Home) -> Self {
+    fn idle(v2: &physical::V2Home) -> Self {
         Self {
             version: 1,
             scope: "already_deleted_records_in_active_main_and_cas_stores".into(),
@@ -101,7 +101,7 @@ impl NativeCleanupStatus {
         }
     }
 
-    pub(super) fn needs_merge(&self) -> bool {
+    fn needs_merge(&self) -> bool {
         (self.main.tiered_runs
             | self.main.merging_runs
             | self.cas.tiered_runs
@@ -109,14 +109,14 @@ impl NativeCleanupStatus {
             != 0
     }
 
-    pub(super) fn active(&self) -> bool {
+    fn active(&self) -> bool {
         self.request_id.is_some() && !matches!(self.phase, Complete | RecoveryRequired)
     }
 }
 
 pub(in crate::storage) struct CleanupJob {
-    pub(super) owner_lock: Arc<tokio::sync::Mutex<()>>,
-    pub(super) running: AtomicBool,
+    owner_lock: Arc<tokio::sync::Mutex<()>>,
+    running: AtomicBool,
     status: Mutex<NativeCleanupStatus>,
 }
 
@@ -138,16 +138,16 @@ impl CleanupJob {
         self.status.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(super) fn get(&self) -> NativeCleanupStatus {
+    fn get(&self) -> NativeCleanupStatus {
         self.lock_status().clone()
     }
 
-    pub(super) fn set(&self, status: NativeCleanupStatus) {
+    fn set(&self, status: NativeCleanupStatus) {
         *self.lock_status() = status;
     }
 }
 
-pub(super) fn truncate_error(error: &impl std::fmt::Display) -> String {
+fn truncate_error(error: &impl std::fmt::Display) -> String {
     error.to_string().chars().take(1024).collect()
 }
 

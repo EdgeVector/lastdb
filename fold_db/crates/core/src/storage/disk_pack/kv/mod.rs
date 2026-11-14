@@ -42,9 +42,9 @@ pub(in crate::storage) mod native_routing {
     }
 }
 
-pub(super) type BatchRef<'a> = Option<&'a Arc<transaction::PendingBatch>>;
+type BatchRef<'a> = Option<&'a Arc<transaction::PendingBatch>>;
 
-pub(super) fn parse_json<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
+fn parse_json<T: DeserializeOwned>(key: &str, bytes: &[u8]) -> StorageResult<T> {
     serde_json::from_slice(bytes)
         .map_err(|e| StorageError::SerializationError(format!("Failed to deserialize {key}: {e}")))
 }

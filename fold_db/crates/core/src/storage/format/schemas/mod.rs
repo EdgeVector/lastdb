@@ -269,13 +269,13 @@ impl SchemaFormat {
     }
 }
 
-pub(super) fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
+fn put_json(key: String, value: &impl Serialize) -> StorageResult<KvMutation> {
     serde_json::to_vec(value)
         .map(|bytes| KvMutation::put(key, bytes))
         .map_err(|e| StorageError::SerializationError(e.to_string()))
 }
 
-pub(super) fn require_name(name: &str) -> StorageResult<()> {
+fn require_name(name: &str) -> StorageResult<()> {
     (!name.is_empty() && !name.contains('\0'))
         .then_some(())
         .ok_or_else(|| StorageError::invalid("schema keys require a nonempty name without NUL"))

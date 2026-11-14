@@ -20,7 +20,7 @@ pub struct RunRangePage {
     pub resume: Option<String>,
 }
 
-pub(super) enum RangeMode {
+enum RangeMode {
     Ordinary {
         records: MergeIter,
         held: Option<(Vec<u8>, Found)>,
@@ -34,10 +34,10 @@ pub(super) enum RangeMode {
 
 /// An in-process cursor over one range of the held CURRENT.
 pub struct RunHashRange<'a> {
-    pub(super) read: &'a mut RunRead,
-    pub(super) collection: String,
-    pub(super) exhausted: bool,
-    pub(super) mode: RangeMode,
+    read: &'a mut RunRead,
+    collection: String,
+    exhausted: bool,
+    mode: RangeMode,
 }
 
 impl RunRead {
@@ -161,12 +161,7 @@ impl RunHashRange<'_> {
         }
     }
 
-    pub(super) fn should_yield(
-        &self,
-        yielding: Option<(usize, usize)>,
-        n: usize,
-        has_last: bool,
-    ) -> bool {
+    fn should_yield(&self, yielding: Option<(usize, usize)>, n: usize, has_last: bool) -> bool {
         yielding.is_some_and(|(held, keys)| {
             let (rows, cur, lim) = (
                 held + n,

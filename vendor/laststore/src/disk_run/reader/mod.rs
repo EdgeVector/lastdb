@@ -23,9 +23,9 @@ const TAIL_BYTES: usize = 512;
 type Scratch<'a> = Option<&'a mut DecodeScratch>;
 
 pub(crate) struct RunReader {
-    pub(super) reserved_bytes: u64,
-    pub(super) file: File,
-    pub(super) data_key: [u8; 32],
+    reserved_bytes: u64,
+    file: File,
+    data_key: [u8; 32],
     cipher: Option<Aes256Gcm>,
     pub(crate) footer: Footer,
     pub(crate) top: Top,
@@ -114,7 +114,7 @@ impl RunReader {
             .ok_or_else(|| corrupt("footer and top block disagree"))
     }
 
-    pub(super) fn check_len(len: u32, max: usize) -> Result<()> {
+    fn check_len(len: u32, max: usize) -> Result<()> {
         (len as usize <= max.saturating_add(8 + MIN_ENCODED_LEN))
             .then_some(())
             .ok_or_else(|| corrupt("stored block over limit"))
@@ -141,7 +141,7 @@ impl RunReader {
             .ok_or_else(|| corrupt("block belongs to another place"))
     }
 
-    pub(super) fn meta_bytes(&self) -> u64 {
+    fn meta_bytes(&self) -> u64 {
         (refs_footprint(&self.top.indexes, self.top.indexes.capacity())
             + self.top.last_key.capacity()) as u64
     }

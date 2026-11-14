@@ -23,27 +23,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
 
-pub(super) fn schema_inv(msg: impl Into<String>) -> SchemaError {
+fn schema_inv(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
 }
 
-pub(super) fn read_err(error: impl std::fmt::Display) -> SchemaError {
+fn read_err(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::StorageRead {
         detail: error.to_string(),
     }
 }
 
-pub(super) fn invalid_author(error: impl std::fmt::Display) -> StorageError {
+fn invalid_author(error: impl std::fmt::Display) -> StorageError {
     StorageError::invalid(format!("portable author state: {error}"))
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct LocalAuthor {
-    pub(super) stream: StreamId,
-    pub(super) progress: StreamProgress,
+struct LocalAuthor {
+    stream: StreamId,
+    progress: StreamProgress,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) clock_floor_ms: Option<u64>,
+    clock_floor_ms: Option<u64>,
 }
 
 pub(in crate::storage) fn initial_local_author(home: uuid::Uuid) -> StorageResult<Vec<u8>> {
@@ -60,7 +60,7 @@ pub(in crate::storage) fn validate_local_author(bytes: Option<&[u8]>) -> Storage
     decode_author(bytes).map(|_| ())
 }
 
-pub(super) fn decode_author(bytes: Option<&[u8]>) -> StorageResult<LocalAuthor> {
+fn decode_author(bytes: Option<&[u8]>) -> StorageResult<LocalAuthor> {
     let raw = bytes
         .filter(|b| b.len() <= MAX_LOCAL_AUTHOR_BYTES)
         .ok_or_else(|| invalid_author("local stream state missing or exceeds bound"))?;
@@ -84,8 +84,8 @@ pub(in crate::storage::format) fn record_value_error(error: &RecordValueError) -
 
 #[derive(Clone)]
 pub(crate) struct Metadata {
-    pub(super) store: PackKvStore,
-    pub(super) runtime: Arc<PackRuntime>,
+    store: PackKvStore,
+    runtime: Arc<PackRuntime>,
 }
 
 impl Metadata {
@@ -149,7 +149,7 @@ impl Metadata {
             .await
     }
 
-    pub(super) async fn stage_receipt(
+    async fn stage_receipt(
         &self,
         key: String,
         digest: &[u8; 32],
@@ -164,7 +164,7 @@ impl Metadata {
             .map(|()| false)
     }
 
-    pub(super) async fn receipt_exists(
+    async fn receipt_exists(
         &self,
         key: &str,
         digest: &[u8; 32],
@@ -228,13 +228,13 @@ impl Metadata {
             .map(|()| stamps)
     }
 
-    pub(super) fn require_scope(&self) -> StorageResult<()> {
+    fn require_scope(&self) -> StorageResult<()> {
         transaction::PendingBatch::current(&self.runtime)
             .map(|_| ())
             .ok_or_else(|| StorageError::invalid("metadata write requires native write scope"))
     }
 
-    pub(super) async fn stage(&self, entries: Vec<(String, Option<Vec<u8>>)>) -> StorageResult<()> {
+    async fn stage(&self, entries: Vec<(String, Option<Vec<u8>>)>) -> StorageResult<()> {
         self.require_scope()?;
         if !entries.is_empty() {
             let ops = entries

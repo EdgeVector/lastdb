@@ -24,9 +24,9 @@ struct RecordedFailure {
 }
 
 #[derive(Default)]
-pub(super) struct WriteReadCache {
-    pub(super) entries: BTreeMap<Coordinate, Option<Vec<u8>>>,
-    pub(super) used_bytes: usize,
+struct WriteReadCache {
+    entries: BTreeMap<Coordinate, Option<Vec<u8>>>,
+    used_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -37,7 +37,7 @@ pub(in crate::storage::disk_pack) struct ReadContext {
     home_id: uuid::Uuid,
     failure: FailureSlot,
     write_owner: Option<Arc<PendingBatch>>,
-    pub(super) write_reads: Option<Arc<Mutex<WriteReadCache>>>,
+    write_reads: Option<Arc<Mutex<WriteReadCache>>>,
 }
 
 tokio::task_local! {
@@ -123,11 +123,11 @@ impl ReadContext {
         res
     }
 
-    pub(super) fn owns_write(&self, pending: Option<&Arc<PendingBatch>>) -> bool {
+    fn owns_write(&self, pending: Option<&Arc<PendingBatch>>) -> bool {
         matches!((&self.write_owner, pending), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
     }
 
-    pub(super) fn validate_owner(&self, pending: Option<&Arc<PendingBatch>>) -> StorageResult<()> {
+    fn validate_owner(&self, pending: Option<&Arc<PendingBatch>>) -> StorageResult<()> {
         if (self.write_owner.is_none() && pending.is_none()) || self.owns_write(pending) {
             return Ok(());
         }
@@ -175,7 +175,7 @@ impl ReadContext {
         })())
     }
 
-    pub(super) fn require_room(&self, call: &V2Read, keys: u64, bytes: u64) -> StorageResult<()> {
+    fn require_room(&self, call: &V2Read, keys: u64, bytes: u64) -> StorageResult<()> {
         if let Some(err) = self.error() {
             return Err(err);
         }
@@ -198,7 +198,7 @@ impl ReadContext {
     }
 }
 
-pub(super) fn call_error(error: laststore::Error, call: &V2Read) -> StorageError {
+fn call_error(error: laststore::Error, call: &V2Read) -> StorageError {
     if !matches!(error, laststore::Error::ReadBudgetExceeded) {
         return map(error);
     }

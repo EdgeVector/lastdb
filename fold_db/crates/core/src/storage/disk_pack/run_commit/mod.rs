@@ -20,9 +20,9 @@ pub struct NativeFlushReceipt {
 }
 
 pub(in crate::storage::disk_pack) struct PreparedCommit {
-    pub(super) mutations: Vec<HomeMutation>,
-    pub(super) pending_bytes: u64,
-    pub(super) space: SpaceReservation,
+    mutations: Vec<HomeMutation>,
+    pending_bytes: u64,
+    space: SpaceReservation,
 }
 
 #[derive(Default)]

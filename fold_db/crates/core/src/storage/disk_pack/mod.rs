@@ -192,14 +192,14 @@ pub(in crate::storage) fn creation_refusal(message: &str) -> StorageError {
 }
 
 #[derive(Clone)]
-pub(crate) struct PackNamespacedStore {
+pub struct PackNamespacedStore {
     pub(in crate::storage) runtime: Arc<PackRuntime>,
 }
 
 #[derive(Clone)]
 pub(crate) struct PackKvStore {
-    pub(super) runtime: Arc<PackRuntime>,
-    pub(super) namespace: String,
+    runtime: Arc<PackRuntime>,
+    namespace: String,
 }
 
 pub(in crate::storage) fn map(error: laststore::Error) -> StorageError {

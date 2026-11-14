@@ -40,22 +40,22 @@ pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 
-pub(super) fn invalid(msg: &str) -> Error {
+fn invalid(msg: &str) -> Error {
     Error::Config(msg.into())
 }
 
-pub(super) fn unpoison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+fn unpoison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(super) fn require_path(root: &Path, lock: &File) -> Result<()> {
+fn require_path(root: &Path, lock: &File) -> Result<()> {
     let (held, cur) = (lock.metadata()?, fs::symlink_metadata(root.join(LOCK))?);
     (cur.is_file() && (held.dev(), held.ino()) == (cur.dev(), cur.ino()))
         .then_some(())
         .ok_or_else(|| invalid("disk run home: owner lock moved"))
 }
 
-pub(super) fn read_descriptor(path: &Path) -> Result<Uuid> {
+fn read_descriptor(path: &Path) -> Result<Uuid> {
     let (mut file, mut buf) = (File::open(path)?, [0u8; 64]);
     if file.metadata()?.len() != 64 {
         return Err(corrupt("home descriptor length"));
@@ -76,17 +76,17 @@ pub(super) fn read_descriptor(path: &Path) -> Result<Uuid> {
 
 /// An open v2 home. One process owns it; reads and writes share it.
 pub struct RunHome {
-    pub(super) root_dir: PathBuf,
-    pub(super) runs_dir: PathBuf,
-    pub(super) key: [u8; 32],
-    pub(super) identity: Uuid,
-    pub(super) current: RwLock<Arc<Manifest>>,
-    pub(super) commit_mutex: Mutex<()>,
-    pub(super) publish_mutex: Mutex<()>,
-    pub(super) merge_mutex: Mutex<()>,
+    root_dir: PathBuf,
+    runs_dir: PathBuf,
+    key: [u8; 32],
+    identity: Uuid,
+    current: RwLock<Arc<Manifest>>,
+    commit_mutex: Mutex<()>,
+    publish_mutex: Mutex<()>,
+    merge_mutex: Mutex<()>,
     retired: Mutex<Vec<Weak<RunFile>>>,
-    pub(super) poisoned: AtomicBool,
-    pub(super) lock: Arc<File>,
+    poisoned: AtomicBool,
+    lock: Arc<File>,
 }
 
 impl RunHome {
@@ -218,7 +218,7 @@ impl RunHome {
             .sum()
     }
 
-    pub(super) fn live_retired(&self) -> (usize, Vec<Arc<RunFile>>) {
+    fn live_retired(&self) -> (usize, Vec<Arc<RunFile>>) {
         let mut retired = unpoison(&self.retired);
         retired.retain(|w| w.strong_count() > 0);
         (
@@ -227,7 +227,7 @@ impl RunHome {
         )
     }
 
-    pub(super) fn next_manifest(&self, bump_frontier: bool) -> Result<Manifest> {
+    fn next_manifest(&self, bump_frontier: bool) -> Result<Manifest> {
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         let ovf = || Error::WriteCapacity("disk run home: generation counter is full".into());
@@ -238,11 +238,7 @@ impl RunHome {
         Ok(next)
     }
 
-    pub(super) fn install_merge(
-        &self,
-        next: Manifest,
-        space: &MergeSpace,
-    ) -> Result<Arc<Manifest>> {
+    fn install_merge(&self, next: Manifest, space: &MergeSpace) -> Result<Arc<Manifest>> {
         let res = next
             .stage(&self.root_dir, &self.key, Some(space))
             .and_then(|s| self.publish_staged(next, &s));
@@ -252,7 +248,7 @@ impl RunHome {
         res
     }
 
-    pub(super) fn retire_runs(&self, runs: &[Arc<RunFile>]) {
+    fn retire_runs(&self, runs: &[Arc<RunFile>]) {
         for run in runs {
             run.retire();
         }
@@ -261,11 +257,11 @@ impl RunHome {
         retired.extend(runs.iter().map(Arc::downgrade));
     }
 
-    pub(super) fn held(&self) -> Arc<Manifest> {
+    fn held(&self) -> Arc<Manifest> {
         Arc::clone(&self.current.read().unwrap_or_else(|e| e.into_inner()))
     }
 
-    pub(super) fn refuse_if_poisoned(&self) -> Result<()> {
+    fn refuse_if_poisoned(&self) -> Result<()> {
         (!self.is_poisoned()).then_some(()).ok_or_else(|| {
             Error::WriteCapacity(
                 "disk run home: an earlier publish failed; restart the process to reopen the home"
@@ -275,14 +271,14 @@ impl RunHome {
     }
 }
 
-pub(super) fn open_nofollow(path: &Path) -> std::io::Result<File> {
+fn open_nofollow(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
         .read(true)
         .custom_flags(OFlags::NOFOLLOW.bits() as i32)
         .open(path)
 }
 
-pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
+fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
     let len = u16::try_from(collection.len())
         .map_err(|_| invalid("disk run home: collection name too long"))?;
     (2 + collection.len() + key.len() <= MAX_RUN_KEY_BYTES)
@@ -290,7 +286,7 @@ pub(super) fn run_key(collection: &str, key: &[u8]) -> Result<Vec<u8>> {
         .ok_or_else(|| invalid("disk run home: storage key exceeds the run key limit"))
 }
 
-pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
+fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     let at = 2 + collection.len();
     if rk.len() < at
         || rk[..2] != (collection.len() as u16).to_be_bytes()
@@ -301,7 +297,7 @@ pub(super) fn storage_key(collection: &str, rk: &[u8]) -> Result<String> {
     String::from_utf8(rk[at..].to_vec()).map_err(|_| corrupt("storage key is not UTF-8"))
 }
 
-pub(super) fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Result<u64> {
+fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Result<u64> {
     let mut removed = 0;
     for (idx, entry) in fs::read_dir(runs)?.enumerate() {
         if idx >= cap {
@@ -328,7 +324,7 @@ pub(super) fn sweep_runs(runs: &Path, keep: &HashSet<Uuid>, cap: usize) -> Resul
     Ok(removed)
 }
 
-pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut opts = OpenOptions::new();
     let mut file = opts.write(true).create_new(true).mode(0o600).open(path)?;
     file.write_all(bytes)
