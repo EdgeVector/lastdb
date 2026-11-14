@@ -181,9 +181,10 @@ fn parse_read(reply: &Reply) -> Result<ReadBody, String> {
     if crate::cloud::is_payment_subscription_error(reply.status, &reply.bytes) {
         return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
     }
-    Err(failure(&reply.bytes)
-        .map(|error| format_protocol_error(&error))
-        .unwrap_or_else(|| "member list read was not acknowledged".into()))
+    Err(failure(&reply.bytes).map_or_else(
+        || "member list read was not acknowledged".into(),
+        |error| format_protocol_error(&error),
+    ))
 }
 
 fn classify_update(reply: &Reply, expected: u64) -> UpdateClass {

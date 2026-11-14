@@ -284,17 +284,18 @@ fn home_cloud_environment(home: &Path) -> Result<Option<Environment>, String> {
 }
 
 fn resolve_registry_url(input: &PublishArgs, target_env: Environment) -> Result<String, String> {
+    let non_empty = |s: &str| {
+        let trimmed = s.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    };
     let explicit = input
         .registry_url
         .as_deref()
-        .map(str::trim)
-        .filter(|u| !u.is_empty())
-        .map(str::to_owned)
+        .and_then(non_empty)
         .or_else(|| {
             std::env::var("LASTDB_APP_REGISTRY_URL")
                 .ok()
-                .map(|u| u.trim().to_owned())
-                .filter(|u| !u.is_empty())
+                .and_then(|u| non_empty(&u))
         });
     let url = explicit.unwrap_or_else(|| registry_api_url_for(target_env).to_owned());
     if !url.starts_with("https://") {

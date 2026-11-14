@@ -61,8 +61,7 @@ pub fn spawn(
 async fn one_turn(host: &Arc<Host>) -> Pause {
     let databases = registry::databases(&host.home);
     let has_received = crate::registered_share::list(&host.home)
-        .map(|shares| shares.iter().any(|share| share.signed_log))
-        .unwrap_or(true);
+        .map_or(true, |shares| shares.iter().any(|share| share.signed_log));
     if databases.is_empty() && !has_received {
         return Pause::Idle;
     }

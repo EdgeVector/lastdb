@@ -266,29 +266,26 @@ fn attach_prod_payment_guidance(
             ),
         )
         .ok()?;
-        ((200..300).contains(&code)
-            && body.get("ok").and_then(serde_json::Value::as_bool) == Some(true))
-        .then(|| {
-            let sub = body
-                .get("status")
-                .and_then(serde_json::Value::as_str)?
-                .trim()
-                .to_owned();
-            let configured = body
-                .get("configured")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true);
-            Some((sub, configured))
-        })
-        .flatten()
-    });
-    let (sub_status, payment_required) = match status {
-        Some((sub, configured)) => {
-            let active = !configured || matches!(sub.as_str(), "active" | "trialing");
-            (Some(sub), !active)
+        if !(200..300).contains(&code)
+            || body.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
+        {
+            return None;
         }
-        None => (None, true),
-    };
+        let sub = body
+            .get("status")
+            .and_then(serde_json::Value::as_str)?
+            .trim()
+            .to_owned();
+        let configured = body
+            .get("configured")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+        Some((sub, configured))
+    });
+    let (sub_status, payment_required) = status.map_or((None, true), |(sub, configured)| {
+        let active = !configured || matches!(sub.as_str(), "active" | "trialing");
+        (Some(sub), !active)
+    });
     if let Some(obj) = output.as_object_mut() {
         if let Some(sub) = sub_status {
             obj.insert("subscription_status".into(), serde_json::json!(sub));
