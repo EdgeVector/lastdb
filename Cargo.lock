@@ -315,17 +315,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-trait"
-version = "0.1.89"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -930,7 +919,6 @@ name = "fold_db"
 version = "0.3.0"
 dependencies = [
  "aes-gcm",
- "async-trait",
  "base64",
  "chrono",
  "cloud_backup_protocol",
@@ -1748,7 +1736,6 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "app_identity_crypto",
- "async-trait",
  "base64",
  "bip39",
  "chrono",

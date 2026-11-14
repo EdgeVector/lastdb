@@ -4,28 +4,24 @@ use serde_json::{json, Value};
 
 use crate::saved_query::{QueryCatalog, CATALOG_KEY, SAVED_QUERY_SCHEMA};
 
-use super::store::QueryStore;
+use super::store::TargetStore;
 
 const ATTEMPTS: u8 = 4;
 
-pub(super) async fn ids<S: QueryStore>(store: &S, source: &S::Db) -> Result<Vec<String>, String> {
-    load(store, source).await.map(|catalog| catalog.ids)
+pub(super) async fn ids(source: &TargetStore<'_>) -> Result<Vec<String>, String> {
+    load(source).await.map(|catalog| catalog.ids)
 }
 
-pub(super) async fn remember<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    id: &str,
-) -> Result<(), String> {
+pub(super) async fn remember(source: &TargetStore<'_>, id: &str) -> Result<(), String> {
     for attempt in 0..ATTEMPTS {
-        let mut catalog = load(store, source).await?;
+        let mut catalog = load(source).await?;
         if !catalog
             .insert(id)
             .map_err(|error| error.as_str().to_owned())?
         {
             return Ok(());
         }
-        match store_catalog(store, source, &catalog).await {
+        match store_catalog(source, &catalog).await {
             Ok(()) => return Ok(()),
             Err(error) if error.contains("409") && attempt + 1 < ATTEMPTS => continue,
             Err(error) => return Err(error),
@@ -34,9 +30,8 @@ pub(super) async fn remember<S: QueryStore>(
     Err("saved query catalog changed".into())
 }
 
-pub(super) async fn write_hash<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
+pub(super) async fn write_hash(
+    source: &TargetStore<'_>,
     schema: &str,
     hash: &str,
     record: &Value,
@@ -57,13 +52,13 @@ pub(super) async fn write_hash<S: QueryStore>(
         "durability": "durable",
         "convergence": "sync",
     });
-    store.mutate(source, &body).await?;
+    source.mutate(&body).await?;
     Ok(())
 }
 
-async fn load<S: QueryStore>(store: &S, source: &S::Db) -> Result<QueryCatalog, String> {
-    let rows = store
-        .query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": CATALOG_KEY}))
+async fn load(source: &TargetStore<'_>) -> Result<QueryCatalog, String> {
+    let rows = source
+        .query(SAVED_QUERY_SCHEMA, &json!({"HashKey": CATALOG_KEY}))
         .await?;
     match rows.as_slice() {
         [] => Ok(QueryCatalog::empty()),
@@ -72,13 +67,8 @@ async fn load<S: QueryStore>(store: &S, source: &S::Db) -> Result<QueryCatalog, 
     }
 }
 
-async fn store_catalog<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    catalog: &QueryCatalog,
-) -> Result<(), String> {
+async fn store_catalog(source: &TargetStore<'_>, catalog: &QueryCatalog) -> Result<(), String> {
     write_hash(
-        store,
         source,
         SAVED_QUERY_SCHEMA,
         CATALOG_KEY,

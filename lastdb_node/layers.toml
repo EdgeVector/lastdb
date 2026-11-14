@@ -22,12 +22,11 @@ modules = [
 
 [[layer]]
 name = "transport"
-doc = "Protocol versions, Unix-domain socket framing and routing, keyed local reads, cloud backup HTTP transport, and in-process saved-query orchestration."
+doc = "Protocol versions, Unix-domain socket framing and routing, keyed local reads, and cloud backup HTTP transport."
 modules = [
   "cloud_backup_client",
   "lastdb_uds",
   "node_read",
-  "saved_query_run",
   "version",
 ]
 
@@ -73,16 +72,17 @@ modules = [
 ]
 
 [[layer]]
-name = "jobs"
-doc = "Background and on-demand work over a booted host: TTL sweep and saved-query reconciliation."
+name = "surface"
+doc = "Owner-socket route handlers (exec) and in-process saved-query orchestration."
 modules = [
-  "jobs",
+  "exec",
+  "saved_query_run",
 ]
 
 [[layer]]
-name = "surface"
-doc = "Owner-socket route handlers (exec) and crate-root exports."
+name = "jobs"
+doc = "Background and on-demand work over a booted host (TTL sweep and saved-query reconciliation) and crate-root exports."
 modules = [
   "crate",
-  "exec",
+  "jobs",
 ]

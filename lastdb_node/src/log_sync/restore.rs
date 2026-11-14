@@ -4,7 +4,6 @@
 //! its own request. File objects are fetched as authenticated ciphertext.
 //! The sync loop saves its local position after the installed prefix is durable.
 
-use async_trait::async_trait;
 use base64::Engine as _;
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::limits::MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES;
@@ -14,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::database_replay::{
-    self, RestoreError, SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest,
-    SnapshotObject, SnapshotPart,
+    self, RestoreError, SnapshotFileRequest, SnapshotInstall, SnapshotManifest, SnapshotObject,
+    SnapshotPart,
 };
 
 use super::cloud::CloudLog;
@@ -66,7 +65,7 @@ pub(super) async fn install(
         snapshot_ref: tip,
         objects: objects(&log, &chain).await?,
     };
-    let mut files = Files { log: log.clone() };
+    let mut files = SnapshotFiles { log: log.clone() };
     let device = live.then(|| log.device().as_str());
     match database_replay::install(log.host()?, &request, &mut files, device).await {
         Ok(through) => Ok(through),
@@ -212,17 +211,19 @@ async fn archive_reply(log: &CloudLog, body: Vec<u8>) -> Result<Vec<u8>, LogErro
     Err(super::wire::service_error(&raw).unwrap_or(LogError::UnexpectedOutcome))
 }
 
-pub(super) struct Files {
+pub(crate) struct SnapshotFiles {
     log: CloudLog,
 }
 
-pub(super) fn file_source(log: CloudLog) -> Files {
-    Files { log }
+pub(super) fn file_source(log: CloudLog) -> SnapshotFiles {
+    SnapshotFiles { log }
 }
 
-#[async_trait]
-impl SnapshotFileSource for Files {
-    async fn read_blob(&mut self, request: &SnapshotFileRequest) -> Result<Vec<u8>, RestoreError> {
+impl SnapshotFiles {
+    pub(crate) async fn read_blob(
+        &mut self,
+        request: &SnapshotFileRequest,
+    ) -> Result<Vec<u8>, RestoreError> {
         if request.database_id != self.log.database_id() {
             return Err(RestoreError::File("snapshot file"));
         }

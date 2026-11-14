@@ -11,7 +11,7 @@ pub mod jobs;
 pub mod lastdb_uds;
 pub(crate) mod log_envelope;
 pub mod log_sync;
-pub mod named_grant;
+pub(crate) mod named_grant;
 pub(crate) mod node_read;
 pub mod offline_home;
 pub mod profile;

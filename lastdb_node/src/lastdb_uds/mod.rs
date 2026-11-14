@@ -11,12 +11,10 @@ use std::time::{Duration, Instant};
 use fold_db::access::peer_cred::read_peer_credential;
 use fold_db::access::PeerCredVerdict;
 
-pub mod server;
 pub mod uds_http;
 pub mod uds_router;
 mod worker_pool;
 
-pub use server::{BoxedResponseFuture, UdsHandler, UdsServer};
 use uds_router::{bind_socket_listener, record_fd_exhaustion};
 pub use uds_router::{
     preflight_data_dir, socket_path, split_database_path, valid_selector, DATABASES_PATH,

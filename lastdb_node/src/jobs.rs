@@ -4,8 +4,6 @@ mod erase;
 
 pub mod saved_query {
     use std::collections::{BTreeMap, BTreeSet};
-    use std::future::Future;
-    use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -16,19 +14,12 @@ pub mod saved_query {
 
     use crate::host::Host;
 
-    pub type ReconcileFn =
-        fn(Arc<Host>, String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
-
-    pub fn spawn(
-        host: Arc<Host>,
-        shutdown: Arc<AtomicBool>,
-        reconcile: ReconcileFn,
-    ) -> JoinHandle<()> {
+    pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> JoinHandle<()> {
         tokio::spawn(
             async move {
                 let (mut reg, mut running) = (host.owned.subscribe_stores(), BTreeMap::new());
                 while !shutdown.load(Ordering::Acquire) {
-                    if let Err(e) = sync_sources(&host, &shutdown, reconcile, &mut running) {
+                    if let Err(e) = sync_sources(&host, &shutdown, &mut running) {
                         tracing::warn!(target: "lastdbd::saved_query", error = %e, "saved query sources were not updated");
                     }
                     tokio::select! {
@@ -47,7 +38,6 @@ pub mod saved_query {
     fn sync_sources(
         host: &Arc<Host>,
         shutdown: &Arc<AtomicBool>,
-        reconcile: ReconcileFn,
         running: &mut BTreeMap<String, JoinHandle<()>>,
     ) -> Result<(), String> {
         let stores = std::iter::once(("personal".to_owned(), Arc::clone(&host.db))).chain(
@@ -60,8 +50,7 @@ pub mod saved_query {
             want.insert(sel.clone());
             running.entry(sel.clone()).or_insert_with(|| {
                 tokio::spawn(
-                    follow(Arc::clone(host), sel, db, Arc::clone(shutdown), reconcile)
-                        .in_current_span(),
+                    follow(Arc::clone(host), sel, db, Arc::clone(shutdown)).in_current_span(),
                 )
             });
         }
@@ -75,16 +64,10 @@ pub mod saved_query {
         Ok(())
     }
 
-    async fn follow(
-        host: Arc<Host>,
-        selector: String,
-        db: Arc<FoldDB>,
-        shutdown: Arc<AtomicBool>,
-        reconcile: ReconcileFn,
-    ) {
+    async fn follow(host: Arc<Host>, selector: String, db: Arc<FoldDB>, shutdown: Arc<AtomicBool>) {
         let mut writes = db.db_ops().native_runtime().subscribe_durable_writes();
         while !shutdown.load(Ordering::Acquire) {
-            if let Err(e) = reconcile(Arc::clone(&host), selector.clone()).await {
+            if let Err(e) = crate::saved_query_run::reconcile_catalog(&host, &selector).await {
                 tracing::warn!(target: "lastdbd::saved_query", error = %e, "saved query reconcile failed");
             }
             loop {
@@ -107,8 +90,9 @@ pub mod ttl_sweep {
     use fold_db::clock::unix_secs;
     use fold_db::db_operations::{with_query_page_tally, PageResume};
     use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+    use fold_db::schema::types::key_comparison::KeyComparisonContext;
     use fold_db::schema::types::schema::DeclarativeSchemaType;
-    use fold_db::schema::types::{KeyValue, KeyValuePageOrder, Query};
+    use fold_db::schema::types::{KeyValue, Query};
     use fold_db::schema::SchemaRetentionPolicy;
     use tokio::task::JoinHandle;
     use tracing::Instrument;
@@ -345,12 +329,12 @@ pub mod ttl_sweep {
                 if let Some(next) = page
                     .iter()
                     .chain(&resume)
-                    .max_by(|a, b| a.cmp_page_order(b))
+                    .max_by(|a, b| KeyComparisonContext::cmp_page_order(a, b))
                     .cloned()
                 {
                     if after
                         .as_ref()
-                        .is_some_and(|p| !next.cmp_page_order(p).is_gt())
+                        .is_some_and(|p| !KeyComparisonContext::cmp_page_order(&next, p).is_gt())
                     {
                         return Err("TTL discovery cursor did not advance".into());
                     }

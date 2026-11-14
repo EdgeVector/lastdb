@@ -98,10 +98,7 @@ pub(super) fn render_file(
     json_ok(&envelope(&json!({ "file": file }), ctx.user_id.as_str()))
 }
 
-pub(in crate::exec) async fn delete_blob_slice(
-    body: &[u8],
-    host: &Host,
-) -> Result<Value, HostError> {
+pub(crate) async fn delete_blob_slice(body: &[u8], host: &Host) -> Result<Value, HostError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Body {
@@ -267,10 +264,7 @@ async fn prepare_blob_write(
     }
 }
 
-pub(in crate::exec) async fn put_blob_inner(
-    req: &UdsRequest,
-    host: &Host,
-) -> Result<Value, HostError> {
+pub(crate) async fn put_blob_inner(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
     let (plaintext, body) = parse_put_blob(req)?;
     let mut parsed = ParsedMutation::from_operation(body.mutation, None);
     if !matches!(

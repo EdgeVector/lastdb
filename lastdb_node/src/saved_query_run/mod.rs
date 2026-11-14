@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use database_policy::SpecBinding;
 use serde_json::{json, Value};
 
+use crate::host::Host;
 use crate::saved_query::{
     authorize, destination_binding, label_ok, saved_query_declare, DeclareSchema, Definition,
     RawSchema, Receipt, RecordKey, SavedQuery, CATALOG_KEY, SAVED_QUERY_SCHEMA,
@@ -22,8 +23,7 @@ mod store;
 use apply::{apply, read_live};
 use catalog::write_hash;
 use select::select;
-use store::{find_database, ListedDatabase};
-pub(crate) use store::{QueryStore, StoreFuture};
+use store::{find_database, list_databases, ListedDatabase, TargetStore};
 
 /// Arguments for saving a keyed query on the owner node.
 pub(crate) struct SaveRequest {
@@ -45,11 +45,8 @@ pub(crate) struct SaveReceipt {
     pub spec_version: u32,
 }
 
-pub(crate) async fn save<S: QueryStore>(
-    store: &S,
-    request: &SaveRequest,
-) -> Result<SaveReceipt, String> {
-    let rows = store.list()?;
+pub(crate) async fn save(host: &Host, request: &SaveRequest) -> Result<SaveReceipt, String> {
+    let rows = list_databases(host)?;
     let destination = publish_target(
         &rows,
         &request.destination,
@@ -67,18 +64,18 @@ pub(crate) async fn save<S: QueryStore>(
     )
     .map_err(|error| error.as_str().to_owned())?;
     require_source_owner(&rows, &request.source)?;
-    let source = store.database(&request.source)?;
+    let source = TargetStore::open(host, &request.source)?;
     let binding = binding_for(&destination, &request.spec, request.spec_version)?;
-    prepare_source(store, &source, &request.app, &binding, &query.definition).await?;
-    if let Some(existing) = load_saved(store, &source, &request.id).await? {
+    prepare_source(&source, &request.app, &binding, &query.definition).await?;
+    if let Some(existing) = load_saved(&source, &request.id).await? {
         if !existing.same_target(&destination.id, &request.spec, request.spec_version) {
             return Err("saved query destination or spec cannot change".into());
         }
         query.ledger = existing.ledger;
         query.revision = existing.revision;
     }
-    store_query(store, &source, &query).await?;
-    catalog::remember(store, &source, &request.id).await?;
+    store_query(&source, &query).await?;
+    catalog::remember(&source, &request.id).await?;
     Ok(SaveReceipt {
         id: request.id.clone(),
         source: request.source.clone(),
@@ -88,12 +85,8 @@ pub(crate) async fn save<S: QueryStore>(
     })
 }
 
-pub(crate) async fn reconcile<S: QueryStore>(
-    store: &S,
-    id: &str,
-    source_name: &str,
-) -> Result<Receipt, String> {
-    reconcile_query(store, id, source_name, true).await
+pub(crate) async fn reconcile(host: &Host, id: &str, source_name: &str) -> Result<Receipt, String> {
+    reconcile_query(host, id, source_name, true).await
 }
 
 /// Reconcile every saved query in `source` after that store commits.
@@ -102,18 +95,15 @@ pub(crate) async fn reconcile<S: QueryStore>(
 /// a quiet success, including on a destination store and before the first
 /// save. One failed query does not skip the others and does not write its
 /// ledger.
-pub(crate) async fn reconcile_catalog<S: QueryStore>(
-    store: &S,
-    source: &str,
-) -> Result<(), String> {
-    let database = store.database(source)?;
-    let ids = match catalog::ids(store, &database).await {
+pub(crate) async fn reconcile_catalog(host: &Host, source: &str) -> Result<(), String> {
+    let database = TargetStore::open(host, source)?;
+    let ids = match catalog::ids(&database).await {
         Ok(ids) => ids,
         Err(error) if catalog_absent(&error) => return Ok(()),
         Err(error) => return Err(error),
     };
     for id in ids {
-        if let Err(error) = reconcile_query(store, &id, source, false).await {
+        if let Err(error) = reconcile_query(host, &id, source, false).await {
             tracing::warn!(
                 target: "lastdbd::saved_query",
                 query_id = %id,
@@ -129,8 +119,8 @@ fn catalog_absent(error: &str) -> bool {
     error.contains("App schema not loaded") || error.contains("Schema not found")
 }
 
-async fn reconcile_query<S: QueryStore>(
-    store: &S,
+async fn reconcile_query(
+    host: &Host,
     id: &str,
     source_name: &str,
     enroll: bool,
@@ -138,10 +128,10 @@ async fn reconcile_query<S: QueryStore>(
     if id == CATALOG_KEY || !label_ok(id) {
         return Err("saved query name is invalid".into());
     }
-    let rows = store.list()?;
+    let rows = list_databases(host)?;
     require_source_owner(&rows, source_name)?;
-    let source = store.database(source_name)?;
-    let mut saved = load_saved(store, &source, id)
+    let source = TargetStore::open(host, source_name)?;
+    let mut saved = load_saved(&source, id)
         .await?
         .ok_or("saved query is not in the source database")?;
     let destination = publish_target(
@@ -152,39 +142,37 @@ async fn reconcile_query<S: QueryStore>(
     )?;
     refuse_same_database(&rows, source_name, &destination.id)?;
     let binding = binding_for(&destination, &saved.spec_name, saved.spec_version)?;
-    let declared =
-        prepare_source(store, &source, &saved.app_id, &binding, &saved.definition).await?;
-    let dest = store.database(&destination.id)?;
-    declare_all(store, &dest, &declared).await?;
-    let desired = select(store, &source, &saved.definition, &declared).await?;
+    let declared = prepare_source(&source, &saved.app_id, &binding, &saved.definition).await?;
+    let dest = TargetStore::open(host, &destination.id)?;
+    declare_all(&dest, &declared).await?;
+    let desired = select(&source, &saved.definition, &declared).await?;
     let keys = live_keys(&desired, &saved);
-    let live = read_live(store, &dest, &keys).await?;
+    let live = read_live(&dest, &keys).await?;
     let plan = crate::saved_query::plan(desired, &live, &saved.ledger)
         .map_err(|error| error.as_str().to_owned())?;
     for step in &plan.steps {
-        apply(store, &source, &dest, step).await?;
+        apply(&source, &dest, step).await?;
     }
     if plan.ledger_changed {
         saved.ledger = plan.ledger;
-        store_query(store, &source, &saved).await?;
+        store_query(&source, &saved).await?;
     }
     if enroll {
-        catalog::remember(store, &source, id).await?;
+        catalog::remember(&source, id).await?;
     }
     Ok(plan.receipt)
 }
 
-async fn prepare_source<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
+async fn prepare_source(
+    source: &TargetStore<'_>,
     app_id: &str,
     binding: &SpecBinding,
     definition: &Definition,
 ) -> Result<Vec<DeclareSchema>, String> {
-    let installed = load_installed(store, source, definition).await?;
+    let installed = load_installed(source, definition).await?;
     let declared = authorize(app_id, binding, &installed, definition)
         .map_err(|error| error.as_str().to_owned())?;
-    declare_all(store, source, &[saved_query_declare()]).await?;
+    declare_all(source, &[saved_query_declare()]).await?;
     Ok(declared)
 }
 
@@ -249,15 +237,14 @@ fn refuse_same_database(rows: &[Value], source: &str, destination_id: &str) -> R
     }
 }
 
-async fn load_installed<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
+async fn load_installed(
+    source: &TargetStore<'_>,
     definition: &Definition,
 ) -> Result<Vec<RawSchema>, String> {
     let mut installed = Vec::new();
     for (namespace, name) in definition.schema_refs() {
         let qualified = format!("{namespace}/{name}");
-        let value = store.schema(source, &qualified).await?;
+        let value = source.schema(&qualified).await?;
         installed.push(
             RawSchema::from_installed(namespace, name, &value)
                 .map_err(|error| error.as_str().to_owned())?,
@@ -266,13 +253,9 @@ async fn load_installed<S: QueryStore>(
     Ok(installed)
 }
 
-async fn declare_all<S: QueryStore>(
-    store: &S,
-    database: &S::Db,
-    schemas: &[DeclareSchema],
-) -> Result<(), String> {
+async fn declare_all(database: &TargetStore<'_>, schemas: &[DeclareSchema]) -> Result<(), String> {
     for schema in schemas {
-        let response = store.declare(database, &schema.body()).await?;
+        let response = database.declare(&schema.body()).await?;
         if response.get("canonical").and_then(Value::as_str) != Some(schema.qualified().as_str()) {
             return Err("schema declaration resolved to an unexpected name".into());
         }
@@ -280,13 +263,9 @@ async fn declare_all<S: QueryStore>(
     Ok(())
 }
 
-async fn load_saved<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    id: &str,
-) -> Result<Option<SavedQuery>, String> {
-    let rows = store
-        .query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": id}))
+async fn load_saved(source: &TargetStore<'_>, id: &str) -> Result<Option<SavedQuery>, String> {
+    let rows = source
+        .query(SAVED_QUERY_SCHEMA, &json!({"HashKey": id}))
         .await?;
     match rows.as_slice() {
         [] => Ok(None),
@@ -297,13 +276,8 @@ async fn load_saved<S: QueryStore>(
     }
 }
 
-async fn store_query<S: QueryStore>(
-    store: &S,
-    source: &S::Db,
-    query: &SavedQuery,
-) -> Result<(), String> {
+async fn store_query(source: &TargetStore<'_>, query: &SavedQuery) -> Result<(), String> {
     write_hash(
-        store,
         source,
         SAVED_QUERY_SCHEMA,
         &query.id,

@@ -57,9 +57,9 @@ const fn status_reason(status: u16) -> &'static str {
 }
 
 #[derive(Debug, Clone)]
-pub(in crate::exec) struct HostError {
-    pub(in crate::exec) status: u16,
-    pub(in crate::exec) message: String,
+pub(crate) struct HostError {
+    pub(crate) status: u16,
+    pub(crate) message: String,
     structured_body: Option<Value>,
 }
 

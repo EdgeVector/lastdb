@@ -78,7 +78,7 @@ fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
 
 /// The owner socket remains an owner boundary. A request carrying a session
 /// header can only reach the selected database and its allowlisted routes.
-pub fn admit(req: &UdsRequest, host: &Host) -> bool {
+pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
     let Some(token) = req.header(HEADER) else {
         return true;
     };
