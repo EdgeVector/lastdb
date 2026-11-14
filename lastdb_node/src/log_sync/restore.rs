@@ -1,17 +1,216 @@
-//! Fetch authenticated file ciphertext ranges for log replay.
+//! Fetch and install one signed snapshot chain by database id.
+//!
+//! The tip request omits `snapshot_ref`. Each ancestor and each part has
+//! its own request. File objects are fetched as authenticated ciphertext.
+//! The sync loop saves its local position after the installed prefix is durable.
 
 use async_trait::async_trait;
 use base64::Engine as _;
 use cloud_backup_protocol::v2::blobs::BlobPath;
+use cloud_backup_protocol::v2::limits::MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
+use mutation_log::{LogError, MutationLog, Recovery};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
-use crate::database_replay::{RestoreError, SnapshotFileRequest, SnapshotFileSource};
+use crate::database_replay::{
+    self, RestoreError, SnapshotFileRequest, SnapshotFileSource, SnapshotInstall, SnapshotManifest,
+    SnapshotObject, SnapshotPart,
+};
 
 use super::cloud::CloudLog;
+use super::http::Proof;
 use super::paths;
 
 const OBJECT_RANGE: u64 = 180 * 1024;
+/// Same bound as `database_replay` chain order.
+const CHAIN_LIMIT: usize = 1024;
+
+pub(super) fn recover(
+    log: &CloudLog,
+    reader: &mutation_log::Writer,
+    local_cursor: u64,
+) -> Result<Recovery, LogError> {
+    if log.principal() != &reader.key || log.device() != &reader.device {
+        return Err(LogError::Unauthorized);
+    }
+    let through = log.wait(install(
+        log.clone(),
+        local_cursor.saturating_add(1)..=u64::MAX,
+        true,
+    ))??;
+    match log.list(&reader.key, through, mutation_log::LIST_PAGE_LIMIT, 0) {
+        Ok(page) => Ok(Recovery {
+            reset: None,
+            entries: page.entries,
+            next: page.next,
+        }),
+        Err(LogError::CursorExpired { .. }) => Err(LogError::SnapshotRequired),
+        Err(error) => Err(error),
+    }
+}
+
+pub(super) async fn install(
+    log: CloudLog,
+    allowed_through: std::ops::RangeInclusive<u64>,
+    live: bool,
+) -> Result<u64, LogError> {
+    let chain = walk(&log).await?;
+    let tip = chain.first().ok_or(LogError::SnapshotRequired)?;
+    if !allowed_through.contains(&tip.through_delivery_seq) {
+        return Err(LogError::SnapshotRequired);
+    }
+    let tip = tip.snapshot_ref.clone();
+    let request = SnapshotInstall {
+        database_id: log.database_id().to_owned(),
+        snapshot_ref: tip,
+        objects: objects(&log, &chain).await?,
+    };
+    let mut files = Files { log: log.clone() };
+    let device = live.then(|| log.device().as_str());
+    match database_replay::install(log.host()?, &request, &mut files, device).await {
+        Ok(through) => Ok(through),
+        Err(RestoreError::Scope(_)) => Err(LogError::SnapshotRequired),
+        Err(_) => Err(LogError::UnexpectedOutcome),
+    }
+}
+
+/// Find a sealed entry even when the latest snapshot has no new writes.
+/// The caller uses the entry to select the content key.
+pub(super) async fn sample_entry(
+    log: &CloudLog,
+) -> Result<database_replay::SnapshotEntry, LogError> {
+    let mut walk = SnapshotWalk::default();
+    while let Some(manifest) = walk.next(log).await? {
+        for index in 0..manifest.parts {
+            if let Some(entry) = part(log, &manifest, index)
+                .await?
+                .entries
+                .into_iter()
+                .next()
+            {
+                return Ok(entry);
+            }
+        }
+    }
+    Err(LogError::UnexpectedOutcome)
+}
+
+async fn walk(log: &CloudLog) -> Result<Vec<SnapshotManifest>, LogError> {
+    let mut chain = Vec::new();
+    let mut walk = SnapshotWalk::default();
+    while let Some(manifest) = walk.next(log).await? {
+        chain.push(manifest);
+    }
+    Ok(chain)
+}
+
+#[derive(Default)]
+struct SnapshotWalk {
+    seen: HashSet<String>,
+    previous: Option<String>,
+}
+
+impl SnapshotWalk {
+    async fn next(&mut self, log: &CloudLog) -> Result<Option<SnapshotManifest>, LogError> {
+        if !self.seen.is_empty() && self.previous.is_none() {
+            return Ok(None);
+        }
+        if self.seen.len() >= CHAIN_LIMIT {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        let manifest = one_manifest(log, self.previous.as_deref()).await?;
+        if manifest.parts == 0 || !self.seen.insert(manifest.snapshot_ref.clone()) {
+            return Err(LogError::UnexpectedOutcome);
+        }
+        self.previous = manifest
+            .previous_ref
+            .clone()
+            .filter(|value| !value.is_empty());
+        Ok(Some(manifest))
+    }
+}
+
+async fn one_manifest(
+    log: &CloudLog,
+    snapshot_ref: Option<&str>,
+) -> Result<SnapshotManifest, LogError> {
+    let body = canonical_bytes(&ManifestRequest {
+        database_id: log.database_id(),
+        snapshot_ref,
+    })
+    .map_err(|_| LogError::UnexpectedOutcome)?;
+    let raw = archive_reply(log, body).await?;
+    let manifest =
+        database_replay::manifest_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
+    if snapshot_ref.is_some_and(|wanted| manifest.snapshot_ref != wanted) {
+        return Err(LogError::UnexpectedOutcome);
+    }
+    Ok(manifest)
+}
+
+async fn objects(
+    log: &CloudLog,
+    chain: &[SnapshotManifest],
+) -> Result<Vec<SnapshotObject>, LogError> {
+    let mut objects = Vec::with_capacity(chain.len());
+    for manifest in chain {
+        objects.push(SnapshotObject {
+            parts: parts(log, manifest).await?,
+            manifest: manifest.clone(),
+        });
+    }
+    Ok(objects)
+}
+
+async fn parts(log: &CloudLog, manifest: &SnapshotManifest) -> Result<Vec<SnapshotPart>, LogError> {
+    let mut parts = Vec::with_capacity(manifest.parts as usize);
+    for index in 0..manifest.parts {
+        parts.push(part(log, manifest, index).await?);
+    }
+    Ok(parts)
+}
+
+async fn part(
+    log: &CloudLog,
+    manifest: &SnapshotManifest,
+    index: u32,
+) -> Result<SnapshotPart, LogError> {
+    let body = canonical_bytes(&PartRequest {
+        database_id: log.database_id(),
+        snapshot_ref: &manifest.snapshot_ref,
+        part: DecimalU64::new(u64::from(index)),
+    })
+    .map_err(|_| LogError::UnexpectedOutcome)?;
+    let raw = archive_reply(log, body).await?;
+    let part = database_replay::part_from_json(&raw).map_err(|_| LogError::UnexpectedOutcome)?;
+    if part.database_id != log.database_id()
+        || part.snapshot_ref != manifest.snapshot_ref
+        || part.index != index
+    {
+        return Err(LogError::UnexpectedOutcome);
+    }
+    Ok(part)
+}
+
+async fn archive_reply(log: &CloudLog, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
+    let (status, raw) = log
+        .post_status_limit(
+            paths::DELIVERY_SNAPSHOT,
+            body,
+            Proof::Data,
+            MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES,
+        )
+        .await
+        .map_err(|_| LogError::UnexpectedOutcome)?;
+    if (200..300).contains(&status) {
+        return Ok(raw);
+    }
+    if status == 404 {
+        return Err(LogError::SnapshotRequired);
+    }
+    Err(super::wire::service_error(&raw).unwrap_or(LogError::UnexpectedOutcome))
+}
 
 pub(super) struct Files {
     log: CloudLog,
@@ -114,6 +313,20 @@ fn decode_range(raw: &[u8], database_id: &str) -> Result<RangeBytes, RestoreErro
         got,
         bytes,
     })
+}
+
+#[derive(Serialize)]
+struct ManifestRequest<'a> {
+    database_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot_ref: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct PartRequest<'a> {
+    database_id: &'a str,
+    snapshot_ref: &'a str,
+    part: DecimalU64,
 }
 
 #[derive(Serialize)]

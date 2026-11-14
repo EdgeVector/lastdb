@@ -273,12 +273,10 @@ impl MutationLog for CloudLog {
     fn recover(
         &self,
         reader: &Writer,
-        _local_cursor: u64,
+        local_cursor: u64,
         _now_ms: u64,
     ) -> Result<Recovery, LogError> {
-        self.same_reader(&reader.key)?;
-        self.same_device(&reader.device)?;
-        Err(LogError::SnapshotRequired)
+        super::restore::recover(self, reader, local_cursor)
     }
 
     fn grant(

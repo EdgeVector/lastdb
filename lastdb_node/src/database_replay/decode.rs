@@ -3,12 +3,15 @@
 //! The part payload is an envelope, not canonical JSON. The opened bytes are
 //! the accepted body from [`super::payload`]. Plaintext is refused.
 
+use std::collections::HashMap;
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use cloud_backup_protocol::bytes_sha256;
 
 use crate::log_envelope::{self, DatabaseContentKey, IncorporatedRef, LogBinding};
 
+use super::chain::Link;
 use super::payload::{self, Change};
 use super::types::{IncorporatedFrom, SnapshotEntry};
 use super::RestoreError;
@@ -26,6 +29,18 @@ pub(super) struct EntryDecoder<'a> {
     pub key: &'a DatabaseContentKey,
     pub database_id: &'a str,
     pub private: bool,
+}
+
+pub(super) fn check_chain(decoder: EntryDecoder<'_>, links: &[Link]) -> Result<(), RestoreError> {
+    let mut seen = HashMap::new();
+    for link in links {
+        for part in &link.parts {
+            for entry in &part.entries {
+                note_entry(&mut seen, &decoder.open(entry)?)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 impl EntryDecoder<'_> {
@@ -83,6 +98,15 @@ fn incorporated(from: &IncorporatedFrom) -> IncorporatedRef<'_> {
         writer_device: &from.writer_device,
         writer_seq: from.writer_seq,
     }
+}
+
+fn note_entry(seen: &mut HashMap<String, String>, prepared: &Prepared) -> Result<(), RestoreError> {
+    if let Some(prior) = seen.insert(prepared.id.clone(), prepared.hash.clone()) {
+        if prior != prepared.hash {
+            return Err(RestoreError::Entry("mutation id"));
+        }
+    }
+    Ok(())
 }
 
 fn check_namespace(schema: &str, namespace: &str) -> Result<(), RestoreError> {

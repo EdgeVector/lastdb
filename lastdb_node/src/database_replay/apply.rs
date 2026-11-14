@@ -1,4 +1,4 @@
-//! Helpers for staging uploaded files, schema puts/drops, and record writes.
+//! Store mutations and attached file bytes for verified signed entries.
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_value::FileMarker;

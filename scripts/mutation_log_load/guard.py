@@ -98,6 +98,11 @@ def database_id_for_run(run_id):
     return allow_stream(STREAM_PREFIX + digest[:12])
 
 
+def snap_partition(database_id):
+    """Native snapshot metadata uses the validated run id plus ``#snap``."""
+    return allow_stream(database_id) + "#snap"
+
+
 def sub_partition(database_id):
     """Submission records live in exactly the load id plus ``#sub``."""
     return allow_stream(database_id) + "#sub"
@@ -126,11 +131,12 @@ def submission_key(node, device, writer_seq):
 def load_partitions(database_id):
     """The exact partitions owned by this one DEV load."""
     base = allow_stream(database_id)
-    return (base, sub_partition(base), writes_partition(base))
+    return (base, snap_partition(base), sub_partition(base), writes_partition(base))
 
 
 def allow_partition(value):
-    for suffix, builder in (("#sub", sub_partition), ("#writes", writes_partition)):
+    for suffix, builder in (("#snap", snap_partition), ("#sub", sub_partition),
+                            ("#writes", writes_partition)):
         if isinstance(value, str) and value.endswith(suffix):
             base = value[:-len(suffix)]
             if value != builder(base):
