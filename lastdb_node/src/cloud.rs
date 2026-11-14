@@ -14,6 +14,10 @@ use std::time::Duration;
 use zeroize::Zeroizing;
 
 pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
+#[doc(hidden)]
+pub const FIRST_BACKUP_INTENT_FILE: &str = ".native-first-backup";
+#[doc(hidden)]
+pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
 pub const DEVELOPER_API_KEY_FILE: &str = "developer-api-key";
 
 #[derive(Serialize, Deserialize)]

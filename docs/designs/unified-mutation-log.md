@@ -126,6 +126,14 @@ the last delivery entry the service actually removed. Older clients can read
 the retained entries. A client below the physical floor must upgrade to a
 version that can recover from the native snapshot.
 
+When a previously local personal home connects for the first time, the device
+preserves the two native roots at the start of signed capture. The checkpoint
+links immutable runs on the same filesystem and keeps the original manifests.
+With an empty signed cloud log, the device publishes these files at position
+zero and releases its queued mutations only after verifying the published
+snapshot. If an older home already queued writes and the exact original
+checkpoint is unavailable, those edits remain queued.
+
 `lastdb backup reclaim --database personal --status` reads the verified
 snapshot and physical floor for the owner's personal database.
 `lastdb backup reclaim --database personal --allow-required-client-upgrade`

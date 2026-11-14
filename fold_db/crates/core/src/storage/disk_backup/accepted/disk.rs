@@ -137,6 +137,21 @@ impl Log {
         inner.note_snapshot(&self.root, covered)
     }
 
+    pub(in crate::storage) fn pin_initial_frontier(&self, covered: u64) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        inner.refuse_gap()?;
+        if let Some(state) = &inner.state {
+            return (state.snapshot_required && state.opened_frontier == covered)
+                .then_some(())
+                .ok_or(Error::Snapshot);
+        }
+        if !inner.history || inner.frontier != covered {
+            return Err(Error::Snapshot);
+        }
+        let state = inner.fresh(covered, true);
+        inner.store(&self.root, state)
+    }
+
     pub(super) fn mark_born(&self, frontier: u64) -> Result<(), Error> {
         let mut inner = self.lock()?;
         inner.mark_born(&self.root, frontier)

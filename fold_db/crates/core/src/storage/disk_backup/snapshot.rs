@@ -1,7 +1,9 @@
 //! Capture the matching main and file roots at one durable write boundary.
 
+use super::prearm;
 use crate::storage::disk_pack::{
-    admit, cas_delete, map, PackRuntime, CAS_DIR, NODE_MARKER, RUN_DIR,
+    admit, cas_delete, map, physical::V2Home, run_blocking, PackRuntime, CAS_DIR, NODE_MARKER,
+    RUN_DIR,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::metadata::Metadata;
@@ -14,7 +16,7 @@ use std::sync::Arc;
 
 /// The database and file storage captured at one write boundary.
 pub struct DatabaseSnapshot {
-    /// Main storage frontier included in the frozen files.
+    /// Combined main and file frontier included in the frozen files.
     pub native_frontier: u64,
     /// Whether the frozen files must cover writes from before cloud capture.
     pub needs_initial_coverage: bool,
@@ -81,20 +83,41 @@ impl PackRuntime {
                 "snapshot cannot include files referenced outside the database",
             ));
         }
-        let parent = self
-            .physical
-            .path()
-            .parent()
-            .ok_or_else(|| StorageError::invalid("database snapshot root"))?;
-        let marker = admit::open_nofollow_read(&parent.join(NODE_MARKER))?;
-        Ok(Some(DatabaseSnapshot {
-            native_frontier: self.physical.current_root().frontier(),
-            needs_initial_coverage: accepted.snapshot_required,
-            log_covered: self.has_settled_replay().await?,
-            marker,
-            main: self.physical.home.snapshot().map_err(map)?,
-            files: self.physical.cas.snapshot().map_err(map)?,
-        }))
+        let settled = self.has_settled_replay().await?;
+        DatabaseSnapshot::from_roots(&self.physical, accepted.snapshot_required, settled).map(Some)
+    }
+
+    /// Open the exact database files preserved before any queued local edit.
+    /// The caller must verify the signed personal cloud log still starts at zero.
+    pub async fn capture_initial_snapshot(
+        self: &Arc<Self>,
+        key: zeroize::Zeroizing<[u8; 32]>,
+    ) -> StorageResult<Option<DatabaseSnapshot>> {
+        let _write = self.enter_write().await;
+        let status = self.accepted_status();
+        if self.requires_recovery() || status.gap || !status.snapshot_required || status.acked != 0
+        {
+            return Ok(None);
+        }
+        let runtime = Arc::clone(self);
+        let snapshot = run_blocking(move || prearm::open(&runtime.physical, &key)).await?;
+        if snapshot
+            .as_ref()
+            .is_some_and(|cut| cut.native_frontier != status.opened_frontier)
+        {
+            return Err(StorageError::invalid(
+                "initial snapshot does not match the capture frontier",
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    /// Remove the local first-snapshot checkpoint after its signed publication.
+    pub fn release_initial_snapshot(&self) -> StorageResult<()> {
+        if self.accepted_status().snapshot_required {
+            return Err(StorageError::invalid("initial snapshot is still required"));
+        }
+        prearm::release(&self.physical)
     }
 
     async fn has_settled_replay(self: &Arc<Self>) -> StorageResult<bool> {
@@ -114,6 +137,26 @@ impl PackRuntime {
 }
 
 impl DatabaseSnapshot {
+    pub(super) fn from_roots(
+        physical: &V2Home,
+        needs_initial_coverage: bool,
+        log_covered: bool,
+    ) -> StorageResult<Self> {
+        let parent = physical
+            .path()
+            .parent()
+            .ok_or_else(|| StorageError::invalid("database snapshot root"))?;
+        let marker = admit::open_nofollow_read(&parent.join(NODE_MARKER))?;
+        Ok(Self {
+            native_frontier: physical.current_root().frontier(),
+            needs_initial_coverage,
+            log_covered,
+            marker,
+            main: physical.home.snapshot().map_err(map)?,
+            files: physical.cas.snapshot().map_err(map)?,
+        })
+    }
+
     /// List the exact original file paths and sizes.
     pub fn files(&self) -> StorageResult<Vec<(PathBuf, u64)>> {
         let mut files = vec![(NODE_MARKER.into(), self.marker.metadata()?.len())];

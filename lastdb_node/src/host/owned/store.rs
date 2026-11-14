@@ -65,6 +65,7 @@ pub(super) async fn open(
             search_outbox_inbox: Some(inbox),
             // Owned siblings are shareable. Capture starts here, before cloud enrollment.
             capture_accepted: true,
+            capture_initial_snapshot: false,
         },
     )
     .await

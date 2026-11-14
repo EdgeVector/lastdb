@@ -6,6 +6,7 @@ use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{
     register_native_device, SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE,
+    FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE,
 };
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::Directory;
@@ -165,7 +166,8 @@ fn connect(home: &Path, env: Environment, invite_stdin: bool, json: bool) -> Res
         return Err("native enrollment identity changed; registration may have committed".into());
     }
     let creds = encode_connected_credentials(env, &account_id, api_key, None)?;
-    dir.write_new(PENDING_FILE, &creds)
+    dir.mark_first_backup()
+        .and_then(|()| dir.write_new(PENDING_FILE, &creds))
         .and_then(|()| dir.publish())
         .map_err(|e| format!("{e}; registration may have committed; retain this home"))?;
     emit(true)
@@ -223,6 +225,10 @@ fn connect_existing(
     };
     let encoded =
         encode_connected_credentials(env, &account_id, api_key.as_str().to_owned(), existing_home)?;
+    if prev.is_none() {
+        dir.publish(FIRST_BACKUP_INTENT_FILE, None, FIRST_BACKUP_INTENT)
+            .map_err(|error| error.to_string())?;
+    }
     dir.publish(
         CLOUD_CREDENTIALS_FILE,
         prev.as_deref().map(Vec::as_slice),

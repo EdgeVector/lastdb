@@ -6,6 +6,7 @@ use super::{
     StorageResult,
 };
 use crate::storage::content_key_proof;
+use crate::storage::disk_backup::{accepted::Log, prearm};
 use crate::storage::disk_cleanup::CleanupJob;
 use crate::storage::format::metadata::{
     initial_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY, LOCAL_AUTHOR_KEY,
@@ -117,6 +118,7 @@ impl PackNamespacedStore {
         path: &Path,
         key: Option<&[u8; 32]>,
         capture_accepted: bool,
+        capture_initial_snapshot: bool,
     ) -> StorageResult<Self> {
         let is_new = match fs::read_dir(path) {
             Ok(mut dir) => dir.next().is_none(),
@@ -126,7 +128,7 @@ impl PackNamespacedStore {
         if is_new || creation_stopped(path)? {
             return Self::create_run(path, require_key(key)?, capture_accepted);
         }
-        Self::open_run(path, key, capture_accepted)
+        Self::open_run(path, key, capture_accepted, capture_initial_snapshot)
     }
 
     fn create_run(path: &Path, node_key: &[u8; 32], capture_accepted: bool) -> StorageResult<Self> {
@@ -161,7 +163,7 @@ impl PackNamespacedStore {
             fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;
         }
-        let store = Self::open_run(path, Some(node_key), capture_accepted);
+        let store = Self::open_run(path, Some(node_key), capture_accepted, false);
         drop(folder);
         store
     }
@@ -170,6 +172,7 @@ impl PackNamespacedStore {
         path: &Path,
         node_key: Option<&[u8; 32]>,
         capture_accepted: bool,
+        capture_initial_snapshot: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         admit_stopped_home(path, node_key)?;
@@ -189,7 +192,11 @@ impl PackNamespacedStore {
         let current = physical.current_root();
         let cleanup_job = Arc::new(CleanupJob::open(&physical));
         let accepted = capture_accepted.then(|| {
-            crate::storage::disk_backup::accepted::Log::open(physical.path(), current.frontier())
+            let log = Log::open(physical.path(), current.frontier());
+            if capture_initial_snapshot {
+                prearm::prepare_capture(&physical, &log, node_key);
+            }
+            log
         });
         let initializing = AtomicBool::new(path.join(CREATION_INTENT).try_exists()?);
         let view = NativeReadView {

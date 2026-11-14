@@ -1,23 +1,28 @@
 //! Publish a held database checkpoint through the signed cloud database.
 
+mod bootstrap;
 mod files;
 mod recovery;
 pub(super) mod transport;
 
-use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
-use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, DecimalU64, Digest, Id};
-use fold_db::storage::disk_pack::NativeCloudWorkGuard;
+use cloud_backup_protocol::{DecimalU64, Digest, Id};
+use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard, PackRuntime};
 use serde::{Deserialize, Serialize};
 
 use crate::host::owned;
 use crate::host::owned::Resolved;
 use crate::host::Host;
+use fold_db::crypto::E2eKeys;
 use fold_db::security::Ed25519KeyPair;
+use fold_db::storage::StorageError;
+use zeroize::Zeroizing;
 
 use super::{cloud::CloudLog, registry, session};
+pub(super) use bootstrap::ensure_initial;
+pub(crate) use bootstrap::should_stage_initial_snapshot;
 pub(super) use recovery::restore_cut;
 
 pub(super) const AWAIT_INCOMING: &str = "snapshot awaits incoming signed updates";
@@ -32,22 +37,12 @@ pub(super) struct Manifest {
     files: Vec<files::FileEntry>,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Bootstrap {
-    snapshot_id: Digest,
-    scope: CloudScope,
-    environment: String,
-    device: String,
-    native_frontier: u64,
-}
-
 /// Publish snapshots for a database already selected by its stable id.
 async fn publish(
     host: &Arc<Host>,
     log: &CloudLog,
     database: &registry::Database,
-    nonce: &str,
+    nonce: Option<&str>,
 ) -> Result<(), String> {
     let _work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
     let (resolved, sibling) = host
@@ -64,26 +59,21 @@ async fn publish(
     let cloud_head = super::owner_recovery::head(log).await?;
     let previous = transport::current(log).await?;
     let personal = database.kind == "personal";
-    if personal
-        && through == 0
-        && cloud_head == 0
+    let at_start = personal && !database.native && through == 0 && cloud_head == 0;
+    if at_start
         && runtime.accepted_status().snapshot_required
-        && finish_bootstrap(&runtime, &host.home, log, previous.as_ref())?
+        && bootstrap::resume(&runtime, &host.home, log, previous.as_ref())?
     {
         return remember(&host.home, log.database_id(), 0, 0, nonce);
     }
     if cloud_head != through {
         return Err(AWAIT_INCOMING.into());
     }
-    let cut = runtime
-        .capture_synced_snapshot()
-        .await
-        .map_err(|error| format!("cannot freeze the database files: {error}"))?
-        .ok_or(AWAIT_LOCAL_UPLOAD)?;
-    let bootstrap = personal
-        && through == 0
+    let cut = capture(host, &runtime, at_start && previous.is_none()).await?;
+    let bootstrap = at_start
         && previous.is_none()
-        && (cut.needs_initial_coverage || first_path(&host.home, log.database_id()).is_file());
+        && (cut.needs_initial_coverage
+            || (nonce.is_some() && bootstrap::first_path(&host.home, log.database_id()).is_file()));
     if cut.needs_initial_coverage && !bootstrap {
         return Err("initial snapshot requires a new personal cloud database".into());
     }
@@ -110,7 +100,7 @@ async fn publish(
         files,
     };
     if bootstrap {
-        start_bootstrap(&host.home, log, &manifest, cut.native_frontier)?;
+        bootstrap::start(&host.home, log, &manifest, cut.native_frontier)?;
     }
     let advance_cutoff = personal && manifest.name.is_none() && through > 0 && cut.log_covered;
     let id = match previous.as_ref() {
@@ -134,66 +124,37 @@ async fn publish(
     };
     let entries = confirmed(log, through, &id, personal).await?;
     if bootstrap {
-        runtime
-            .note_accepted_snapshot(cut.native_frontier)
-            .map_err(|error| format!("{error:?}"))?;
+        let frontier = cut.native_frontier;
+        drop(cut);
+        bootstrap::finish(&runtime, &host.home, frontier)?;
     }
     remember(&host.home, log.database_id(), through, entries, nonce)?;
     tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");
     Ok(())
 }
 
-fn start_bootstrap(
-    home: &Path,
-    log: &CloudLog,
-    manifest: &Manifest,
-    native_frontier: u64,
-) -> Result<(), String> {
-    let snapshot_id = bytes_sha256(&canonical_bytes(manifest).map_err(|error| error.to_string())?);
-    let saved = Bootstrap {
-        snapshot_id,
-        scope: log.scope.clone(),
-        environment: log.environment().to_owned(),
-        device: log.device().as_str().to_owned(),
-        native_frontier,
-    };
-    let bytes = canonical_bytes(&saved).map_err(|error| error.to_string())?;
-    let path = bootstrap_path(home, log.database_id());
-    let parent = path
-        .parent()
-        .ok_or("cannot locate the initial snapshot record")?;
-    super::disk::write_private(&path, &bytes)
-        .and_then(|()| File::open(parent)?.sync_all())
-        .map_err(|_| "cannot record the initial snapshot before publishing".into())
-}
-
-fn finish_bootstrap(
-    runtime: &fold_db::storage::disk_pack::PackRuntime,
-    home: &Path,
-    log: &CloudLog,
-    cloud: Option<&(Digest, Manifest)>,
-) -> Result<bool, String> {
-    let Some((id, _)) = cloud.filter(|(_, manifest)| manifest.through.get() == 0) else {
-        return Ok(false);
-    };
-    let Some(bytes) = super::disk::read_limited(&bootstrap_path(home, log.database_id()), 4096)
-        .map_err(|_| "cannot read the initial snapshot record")?
-    else {
-        return Ok(false);
-    };
-    let saved: Bootstrap =
-        serde_json::from_slice(&bytes).map_err(|_| "cannot read the initial snapshot record")?;
-    if &saved.snapshot_id != id
-        || saved.scope != log.scope
-        || saved.environment != log.environment()
-        || saved.device != log.device().as_str()
-    {
-        return Ok(false);
+async fn capture(
+    host: &Host,
+    runtime: &Arc<PackRuntime>,
+    first_personal: bool,
+) -> Result<DatabaseSnapshot, String> {
+    let freeze_error = |error: StorageError| format!("cannot freeze the database files: {error}");
+    if first_personal && runtime.accepted_status().snapshot_required {
+        let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+        let key = E2eKeys::from_ed25519_seed(&seed).map_err(|error| error.to_string())?;
+        if let Some(cut) = runtime
+            .capture_initial_snapshot(Zeroizing::new(key.encryption_key()))
+            .await
+            .map_err(freeze_error)?
+        {
+            return Ok(cut);
+        }
     }
     runtime
-        .note_accepted_snapshot(saved.native_frontier)
-        .map_err(|error| format!("{error:?}"))?;
-    Ok(true)
+        .capture_synced_snapshot()
+        .await
+        .map_err(freeze_error)?
+        .ok_or_else(|| AWAIT_LOCAL_UPLOAD.into())
 }
 
 async fn confirmed(
@@ -222,8 +183,11 @@ fn remember(
     database: &str,
     through: u64,
     entries: u64,
-    nonce: &str,
+    nonce: Option<&str>,
 ) -> Result<(), String> {
+    let Some(nonce) = nonce else {
+        return Ok(());
+    };
     let report =
         format!("through={through}\nhead={through}\nlog_entries={entries}\nrequest={nonce}\n");
     super::disk::write_private(&result_path(home, database), report.as_bytes())
@@ -263,7 +227,7 @@ pub(super) async fn requested(
     };
     let nonce = request_nonce(&request)?;
     let failure = path.with_file_name("snapshot-error");
-    if let Err(error) = publish(host, log, database, &nonce).await {
+    if let Err(error) = publish(host, log, database, Some(&nonce)).await {
         super::disk::write_private(&failure, error.as_bytes())
             .map_err(|_| "cannot save the snapshot failure")?;
         return Err(error);
@@ -311,16 +275,6 @@ fn request_path(home: &std::path::Path, id: &str) -> std::path::PathBuf {
 
 fn result_path(home: &Path, id: &str) -> std::path::PathBuf {
     home.join("log-sync").join(id).join("snapshot-result")
-}
-
-fn first_path(home: &Path, id: &str) -> std::path::PathBuf {
-    home.join("log-sync").join(id).join("snapshot-first")
-}
-
-fn bootstrap_path(home: &Path, id: &str) -> PathBuf {
-    home.join("log-sync")
-        .join(id)
-        .join("snapshot-bootstrap.json")
 }
 
 /// Restore the snapshot before booting the isolated destination.

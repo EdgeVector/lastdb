@@ -1,6 +1,7 @@
 //! Accepted mutation log, database snapshots, and the native cloud work guard.
 
 pub mod accepted;
+pub(in crate::storage) mod prearm;
 pub mod snapshot;
 pub mod stopped_sync;
 
