@@ -17,7 +17,8 @@ on:
       - '.github/workflows/app-compatibility-publish.yml'
       - 'scripts/release/nightly_*.py'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
-      - 'lastdb_node/src/bin/lastdb/cli_defs/app/lifecycle.rs'
+      - 'lastdb_node/src/bin/lastdb/cli_defs.rs'
+      - 'lastdb_node/src/bin/lastdb/cli_defs/**'
 
 permissions:
   contents: read

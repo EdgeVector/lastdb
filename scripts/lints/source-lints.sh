@@ -13,10 +13,12 @@ CRATES=(
   schema_service/crates
   lastdb_node
   cloud_backup_protocol
+  database_policy
   mutation_log
   mutation_log_mem
   mutation_log_sync
   app_identity_crypto
+  vendor/laststore
 )
 scopes=()
 for crate in "${CRATES[@]}"; do

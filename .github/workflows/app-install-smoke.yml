@@ -8,8 +8,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/app-install-smoke.yml
-      - lastdb_node/src/bin/lastdb/app_cmds/managed.rs
-      - lastdb_node/src/app_registry_index/managed*.rs
+      - lastdb_node/src/bin/lastdb/app_cmds.rs
+      - lastdb_node/src/bin/lastdb/app_cmds/**
+      - lastdb_node/src/app_registry_index/**
   workflow_dispatch:
     inputs:
       apps:

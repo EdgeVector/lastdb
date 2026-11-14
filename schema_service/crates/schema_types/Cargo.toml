@@ -10,8 +10,8 @@ description = "Pure wire/domain schema types for schema_service — no fold_db, 
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-app_identity_crypto = { workspace = true }
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+json-canon = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

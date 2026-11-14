@@ -8,7 +8,6 @@ description = "Shared telemetry substrate for LastDB (JSON formatting, crash hoo
 
 [features]
 default = []
-otel = []
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [dependencies]

@@ -1,135 +1,19 @@
+//! Mutation intents, wire operations, and deterministic authored content digests.
+
 use super::types::{cas::CasExpectation, key_value::KeyValue};
 use super::SchemaError;
-use crate::canonical::{push_field, CanonicalValue};
+use crate::canonical::{push_field, SortedKeyJsonValue};
 use crate::field_key_codec::record_replacement::RecordTarget;
 use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+
+pub use super::file_write::{FileWrite, FileWriteIssuer, LocalFileReference, SealedRecordFile};
 
 fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
-}
-
-#[derive(Default)]
-pub struct FileWriteIssuer {
-    identity: Arc<()>,
-}
-
-struct Issued<T> {
-    issuer: Arc<()>,
-    marker: FileMarker,
-    data: T,
-}
-
-impl<T: PartialEq> PartialEq for Issued<T> {
-    fn eq(&self, o: &Self) -> bool {
-        Arc::ptr_eq(&self.issuer, &o.issuer) && self.marker == o.marker && self.data == o.data
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct SealedRecordFile(Arc<Issued<Vec<u8>>>);
-
-impl SealedRecordFile {
-    #[must_use]
-    pub fn marker(&self) -> &FileMarker {
-        &self.0.marker
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct LocalFileReference(Arc<Issued<PathBuf>>);
-
-impl LocalFileReference {
-    #[must_use]
-    pub fn marker(&self) -> &FileMarker {
-        &self.0.marker
-    }
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.0.data
-    }
-}
-
-impl FileWriteIssuer {
-    #[must_use]
-    pub fn issue(&self, marker: FileMarker, data: Vec<u8>) -> FileWrite {
-        FileWrite::Put(SealedRecordFile(Arc::new(Issued {
-            issuer: Arc::clone(&self.identity),
-            marker,
-            data,
-        })))
-    }
-
-    #[must_use]
-    pub fn issue_local(&self, marker: FileMarker, data: PathBuf) -> FileWrite {
-        FileWrite::LocalPath(LocalFileReference(Arc::new(Issued {
-            issuer: Arc::clone(&self.identity),
-            marker,
-            data,
-        })))
-    }
-
-    #[must_use]
-    pub fn admit(&self, file: SealedRecordFile) -> Option<Vec<u8>> {
-        Arc::ptr_eq(&self.identity, &file.0.issuer)
-            .then(|| Arc::try_unwrap(file.0).map_or_else(|p| p.data.clone(), |p| p.data))
-    }
-
-    #[must_use]
-    pub fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
-        Arc::ptr_eq(&self.identity, &file.0.issuer).then_some(file.path())
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum FileWrite {
-    Put(SealedRecordFile),
-    LocalPath(LocalFileReference),
-    Clear,
-}
-
-impl FileWrite {
-    #[must_use]
-    pub fn row_len(&self) -> usize {
-        self.sealed_row().map_or(0, <[u8]>::len)
-    }
-    #[must_use]
-    pub fn sealed_row(&self) -> Option<&[u8]> {
-        match self {
-            Self::Put(file) => Some(&file.0.data),
-            Self::LocalPath(_) | Self::Clear => None,
-        }
-    }
-    #[must_use]
-    pub fn local_reference(&self) -> Option<&LocalFileReference> {
-        match self {
-            Self::LocalPath(file) => Some(file),
-            Self::Put(_) | Self::Clear => None,
-        }
-    }
-}
-
-impl fmt::Debug for FileWrite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Put(file) => f
-                .debug_struct("Put")
-                .field("marker", file.marker())
-                .field("row_bytes", &self.row_len())
-                .finish(),
-            Self::LocalPath(file) => f
-                .debug_struct("LocalPath")
-                .field("marker", file.marker())
-                .finish_non_exhaustive(),
-            Self::Clear => f.write_str("Clear"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +42,7 @@ pub enum MutationConvergence {
 }
 
 impl MutationConvergence {
+    #[must_use]
     pub fn waits(self) -> bool {
         matches!(self, Self::Sync)
     }
@@ -172,6 +57,7 @@ pub enum MutationDurability {
 }
 
 impl MutationDurability {
+    #[must_use]
     pub fn waits_for_persist(self) -> bool {
         matches!(self, Self::Durable)
     }
@@ -278,6 +164,7 @@ impl Mutation {
         }
     }
 
+    #[must_use]
     pub fn target(&self) -> RecordTarget {
         RecordTarget {
             schema: self.schema_name.clone(),
@@ -338,7 +225,7 @@ impl Mutation {
         d.update((fields.len() as u64).to_be_bytes());
         for (name, value) in fields {
             push_field(&mut d, name.as_bytes());
-            push_json(&mut d, &CanonicalValue(value));
+            push_json(&mut d, &SortedKeyJsonValue::new(value));
         }
         push_field(&mut d, self.pub_key.as_bytes());
         push_json(&mut d, &self.source_file_name);

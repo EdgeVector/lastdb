@@ -63,11 +63,13 @@ This rule supersedes the local build commands and coordination rules below.
 > `brain get concepts-lastdb-agent-access-model` (the complexity table above
 > is also in the canonical model)
 
-One cargo workspace: `fold_db` (core), `schema_service` (cloud schema
-registry), `lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped
-product), plus shared `lastdb_host` / `lastdb_uds` /
-`lastdb_identity` / `folddb_profile` / `app_identity_crypto` /
-`observability`. (The `fold_db_node` desktop node, Tauri
+One cargo workspace: `fold_db/crates/{core,model,observability}` (core engine,
+pure domain model, and telemetry), `schema_service/crates/{schema_types,core,server_lambda}`
+(cloud schema registry and pure wire types), `lastdb_node` (the `lastdb`/`lastdbd`
+Mini daemon — the shipped product, including the `host`, `lastdb_uds`,
+`lastdb_identity`, and `folddb_profile` modules), plus shared
+`app_identity_crypto`, `cloud_backup_protocol`, `database_policy`,
+`mutation_log*`, and `vendor/laststore`. (The `fold_db_node` desktop node, Tauri
 app, and `file_to_markdown` were deleted in the Mini-only cutover 2026-07-12;
 restore point: branch `archive/desktop-dmg-pre-removal`.)
 
@@ -161,7 +163,7 @@ The private native queue retains prepared disk bytes until flush. Ordinary
 reads cannot use that queue. Native requests complete a durable run commit and
 their clean core memory publication before the ack. No collection timer delays them.
 
-- `fold_db/crates/core/src/resident/` holds the core model, memory charges,
+- `fold_db/crates/core/src/resident.rs` holds the core model, memory charges,
   the warm-set byte limit, and shared counters. Read its module doc before
   a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
@@ -182,14 +184,14 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-fold-build-test-ci-safety` — fmt gate, non-test lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
 - `concepts-fold-dev-run-and-app-isolation` — dev-node flags, app-isolation opt-out, socket-only-default vs `--with-tcp`, keyless dev, log volume knobs, Lambda/CDK.
 - `concepts-fold-error-handling-idioms` — `From<SourceError>` + bare `?`; error types; coding standards.
-- `concepts-fold-endpoint-registry` — `folddb_profile/environments.json` single source of truth, `build.rs` codegen, no-hardcoded-urls lint.
+- `concepts-fold-endpoint-registry` — `lastdb_node/environments.json` single source of truth (`folddb_profile` via `lastdb_node/build.rs`), no-hardcoded-urls lint.
 - `concepts-fold-trust-boundary-loopback` — loopback owner-context invariant + target trust model + door-2 release gate.
 - `concepts-fold-db-node-internals` — fold_db core architecture, storage, schema system, feature flags, AI provider config.
 - `concepts-fold-schema-service` — schema_service crates, cloud-only deploy, dual-signal canonicalization gate.
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- Size limits (`fold_db/crates/core/src/content_limit.rs`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
+- Size limits (`fold_db/crates/model/src/limits.rs`, `lastdb_model::content_limit`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
 
 Per-crate command files: `fold_db/CLAUDE.md`, `schema_service/CLAUDE.md`.
 

@@ -9,7 +9,7 @@ mod alternate_keys;
 mod declarative_schemas;
 mod range_profile;
 
-pub use alternate_keys::{record_keys, AlternateKey, MissingAlternateKey};
+pub use alternate_keys::{record_keys, AlternateKey};
 pub use declarative_schemas::DeclarativeSchemaDefinition;
 pub use range_profile::{
     compute_field_hash, field_range_profile, key_comparison, PortableSchemaId,

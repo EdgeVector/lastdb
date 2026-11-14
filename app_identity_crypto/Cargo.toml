@@ -4,7 +4,7 @@ name = "app_identity_crypto"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-description = "Shared Ed25519 + JCS (RFC 8785) + signed-envelope helpers for app_identity. Consumed by schema_service and lastdb_node."
+description = "Shared Ed25519, JCS (RFC 8785), and signed registry-list helpers for app_identity."
 
 [dependencies]
 serde = { workspace = true }
@@ -12,14 +12,9 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
-chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 ed25519-dalek = { version = "2.2", features = ["std", "fast", "zeroize"] }
-json-canon = "0.1"
-# ECDSA P-256 (ES256) — used only to verify exemem-root-signed DevCerts.
-# The root key lives in AWS KMS, which does not support Ed25519 SIGN_VERIFY,
-# so DevCerts are ES256 even though every other envelope in this crate is
-# Ed25519. See the `dev_cert` module docs.
-p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+json-canon = { workspace = true }
+
 [lints]
 workspace = true
 
