@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -559,6 +560,73 @@ def check_tail(private, call, source, peer):
                 "private_native_writer_head")
 
 
+def retention(private, call, snapshot_id, *, allow_older_service=False):
+    state = call("snapshot/bytes", {"action": "retention"},
+                 allow_older_service=allow_older_service)
+    if state is None:
+        return None
+    require(type(state.get("reclaim_enabled")) is bool and state.get("eligible") is True
+            and state.get("snapshot_id") == snapshot_id
+            and private.decimal(state["snapshot_through"]) == SNAPSHOT_THROUGH,
+            "native_reclaim_retention")
+    return state["reclaim_enabled"], private.decimal(state["reclaimed_through"])
+
+
+def reclaim_step(private, call, request, before, after):
+    snapshot_id = request["snapshot_id"]
+    for _ in range(4):
+        result = call("snapshot/bytes", {**request, "expected_floor": str(before)},
+                      allow_unknown_outcome=True)
+        if result is not None:
+            require(result == {"snapshot_id": snapshot_id, "snapshot_through": str(SNAPSHOT_THROUGH),
+                               "reclaimed_through": str(after)}, "native_reclaim_receipt")
+        enabled, floor = retention(private, call, snapshot_id)
+        require(enabled and floor in (before, after), "native_reclaim_floor")
+        if floor == after:
+            return
+        require(result is None, "native_reclaim_unconfirmed_receipt")
+        time.sleep(0.25)
+    raise OperationError("native_reclaim_deadline")
+
+
+def reclaim_signed_prefix(private, call, snapshot_id):
+    # A legacy reader can still get the two bodies before the physical floor moves.
+    legacy_list = {"after": "10", "limit": "2"}
+    before = call("list", legacy_list)
+    require(private.decimal(before["next"]) == SNAPSHOT_THROUGH
+            and [(private.decimal(item["delivery_seq"]), private.decimal(item["entry"]["writer_seq"]))
+                 for item in before["entries"]] == [(11, 7), (12, 8)],
+            "native_reclaim_legacy_before")
+    # The duplicate receipt advances from this writer's latest sequence.
+    old_entry = before["entries"][-1]["entry"]
+    require(call("head", {"device_id": old_entry["device_id"]}) == {"last_writer_seq": "8"},
+            "native_reclaim_last_writer")
+    request = {"action": "reclaim", "snapshot_id": snapshot_id, "require_native_recovery": True}
+    refused = call("snapshot/bytes", {**request, "expected_floor": "0", "require_native_recovery": False},
+                   expected_error=400)
+    require(refused == {"code": "invalid_input", "field": "snapshot.retention.opt_in"}
+            and retention(private, call, snapshot_id) == (True, 0), "native_reclaim_requires_opt_in")
+
+    reclaim_step(private, call, request, 0, 8)
+    stale = call("snapshot/bytes", {**request, "expected_floor": "0"}, expected_error=409)
+    require(stale == {"code": "predecessor_conflict", "field": "snapshot.retention.floor"}
+            and retention(private, call, snapshot_id) == (True, 8), "native_reclaim_stale_retry")
+    reclaim_step(private, call, request, 8, SNAPSHOT_THROUGH)
+
+    # Repeating the current floor at the cutoff has no further effect.
+    current = str(SNAPSHOT_THROUGH)
+    complete = call("snapshot/bytes", {**request, "expected_floor": current})
+    require(complete == {"snapshot_id": snapshot_id, "snapshot_through": current,
+                         "reclaimed_through": current}
+            and retention(private, call, snapshot_id) == (True, SNAPSHOT_THROUGH),
+            "native_reclaim_complete_retry")
+    legacy = call("list", legacy_list, expected_error=400)
+    require(legacy == {"code": "unsupported_capability", "field": "snapshot.native_reset_required"},
+            "native_reclaim_legacy_refused")
+    private.check_entry_retry(call, old_entry, SNAPSHOT_THROUGH)
+    summary(f"signed_reclaim=verified floor={SNAPSHOT_THROUGH}")
+
+
 def catch_up(private, programs, call, database, api_key, source, peer, records):
     require(peer.process is None and peer.clean_stops > 0, "private_native_peer_stopped")
     require(not os.path.lexists(peer.home / CREDENTIALS_FILE), "private_native_peer_no_credentials")
@@ -570,7 +638,14 @@ def catch_up(private, programs, call, database, api_key, source, peer, records):
     private.connect(programs, source, api_key)
     with running(source, remove_saved=True):
         snapshot_id = publish_native_snapshot(private, programs, call, source, database)
-        prune_verified_prefix(database, snapshot_id, SNAPSHOT_THROUGH)
+        state = retention(private, call, snapshot_id, allow_older_service=True)
+        require(state is None or state[1] == 0, "native_reclaim_initial_floor")
+        if state == (True, 0):
+            reclaim_signed_prefix(private, call, snapshot_id)
+        else:
+            prune_verified_prefix(database, snapshot_id, SNAPSHOT_THROUGH)
+            reason = "unsupported" if state is None else "disabled"
+            summary(f"signed_reclaim={reason} used=run_owned_DEV_prefix_removal")
         expect_cut(private, call, snapshot_id)
         write_offline_tail(private, call, peer, database)
         old_inode = owned_directory_inode(peer.home / "data")
@@ -770,10 +845,28 @@ def run_native_cutoff(programs, root, phrase, api_key):
     endpoint = dev_endpoint()
     api_key = api_key.decode("utf-8")
 
-    def call(operation, fields, *, expected_error=None):
+    def call(operation, fields, *, expected_error=None, allow_unknown_outcome=False,
+             allow_older_service=False):
         body = json.dumps({**fields, "database_id": database}, separators=(",", ":")).encode("utf-8")
-        status, result, _ = post(endpoint, owner, database, "POST", f"{private.ROOT}/{operation}",
-                                 body, api_key, generation)
+        try:
+            status, result, _ = post(endpoint, owner, database, "POST", f"{private.ROOT}/{operation}",
+                                     body, api_key, generation)
+        except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
+            if allow_unknown_outcome:
+                return None
+            raise OperationError("private_native_signed_transport") from None
+        # The immediately previous native-cut service rejected this unknown action at decode.
+        if (allow_older_service and operation == "snapshot/bytes" and fields == {"action": "retention"}
+                and status == 400 and result == {"code": "invalid_input", "field": "http.body"}):
+            return None
+        error_code = result.get("code") if isinstance(result, dict) else None
+        if allow_unknown_outcome:
+            if status in (502, 504) or (status == 503 and
+                                       error_code in (None, "retry_later", "outcome_unknown")):
+                return None
+            if status == 409 and result == {"code": "predecessor_conflict",
+                                            "field": "snapshot.retention.floor"}:
+                return None
         require(isinstance(result, dict)
                 and (200 <= status < 300 if expected_error is None else status == expected_error),
                 "private_native_signed_" + operation.replace("/", "_"))
