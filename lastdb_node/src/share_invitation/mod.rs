@@ -197,14 +197,14 @@ impl ShareRecipient {
         } else {
             (None, authorization)
         };
-        let (spec, authorization) = if version != INVITATION_V1 {
+        let (spec, authorization) = if version == INVITATION_V1 {
+            (None, authorization)
+        } else {
             let (spec, authorization) = metadata::decode(authorization)?;
             if spec.whole_database() != inbox_key.is_some() {
                 return Err(invalid());
             }
             (Some(spec), authorization)
-        } else {
-            (None, authorization)
         };
         let authorization = std::str::from_utf8(authorization).map_err(|_| invalid())?;
         let permission = GuestReadPermission::parse(authorization)
