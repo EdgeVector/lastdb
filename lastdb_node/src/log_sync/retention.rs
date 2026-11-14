@@ -51,10 +51,12 @@ pub struct ReclaimReport {
 
 /// Read retention status, or explicitly reclaim a bounded prefix for one snapshot.
 /// `reclaim_batches` is absent for a read, or the maximum number of write steps.
+/// `expected_snapshot` pins the recovery snapshot across repeated invocations.
 pub async fn reclaim(
     home: &Path,
     database: &str,
     reclaim_batches: Option<u8>,
+    expected_snapshot: Option<&Digest>,
 ) -> Result<ReclaimReport, String> {
     if reclaim_batches.is_some_and(|limit| !(1..=MAX_BATCHES).contains(&limit)) {
         return Err("reclaim batches must be between 1 and 128".into());
@@ -71,6 +73,9 @@ pub async fn reclaim(
         || (status.snapshot_id.is_none() && status.snapshot_through.get() != 0)
     {
         return Err("cloud retention positions are inconsistent".into());
+    }
+    if expected_snapshot.is_some_and(|id| status.snapshot_id.as_ref() != Some(id)) {
+        return Err("the cloud recovery snapshot differs from --expect-snapshot".into());
     }
     let mut report = ReclaimReport {
         environment: log.environment(),

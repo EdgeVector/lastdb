@@ -139,6 +139,9 @@ snapshot and physical floor for the owner's personal database.
 `lastdb backup reclaim --database personal --allow-required-client-upgrade`
 can remove a bounded prefix after the service enables reclamation. Use
 `--batches` to limit one invocation to 1–128 requests. The default is 16.
+Use `--expect-snapshot DIGEST` on repeated invocations to keep the same
+snapshot and covered position. If the cloud selects another snapshot, the
+command stops before it sends a reclaim request.
 Each request removes up to eight entries and checks the same snapshot digest
 and the expected physical floor. The service verifies the pinned files and
 requires immutable records of acceptance for every deleted entry. Their

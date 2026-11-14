@@ -133,6 +133,9 @@ pub(crate) struct BackupReclaimArgs {
     /// Maximum batches of up to eight entries each (1–128, default 16).
     #[arg(long, requires = "allow_required_client_upgrade", value_parser = clap::value_parser!(u8).range(1..=128))]
     pub(crate) batches: Option<u8>,
+    /// Require this exact recovery snapshot digest, including when resuming a reclaim.
+    #[arg(long, value_name = "DIGEST")]
+    pub(crate) expect_snapshot: Option<String>,
     #[arg(long)]
     pub(crate) json: bool,
 }
