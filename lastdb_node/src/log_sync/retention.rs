@@ -9,6 +9,7 @@ use super::{cloud::CloudLog, maintenance, snapshot::transport};
 
 const MAX_BATCHES: u8 = 128;
 const RECLAIM_BATCH: u64 = 8;
+const MAX_STEPS: u8 = 8;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,21 +46,31 @@ pub struct ReclaimReport {
     pub snapshot_through: DecimalU64,
     /// Last delivery sequence whose original log entry has been reclaimed.
     pub reclaimed_through: DecimalU64,
-    /// Successful steps in this invocation. Zero for a status query.
+    /// Confirmed signed requests in this invocation. Zero for a status query.
     pub batches: u8,
 }
 
 /// Read retention status, or explicitly reclaim a bounded prefix for one snapshot.
-/// `reclaim_batches` is absent for a read, or the maximum number of write steps.
+/// `reclaim_batches` is absent for a read, or the maximum number of signed requests.
 /// `expected_snapshot` pins the recovery snapshot across repeated invocations.
+/// `steps_per_request` opts into several bounded transactions per request.
 pub async fn reclaim(
     home: &Path,
     database: &str,
     reclaim_batches: Option<u8>,
     expected_snapshot: Option<&Digest>,
+    steps_per_request: Option<u8>,
 ) -> Result<ReclaimReport, String> {
     if reclaim_batches.is_some_and(|limit| !(1..=MAX_BATCHES).contains(&limit)) {
         return Err("reclaim batches must be between 1 and 128".into());
+    }
+    if steps_per_request.is_some_and(|steps| !(1..=MAX_STEPS).contains(&steps)) {
+        return Err("reclaim steps per request must be between 1 and 8".into());
+    }
+    if steps_per_request.is_some() && (expected_snapshot.is_none() || reclaim_batches.is_none()) {
+        return Err(
+            "reclaim steps per request require a pinned snapshot and explicit write mode".into(),
+        );
     }
     let (database_id, log) = maintenance::personal_log(home, database).await?;
     let status = transport::call(
@@ -88,7 +99,7 @@ pub async fn reclaim(
         batches: 0,
     };
     if let Some(batches) = reclaim_batches {
-        reclaim_batches_for_snapshot(&log, &mut report, batches).await?;
+        reclaim_batches_for_snapshot(&log, &mut report, batches, steps_per_request).await?;
     }
     Ok(report)
 }
@@ -97,6 +108,7 @@ async fn reclaim_batches_for_snapshot(
     log: &CloudLog,
     report: &mut ReclaimReport,
     batches: u8,
+    steps_per_request: Option<u8>,
 ) -> Result<(), String> {
     if !report.reclaim_enabled {
         return Err("cloud log reclamation is disabled for this environment".into());
@@ -118,7 +130,7 @@ async fn reclaim_batches_for_snapshot(
         return Err("the cloud could not verify the selected native recovery snapshot".into());
     }
     for _ in 0..batches {
-        let response = reclaim_batch(log, id, floor, through).await.map_err(|error| {
+        let response = reclaim_batch(log, id, floor, through, steps_per_request).await.map_err(|error| {
             format!("{error}. Last confirmed reclamation was through {floor}. Use backup reclaim --status to read the latest position before retrying")
         })?;
         floor = response.reclaimed_through.get();
@@ -136,20 +148,30 @@ async fn reclaim_batch(
     id: &Digest,
     floor: u64,
     through: u64,
+    steps_per_request: Option<u8>,
 ) -> Result<Reclaimed, String> {
-    let body = json!({
+    let mut body = json!({
         "action": "reclaim",
         "database_id": log.database_id(),
         "snapshot_id": id,
         "expected_floor": DecimalU64::new(floor),
         "require_native_recovery": true,
     });
+    if let Some(steps) = steps_per_request {
+        body["max_steps"] = json!(steps);
+        body["target_through"] = json!(DecimalU64::new(through));
+    }
     let response = transport::call(log, body).await?;
     let response: Reclaimed =
         serde_json::from_value(response).map_err(|_| "invalid signed reclaim response")?;
+    let reclaimed = response.reclaimed_through.get();
+    let max_advance = RECLAIM_BATCH * u64::from(steps_per_request.unwrap_or(1));
+    let bound = floor.saturating_add(max_advance).min(through);
     if &response.snapshot_id != id
         || response.snapshot_through.get() != through
-        || response.reclaimed_through.get() != floor.saturating_add(RECLAIM_BATCH).min(through)
+        || reclaimed <= floor
+        || reclaimed > bound
+        || (steps_per_request.is_none() && reclaimed != bound)
     {
         return Err(
             "cloud reclaim response did not confirm the requested snapshot and range".into(),
