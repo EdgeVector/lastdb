@@ -34,19 +34,10 @@ def collect_pages(cursor, fetch):
         after = nxt
 
 
-def ack_holds(entries, unresolved, acked_through):
-    """True when an exhausted conflict left no partial row and no lost ack."""
-    present = set()
-    deliveries = set()
-    for entry in entries:
-        body = require_object(entry, ENTRY_KEYS)
-        present.add((body["writer_device"], decimal(body["writer_seq"])))
-        deliveries.add(decimal(body["delivery_seq"]))
-    if any(key in present for key in unresolved):
-        return False
-    if not acked_through:
-        return True
-    return all(seq in deliveries for seq in range(1, acked_through + 1))
+def unresolved_writes_absent(entries, unresolved):
+    """An exhausted conflict cannot leave a partially accepted entry."""
+    present = {(entry["writer_device"], decimal(entry["writer_seq"])) for entry in entries}
+    return all(key not in present for key in unresolved)
 
 
 def verify_log(entries, accepted):

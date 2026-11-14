@@ -55,9 +55,6 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
     let Some(state) = receiver_state(share, &log, &device, &host.home) else {
         return Pause::Retry;
     };
-    let Ok(state) = log.resumed(state).await else {
-        return Pause::Retry;
-    };
     run::run_ready(
         host.as_ref(),
         Ready {

@@ -106,11 +106,6 @@ pub fn prefix(
     })
 }
 
-/// Record that every entry through `through` was published or withheld.
-pub fn acknowledge(runtime: &PackRuntime, through: u64) -> Result<(), Blocked> {
-    runtime.acknowledge_accepted(through).map_err(blocked)
-}
-
 /// Record that a snapshot covers the native frontier from before the stream.
 pub fn note_snapshot(runtime: &PackRuntime, covered_frontier: u64) -> Result<(), Blocked> {
     runtime

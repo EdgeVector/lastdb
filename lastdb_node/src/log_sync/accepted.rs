@@ -1,21 +1,28 @@
 //! Publish one page of the durable accepted prefix.
 //!
 //! The reader is `accepted_writes`. A page is acknowledged locally only after
-//! every item is published or withheld. Cloud delivery ack stays in `run`.
+//! every item is published or withheld. Cloud delivery progress stays in `run`.
+
+mod position;
 
 use std::sync::Arc;
 
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
 use fold_db::schema::types::KeyValue;
+use fold_db::storage::disk_backup::accepted::UploadPosition;
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, MutationLog, Namespace};
+use mutation_log::{
+    AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, MutationLog, Namespace,
+};
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Blocked, Item, Page, Publication};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
+
+use position::LocalUpload;
 
 use super::cloud::CloudLog;
 use super::registry;
@@ -51,7 +58,10 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
                 .await
                 .map_err(|_| "old accepted write could not be protected")?;
         }
-        let _ = send_page(host, log, &runtime, &key, &page).await;
+        if let Err(reason) = send_page(host, log, &runtime, &key, &page).await {
+            tracing::warn!(target: "lastdbd::log_sync", database_id = %log.database_id(),
+                reason, "pending local writes were retained");
+        }
     }
     if private {
         let status = accepted_writes::status(&runtime);
@@ -141,45 +151,46 @@ async fn send_page(
     runtime: &Arc<PackRuntime>,
     key: &DatabaseContentKey,
     page: &Page,
-) -> bool {
-    if page.items.is_empty() {
-        return false;
-    }
-    let Some(tip) = writer_tip(log).await else {
-        return false;
+) -> Result<(), &'static str> {
+    let Some(first) = page.items.first() else {
+        return Ok(());
     };
-    let mut next = tip.saturating_add(1);
+    let first = match first {
+        Item::Publish { sequence, .. } | Item::Withheld { sequence, .. } => *sequence,
+    };
+    let after = first.checked_sub(1).ok_or("invalid local spool position")?;
+    let Some(upload) = LocalUpload::open(runtime, log, after).await? else {
+        return Ok(());
+    };
+    let mut next = upload.position.writer_seq + 1;
     let mut entries = Vec::with_capacity(page.items.len());
-    let mut through = None;
+    let mut through = after;
     for item in &page.items {
-        let sequence = match item {
+        through = match item {
             Item::Withheld { sequence, .. } => *sequence,
             Item::Publish { sequence, .. } => {
                 let Some(entry) = prepare_item(host, log, key, item, next).await else {
                     break;
                 };
-                next = next.max(entry.writer_seq.saturating_add(1));
+                next = next.max(entry.writer_seq + 1);
                 entries.push(entry);
                 *sequence
             }
         };
-        through = Some(sequence);
     }
-    let Some(through) = through else {
-        return false;
-    };
-    if !append_entries(log, entries).await {
-        return false;
+    if through == after {
+        return Err("the next local write could not be prepared for upload");
     }
-    let runtime = Arc::clone(runtime);
-    let acked =
-        tokio::task::spawn_blocking(move || accepted_writes::acknowledge(&runtime, through)).await;
-    if let Ok(Ok(())) = acked {
-        true
-    } else {
-        tracing::warn!(target: "lastdbd::log_sync", "accepted prefix was not acknowledged");
-        false
-    }
+    append_entries(log, entries).await?;
+    upload
+        .confirm(
+            runtime,
+            UploadPosition {
+                writer_seq: next - 1,
+                spool_through: through,
+            },
+        )
+        .await
 }
 
 async fn prepare_item(
@@ -209,11 +220,14 @@ async fn prepare_item(
         reference: file_reference.as_deref(),
     };
     let sealed = match saved {
-        Some((seal, payload)) if seal.writer_seq <= next && seal.namespace == namespace => {
+        Some((seal, payload))
+            if seal.writer_seq < u64::MAX
+                && seal.writer_seq <= next
+                && seal.namespace == namespace =>
+        {
             Some((seal, payload))
         }
-        Some(_) => None,
-        None => {
+        None if next < u64::MAX => {
             let seal = Seal {
                 writer_seq: next,
                 authored_at_ms: authored_at_ms.unwrap_or_else(fold_db::clock::unix_millis),
@@ -221,6 +235,7 @@ async fn prepare_item(
             };
             prepare_payload(host, log, key, mutation_id, kind, source, seal).await
         }
+        _ => None,
     };
     let (seal, payload) = sealed?;
     cloud_entry(log, &seal, payload)
@@ -272,7 +287,10 @@ fn cloud_entry(log: &CloudLog, seal: &Seal, payload: Vec<u8>) -> Option<Entry> {
     })
 }
 
-async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> bool {
+async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> Result<(), &'static str> {
+    if entries.is_empty() {
+        return Ok(());
+    }
     let mut log = log.clone();
     tokio::task::spawn_blocking(move || {
         // A byte-limited retry must keep its original ciphertext and sequence.
@@ -286,38 +304,29 @@ async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> bool {
                 entries,
                 accepted_at_ms: fold_db::clock::unix_millis(),
             };
-            let Ok(body) = wire::append_request(&batch) else {
-                return false;
-            };
+            let body = wire::append_request(&batch).map_err(|_| "invalid local upload batch")?;
             if body.len() as u64 > CONTROL_JSON_MAX_BYTES {
                 entries = std::mem::take(&mut batch.entries);
                 if entries.len() == 1 {
-                    tracing::warn!(target: "lastdbd::log_sync", "signed entry exceeds the request limit");
-                    return false;
+                    return Err("signed entry exceeds the request limit");
                 }
                 pending.push(entries.split_off(entries.len() / 2));
                 pending.push(entries);
                 continue;
             }
             match MutationLog::append(&mut log, batch) {
-                Ok(AppendOutcome::Accepted { .. }) => {}
+                Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {}
                 Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
-                _ => return false,
+                Err(LogError::Conflict) => {
+                    return Err("cloud already has a different edit at this local writer sequence")
+                }
+                _ => return Err("cloud did not confirm the upload"),
             }
         }
-        true
+        Ok(())
     })
     .await
-    .unwrap_or(false)
-}
-
-async fn writer_tip(log: &CloudLog) -> Option<u64> {
-    let log = log.clone();
-    let joined = tokio::task::spawn_blocking(move || {
-        MutationLog::writer_tip(&log, log.principal(), &log.reader())
-    })
-    .await;
-    joined.ok()?.ok()
+    .map_err(|_| "local upload sender stopped")?
 }
 
 fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {

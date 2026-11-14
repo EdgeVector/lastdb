@@ -28,7 +28,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_region_environment, allow_role, allow_stream,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   load_partitions, refuse_prod_environment, unprocessed_ids)
+                   load_partitions, refuse_prod_environment, unprocessed_ids, writes_partition)
 from plan import PRELIMINARY_LABEL, SCALE_LABEL, phases
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
@@ -152,22 +152,40 @@ def batch_retry(misses, pause, draw):
     return misses
 
 
-def purge(table, partition, ledger, pause=None):
-    pause = pause or time.sleep
-    pending, start = [], None
+def partition_records(table, partition, ledger):
+    start = None
     while True:
         request = query_request(table, partition)
+        request["ProjectionExpression"] = "database_id, record_id"
         if start is not None:
             if start.get("database_id", {}).get("S") != partition:
                 raise GuardError("database")
             request["ExclusiveStartKey"] = start
         found = aws("dynamodb", "query", request)
         ledger.record("read")
-        pending.extend(record_ids_from_query(found, partition))
+        yield from record_ids_from_query(found, partition)
         nxt = found.get("LastEvaluatedKey")
         if not continue_page(nxt, start):
             break
         start = nxt
+
+
+def verify_private_storage(table, database_id, ledger):
+    """Inspect only keys for this run-owned database and its accepted-write facts."""
+    if any(key.startswith(("tip#", "ack#"))
+           for key in partition_records(table, database_id, ledger)):
+        raise LoadError("private cloud stored a per-device progress row")
+    records = list(partition_records(table, writes_partition(database_id), ledger))
+    if not records or any(not record.startswith("write#") for record in records):
+        raise LoadError("private cloud accepted-entry facts were absent or invalid")
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+        summary.write("No cloud upload-tip or download-ack rows were created. "
+                      "The cloud retained immutable accepted-entry facts.\n")
+
+
+def purge(table, partition, ledger, pause=None):
+    pause = pause or time.sleep
+    pending = list(partition_records(table, partition, ledger))
     misses = 0
     while pending:
         chunk = pending[:25]
@@ -230,6 +248,7 @@ def main(argv):
         from private_recovery import recover as recover_private
         try:
             recover_private(post, endpoint, database_id, key, api_key, account_generation, ledger)
+            verify_private_storage(table, database_id, ledger)
         finally:
             Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")
         return 0

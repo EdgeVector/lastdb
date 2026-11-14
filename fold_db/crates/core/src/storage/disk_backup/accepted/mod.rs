@@ -10,6 +10,7 @@ mod disk;
 mod io;
 
 pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
+pub use disk::upload::{UploadIdentity, UploadPosition};
 pub(in crate::storage) use disk::{Log, Note};
 
 use std::path::Path;
@@ -166,6 +167,30 @@ impl PackRuntime {
             };
         };
         log.acknowledge(through)
+    }
+
+    /// Read the upload checkpoint and finish an interrupted local acknowledgement.
+    pub fn accepted_upload_position(
+        &self,
+        identity: &UploadIdentity,
+    ) -> Result<Option<UploadPosition>, Error> {
+        self.accepted
+            .as_ref()
+            .ok_or(Error::Unavailable)?
+            .upload_position(identity)
+    }
+
+    /// Store the upload result before retiring any corresponding spool entries.
+    pub fn confirm_accepted_upload(
+        &self,
+        identity: &UploadIdentity,
+        after: u64,
+        position: UploadPosition,
+    ) -> Result<(), Error> {
+        self.accepted
+            .as_ref()
+            .ok_or(Error::Unavailable)?
+            .confirm_upload(identity, after, position)
     }
 
     /// Record that a snapshot covers the native frontier from before the stream.

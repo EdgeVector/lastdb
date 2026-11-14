@@ -22,7 +22,7 @@ PAYLOAD = base64.urlsafe_b64encode(b"load").rstrip(b"=").decode("ascii")
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
 OPERATIONS = (
-    "create-database", "append", "head", "list", "ack", "revoke", "snapshot", "trim",
+    "create-database", "append", "head", "list", "revoke", "snapshot", "trim",
 )
 READS = frozenset({"head", "list"})
 ENTRY_FIELDS = (
@@ -34,8 +34,7 @@ FIELDS = {
     "create-database": ("database_id", "kind", "spec"),
     "append": ("database_id", "device_id", "entries"),
     "head": ("database_id",),
-    "list": ("after", "database_id", "device_id", "limit"),
-    "ack": ("database_id", "device_id", "through"),
+    "list": ("after", "database_id", "limit"),
     "revoke": ("capability", "database_id", "principal"),
     "snapshot": ("database_id",),
     "trim": ("database_id",),
@@ -65,14 +64,18 @@ def request_body(operation, fields):
     if operation == "list":
         _u64(fields["after"])
         _u64(fields["limit"])
-        _device(fields["device_id"])
-    if operation == "ack":
-        _u64(fields["through"])
-        _device(fields["device_id"])
     if operation == "revoke":
         _text(fields["principal"])
         _text(fields["capability"])
-    encoded = json.dumps(fields, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    wire = fields.copy()
+    for field in ("after", "limit"):
+        if field in wire:
+            wire[field] = str(wire[field])
+    if operation == "append":
+        wire["entries"] = [{**entry, "writer_seq": str(entry["writer_seq"]),
+                            "authored_at_ms": str(entry["authored_at_ms"])}
+                           for entry in wire["entries"]]
+    encoded = json.dumps(wire, separators=(",", ":"), sort_keys=True).encode("utf-8")
     parsed = json.loads(encoded)
     if set(parsed) != set(allowed):
         raise RouteError("body")
@@ -100,8 +103,6 @@ def check_success(operation, payload):
         require_head(payload)
     elif operation == "list":
         require_list(payload)
-    elif operation == "ack":
-        require_ack(payload)
     elif operation == "snapshot":
         require_snapshot(payload)
     elif operation == "trim":
@@ -151,10 +152,6 @@ def require_list(body):
     if page["next"] is not None:
         decimal(page["next"])
     return page
-
-
-def require_ack(body):
-    return decimal(require_object(body, ("through",))["through"])
 
 
 def require_revoke(body):
@@ -215,12 +212,12 @@ def _entries(entries):
     if not isinstance(entries, list) or not entries:
         raise RouteError("body")
     for entry in entries:
-        if set(entry) != {"authored_at_ms", "namespace", "payload", "writer_seq"}:
+        if set(entry) != {"authored_at_ms", "namespace", "payload_b64", "writer_seq"}:
             raise RouteError("body")
         _u64(entry["writer_seq"])
         _u64(entry["authored_at_ms"])
         _text(entry["namespace"])
-        if not isinstance(entry["payload"], str):
+        if not isinstance(entry["payload_b64"], str):
             raise RouteError("body")
 
 

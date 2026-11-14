@@ -1,6 +1,6 @@
 //! JSON for the mutation-log data routes.
 //!
-//! Append, head, list, ack, and the snapshot cut use one encoding: decimal
+//! Append, head, list, and the snapshot cut use one encoding: decimal
 //! strings. A shareable list entry is nested. `payload_b64` is unpadded
 //! URL-safe base64 of the envelope. Status bodies are not encoded here.
 
@@ -55,7 +55,6 @@ struct AppendResponse {
 #[derive(Serialize)]
 struct ListRequest<'a> {
     database_id: &'a str,
-    device_id: &'a str,
     after: DecimalU64,
     limit: DecimalU64,
 }
@@ -95,19 +94,6 @@ struct IncorporatedBody {
     node_public_key: String,
     device_id: String,
     writer_seq: DecimalU64,
-}
-
-#[derive(Serialize)]
-struct AckRequest<'a> {
-    database_id: &'a str,
-    device_id: &'a str,
-    through: DecimalU64,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AckResponse {
-    through: DecimalU64,
 }
 
 #[derive(Deserialize)]
@@ -156,31 +142,12 @@ pub(crate) fn append_request(batch: &AppendBatch) -> Result<Vec<u8>, LogError> {
     canonical_bytes(&request).map_err(|_| LogError::InvalidEntry)
 }
 
-pub(crate) fn list_body(
-    database_id: &str,
-    device_id: &str,
-    after: u64,
-    limit: usize,
-) -> Result<Vec<u8>, LogError> {
+pub(crate) fn list_body(database_id: &str, after: u64, limit: usize) -> Result<Vec<u8>, LogError> {
     let limit = u64::try_from(limit).map_err(|_| LogError::InvalidEntry)?;
     canonical_bytes(&ListRequest {
         database_id,
-        device_id,
         after: DecimalU64::new(after),
         limit: DecimalU64::new(limit),
-    })
-    .map_err(|_| LogError::InvalidEntry)
-}
-
-pub(crate) fn ack_body(
-    database_id: &str,
-    device_id: &str,
-    through: u64,
-) -> Result<Vec<u8>, LogError> {
-    canonical_bytes(&AckRequest {
-        database_id,
-        device_id,
-        through: DecimalU64::new(through),
     })
     .map_err(|_| LogError::InvalidEntry)
 }
@@ -203,20 +170,28 @@ fn incorporation_wire(value: &Incorporation) -> IncorporatedWire<'_> {
     }
 }
 
-pub(crate) fn append_outcome(body: &[u8]) -> Result<AppendOutcome, LogError> {
+pub(crate) fn append_outcome(body: &[u8], batch: &AppendBatch) -> Result<AppendOutcome, LogError> {
     let response: AppendResponse =
         serde_json::from_slice(body).map_err(|_| LogError::UnexpectedOutcome)?;
+    let tail = batch.entries.last().ok_or(LogError::EmptyBatch)?.writer_seq;
+    let next = response.next_seq.get();
+    let delivery_seqs: Vec<u64> = response
+        .delivery_seqs
+        .into_iter()
+        .map(DecimalU64::get)
+        .collect();
     match response.result.as_str() {
-        "accepted" => Ok(AppendOutcome::Accepted {
-            delivery_seqs: response
-                .delivery_seqs
-                .into_iter()
-                .map(DecimalU64::get)
-                .collect(),
-        }),
-        "duplicate" => Ok(AppendOutcome::Duplicate {
-            next_seq: response.next_seq.get(),
-        }),
+        "accepted"
+            if delivery_seqs.first().is_some_and(|seq| *seq > 0)
+                && delivery_seqs.len() <= batch.entries.len()
+                && delivery_seqs
+                    .windows(2)
+                    .all(|pair| pair[0].checked_add(1) == Some(pair[1]))
+                && tail.checked_add(1) == Some(next) =>
+        {
+            Ok(AppendOutcome::Accepted { delivery_seqs })
+        }
+        "duplicate" if delivery_seqs.is_empty() => Ok(AppendOutcome::Duplicate { next_seq: next }),
         _ => Err(LogError::UnexpectedOutcome),
     }
 }
@@ -232,12 +207,6 @@ pub(crate) fn list_page(database_id: &str, body: &[u8]) -> Result<ListPage, LogE
             .collect::<Result<Vec<_>, _>>()?,
         next: page.next.get(),
     })
-}
-
-pub(crate) fn acknowledged(body: &[u8]) -> Result<u64, LogError> {
-    let response: AckResponse =
-        serde_json::from_slice(body).map_err(|_| LogError::UnexpectedOutcome)?;
-    Ok(response.through.get())
 }
 
 pub(crate) fn scoped_head(body: &[u8]) -> Result<Option<ScopedHead>, LogError> {
@@ -276,6 +245,9 @@ pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
         "cursor_expired" => expired(&value),
         // List cursor expiry is HTTP 409 predecessor_conflict.
         "predecessor_conflict" if field == "mutation_log.cursor" => expired(&value),
+        "conflict" | "identity_conflict" if field == "mutation_log.conflict" => {
+            Some(LogError::Conflict)
+        }
         "conflict" => Some(LogError::Conflict),
         "unauthorized" => Some(LogError::Unauthorized),
         _ => None,
@@ -289,7 +261,6 @@ pub(crate) fn operation(path: &str) -> &'static str {
         paths::APPEND => "append",
         paths::HEAD => "head",
         paths::LIST => "list",
-        paths::ACK => "ack",
         paths::SNAPSHOT => "snapshot",
         paths::DELIVERY_SNAPSHOT => "delivery-snapshot",
         paths::DELIVERY_OBJECT => "delivery-object",

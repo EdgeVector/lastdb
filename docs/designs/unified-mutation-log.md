@@ -56,17 +56,20 @@ key have independent sequences and do not conflict. Two processes writing as
 the same writer can still race; the core does not treat that as success. A
 writer's `writer_seq` is gap-free:
 
-- `writer_seq <= last` with the same content is a duplicate
-- `writer_seq <= last` with different content, while the entry is still stored, is `Conflict`, and the call is not `Ok`
-- `writer_seq <= last` after that entry has been trimmed is a duplicate
-- `writer_seq <= last` for a pending submission that aged out is `SubmissionExpired`, naming that writer and sequence
-- `writer_seq <= last` for a rejected pending submission is `SubmissionRejected`, naming that writer and sequence
-- `last + 1` is accepted
-- a higher value is a gap, and the batch is not stored
+- A sequence that matches a stored entry is a duplicate only when its content matches.
+- A different payload under an accepted sequence is a conflict.
+- When an old payload was trimmed and its exact acceptance cannot be verified, replay stops with the pending edit intact.
+- An expired or rejected pending submission retains its specific refusal.
+- The next consecutive value is accepted. A gap stores nothing.
 
-A duplicate reports the next acceptable writer sequence, one past the stored
-tip. A caller whose response was lost can retry, then append the next mutation
-at that sequence. A participant appends only after resume loads that tip.
+A device stores its sequence locally. Before sending an edit it saves the
+exact numbered upload so a lost response can be retried. On acceptance or
+confirmation of a matching duplicate it records the upload progress and
+releases its local queue. An older installation can bootstrap its number
+from entries the cloud has already accepted. The cloud answers from the log,
+snapshots and immutable records of accepted entries. These records describe
+what the cloud accepted and do not advance a separate per-device pointer.
+
 Copying a submission is idempotent on `(writer, writer_seq)` of the
 submission, once in total, when the payload matches the stored submission.
 Repeating that exact copy, from any device of the publisher key, stores
@@ -101,36 +104,28 @@ the entry stays, because opening the payload uses that number. An
 append is one transaction of at most 90 entries, and each writer has
 at most one append in flight.
 
-The operations are append, head, list, ack, grant, revoke, and snapshot.
-Every cursor and every ack is a delivery sequence. An ack is stored per
-reading device, writer (node key, device), in the one log. A device that has
-appended, or that has pulled once, counts as acked at 0 until it acks. The
-first pull records that zero and does not move it. `list` returns the
-readable entries and sets `next` to the last delivery sequence scanned,
-including entries that reader cannot see, so hidden entries are covered.
-`head` reports the log head's delivery sequence, including when every stored
-entry is hidden. Its stamp is the last entry this reader can see, and it is
-absent when none are visible, so a hidden entry's writer is not reported.
-Acking that cursor does not sit below the trim floor. The trim floor
-is the minimum of those device positions, and also a 30-day maximum
-retention. The floor does not move past the latest snapshot. Revoke drops
-every device ack of that key.
+The operations are append, head, list, grant, revoke, snapshot and trim.
+Each device stores its own download position as a delivery sequence, independent
+of its upload sequence. `list` accepts that position and returns the readable
+entries plus the last delivery sequence scanned, including positions hidden
+by share permissions. A client advances its position only after the resulting
+local writes are durable. Older clients can still send an authenticated
+`ack` through the head. It echoes the position without storing it.
 
-Cutting a snapshot stores the shell's `snapshot_ref`, an opaque pointer to
-the snapshot bytes. The pointer is non-empty and has no control characters.
-The core does not cap its length and does not store those bytes. Trim that would
-drop entries is refused unless that snapshot covers the floor. A device
-whose position is below the floor gets `CursorExpired`. The sync step then
-returns `Reset { snapshot_ref, through, at_ms }` plus the entries still
-stored after the lesser of the device's local cursor and its stored ack. A
-reinstall that reuses a device id and is behind the stored ack is delivered
-from that lesser position, and it resets when that position is below the
-floor. The device downloads the snapshot by `snapshot_ref`, then applies the
-suffix. The pull does not ack. The caller applies the reset and the entries,
-persists them, then acks the returned cursor. Until that ack, the same pull
-delivers the same reset and entries again. Applying them twice is
-idempotent. Until a snapshot exists, aged entries stay readable and the step
-reports that a snapshot is due.
+`head` reports the database delivery head. Its stamp is the last entry this
+reader can see, and it is absent when none are visible. The cloud keeps a
+database-wide trim boundary. An authorized trim can discard entries covered by
+a verified signed log snapshot. If that snapshot omits a still-readable young
+submission, the cloud leaves the old trim boundary in place until the
+submission resolves or expires. When aged entries need coverage the service
+reports that a snapshot is due. An original-file backup
+is a separate snapshot and does not establish a signed log trim boundary.
+
+If the device's local position is below the stored trim boundary, the cloud
+returns `CursorExpired`. The device downloads the referenced snapshot, applies
+the suffix, and records the new local position after the result is durable.
+An interrupted application retries the same entries. The cloud does not need
+to know which devices have caught up.
 
 ## Sharing invariant
 
@@ -141,8 +136,7 @@ Testable rule:
 
 1. A receiver of a share reads only entries whose writer key is the publisher
    key in that database's log, including re-appends. The cursor is the
-   delivery sequence. An ack at or below the stored delivery sequence is a
-   no-op. An ack past the log head is `AckAhead`.
+   delivery sequence. The receiving device saves that position locally.
 2. A contributor's pending entry is not readable by other receivers. Only
    the publisher key, and that contributor key for its own pending entries,
    can read it.
@@ -277,14 +271,14 @@ The owner key and cloud account scope are bound at registration.
 The database accepts no share grants.
 The old contributor inbox still has `MAX_WRITERS = 12`.
 
-Old server rows stay until a second device acks and keyed reads match.
+Keep the signed snapshot and verify keyed reads on a second device before retiring older backup data.
 
 `mutation_log_mem` is the in-memory adapter. Construct it with
 `InMemoryMutationLog::new`. `mutation_log_sync` applies one effect through
-`drive`. Append waits until `SyncState::resume` has loaded the writer tip.
-A pull returns the page or `Reset { snapshot_ref, through, at_ms }` plus the
-suffix, and does not ack. The caller acks after it applies and persists.
-Neither crate reads the process environment, opens a socket, or calls Exemem.
+`drive`. The in-memory adapter can use its transient writer and reader state.
+The device daemon keeps separate durable positions and uses the signed cloud
+adapter for append, list and snapshot recovery. Neither core crate reads the
+process environment, opens a socket, or calls ExeMem.
 
 Exemem's read path enforces `can_read` for stored bytes. One node registers
 an owned shareable database beside `personal`. The SDK already selects it
