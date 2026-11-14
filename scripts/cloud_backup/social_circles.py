@@ -84,7 +84,12 @@ def transfer(programs, root, publisher, recipient, api_key):
         for schema in (ALBUM, COMMENT):
             publisher.call(f"/api/databases/{database}/mutation",
                            mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
+        # Enroll the stopped publisher, then record its connected boot identity.
+        # Enrolling a running node can re-exec it to enable local capture.
+        publisher.stop()
         connect(programs, publisher, api_key)
+        publisher.keep_saved_credentials = True
+        publisher.start()
         contact = root / "recipient.contact"
         reader = programs.command(recipient.home, ["share", "contact", "--out", str(contact)])["recipient_public_key"]
         sender = programs.command(publisher.home, ["share", "contact", "--out", str(root / "owner.contact")])["recipient_public_key"]
@@ -123,6 +128,7 @@ def cleanup(owner, database, reader):
         call(owner, "/api/revoke", {"databaseId": database, "nodeKey": reader}, refusals=REFUSALS)
         revoked = call(owner, path)["sharing"].get("members") or []
         require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
+        print("ExeMem confirmed the final recipient revocation.", flush=True)
         summary("ExeMem confirmed the final recipient revocation.")
 
 
