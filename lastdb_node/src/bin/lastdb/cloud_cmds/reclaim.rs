@@ -27,7 +27,6 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
         report.database_id.as_str(),
         report.environment
     );
-    println!("Account generation {}", report.account_generation.get());
     println!("Cloud reclamation enabled: {}", report.reclaim_enabled);
     println!("Database history eligible: {}", report.eligible);
     println!("Recovery snapshot: {snapshot}");
