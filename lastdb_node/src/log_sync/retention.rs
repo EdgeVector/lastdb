@@ -38,8 +38,6 @@ struct Reclaimed {
 pub struct ReclaimReport {
     /// Saved service environment for this home.
     pub environment: &'static str,
-    /// Exact account generation used to sign requests.
-    pub account_generation: DecimalU64,
     /// Stable identifier of the personal database.
     pub database_id: Id,
     /// Whether the cloud allows physical reclamation in this environment.
@@ -88,7 +86,6 @@ pub async fn reclaim(
     }
     let mut report = ReclaimReport {
         environment: log.environment(),
-        account_generation: log.scope.account_generation,
         database_id,
         reclaim_enabled: status.reclaim_enabled,
         eligible: status.eligible,
