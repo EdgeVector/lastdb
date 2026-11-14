@@ -3,12 +3,13 @@
 from contextlib import closing
 import json
 import os
+import sys
 import uuid
 
 from node import Connection
 from signed_files import retry, run_operation, summary
 from social_app import call, observe_access, window
-from support import decode_json, require
+from support import OperationError, decode_json, require
 
 SCOPE = {"name": "whole-database", "version": 1}
 ALBUM = "dev-albums/Album"
@@ -98,12 +99,27 @@ def transfer(programs, root, publisher, recipient, api_key):
             with window(recipient) as remote:
                 exercise(publisher, recipient, remote, database, receipt, definitions)
         finally:
-            roster = call(owner, f"/api/database?databaseId={database}")["sharing"]
-            if any(row["state"] == "active" for row in roster["members"]):
-                call(owner, "/api/revoke", {"databaseId": database, "nodeKey": reader}, refusals=REFUSALS)
-                revoked = call(owner, f"/api/database?databaseId={database}")["sharing"]["members"]
-                require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
-                summary("ExeMem confirmed the final recipient revocation.")
+            failed = sys.exc_info()[0] is not None
+            try:
+                cleanup(owner, database, reader)
+            except OperationError:
+                summary("The final DEV recipient revocation could not be confirmed.")
+                if not failed:
+                    raise
+
+
+def cleanup(owner, database, reader):
+    path = f"/api/database?databaseId={database}"
+    roster = call(owner, path)["sharing"]
+    if roster.get("status") == "pending":
+        roster = call(owner, "/api/retry", {"databaseId": database}, refusals=REFUSALS)["sharing"]
+    members = roster.get("members")
+    require(members is not None, "circle_cleanup_roster_unavailable")
+    if any(row["state"] == "active" for row in members):
+        call(owner, "/api/revoke", {"databaseId": database, "nodeKey": reader}, refusals=REFUSALS)
+        revoked = call(owner, path)["sharing"].get("members") or []
+        require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
+        summary("ExeMem confirmed the final recipient revocation.")
 
 
 def connect(programs, publisher, api_key):
