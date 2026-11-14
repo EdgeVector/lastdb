@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -23,7 +24,6 @@ use tracing::Instrument;
 const MAX_PARSE_BYTES: usize =
     uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
 const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
-
 #[derive(Parser, Debug)]
 #[command(
     name = "lastdbd",
@@ -165,13 +165,14 @@ fn spawn_background(
     rt: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     stop: &Arc<AtomicBool>,
+    reopen: Arc<AtomicBool>,
     sock: &Path,
 ) -> Vec<(&'static str, JoinHandle<()>)> {
     let _g = rt.enter();
     let (sh, ss) = (Arc::clone(host), Arc::clone(stop));
     let sync = tokio::spawn(
         async move {
-            if log_sync::spawn(sh, ss).await.is_err() {
+            if log_sync::spawn(sh, ss, reopen).await.is_err() {
                 tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
             }
         }
@@ -260,17 +261,26 @@ fn serve_node(
 ) -> Result<(), String> {
     use fold_db::content_limit::{self as cl, MAX_FIELD_VALUE_BYTES_ENV};
     let (data_dir, pid) = (home.join("data"), std::process::id());
+    rt.block_on(log_sync::install_prepared_native_recovery(home))?;
     let host = Arc::new(rt.block_on(Host::boot(home))?);
+    let reopen = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));
     let target_sock = sock_path.unwrap_or_else(|| data_dir.join(lastdb_uds::SOCKET_FILE_NAME));
     let socket = UdsSocket::bind_at(target_sock)
         .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
     println!("lastdbd serving the owner socket");
+    let user_stop = Arc::new(AtomicBool::new(false));
     for sig in [libc::SIGTERM, libc::SIGINT] {
         let f = Arc::clone(&stop);
+        let user_stop = Arc::clone(&user_stop);
         // SAFETY: the handler only performs an async-signal-safe atomic store.
-        unsafe { signal_hook_registry::register(sig, move || f.store(true, Ordering::Relaxed)) }
-            .map_err(|e| format!("failed to register signal handler: {e}"))?;
+        unsafe {
+            signal_hook_registry::register(sig, move || {
+                user_stop.store(true, Ordering::Relaxed);
+                f.store(true, Ordering::Relaxed);
+            })
+        }
+        .map_err(|e| format!("failed to register signal handler: {e}"))?;
     }
     let pool = UdsWorkerPool::from_env();
     let _ = host.uds_workers.set(pool.clone());
@@ -300,7 +310,7 @@ fn serve_node(
         body_budget: Arc::new(Semaphore::new(permits)),
         mutation_replies: Arc::new(Semaphore::new(s.workers)),
     };
-    let tasks = spawn_background(&rt, &host, &stop, socket.path());
+    let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen), socket.path());
     // SAFETY: `getuid()` has no preconditions.
     let uid = unsafe { libc::getuid() };
     let accept_err = socket
@@ -326,7 +336,19 @@ fn serve_node(
         })
         .map_err(|e| format!("owner accept loop failed: {e}"));
     stop.store(true, Ordering::Release);
-    finish_shutdown(rt, (home, pid), &host, &pool, tasks, accept_err)
+    finish_shutdown(rt, (home, pid), &host, &pool, tasks, accept_err)?;
+    drop(srv);
+    drop(host);
+    drop(socket);
+    if reopen.load(Ordering::Acquire) && !user_stop.load(Ordering::Relaxed) {
+        tracing::info!(target: "lastdbd::log_sync", "reopening the daemon for verified native recovery");
+        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        let error = std::process::Command::new(exe)
+            .args(std::env::args_os().skip(1))
+            .exec();
+        return Err(format!("could not reopen after native recovery: {error}"));
+    }
+    Ok(())
 }
 
 fn run() -> Result<(), String> {

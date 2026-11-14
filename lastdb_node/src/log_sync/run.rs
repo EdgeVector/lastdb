@@ -6,8 +6,8 @@
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use mutation_log::{DatabaseId, DatabaseKind, DeviceId, LogError, PrincipalId};
-use mutation_log_sync::{SyncError, SyncEvent, SyncRole, SyncState};
+use mutation_log::{DatabaseId, DatabaseKind, DeviceId, ListPage, LogError, PrincipalId};
+use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
 
 use crate::host::Host;
 
@@ -39,6 +39,42 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
 }
 
 pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause {
+    if super::native_reset::supports(host, ready) {
+        let after = ready.state.cursor();
+        match ready.log.list_with_native_reset(after).await {
+            Ok(Ok(page)) => {
+                return apply_contiguous(host, ready, after, page).await;
+            }
+            Ok(Err(cut)) => {
+                // The service keeps older entries during migration. Avoid a
+                // database replacement while the missing edits are still there.
+                match ready.log.list_retained(after).await {
+                    Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
+                        return apply_contiguous(host, ready, after, page).await;
+                    }
+                    Ok(_) | Err(LogError::CursorExpired { .. } | LogError::SnapshotRequired) => {}
+                    Err(error) => {
+                        tracing::warn!(target: "lastdbd::log_sync", %error, "retained log read failed");
+                        return Pause::Retry;
+                    }
+                }
+                return match super::native_reset::prepare(host, &ready.log, after, &cut).await {
+                    Ok(()) => Pause::Reopen,
+                    Err(error) => {
+                        tracing::warn!(target: "lastdbd::log_sync", %error, "native recovery awaits retry");
+                        Pause::Retry
+                    }
+                };
+            }
+            Err(LogError::CursorExpired { .. }) => {
+                // Existing signed archives are handled by the original pull.
+            }
+            Err(error) => {
+                tracing::warn!(target: "lastdbd::log_sync", %error, "pull failed");
+                return Pause::Retry;
+            }
+        }
+    }
     let event = SyncEvent::Pull {
         now_ms: fold_db::clock::unix_millis(),
     };
@@ -59,7 +95,30 @@ pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause
         }
     };
     ready.state = next;
-    let plan = match apply::apply_page(host, &ready.log, &outcome, ready.publisher.as_deref()).await
+    apply_and_checkpoint(host, ready, &outcome).await
+}
+
+fn contiguous(after: u64, page: &ListPage) -> bool {
+    page.entries.iter().try_fold(after, |last, entry| {
+        (last.checked_add(1) == Some(entry.delivery_seq)).then_some(entry.delivery_seq)
+    }) == Some(page.next)
+}
+
+async fn apply_contiguous(host: &Host, ready: &Ready, after: u64, page: ListPage) -> Pause {
+    if !contiguous(after, &page) {
+        tracing::warn!(target: "lastdbd::log_sync", "personal delivery page has a gap");
+        return Pause::Retry;
+    }
+    let outcome = Outcome::Pulled {
+        cursor: page.next,
+        entries: page.entries,
+        reset: None,
+    };
+    apply_and_checkpoint(host, ready, &outcome).await
+}
+
+async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &Outcome) -> Pause {
+    let plan = match apply::apply_page(host, &ready.log, outcome, ready.publisher.as_deref()).await
     {
         Ok(plan) => plan,
         Err(error) => {

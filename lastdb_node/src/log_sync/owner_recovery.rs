@@ -95,6 +95,31 @@ pub async fn recover_owned(
     })
 }
 
+/// Recover into a private staging home without treating any log entries as
+/// local echoes. The source device's pending writes were uploaded before staging.
+pub(super) async fn recover_cut(
+    staged: &Arc<Host>,
+    log: &CloudLog,
+    base: super::RestoredBase,
+) -> Result<u64, String> {
+    let log = log.for_staging(staged);
+    let through = head(&log).await?;
+    if base.through > through {
+        return Err("signed snapshot is ahead of the cloud log".into());
+    }
+    staged
+        .db
+        .db_ops()
+        .native_runtime()
+        .adopt_restored_snapshot(false)
+        .await
+        .map_err(|error| error.to_string())?;
+    apply_through(&log, base.through, through).await?;
+    session::store_cursor(&staged.home, log.database_id(), through)?;
+    session::mark_prefix(&staged.home, log.database_id(), through)?;
+    Ok(through)
+}
+
 async fn place(
     host: &Arc<Host>,
     log: &CloudLog,

@@ -25,7 +25,7 @@ pub(crate) enum Proof {
     Data,
 }
 
-const JSON_LIMIT: usize = 8 * 1024 * 1024;
+pub(super) const JSON_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// One signed log POST. The limit on the reply is not part of the request.
 #[derive(Clone, Copy)]
@@ -113,7 +113,7 @@ impl Endpoint {
 
     pub(crate) async fn post_json(&self, request: LogRequest<'_>) -> Result<Vec<u8>, LogError> {
         let path = request.path;
-        self.exchange(request, JSON_LIMIT as u64)
+        self.exchange(request, JSON_LIMIT)
             .await
             .and_then(|(status, bytes)| self.accepted(path, status, bytes))
     }

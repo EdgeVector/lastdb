@@ -118,6 +118,13 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
     }
 }
 
+pub(super) fn stopped_confirmation(
+    main: &Path,
+    identity: &UploadIdentity,
+) -> StorageResult<UploadPosition> {
+    disk::upload::stopped_confirmation(&main.join(disk::DIR), identity).map_err(storage)
+}
+
 impl PackRuntime {
     /// Whether this store records accepted writes for cloud sync.
     pub fn captures_accepted(&self) -> bool {

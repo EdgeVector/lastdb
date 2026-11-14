@@ -9,6 +9,8 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
 # The same gate with the latest published nightly client:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
+# Native cutoff recovery from the exact accepted client, with provider bytes retained:
+#   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff
 #
 # After checking out lastdb, that client and this round trip are:
 #   python3 scripts/release/published_client.py --out-dir DIR
@@ -28,6 +30,13 @@ on:
         options:
           - build
           - nightly
+      mode:
+        description: "Round trip, or native cutoff recovery with provider bytes retained"
+        type: choice
+        default: round-trip
+        options:
+          - round-trip
+          - native-cutoff
   pull_request:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
@@ -62,7 +71,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           SELECTED_REF: ${{ github.ref }}
-        run: test "$SELECTED_REF" = refs/heads/main
+          SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
+          CLIENT: ${{ github.event.inputs.client || 'build' }}
+        run: |
+          test "$SELECTED_REF" = refs/heads/main
+          if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
+            test "$CLIENT" = build
+          fi
       - name: Check the operational recipe syntax
         run: |
           python3 -m py_compile scripts/cloud_backup/*.py
@@ -84,7 +99,7 @@ jobs:
     # commit. A published nightly client is not that commit's build, so this
     # run must not emit that check name. github.event.inputs is empty on push
     # and schedule; the inputs context is not available for those events.
-    name: ${{ github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
+    name: ${{ github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: cloud-backup-dev
@@ -111,6 +126,7 @@ jobs:
             -C "$client_bin_dir" lastdb lastdbd
           printf 'CLIENT_BIN_DIR=%s\n' "$client_bin_dir" >> "$GITHUB_ENV"
       - name: Seed, snapshot, and restore the gate database
+        if: github.event.inputs.mode != 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
@@ -125,6 +141,24 @@ jobs:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
           role-session-name: snapshot-gate-${{ github.run_id }}
+      - name: Recover a lagging device across the native snapshot cutoff
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-cutoff'
+        env:
+          CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+        run: |
+          python3 -m pip install --quiet cryptography==41.0.7
+          python3 scripts/cloud_backup/snapshot_gate.py native-cutoff \
+            --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
       - name: Delete the signed log and snapshot inventory
         if: always()
-        run: python3 scripts/cloud_backup/snapshot_gate.py cleanup
+        env:
+          SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
+        run: |
+          if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
+            python3 scripts/cloud_backup/snapshot_gate.py cleanup-native-cutoff
+          else
+            python3 scripts/cloud_backup/snapshot_gate.py cleanup
+          fi
