@@ -1,7 +1,6 @@
 //! Durable state for the signed database log and replay ordering.
 
 use super::{read_err, Metadata};
-use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::SchemaError;
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::{error::StorageResult, StorageError};
@@ -72,19 +71,13 @@ impl Metadata {
             "signed-replay-baseline:",
             "signed-replay-deferred:",
         ] {
-            let (start, end) = exact_prefix_bounds(prefix);
-            let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 64);
-            while let Some((start, end, limit)) = walk.request() {
-                let scan = match metadata
+            let (lower, upper) = exact_prefix_bounds(prefix);
+            let mut start = lower.into_bytes();
+            loop {
+                let scan = metadata
                     .store
-                    .scan_range_yielding(&start, &end, limit, 1)
-                    .await
-                {
-                    Ok(scan) => scan,
-                    Err(StorageError::ReadResourceLimit { .. }) if walk.read_too_big() => continue,
-                    Err(error) => return Err(error),
-                };
-                walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
+                    .scan_range_yielding(&start, upper.as_bytes(), 64, 1)
+                    .await?;
                 let deletes = scan
                     .rows
                     .into_iter()
@@ -94,7 +87,19 @@ impl Metadata {
                         Ok((key, None))
                     })
                     .collect::<StorageResult<Vec<_>>>()?;
-                transaction::scope(Arc::clone(runtime), metadata.stage(deletes)).await?;
+                if !deletes.is_empty() {
+                    transaction::scope(Arc::clone(runtime), metadata.stage(deletes)).await?;
+                }
+                let Some(mut previous) = scan.resume else {
+                    break;
+                };
+                previous.push(0);
+                if previous <= start || previous.as_slice() >= upper.as_bytes() {
+                    return Err(StorageError::backend(
+                        "invalid restored metadata continuation",
+                    ));
+                }
+                start = previous;
             }
         }
         Ok(())
