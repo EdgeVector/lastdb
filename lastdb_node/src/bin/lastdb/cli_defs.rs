@@ -104,6 +104,8 @@ pub(super) enum Command {
     #[command(subcommand)]
     Backup(BackupCommand),
     #[command(subcommand)]
+    Cloud(CloudAccountCommand),
+    #[command(subcommand)]
     Share(ShareCommand),
     #[command(subcommand)]
     Db(DatabaseCommand),

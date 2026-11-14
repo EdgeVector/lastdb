@@ -14,6 +14,12 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+#[path = "cloud_cmds/account.rs"]
+mod account;
+#[path = "cloud_cmds/dev_keys.rs"]
+mod dev_keys;
+#[path = "cloud_cmds/enrollment_home.rs"]
+mod enrollment_home;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 #[path = "cloud_cmds/setup.rs"]
@@ -21,41 +27,15 @@ mod setup;
 #[path = "cloud_cmds/snapshot_wait.rs"]
 mod snapshot_wait;
 
+pub(super) use account::cloud_account_command;
+
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let CloudCommand::BackupV2 { action } = action else {
         return recovery_home::command(data_dir.as_deref(), action);
     };
     match action {
-        ByteBackupCommand::Init(a) => {
-            if data_dir.is_some() {
-                return Err("native backup init uses --into without --data-dir".into());
-            }
-            setup::initialize(&a.into, &a.recovery_phrase_out, a.json)
-        }
-        ByteBackupCommand::Connect(a) if a.existing => {
-            if !a.api_key_stdin || a.dev || a.invite_code_stdin {
-                return Err(
-                    "existing connection requires only an environment and API key stdin".into(),
-                );
-            }
-            let home = data_dir
-                .as_deref()
-                .ok_or("existing connection requires an explicit --data-dir")?;
-            let env = a
-                .env
-                .as_deref()
-                .ok_or("existing connection requires --env")?;
-            setup::connect_existing(home, env, a.expected_user_hash.as_deref(), a.json)
-        }
-        ByteBackupCommand::Connect(a) => {
-            if !a.dev || a.env.is_some() || a.api_key_stdin || a.expected_user_hash.is_some() {
-                return Err("native backup connect requires --dev".into());
-            }
-            let home = data_dir
-                .as_deref()
-                .ok_or("native backup connect requires an explicit --data-dir")?;
-            setup::connect(home, a.invite_code_stdin, a.json)
-        }
+        ByteBackupCommand::Init(a) => setup::run_init(data_dir.as_deref(), &a),
+        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir.as_deref(), &a),
         ByteBackupCommand::Restore(args) => {
             if data_dir.as_deref().is_none_or(|h| !h.is_absolute()) {
                 return Err("V2 backup requires an explicit absolute --data-dir home".into());
