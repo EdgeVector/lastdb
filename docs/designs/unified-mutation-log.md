@@ -142,7 +142,11 @@ can remove a bounded prefix after the service enables reclamation. Use
 Use `--expect-snapshot DIGEST` on repeated invocations to keep the same
 snapshot and covered position. If the cloud selects another snapshot, the
 command stops before it sends a reclaim request.
-Each request removes up to eight entries and checks the same snapshot digest
+By default each request removes up to eight entries. Use
+`--steps-per-request` with the pinned digest to allow up to eight transactions
+per request, each removing up to eight entries. The total never passes the
+verified snapshot position. After an uncertain response, query `--status`
+with the same digest before resuming. Each request checks the snapshot digest
 and the expected physical floor. The service verifies the pinned files and
 requires immutable records of acceptance for every deleted entry. Their
 fingerprints cover the writer and its sequence, author time, namespace and

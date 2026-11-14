@@ -24,6 +24,7 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
             &args.database,
             batches,
             expected.as_ref(),
+            args.steps_per_request,
         ),
     )?;
     if args.json {
@@ -48,7 +49,7 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
         report.reclaimed_through.get()
     );
     if args.allow_required_client_upgrade {
-        println!("Batches reclaimed: {}", report.batches);
+        println!("Reclaim requests confirmed: {}", report.batches);
     }
     Ok(())
 }

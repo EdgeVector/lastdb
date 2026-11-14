@@ -130,12 +130,15 @@ pub(crate) struct BackupReclaimArgs {
     /// Reclaim covered entries after the cloud enables it. Devices behind the snapshot must upgrade.
     #[arg(long, conflicts_with = "status")]
     pub(crate) allow_required_client_upgrade: bool,
-    /// Maximum batches of up to eight entries each (1–128, default 16).
+    /// Maximum signed requests (1–128, default 16, with one batch per request by default).
     #[arg(long, requires = "allow_required_client_upgrade", value_parser = clap::value_parser!(u8).range(1..=128))]
     pub(crate) batches: Option<u8>,
     /// Require this exact recovery snapshot digest, including when resuming a reclaim.
     #[arg(long, value_name = "DIGEST")]
     pub(crate) expect_snapshot: Option<String>,
+    /// Allow up to this many eight-entry transactions per request (1–8) when the cloud supports it.
+    #[arg(long, requires_all = ["allow_required_client_upgrade", "expect_snapshot"], value_parser = clap::value_parser!(u8).range(1..=8))]
+    pub(crate) steps_per_request: Option<u8>,
     #[arg(long)]
     pub(crate) json: bool,
 }
