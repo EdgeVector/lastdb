@@ -2,28 +2,41 @@
  * Wire types for the LastDB runtime `/api/*` surface.
  */
 
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import type { JsonValue, KeyValue, RecordMetadata, RowFields } from './writeTypes.js';
 
-/** The field values of a result row, keyed by field name. */
-export type RowFields = Record<string, JsonValue>;
-
-/** A result row — fields keyed by name. */
-export type Row = RowFields;
-
-/**
- * Explicit record coordinates. Queries return this object as `key`;
- * mutations send it as `key_value`. Coordinates are independent of fields.
- */
-export interface KeyValue {
-  hash: string | null;
-  range: string | null;
-}
+export type {
+  BlobThumbnailInput,
+  CasExpectation,
+  CreateMutationOp,
+  DeleteBlobOptions,
+  DeleteMutationOp,
+  FetchBlobOptions,
+  FetchedBlob,
+  FileMarker,
+  FilePlacement,
+  JsonValue,
+  KeyValue,
+  MutationBatchItem,
+  MutationBatchOperations,
+  MutationBatchOptions,
+  MutationBatchResult,
+  MutationConvergence,
+  MutationDurability,
+  MutationOp,
+  MutationOptions,
+  MutationResult,
+  PutBlobBytesRequest,
+  PutBlobLocalPathRequest,
+  PutBlobMutationOp,
+  PutBlobRequest,
+  PutBlobResult,
+  RecordKeyInput,
+  RecordMetadata,
+  ReplaceMutationOp,
+  Row,
+  RowFields,
+  ShareSubmissionResult,
+} from './writeTypes.js';
 
 /** Pass the complete cursor back unchanged. Values stay strings, including large integers and dates. */
 export interface QueryCursor extends KeyValue {
@@ -33,7 +46,7 @@ export interface QueryCursor extends KeyValue {
   alternate_primary?: KeyValue | null;
 }
 
-/** Options for the keys-only {@link LastDbClient.list} membership page. */
+/** Options for the keys-only `LastDbClient.list` membership page. */
 export interface ListOptions {
   /** Select a named alternate key. A hash is required with this option. */
   keyName?: string;
@@ -51,9 +64,7 @@ export interface ListRecordKey {
   range?: string;
 }
 
-/**
- * One keys-only `GET /api/list` page.
- */
+/** One keys-only `GET /api/list` page. */
 export interface ListResult {
   schema: string;
   keys: ListRecordKey[];
@@ -66,55 +77,17 @@ export interface ListResult {
   truncated: boolean;
 }
 
-/** Mutation convergence mode for `POST /api/mutation`. */
-export type MutationConvergence = 'sync' | 'async';
-
-/** Local persistence policy for `POST /api/mutation`. */
-export type MutationDurability = 'queued' | 'durable';
-
-/**
- * The marker of a record's file. A record has at most one file; read it with
- * `POST /api/db/fetch-blob` by schema and key.
- */
-export interface FileMarker {
-  name?: string;
-  media_type?: string;
-  /** Plaintext size in bytes. */
-  size_bytes: number;
-  /** Plaintext SHA-256, lowercase hex. */
-  sha256: string;
-}
-
-/**
- * The one metadata block of a record: the source file name and metadata map of
- * the complete replacement, the marker of the record's file, and its inline file.
- */
-export interface RecordMetadata {
-  source_file_name: string | null;
-  metadata?: Record<string, string>;
-  file?: FileMarker;
-  inline_file?: FileMarker;
-}
-
-/**
- * The full per-row envelope the node returns for `/api/query`.
- */
+/** The full per-row envelope the node returns for `/api/query`. */
 export interface QueryRow {
   /** Complete-record token, required for replace/delete. */
   revision: string;
   /** Every declared alternate address, including explicitly absent sparse addresses. */
   alternates: Record<string, KeyValue | null>;
-  /**
-   * The row's storage key rendered to a string (`"hash:range"`, `"hash"`, or
-   * `"range"`). Prefer {@link QueryRow.keyValue} for unambiguous row addressing.
-   */
+  /** Rendered storage key (`"hash:range"`, `"hash"`, or `"range"`). Prefer `keyValue`. */
   key: string;
-  /**
-   * The row's structured storage key (`{hash, range}`). Pass it back verbatim
-   * as `MutationOp.key` to update or delete this exact row.
-   */
+  /** Structured storage key (`{hash, range}`). Pass verbatim as `MutationOp.key`. */
   keyValue: KeyValue | null;
-  /** Coordinates of the named alternate key; keyValue remains the primary mutation key. */
+  /** Coordinates of the named alternate key; `keyValue` remains the primary mutation key. */
   matchedKey?: KeyValue | null;
   /** The row's field values, keyed by field name. */
   fields: RowFields;
@@ -123,8 +96,8 @@ export interface QueryRow {
 }
 
 /**
- * Connection options. Pass `socketPath` to use that Unix socket verbatim.
- * Omit it to discover `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
+ * Connection options. Pass `socketPath` to use that Unix socket verbatim, or
+ * omit it to discover `LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` →
  * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`.
  */
 export interface ConnectOptions<DatabaseId extends string | undefined = undefined> {
@@ -134,42 +107,47 @@ export interface ConnectOptions<DatabaseId extends string | undefined = undefine
   socketPath?: string;
   /** Database ID or local alias registered on this node. Omit for the default database. */
   databaseId?: DatabaseId;
-  /**
-   * Headers attached to every request this client sends, under a per-call
-   * header of the same name (which wins).
-   */
+  /** Short-lived owner-approved session token (`X-LastDB-Database-Session`). Requires `databaseId`. */
+  databaseSession?: string;
+  /** Headers attached to every request this client sends (per-call headers win). */
   defaultHeaders?: Record<string, string>;
-  /**
-   * Best-effort client label (`X-LastDB-Client`). Defaults to {@link ConnectOptions.appId}.
-   */
+  /** Best-effort client label (`X-LastDB-Client`). Defaults to `appId`. */
   clientId?: string;
-  /**
-   * Per-request transport timeout in milliseconds (default 30_000).
-   */
+  /** Per-request transport timeout in milliseconds (default 30_000). */
   timeoutMs?: number;
-  /**
-   * Minimum node request-grammar version this app requires.
-   */
+  /** Minimum node request-grammar version required (defaults to `LASTDB_SDK_API_VERSION`). */
   requireApiVersion?: number;
-  /**
-   * Who is asking, for the `NodeTooOldError` message (defaults to `appId`).
-   */
+  /** Caller label for `NodeTooOldError` messages (defaults to `appId`). */
   appLabel?: string;
 }
 
-/**
- * The node's answer to `GET /api/version`.
- */
+/** Options when scoping an existing client to a named or shared database via `select`. */
+export interface SelectDatabaseOptions {
+  /** Short-lived owner-approved session token (`X-LastDB-Database-Session`) for this database. */
+  databaseSession?: string;
+}
+
+/** Access posture requested for `POST /api/databases/session`. */
+export type DatabaseSessionIntent = 'read' | 'write';
+
+/** Short-lived scoped database session issued by `POST /api/databases/session`. */
+export interface DatabaseSession {
+  databaseId: string;
+  intent: DatabaseSessionIntent;
+  session: string;
+  expiresInSeconds: number;
+}
+
+/** The node's answer to `GET /api/version`. */
 export interface NodeVersion {
   apiVersion: number;
   build: string | null;
   capabilities: Record<string, boolean>;
   instanceId: string | null;
+  minSupportedApiVersion?: number | null;
 }
 
-/**
- * Keyed query parameters for `POST /api/query`.
- */
+/** Keyed query parameters for `POST /api/query`. */
 export interface QueryFilter {
   /** Named alternate key within the schema. Omit for the primary key. */
   keyName?: string;
@@ -183,9 +161,7 @@ export interface QueryFilter {
   cursor?: QueryCursor;
 }
 
-/**
- * Pagination metadata returned by `/api/query` alongside its `results` page.
- */
+/** Pagination metadata returned by `/api/query` alongside its `results` page. */
 export interface QueryPage {
   totalCount?: number;
   returnedCount: number;
@@ -211,9 +187,7 @@ export interface QueryAllOptions {
   maxRows?: number;
 }
 
-/**
- * One schema entry from `GET /api/schemas`.
- */
+/** One schema entry from `GET /api/schemas` or `GET /api/schema/<name>`. */
 export interface LoadedSchema {
   name: string;
   identityHash: string | null;
@@ -231,64 +205,8 @@ export interface SchemaDescriptor {
 
 /** `GET /api/system/auto-identity` parsed result. */
 export type AutoIdentityResult =
-  | {
-      provisioned: true;
-      userHash: string;
-      publicKey: string | null;
-      userId: string | null;
-    }
-  | {
-      provisioned: false;
-      reason: string;
-      next: string | null;
-    };
-
-/** One condition covers the complete record. */
-export type CasExpectation =
-  | { type: 'absent' }
-  | { type: 'revision'; revision: string };
-
-interface MutationTarget {
-  key: KeyValue;
-  /** Exactly every declared name; null requires allow_absent in the schema. */
-  alternates: Record<string, KeyValue | null>;
-  convergence?: MutationConvergence;
-  durability?: MutationDurability;
-}
-
-interface CompleteRecord {
-  record: RowFields;
-  /** Absence clears metadata and the file marker. Copy these from a full read when retaining them. */
-  metadata?: RecordMetadata | null;
-}
-
-/**
- * Complete conditional record mutation. Omitted payload fields disappear.
- */
-export type MutationOp = MutationTarget & (
-  | (CompleteRecord & { mutationType: 'create'; expected: { type: 'absent' } })
-  | (CompleteRecord & { mutationType: 'replace'; expected: { type: 'revision'; revision: string } })
-  | { mutationType: 'delete' | 'purge'; expected: { type: 'revision'; revision: string }; record?: never; metadata?: never }
-);
-
-export interface MutationResult {
-  mutationId: string;
-  recordRevision: string;
-  backgroundTasksDrained?: boolean;
-  convergencePending?: boolean;
-}
-
-export interface MutationOptions {
-  /** UUID for a database-scoped submission. Reuse it with the same body on retry. */
-  mutationId?: string;
-}
-
-/** An append receipt from Exemem. The publisher may still reject the mutation. */
-export interface ShareSubmissionResult {
-  status: 'submitted';
-  mutationId: string;
-  submissionSequence: number;
-}
+  | { provisioned: true; userHash: string; publicKey: string | null; userId: string | null }
+  | { provisioned: false; reason: string; next: string | null };
 
 /** `POST /api/schemas/declare`. */
 export interface DeclareSchemaRequest {
@@ -305,7 +223,7 @@ export interface DeclareSchemaResult {
   resolution: string | null;
 }
 
-/** One item of {@link LastDbClient.queryBatch}: the arguments of `query`. */
+/** One item of `LastDbClient.queryBatch`: the arguments of `query`. */
 export interface QueryBatchItem {
   schemaName: string;
   filter?: QueryFilter;

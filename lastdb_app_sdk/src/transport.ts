@@ -1,28 +1,22 @@
 /**
- * HTTP/1.1 transport over the node's Unix-domain socket.
+ * HTTP/1.1 JSON and binary transport over the node's Unix-domain socket.
  *
- * `lastdbd` serves its route table (`lastdb_uds` `uds_router::route_table`)
- * on `folddb.sock`. Node's built-in `http` client reaches that socket through
+ * `lastdbd` serves its route table (`lastdb_uds::uds_router::route`) on
+ * `folddb.sock`. Node's built-in `http` client reaches that socket through
  * the `socketPath` request option.
  */
 
 import { randomUUID } from 'node:crypto';
-import { request as httpRequest } from 'node:http';
-import type { IncomingMessage } from 'node:http';
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
 
 import { TransportError } from './errors.js';
+import { mergeHeaders, openDiscoveredSocket, withDefaultHeaders } from './socketDiscovery.js';
+
+export { mergeHeaders, openDiscoveredSocket, withDefaultHeaders };
 
 /**
- * The per-request correlation-ID header the node's request-ops telemetry
- * reads (sanitized to ≤96 chars server-side and rendered as `req=<id>` in
- * `lastdb ops` "Slowest recent"). The transport mints a fresh UUID per
- * request when neither the per-call headers nor the transport's
- * `defaultHeaders` already carry one — per-request by design: a static
- * default header would stamp every call with the same ID and defeat
- * correlation. A caller-supplied value (either seam) is never clobbered.
+ * Per-request correlation-ID header read by the node's request-ops telemetry.
+ * Minted fresh per request unless supplied per-call or via `defaultHeaders`.
  */
 export const REQUEST_ID_HEADER = 'x-lastdb-request-id';
 
@@ -32,139 +26,85 @@ export interface RawResponse {
   body: unknown;
 }
 
+/** A binary HTTP response from routes that stream `application/octet-stream`. */
+export interface BinaryResponse {
+  status: number;
+  /** Lowercase response headers. */
+  headers: Record<string, string>;
+  /** Raw response bytes on 2xx replies; empty on non-2xx replies. */
+  bytes: Uint8Array;
+  /** Parsed JSON or plain-text error body on non-2xx replies; `null` on 2xx. */
+  errorBody: unknown;
+}
+
+export interface TransportSendOptions {
+  headers?: Record<string, string>;
+  body?: unknown;
+  /** Override this transport's timeout for one request. */
+  timeoutMs?: number;
+}
+
 /** The transport contract the client depends on. */
 export interface Transport {
   /** A short description of where this transport points (for diagnostics). */
   readonly target: string;
-  /** Perform one request and return the parsed response. */
-  send(
+  /** True when `send` accepts raw `Uint8Array` / `ArrayBuffer` bodies directly. */
+  readonly supportsBinaryBody?: boolean;
+  /** Perform one request and return the parsed JSON response. */
+  send(method: 'GET' | 'POST', path: string, options?: TransportSendOptions): Promise<RawResponse>;
+  /** Perform one request expecting a binary `application/octet-stream` 2xx body. */
+  sendBinary?(
     method: 'GET' | 'POST',
     path: string,
-    options?: {
-      headers?: Record<string, string>;
-      body?: unknown;
-      /** Override this transport's timeout for one request. */
-      timeoutMs?: number;
-    },
-  ): Promise<RawResponse>;
+    options?: TransportSendOptions,
+  ): Promise<BinaryResponse>;
 }
 
 /** Per-request options for the Unix-domain socket transport. */
 export interface TransportOptions {
-  /**
-   * Per-request timeout in milliseconds. Defaults to 30s so a wedged node
-   * cannot leave app data-plane calls pending forever.
-   */
+  /** Per-request timeout in milliseconds (defaults to 30_000). */
   timeoutMs?: number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
-/**
- * Build a {@link Transport} that speaks HTTP over a Unix-domain socket.
- *
- * `defaultHeaders` are attached to every request (a per-call header of the
- * same name wins). Callers use them for `X-LastDB-Client` and the request id.
- */
+/** Build a {@link Transport} that speaks HTTP over a Unix-domain socket. */
 export function udsTransport(
   socketPath: string,
   defaultHeaders: Record<string, string> = {},
   options: TransportOptions = {},
 ): Transport {
-  return new NodeHttpTransport(
-    socketPath,
-    `unix:${socketPath}`,
-    defaultHeaders,
-    options,
-  );
+  return new NodeHttpTransport(socketPath, `unix:${socketPath}`, defaultHeaders, options);
 }
 
-/** The fixed file name the node binds its data-plane socket under. */
-const SOCKET_FILE_NAME = 'folddb.sock';
-/** Canonical explicit node-socket override (the name the `lastdb` CLI reads). */
-const LASTDB_SOCKET_PATH_ENV = 'LASTDB_SOCKET_PATH';
-/** Second explicit override, read when {@link LASTDB_SOCKET_PATH_ENV} is unset. */
-const FOLDDB_SOCKET_PATH_ENV = 'FOLDDB_SOCKET_PATH';
-
-/**
- * Expand a leading `~` (or `~/...`) against the current user's home directory,
- * mirroring the Rust `expand_tilde` the node uses to resolve env-supplied
- * paths. A non-tilde path is returned unchanged.
- */
-function expandTilde(p: string): string {
-  if (p === '~') {
-    return homedir();
-  }
-  if (p.startsWith('~/')) {
-    return join(homedir(), p.slice(2));
-  }
-  return p;
+function hasHeader(headers: Record<string, string>, lowerName: string): boolean {
+  return Object.keys(headers).some((k) => k.toLowerCase() === lowerName);
 }
 
-/**
- * Resolve the node's home directory the same way the Rust `folddb_home()`
- * does: `LASTDB_HOME` (tilde-expanded) when it is set, else `~/.lastdb`.
- */
-function resolveLastdbHome(env: NodeJS.ProcessEnv): string | null {
-  const lastdbHome = env.LASTDB_HOME;
-  if (lastdbHome && lastdbHome.length > 0) {
-    return expandTilde(lastdbHome);
+function normalizeResponseHeaders(raw: IncomingMessage['headers']): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      out[key.toLowerCase()] = value;
+    } else if (Array.isArray(value)) {
+      out[key.toLowerCase()] = value.join(', ');
+    }
   }
-  const home = homedir();
-  if (!home) {
-    return null;
-  }
-  return join(home, '.lastdb');
+  return out;
 }
 
-/**
- * Resolve the node's default data-plane socket path: an explicit
- * `LASTDB_SOCKET_PATH` override (tilde-expanded) wins, then
- * `FOLDDB_SOCKET_PATH`, otherwise `<lastdb_home>/data/folddb.sock`.
- * Returns `null` only when neither an env override is set nor a home dir can
- * be resolved.
- */
-function resolveSocketPath(env: NodeJS.ProcessEnv): string | null {
-  const lastdbExplicit = env[LASTDB_SOCKET_PATH_ENV];
-  if (lastdbExplicit && lastdbExplicit.length > 0) {
-    return expandTilde(lastdbExplicit);
+function parseLooseErrorBody(buf: Buffer): unknown {
+  if (buf.byteLength === 0) return null;
+  const text = buf.toString('utf8');
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-  const explicit = env[FOLDDB_SOCKET_PATH_ENV];
-  if (explicit && explicit.length > 0) {
-    return expandTilde(explicit);
-  }
-  const home = resolveLastdbHome(env);
-  if (home === null) {
-    return null;
-  }
-  return join(home, 'data', SOCKET_FILE_NAME);
 }
 
-/**
- * Open the discovered data-plane socket.
- *
- * Order: `LASTDB_SOCKET_PATH`, then `FOLDDB_SOCKET_PATH`, then
- * `<LASTDB_HOME or ~/.lastdb>/data/folddb.sock`. The file must exist.
- */
-export function openDiscoveredSocket(options: {
-  defaultHeaders?: Record<string, string>;
-  timeoutMs?: number;
-  env?: NodeJS.ProcessEnv;
-}): Transport {
-  const { defaultHeaders = {}, timeoutMs } = options;
-  const env = options.env ?? process.env;
-  const resolved = resolveSocketPath(env);
-  if (resolved === null || !existsSync(resolved)) {
-    throw new TransportError(
-      `no LastDB socket at ${resolved ?? '(unresolved path)'}; set LASTDB_SOCKET_PATH or pass socketPath`,
-      'connect',
-    );
-  }
-  return udsTransport(resolved, defaultHeaders, { timeoutMs });
-}
-
-/** Node `http` transport for one Unix-domain socket. */
 class NodeHttpTransport implements Transport {
+  readonly supportsBinaryBody = true;
   private readonly timeoutMs: number;
 
   constructor(
@@ -182,15 +122,56 @@ class NodeHttpTransport implements Transport {
     }
   }
 
-  send(
+  async send(
     method: 'GET' | 'POST',
     path: string,
-    options: {
-      headers?: Record<string, string>;
-      body?: unknown;
-      timeoutMs?: number;
-    } = {},
+    options: TransportSendOptions = {},
   ): Promise<RawResponse> {
+    const { status, buf } = await this.execute(method, path, 'application/json', options);
+    if (buf.byteLength === 0) return { status, body: null };
+    const text = buf.toString('utf8');
+    try {
+      return { status, body: JSON.parse(text) };
+    } catch {
+      if (status >= 200 && status < 300) {
+        throw new TransportError(
+          `non-JSON response (${status}) from ${this.target}${path}: ${text.slice(0, 200)}`,
+          'protocol',
+          { status },
+        );
+      }
+      return { status, body: text };
+    }
+  }
+
+  async sendBinary(
+    method: 'GET' | 'POST',
+    path: string,
+    options: TransportSendOptions = {},
+  ): Promise<BinaryResponse> {
+    const { status, headers, buf } = await this.execute(
+      method,
+      path,
+      'application/octet-stream',
+      options,
+    );
+    if (status >= 200 && status < 300) {
+      return {
+        status,
+        headers,
+        bytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
+        errorBody: null,
+      };
+    }
+    return { status, headers, bytes: new Uint8Array(0), errorBody: parseLooseErrorBody(buf) };
+  }
+
+  private execute(
+    method: 'GET' | 'POST',
+    path: string,
+    defaultAccept: string,
+    options: TransportSendOptions,
+  ): Promise<{ status: number; headers: Record<string, string>; buf: Buffer }> {
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       return Promise.reject(
@@ -200,65 +181,27 @@ class NodeHttpTransport implements Transport {
         ),
       );
     }
-    const payload =
-      options.body === undefined ? undefined : JSON.stringify(options.body);
-    const headers: Record<string, string> = {
-      accept: 'application/json',
-      ...this.defaultHeaders,
-      ...(options.headers ?? {}),
-    };
-    // Correlation ID: one fresh UUID per request unless the caller supplied
-    // one (per-call or via defaultHeaders — checked case-insensitively so a
-    // caller's `X-LastDB-Request-Id` spelling is honored, not duplicated).
-    if (
-      !Object.keys(headers).some(
-        (k) => k.toLowerCase() === REQUEST_ID_HEADER,
-      )
-    ) {
+    const headers = mergeHeaders({ accept: defaultAccept }, this.defaultHeaders, options.headers);
+    if (!hasHeader(headers, REQUEST_ID_HEADER)) {
       headers[REQUEST_ID_HEADER] = randomUUID();
     }
-    if (payload !== undefined) {
-      headers['content-type'] = 'application/json';
-      headers['content-length'] = String(Buffer.byteLength(payload));
-    }
+    const payload = encodeRequestBody(options.body, headers);
 
-    const requestOptions = {
-      socketPath: this.socketPath,
-      method,
-      path,
-      headers,
-      timeout: timeoutMs,
-    };
-
-    return new Promise<RawResponse>((resolve, reject) => {
-      const req = httpRequest(requestOptions, (res: IncomingMessage) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const status = res.statusCode ?? 0;
-          const text = Buffer.concat(chunks).toString('utf8');
-          let body: unknown = null;
-          if (text.length > 0) {
-            try {
-              body = JSON.parse(text);
-            } catch {
-              // Success bodies are JSON. A refusal may be the plain status text.
-              if (status >= 200 && status < 300) {
-                reject(
-                  new TransportError(
-                    `non-JSON response (${status}) from ${this.target}${path}: ${text.slice(0, 200)}`,
-                    'protocol',
-                    { status },
-                  ),
-                );
-                return;
-              }
-              body = text;
-            }
-          }
-          resolve({ status, body });
-        });
-      });
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(
+        { socketPath: this.socketPath, method, path, headers, timeout: timeoutMs },
+        (res: IncomingMessage) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: normalizeResponseHeaders(res.headers),
+              buf: Buffer.concat(chunks),
+            });
+          });
+        },
+      );
       req.on('timeout', () => {
         req.destroy(
           new TransportError(
@@ -268,21 +211,33 @@ class NodeHttpTransport implements Transport {
         );
       });
       req.on('error', (err: Error) => {
-        if (err instanceof TransportError) {
-          reject(err);
-          return;
-        }
         reject(
-          new TransportError(
-            `request to ${this.target}${path} failed: ${err.message}`,
-            'connect',
-          ),
+          err instanceof TransportError
+            ? err
+            : new TransportError(`request to ${this.target}${path} failed: ${err.message}`, 'connect'),
         );
       });
-      if (payload !== undefined) {
-        req.write(payload);
-      }
+      if (payload !== undefined) req.write(payload);
       req.end();
     });
   }
+}
+
+function encodeRequestBody(body: unknown, headers: Record<string, string>): Buffer | undefined {
+  if (body === undefined) return undefined;
+  if (body instanceof Uint8Array || body instanceof ArrayBuffer) {
+    const buf =
+      body instanceof Uint8Array
+        ? Buffer.isBuffer(body)
+          ? body
+          : Buffer.from(body.buffer, body.byteOffset, body.byteLength)
+        : Buffer.from(body);
+    if (!hasHeader(headers, 'content-type')) headers['content-type'] = 'application/octet-stream';
+    headers['content-length'] = String(buf.byteLength);
+    return buf;
+  }
+  const buf = Buffer.from(JSON.stringify(body), 'utf8');
+  if (!hasHeader(headers, 'content-type')) headers['content-type'] = 'application/json';
+  headers['content-length'] = String(buf.byteLength);
+  return buf;
 }
