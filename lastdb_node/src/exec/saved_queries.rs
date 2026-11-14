@@ -26,7 +26,7 @@ impl QueryStore for ExecQueryStore<'_> {
     type Db = Option<Arc<FoldDB>>;
 
     fn list(&self) -> Result<Vec<Value>, String> {
-        database_routes::list_database_rows(self.host).map_err(format_err)
+        database_routes::list_database_rows(self.host).map_err(|e| format_err(&e))
     }
 
     fn database(&self, selector: &str) -> Result<Self::Db, String> {
@@ -54,7 +54,7 @@ impl QueryStore for ExecQueryStore<'_> {
                     if err.status == 404 {
                         format!("source schema {name} is not installed")
                     } else {
-                        format_err(err)
+                        format_err(&err)
                     }
                 })
             })
@@ -71,7 +71,7 @@ impl QueryStore for ExecQueryStore<'_> {
                 schema_declare::declare_schema_slice(&bytes, self.host),
             )
             .await
-            .map_err(format_err)
+            .map_err(|e| format_err(&e))
         })
     }
 
@@ -93,7 +93,7 @@ impl QueryStore for ExecQueryStore<'_> {
                 wire::parse_query_body(obj).map_err(|_| "invalid saved query filter".to_owned())?;
             let response = with_store(self.host, db, query::execute_query(self.host, req))
                 .await
-                .map_err(format_err)?;
+                .map_err(|e| format_err(&e))?;
             if response.get("has_more").and_then(Value::as_bool) == Some(true) {
                 return Err("saved query read exceeds 256 records".into());
             }
@@ -116,7 +116,7 @@ impl QueryStore for ExecQueryStore<'_> {
                 mutation::commit_parsed_mutation(self.host, parsed),
             )
             .await
-            .map_err(format_err)
+            .map_err(|e| format_err(&e))
         })
     }
 
@@ -131,7 +131,7 @@ impl QueryStore for ExecQueryStore<'_> {
         Box::pin(async move {
             with_store(self.host, db, async {
                 let s = schema_routes::resolve_schema_name(self.host, schema)
-                    .map_err(format_err)?
+                    .map_err(|e| format_err(&e))?
                     .ok_or_else(|| format!("schema '{schema}' not found"))?;
                 let key = KeyValue::new(Some(hash.to_owned()), range.map(str::to_owned));
                 let (marker, bytes) = if placement == "inline" {
@@ -139,14 +139,14 @@ impl QueryStore for ExecQueryStore<'_> {
                         .records()
                         .read_record_inline_file(&s, &key, None)
                         .await
-                        .map_err(|e| format_err(HostError::from(e)))?
+                        .map_err(|e| format_err(&HostError::from(e)))?
                         .ok_or_else(|| "the record has no inline file".to_owned())?
                 } else {
                     self.host
                         .records()
                         .read_record_file(&s, &key, None)
                         .await
-                        .map_err(|e| format_err(HostError::from(e)))?
+                        .map_err(|e| format_err(&HostError::from(e)))?
                         .ok_or_else(|| "the record has no file".to_owned())?
                 };
                 Ok((marker.sha256, bytes))
@@ -165,7 +165,7 @@ impl QueryStore for ExecQueryStore<'_> {
             };
             with_store(self.host, db, file_blob::put_blob_inner(&req, self.host))
                 .await
-                .map_err(format_err)
+                .map_err(|e| format_err(&e))
         })
     }
 
@@ -178,7 +178,7 @@ impl QueryStore for ExecQueryStore<'_> {
                 file_blob::delete_blob_slice(&bytes, self.host),
             )
             .await
-            .map_err(format_err)
+            .map_err(|e| format_err(&e))
         })
     }
 }
@@ -190,7 +190,7 @@ async fn with_store<T>(host: &Host, db: &Option<Arc<FoldDB>>, fut: impl Future<O
     }
 }
 
-fn format_err(err: HostError) -> String {
+fn format_err(err: &HostError) -> String {
     format!("HTTP {}: {}", err.status, err.message)
 }
 

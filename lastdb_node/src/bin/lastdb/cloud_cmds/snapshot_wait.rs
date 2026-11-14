@@ -26,16 +26,12 @@ pub(super) fn print_backup(value: &Value, json: bool) -> Result<(), String> {
 }
 
 pub(super) fn parse_reply(raw: &str, label: &str) -> Result<Value, String> {
-    match crate::parse_json_response(raw, label) {
-        Ok(value) => Ok(value),
-        Err(fallback) => {
-            let msg = raw
-                .split_once("\r\n\r\n")
-                .and_then(|(_, body)| serde_json::from_str::<Value>(body.trim()).ok())
-                .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned));
-            Err(msg.unwrap_or(fallback))
-        }
-    }
+    crate::parse_json_response(raw, label).map_err(|fallback| {
+        raw.split_once("\r\n\r\n")
+            .and_then(|(_, body)| serde_json::from_str::<Value>(body.trim()).ok())
+            .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or(fallback)
+    })
 }
 
 pub(super) fn until_head(socket: &Path, database: &str, nonce: &str) -> Result<(), String> {
@@ -58,12 +54,11 @@ pub(super) fn until_head(socket: &Path, database: &str, nonce: &str) -> Result<(
 fn poll_match(socket: &Path, path: &str) -> Option<(u64, u64)> {
     let raw = crate::get_path_retry(socket, path, Duration::from_secs(10)).ok()?;
     let reply = crate::parse_json_response(&raw, "backup snapshot status").ok()?;
-    (reply["ready"].as_bool() == Some(true))
-        .then(|| {
-            Some((
-                reply["snapshot_through"].as_u64()?,
-                reply["log_entries"].as_u64()?,
-            ))
-        })
-        .flatten()
+    if reply["ready"].as_bool() != Some(true) {
+        return None;
+    }
+    Some((
+        reply["snapshot_through"].as_u64()?,
+        reply["log_entries"].as_u64()?,
+    ))
 }

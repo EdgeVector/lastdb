@@ -144,16 +144,12 @@ fn post_member(socket: &Path, selector: &str, body: &Value) -> Result<Value, Str
     }
     let path = format!("/api/databases/{selector}/share/members");
     let raw = crate::post_json_with_timeout(socket, &path, body, handler_timeout())?;
-    match crate::parse_json_response(&raw, "share member update") {
-        Ok(value) => Ok(value),
-        Err(fallback) => {
-            let msg = raw
-                .split_once("\r\n\r\n")
-                .and_then(|(_, b)| serde_json::from_str::<Value>(b.trim()).ok())
-                .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned));
-            Err(msg.unwrap_or(fallback))
-        }
-    }
+    crate::parse_json_response(&raw, "share member update").map_err(|fallback| {
+        raw.split_once("\r\n\r\n")
+            .and_then(|(_, b)| serde_json::from_str::<Value>(b.trim()).ok())
+            .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or(fallback)
+    })
 }
 
 fn parse_ack(reply: &Value) -> Result<MemberAck, String> {

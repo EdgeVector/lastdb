@@ -78,10 +78,8 @@ fn read_query(path: &Path) -> Result<String, String> {
 }
 
 fn parse_route_reply(raw: &str, label: &str) -> Result<Value, String> {
-    match crate::parse_json_response(raw, label) {
-        Ok(value) => Ok(value),
-        Err(fallback) => Err(extract_error_message(raw).unwrap_or(fallback)),
-    }
+    crate::parse_json_response(raw, label)
+        .map_err(|fallback| extract_error_message(raw).unwrap_or(fallback))
 }
 
 fn extract_error_message(raw: &str) -> Option<String> {
