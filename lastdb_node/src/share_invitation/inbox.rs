@@ -1,11 +1,11 @@
 //! Private contribution payloads for the publisher's per-database inbox key.
 
-use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::aead::{Aead, AeadCore, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use fold_db::canonical::CanonicalWriter;
 use fold_db::security::Ed25519KeyPair;
 use hkdf::Hkdf;
-use rand::{rngs::OsRng, RngCore};
+use rand::rngs::OsRng;
 use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -34,10 +34,9 @@ pub(crate) fn seal(recipient: &PublicKey, aad: &[u8], body: &[u8]) -> Result<Vec
     let shared = ephemeral.diffie_hellman(recipient);
     let key = crate::seal::sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
     let cipher = Aes256Gcm::new_from_slice(&*key).map_err(|_| INVALID)?;
-    let mut nonce = [0; 12];
-    OsRng.fill_bytes(&mut nonce);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: body, aad })
+        .encrypt(&nonce, Payload { msg: body, aad })
         .map_err(|_| INVALID)?;
     let mut sealed = Vec::with_capacity(44 + ciphertext.len());
     sealed.extend_from_slice(public.as_bytes());
