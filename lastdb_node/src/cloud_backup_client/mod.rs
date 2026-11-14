@@ -1,5 +1,5 @@
 //! HTTPS client, shared runtime connection pooling, and bounded storage transport.
-use cloud_backup_protocol::ProtocolError;
+use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use futures::StreamExt;
 use reqwest::{Client, Url};
 use std::{fmt, sync::Arc, sync::Mutex, time::Duration};
@@ -13,17 +13,6 @@ pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) type TransportResult<T> = Result<T, BackupTransportError>;
 
 static SHARED_HTTP_CLIENT: Mutex<Option<(tokio::runtime::Id, Client)>> = Mutex::new(None);
-
-const _: () = {
-    use cloud_backup_protocol::limits as p;
-    use fold_db::storage_policy::{BACKUP_FILES_MAX, BACKUP_RESOURCES as r};
-    assert!(
-        p::NATIVE_FILES_MAX == BACKUP_FILES_MAX
-            && p::DECODED_VALUES_MAX_BYTES == r.decoded_values_bytes
-            && p::STREAM_BUFFER_MAX_BYTES == r.stream_buffer_bytes
-            && p::DURABLE_LOCAL_SPOOL_MAX_BYTES == r.durable_spool_bytes
-    );
-};
 
 #[derive(Clone)]
 pub struct AuthClient {
@@ -62,7 +51,6 @@ pub enum BackupTransportError {
     Http(u16),
     InvalidResponse(&'static str),
     Integrity(&'static str),
-    Source,
 }
 
 impl From<ProtocolError> for BackupTransportError {
@@ -75,14 +63,20 @@ impl fmt::Display for BackupTransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Configuration(s) => write!(f, "native backup configuration: {s}"),
-            Self::Protocol(e) => write!(f, "native backup service error: {:?}", e.code),
+            Self::Protocol(err)
+                if err.code == ErrorCode::Unauthorized && err.field == "payment.subscription" =>
+            {
+                f.write_str(
+                    "active paid cloud subscription required — run 'lastdb cloud payment checkout' first",
+                )
+            }
+            Self::Protocol(err) => write!(f, "native backup service error: {err}"),
             Self::Authentication => f.write_str("native backup authentication refused"),
             Self::Timeout => f.write_str("native backup request deadline expired"),
             Self::Transport => f.write_str("native backup transport failed"),
             Self::Http(s) => write!(f, "native backup HTTP status {s}"),
             Self::InvalidResponse(s) => write!(f, "native backup invalid response: {s}"),
             Self::Integrity(s) => write!(f, "native backup byte integrity: {s}"),
-            Self::Source => f.write_str("native backup source read failed"),
         }
     }
 }
@@ -94,12 +88,6 @@ impl fmt::Debug for BackupTransportError {
 }
 
 impl std::error::Error for BackupTransportError {}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UploadObservation {
-    HttpSuccess,
-    AlreadyExists,
-}
 
 pub(crate) fn https(value: &str) -> TransportResult<Url> {
     let url = Url::parse(value).map_err(|_| BackupTransportError::Configuration("HTTPS URL"))?;

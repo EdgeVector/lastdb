@@ -1,13 +1,11 @@
 //! Authenticated ExeMem control-plane HTTP calls and presigned S3 object PUTs.
 use super::{
-    bounded, https, AuthClient, BackupTransportError as E, TransportResult, UploadObservation,
-    REQUEST_TIMEOUT,
+    bounded, https, AuthClient, BackupTransportError as E, TransportResult, REQUEST_TIMEOUT,
 };
 use cloud_backup_protocol::{bytes_sha256, Digest, ProtocolError};
 use reqwest::{header::HeaderMap, Client, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
-    io::Read,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -141,17 +139,12 @@ impl BackupTransport {
         .map_err(|_| E::Timeout)?
     }
 
-    pub(crate) async fn upload(
+    pub(crate) async fn put_presigned(
         &self,
         put: &PresignedPut<'_>,
-        source: Box<dyn Read + Send>,
-    ) -> TransportResult<UploadObservation> {
+        data: Vec<u8>,
+    ) -> TransportResult<()> {
         let (url, if_none_match) = upload_url(put.grant_url, put.multipart_part)?;
-        let mut data = Vec::new();
-        source
-            .take(put.bytes.saturating_add(1))
-            .read_to_end(&mut data)
-            .map_err(|_| E::Source)?;
         if data.len() as u64 != put.bytes || bytes_sha256(&data) != *put.sha256 {
             return Err(E::Integrity("upload source"));
         }
@@ -168,8 +161,7 @@ impl BackupTransport {
             .map_err(|_| E::Timeout)?
             .map_err(|_| E::Transport)?;
         match resp.status() {
-            s if s.is_success() => Ok(UploadObservation::HttpSuccess),
-            reqwest::StatusCode::PRECONDITION_FAILED => Ok(UploadObservation::AlreadyExists),
+            s if s.is_success() || s == reqwest::StatusCode::PRECONDITION_FAILED => Ok(()),
             s => Err(E::Http(s.as_u16())),
         }
     }

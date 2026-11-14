@@ -36,47 +36,6 @@ impl TransferPrepareRequest {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-/// Ask for the state of several transfer requests on one job.
-pub struct TransferStatusRequest {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Stream and commit id this value belongs to.
-    pub job: Job,
-    /// Request ids to read. Duplicates and an empty list are rejected.
-    pub request_ids: Vec<Id>,
-}
-
-impl TransferStatusRequest {
-    /// Validate the job, reject a bad id list, and check encoded size.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.job.validate()?;
-        validate_count(self.request_ids.len())?;
-        for (offset, id) in self.request_ids.iter().enumerate() {
-            if self.request_ids[..offset].contains(id) {
-                return Err(ProtocolError::invalid("transfer.request_ids.duplicate"));
-            }
-        }
-        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
-    }
-
-    /// Require one input per request id, on this job, in the same order.
-    pub fn validate_inputs(&self, inputs: &[TransferInput]) -> Result<(), ProtocolError> {
-        self.validate()?;
-        if inputs.len() != self.request_ids.len() {
-            return Err(ProtocolError::invalid("v2.transfer_status.inputs"));
-        }
-        for (input, request_id) in inputs.iter().zip(&self.request_ids) {
-            input.validate()?;
-            if input.job != self.job || &input.request_id != request_id {
-                return Err(ProtocolError::invalid("v2.transfer_status.identity"));
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Resume and final verification select the same saved transfer, without worker revisions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

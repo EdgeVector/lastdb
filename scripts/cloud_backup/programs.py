@@ -3,7 +3,6 @@
 
 import hashlib
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -12,46 +11,6 @@ import subprocess
 import time
 
 from support import CHUNK, OperationError, decode_json, require, stable
-
-
-RESTORE_REFUSALS = {
-    b"native backup service error: RetryLater": "service_retry_later",
-    b"native backup service error: OutcomeUnknown": "service_outcome_unknown",
-    b"invalid restore client native metadata": "client_native_metadata",
-    b"invalid restore client mutation log root": "client_mutation_log_metadata",
-    b"invalid restore run client page": "client_native_page",
-    b"invalid restore run page context": "client_native_page",
-    b"invalid restore run page identity": "client_native_page",
-    b"invalid restore run exact native inventory": "native_inventory",
-    b"invalid restore complete run native totals": "native_inventory",
-    b"restore disk operation failed": "disk",
-    b"restore protocol validation failed": "protocol",
-    b"restore source unavailable: byte transport": "byte_transport",
-    b"restore source unavailable: object grant": "object_grant",
-}
-PROOF_STAGES = {name.encode(): name for name in (
-    "native_reader", "admission", "validation", "restore", "profile", "physical_root",
-    "account", "schemas", "directories", "native_cas", "records", "final_binding")}
-PROOF_CAUSES = {name.encode(): name for name in (
-    "read_resource_limit", "write_resource_limit", "storage_full", "authentication",
-    "native_format", "configuration", "invalid_operation", "encryption", "backend", "other")}
-PROOF_CAUSES.update({
-    b"run backup logical profile version": "unsupported_profile",
-    b"run backup range profile version": "unsupported_profile",
-    b"run restore node marker differs": "unsupported_format",
-    b"run restore logical profile is absent": "unsupported_profile",
-    b"run restore logical profile changed": "profile_changed",
-    b"run restore captured profile differs": "profile_mismatch",
-    b"run restore owner lock busy": "owner_lock_busy",
-    b"run restore wrapper closure": "native_root_members",
-    b"restored private run home is missing": "private_root_missing",
-    b"private run metadata exceeds memory admission": "private_root_memory",
-    b"run backup native root differs": "native_root_mismatch",
-    b"run backup schema has no explicit record keys": "schema_record_keys",
-    b"run backup record key has no typed profile": "schema_key_profile",
-    b"run backup record format": "record_format",
-    b"run backup record file missing": "record_file_missing",
-})
 
 
 def command_words(command):
@@ -105,24 +64,7 @@ def cli_refusal(stderr, exit_code, command=None):
         detail = body.get("error") if isinstance(body, dict) else None
         text = detail.encode() if isinstance(detail, str) else routed[3] if body is None else b""
         result["error_head"] = error_head(text)
-    if message.startswith(b"V2 restore retains session "):
-        # The CLI inserts its private workspace path before this separator.
-        _path, separator, message = message.partition(b": ")
-        if not separator:
-            return result
-    if message in RESTORE_REFUSALS:
-        return {**result, "reason": RESTORE_REFUSALS[message]}
-    prefix = b"native restore proof "
-    if not message.startswith(prefix):
-        return result
-    stage, separator, cause = message[len(prefix):].partition(b": ")
-    if not separator or stage not in PROOF_STAGES:
-        return result
-    category = PROOF_CAUSES.get(cause, "unrecognized")
-    if re.fullmatch(rb"io kind=[A-Za-z]+ os_code=(?:None|Some\(-?[0-9]{1,10}\))", cause):
-        category = "io"
-    return {**result, "reason": "native_proof",
-            "stage": PROOF_STAGES[stage], "cause": category}
+    return result
 
 
 def execute(command, environment, input_bytes=None, timeout=120):
@@ -189,7 +131,6 @@ class Programs:
                 and directory.is_dir(), "binary_directory")
         self.directory, self.version, self.environment = directory, version, environment
         self.identities = {}
-        self.minimal_cli = None
         for name in ("lastdb", "lastdbd"):
             path = directory / name
             self.identities[name] = executable(path)
@@ -200,32 +141,6 @@ class Programs:
         for name, identity in self.identities.items():
             require(executable(self.directory / name) == identity, "binary_pair_changed")
 
-    def help(self, *arguments):
-        self.verify()
-        command = [str(self.directory / "lastdb"), *arguments, "--help"]
-        return execute(command, self.environment, timeout=20).decode("utf-8")
-
-    def cli_arguments(self, arguments):
-        if self.minimal_cli is None:
-            commands = {line.split()[0] for line in self.help().splitlines() if line.startswith("  ")
-                        and line.split()}
-            self.minimal_cli = {"backup", "admin"} <= commands
-        if not arguments or not self.minimal_cli:
-            return arguments
-        if arguments[:2] == ["cloud", "backup-v2"]:
-            verb, *rest = arguments[2:]
-            if verb == "init":
-                return ["admin", "backup", verb, *rest]
-            if verb in ("connect", "restore"):
-                return ["backup", verb, *rest]
-        if arguments[:2] == ["db", "cleanup"]:
-            return ["admin", "storage", *arguments[1:]]
-        if arguments[0] == "cloud":
-            verb, *rest = arguments[1:]
-            if verb in ("recover-credentials-home", "prepare-recovery-home"):
-                return ["admin", "backup", verb, *rest]
-        return arguments
-
     def command(self, home, arguments, input_bytes=None, extra=None, timeout=120):
         self.verify()
         environment = dict(self.environment)
@@ -233,5 +148,5 @@ class Programs:
         command = [str(self.directory / "lastdb")]
         if home is not None:
             command.extend(("--data-dir", str(home)))
-        command.extend(self.cli_arguments(arguments))
+        command.extend(arguments)
         return decode_json(execute(command, environment, input_bytes, timeout))

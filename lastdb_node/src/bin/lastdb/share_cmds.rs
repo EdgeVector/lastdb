@@ -1,6 +1,5 @@
 use super::{
-    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand,
-    ShareContributorCommand, ShareFilesCommand,
+    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand, ShareFilesCommand,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
@@ -37,13 +36,6 @@ pub(super) fn run(
             name,
         }) => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
         ShareCommand::Files(action) => files::run(data_dir, db, action),
-        ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
-            let sealed = read_file(&grant, 64 * 1024)?;
-            let body = serde_json::json!({
-                "grant": base64::engine::general_purpose::STANDARD.encode(sealed),
-            });
-            database_request(data_dir, Some(&db), "/api/contributors", &body)
-        }
         ShareCommand::Queries(action) => queries::run(data_dir, action),
         action => run_offline(data_dir, db, action),
     }
@@ -65,20 +57,11 @@ fn accept(
     if let Some(database_id) = database_id {
         body["database_id"] = serde_json::json!(database_id);
     }
-    database_request(data_dir, None, "/api/databases/accept", &body)
-}
-
-fn database_request(
-    data_dir: Option<PathBuf>,
-    selector: Option<&str>,
-    path: &str,
-    body: &serde_json::Value,
-) -> Result<(), String> {
-    let target = DatabaseTarget::open(data_dir, selector)?;
+    let target = DatabaseTarget::open(data_dir, None)?;
     let raw = post_json_with_timeout(
         &target.socket,
-        &target.path(path),
-        body,
+        &target.path("/api/databases/accept"),
+        &body,
         Duration::from_secs(10),
     )?;
     println!("{}", parse_json_response(&raw, "database registration")?);

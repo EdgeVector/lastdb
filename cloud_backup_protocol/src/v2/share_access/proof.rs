@@ -189,12 +189,6 @@ impl NodeReadProof {
         self.token.digest(body)
     }
 
-    /// JSON object encoded in the `LastDBNode` token, without the signature.
-    pub fn token_json(&self) -> Result<Vec<u8>, ProtocolError> {
-        self.token.validate()?;
-        serde_json::to_vec(&self.token).map_err(|_| ProtocolError::invalid("share.node_read.token"))
-    }
-
     /// Reject a clock reading outside ±[`SHARE_REQUEST_SKEW_MS`] and a spent nonce.
     ///
     /// `nonce_seen` is true when this database, node key, and nonce were
@@ -212,82 +206,6 @@ impl NodeReadProof {
             return Err(ProtocolError::unauthorized("share.node_read.replay"));
         }
         Ok(())
-    }
-
-    /// Require the signed revision to be the revision stored for the database.
-    ///
-    /// Data routes use `authorize_request`, which includes this check. The
-    /// member-list read does not: `member_list_read_view` lets an authorized
-    /// node learn the revision without receiving the member list.
-    pub fn require_current_revision(&self, current: DecimalU64) -> Result<(), ProtocolError> {
-        if self.token.member_list_revision != current {
-            return Err(ProtocolError::unauthorized("share.node_read.revision"));
-        }
-        Ok(())
-    }
-}
-
-/// Body-less share proof from before the per-database cutover.
-///
-/// The JSON object is flat. It has no `database_id` and no `environment`.
-/// [`digest`](Self::digest) does not cover the HTTP body. Use it only when
-/// [`super::accepted_proof`] is [`super::AcceptedProof::Legacy`], or on the
-/// access status route. A native database or a stored receipt refuses this
-/// object on data routes. Do not use Exemem #769's private field order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LegacyNodeReadProof {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Shared database this read addresses.
-    pub stream: Stream,
-    /// HTTP method of the read.
-    pub method: ShareHttpMethod,
-    /// HTTP path of the read, including the `/api` prefix.
-    pub path: Text<512>,
-    /// Unix milliseconds when the node signed this proof.
-    pub issued_at_ms: DecimalU64,
-    /// 32 random bytes as 64 lowercase hex characters.
-    pub nonce: Text<64>,
-    /// Member-list revision this read is bound to. Zero is the empty list.
-    pub member_list_revision: DecimalU64,
-    /// Ed25519 node key that signs this proof.
-    pub node_public_key: Digest,
-    /// Signature over `digest`'s lowercase hexadecimal bytes.
-    pub signature: Ed25519Signature,
-}
-
-impl LegacyNodeReadProof {
-    /// Check the path, time, and nonce. This does not verify the signature.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
-        validate_path(self.path.as_str())?;
-        if self.issued_at_ms.get() == 0 {
-            return Err(ProtocolError::invalid("share.node_read.issued_at_ms"));
-        }
-        if !exact_lower_hex(self.nonce.as_str(), 64) {
-            return Err(ProtocolError::invalid("share.node_read.nonce"));
-        }
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-
-    /// Pre-migration digest. The array is `version`, `stream`, `method`,
-    /// `path`, `issued_at_ms`, `nonce`, `member_list_revision`, `node_public_key`.
-    pub fn digest(&self) -> Result<Digest, ProtocolError> {
-        self.validate()?;
-        input_digest(
-            SHARE_NODE_READ_AUTHORITY_DOMAIN,
-            &(
-                &self.version,
-                &self.stream,
-                self.method,
-                self.path.as_str(),
-                self.issued_at_ms,
-                self.nonce.as_str(),
-                self.member_list_revision,
-                &self.node_public_key,
-            ),
-        )
     }
 }
 

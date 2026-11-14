@@ -85,8 +85,7 @@ impl Object {
 #[serde(transparent)]
 pub struct ClientDescriptor(Value);
 impl ClientDescriptor {
-    /// Wrap JSON that fits in the control-message size limit.
-    pub fn new(value: Value) -> Result<Self, ProtocolError> {
+    fn new(value: Value) -> Result<Self, ProtocolError> {
         let descriptor = Self(value);
         descriptor.validate()?;
         Ok(descriptor)

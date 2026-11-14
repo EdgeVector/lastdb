@@ -12,7 +12,6 @@ use cloud_backup_protocol::v2::transfer::{
 };
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{bytes_sha256, ErrorCode, ProtocolError};
-use std::io::Cursor;
 
 /// Outcome of one exact upload attempt.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,10 +64,7 @@ impl StorageTransferClient {
                     return Err(invalid("exact_upload.transfer_mode"));
                 }
                 // The service verifies the stored bytes. The provider reply is not a receipt.
-                drop(
-                    self.upload(input, &response, Box::new(Cursor::new(sealed)))
-                        .await,
-                );
+                drop(self.put_presigned(input, &response, sealed).await);
             }
             Ok(TransferResumeResult::State { transfer }) => {
                 return match read_state(input, transfer.state)? {
