@@ -1,4 +1,4 @@
-use cloud_backup_protocol::v2::share_access::ShareMemberState;
+use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
 use fold_db::canonical::CanonicalWriter;
 use fold_db::schema::types::{mutation::ContributionAdmission, Mutation, SchemaError};
 use mutation_log::Entry;
@@ -41,7 +41,9 @@ pub(in crate::log_sync) async fn apply(
         .map_err(|_| "member configuration is unavailable")?;
     let Some(member) = applied.update.as_ref().and_then(|update| {
         update.members.iter().find(|member| {
-            member.node_public_key.as_str() == writer && member.state == ShareMemberState::Active
+            member.node_public_key.as_str() == writer
+                && member.state == ShareMemberState::Active
+                && member.role == ShareMemberRole::Submit
         })
     }) else {
         return Ok(());

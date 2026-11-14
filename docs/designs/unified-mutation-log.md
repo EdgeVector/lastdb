@@ -183,10 +183,8 @@ Testable rule:
 1. A receiver of a share reads only entries whose writer key is the publisher
    key in that database's log, including re-appends. The cursor is the
    delivery sequence. The receiving device saves that position locally.
-2. A contributor's pending entry is not readable by other receivers. Only
-   the publisher key, and that contributor key for its own pending entries,
-   can read it.
-3. Other receivers see a contribution only after the publisher key re-appends
+2. Only the publisher key can read a contributor's pending entry.
+3. Receivers see a contribution only after the publisher key re-appends
    it.
 4. A receiver does not see the publisher's personal database, the publisher's
    other databases, or any entry whose database id or writer key is outside

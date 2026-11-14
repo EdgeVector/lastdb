@@ -41,7 +41,7 @@ pub(super) async fn submit(
             error_response(400, "invalid shared mutation or schema definition", ctx)
         }
         Err(ContributionError::Forbidden) => {
-            error_response(403, "this member cannot write to the requested schema", ctx)
+            error_response(403, "this member cannot submit this shared mutation", ctx)
         }
         Err(ContributionError::Unavailable) => {
             error_response(503, "shared mutation was not confirmed", ctx)

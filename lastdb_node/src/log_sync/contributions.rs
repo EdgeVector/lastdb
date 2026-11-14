@@ -115,14 +115,11 @@ pub(crate) async fn submit(
     let members::ObservedAccess::Active {
         revision,
         role: Some(ShareMemberRole::Submit),
-        write_schemas: Some(scope),
+        ..
     } = observed
     else {
         return Err(Forbidden);
     };
-    if !scope.permits(&definition) {
-        return Err(Forbidden);
-    }
     log.member_revision = revision;
     let mut operation: serde_json::Value = serde_json::from_slice(body).map_err(|_| Invalid)?;
     operation["definition_id"] = serde_json::json!(definition);

@@ -8,8 +8,8 @@ use crate::{
 /// On a personal database, only an owner key reads. On a shareable database
 /// the publisher key reads every entry except an app-private namespace. A
 /// receiver reads entries whose writer key is the publisher key, including
-/// re-appends, and does not read an app-private namespace. A contributor also
-/// reads their own pending entries. This matches the list filter.
+/// re-appends, and does not read an app-private namespace. Pending member
+/// entries are visible only to the publisher. This matches the list filter.
 #[must_use]
 pub fn can_read(
     principal: &PrincipalId,
@@ -47,12 +47,7 @@ fn share_read(
     if principal == publisher {
         return true;
     }
-    if &entry.writer.key == publisher {
-        return holds_receive(database, principal);
-    }
-    entry.incorporated_from.is_none()
-        && &entry.writer.key == principal
-        && holds_submit(database, principal)
+    &entry.writer.key == publisher && holds_receive(database, principal)
 }
 
 impl LogState {

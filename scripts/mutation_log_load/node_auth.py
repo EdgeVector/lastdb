@@ -89,7 +89,8 @@ def _authority_digest(covered):
     return hashlib.sha256(framed).hexdigest()
 
 
-def _covered(public_hex, account, account_generation, path, database_id, issued, nonce, body):
+def _covered(public_hex, account, account_generation, path, database_id, issued, nonce, body,
+             member_revision=MEMBER_LIST_REVISION):
     stream = {
         "scope": {
             "account_generation": account_generation,
@@ -99,13 +100,14 @@ def _covered(public_hex, account, account_generation, path, database_id, issued,
     }
     covered = [
         2, database_id, stream, "POST", path, hashlib.sha256(body).hexdigest(),
-        issued, nonce, MEMBER_LIST_REVISION, public_hex, DEV_ENVIRONMENT,
+        issued, nonce, member_revision, public_hex, DEV_ENVIRONMENT,
     ]
     return stream, covered
 
 
-def authorization(key, path, database_id, issued_at_ms, body, account_generation, nonce=None):
-    """Sign the live DEV token. ``account_generation`` comes from the CI baseline."""
+def authorization(key, path, database_id, issued_at_ms, body, account_generation, nonce=None,
+                  *, account=None, member_revision=MEMBER_LIST_REVISION):
+    """Sign a live DEV token for an owned or publisher-provided stream."""
     if nonce is None:
         nonce = os.urandom(32).hex()
     if len(nonce) != 64 or any(ch not in "0123456789abcdef" for ch in nonce):
@@ -117,7 +119,8 @@ def authorization(key, path, database_id, issued_at_ms, body, account_generation
     issued = str(int(issued_at_ms))
     public = key.public.hex()
     stream, covered = _covered(
-        public, account_id(key.public), account_generation, path, database_id, issued, nonce, body)
+        public, account or account_id(key.public), account_generation, path, database_id, issued, nonce, body,
+        member_revision)
     digest = _authority_digest(covered)
     token_json = json.dumps({
         "version": 2,
@@ -128,7 +131,7 @@ def authorization(key, path, database_id, issued_at_ms, body, account_generation
         "path": path,
         "issued_at_ms": issued,
         "nonce": nonce,
-        "member_list_revision": MEMBER_LIST_REVISION,
+        "member_list_revision": member_revision,
         "node_public_key": public,
     }, separators=(",", ":")).encode("utf-8")
     signature = key.sign(digest.encode("ascii"))

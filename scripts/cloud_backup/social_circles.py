@@ -9,7 +9,8 @@ import uuid
 from node import Connection
 from signed_files import retry, run_operation, summary
 from social_app import call, observe_access, window
-from support import OperationError, decode_json, require
+from social_log_views import pending_positions, scope_for
+from support import OperationError, decode_json, read_json, require
 
 SCOPE = {"name": "whole-database", "version": 1}
 ALBUM = "dev-albums/Album"
@@ -57,7 +58,7 @@ def wait_text(node, database, schema, key, text, stage):
           lambda rows: len(rows) == 1 and rows[0]["fields"]["text"] == text)
 
 
-def submit(node, database, session, update, expected):
+def submit(node, database, session, update):
     mutation_id = str(uuid.uuid4())
     with closing(Connection(node.socket)) as connection:
         connection.request("POST", f"/api/databases/{database}/mutation", json.dumps(update), {
@@ -65,13 +66,10 @@ def submit(node, database, session, update, expected):
             "X-LastDB-Database-Session": session,
         })
         with connection.getresponse() as reply:
-            require(reply.status == expected, f"circle_write_http_{reply.status}_expected_{expected}")
-            raw = reply.read(65537)
-    if expected == 202:
-        body = decode_json(raw)
-        require(body["mutation_id"] == mutation_id and body["status"] == "submitted", "circle_submission_receipt")
-    else:
-        require(raw == b"this member cannot write to the requested schema", "circle_schema_refusal")
+            require(reply.status == 202, f"circle_write_http_{reply.status}_expected_202")
+            body = decode_json(reply.read(65537))
+    require(body["mutation_id"] == mutation_id and body["status"] == "submitted", "circle_submission_receipt")
+    return mutation_id
 
 
 def transfer(programs, root, publisher, recipient, api_key):
@@ -88,6 +86,7 @@ def transfer(programs, root, publisher, recipient, api_key):
         # Enrolling a running node can re-exec it to enable local capture.
         publisher.stop()
         connect(programs, publisher, api_key)
+        scope = scope_for(publisher, api_key)
         publisher.keep_saved_credentials = True
         publisher.start()
         contact = root / "recipient.contact"
@@ -106,7 +105,7 @@ def transfer(programs, root, publisher, recipient, api_key):
             receipt = call(owner, "/api/circle-invitation", {"databaseId": database, "nodeKey": reader})
             require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
             with window(recipient) as remote:
-                exercise(publisher, recipient, remote, database, receipt, definitions)
+                exercise(publisher, recipient, remote, database, receipt, definitions, scope)
         finally:
             failed = sys.exc_info()[0] is not None
             try:
@@ -141,7 +140,7 @@ def connect(programs, publisher, api_key):
             and receipt["credentials_saved"] is True, "circle_dev_connection")
 
 
-def exercise(publisher, recipient, remote, database, receipt, definitions):
+def exercise(publisher, recipient, remote, database, receipt, definitions, scope):
     accepted = call(remote, "/api/accept", {"receipt": receipt, "publisher": receipt["publisher"], "name": "family"})
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
@@ -149,13 +148,22 @@ def exercise(publisher, recipient, remote, database, receipt, definitions):
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas=[definitions[COMMENT]])
     session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
-    submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"), 403)
-    summary("LastDB refused Ana's Album write because the circle grants write access only to Comment.")
-    submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"), 202)
+    publisher.stop()
+    try:
+        denied = submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"))
+        allowed = submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"))
+        through = pending_positions(publisher, recipient, scope, database, (denied, allowed))
+        summary("ExeMem delivered both pending entries to the publisher and only publisher-authored entries to Ana.")
+    finally:
+        publisher.start()
+    checkpoint = publisher.home / "log-sync" / database / "session.json"
+    retry("circle_publisher_consumed_submissions", lambda: read_json(checkpoint, 4096),
+          lambda state: state["cursor"] >= through)
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
-    message = "Ana read Album and Comment. LastDB refused her Album write with HTTP 403, committed her Comment on the publisher, and synced it back."
+    message = ("Ana read Album and Comment. ExeMem hid both submissions from her log view. "
+               "The publisher processed both, rejected the Album write, and published the Comment.")
     print(message, flush=True)
     summary(message)
 
