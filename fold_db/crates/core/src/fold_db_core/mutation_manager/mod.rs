@@ -1,28 +1,31 @@
 //! Mutation Manager — public write entry points and native transaction commits.
 
+mod replace;
 mod replay;
 mod write_records;
 
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::portable_mutation::Stamp;
 
-use crate::crypto::{clock, security::Ed25519KeyPair};
+use crate::crypto::security::Ed25519KeyPair;
 use crate::db_operations::record_store::RecordChange;
 use crate::db_operations::{DbOperations, RecordDeleteLedgerEntry};
+use crate::platform::clock;
 use crate::schema::mutation_author::sign_mutation_author_clock;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Mutation, MutationAuthorClockState, Schema};
-use crate::schema::{SchemaCore, SchemaError, SchemaState};
+use crate::schema::types::{KeyValue, Mutation, Schema};
+use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_pack::transaction;
 
 pub(super) struct AuthoredMutation {
     pub(super) mutation: Mutation,
+    pub(super) key: KeyValue,
     pub(super) stamp: Stamp,
 }
 
@@ -39,9 +42,8 @@ pub use crate::storage::format::metadata::ReplayStamp;
 pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
     pub(super) schema_manager: Arc<SchemaCore>,
-    signer: Arc<Ed25519KeyPair>,
+    pub(super) signer: Arc<Ed25519KeyPair>,
     pub(super) search_outbox_inbox: Option<PathBuf>,
-    author_clock_state: Mutex<MutationAuthorClockState>,
 }
 
 impl MutationManager {
@@ -50,14 +52,12 @@ impl MutationManager {
         schema_manager: Arc<SchemaCore>,
         signer: Arc<Ed25519KeyPair>,
         search_outbox_inbox: Option<PathBuf>,
-        author_clock_state: MutationAuthorClockState,
     ) -> Self {
         Self {
             db_ops,
             schema_manager,
             signer,
             search_outbox_inbox,
-            author_clock_state: Mutex::new(author_clock_state),
         }
     }
 
@@ -69,10 +69,6 @@ impl MutationManager {
     }
 
     /// Commit an authenticated replay and its receipt in the same native write scope.
-    ///
-    /// The caller binds the receipt ID to the entry's stable identity and the digest
-    /// to its contents. An identical receipt returns `None` without polling `replay`.
-    /// A failed replay commits neither its staged writes nor its receipt.
     pub async fn write_replay_once<T>(
         &self,
         receipt_id: &[u8; 32],
@@ -100,21 +96,11 @@ impl MutationManager {
         mutations: Vec<Mutation>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         Box::pin(async move {
-            self.validate_mutation_batch(&mutations)?;
+            let keys = self.prepare_mutation_batch(&mutations)?;
             if mutations.is_empty() {
                 return Ok(ResidentCommitReceipt::empty_queued());
             }
-            let states = self.schema_manager.get_schema_states()?;
-            for m in &mutations {
-                if states.get(&m.schema_name).copied() == Some(SchemaState::Blocked) {
-                    return Err(SchemaError::Blocked(format!(
-                        "Schema '{}' is blocked and cannot be mutated (a drop is running)",
-                        m.schema_name
-                    )));
-                }
-                m.validate_record_intent()?;
-            }
-            self.commit_native_batch(mutations, std::time::Instant::now())
+            self.commit_native_batch(mutations, keys, std::time::Instant::now())
                 .await
         })
         .await
@@ -131,11 +117,6 @@ impl MutationManager {
             .author_clock(&writer_id)
             .await?
             .unwrap_or_default();
-        let cached = *self
-            .author_clock_state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        state.observe_remote(cached.physical_nanos, cached.logical_counter);
         let (mut times, logical_counter) = state
             .advance_local_batch(clock::unix_nanos(), mutations.len())
             .ok_or_else(|| {
@@ -159,6 +140,7 @@ impl MutationManager {
     async fn commit_native_batch(
         &self,
         mut mutations: Vec<Mutation>,
+        keys: Vec<KeyValue>,
         start: std::time::Instant,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let runtime = self.db_ops.native_runtime();
@@ -203,8 +185,12 @@ impl MutationManager {
                 let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
                 let authored = mutations
                     .into_iter()
-                    .zip(stamps)
-                    .map(|(mutation, stamp)| AuthoredMutation { mutation, stamp })
+                    .zip(keys.into_iter().zip(stamps))
+                    .map(|(mutation, (key, stamp))| AuthoredMutation {
+                        mutation,
+                        key,
+                        stamp,
+                    })
                     .collect();
                 let groups = self
                     .stage_record_groups(authored, &mut stages, &runtime)

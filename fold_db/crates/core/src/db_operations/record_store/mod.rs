@@ -1,30 +1,28 @@
-//! Record domain store: codecs, paged hash spans, warm-set reads, alternate reads, and delete ledger.
+//! Record domain store: codecs, warm-set reads, accepted staging, and file sealing.
 
-mod accepted;
 mod reads;
+mod walk;
 
-pub(crate) use reads::{KeyedRecord, RangeWalk};
+pub(crate) use reads::KeyedRecord;
+pub(crate) use walk::{RangeWalk, SchemaRelease};
 
 use crate::error::FoldDbError;
 use crate::schema::types::{
-    field::{FilterUtils, HashRangeFilter},
-    key_comparison::KeyComparisonContext,
-    FileWrite, KeyValue, Schema, SchemaError,
+    field::FilterUtils, key_comparison::KeyComparisonContext, FileWrite, KeyValue, Mutation,
+    Schema, SchemaError,
 };
-use crate::storage::disk_pack::{transaction, PackReadScope, PackRuntime};
+use crate::storage::disk_pack::{
+    record_warm::WarmRecordRead, transaction, PackReadScope, PackRuntime,
+};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::{
     control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY},
     read::ReadStore,
-    records::{
-        self as format, alternate_bounds, AlternateAddress, AlternateEntry, RecordAddress,
-        RecordFormat, MAX_ALTERNATE_ENTRIES,
-    },
+    records::{self as format, RecordAddress, RecordFormat},
 };
 use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::{
     field_key_codec::FieldKeyCodec,
-    field_key_id::alternate_field_key_id,
     record_space::{record_hash_prefix, record_space_uuid},
     record_value::StoredRecord,
 };
@@ -34,6 +32,8 @@ use std::sync::Arc;
 pub use crate::db_operations::WriterWatch;
 pub(crate) use format::RecordChange;
 pub use format::RecordDeleteLedgerEntry;
+
+pub(crate) type ColdSpanSlot = (Arc<WarmRecordRead>, usize, usize);
 
 #[derive(Clone, Copy)]
 pub(crate) enum RecordBound<'a> {
@@ -53,8 +53,8 @@ pub(crate) struct RecordSpan {
 pub(crate) struct SpanKey {
     pub(crate) range: String,
     pub(crate) key: KeyValue,
-    pub(crate) physical: String,
-    pub(crate) record: StoredRecord,
+    pub(crate) record: Arc<StoredRecord>,
+    pub(crate) cold: Option<ColdSpanSlot>,
 }
 
 pub(crate) struct SpanPage {
@@ -72,9 +72,9 @@ impl RecordSpan {
 pub struct RecordStore {
     main_store: ReadStore,
     pub(crate) format: Arc<RecordFormat>,
-    runtime: Arc<PackRuntime>,
+    pub(super) runtime: Arc<PackRuntime>,
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
-    node_key: [u8; 32],
+    pub(super) node_key: [u8; 32],
 }
 
 impl RecordStore {
@@ -92,6 +92,9 @@ impl RecordStore {
         &self,
         schema: &Schema,
     ) -> Result<Arc<KeyComparisonContext>, SchemaError> {
+        if let Some(active) = KeyComparisonContext::current_for_schema(schema) {
+            return Ok(active);
+        }
         Ok(Arc::new(KeyComparisonContext::for_schema(schema)?))
     }
 
@@ -226,58 +229,6 @@ impl RecordStore {
         )
     }
 
-    pub(crate) async fn select_alternate_entries(
-        &self,
-        schema: &Schema,
-        name: &str,
-        filter: &HashRangeFilter,
-        after: Option<&AlternateEntry>,
-        limit: usize,
-    ) -> Result<Vec<AlternateEntry>, SchemaError> {
-        if limit > MAX_ALTERNATE_ENTRIES {
-            return Err(invalid("alternate page exceeds 4096 entries"));
-        }
-        let def = schema
-            .require_record_keys()?
-            .alternates
-            .get(name)
-            .ok_or_else(|| invalid("alternate key is not declared"))?;
-        let id = alternate_field_key_id(schema, name);
-        let codec = FieldKeyCodec::from_node_key(
-            &self.node_key,
-            &id,
-            def.range_profile().map_err(invalid)?,
-        );
-        let storage_key = |k: &KeyValue, primary: &KeyValue| {
-            AlternateAddress::new(&codec, &id, k, &self.record_address(schema, primary)?)
-                .map(AlternateAddress::into_string)
-        };
-        let (mut start, end) = alternate_bounds(&codec, &id, filter)?;
-        if let Some(after) = after {
-            let cursor = storage_key(&after.matched, &after.primary)?;
-            if cursor < start || cursor >= end {
-                return Err(invalid(
-                    "alternate cursor is outside the requested key range",
-                ));
-            }
-            start = format!("{cursor}\0");
-        }
-        self.reader()
-            .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
-            .await?
-            .into_iter()
-            .map(|(k, v)| {
-                let e: AlternateEntry =
-                    serde_json::from_slice(&v).map_err(|_| invalid("invalid alternate entry"))?;
-                (storage_key(&e.matched, &e.primary)?.as_bytes() == k)
-                    .then_some(e)
-                    .ok_or_else(|| {
-                        invalid("alternate entry coordinates differ from their storage key")
-                    })
-            })
-            .collect()
-    }
-
     pub(crate) async fn read_records<K: AsRef<str> + Sync>(
         &self,
         keys: &[K],
@@ -324,6 +275,43 @@ impl RecordStore {
             .boxed(),
         )
         .await
+    }
+
+    pub(crate) fn admit_span_records(&self, cold: Vec<(ColdSpanSlot, Arc<StoredRecord>)>) {
+        let mut iter = cold.into_iter().peekable();
+        loop {
+            let Some(((warm, slot, bytes), record)) = iter.next() else {
+                break;
+            };
+            let mut batch = vec![(slot, record, bytes)];
+            while let Some(((next_warm, _, _), _)) = iter.peek() {
+                if !Arc::ptr_eq(&warm, next_warm) {
+                    break;
+                }
+                let ((_, next_slot, next_bytes), next_record) = iter.next().expect("peeked");
+                batch.push((next_slot, next_record, next_bytes));
+            }
+            self.runtime.admit_read_records(&warm, batch);
+        }
+    }
+
+    pub(crate) async fn stage_accepted_mutations(
+        &self,
+        mutations: &[Mutation],
+    ) -> Result<(), SchemaError> {
+        let format = &self.format;
+        crate::storage::disk_backup::accepted::stage_records(
+            &self.runtime,
+            format.content_key(),
+            |reference| {
+                format
+                    .admit_local(reference)
+                    .map(std::path::Path::to_path_buf)
+            },
+            mutations,
+        )
+        .await?;
+        Ok(())
     }
 
     pub fn seal_record_file(

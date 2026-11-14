@@ -1,153 +1,75 @@
-//! Record selection, paged key listing, span pages, existence probes, release, and range walks.
+//! Record selection, warm-set span pages, alternate index scans, key listing, and probes.
 
-use super::{invalid, RecordDeleteLedgerEntry, RecordSpan, RecordStore, SpanKey, SpanPage};
+use super::{invalid, RecordSpan, RecordStore, SpanKey, SpanPage};
 use crate::schema::types::field::{FilterUtils, HashRangeFilter};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, KeyValuePageOrder, Schema, SchemaError};
-use crate::storage::format::records::{release_families, ReleaseFamily, ReleaseKind};
-use lastdb_model::kind_partition::exact_prefix_bounds;
+use crate::schema::types::{KeyValue, Schema, SchemaError};
+use crate::storage::format::records::{
+    alternate_bounds, AlternateAddress, AlternateEntry, MAX_ALTERNATE_ENTRIES,
+};
+use lastdb_model::field_key_codec::FieldKeyCodec;
+use lastdb_model::field_key_id::alternate_field_key_id;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid, RECORD_PREFIX};
 use lastdb_model::record_value::StoredRecord;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-const MIN_ROWS: usize = 16;
+pub(super) const MIN_ROWS: usize = 16;
 
 pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
 
-#[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct SchemaRelease {
-    pub(crate) records: u64,
-    pub(crate) alternates: u64,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct RangeWalk {
-    todo: Vec<(Vec<u8>, Vec<u8>)>,
-    limit: usize,
-    asked: usize,
-}
-
-impl RangeWalk {
-    pub(crate) fn new(start: &[u8], end: &[u8], limit: usize) -> Self {
-        let limit = limit.max(1);
-        Self {
-            todo: (start < end)
-                .then(|| (start.to_vec(), end.to_vec()))
-                .into_iter()
-                .collect(),
-            limit,
-            asked: limit,
-        }
-    }
-
-    pub(crate) fn set_limit(&mut self, rows: usize) {
-        self.limit = rows.max(1);
-        self.asked = self.asked.min(self.limit);
-    }
-
-    pub(crate) fn done(&self) -> bool {
-        self.todo.is_empty()
-    }
-
-    pub(crate) fn request(&self) -> Option<(Vec<u8>, Vec<u8>, usize)> {
-        self.todo
-            .last()
-            .map(|(s, e)| (s.clone(), e.clone(), self.asked))
-    }
-
-    pub(crate) fn read_too_big(&mut self) -> bool {
-        if self.asked > MIN_ROWS {
-            self.asked = MIN_ROWS;
-            return true;
-        }
-        let Some((start, end)) = self.todo.pop() else {
-            return false;
-        };
-        let Some(middle) = midpoint(&start, &end) else {
-            self.todo.push((start, end));
-            return false;
-        };
-        self.todo.push((middle.clone(), end));
-        self.todo.push((start, middle));
-        true
-    }
-
-    pub(crate) fn finish_yield(&mut self, rows: usize, resume: Option<&[u8]>) {
-        let Some((_, end)) = self.todo.pop() else {
-            return;
-        };
-        if let Some(last) = resume {
-            let mut next = last.to_vec();
-            next.push(0);
-            if next < end {
-                self.todo.push((next, end));
-            }
-            if rows > 0 {
-                self.asked = (self.asked * 2).min(self.limit);
-            }
-        }
-    }
-}
-
 impl RecordStore {
-    pub async fn list_record_delete_ledger(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RecordDeleteLedgerEntry>, SchemaError> {
-        let prefix =
-            lastdb_model::kind_partition::anchored(crate::storage::format::DELETE_AUDIT_FAMILY, "");
-        let mut rows = self
-            .reader()
-            .scan_prefix(prefix.as_bytes())
-            .await
-            .map_err(|e| invalid(format!("delete ledger scan: {e}")))?;
-        rows.sort_by(|a, b| a.0.cmp(&b.0));
-        let take = if limit > 0 { limit } else { rows.len() };
-        rows.into_iter()
-            .take(take)
-            .map(|(k, v)| {
-                serde_json::from_slice(&v).map_err(|e| {
-                    invalid(format!(
-                        "delete ledger row {} is unreadable: {e}",
-                        String::from_utf8_lossy(&k)
-                    ))
-                })
-            })
-            .collect()
-    }
-
-    pub(crate) async fn release_schema_rows(
+    pub(crate) async fn select_alternate_entries(
         &self,
         schema: &Schema,
-    ) -> Result<SchemaRelease, SchemaError> {
-        let mut out = SchemaRelease::default();
-        let families: Vec<ReleaseFamily> = release_families(schema)?;
-        for family in families {
-            let (start, end) = exact_prefix_bounds(family.prefix());
-            let mut walk = RangeWalk::new(
-                start.as_bytes(),
-                end.as_bytes(),
-                crate::storage::format::SCHEMA_RELEASE_ROWS,
-            );
-            let mut count = 0;
-            while !walk.done() {
-                let rows = self.walk_step(&mut walk).await?;
-                if !rows.is_empty() {
-                    let keys = rows.into_iter().map(|(k, _)| k).collect();
-                    count += self
-                        .in_write_scope(self.format.release_schema_batch(keys, &family))
-                        .await?;
-                }
-            }
-            match family.kind() {
-                ReleaseKind::Records => out.records += count,
-                ReleaseKind::Alternates => out.alternates += count,
-                ReleaseKind::AppliedDeletes | ReleaseKind::InlineFiles => {}
-            }
+        name: &str,
+        filter: &HashRangeFilter,
+        after: Option<&AlternateEntry>,
+        limit: usize,
+    ) -> Result<Vec<AlternateEntry>, SchemaError> {
+        if limit > MAX_ALTERNATE_ENTRIES {
+            return Err(invalid("alternate page exceeds 4096 entries"));
         }
-        Ok(out)
+        let def = schema
+            .require_record_keys()?
+            .alternates
+            .get(name)
+            .ok_or_else(|| invalid("alternate key is not declared"))?;
+        let id = alternate_field_key_id(schema, name);
+        let codec = FieldKeyCodec::from_node_key(
+            &self.node_key,
+            &id,
+            def.range_profile().map_err(invalid)?,
+        );
+        let storage_key = |k: &KeyValue, primary: &KeyValue| {
+            AlternateAddress::new(&codec, &id, k, &self.record_address(schema, primary)?)
+                .map(AlternateAddress::into_string)
+        };
+        let (mut start, end) = alternate_bounds(&codec, &id, filter)?;
+        if let Some(after) = after {
+            let cursor = storage_key(&after.matched, &after.primary)?;
+            if cursor < start || cursor >= end {
+                return Err(invalid(
+                    "alternate cursor is outside the requested key range",
+                ));
+            }
+            start = format!("{cursor}\0");
+        }
+        self.reader()
+            .scan_range_paged(start.as_bytes(), end.as_bytes(), limit)
+            .await?
+            .into_iter()
+            .map(|(k, v)| {
+                let e: AlternateEntry =
+                    serde_json::from_slice(&v).map_err(|_| invalid("invalid alternate entry"))?;
+                (storage_key(&e.matched, &e.primary)?.as_bytes() == k)
+                    .then_some(e)
+                    .ok_or_else(|| {
+                        invalid("alternate entry coordinates differ from their storage key")
+                    })
+            })
+            .collect()
     }
 
     pub(crate) async fn record_span_page(
@@ -157,30 +79,61 @@ impl RecordStore {
         limit: usize,
     ) -> Result<SpanPage, SchemaError> {
         let start = after.map_or_else(|| span.start.clone(), |c| format!("{c}\0"));
-        let page = self
-            .reader()
-            .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
-            .await
-            .map_err(|e| invalid(format!("read record keys: {e}")))?;
-        let text =
-            |k: Vec<u8>| String::from_utf8(k).map_err(|_| invalid("a record key is not text"));
-        let keys = page
-            .rows
-            .into_iter()
-            .map(|(physical, value)| {
-                let physical = text(physical)?;
-                Ok(SpanKey {
-                    key: self.span_key(span, &physical)?,
-                    range: physical[span.base.len()..].to_owned(),
-                    physical,
-                    record: decode(&value)?,
-                })
+        self.record_read_scope(async move {
+            let page = self
+                .reader()
+                .scan_range_yielding(start.as_bytes(), span.end.as_bytes(), limit, 2)
+                .await
+                .map_err(|e| invalid(format!("read record keys: {e}")))?;
+            let text =
+                |k: Vec<u8>| String::from_utf8(k).map_err(|_| invalid("a record key is not text"));
+            let mut rows = Vec::with_capacity(page.rows.len());
+            let mut physicals = Vec::with_capacity(page.rows.len());
+            for (raw_key, value) in page.rows {
+                physicals.push(text(raw_key)?);
+                rows.push(value);
+            }
+            let mut warm = self
+                .runtime
+                .warm_records(&physicals)
+                .map_err(|e| invalid(format!("read record keys: {e}")))?;
+            let found = match &mut warm {
+                Some(r) => r.take_found(),
+                None => vec![None; physicals.len()],
+            };
+            let warm = warm.map(Arc::new);
+            let mut keys = Vec::with_capacity(physicals.len());
+            for (at, ((physical, value), hit)) in
+                physicals.into_iter().zip(rows).zip(found).enumerate()
+            {
+                let key = self.span_key(span, &physical)?;
+                let range = physical
+                    .get(span.base.len()..)
+                    .ok_or_else(|| invalid("a record key has no range"))?
+                    .to_owned();
+                let (record, cold) = match hit {
+                    Some(cached) => (cached, None),
+                    None => {
+                        let bytes = value.len();
+                        (
+                            Arc::new(decode(&value)?),
+                            warm.as_ref().map(|w| (Arc::clone(w), at, bytes)),
+                        )
+                    }
+                };
+                keys.push(SpanKey {
+                    range,
+                    key,
+                    record,
+                    cold,
+                });
+            }
+            Ok(SpanPage {
+                keys,
+                next: page.resume.map(text).transpose()?,
             })
-            .collect::<Result<_, SchemaError>>()?;
-        Ok(SpanPage {
-            keys,
-            next: page.resume.map(text).transpose()?,
         })
+        .await
     }
 
     pub(crate) fn span_key(
@@ -197,33 +150,10 @@ impl RecordStore {
         ))
     }
 
-    pub(crate) async fn walk_step(
-        &self,
-        walk: &mut RangeWalk,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
-        loop {
-            let Some((start, end, asked)) = walk.request() else {
-                return Ok(Vec::new());
-            };
-            match self
-                .reader()
-                .scan_range_yielding(&start, &end, asked, 0)
-                .await
-                .map_err(SchemaError::from)
-            {
-                Ok(scan) => {
-                    walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
-                    return Ok(scan.rows);
-                }
-                Err(SchemaError::ReadResourceLimit { .. }) if walk.read_too_big() => {}
-                Err(error) => return Err(error),
-            }
-        }
-    }
-
     pub(crate) async fn select_records(
         &self,
         schema: &Schema,
+        cmp: &KeyComparisonContext,
         filter: &HashRangeFilter,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         use HashRangeFilter as F;
@@ -257,7 +187,7 @@ impl RecordStore {
             .zip(self.read_records(&storage_keys).await?)
             .filter_map(|(k, r)| r.filter(|r| r.is_live()).map(|r| (k, r)))
             .collect();
-        rows.sort_by(|a, b| a.0.cmp_page_order(&b.0));
+        cmp.sort_by_key_context(&mut rows, |(k, _)| k)?;
         Ok(rows)
     }
 
@@ -338,32 +268,4 @@ impl RecordStore {
 
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredRecord, SchemaError> {
     StoredRecord::decode(bytes).map_err(|e| invalid(format!("a stored record: {e}")))
-}
-
-fn midpoint(low: &[u8], high: &[u8]) -> Option<Vec<u8>> {
-    if low >= high || low.iter().chain(high).any(|&b| b >= 0x80) {
-        return None;
-    }
-    let width = low.len().max(high.len()) + 1;
-    let (mut sum, mut carry) = (vec![0u32; width + 1], 0u32);
-    for at in (0..width).rev() {
-        let total = low.get(at).map_or(0, |&b| u32::from(b))
-            + high.get(at).map_or(0, |&b| u32::from(b))
-            + carry;
-        sum[at + 1] = total % 128;
-        carry = total / 128;
-    }
-    sum[0] = carry;
-    let (mut middle, mut rem) = (Vec::with_capacity(width), 0);
-    for (at, digit) in sum.into_iter().enumerate() {
-        let val = rem * 128 + digit;
-        rem = val % 2;
-        if at > 0 {
-            middle.push(u8::try_from(val / 2).ok()?);
-        }
-    }
-    while middle.len() > 1 && middle.last() == Some(&0) && middle[..middle.len() - 1] > *low {
-        middle.pop();
-    }
-    (middle.as_slice() > low && middle.as_slice() < high).then_some(middle)
 }
