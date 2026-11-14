@@ -1,20 +1,25 @@
 /**
- * Owner-socket database create, list, and select.
- *
- * Select does not open a session. {@link databaseScope} is the same
- * `/api/databases/<selector>` prefix `connect({ databaseId })` already uses.
- * The unscoped client remains the personal default.
+ * Owner-socket database catalog, creation, spec binding, and session issuance.
  */
 
+import {
+  databaseScope,
+  isValidDatabaseSelector,
+  LASTDB_API_ROUTES,
+  validateDatabaseSelector,
+} from './apiRoutes.js';
+import { mapDataError } from './clientHelpers.js';
 import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 import type { Transport } from './transport.js';
+import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
-const DATABASES_PATH = '/api/databases';
-const SELECTOR = /^[A-Za-z0-9_-]{1,64}$/;
+export { databaseScope };
+
 const UUID_HYPHENATED =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
+
 /** Versioned spec binding stored on an owned database. */
 export interface DatabaseSpec {
   name: string;
@@ -34,29 +39,24 @@ export interface ListedDatabase {
   expires_ms?: number;
 }
 
-/** Body of `POST /api/databases`. Omit kind for a shareable database. */
+/** Body of `POST /api/databases`. Omit `kind` for a shareable database. */
 export interface CreateDatabaseRequest {
   name: string;
   kind?: 'personal' | 'shareable';
   spec?: DatabaseSpec | null;
 }
 
-/** Path prefix for one selected database, or null for the personal default. */
-export function databaseScope(databaseId: string | undefined): string | null {
-  if (databaseId === undefined) {
-    return null;
-  }
-  if (!SELECTOR.test(databaseId)) {
-    throw new RequestRejectedError('database_id', 'Invalid LastDB database ID or alias');
-  }
-  return `${DATABASES_PATH}/${databaseId}`;
-}
-
 /** `GET /api/databases` on the owner socket. */
-export async function listNodeDatabases(transport: Transport): Promise<ListedDatabase[]> {
-  const res = await transport.send('GET', DATABASES_PATH);
-  if (res.status !== 200 || !isObject(res.body) || !Array.isArray(res.body['databases'])) {
-    throw refusal('database list', res.status, res.body);
+export async function listNodeDatabases(
+  transport: Transport,
+  appId = 'lastdb-sdk',
+): Promise<ListedDatabase[]> {
+  const res = await transport.send('GET', LASTDB_API_ROUTES.databases);
+  if (res.status !== 200) {
+    throw mapDataError('database list', res.status, res.body, appId);
+  }
+  if (!isObject(res.body) || !Array.isArray(res.body['databases'])) {
+    throw new UnexpectedResponseError('database list returned no databases array', 200, res.body);
   }
   return res.body['databases'].map(parseListedDatabase);
 }
@@ -65,18 +65,89 @@ export async function listNodeDatabases(transport: Transport): Promise<ListedDat
 export async function createNodeDatabase(
   transport: Transport,
   request: CreateDatabaseRequest,
+  appId = 'lastdb-sdk',
 ): Promise<ListedDatabase> {
-  const body = createBody(request);
-  const res = await transport.send('POST', DATABASES_PATH, { body });
-  if (res.status !== 200 || !isObject(res.body)) {
-    throw refusal('database create', res.status, res.body);
+  const body = buildCreateBody(request);
+  const res = await transport.send('POST', LASTDB_API_ROUTES.databases, { body });
+  if (res.status !== 200) {
+    throw mapDataError('database create', res.status, res.body, appId);
+  }
+  if (!isObject(res.body)) {
+    throw new UnexpectedResponseError('database create returned a non-object body', 200, res.body);
   }
   return parseListedDatabase(res.body['database']);
 }
 
-function createBody(request: CreateDatabaseRequest): CreateDatabaseRequest {
+/** `POST /api/databases/spec` — bind or clear the versioned spec of an owned database. */
+export async function bindNodeDatabaseSpec(
+  transport: Transport,
+  databaseId: string,
+  spec: DatabaseSpec | null,
+  appId = 'lastdb-sdk',
+): Promise<ListedDatabase> {
+  validateDatabaseSelector(databaseId);
+  if (spec !== null && !validSpec(spec)) {
+    throw new RequestRejectedError('invalid_request', 'invalid spec binding');
+  }
+  const res = await transport.send('POST', LASTDB_API_ROUTES.databasesSpec, {
+    body: { id: databaseId, spec },
+  });
+  if (res.status !== 200) {
+    throw mapDataError('database bind spec', res.status, res.body, appId);
+  }
+  if (!isObject(res.body)) {
+    throw new UnexpectedResponseError(
+      'database bind spec returned a non-object body',
+      200,
+      res.body,
+    );
+  }
+  return parseListedDatabase(res.body['database']);
+}
+
+/**
+ * `POST /api/databases/session` — issue an owner-approved short-lived session
+ * restricted to `databaseId` and `intent` (`'read'` or `'write'`).
+ */
+export async function issueNodeDatabaseSession(
+  transport: Transport,
+  databaseId: string,
+  intent: DatabaseSessionIntent,
+  appId = 'lastdb-sdk',
+): Promise<DatabaseSession> {
+  validateDatabaseSelector(databaseId);
+  if (intent !== 'read' && intent !== 'write') {
+    throw new RequestRejectedError(
+      'invalid_request',
+      'database session intent must be read or write',
+    );
+  }
+  const res = await transport.send('POST', LASTDB_API_ROUTES.databasesSession, {
+    body: { databaseId, intent },
+  });
+  if (res.status !== 200) {
+    throw mapDataError('database session', res.status, res.body, appId);
+  }
+  if (!isObject(res.body)) {
+    throw new UnexpectedResponseError('database session returned a non-object body', 200, null);
+  }
+  const session = res.body['session'];
+  const expiresInSeconds = res.body['expiresInSeconds'];
+  if (
+    typeof session !== 'string' ||
+    session.length === 0 ||
+    typeof expiresInSeconds !== 'number' ||
+    !Number.isSafeInteger(expiresInSeconds) ||
+    expiresInSeconds <= 0
+  ) {
+    throw new UnexpectedResponseError('database session returned an invalid token envelope', 200, null);
+  }
+  return { databaseId, intent, session, expiresInSeconds };
+}
+
+function buildCreateBody(request: CreateDatabaseRequest): CreateDatabaseRequest {
   const name = request.name;
-  if (!SELECTOR.test(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
+  if (!isValidDatabaseSelector(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
     throw new RequestRejectedError('invalid_request', 'invalid database name');
   }
   const spec = request.spec ?? null;
@@ -88,17 +159,22 @@ function createBody(request: CreateDatabaseRequest): CreateDatabaseRequest {
     throw new RequestRejectedError('invalid_request', 'invalid database access policy');
   }
   if (kind === 'personal' && spec !== null) {
-    throw new RequestRejectedError('invalid_request', 'private databases cannot bind a share spec');
+    throw new RequestRejectedError(
+      'invalid_request',
+      'private databases cannot bind a share spec',
+    );
   }
   const body = kind === undefined ? { name } : { name, kind };
   return spec === null ? body : { ...body, spec };
 }
 
 function validSpec(spec: DatabaseSpec): boolean {
-  return SELECTOR.test(spec.name)
-    && Number.isInteger(spec.version)
-    && spec.version >= 1
-    && spec.version <= 4_294_967_295;
+  return (
+    isValidDatabaseSelector(spec.name) &&
+    Number.isInteger(spec.version) &&
+    spec.version >= 1 &&
+    spec.version <= 4_294_967_295
+  );
 }
 
 function isUuidName(value: string): boolean {
@@ -140,29 +216,12 @@ function parseSpec(value: unknown): DatabaseSpec | null {
   if (value === null || value === undefined) {
     return null;
   }
-  if (!isObject(value) || typeof value['name'] !== 'string' || typeof value['version'] !== 'number') {
+  if (
+    !isObject(value) ||
+    typeof value['name'] !== 'string' ||
+    typeof value['version'] !== 'number'
+  ) {
     throw new UnexpectedResponseError('database list returned an invalid spec binding', 200, value);
   }
   return { name: value['name'], version: value['version'] };
-}
-
-function refusal(verb: string, status: number, body: unknown): Error {
-  const message = messageFrom(body, `${verb} returned ${status}`);
-  if (status === 400 || status === 409 || status === 404) {
-    return new RequestRejectedError(status === 409 ? 'conflict' : 'invalid_request', message, body);
-  }
-  return new UnexpectedResponseError(message, status, body);
-}
-
-function messageFrom(body: unknown, fallback: string): string {
-  if (typeof body === 'string' && body.trim().length > 0) {
-    return body.trim();
-  }
-  if (isObject(body)) {
-    const error = body['error'] ?? body['message'];
-    if (typeof error === 'string' && error.length > 0) {
-      return error;
-    }
-  }
-  return fallback;
 }

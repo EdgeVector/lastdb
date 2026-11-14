@@ -1,74 +1,28 @@
-/** Parsers that validate node response bodies into typed SDK results. */
+/** Parsers that validate node query and record response bodies into typed SDK results. */
 
-import {
-  UnexpectedResponseError,
-} from './errors.js';
-import {
-  type AutoIdentityResult,
-  type JsonValue,
-  type KeyValue,
-  type QueryCursor,
-  type LoadedSchema,
-  type NodeVersion,
-  type QueryPage,
-  type QueryResult,
-  type QueryRow,
-  type FileMarker,
-  type RecordMetadata,
-  type SchemaDescriptor,
-  type RowFields,
+import { UnexpectedResponseError } from './errors.js';
+import type {
+  FileMarker,
+  JsonValue,
+  KeyValue,
+  QueryCursor,
+  QueryPage,
+  QueryResult,
+  QueryRow,
+  RecordMetadata,
+  RowFields,
 } from './types.js';
 
 export { parseListResponse } from './listResponse.js';
-
-/**
- * Parse a `200` `/api/query` body into a {@link QueryResult}, surfacing the
- * full per-row envelope.
- */
-export function parseQueryResponse(body: unknown): QueryResult {
-  const results = isObject(body) ? body['results'] : undefined;
-  if (!Array.isArray(results)) {
-    throw new UnexpectedResponseError('query returned no results array', 200, body);
-  }
-  const rows = results.map(parseQueryRow);
-  return { schema: '', rowCount: rows.length, rows, page: parseQueryPage(body, rows.length) };
-}
-
-/**
- * Read the pagination metadata (`total_count` / `returned_count` / `limit` /
- * `offset` / `has_more`) off a 200 `/api/query` body. Returns `null` when the
- * body carries none.
- */
-export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
-  if (!isObject(body)) {
-    return null;
-  }
-  const totalCount = body['total_count'];
-  const limit = body['limit'];
-  const offset = body['offset'];
-  const hasMore = body['has_more'];
-  const nextCursor = parseQueryCursor(body['next_cursor']);
-  if (
-    typeof limit !== 'number' ||
-    typeof offset !== 'number' ||
-    typeof hasMore !== 'boolean'
-  ) {
-    return null;
-  }
-  if (totalCount !== null && totalCount !== undefined && typeof totalCount !== 'number') {
-    return null;
-  }
-  const returnedCount = body['returned_count'];
-  return {
-    totalCount: typeof totalCount === 'number' ? totalCount : undefined,
-    returnedCount:
-      typeof returnedCount === 'number' ? returnedCount : returnedRows,
-    limit,
-    offset,
-    hasMore,
-    nextCursor,
-  };
-}
+export {
+  parseAutoIdentityResponse,
+  parseGetSchemaResponse,
+  parseLoadedSchema,
+  parseNodeVersion,
+  parseSchemaListResponse,
+  resolveLoadedSchema,
+  sameFieldSet,
+} from './schemaParsers.js';
 
 /** Whether a value is a non-array JSON object. */
 export function isObject(v: unknown): v is Record<string, JsonValue> {
@@ -79,34 +33,64 @@ export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-/**
- * Read the `mutation_id` off a `200` `POST /api/mutation` body.
- */
-export function parseMutationId(
-  body: Record<string, JsonValue>,
-  raw: unknown,
-): string {
+export function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((field): field is string => typeof field === 'string')
+    : [];
+}
+
+export function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+/** Parse a `200` `/api/query` body into a {@link QueryResult}. */
+export function parseQueryResponse(body: unknown): QueryResult {
+  const results = isObject(body) ? body['results'] : undefined;
+  if (!Array.isArray(results)) {
+    throw new UnexpectedResponseError('query returned no results array', 200, body);
+  }
+  const rows = results.map(parseQueryRow);
+  return { schema: '', rowCount: rows.length, rows, page: parseQueryPage(body, rows.length) };
+}
+
+/** Read the pagination metadata off a `200` `/api/query` body, or `null` when absent. */
+export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
+  if (!isObject(body)) return null;
+  const totalCount = body['total_count'];
+  const limit = body['limit'];
+  const offset = body['offset'];
+  const hasMore = body['has_more'];
+  const nextCursor = parseQueryCursor(body['next_cursor']);
+  if (typeof limit !== 'number' || typeof offset !== 'number' || typeof hasMore !== 'boolean') {
+    return null;
+  }
+  if (totalCount !== null && totalCount !== undefined && typeof totalCount !== 'number') {
+    return null;
+  }
+  const returnedCount = body['returned_count'];
+  return {
+    totalCount: typeof totalCount === 'number' ? totalCount : undefined,
+    returnedCount: typeof returnedCount === 'number' ? returnedCount : returnedRows,
+    limit,
+    offset,
+    hasMore,
+    nextCursor,
+  };
+}
+
+/** Read the `mutation_id` off a `200` `POST /api/mutation` body. */
+export function parseMutationId(body: Record<string, JsonValue>, raw: unknown): string {
   const id = body['mutation_id'];
   if (!isNonEmptyString(id)) {
-    throw new UnexpectedResponseError(
-      'mutation returned no mutation ID',
-      200,
-      raw,
-    );
+    throw new UnexpectedResponseError('mutation returned no mutation ID', 200, raw);
   }
   if (body['success'] !== true) {
-    throw new UnexpectedResponseError(
-      'mutation returned no success marker',
-      200,
-      raw,
-    );
+    throw new UnexpectedResponseError('mutation returned no success marker', 200, raw);
   }
   return id;
 }
 
-/**
- * Normalize one raw query row (`{key, fields, metadata}`) into a {@link QueryRow}.
- */
+/** Normalize one raw query row (`{key, fields, metadata}`) into a {@link QueryRow}. */
 export function parseQueryRow(raw: unknown): QueryRow {
   const fields = isObject(raw) ? raw['fields'] : undefined;
   const rawKey = isObject(raw) ? raw['key'] : undefined;
@@ -119,7 +103,9 @@ export function parseQueryRow(raw: unknown): QueryRow {
     keyValue,
     revision: parseRevision(raw['revision'], raw),
     alternates: parseAlternates(raw['alternates'], raw),
-    ...(isObject(raw['matched_key']) ? { matchedKey: parseRowKey(raw['matched_key']).keyValue } : {}),
+    ...(isObject(raw['matched_key'])
+      ? { matchedKey: parseRowKey(raw['matched_key']).keyValue }
+      : {}),
     fields: fields as RowFields,
     metadata: parseRecordMetadata(raw['metadata']),
   };
@@ -133,22 +119,24 @@ function parseRevision(value: unknown, raw: unknown): string {
 }
 
 function parseAlternates(value: unknown, raw: unknown): Record<string, KeyValue | null> {
-  if (!isObject(value)) throw new UnexpectedResponseError('query returned no alternate addresses', 200, raw);
-  return Object.fromEntries(Object.entries(value).map(([name, key]) => {
-    if (key === null) return [name, null];
-    const parsed = parseKeyValue(key);
-    if (!parsed || !parsed.hash) throw new UnexpectedResponseError('query returned invalid alternate address', 200, raw);
-    return [name, parsed];
-  }));
+  if (!isObject(value)) {
+    throw new UnexpectedResponseError('query returned no alternate addresses', 200, raw);
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([name, key]) => {
+      if (key === null) return [name, null];
+      const parsed = parseKeyValue(key);
+      if (!parsed || !parsed.hash) {
+        throw new UnexpectedResponseError('query returned invalid alternate address', 200, raw);
+      }
+      return [name, parsed];
+    }),
+  );
 }
 
-/**
- * Read the one metadata block of a row, or `null` when the row carries none.
- */
+/** Read the metadata block of a row, or `null` when absent. */
 export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
-  if (!isObject(raw)) {
-    return null;
-  }
+  if (!isObject(raw)) return null;
   const sourceFileName = raw['source_file_name'];
   const map = raw['metadata'];
   const metadata: RecordMetadata = {
@@ -168,24 +156,35 @@ export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
   return metadata;
 }
 
-function parseFileMarker(file: Record<string, unknown>, what: string, raw: unknown): FileMarker {
-  if (typeof file['sha256'] !== 'string' || !/^[0-9a-f]{64}$/.test(file['sha256'])
-      || typeof file['size_bytes'] !== 'number' || !Number.isSafeInteger(file['size_bytes']) || file['size_bytes'] < 0) {
-    throw new UnexpectedResponseError(`query returned invalid ${what}`, 200, raw);
+export function parseFileMarker(
+  file: Record<string, unknown>,
+  what: string,
+  raw: unknown,
+): FileMarker {
+  if (
+    typeof file['sha256'] !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(file['sha256']) ||
+    typeof file['size_bytes'] !== 'number' ||
+    !Number.isSafeInteger(file['size_bytes']) ||
+    file['size_bytes'] < 0
+  ) {
+    throw new UnexpectedResponseError(`response returned invalid ${what}`, 200, raw);
   }
-  return { sha256: file['sha256'], size_bytes: file['size_bytes'],
+  return {
+    sha256: file['sha256'],
+    size_bytes: file['size_bytes'],
     ...(typeof file['name'] === 'string' ? { name: file['name'] } : {}),
-    ...(typeof file['media_type'] === 'string' ? { media_type: file['media_type'] } : {}) };
+    ...(typeof file['media_type'] === 'string' ? { media_type: file['media_type'] } : {}),
+  };
 }
 
-/**
- * Render a row's structured `{hash, range}` key (`"hash:range"` / `"hash"` / `"range"`).
- */
-export function parseRowKey(rawKey: Record<string, JsonValue>): { key: string; keyValue: KeyValue | null } {
+/** Render a row's structured `{hash, range}` key (`"hash:range"` / `"hash"` / `"range"`). */
+export function parseRowKey(rawKey: Record<string, JsonValue>): {
+  key: string;
+  keyValue: KeyValue | null;
+} {
   const keyValue = parseKeyValue(rawKey);
-  if (keyValue === null) {
-    return { key: '', keyValue: null };
-  }
+  if (keyValue === null) return { key: '', keyValue: null };
   const key =
     keyValue.hash !== null && keyValue.range !== null
       ? `${keyValue.hash}:${keyValue.range}`
@@ -194,9 +193,7 @@ export function parseRowKey(rawKey: Record<string, JsonValue>): { key: string; k
 }
 
 export function parseKeyValue(rawKey: unknown): KeyValue | null {
-  if (!isObject(rawKey)) {
-    return null;
-  }
+  if (!isObject(rawKey)) return null;
   const hash = typeof rawKey['hash'] === 'string' ? rawKey['hash'] : null;
   const range = typeof rawKey['range'] === 'string' ? rawKey['range'] : null;
   return hash !== null || range !== null ? { hash, range } : null;
@@ -208,8 +205,7 @@ function parseQueryCursor(raw: unknown): QueryCursor | null {
     throw new UnexpectedResponseError('query returned an invalid cursor', 200, raw);
   }
   const record = raw['record'];
-  if (record !== null && record !== undefined
-      && (typeof record !== 'string' || record.length === 0)) {
+  if (record !== null && record !== undefined && (typeof record !== 'string' || record.length === 0)) {
     throw new UnexpectedResponseError('query returned an invalid record cursor', 200, raw);
   }
   const key = typeof record === 'string' ? { hash: null, range: null } : parseKeyValue(raw);
@@ -223,133 +219,12 @@ function parseQueryCursor(raw: unknown): QueryCursor | null {
     }
   }
   const comparison = raw['comparison'];
-  if (comparison !== null && comparison !== undefined
-      && (typeof comparison !== 'string' || comparison.length === 0)) {
+  if (
+    comparison !== null &&
+    comparison !== undefined &&
+    (typeof comparison !== 'string' || comparison.length === 0)
+  ) {
     throw new UnexpectedResponseError('query returned an invalid comparison cursor', 200, raw);
   }
   return { ...raw, ...key };
-}
-
-/**
- * Parse a `GET /api/version` 200 body.
- */
-export function parseNodeVersion(body: unknown): NodeVersion {
-  const b = (body ?? {}) as {
-    api_version?: unknown;
-    build?: unknown;
-    capabilities?: unknown;
-    instance_id?: unknown;
-  };
-  const apiVersion = b.api_version;
-  if (typeof apiVersion !== 'number' || !Number.isInteger(apiVersion) || apiVersion < 0) {
-    throw new UnexpectedResponseError('version returned no api_version', 200, body);
-  }
-  const capabilities: Record<string, boolean> = {};
-  if (b.capabilities && typeof b.capabilities === 'object') {
-    for (const [k, v] of Object.entries(b.capabilities as Record<string, unknown>)) {
-      if (typeof v === 'boolean') {
-        capabilities[k] = v;
-      }
-    }
-  }
-  return {
-    apiVersion,
-    build: typeof b.build === 'string' && b.build.length > 0 ? b.build : null,
-    capabilities,
-    instanceId: typeof b.instance_id === 'string' && b.instance_id.length > 0 ? b.instance_id : null,
-  };
-}
-
-/** Parse `GET /api/system/auto-identity` success JSON. */
-export function parseAutoIdentityResponse(body: unknown): AutoIdentityResult {
-  const b = isObject(body) ? body : {};
-  const userHash = b['user_hash'];
-  const publicKey = b['public_key'];
-  const userId = b['user_id'];
-  if (typeof userHash !== 'string' || userHash.length === 0) {
-    throw new UnexpectedResponseError(
-      'auto-identity returned a provisioned body without user_hash',
-      200,
-      body,
-    );
-  }
-  return {
-    provisioned: true,
-    userHash,
-    publicKey: typeof publicKey === 'string' ? publicKey : null,
-    userId: typeof userId === 'string' ? userId : null,
-  };
-}
-
-/** Parse `GET /api/schemas` JSON into normalized loaded-schema entries. */
-export function parseSchemaListResponse(body: unknown): LoadedSchema[] {
-  const b = isObject(body) ? body : {};
-  const rawSchemas = Array.isArray(b['schemas']) ? b['schemas'] : [];
-  return rawSchemas
-    .filter((schema): schema is Record<string, JsonValue> => isObject(schema))
-    .map(parseLoadedSchema);
-}
-
-/** Resolve a schema descriptor against an already-fetched schema list. */
-export function resolveLoadedSchema(
-  schemas: readonly LoadedSchema[],
-  descriptor: SchemaDescriptor,
-): LoadedSchema | null {
-  const matches = schemas.filter((schema) => {
-    if (schema.ownerAppId !== descriptor.ownerAppId) {
-      return false;
-    }
-    if (schema.descriptiveName !== descriptor.descriptiveName) {
-      return false;
-    }
-    if (descriptor.fields !== undefined) {
-      return sameFieldSet(schema.fields, descriptor.fields);
-    }
-    return true;
-  });
-  if (matches.length === 0) {
-    return null;
-  }
-  if (matches.length > 1) {
-    throw new UnexpectedResponseError(
-      `schema descriptor matched ${matches.length} loaded schemas`,
-      200,
-      matches,
-    );
-  }
-  return matches[0]!;
-}
-
-export function parseLoadedSchema(schema: Record<string, JsonValue>): LoadedSchema {
-  const name = stringOrNull(schema['name']) ?? '';
-  const identityHash = stringOrNull(schema['identity_hash']) ?? name;
-  return {
-    name,
-    identityHash,
-    descriptiveName: stringOrNull(schema['descriptive_name']),
-    ownerAppId: stringOrNull(schema['owner_app_id']),
-    fields: stringArray(schema['fields']),
-  };
-}
-
-export function sameFieldSet(
-  actual: readonly string[],
-  expected: readonly string[],
-): boolean {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-  const actualSorted = [...actual].sort();
-  const expectedSorted = [...expected].sort();
-  return actualSorted.every((field, i) => field === expectedSorted[i]);
-}
-
-export function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((field): field is string => typeof field === 'string')
-    : [];
-}
-
-export function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
 }

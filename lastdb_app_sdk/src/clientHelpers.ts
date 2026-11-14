@@ -1,15 +1,46 @@
-/** Small shared helpers for the runtime client: error details and batch pairing. */
+/**
+ * Shared client execution context, key normalization, error mapping, and
+ * batch-query reply pairing.
+ */
 
 import {
+  AuthenticationRequiredError,
+  CasConflictError,
+  NodeTooOldError,
+  PermissionDeniedError,
+  RequestRejectedError,
   UnexpectedResponseError,
   type CasConflictDetail,
 } from './errors.js';
-import {
-  type QueryBatchItem,
-} from './types.js';
-import {
-  isObject,
-} from './responseParsers.js';
+import { isObject } from './responseParsers.js';
+import type { Transport } from './transport.js';
+import type { KeyValue, QueryBatchItem, RecordKeyInput } from './types.js';
+
+/** Shared runtime context passed to domain operation modules. */
+export interface ClientContext {
+  readonly appId: string;
+  readonly transport: Transport;
+  readonly databasePath: string | null;
+  readonly definitionIds: Map<string, string>;
+}
+
+/** Normalize a point-lookup or blob key input into a non-empty {@link KeyValue}. */
+export function normalizeRecordKeyInput(key: RecordKeyInput, verb: string): KeyValue {
+  if (typeof key === 'string') {
+    if (key.length === 0) {
+      throw new RequestRejectedError('invalid_request', `${verb} requires a non-empty hash key`);
+    }
+    return { hash: key, range: null };
+  }
+  if (key.hash === null || key.hash.length === 0) {
+    throw new RequestRejectedError('invalid_request', `${verb} requires a non-empty hash key`);
+  }
+  const range = key.range;
+  return {
+    hash: key.hash,
+    range: range !== undefined && range !== null && range.length > 0 ? range : null,
+  };
+}
 
 export function authenticationRequiredReason(body: {
   code?: string;
@@ -26,13 +57,7 @@ export function authenticationRequiredReason(body: {
   return 'auth_failed';
 }
 
-/**
- * Read the modeled detail fields off a `409 {error:"cas_conflict"}` body
- * (`schema` / `key` / `expected` / `actual` / `message`, per the
- * node's CAS-conflict contract). Unknown fields are ignored; absent ones stay
- * absent. `actual` is passed through as-is (the node may send an explicit
- * `null` when the record has no applicable current revision).
- */
+/** Read modeled detail fields off a `409 {error:"cas_conflict"}` body. */
 export function casConflictDetailOf(body: unknown): CasConflictDetail {
   const detail: CasConflictDetail = {};
   if (!isObject(body)) {
@@ -56,6 +81,103 @@ export function casConflictDetailOf(body: unknown): CasConflictDetail {
   return detail;
 }
 
+/** Extract the best operator-facing message from a JSON or plain-text refusal body. */
+export function extractErrorMessage(body: unknown, fallback: string): string {
+  if (typeof body === 'string' && body.trim().length > 0) {
+    return body.trim();
+  }
+  if (isObject(body)) {
+    for (const field of ['message', 'reason', 'error']) {
+      const candidate = body[field];
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        return candidate;
+      }
+    }
+  }
+  return fallback;
+}
+
+/** Map a non-200 data-plane response into the SDK's typed error hierarchy. */
+export function mapDataError(
+  verb: string,
+  status: number,
+  body: unknown,
+  appId: string,
+): Error {
+  const b = (isObject(body) ? body : {}) as {
+    kind?: string;
+    code?: string;
+    error?: string;
+    reason?: string;
+    message?: string;
+  };
+  if (status === 401) {
+    return new AuthenticationRequiredError(
+      authenticationRequiredReason(b),
+      extractErrorMessage(body, `${verb} requires authentication`),
+      body ?? null,
+    );
+  }
+  if (status === 409 && b.error === 'cas_conflict') {
+    return new CasConflictError(casConflictDetailOf(body), body ?? null);
+  }
+  if (status === 403) {
+    return new PermissionDeniedError(
+      extractErrorMessage(body, `${verb} permission denied`),
+    );
+  }
+  if (status === 400) {
+    if (b.kind === 'unknown_key') {
+      return new NodeTooOldError(
+        { reason: 'unknown_key', reported: null, build: null, app: appId },
+        body ?? null,
+      );
+    }
+    const hasDetail = typeof b.message === 'string' || typeof b.reason === 'string';
+    const kind =
+      typeof b.kind === 'string'
+        ? b.kind
+        : hasDetail && typeof b.error === 'string'
+          ? b.error
+          : 'invalid_request';
+    return new RequestRejectedError(
+      kind,
+      extractErrorMessage(body, `${verb} rejected`),
+      body ?? null,
+      400,
+    );
+  }
+  if (status === 404) {
+    return new RequestRejectedError(
+      'not_found',
+      extractErrorMessage(body, `${verb} target not found`),
+      body ?? null,
+      404,
+    );
+  }
+  if (status === 409) {
+    return new RequestRejectedError(
+      typeof b.error === 'string' ? b.error : 'conflict',
+      extractErrorMessage(body, `${verb} conflict`),
+      body ?? null,
+      409,
+    );
+  }
+  if (status === 413) {
+    return new RequestRejectedError(
+      typeof b.error === 'string' ? b.error : 'payload_too_large',
+      extractErrorMessage(body, `${verb} payload too large`),
+      body ?? null,
+      413,
+    );
+  }
+  return new UnexpectedResponseError(
+    extractErrorMessage(body, `${verb} returned ${status}`),
+    status,
+    body,
+  );
+}
+
 export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -66,11 +188,7 @@ export interface BatchEntry {
   item: QueryBatchItem;
 }
 
-/**
- * Pair each sent query with its `{status, response}` entry from the `200` body
- * of `/api/queries/batch`. A reply of the wrong shape or length is a node
- * contract break, not an item failure, so it throws.
- */
+/** Pair each sent query with its `{status, response}` entry from `/api/queries/batch`. */
 export function pairBatchReplies(
   chunk: readonly BatchEntry[],
   body: unknown,
