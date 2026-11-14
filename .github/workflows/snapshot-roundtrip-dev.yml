@@ -5,8 +5,14 @@ name: Snapshot round trip
 # cloud credentials. The gate itself runs only for a push to main, the daily
 # schedule, or a manual dispatch of main.
 #
-# exemem-infra deploy.yml can start it with no inputs:
+# exemem-infra deploy.yml can start a build of this commit with no inputs:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
+# The same gate with the latest published nightly client:
+#   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
+#
+# After checking out lastdb, that client and this round trip are:
+#   python3 scripts/release/published_client.py --out-dir DIR
+#   python3 scripts/cloud_backup/snapshot_gate.py run --bin-dir BIN --version VERSION
 
 on:
   push:
@@ -14,11 +20,20 @@ on:
   schedule:
     - cron: '41 11 * * *'
   workflow_dispatch:
+    inputs:
+      client:
+        description: "Build this commit, or download the latest published nightly client"
+        type: choice
+        default: build
+        options:
+          - build
+          - nightly
   pull_request:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
       - '.github/workflows/cloud-backup-build.yml'
       - 'scripts/cloud_backup/**'
+      - 'scripts/release/published_client.py'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
       - 'fold_db/**'
@@ -49,7 +64,9 @@ jobs:
           SELECTED_REF: ${{ github.ref }}
         run: test "$SELECTED_REF" = refs/heads/main
       - name: Check the operational recipe syntax
-        run: python3 -m py_compile scripts/cloud_backup/*.py
+        run: |
+          python3 -m py_compile scripts/cloud_backup/*.py
+          python3 -m py_compile scripts/release/published_client.py
 
   build-client:
     name: Build
@@ -59,9 +76,15 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/cloud-backup-build.yml
+    with:
+      client: ${{ github.event.inputs.client || 'build' }}
 
   snapshot-roundtrip-dev:
-    name: snapshot-roundtrip-dev
+    # Release gates accept the newest snapshot-roundtrip-dev check on a source
+    # commit. A published nightly client is not that commit's build, so this
+    # run must not emit that check name. github.event.inputs is empty on push
+    # and schedule; the inputs context is not available for those events.
+    name: ${{ github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: cloud-backup-dev
