@@ -23,7 +23,7 @@ fastembed = []
 
 [dependencies]
 schema_service_core = { workspace = true }
-lambda_http = "0.13"
+lambda_http = "1.3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 http = { workspace = true }
 serde = { workspace = true }
