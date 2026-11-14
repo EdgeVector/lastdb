@@ -347,7 +347,13 @@ pub async fn restore_base(
     if let Some(revision) = super::members::revision(&log).await {
         log.member_revision = revision;
     }
-    let Some((id, manifest)) = transport::current(&log).await? else {
+    let saved = transport::current(&log).await?;
+    if let Some(cut) =
+        recovery::newer_cut(&log, saved.as_ref().map(|(_, manifest)| manifest)).await?
+    {
+        return restore_cut(home, &log, &cut).await.map(Some);
+    }
+    let Some((id, manifest)) = saved else {
         return Ok(None);
     };
     install_base(home, database, &log, &id, &manifest)

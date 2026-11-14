@@ -52,7 +52,7 @@ pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause
                     Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
                         return apply_contiguous(host, ready, after, page).await;
                     }
-                    Ok(_) | Err(LogError::CursorExpired { .. }) => {}
+                    Ok(_) | Err(LogError::CursorExpired { .. } | LogError::SnapshotRequired) => {}
                     Err(error) => {
                         tracing::warn!(target: "lastdbd::log_sync", %error, "retained log read failed");
                         return Pause::Retry;

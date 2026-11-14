@@ -258,6 +258,9 @@ pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
         "cursor_expired" => expired(&value),
         // List cursor expiry is HTTP 409 predecessor_conflict.
         "predecessor_conflict" if field == "mutation_log.cursor" => expired(&value),
+        "unsupported_capability" if field == "snapshot.native_reset_required" => {
+            Some(LogError::SnapshotRequired)
+        }
         "conflict" | "identity_conflict" if field == "mutation_log.conflict" => {
             Some(LogError::Conflict)
         }

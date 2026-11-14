@@ -3,9 +3,25 @@
 use std::path::Path;
 
 use cloud_backup_protocol::Id;
+use mutation_log::LogError;
 
-use super::{install_base, transport, RestoredBase};
+use super::{install_base, transport, Manifest, RestoredBase};
 use crate::log_sync::{cloud::CloudLog, wire::NativeCut};
+
+pub(super) async fn newer_cut(
+    log: &CloudLog,
+    manifest: Option<&Manifest>,
+) -> Result<Option<NativeCut>, String> {
+    if manifest.is_some_and(|saved| saved.name.is_some()) {
+        return Ok(None);
+    }
+    let after = manifest.map_or(0, |saved| saved.through.get());
+    match log.list_with_native_reset(after).await {
+        Ok(Err(cut)) => Ok(Some(cut)),
+        Ok(Ok(_)) | Err(LogError::CursorExpired { .. } | LogError::Unauthorized) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
 
 pub(in crate::log_sync) async fn restore_cut(
     home: &Path,
