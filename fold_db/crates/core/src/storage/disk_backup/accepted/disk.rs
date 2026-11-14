@@ -108,7 +108,7 @@ impl Log {
         }
     }
 
-    pub(super) fn status(&self) -> Status {
+    pub(in crate::storage::disk_backup) fn status(&self) -> Status {
         self.inner.lock().map_or(
             Status {
                 head: 0,
