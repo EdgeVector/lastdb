@@ -57,7 +57,7 @@ def finding_message(throttles, kind, contention, attempts, unresolved=0, throttl
         parts.append("throttle")
     if scaling_finding(kind, contention, attempts):
         parts.append("contention above 1 percent of write attempts")
-    elif contention and not unresolved and kind in ("full", "trim"):
+    elif contention and not unresolved and kind == "full":
         parts.append("contention retried")
     if unresolved:
         parts.append("contention unresolved {0}".format(unresolved))

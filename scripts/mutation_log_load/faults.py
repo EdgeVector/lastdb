@@ -1,38 +1,21 @@
 """Classify mutation-log HTTP results and the process exit codes.
 
-A contention 503 is HTTP 503 whose body is a ``ProtocolError`` with code
-``retry_later`` and field ``mutation_log.transaction.conflict``. At 5, 20,
-and 100 writers, and on the trim tier, the client retries it. At 5 and 20
-writers, and on the trim tier, a retry that succeeds is exit 3. At 100
-writers a retry that succeeds and stays at or under 1% of write attempts
-is exit 0. Above 1% at 100 writers is exit 3. A write that is still
-failing after every retry is exit 3 only when that write left no partial
-row, the log invariants hold, and nothing acknowledged was lost.
-Otherwise it is exit 1. The same intact-log rule applies to a throttle
-that is still failing after every retry. Any other trim failure,
-including ``through`` below 128, a head cursor below 128, or fewer than
-128 appends from the trim tier itself, is exit 1.
-
-A throttle 503 is the same code with field
-``mutation_log.transaction.throttled``,
-``mutation_log.submission.throttled``, ``mutation_log.query.throttled``,
-or ``mutation_log.snapshot.throttled``. A retry that succeeds is exit 3.
-Plain ``mutation_log.query`` and plain ``mutation_log.snapshot`` stay exit 1.
-``RetryLater`` is ``ErrorCode`` in ``cloud_backup_protocol/src/error.rs``
-(lines 42-43). ``rename_all = "snake_case"`` (line 5) makes the wire code
-``retry_later``. ``OutcomeUnknown`` (lines 40-41) is ``outcome_unknown``
-and stops the run. ``ProtocolError`` serializes as ``{"code", "field"}``
-(lines 47-54, ``deny_unknown_fields``).
+A contention 503 is a RetryLater on the database head transaction. The
+client retries at every writer tier. A successful retry is a capacity
+finding for a fixed-size tier, and for the timed tier it is a finding when
+contention exceeds 1% of write attempts. An unresolved write is a capacity
+finding only when a complete log audit finds every accepted entry and no
+partial write. Throttling is a capacity finding at every tier.
 
 Exit codes: 0 complete, 1 correctness, 2 the $6 cap, 3 a capacity finding.
 Exit 1 wins over 3, and 3 wins over 2.
 
-Client retries: 8 attempts. After each retryable failure the wait is
-``base = min(2000, 50 * 2^(attempt-1))`` milliseconds, jittered from
+The client makes up to twenty attempts. After each retryable failure the
+wait is ``base = min(2000, 50 * 2^(attempt-1))`` milliseconds, jittered from
 ``base/2`` through ``base``. A read throttle that is still failing after
 those attempts during logcheck does not fail the tier yet. Writers have
 already stopped. The harness waits one quiet interval, then reads the log
-again. That recheck uses the same 8 attempts with a longer wait:
+again. That recheck uses the same attempt limit with a longer wait:
 ``base = min(8000, 400 * 2^(attempt-1))`` milliseconds, jittered the same
 way. The tier is exit 1 only when that quiet recheck still cannot verify
 the log.
@@ -44,7 +27,6 @@ THROTTLE_FIELDS = frozenset((
     "mutation_log.transaction.throttled",
     "mutation_log.submission.throttled",
     "mutation_log.query.throttled",
-    "mutation_log.snapshot.throttled",
 ))
 CONTENTION_RATE = 0.01
 # Eight tries left appends unstored at 100 writers on DEV. Twenty stored every append.
@@ -114,14 +96,13 @@ def _jitter(base, draw):
     return (low + draw(base - low + 1)) / 1000.0
 
 
-def retry_action(throttle, contention, tries, allow_contention):
+def retry_action(throttle, contention, tries):
     """``retry``, ``unresolved``, ``fail``, or ``done`` for one 503."""
     if not throttle and not contention:
         return "done"
-    retryable = throttle or (contention and allow_contention)
-    if retryable and tries + 1 < MAX_CONTENTION_TRIES:
+    if tries + 1 < MAX_CONTENTION_TRIES:
         return "retry"
-    if contention and allow_contention:
+    if contention:
         return "unresolved"
     return "fail"
 
@@ -134,10 +115,10 @@ def scaling_finding(kind, contention, attempts):
 
 
 def capacity_finding(throttles, kind, contention, attempts):
-    """A succeeded throttle, a retried conflict at 5, 20, or trim, or contention above 1%."""
+    """A throttle, a fixed-tier conflict, or timed contention above 1%."""
     if throttles:
         return True
-    if kind in ("full", "trim") and contention:
+    if kind == "full" and contention:
         return True
     return scaling_finding(kind, contention, attempts)
 

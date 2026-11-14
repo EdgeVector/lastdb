@@ -1,11 +1,9 @@
 name: Mutation log DEV load
 
-# Manual only. Never on push or pull request. Run it after exemem-infra
-# #778 is deployed to DEV. The OIDC role is the DEV role from
-# exemem-infra #772, ref main, and the cloud-backup-dev environment. This
-# workflow does not create or change an IAM role. The job runs only on
-# main because that role trusts ref main. The signer is in process and uses
-# the existing DEV CI account secrets. Private sync and recovery build the exact client.
+# Run against the accepted ExeMem DEV service from main. Manual tiers measure
+# signed appends and paged reads. The daily workflow calls the private device
+# sync and signed log recovery operation with the exact accepted client.
+# The existing cloud-backup-dev OIDC role and CI account scope all operations.
 
 on:
   workflow_dispatch:
@@ -15,9 +13,9 @@ on:
         required: true
         type: string
       level:
-        description: "Writer load, trim, or owner-only device sync and private recovery"
+        description: "Signed append and read load, or private device sync and signed log recovery"
         type: choice
-        options: ["all", "5", "20", "100", "trim", "private"]
+        options: ["all", "5", "20", "100", "private"]
         default: "all"
       duration:
         description: "preliminary finishes 10 appends at 5, 20, and 100 writers. scale is the 3-minute 100-writer clock."
@@ -95,7 +93,7 @@ jobs:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
           role-session-name: mutation-log-load-${{ github.run_id }}
-      - name: Load synthetic writers
+      - name: Run signed DEV load or private recovery
         id: load
         continue-on-error: true
         env:

@@ -1,12 +1,9 @@
-"""The log check and the trim calls that follow a tier."""
+"""Build load requests and verify the log after each writer tier."""
 
 from faults import RetriesExhausted, quiet_backoff_seconds
 from logcheck import unresolved_writes_absent, collect_pages, verify_log
 from stats import finding_message, tier_summary
-from routes import (
-    PAYLOAD, RouteError, prove_trimmed_list, request_body,
-    require_head, require_snapshot, require_trim,
-)
+from routes import PAYLOAD, RouteError, request_body, require_head
 
 
 def _device(prefix, index):
@@ -16,13 +13,14 @@ def _device(prefix, index):
 def request_for(session, operation, fields, limit):
     """JSON body for one mutation-log call."""
     database = session.database_id
-    if operation in ("head", "snapshot", "trim", "create-database"):
-        body = {"database_id": database}
-        if operation == "create-database":
-            # Live create admits shareable only, and appends wait for an admitted spec.
-            body["kind"] = "shareable"
-            body["spec"] = {"name": "social", "version": 1}
-        return request_body(operation, body)
+    if operation == "head":
+        return request_body(operation, {"database_id": database})
+    if operation == "create-database":
+        return request_body(operation, {
+            "database_id": database,
+            "kind": "shareable",
+            "spec": {"name": "social", "version": 1},
+        })
     if operation == "append":
         device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
         return request_body(operation, {
@@ -46,13 +44,13 @@ def request_for(session, operation, fields, limit):
 
 def read_log(session):
     """List until ``next`` reaches the head cursor."""
-    head = session.call("head", required=True, index=0)
+    head = session.call("head", required=True)
     if head is None:
         raise RouteError("log")
     session.audit_cursor = require_head(head) or 0
 
     def fetch(after):
-        page = session.call("list", required=True, index=0, after=after)
+        page = session.call("list", required=True, after=after)
         if page is None:
             raise RouteError("log")
         return page
@@ -63,7 +61,7 @@ def read_log(session):
 def check_log(session):
     """Reject a short page, a broken invariant, or a lost accepted entry."""
     entries = read_log(session)
-    if session.audit_cursor and len(entries) < session.audit_cursor:
+    if len(entries) != session.audit_cursor:
         raise RouteError("log")
     with session._lock:
         accepted = {device: set(seqs) for device, seqs in session.accepted.items()}
@@ -103,19 +101,8 @@ def _drain(session):
     session.sleeper(delay)
 
 
-def after_exhausted(session):
-    """Re-read after an exhausted snapshot or trim, then apply the intact-log rule."""
-    if not session.audited:
-        return "error"
-    return _checked(session)
-
-
 def verify_after_cap(session):
     """A write already exhausted. Read the log before the budget stop wins."""
-    return _checked(session)
-
-
-def _checked(session):
     from cost import CapExceeded
     from drive import LoadError
     try:
@@ -128,8 +115,6 @@ def _checked(session):
 
 
 def finding_text(session, spec):
-    if session.trim_skipped and session.no_partial_writes:
-        return "trim not exercised"
     message = finding_message(
         session.throttle_503, spec.kind, session.contention_503,
         session.write_attempts, session.contention_unresolved, session.throttle_unresolved)
@@ -158,32 +143,3 @@ def tier_report(session, elapsed_ms, stopped, message):
     if message:
         report["message"] = message
     return report
-
-
-def trim_appends(session):
-    """Appends this trim tier stored. Earlier tiers on the same database do not count."""
-    prefix = session.device_prefix + "-"
-    return sum(1 for device, seqs in session.accepted.items() if device.startswith(prefix) and seqs)
-
-
-def trim_log(session):
-    """Verify a snapshot cut before trimming the shared log.
-
-    The caller does not call this when the trim tier stored nothing. A tier
-    that stored at least one append still has to move ``through`` to the
-    head cursor, and that cursor has to cover the appends that landed.
-    """
-    landed = trim_appends(session)
-    if landed < 1:
-        raise RouteError("trim")
-    head = session.call("head", required=True)
-    cursor = require_head(head)
-    if cursor is None or cursor < landed:
-        raise RouteError("trim")
-    require_snapshot(session.call("snapshot", required=True))
-    through = require_trim(session.call("trim", required=True))
-    if through < cursor:
-        raise RouteError("trim")
-    status, listed = session.exchange(
-        "list", required=True, accept=(409,), index=0, after=0)
-    prove_trimmed_list(through, status, listed)
