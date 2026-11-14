@@ -69,7 +69,8 @@ fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
         Resolved::Owned => Ok(true),
         Resolved::Owner => Err(HostError::new(404, "a session requires a shared database")),
         Resolved::Absent => match crate::registered_share::resolve(&host.home, id.as_str()) {
-            Ok(Some(_)) => Ok(false),
+            Ok(Some(share)) => Ok(share.whole_database()
+                && crate::log_sync::received_access::view(&host.home, id.as_str()).can_write()),
             Ok(None) => Err(HostError::new(404, "the database is not registered")),
             Err(_) => Err(HostError::new(503, "database registry is unavailable")),
         },

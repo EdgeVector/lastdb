@@ -37,6 +37,39 @@ pub enum ShareMemberState {
     Revoked,
 }
 
+/// Exact schema definitions a member can write, or every schema in the database.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ShareWriteScope {
+    Selected(Vec<Digest>),
+    All(AllShareSchemas),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AllShareSchemas {
+    All,
+}
+
+impl ShareWriteScope {
+    pub fn permits(&self, definition_id: &Digest) -> bool {
+        match self {
+            Self::Selected(ids) => ids.binary_search(definition_id).is_ok(),
+            Self::All(_) => true,
+        }
+    }
+
+    fn validate(&self) -> Result<bool, ProtocolError> {
+        match self {
+            Self::Selected(ids) if ids.windows(2).any(|pair| pair[0] >= pair[1]) => {
+                Err(ProtocolError::invalid("share.members.write_schemas.order"))
+            }
+            Self::Selected(ids) => Ok(!ids.is_empty()),
+            Self::All(_) => Ok(true),
+        }
+    }
+}
+
 /// One node named by a member-list revision.
 ///
 /// `state` and `regrant` are omitted from JSON at their defaults, so an
@@ -54,6 +87,9 @@ pub struct ShareMember {
     /// True only on the revision that restores a revoked key. Omitted when false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub regrant: bool,
+    /// Missing on legacy grants. An empty selection gives a member read access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_schemas: Option<ShareWriteScope>,
 }
 
 fn state_is_active(state: &ShareMemberState) -> bool {
@@ -228,6 +264,15 @@ fn validate_member_order(members: &[ShareMember]) -> Result<(), ProtocolError> {
         .any(|pair| pair[0].node_public_key >= pair[1].node_public_key)
     {
         return Err(ProtocolError::invalid("share.members.order"));
+    }
+    for member in members {
+        if let Some(scope) = &member.write_schemas {
+            let can_submit =
+                member.state == ShareMemberState::Active && member.role == ShareMemberRole::Submit;
+            if scope.validate()? != can_submit {
+                return Err(ProtocolError::invalid("share.members.write_schemas.role"));
+            }
+        }
     }
     Ok(())
 }

@@ -283,6 +283,7 @@ fn contribution_section<'a>(
         admission.writer.as_str(),
         receipt,
         intent,
+        admission.schema_scope,
     ))
 }
 

@@ -2,7 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use cloud_backup_protocol::{v2::share_access::ShareMemberRole, DecimalU64};
+use cloud_backup_protocol::{
+    v2::share_access::{ShareMemberRole, ShareWriteScope},
+    DecimalU64,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{disk, members::ObservedAccess};
@@ -12,6 +15,8 @@ use super::{disk, members::ObservedAccess};
 pub(crate) struct AccessView {
     state: AccessState,
     role: Option<ShareMemberRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    write_schemas: Option<ShareWriteScope>,
     revision: Option<DecimalU64>,
     confirmed_at_ms: Option<DecimalU64>,
     stale: bool,
@@ -31,6 +36,7 @@ impl AccessView {
         Self {
             state: AccessState::Unknown,
             role: None,
+            write_schemas: None,
             revision: None,
             confirmed_at_ms: None,
             stale: true,
@@ -42,8 +48,17 @@ fn path(home: &Path, id: &str) -> PathBuf {
     home.join("log-sync").join(id).join("self-access.json")
 }
 
+impl AccessView {
+    pub(crate) fn can_write(&self) -> bool {
+        !self.stale
+            && self.state == AccessState::Active
+            && self.role == Some(ShareMemberRole::Submit)
+            && self.write_schemas.is_some()
+    }
+}
+
 pub(crate) fn view(home: &Path, id: &str) -> AccessView {
-    let mut result = disk::read_limited(&path(home, id), 1024)
+    let mut result = disk::read_limited(&path(home, id), 65_536)
         .ok()
         .flatten()
         .and_then(|bytes| serde_json::from_slice::<AccessView>(&bytes).ok())
@@ -68,6 +83,7 @@ pub(super) fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
     if previous.state == result.state
         && previous.role == result.role
         && previous.revision == result.revision
+        && previous.write_schemas == result.write_schemas
         && previous.stale == result.stale
         && previous
             .confirmed_at_ms
@@ -82,17 +98,25 @@ pub(super) fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
 }
 
 fn confirmed(observed: &ObservedAccess) -> AccessView {
-    let (state, role, revision) = match observed {
-        ObservedAccess::Active { revision, role } => {
-            (AccessState::Active, *role, Some(DecimalU64::new(*revision)))
-        }
-        ObservedAccess::Revoked => (AccessState::Revoked, None, None),
-        ObservedAccess::Absent => (AccessState::Absent, None, None),
+    let (state, role, revision, write_schemas) = match observed {
+        ObservedAccess::Active {
+            revision,
+            role,
+            write_schemas,
+        } => (
+            AccessState::Active,
+            *role,
+            Some(DecimalU64::new(*revision)),
+            write_schemas.clone(),
+        ),
+        ObservedAccess::Revoked => (AccessState::Revoked, None, None, None),
+        ObservedAccess::Absent => (AccessState::Absent, None, None, None),
     };
     AccessView {
         state,
         role,
         revision,
+        write_schemas,
         confirmed_at_ms: Some(DecimalU64::new(fold_db::clock::unix_millis())),
         stale: false,
     }

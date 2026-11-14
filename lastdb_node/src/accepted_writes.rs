@@ -138,6 +138,7 @@ fn classify(
         .ok_or(Blocked::Envelope)?;
     let publish = match publication {
         Publication::Personal => true,
+        Publication::Share(binding) if binding.is_whole_database() => true,
         Publication::Share(binding) if kind == "schema" => share_schema(binding, &body)?,
         Publication::Share(binding) => {
             share_record(binding, &body, entry.file_ciphertext.is_some())?

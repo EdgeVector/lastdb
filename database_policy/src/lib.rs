@@ -20,6 +20,7 @@ mod catalog;
 pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social"];
 
 const PERSONAL: &str = "personal";
+const WHOLE_DATABASE: &str = "whole-database";
 
 /// One published or personal-only schema and the fields it declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +74,24 @@ impl SpecBinding {
             name: "lastdb-files".to_owned(),
             version: 1,
         }
+    }
+
+    /// The versioned transport marker for a complete, explicitly shared database.
+    pub fn whole_database() -> Self {
+        Self {
+            name: WHOLE_DATABASE.to_owned(),
+            version: 1,
+        }
+    }
+
+    /// Whether the binding identifies a complete database publication.
+    pub fn is_whole_database(&self) -> bool {
+        self.name == WHOLE_DATABASE && self.version == 1
+    }
+
+    /// Whether the name is reserved for the complete database transport.
+    pub fn is_whole_database_name(name: &str) -> bool {
+        name == WHOLE_DATABASE
     }
 
     /// Borrow the spec name.
@@ -194,10 +213,14 @@ pub fn admit_share(binding: Option<&SpecBinding>) -> Result<ShareScope, PolicyEr
     let Some(binding) = binding else {
         return Err(PolicyError::BindingAbsent);
     };
-    let spec = catalog::share_spec(binding.name(), binding.version())?;
+    let namespaces = if binding.is_whole_database() {
+        &[][..]
+    } else {
+        catalog::share_spec(binding.name(), binding.version())?.namespaces
+    };
     Ok(ShareScope {
         binding: binding.clone(),
-        namespaces: spec.namespaces,
+        namespaces,
     })
 }
 
@@ -211,7 +234,7 @@ pub fn admit_namespace(
         return Err(PolicyError::InvalidNamespace);
     }
     let scope = admit_share(binding)?;
-    if scope.namespaces.contains(&namespace) {
+    if scope.binding.is_whole_database() || scope.namespaces.contains(&namespace) {
         Ok(NamespaceClass::Official)
     } else {
         Ok(NamespaceClass::AppPrivate)

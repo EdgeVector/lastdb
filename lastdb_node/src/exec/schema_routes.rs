@@ -50,6 +50,24 @@ pub(in crate::exec) fn list_schemas(
     let Some(rows) = rows else {
         return content_free(500, "Internal Server Error");
     };
+    let rows = if query_flag(&req.target, "include_definition_ids") {
+        let Ok(schemas) = mgr.get_schemas() else {
+            return content_free(500, "Internal Server Error");
+        };
+        rows.into_iter()
+            .map(|mut row| {
+                let id = row
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .and_then(|name| schemas.get(name))
+                    .and_then(|schema| crate::log_sync::schema_id(schema).ok());
+                row["definition_id"] = json!(id);
+                row
+            })
+            .collect()
+    } else {
+        rows
+    };
     let newer = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
     json_ok(&envelope(
         &json!({

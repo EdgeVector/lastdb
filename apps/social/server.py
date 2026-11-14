@@ -135,7 +135,11 @@ class Handler(BaseHTTPRequestHandler):
         if target.path == "/api/remember":
             return app.remember(args)
         if target.path == "/api/create":
-            return app.create(args["name"])
+            return app.create(args["name"], whole=args.get("sharingMode") == "whole_database")
+        if target.path == "/api/circles":
+            return app.set_circles(args)
+        if target.path == "/api/circle-invitation":
+            return app.circle_invitation(args)
         if target.path == "/api/invite":
             return app.invite(args)
         if target.path == "/api/revoke":

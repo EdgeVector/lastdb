@@ -8,6 +8,7 @@ mod accepted;
 mod account;
 mod apply;
 mod cloud;
+mod contributions;
 mod disk;
 mod files;
 mod http;
@@ -32,6 +33,9 @@ mod turn;
 mod upload;
 mod wire;
 
+pub(crate) use contributions::{
+    schema_id, submit as submit_share_write, validate_write_scopes, ContributionError,
+};
 pub use index_history::{index_history, IndexHistoryReport};
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};

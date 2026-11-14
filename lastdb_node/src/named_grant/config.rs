@@ -2,7 +2,7 @@
 
 use super::{exchange, pending, session, successor};
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadResponse, ShareMember, ShareMemberRole, ShareMemberState,
+    MemberListReadResponse, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,22 @@ pub(crate) struct ConfigUpdate {
     members: Vec<ConfigMember>,
 }
 
+impl ConfigUpdate {
+    pub(crate) fn scoped_members(&self) -> impl Iterator<Item = &ShareWriteScope> {
+        self.members
+            .iter()
+            .filter_map(|member| member.write_schemas.as_ref())
+    }
+
+    pub(crate) fn has_legacy_writer(&self) -> bool {
+        self.members.iter().any(|member| {
+            member.role == ShareMemberRole::Submit
+                && member.state == ShareMemberState::Active
+                && member.write_schemas.is_none()
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConfigMember {
@@ -24,6 +40,8 @@ struct ConfigMember {
     pub state: ShareMemberState,
     #[serde(default, skip_serializing_if = "is_false")]
     pub regrant: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_schemas: Option<ShareWriteScope>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -37,6 +55,7 @@ impl From<ConfigMember> for ShareMember {
             role: member.role,
             state: member.state,
             regrant: member.regrant,
+            write_schemas: member.write_schemas,
         }
     }
 }
@@ -48,6 +67,7 @@ impl From<ShareMember> for ConfigMember {
             role: member.role,
             state: member.state,
             regrant: member.regrant,
+            write_schemas: member.write_schemas,
         }
     }
 }
@@ -99,6 +119,12 @@ pub(crate) async fn set_config(
 ) -> Result<DecimalU64, ConfigError> {
     let mut members: Vec<ShareMember> = request.members.into_iter().map(Into::into).collect();
     members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
+    for member in &mut members {
+        if let Some(ShareWriteScope::Selected(ids)) = &mut member.write_schemas {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+    }
     let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
     let session = session::open(home)
         .await
@@ -146,6 +172,24 @@ pub(super) async fn read(
     successor::require_stream(&document, session, database_id)
         .map_err(|_| ConfigError::Unconfirmed)?;
     Ok(document)
+}
+
+/// Hold the same revision lock used by publisher updates through a member commit.
+pub(crate) async fn lock_applied(
+    home: &Path,
+    database_id: &str,
+) -> Result<(std::fs::File, MemberListReadResponse), ConfigError> {
+    let lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
+    if pending::load(home, database_id)
+        .map_err(|_| ConfigError::Unconfirmed)?
+        .is_some()
+    {
+        return Err(ConfigError::Pending);
+    }
+    let session = session::open(home)
+        .await
+        .map_err(|_| ConfigError::Unconfirmed)?;
+    Ok((lock, read(&session, database_id).await?))
 }
 
 fn update_error(error: String) -> ConfigError {

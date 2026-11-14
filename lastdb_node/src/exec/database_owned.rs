@@ -17,7 +17,17 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         Some("personal") => Kind::Personal,
         Some(_) => return error_response(400, "invalid database access policy", ctx),
     };
-    let spec = body.spec.map(spec_binding);
+    let spec = match body.sharing_mode.as_deref() {
+        Some("whole_database") if kind == Kind::Shareable && body.spec.is_none() => {
+            let binding = database_policy::SpecBinding::whole_database();
+            Some(SpecBinding {
+                name: binding.name().to_owned(),
+                version: binding.version(),
+            })
+        }
+        None if !body.spec.as_ref().is_some_and(reserved_binding) => body.spec.map(spec_binding),
+        _ => return error_response(400, "invalid database sharing mode", ctx),
+    };
     if let Err(error) = owned::validate_create(&body.name, spec.as_ref()) {
         return fail(error, ctx);
     }
@@ -44,6 +54,9 @@ pub(super) fn bind(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRes
     let Some(body) = decode::<BindBody>(req) else {
         return error_response(400, "invalid spec binding", ctx);
     };
+    if body.spec.as_ref().is_some_and(reserved_binding) {
+        return error_response(400, "whole-database sharing requires a new database", ctx);
+    }
     let spec = body.spec.map(spec_binding);
     match host.owned.bind_spec(&host.home, &body.id, spec) {
         Ok(entry) => json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id)),
@@ -65,6 +78,9 @@ pub(super) fn row(entry: &Entry) -> Value {
         })),
         "access": "owner",
         "state": "ready",
+        "sharingMode": entry.spec.as_ref().filter(|spec| {
+            database_policy::SpecBinding::is_whole_database_name(&spec.name) && spec.version == 1
+        }).map(|_| "whole_database"),
     })
 }
 
@@ -102,6 +118,10 @@ fn spec_binding(spec: SpecBody) -> SpecBinding {
     }
 }
 
+fn reserved_binding(spec: &SpecBody) -> bool {
+    database_policy::SpecBinding::is_whole_database_name(&spec.name)
+}
+
 fn decode<T: serde::de::DeserializeOwned>(req: &UdsRequest) -> Option<T> {
     if req.body.len() > BODY_LIMIT {
         return None;
@@ -128,6 +148,8 @@ struct CreateBody {
     spec: Option<SpecBody>,
     #[serde(default)]
     kind: Option<String>,
+    #[serde(default, rename = "sharingMode")]
+    sharing_mode: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -22,6 +22,7 @@ pub struct ContributionAdmission {
     pub receipt_id: [u8; 32],
     pub intent_digest: [u8; 32],
     pub writer: String,
+    pub schema_scope: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -102,7 +102,7 @@ impl Reject {
 
 #[derive(Debug)]
 pub struct ParsedMutation {
-    pub(in crate::exec) mutation: Mutation,
+    pub(crate) mutation: Mutation,
     pub(in crate::exec) convergence: MutationConvergence,
 }
 

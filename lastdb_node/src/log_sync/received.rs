@@ -113,7 +113,7 @@ fn connect_received(
     })
 }
 
-fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str) {
+pub(super) fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str) {
     let profile = match environment {
         ShareEnvironment::Dev => Environment::Dev,
         ShareEnvironment::Prod => Environment::Prod,
