@@ -135,6 +135,9 @@ jobs:
             printf '[Download SDK package](%s)\n\n' "$SDK_ARTIFACT_URL"
             printf 'Archive SHA-256: %s. Expires: %s.\n' "$SDK_ARTIFACT_DIGEST" "$expiration"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install the signed log read tool dependency
+        if: inputs.mode == 'social-circles'
+        run: python3 -m pip install --quiet cryptography==41.0.7
       - name: Exercise the selected DEV product operation
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
@@ -151,10 +154,7 @@ jobs:
           case "$OPERATION" in
             signed-files) recipe=signed_files ;;
             social-share) recipe=social_share ;;
-            social-circles)
-              python3 -m pip install --quiet cryptography==41.0.7
-              recipe=social_circles
-              ;;
+            social-circles) recipe=social_circles ;;
             social-prepare) recipe=social_prepare ;;
             *) exit 2 ;;
           esac
