@@ -10,11 +10,8 @@ from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
-from finish import (
-    after_exhausted, audit_log, finding_text, read_log, request_for,
-    tier_report, trim_appends, trim_log, verify_after_cap,
-)
-from plan import still_running, writer_calls
+from finish import audit_log, finding_text, request_for, tier_report, verify_after_cap
+from plan import APPENDS
 from routes import READS, RouteError, check_success, path_for
 
 
@@ -110,19 +107,16 @@ class Session:
         self.log_read_throttled = False
         self.logcheck_recheck = False
         self.quiet = False
-        self.trim_skipped = False
         self.accepted = {}
         self._lock = threading.Lock()
         self.stop = threading.Event()
         self.capped = threading.Event()
         self.tier_reads = 0
         self.device_prefix = "d"
-        self.allow_contention = False
         self.created = False
 
     def begin_tier(self, spec):
         self.device_prefix = "{0}{1}".format(spec.kind, spec.writers)
-        self.allow_contention = spec.kind in ("full", "steady", "trim")
         self.tier_reads = self.ledger.snapshot()["reads"]
         self.samples = []
         self.errors = 0
@@ -140,17 +134,8 @@ class Session:
         self.log_read_throttled = False
         self.logcheck_recheck = False
         self.quiet = False
-        self.trim_skipped = False
 
-    def call(self, operation, required=False, accept=(), **fields):
-        status, payload = self.exchange(operation, required=required, accept=accept, **fields)
-        if already_created(operation, status, payload):
-            return payload
-        if status >= 400 and status not in accept:
-            return None
-        return payload
-
-    def exchange(self, operation, required=False, accept=(), **fields):
+    def call(self, operation, required=False, **fields):
         if operation == "append":
             fields["authored_at_ms"] = self.clock()
         body = self._body(operation, fields)
@@ -167,8 +152,10 @@ class Session:
                 tries += 1
                 self._pause(tries)
                 continue
-            self._finish(operation, status, payload, required, accept, fields)
-            return status, payload
+            self._finish(operation, status, payload, required, fields)
+            if status < 400 or already_created(operation, status, payload):
+                return payload
+            return None
 
     def _charge(self, operation, body):
         kind = "read" if operation in READS else "write"
@@ -193,7 +180,7 @@ class Session:
     def _retry(self, status, payload, tries, operation, fields):
         throttle = is_throttle(status, payload)
         contention = is_contention(status, payload)
-        action = retry_action(throttle, contention, tries, self.allow_contention)
+        action = retry_action(throttle, contention, tries)
         if action == "done":
             return False
         with self._lock:
@@ -227,7 +214,7 @@ class Session:
             delay = schedule(tries, self.rng.randrange)
         self.sleeper(delay)
 
-    def _finish(self, operation, status, payload, required, accept, fields):
+    def _finish(self, operation, status, payload, required, fields):
         if already_created(operation, status, payload):
             return
         if status == 503:
@@ -235,25 +222,25 @@ class Session:
                 self.other_503 += 1
             self._fail()
             raise LoadError("http")
-        self._observe(status, payload, required, accept)
+        self._observe(status, payload, required)
         if status >= 400:
             return
-        if is_duplicate(payload):
+        if operation == "append" and is_duplicate(payload):
             self._fail()
             raise LoadError("duplicate")
         try:
-            check_success(operation, payload)
+            check_success(operation, payload, fields.get("seq"))
         except RouteError:
             self.stop.set()
             raise
         if operation == "append":
             self._note_append(fields)
 
-    def _observe(self, status, payload, required, accept):
+    def _observe(self, status, payload, required):
         disabled = status == 404 and _disabled(payload)
         failed = status >= 500 or status <= 0
         ambiguous = not isinstance(payload, dict)
-        client_error = status >= 400 and status not in accept
+        client_error = status >= 400
         with self._lock:
             if client_error or failed or disabled or ambiguous:
                 self.errors += 1
@@ -286,7 +273,7 @@ class Session:
 
 
 def drive(spec, session):
-    """Create the database, run the writers, check the log, and trim when asked."""
+    """Create the database, run the writers, and check the complete log."""
     started = session.clock()
     session.begin_tier(spec)
     try:
@@ -294,8 +281,7 @@ def drive(spec, session):
     except CapExceeded:
         return tier_report(session, session.clock() - started, _over_cap(session, spec), "")
     except RetriesExhausted:
-        stopped = after_exhausted(session)
-        return tier_report(session, session.clock() - started, stopped, finding_text(session, spec))
+        return tier_report(session, session.clock() - started, "error", finding_text(session, spec))
     except (LoadError, RouteError) as error:
         return tier_report(session, session.clock() - started, "error", str(error))
     return tier_report(
@@ -310,12 +296,8 @@ def _run_tier(spec, session, started):
     if spec.kind == "steady":
         _steady(spec, session, started)
     else:
-        run_writers(spec.writers, lambda index: _script(spec, session, index))
+        run_writers(spec.writers, lambda index: _append_ten(session, index))
     audit_log(session)
-    if spec.trim and trim_appends(session) < 1:
-        session.trim_skipped = True
-    elif spec.trim:
-        trim_log(session)
 
 
 def _exhausted(session):
@@ -334,8 +316,6 @@ def _over_cap(session, spec):
 
 
 def _finished(session, spec):
-    if session.trim_skipped:
-        return "scaling" if session.no_partial_writes else "error"
     if _exhausted(session) and not session.no_partial_writes:
         return "error"
     if _exhausted(session) or _capacity(session, spec):
@@ -348,10 +328,10 @@ def _capacity(session, spec):
         session.throttle_503, spec.kind, session.contention_503, session.write_attempts)
 
 
-def _script(spec, session, index):
+def _append_ten(session, index):
     try:
-        for operation, writer, seq in writer_calls(spec, index):
-            if session.call(operation, index=writer, seq=seq) is None:
+        for seq in range(1, APPENDS + 1):
+            if session.call("append", index=index, seq=seq) is None:
                 raise LoadError("http")
     except RetriesExhausted:
         return
@@ -361,7 +341,7 @@ def _steady(spec, session, started):
     def worker(index):
         seq = 1
         try:
-            while still_running(spec, session.clock() - started, seq - 1) and not session.stop.is_set():
+            while session.clock() - started < spec.steady_ms and not session.stop.is_set():
                 if session.call("append", index=index, seq=seq) is None:
                     raise LoadError("http")
                 seq += 1
@@ -369,10 +349,6 @@ def _steady(spec, session, started):
             return
 
     run_writers(spec.writers, worker)
-
-
-def _pages(session):
-    return read_log(session)
 
 
 def _device(prefix, index):

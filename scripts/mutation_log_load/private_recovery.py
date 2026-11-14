@@ -4,7 +4,6 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import sys
 import tempfile
@@ -19,7 +18,7 @@ from node_auth import NodeKey, account_id
 from programs import Programs
 from routes import ROOT, decimal
 from signed_files import retry, running, summary
-from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure, private_directory,
+from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure,
                      read_json, require, save_json, write_private)
 
 SCHEMA = "PrivateRecovery"
@@ -32,8 +31,8 @@ SOURCE_EARLIER = {**FIELDS, "note": "first device's older edit"}
 PEER_LATER = {**FIELDS, "note": "second device's newer edit"}
 PEER_EARLIER = {**SOURCE_ONLINE, "note": "second device's older edit"}
 SOURCE_LATER = {**SOURCE_ONLINE, "note": "first device's newer edit"}
-RESET_REMOTE = {**FIELDS, "note": "first device's edit included in the snapshot"}
-RESET_LOCAL = {**FIELDS, "note": "second device's unpublished edit during snapshot reset"}
+LAGGING_REMOTE = {**FIELDS, "note": "first device's edit while peer was offline"}
+LAGGING_LOCAL = {**FIELDS, "note": "second device's local edit while offline"}
 # The publisher submits at most one 64-entry page before attempting a pull.
 PUBLISH_PAGE_SIZE = 64
 # The batch query endpoint caps each call at 64 keys.
@@ -59,7 +58,8 @@ def restore(programs, credentials, destination, database, phrase, through, *, st
     except OperationError as error:
         raise OperationError(stage, cli_refusal=error.cli_refusal) from None
     require(receipt["database_id"] == database and receipt["name"] == "personal"
-            and receipt["through_delivery_seq"] == through, stage)
+            and receipt["through_delivery_seq"] == through
+            and receipt["snapshot_through"] == 0 and receipt["replayed"] == through, stage)
 
 
 def prepare_source(node, database, owner):
@@ -252,104 +252,85 @@ def check_progress(node, database, upload, download):
             and read_json(position, 4096) == {"cursor": download}, "private_local_progress")
 
 
-def check_trimmed_retry(call, entry):
+def check_entry_retry(call, entry, head):
     saved = {name: entry[name] for name in ("writer_seq", "authored_at_ms", "namespace", "payload_b64")}
     request = {"device_id": entry["device_id"], "entries": [saved]}
     duplicate = call("append", request)
-    require(duplicate["result"] == "duplicate" and cloud_head(call) == 11,
-            "private_trimmed_exact_retry")
+    require(duplicate == {"result": "duplicate", "next_seq": str(decimal(saved["writer_seq"]) + 1),
+                          "delivery_seqs": []} and cloud_head(call) == head,
+            "private_exact_retry")
     changed = {**saved, "payload_b64": "AQ"}
     refused = call("append", {**request, "entries": [changed]}, expected_error=409)
-    require(refused.get("code") == "identity_conflict" and cloud_head(call) == 11,
-            "private_trimmed_different_edit_refused")
+    require(refused.get("code") == "identity_conflict"
+            and refused.get("field") == "mutation_log.conflict" and cloud_head(call) == head,
+            "private_different_edit_refused")
 
 
-def checkpoint_peer(root, peer, database):
-    require(peer.process is None and not peer.socket.exists() and peer.clean_stops > 0,
-            "private_checkpoint_clean_stop")
-    require(not os.path.lexists(peer.home / CREDENTIALS_FILE), "private_checkpoint_no_credentials")
-    private_directory(peer.home)
-    lagging = OwnedNode(root / "lagging", peer.programs, account=peer.account, isolated_copy=True,
-                        keep_saved_credentials=True)
-    shutil.copytree(peer.home, lagging.home, symlinks=True)
-    private_directory(lagging.home)
-    scope = lagging.home / "log-sync" / database
-    require(device_id(lagging) == device_id(peer)
-            and read_json(scope / "session.json", 4096) == {"cursor": 10}
-            and not (scope / "snapshot-restore.json").exists(), "private_checkpoint_cursor")
-    return lagging
+def advance_while_peer_offline(call, database, source):
+    replace_record(source, database, PEER_LATER, LAGGING_REMOTE)
+    wait_prefix(source, database, 11, "private_source_extra_download")
+    page = call("list", {"after": "10", "limit": "20"})
+    entries = page["entries"]
+    require(decimal(page["next"]) == 11 and len(entries) == 1
+            and decimal(entries[0]["delivery_seq"]) == 11
+            and entries[0]["entry"]["device_id"] == device_id(source)
+            and decimal(entries[0]["entry"]["writer_seq"]) == 7, "private_source_extra_entry")
+    check_entry_retry(call, entries[0]["entry"], 11)
 
 
-def cut_after_checkpoint(call, database, source):
-    replace_record(source, database, PEER_LATER, RESET_REMOTE)
-    wait_prefix(source, database, 11, "private_source_cut_download")
-    page = call("list", {"after": "0", "limit": "20"})
-    require(decimal(page["next"]) == len(page["entries"]) == 11
-            and page["entries"][-1]["entry"]["device_id"] == device_id(source)
-            and decimal(page["entries"][-1]["entry"]["writer_seq"]) == 7, "private_cut_entry")
-    original = verify_snapshot(call, page["entries"], 11)
-    ref = verify_snapshot(call, [], 11, previous=original)
-    trim = call("trim", {})
-    require(decimal(trim["through"]) == 11 and trim["snapshot_due"] is False,
-            "private_trimmed_prefix")
-    check_trimmed_retry(call, page["entries"][-1]["entry"])
-    return ref
-
-
-def write_reset_tail(call, database, lagging, creates):
-    with running(lagging):
-        rows = read_rows(lagging, database, [PEER_LATER])[0]
-        require(len(rows) == 1 and rows[0]["fields"] == PEER_LATER, "private_checkpoint_old_value")
+def write_lagging_tail(call, database, peer, creates):
+    with running(peer):
+        rows = read_rows(peer, database, [PEER_LATER])[0]
+        require(len(rows) == 1 and rows[0]["fields"] == PEER_LATER, "private_lagging_old_value")
         mutations = [create(SCHEMA, record_key(fields["id"]), fields) for fields in creates]
-        mutations.append(replace(SCHEMA, rows[0], RESET_LOCAL))
-        reply = lagging.call(f"/api/databases/{database}/mutations/batch", {"mutations": mutations})
+        mutations.append(replace(SCHEMA, rows[0], LAGGING_LOCAL))
+        reply = peer.call(f"/api/databases/{database}/mutations/batch", {"mutations": mutations})
         require(reply["ok"] is True and reply["durability"] == "durable"
                 and reply["operations"] == {"created": PUBLISH_PAGE_SIZE, "updated": 1,
                                            "deleted": 0, "total": PUBLISH_PAGE_SIZE + 1},
-                "private_reset_tail_count")
-        written = read_rows(lagging, database, [RESET_LOCAL])[0]
-        require(len(written) == 1 and written[0]["fields"] == RESET_LOCAL,
-                "private_reset_tail_visible_offline")
+                "private_lagging_tail_count")
+        written = read_rows(peer, database, [LAGGING_LOCAL])[0]
+        require(len(written) == 1 and written[0]["fields"] == LAGGING_LOCAL,
+                "private_lagging_tail_visible_offline")
         revision = written[0]["revision"]
-    require(cloud_head(call) == 11, "private_reset_tail_unpublished")
+    require(cloud_head(call) == 11, "private_lagging_tail_unpublished")
     return revision
 
 
-def reset_live_peer(programs, call, root, database, api_key, source, peer, records):
-    lagging = checkpoint_peer(root, peer, database)
-    creates = [{"id": f"reset-tail-{index:02d}", "note": "saved before snapshot reset"}
+def reconnect_lagging_peer(programs, call, database, api_key, source, peer, records):
+    require(peer.process is None and peer.clean_stops > 0, "private_lagging_clean_stop")
+    require(not os.path.lexists(peer.home / CREDENTIALS_FILE), "private_lagging_offline")
+    check_progress(peer, database, 4, 10)
+    creates = [{"id": f"offline-tail-{index:02d}", "note": "saved before the peer reconnected"}
                for index in range(PUBLISH_PAGE_SIZE)]
     final_head = 12 + PUBLISH_PAGE_SIZE
-    expected = [RESET_LOCAL, *records[1:], *creates]
+    expected = [LAGGING_LOCAL, *records[1:], *creates]
     connect(programs, source, api_key)
     with running(source, remove_saved=True):
-        ref = cut_after_checkpoint(call, database, source)
-        revision = write_reset_tail(call, database, lagging, creates)
-        connect(programs, lagging, api_key)
-        with running(lagging, remove_saved=True):
-            journal = lagging.home / "log-sync" / database / "snapshot-restore.json"
-            retry("private_live_snapshot_installed", lambda: read_json(journal) if journal.is_file() else {},
-                  lambda log: log.get("complete") is True and log.get("tip_ref") == ref
-                  and log.get("through_delivery_seq") == 11)
-            wait_prefix(lagging, database, final_head, "private_reset_peer_download")
-            wait_prefix(source, database, final_head, "private_reset_source_download")
+        advance_while_peer_offline(call, database, source)
+        revision = write_lagging_tail(call, database, peer, creates)
+        check_progress(peer, database, 4, 10)
+        connect(programs, peer, api_key)
+        with running(peer, remove_saved=True):
+            wait_prefix(peer, database, final_head, "private_lagging_peer_download")
+            wait_prefix(source, database, final_head, "private_lagging_source_download")
             check_progress(source, database, 7, final_head)
-            check_progress(lagging, database, 5 + PUBLISH_PAGE_SIZE, final_head)
-            expect_records(lagging, database, expected, "private_reset_peer_records")
-            expect_records(source, database, expected, "private_reset_source_records")
-            latest = read_rows(lagging, database, [RESET_LOCAL])[0]
+            check_progress(peer, database, 5 + PUBLISH_PAGE_SIZE, final_head)
+            expect_records(peer, database, expected, "private_lagging_peer_records")
+            expect_records(source, database, expected, "private_lagging_source_records")
+            latest = read_rows(peer, database, [LAGGING_LOCAL])[0]
             require(len(latest) == 1 and latest[0]["revision"] == revision,
-                    "private_reset_pending_revision_unchanged")
+                    "private_lagging_pending_revision_unchanged")
     page = call("list", {"after": "11", "limit": "90"})
     entries = page["entries"]
-    writer = device_id(lagging)
+    writer = device_id(peer)
     require(decimal(page["next"]) == final_head
             and [(decimal(item["delivery_seq"]), item["entry"]["device_id"],
                   decimal(item["entry"]["writer_seq"])) for item in entries]
             == [(seq, writer, seq - 7) for seq in range(12, final_head + 1)],
-            "private_reset_uploaded_tail")
-    summary("A device restored its cloud snapshot after reopening an older local copy. The "
-            "snapshot did not rewrite its pending edit, and all 65 local edits reached the cloud.")
+            "private_lagging_uploaded_tail")
+    summary("A device resumed from its local download position and uploaded all 65 queued "
+            "edits. Applying the cloud suffix preserved the newer local edit and its revision.")
     return final_head, expected
 
 
@@ -376,10 +357,11 @@ def check_restore(programs, call, database, owner, api_key):
         check_devices(page, first, second)
         check_progress(source, database, 6, 10)
         check_progress(peer, database, 4, 10)
-        through, records = reset_live_peer(programs, call, root, database, api_key, source, peer, records)
+        through, records = reconnect_lagging_peer(
+            programs, call, database, api_key, source, peer, records)
         restored = OwnedNode(root / "restored", programs, account=account)
         restore(programs, credentials.home, restored.home, database, phrase, through,
-                stage="private_snapshot_suffix_restore")
+                stage="private_fresh_log_restore")
         require(device_id(restored) not in (first, second), "private_restored_device_identity")
         require(call("head", {"device_id": device_id(restored)}) == {"last_writer_seq": "0"},
                 "private_never_writer_contents")
@@ -388,23 +370,9 @@ def check_restore(programs, call, database, owner, api_key):
         with running(restored):
             require(read_fields(restored, database, records) == [[row] for row in records],
                     "private_recovered_record")
-    summary("Each device kept separate local upload and download positions. An exact "
-            "old upload was recognized after trim and a different edit at that number was "
-            "refused. A fresh home restored the verified snapshots and read both devices' edits.")
-
-
-def verify_snapshot(call, entries, through, *, previous=None):
-    snapshot = call("snapshot", {})
-    manifest = call("delivery/snapshot", {})
-    ref = snapshot["snapshot_ref"]
-    require(manifest["snapshot_ref"] == ref and ref != previous
-            and decimal(manifest["through_delivery_seq"]) == through
-            and manifest.get("previous_ref") == previous and decimal(manifest["parts"]) == 1,
-            "private_snapshot_prefix")
-    part = call("delivery/snapshot", {"snapshot_ref": ref, "part": "0"})
-    require([item["payload"] for item in json.loads(part["part"])]
-            == [item["entry"]["payload_b64"] for item in entries], "private_snapshot_entries")
-    return ref
+    summary("Each device kept separate local upload and download positions. The cloud "
+            "recognized an exact resend and refused a different edit at the same number. "
+            "A fresh home replayed the retained log and read both devices' edits.")
 
 
 def recover(post, endpoint, database, owner, api_key, generation, ledger):
@@ -416,7 +384,7 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger):
         status, response, _ = post(
             endpoint, key, database, "POST", f"{ROOT}/{operation}", body, api_key,
             scope_generation)
-        ledger.record("read" if operation in ("head", "list", "access", "delivery/snapshot")
+        ledger.record("read" if operation in ("head", "list", "access")
                       else "write", len(body))
         if allowed and expected_error is None and 200 <= status < 300 and isinstance(response, dict):
             return response
@@ -449,8 +417,7 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger):
             "namespace": SCHEMA, "payload_b64": "AA",
         }]}),
         ("list", {"after": "0", "limit": "2"}),
-        ("delivery/snapshot", {}),
     ):
         call(operation, fields, key=other, allowed=False)
     call("head", {}, scope_generation=str(int(generation) + 1), allowed=False)
-    summary("An unrelated key could not read, append, or fetch the private snapshot.")
+    summary("An unrelated key could not read or append to the private log.")

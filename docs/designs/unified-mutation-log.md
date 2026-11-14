@@ -79,9 +79,9 @@ is rejected. The repeat check runs before the submission lookup, so an exact
 retry of a copy whose submission was trimmed is a duplicate. A new writer
 sequence that names a trimmed incorporated submission is refused. A pending
 submission stays in the log until the publisher re-appends it, rejects it,
-or 30 days pass. The snapshot does not include pending submissions. Trim
-drops entries around a young pending submission and leaves that submission
-in place. Acking a scan cursor that covered the submission does not drop it.
+or 30 days pass. Historical log snapshots do not include pending submissions. The earlier trim
+operation left young pending submissions in place. Reading past those
+submissions does not resolve them.
 After 30 days, the author's retry and a re-append are `SubmissionExpired`,
 naming that writer and sequence. A rejected submission can be trimmed while
 it is still young. The author's retry and a re-append are then
@@ -104,7 +104,7 @@ the entry stays, because opening the payload uses that number. An
 append is one transaction of at most 90 entries, and each writer has
 at most one append in flight.
 
-The operations are append, head, list, grant, revoke, snapshot and trim.
+The active cloud operations include append, head, list, grant and revoke.
 Each device stores its own download position as a delivery sequence, independent
 of its upload sequence. `list` accepts that position and returns the readable
 entries plus the last delivery sequence scanned, including positions hidden
@@ -114,12 +114,11 @@ local writes are durable. Older clients can still send an authenticated
 
 `head` reports the database delivery head. Its stamp is the last entry this
 reader can see, and it is absent when none are visible. The cloud keeps a
-database-wide trim boundary. An authorized trim can discard entries covered by
-a verified signed log snapshot. If that snapshot omits a still-readable young
-submission, the cloud leaves the old trim boundary in place until the
-submission resolves or expires. When aged entries need coverage the service
-reports that a snapshot is due. An original-file backup
-is a separate snapshot and does not establish a signed log trim boundary.
+database-wide trim boundary for logs trimmed under the earlier signed snapshot
+format. New backups publish original files through `snapshot/bytes`, with the
+database delivery position captured in the manifest. They do not advance the
+log trim boundary. The earlier snapshot and trim write routes are retired.
+The signed delivery route continues to read previously stored log snapshots.
 
 If the device's local position is below the stored trim boundary, the cloud
 returns `CursorExpired`. The device downloads the referenced snapshot, applies
@@ -258,7 +257,8 @@ There is no flag. `drive` is the only shared-sync step.
 Every owned database, personal and private included, registers with
 `POST /api/cloud/backups/v2/mutation-log/create-database` and then syncs
 that database id. The owner store records accepted writes for that log.
-There is no byte backup, no cutover receipt, and no second path.
+The original-file backup captures a recovery base for the same database id.
+Restore applies the signed log entries after that base.
 
 The signed client resolves the database id to a store and its existing
 content key. It uses the same envelope, file upload, and snapshot replay for
@@ -271,7 +271,12 @@ The owner key and cloud account scope are bound at registration.
 The database accepts no share grants.
 The old contributor inbox still has `MAX_WRITERS = 12`.
 
-Keep the signed snapshot and verify keyed reads on a second device before retiring older backup data.
+Keep historical signed snapshots available for readers with an expired local
+position. The protected daily DEV operation proves two-device sync, exact
+upload retries, and fresh restore from the retained log. The separate native
+snapshot workflow proves original-file backup and restore. The last DEV run
+before the old trim write route retired proved recovery from an expired
+cursor with pending local edits ([run 43533113979](https://github.com/EdgeVector/lastdb/actions/runs/43533113979)).
 
 `mutation_log_mem` is the in-memory adapter. Construct it with
 `InMemoryMutationLog::new`. `mutation_log_sync` applies one effect through

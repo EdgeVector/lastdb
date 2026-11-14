@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DEV mutation-log load. Unit tests do not call this command.
+"""Scoped DEV mutation-log load and private recovery.
 
 The fixed DEV CI account signs every request as a LastDBNode token.
 Create also sends that account's API key. The run creates the load
@@ -29,7 +29,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
                    load_partitions, refuse_prod_environment, unprocessed_ids, writes_partition)
-from plan import PRELIMINARY_LABEL, SCALE_LABEL, phases
+from plan import LEVELS, PRELIMINARY_LABEL, SCALE_LABEL, phases
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
@@ -217,7 +217,7 @@ def target():
 def main(argv):
     parser = argparse.ArgumentParser(description="DEV mutation-log load")
     parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
-    parser.add_argument("--level", choices=("5", "20", "100", "trim", "all", "private"))
+    parser.add_argument("--level", choices=LEVELS)
     parser.add_argument("--scale", action="store_true",
                         help="3-minute 100-writer clock. The default 100-writer tier appends 10 times and finishes.")
     parser.add_argument("--confirm-deployed", required=True)

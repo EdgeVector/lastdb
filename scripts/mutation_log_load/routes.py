@@ -1,15 +1,4 @@
-"""Mutation-log routes and the bodies those routes accept.
-
-These are the exemem-infra #778 routes. Every path is under
-``/api/cloud/backups/v2/mutation-log/``. The server also serves ``access``,
-``reject``, ``writer-tip``, and ``cutover``. This load calls
-``create-database``, ``append``, ``head``, ``list``, and ``ack``. The trim
-tier also calls ``snapshot`` and ``trim``. Every action, including head,
-snapshot, and trim, sends ``{"database_id": ...}``. The server dispatch
-reads that field. Counters are JSON numbers. The payload is the base64url
-(no padding) of the bytes ``load``, not the literal word. Snapshot bytes
-stay in the table; the snapshot ref is a label.
-"""
+"""Signed create, append, head, and list requests for synthetic DEV load."""
 
 import base64
 import json
@@ -21,9 +10,6 @@ PAYLOAD = base64.urlsafe_b64encode(b"load").rstrip(b"=").decode("ascii")
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
-OPERATIONS = (
-    "create-database", "append", "head", "list", "revoke", "snapshot", "trim",
-)
 READS = frozenset({"head", "list"})
 ENTRY_FIELDS = (
     "accepted_at_ms", "authored_at_ms", "delivery_seq", "namespace", "payload",
@@ -35,9 +21,6 @@ FIELDS = {
     "append": ("database_id", "device_id", "entries"),
     "head": ("database_id",),
     "list": ("after", "database_id", "limit"),
-    "revoke": ("capability", "database_id", "principal"),
-    "snapshot": ("database_id",),
-    "trim": ("database_id",),
 }
 
 
@@ -46,7 +29,7 @@ class RouteError(Exception):
 
 
 def path_for(operation):
-    if operation not in OPERATIONS:
+    if operation not in FIELDS:
         raise RouteError("route")
     return ROOT + "/" + operation
 
@@ -64,9 +47,6 @@ def request_body(operation, fields):
     if operation == "list":
         _u64(fields["after"])
         _u64(fields["limit"])
-    if operation == "revoke":
-        _text(fields["principal"])
-        _text(fields["capability"])
     wire = fields.copy()
     for field in ("after", "limit"):
         if field in wire:
@@ -98,19 +78,20 @@ def require_object(value, required):
     return value
 
 
-def check_success(operation, payload):
+def check_success(operation, payload, writer_seq=None):
     if operation == "head":
         require_head(payload)
     elif operation == "list":
         require_list(payload)
-    elif operation == "snapshot":
-        require_snapshot(payload)
-    elif operation == "trim":
-        require_trim(payload)
-    elif operation == "revoke":
-        require_revoke(payload)
-    elif operation in ("create-database", "append"):
-        require_object(payload, ())
+    elif operation == "create-database":
+        require_object(payload, ("database_id", "state"))
+    elif operation == "append":
+        result = require_object(payload, ("result", "delivery_seqs", "next_seq"))
+        delivered = result["delivery_seqs"]
+        if (result["result"] != "accepted" or not isinstance(delivered, list)
+                or len(delivered) != 1 or not decimal(delivered[0])
+                or decimal(result["next_seq"]) != writer_seq + 1):
+            raise RouteError("append")
     else:
         raise RouteError("route")
 
@@ -123,7 +104,7 @@ def require_head(body):
 
 
 def _lift_entry(entry):
-    """Copy the nested #778 entry onto the row the log check reads."""
+    """Copy the nested signed entry onto the row the log audit reads."""
     nested = entry.get("entry")
     if not isinstance(nested, dict):
         return
@@ -152,60 +133,6 @@ def require_list(body):
     if page["next"] is not None:
         decimal(page["next"])
     return page
-
-
-def require_revoke(body):
-    body = require_object(body, ("revoked",))
-    if body["revoked"] is not True:
-        raise RouteError("revoke")
-    return body
-
-
-def require_snapshot(body):
-    body = require_object(body, ("at_ms", "snapshot_ref", "through_delivery_seq"))
-    decimal(body["through_delivery_seq"])
-    decimal(body["at_ms"])
-    if not isinstance(body["snapshot_ref"], str) or not body["snapshot_ref"]:
-        raise RouteError("snapshot")
-    return body
-
-
-def require_trim(response):
-    """The trim floor moved past zero. There is no dropped count."""
-    body = require_object(response, ("snapshot_due", "through"))
-    if not isinstance(body["snapshot_due"], bool):
-        raise RouteError("ambiguous")
-    through = decimal(body["through"])
-    if through <= 0:
-        raise RouteError("trim")
-    return through
-
-
-def prove_trimmed_list(through, status, body):
-    """A list from zero conflicts at the snapshot, or starts after the floor.
-
-    The conflict body is ``predecessor_conflict`` on ``mutation_log.cursor``,
-    with ``snapshot_through`` and ``snapshot_ref``. The ref is null or a
-    snapshot body.
-    """
-    if status == 409:
-        page = require_object(body, ("code", "field", "snapshot_ref", "snapshot_through"))
-        if page.get("code") != "predecessor_conflict":
-            raise RouteError("trim")
-        if page.get("field") != "mutation_log.cursor":
-            raise RouteError("trim")
-        if decimal(page["snapshot_through"]) < through:
-            raise RouteError("trim")
-        ref = page["snapshot_ref"]
-        if ref is not None:
-            require_snapshot(ref)
-        return
-    if status != 200:
-        raise RouteError("trim")
-    page = require_list(body)
-    for entry in page["entries"]:
-        if decimal(entry["delivery_seq"]) <= through:
-            raise RouteError("trim")
 
 
 def _entries(entries):
