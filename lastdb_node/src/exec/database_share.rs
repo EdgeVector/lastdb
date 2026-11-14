@@ -46,7 +46,7 @@ pub(super) async fn execute(
         (Route::Config, "GET") => named_grant::read_config(&host.home, &entry.id)
             .await
             .and_then(|config| serde_json::to_value(config).map_err(|_| ConfigError::Unconfirmed)),
-        (Route::Config, "PUT") => set(req, host, &entry.id).await,
+        (Route::Config, "PUT") => set(req, host, &entry).await,
         (Route::Members, "POST") => return members(req, ctx, host, &entry.id).await,
         (Route::Invitation, "POST") => invite(req, host, &entry.id).await,
         (Route::Config, _) => return method_not_allowed_response("GET, PUT"),
@@ -55,8 +55,10 @@ pub(super) async fn execute(
     render(result.map_err(host_error), ctx)
 }
 
-async fn set(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, ConfigError> {
+async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
     let update: ConfigUpdate = decode(req, CONTROL_JSON_MAX_BYTES)?;
+    crate::log_sync::validate_write_scopes(host, entry, &update)?;
+    let id = &entry.id;
     let request_id = update.request_id.clone();
     let revision = named_grant::set_config(&host.home, id, update).await?;
     Ok(json!({

@@ -103,6 +103,11 @@ impl DeclareSchema {
 /// Build the binding A stored. [`SpecBinding::admitted`] checks the catalog.
 /// A missing spec never reaches this function.
 pub fn destination_binding(name: &str, version: u32) -> Result<SpecBinding, PublishError> {
+    if SpecBinding::is_whole_database_name(name) {
+        return Err(PublishError::new(
+            "saved queries require a filtered publication",
+        ));
+    }
     SpecBinding::admitted(name, version).map_err(PublishError::from)
 }
 

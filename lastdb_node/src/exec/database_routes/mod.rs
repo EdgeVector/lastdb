@@ -82,7 +82,7 @@ async fn dispatch(
             .await
         }
         Selection::Signed(share) => match route {
-            DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
+            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
             DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
@@ -130,8 +130,8 @@ pub(in crate::exec) async fn execute_deferred_database_request(
             )
             .await
         }
-        Ok(Selection::Signed(_)) => match route {
-            DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
+        Ok(Selection::Signed(share)) => match route {
+            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
             _ => error_response(403, "operation is unavailable on a received database", ctx),
         },
         Err(response) => response,

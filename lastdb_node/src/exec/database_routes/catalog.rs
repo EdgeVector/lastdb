@@ -51,6 +51,9 @@ fn database(home: &Path, share: &RegisteredShare) -> Value {
         ));
     }
     value["kind"] = json!("received");
+    if share.whole_database() {
+        value["sharingMode"] = json!("whole_database");
+    }
     value
 }
 

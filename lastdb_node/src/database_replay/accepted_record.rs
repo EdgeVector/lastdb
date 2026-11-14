@@ -188,6 +188,7 @@ fn record_contribution(body: &AcceptedBody) -> Result<Option<ContributionAdmissi
         receipt_id: hex_32(&section.receipt_sha256)?,
         intent_digest: hex_32(&section.intent_sha256)?,
         writer: section.writer.clone(),
+        schema_scope: section.schema_scope,
     }))
 }
 

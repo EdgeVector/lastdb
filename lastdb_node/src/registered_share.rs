@@ -31,6 +31,12 @@ pub struct RegisteredShare {
 }
 
 impl RegisteredShare {
+    pub(crate) fn whole_database(&self) -> bool {
+        self.spec
+            .as_ref()
+            .is_some_and(crate::share_spec::PublicationSpec::whole_database)
+    }
+
     pub fn publisher(&self) -> &Digest {
         &self.publisher
     }

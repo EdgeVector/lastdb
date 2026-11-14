@@ -187,6 +187,7 @@ fn next_member(
         role,
         state,
         regrant,
+        write_schemas: None,
     })
 }
 

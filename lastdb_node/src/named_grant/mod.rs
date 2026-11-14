@@ -15,7 +15,7 @@ mod successor;
 use cloud_backup_protocol::Digest;
 use std::path::Path;
 
-pub(crate) use config::{read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use config::{lock_applied, read_config, set_config, ConfigError, ConfigUpdate};
 pub(crate) use invite::{issue_invitation, seal_named_invitation};
 
 /// What the publisher wants the member row to become.
@@ -48,6 +48,9 @@ pub(crate) async fn update_member(
     intent: MemberIntent,
 ) -> Result<MemberAck, String> {
     let entry = crate::host::owned::find_shareable(home, selector)?;
+    if entry.whole_database() && matches!(intent, MemberIntent::Submit { .. }) {
+        return Err("whole-database writers require a configured schema scope".into());
+    }
     let _lock = pending::lock(home, &entry.id)?;
     let session = session::open(home).await?;
     if &session.publisher == node {

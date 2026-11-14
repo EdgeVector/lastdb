@@ -33,7 +33,10 @@ function report(error) {
 }
 
 function nameOf(row) { return row.name || row.id || row.databaseId; }
-function specOf(row) { return row.spec ? `${row.spec.name} v${row.spec.version}` : 'Spec unavailable'; }
+function specOf(row) {
+  if (row.sharingMode === 'whole_database') return 'Whole database';
+  return row.spec ? `${row.spec.name} v${row.spec.version}` : 'Spec unavailable';
+}
 function isOwned(row) { return row.kind === 'shareable'; }
 function accessOf(row) {
   if (isOwned(row)) return 'Owner';
@@ -121,13 +124,19 @@ function showPerson(panel, result) {
 }
 
 function showDatabase(panel, result) {
-  const {database, sharing, pendingEdit} = result;
+  const {database, sharing, pendingEdit, circles, schemas} = result;
   panel.append(element('h2', nameOf(database)), element('p', `${specOf(database)} · ${accessOf(database)}`, 'muted'));
   if (!sharing) {
     panel.append(element('p', database.state === 'ready' ? 'Downloaded records available' : 'Waiting for initial sync', 'status'));
     if (database.publisher) panel.append(element('p', `Publisher ${database.publisher}`, 'identity muted'));
     if (database.selfAccess?.confirmedAtMs) panel.append(element('p',
       `Cloud access confirmed ${new Date(Number(database.selfAccess.confirmedAtMs)).toLocaleString()}`, 'muted'));
+    if (database.sharingMode === 'whole_database' && database.selfAccess?.state === 'active') {
+      const scope = database.selfAccess.writeSchemas;
+      panel.append(element('p', scope === 'all' ? 'Can read the whole database and write all schemas.'
+        : scope?.length ? 'Can read the whole database and write selected schemas.'
+          : 'Can read the whole database. Read only.', 'status'));
+    }
     return;
   }
   if (pendingEdit) {
@@ -136,13 +145,33 @@ function showDatabase(panel, result) {
   }
   if (sharing.status) panel.append(element('p', `Roster ${sharing.status}.`, 'status'));
   else panel.append(element('p', `Confirmed revision ${sharing.revision}`, 'status'));
-  if (!sharing.status) panel.append(button('Invite reader', () => invite(database), 'quiet'));
+  if (!sharing.status && circles) {
+    panel.append(element('p', 'Members can read the whole database. Choose the schemas each circle can write to.', 'muted'));
+    section(panel, 'Circles', circles.map((circle) => {
+      const row = element('div', null, 'row');
+      row.append(element('span', `${circle.name} · ${circle.members.length} member(s)`),
+        element('span', circle.writeSchemas === 'all' ? 'All schemas' : circle.writeSchemas.join(', ') || 'Read only'));
+      return row;
+    }), 'No circles share this database.');
+    if (!pendingEdit) panel.append(button('Edit circles', () => editCircles(database, sharing, circles, schemas), 'quiet'));
+  }
+  if (!sharing.status && !circles) panel.append(button('Invite reader', () => invite(database), 'quiet'));
   const members = (sharing.members || []).map((member) => {
     const row = element('div', null, 'row');
     const label = element('div', member.name || member.nodeKey, 'identity');
-    label.append(element('span', `${member.role === 'read' ? 'Reader' : 'Contributor'} · ${member.state}`, 'muted'));
+    const writes = member.writeSchemas;
+    const names = writes === 'all' ? 'All schemas' : writes?.map((id) =>
+      Object.keys(schemas || {}).find((name) => schemas[name] === id) || id).join(', ');
+    label.append(element('span', `${names || (member.role === 'read' ? 'Read only' : 'Contributor')} · ${member.state}`, 'muted'));
     row.append(label);
-    if (member.state === 'active') row.append(button('Revoke', () => revoke(database, member), 'quiet'));
+    const actions = element('div', null, 'row-actions');
+    if (circles && member.state === 'active' && member.name) {
+      actions.append(button('Seal invitation', async () => showReceipt(await api('circle-invitation', {
+        databaseId: database.id, nodeKey: member.nodeKey,
+      })), 'quiet'));
+    }
+    if (member.state === 'active') actions.append(button('Revoke', () => revoke(database, member), 'quiet'));
+    row.append(actions);
     return row;
   });
   if (!sharing.status) section(panel, 'People with access', members, 'Nobody has been invited.');
@@ -155,16 +184,20 @@ function dialog(title, label, fields, submit) {
   $('form-error').hidden = true;
   $('submit').textContent = label;
   $('submit').disabled = false;
-  $('fields').replaceChildren(...fields.map(({name, label, type, options, optional}) => {
+  $('fields').replaceChildren(...fields.map(({name, label, type, options, optional, value}) => {
     const wrapper = element('label', label);
     const control = element(type === 'textarea' ? 'textarea' : options ? 'select' : 'input');
     control.name = name;
-    control.required = !optional;
+    control.required = !optional && !['checkbox', 'multiselect'].includes(type);
+    if (type === 'checkbox') control.type = 'checkbox';
+    if (type === 'multiselect') control.multiple = true;
     for (const option of options || []) {
       const node = element('option', option.name);
       node.value = option.nodeKey;
+      if (type === 'multiselect') node.selected = value?.includes(option.nodeKey) ?? false;
       control.append(node);
     }
+    if (value !== undefined && type !== 'multiselect') control.value = value;
     wrapper.append(control);
     return wrapper;
   }));
@@ -173,8 +206,16 @@ function dialog(title, label, fields, submit) {
     $('submit').disabled = true;
     $('form-error').hidden = true;
     try {
-      const value = await submit(Object.fromEntries(new FormData(form)));
+      const data = new FormData(form);
+      const input = Object.fromEntries(fields.map(({name, type}) => [
+        name, type === 'multiselect' ? data.getAll(name) : type === 'checkbox' ? data.has(name) : data.get(name),
+      ]));
+      const value = await submit(input);
       dialog.close();
+      if (typeof value === 'function') {
+        value();
+        return;
+      }
       try { await refresh(); } catch (error) { report(error); }
       if (value?.invitation) showReceipt(value);
     } catch (error) {
@@ -195,9 +236,45 @@ function remember() {
 }
 
 function create() {
-  dialog('New database', 'Create database', [{name: 'name', label: 'Name'}], async (data) => {
+  const options = [
+    {name: 'Social albums and photos', nodeKey: 'social'},
+    {name: 'Whole database with circle write access', nodeKey: 'whole_database'},
+  ];
+  dialog('New database', 'Create database', [
+    {name: 'name', label: 'Name'},
+    {name: 'sharingMode', label: 'Sharing', options},
+  ], async (data) => {
     const database = await api('create', data);
     state.selected = database.id;
+  });
+}
+
+function editCircles(database, sharing, circles, schemas) {
+  const options = [{name: 'New circle', nodeKey: ''}, ...circles.map((circle) => ({name: circle.name, nodeKey: circle.name}))];
+  dialog('Circle settings', 'Continue', [{name: 'circle', label: 'Circle', options, optional: true}],
+    ({circle}) => () => editCircle(database, sharing, circles, schemas, circle));
+}
+
+function editCircle(database, sharing, circles, schemas, name) {
+  const current = circles.find((circle) => circle.name === name);
+  const schemaOptions = [{name: 'All schemas, including future schemas', nodeKey: 'all'},
+    ...Object.keys(schemas).sort().map((key) => ({name: key, nodeKey: key}))];
+  const revoked = sharing.members.filter((member) => member.state === 'revoked');
+  const fields = [
+    {name: 'name', label: 'Circle name', value: name},
+    {name: 'members', label: 'Members', type: 'multiselect', options: state.home.people, value: current?.members},
+    {name: 'writeSchemas', label: 'Writable schemas', type: 'multiselect', options: schemaOptions,
+      value: current?.writeSchemas === 'all' ? ['all'] : current?.writeSchemas},
+  ];
+  if (revoked.length) fields.push({name: 'restore', label: 'Explicitly restore selected members',
+    type: 'multiselect', options: revoked.map((member) => ({name: member.name || member.nodeKey, nodeKey: member.nodeKey}))});
+  if (current) fields.push({name: 'remove', label: 'Remove this circle from the database', type: 'checkbox'});
+  dialog('Circle access', 'Apply circle grants', fields, async (data) => {
+    const next = circles.filter((circle) => circle.name !== name);
+    if (!data.remove) next.push({name: data.name, members: data.members,
+      writeSchemas: data.writeSchemas.includes('all') ? 'all' : data.writeSchemas});
+    await api('circles', {databaseId: database.id, expectedRevision: sharing.revision, circles: next,
+      restore: data.restore ?? []});
   });
 }
 

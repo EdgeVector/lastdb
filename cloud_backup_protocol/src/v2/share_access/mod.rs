@@ -28,8 +28,8 @@ pub use grant::{
     MemberListReadView, ShareAccess,
 };
 pub use members::{
-    MemberListReadRequest, MemberListReadResponse, MemberListRevision, MemberListUpdate,
-    ShareMember, ShareMemberRole, ShareMemberState,
+    AllShareSchemas, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
+    MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
 pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
 pub use receipt::{

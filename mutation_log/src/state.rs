@@ -33,6 +33,8 @@ pub struct LogState {
     pub snapshot: Option<Snapshot>,
     /// Highest delivery sequence already dropped.
     pub trimmed_through: u64,
+    /// Publisher-confirmed delivery prefix of consumed whole-database submissions.
+    pub submissions_consumed_through: u64,
     /// Submissions already copied by the publisher key.
     ///
     /// The key is `(submission writer, writer_seq)`, once in total. A persistent
@@ -69,6 +71,7 @@ impl LogState {
             inflight: BTreeSet::new(),
             snapshot: None,
             trimmed_through: 0,
+            submissions_consumed_through: 0,
             incorporated: BTreeSet::new(),
             rejected: BTreeSet::new(),
             submission_records: BTreeMap::new(),
