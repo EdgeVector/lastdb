@@ -5,7 +5,7 @@ import re
 
 from lastdb import SocialError
 from people import People
-from sharing import Sharing, owns_social_database
+from sharing import Sharing, can_manage_sharing
 
 
 SELECTOR = re.compile(r"[a-zA-Z0-9_-]{1,64}\Z")
@@ -53,7 +53,7 @@ class SocialApp:
         if person is None:
             raise SocialError("this person is not in the address book")
         databases = self.sharing.databases()
-        owned = [row for row in databases if owns_social_database(row)]
+        owned = [row for row in databases if can_manage_sharing(row)]
         with ThreadPoolExecutor(max_workers=4) as pool:
             configurations = list(pool.map(self.sharing.configuration_row, owned))
         outgoing = []
@@ -68,7 +68,7 @@ class SocialApp:
 
     def database(self, database_id):
         row = self.selected(database_id)
-        if not owns_social_database(row):
+        if not can_manage_sharing(row):
             return {"database": row}
         config = self.sharing.configuration_row(row)
         contacts = self.people.by_keys([item["nodeKey"] for item in config.get("members", [])])

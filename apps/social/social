@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remember people and share LastDB databases from an isolated Social home."""
+"""Remember people and share databases from the selected LastDB home."""
 
 import argparse
 from http.client import HTTPException

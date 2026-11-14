@@ -35,8 +35,6 @@ class LocalConnection(http.client.HTTPConnection):
 class LastDB:
     def __init__(self, home, executable):
         self.home = home.resolve()
-        if self.home == (Path.home() / ".lastdb").resolve():
-            raise SocialError("this Social prototype requires a separate LastDB home")
         self.socket = self.home / "data" / "folddb.sock"
         self.executable = executable.resolve()
 

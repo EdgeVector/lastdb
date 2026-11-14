@@ -22,8 +22,10 @@ PENDING = {
 }
 
 
-def owns_social_database(database):
-    return database.get("kind") == "shareable" and database.get("spec") == SPEC
+def can_manage_sharing(database):
+    return database.get("kind") == "shareable" and database.get("spec") in (
+        SPEC, {"name": "lastdb-files", "version": 1},
+    )
 
 
 class Sharing:
@@ -42,8 +44,8 @@ class Sharing:
     def owned(self, selector):
         matches = [row for row in self.databases()
                    if selector in (row.get("id"), row.get("name"))]
-        if len(matches) != 1 or not owns_social_database(matches[0]):
-            raise SocialError(f"{selector} is not an owned social v1 database")
+        if len(matches) != 1 or not can_manage_sharing(matches[0]):
+            raise SocialError(f"{selector} needs an owned database with a supported sharing format")
         return matches[0]
 
     def configuration(self, database_id):
@@ -54,7 +56,7 @@ class Sharing:
 
     def all_configurations(self, selector):
         databases = [self.owned(selector)] if selector else [
-            row for row in self.databases() if owns_social_database(row)
+            row for row in self.databases() if can_manage_sharing(row)
         ]
         with ThreadPoolExecutor(max_workers=4) as pool:
             return list(pool.map(self.configuration_row, databases))

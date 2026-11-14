@@ -105,7 +105,7 @@ function isUuidName(value: string): boolean {
   return UUID_HYPHENATED.test(value) || UUID_SIMPLE.test(value);
 }
 
-function parseListedDatabase(value: unknown): ListedDatabase {
+export function parseListedDatabase(value: unknown): ListedDatabase {
   if (!isObject(value) || typeof value['id'] !== 'string' || value['id'].length === 0) {
     throw new UnexpectedResponseError('database list returned a row with no id', 200, value);
   }

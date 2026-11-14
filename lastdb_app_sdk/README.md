@@ -5,11 +5,14 @@ node's Unix-socket `/api/*` surface: connect, verify API compatibility, and run
 keyed queries, conditional record mutations, membership lists, and change-feed
 reads.
 
-## Install
+## Install a build of the SDK
 
 ```bash
-npm install @lastdb/app-sdk
+npm install /path/to/lastdb-app-sdk-0.8.0.tgz
 ```
+
+Use the tarball from the Social sharing DEV operation, or build one from
+this directory with `npm ci`, `npm run build`, and `npm pack --ignore-scripts`.
 
 ## Quickstart
 
@@ -68,6 +71,41 @@ const same = await connect({ appId: 'photos', databaseId: created.name ?? create
 ```
 
 `ownerClient({ appId, socketPath, databaseId })` selects the same way.
+
+## Set up sharing with Social
+
+Use `socialClient` with Social 0.2.0 or later and the same LastDB home
+as your data client. Use a database name to create, invite, or revoke.
+The create helper uses LastDB's existing Social format.
+
+```ts
+import { connect, socialClient } from '@lastdb/app-sdk';
+
+const social = socialClient({ dataDir });
+const root = await connect({ appId: 'photo-journal', socketPath });
+const database = await social.createDatabase('family');
+const family = root.select(database.id);
+// Use the regular LastDB client to declare schemas and write records.
+
+const receipt = await social.inviteReader('family', {
+  name: 'Ana',
+  nodeKey: anaVerifiedKey,
+  contactPath: anaContactFile,
+});
+// Hand the sealed receipt to Ana through your chosen channel.
+```
+
+On Ana's device, call `social.acceptInvitation(receipt, verifiedPublisherKey)`.
+The returned database includes its verified spec. Use `root.select(database.id)`
+on that device to open it, and save the ID to reopen it later. The publisher
+can call `social.revokeAccess('family', anaVerifiedKey)`. Social remembers
+verified contacts across databases, so later invitations can omit `contactPath`.
+Keep sealed receipts out of logs.
+
+For an existing named database set up with LastDB's Social or Files format,
+pass its name directly to `inviteReader`. The sealed invitation carries its
+stable ID. Social manages people and sharing through the existing owner
+connection. Content apps use LastDB's regular database APIs.
 
 ## Registered Shares
 

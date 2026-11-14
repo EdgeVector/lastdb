@@ -9,6 +9,7 @@ on:
       - '.github/workflows/cloud-backup-build.yml'
       - 'scripts/cloud_backup/**'
       - 'apps/social/**'
+      - 'lastdb_app_sdk/**'
       - 'lastdb-app.json'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
@@ -61,6 +62,7 @@ jobs:
           python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
           python3 -m json.tool lastdb-app.json > /dev/null
           node --check apps/social/web/app.js
+          node --check scripts/cloud_backup/social_sdk.mjs
 
   build-client:
     name: Build
@@ -80,6 +82,7 @@ jobs:
     timeout-minutes: 12
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -89,6 +92,47 @@ jobs:
         with:
           name: ${{ needs.build-client.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client
+      - name: Build the Social SDK for the DEV operation
+        if: inputs.mode == 'social-share'
+        working-directory: lastdb_app_sdk
+        run: |
+          npm ci
+          npm run build
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+          mkdir -m 700 "$RUNNER_TEMP/social-sdk"
+          tar -xzf "$RUNNER_TEMP"/lastdb-app-sdk-*.tgz -C "$RUNNER_TEMP/social-sdk"
+          cp ../scripts/cloud_backup/social_sdk.mjs "$RUNNER_TEMP/social-sdk/exercise.mjs"
+          printf 'SOCIAL_SDK_OPERATION=%s/social-sdk/exercise.mjs\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Retain the SDK package for app developers
+        if: inputs.mode == 'social-share'
+        id: social-sdk
+        uses: actions/upload-artifact@v7
+        with:
+          name: social-sdk-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lastdb-app-sdk-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record SDK package provenance
+        if: inputs.mode == 'social-share'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SDK_ARTIFACT_ID: ${{ steps.social-sdk.outputs.artifact-id }}
+          SDK_ARTIFACT_URL: ${{ steps.social-sdk.outputs.artifact-url }}
+          SDK_ARTIFACT_DIGEST: ${{ steps.social-sdk.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SDK_ARTIFACT_ID" \
+            --jq '[.workflow_run.head_sha, .digest, .expired, .expires_at] | @tsv')"
+          IFS=$'\t' read -r source digest expired expiration <<< "$metadata"
+          test "$source" = "$GITHUB_SHA"
+          test "${digest#sha256:}" = "${SDK_ARTIFACT_DIGEST#sha256:}"
+          test "$expired" = false
+          test -n "$expiration"
+          {
+            printf 'SDK package source: %s\n\n' "$GITHUB_SHA"
+            printf '[Download SDK package](%s)\n\n' "$SDK_ARTIFACT_URL"
+            printf 'Archive SHA-256: %s. Expires: %s.\n' "$SDK_ARTIFACT_DIGEST" "$expiration"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Exercise the selected DEV product operation
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}

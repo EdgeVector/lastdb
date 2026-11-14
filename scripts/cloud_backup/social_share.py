@@ -10,7 +10,7 @@ import uuid
 
 from signed_files import retry, run_operation, summary
 from social_app import (call as app_call, command as social_command, install, observe_access,
-                        open_content_apps, read_album, report_content_flow, window)
+                        open_content_apps, read_album, report_content_flow, sdk, window)
 from support import OperationError, decode_json, require
 
 
@@ -97,7 +97,7 @@ def transfer(programs, root, publisher, recipient, api_key):
     if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
         install(publisher, root, revision)
     name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
-    created = social(publisher, "create-db", name)
+    created = sdk(publisher, "create", name=name)
     database = str(uuid.UUID(created["id"]))
     require(database == created["id"] and created["spec"] == SPEC, "social_created_database")
     summary(f"Owned DEV mutation log `{database}` for `{name}`.")
@@ -129,19 +129,16 @@ def transfer(programs, root, publisher, recipient, api_key):
         require(person == {"name": "Ana", "nodeKey": reader_key}
                 and person in app_call(owner_app, "/api/home")["people"], "social_app_saved_contact")
         with window(recipient) as recipient_app:
-            share_albums(publisher, recipient, database, definition, reader_key, publisher_key,
-                         owner_app, recipient_app)
+            share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app)
     check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
 
 
-def share_albums(publisher, recipient, database, definition, reader_key, publisher_key, owner_app, recipient_app):
+def share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app):
     try:
-        receipt = app_call(owner_app, "/api/invite", {"databaseId": database, "nodeKey": reader_key})
-        require(receipt["publisher"] == publisher_key and receipt["revision"] == "1",
+        receipt = sdk(publisher, "invite", database=name, recipient={"name": "Ana", "nodeKey": reader_key})
+        require(receipt["databaseId"] == database and receipt["publisher"] == publisher_key and receipt["revision"] == "1",
                 "social_publisher_identity")
-        received = app_call(recipient_app, "/api/accept", {
-            "publisher": publisher_key, "name": "family", "receipt": receipt,
-        })
+        received = sdk(recipient, "accept", publisher=publisher_key, name="family", receipt=receipt)
         require(received.get("id") == database and received.get("spec") == SPEC
                 and received.get("access") == "reader", "social_received_metadata")
         wait_for_album(recipient, database, 0)
@@ -159,7 +156,8 @@ def share_albums(publisher, recipient, database, definition, reader_key, publish
         write_album(publisher, database, definition, 1)
         wait_for_album(recipient, database, 1)
         require(read_album(recipient, selections, database, "album-1", ALBUMS[1]), "social_apps_second_album")
-        revoke(publisher, database, reader_key, 2)
+        require(sdk(publisher, "revoke", database=name, nodeKey=reader_key) == "2", "social_sdk_revoke")
+        expect_roster(publisher, database, 2, {"nodeKey": reader_key, "role": "read", "state": "revoked"})
         write_album(publisher, database, definition, 2)
         for _ in range(12):
             require(album(recipient, database, 2) == [], "social_revoked_read_new_album")
@@ -179,7 +177,8 @@ def share_albums(publisher, recipient, database, definition, reader_key, publish
             revoke(publisher, database, reader_key, final_revision)
             print(f"Final ExeMem revoke acknowledged at revision {final_revision}.", flush=True)
             summary(f"Final ExeMem revoke acknowledged at revision {final_revision}.")
-    message = ("Social returned a sealed invitation to the caller and the other Social instance accepted it. "
+    message = ("The Social SDK created a named database and returned a sealed invitation when called by name. "
+               "The recipient opened the same database ID through the SDK. "
                "ExeMem confirmed grant, revoke and regrant. The recipient kept the Social v1 spec across "
                "restart, read later albums, stopped receiving them after revoke, and caught up after regrant.")
     print(message, flush=True)

@@ -23,6 +23,15 @@ def command(node):
     return [entrypoint, "--data-dir", str(node.home), "--lastdb", str(node.programs.directory / "lastdb")]
 
 
+def sdk(node, action, **body):
+    result = subprocess.run(
+        ["node", os.environ["SOCIAL_SDK_OPERATION"], action, *command(node)],
+        input=json.dumps(body).encode(), capture_output=True, env=node.programs.environment, timeout=190,
+    )
+    require(result.returncode == 0, f"social_sdk_{action}")
+    return decode_json(result.stdout)
+
+
 def install(publisher, root, revision):
     programs = publisher.programs
     require(len(revision) == 40 and all(char in "0123456789abcdef" for char in revision), "social_install_revision")
