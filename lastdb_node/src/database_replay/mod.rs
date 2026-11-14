@@ -19,6 +19,7 @@
 
 mod accepted_record;
 mod apply;
+mod archived;
 mod chain;
 mod decode;
 mod journal;
@@ -85,14 +86,23 @@ pub(crate) async fn install(
             journal::save(&host.home, &journal)?;
         }
         let owner = hex::encode(host.keypair.public_key_bytes());
-        let mut applier = apply::SnapshotApplier {
+        let mut applier = archived::SnapshotApplier {
             store: &store,
             decoder,
             home: &host.home,
             files,
-            owner: match &target.place {
-                Place::Owned(_) if target.private => Some((&owner, local_device)),
-                _ => None,
+            scope: match (&target.place, target.private, local_device) {
+                (Place::Owned(_), true, _) => archived::SnapshotReplay::PrivateOwner {
+                    key: &owner,
+                    local_device,
+                },
+                (Place::Owned(_), false, Some(device)) => {
+                    archived::SnapshotReplay::LocalPublisher {
+                        key: &owner,
+                        device,
+                    }
+                }
+                _ => archived::SnapshotReplay::Imported,
             },
         };
         let replay = applier.replay(&chain, &mut journal);
