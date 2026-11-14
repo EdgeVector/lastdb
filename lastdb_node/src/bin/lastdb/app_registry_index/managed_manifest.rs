@@ -132,7 +132,7 @@ pub(super) fn steps(
     let pass =
         "HOME PATH TMPDIR USER LOGNAME SSH_AUTH_SOCK LASTDB_APPS_ROOT LANG LAST_STACK_APPS_OFF";
     let data = home.join("data");
-    let sock = crate::lastdb_uds::uds::socket_path(&data);
+    let sock = lastdb_node::lastdb_uds::socket_path(&data);
     for step in list {
         let mut cmd = ProcessCommand::new(&step.argv[0]);
         #[cfg(unix)]

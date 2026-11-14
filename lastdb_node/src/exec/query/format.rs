@@ -167,7 +167,7 @@ fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
     Value::Object(row)
 }
 
-pub(in crate::exec) fn format_alternate_page(
+pub(super) fn format_alternate_page(
     mut page: AlternatePage,
     compact: bool,
     limit: usize,

@@ -54,7 +54,7 @@ pub(super) async fn db_fetch_blob(
 ) -> UdsResponse {
     let read = async {
         let t = FileTarget::parse(&req.body, "/api/db/fetch-blob")?;
-        let s = schema_resolve::resolve_schema_name(host, &t.schema)?
+        let s = schema_routes::resolve_schema_name(host, &t.schema)?
             .ok_or_else(|| HostError::new(404, format!("schema '{}' not found", t.schema)))?;
         let rev = t.expected_revision.as_deref();
         match t.placement {

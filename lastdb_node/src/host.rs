@@ -15,9 +15,10 @@ pub use crate::identity::{
 };
 
 pub(crate) mod database_sessions;
+mod logging;
 pub(crate) mod owned;
 mod recovery;
-pub use recovery::init_daemon_logging;
+pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 

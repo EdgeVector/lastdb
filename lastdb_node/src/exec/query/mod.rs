@@ -12,15 +12,18 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::reply::{render, HostError};
-use super::schema_resolve::resolve_schema_name;
+use super::schema_routes::resolve_schema_name;
 use super::wire::{body_object, parse_query_body, QueryRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 mod format;
 
-use format::{cursor_payload, format_rows, full_schema_scan_rejection, page_payload, sort_rows};
-pub(in crate::exec) use format::{format_alternate_page, query_batch_route};
+pub(in crate::exec) use format::query_batch_route;
+use format::{
+    cursor_payload, format_alternate_page, format_rows, full_schema_scan_rejection, page_payload,
+    sort_rows,
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,8 +34,7 @@ pub(in crate::exec) enum QueryResponseFormat {
     Count,
 }
 
-#[must_use]
-pub(in crate::exec) fn clamp_request_limit(limit: Option<usize>) -> usize {
+fn clamp_request_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(100).min(1000)
 }
 

@@ -4,7 +4,7 @@ use cloud_backup_protocol::Id;
 
 use super::*;
 use crate::host::database_sessions::LIFETIME;
-use crate::lastdb_uds::{database_path, uds_router};
+use crate::lastdb_uds::{split_database_path, uds_router};
 
 const HEADER: &str = "X-LastDB-Database-Session";
 const PATH: &str = "/api/databases/session";
@@ -88,7 +88,7 @@ pub fn admit(req: &UdsRequest, host: &Host) -> bool {
     if req.method == "GET" && req.target == "/api/version" {
         return true;
     }
-    let Some((id, path)) = database_path::split(&req.target) else {
+    let Some((id, path)) = split_database_path(&req.target) else {
         return false;
     };
     let path = path.split(['?', '#']).next().unwrap_or_default();

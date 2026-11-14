@@ -1,12 +1,9 @@
-//! Request parsing, typed I4-safe rejection, and manifest/seed validation helpers.
+//! Request parsing, query-string helpers, and typed I4-safe rejection.
 
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::operations::{MutationConvergence, Operation};
-use fold_db::schema::types::{
-    DeclarativeSchemaDefinition, FieldValueType, Mutation, Query, QueryCursor, SchemaType,
-};
-use fold_db::schema::ManifestRetention;
+use fold_db::schema::types::{Mutation, Query, QueryCursor};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -321,40 +318,4 @@ pub(in crate::exec) fn schema_name_from_target(target: &str) -> Option<String> {
     let end = target.find(['?', '#']).unwrap_or(target.len());
     let raw = target[..end].strip_prefix("/api/schema/")?;
     (!raw.is_empty() && !raw.contains('/')).then(|| percent_decode(raw))
-}
-
-pub(in crate::exec) type RetLayout = (u64, &'static str, Vec<String>, bool);
-
-pub(in crate::exec) fn validate_manifest_retention(
-    retention: Option<ManifestRetention>,
-    s: &DeclarativeSchemaDefinition,
-) -> Result<Option<RetLayout>, String> {
-    fn str_prefix(k: &FieldValueType) -> bool {
-        match k {
-            FieldValueType::String | FieldValueType::Any => true,
-            FieldValueType::OneOf(v) => v.iter().any(str_prefix),
-            _ => false,
-        }
-    }
-    let Some(ret) = retention else {
-        return Ok(None);
-    };
-    let ttl = ret.ttl()?;
-    if matches!(s.schema_type, SchemaType::Hash | SchemaType::Single) {
-        return Ok(Some((
-            ttl,
-            "records expire by the time since the last write; a rewrite resets the age",
-            Vec::new(),
-            false,
-        )));
-    }
-    let rk = s
-        .record_keys
-        .as_ref()
-        .ok_or("retention requires explicit record_keys")?;
-    let warn = (!rk.primary.range_type.as_ref().is_some_and(str_prefix))
-        .then(|| "retention uses 20 zero-padded unix-second digits at the start of an explicit String range key".into())
-        .into_iter()
-        .collect();
-    Ok(Some((ttl, "records expire by the entry time at the front of the range key: unix seconds, zero-padded to 20 digits. A range key without that prefix never expires", warn, true)))
 }

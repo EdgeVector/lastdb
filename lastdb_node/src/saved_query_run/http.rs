@@ -11,8 +11,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::lastdb_uds::database_path::{valid_selector, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
-use crate::lastdb_uds::uds::socket_path;
+use crate::lastdb_uds::{socket_path, valid_selector, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
 use crate::profile::paths::{expand_tilde_path, folddb_home};
 use crate::saved_query::MAX_RECORDS;
 use crate::service_home::{configured_home, explicit_home_override_present};

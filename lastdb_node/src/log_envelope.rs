@@ -14,15 +14,13 @@ use fold_db::crypto::envelope::{
 };
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
-use fold_db::security::Ed25519KeyPair;
 use zeroize::Zeroizing;
 
-use crate::cloud_backup_client::byte_backup::GuestReadPermission;
 use crate::host::{owned::Resolved, Host};
-use crate::share_invitation::{seal_invitation, OpenedShareInvitation, ShareContact};
+use crate::share_invitation::OpenedShareInvitation;
 
 /// Domain mixed into the associated data. It is not stored in the ciphertext.
-pub const MUTATION_LOG_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log:v1";
+const MUTATION_LOG_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log:v1";
 const MUTATION_LOG_BLOB_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log-blob:v1";
 
 /// Metadata both the producer and the receiver already know.
@@ -55,7 +53,6 @@ pub struct IncorporatedRef<'a> {
 pub struct DatabaseContentKey {
     bytes: Zeroizing<[u8; 32]>,
     database_id: String,
-    invite: bool,
 }
 
 /// Why a log payload was not sealed or opened.
@@ -67,7 +64,6 @@ pub enum LogEnvelopeError {
     PlaintextRefused,
     Seal,
     Open,
-    Invitation,
 }
 
 impl std::fmt::Display for LogEnvelopeError {
@@ -79,7 +75,6 @@ impl std::fmt::Display for LogEnvelopeError {
             Self::PlaintextRefused => "plaintext mutation log payload is refused",
             Self::Seal => "mutation log payload cannot be sealed",
             Self::Open => "mutation log payload cannot be opened",
-            Self::Invitation => "database content key invitation cannot be sealed",
         })
     }
 }
@@ -90,7 +85,6 @@ impl std::fmt::Debug for DatabaseContentKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DatabaseContentKey")
             .field("database_id", &self.database_id)
-            .field("invite", &self.invite)
             .finish()
     }
 }
@@ -112,8 +106,7 @@ impl DatabaseContentKey {
                 Ok(Some((Arc::clone(&host.db), key)))
             }
             (Resolved::Owned, Some(store)) => {
-                let mut key = Self::owned(&seed, database_id)?;
-                key.invite = false;
+                let key = Self::owned(&seed, database_id)?;
                 Ok(Some((store, key)))
             }
             (Resolved::Absent, None) => Ok(None),
@@ -129,11 +122,7 @@ impl DatabaseContentKey {
         if material(&bytes) == node_seed || is_zero(material(&bytes)) {
             return Err(LogEnvelopeError::Key);
         }
-        Ok(Self {
-            bytes,
-            database_id,
-            invite: false,
-        })
+        Ok(Self { bytes, database_id })
     }
 
     /// Owned sibling. Uses A's derivation and returns only the AES key.
@@ -142,11 +131,7 @@ impl DatabaseContentKey {
         let bytes = crate::host::owned::content_encryption_key(node_seed, &database_id)
             .map_err(|_| LogEnvelopeError::Key)?;
         refuse_owner_material(node_seed, material(&bytes))?;
-        Ok(Self {
-            bytes,
-            database_id,
-            invite: true,
-        })
+        Ok(Self { bytes, database_id })
     }
 
     /// Receiver key from an opened invitation. It cannot be sealed again.
@@ -157,7 +142,6 @@ impl DatabaseContentKey {
         Ok(Self {
             bytes: Zeroizing::new(*opened.publication_key.deref()),
             database_id: opened.permission.stream().stream_id.as_str().to_owned(),
-            invite: false,
         })
     }
 
@@ -230,26 +214,6 @@ fn open_bound(
     }
     let (aes, aad) = bound(key, binding, domain)?;
     decrypt_envelope_with_aad(aes, &aad, ciphertext).map_err(|_| LogEnvelopeError::Open)
-}
-
-/// Seal only the shareable database content key to one recipient.
-///
-/// The node seed and the personal content key are not arguments. A personal
-/// key and a key taken from an invitation are refused.
-pub fn seal_content_key_invitation(
-    contact: &ShareContact,
-    permission: &GuestReadPermission,
-    key: &DatabaseContentKey,
-    publisher: &Ed25519KeyPair,
-) -> Result<Vec<u8>, LogEnvelopeError> {
-    if !key.invite {
-        return Err(LogEnvelopeError::NotInvitable);
-    }
-    if permission.stream().stream_id.as_str() != key.database_id {
-        return Err(LogEnvelopeError::InvalidBinding);
-    }
-    seal_invitation(contact, permission, material(&key.bytes), publisher)
-        .map_err(|_| LogEnvelopeError::Invitation)
 }
 
 fn bound<'a>(

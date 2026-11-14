@@ -353,12 +353,16 @@ def check_crate(crate_dir, layer_file, summary, top):
             if key in owner:
                 errors.append(f"module {mod} is listed in two layers")
             owner[key] = idx
-            if not any(m[: len(key)] == key for m in crate.modules):
+            if (key == () and () not in crate.modules) or (
+                key != () and not any(m[: len(key)] == key for m in crate.modules)
+            ):
                 errors.append(f"module {mod} (layer {name}) does not exist in {src}")
 
     def layer_of(rel):
         mod = module_of(rel)
-        for n in range(len(mod), -1, -1):
+        if not mod:
+            return owner.get(())
+        for n in range(len(mod), 0, -1):
             if mod[:n] in owner:
                 return owner[mod[:n]]
         return None

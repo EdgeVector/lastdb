@@ -1,82 +1,15 @@
-//! Database target resolution, `db list`, and `lastdb mutate`.
+//! Record and file-blob mutation submission (`lastdb mutate`).
 
 use super::*;
-use lastdb_node::lastdb_uds::database_path::{self, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
-use serde_json::json;
-use std::borrow::Cow;
+use lastdb_node::exec::parse_mutation_body;
+use lastdb_node::lastdb_uds::{admin_handler_timeout, handler_timeout};
+use serde_json::{json, Value};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use uuid::Uuid;
 
 const PUT_BLOB_PATH: &str = "/api/db/put-blob";
-
-pub(crate) struct DatabaseTarget {
-    pub(crate) socket: PathBuf,
-    selector: Option<String>,
-}
-
-impl DatabaseTarget {
-    pub(crate) fn open(data_dir: Option<PathBuf>, selector: Option<&str>) -> Result<Self, String> {
-        let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-        let selector = selector.map(|v| resolve_database(&socket, v)).transpose()?;
-        Ok(Self { socket, selector })
-    }
-
-    pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
-        let Some(sel) = self.selector.as_deref() else {
-            return Cow::Borrowed(path);
-        };
-        let suffix = path
-            .strip_prefix("/api")
-            .expect("database path starts with /api");
-        Cow::Owned(format!("{DATABASE_SCOPE_PREFIX}{sel}{suffix}"))
-    }
-
-    pub(crate) fn selector(&self) -> Option<&str> {
-        self.selector.as_deref()
-    }
-}
-
-fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
-    if !database_path::valid_selector(selector) {
-        return Err("invalid database ID or name".into());
-    }
-    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
-        return Ok(selector.to_owned());
-    }
-    let raw = get_path(socket, DATABASES_PATH, Duration::from_secs(10))?;
-    parse_json_response(&raw, "database list")?["databases"]
-        .as_array()
-        .ok_or("missing database list")?
-        .iter()
-        .find_map(|db| {
-            (db["name"].as_str() == Some(selector)).then_some(())?;
-            let id = db["id"].as_str()?;
-            cloud_backup_protocol::Id::try_from(id.to_owned()).ok()?;
-            Some(id.to_owned())
-        })
-        .ok_or_else(|| "database is not registered on this node".into())
-}
-
-pub(super) fn list_databases(data_dir: Option<PathBuf>, json_only: bool) -> Result<(), String> {
-    let target = DatabaseTarget::open(data_dir, None)?;
-    let resp = parse_json_response(
-        &get_path(&target.socket, DATABASES_PATH, Duration::from_secs(10))?,
-        "database list",
-    )?;
-    if json_only {
-        println!("{resp}");
-        return Ok(());
-    }
-    for db in resp["databases"]
-        .as_array()
-        .ok_or("missing database list")?
-    {
-        let id = db["id"].as_str().ok_or("database has no ID")?;
-        let name = db["name"].as_str().unwrap_or(id);
-        let acc = db["access"].as_str().ok_or("database has no access mode")?;
-        let st = db["state"].as_str().ok_or("database has no state")?;
-        println!("{name}\t{id}\t{acc}\t{st}");
-    }
-    Ok(())
-}
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -190,7 +123,7 @@ pub(super) fn mutate_command(
     if let Some(obj) = body.as_object_mut().filter(|_| durable) {
         obj.insert("durability".into(), json!("durable"));
     }
-    lastdb_node::exec::parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+    parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
         .map_err(|r| format!("invalid complete mutation: {r:?}"))?;
     let (route, body) = match file {
         Some((Some(f), p)) => {
@@ -218,7 +151,7 @@ pub(super) fn mutate_command(
         }
     };
     let timeout = if durable {
-        lastdb_node::exec::handler_timeout().saturating_add(Duration::from_secs(20))
+        handler_timeout().saturating_add(Duration::from_secs(20))
     } else {
         Duration::from_secs(10)
     };
@@ -287,11 +220,7 @@ fn put_record_file(
     req.extend_from_slice(&bytes);
     drop(bytes);
     parse_json_response(
-        &request_with_timeout(
-            &target.socket,
-            &req,
-            lastdb_node::exec::admin_handler_timeout(),
-        )?,
+        &request_with_timeout(&target.socket, &req, admin_handler_timeout())?,
         PUT_BLOB_PATH,
     )
 }

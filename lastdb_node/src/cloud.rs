@@ -1,7 +1,7 @@
 //! Account identity, saved cloud/developer credentials, and explicit backup enrollment.
 use crate::cloud_backup_client::{bounded, build_shared_http_client, https, AuthClient};
+use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
-use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use cloud_backup_protocol::{limits::REQUEST_JSON_MAX_BYTES, AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};

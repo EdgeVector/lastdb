@@ -9,11 +9,12 @@ use std::time::Duration;
 
 use clap::Parser;
 use lastdb_node::host::{self, Host};
-use lastdb_node::lastdb_uds::database_path::{DATABASES_PATH, DATABASE_SCOPE_PREFIX};
-use lastdb_node::lastdb_uds::uds::{self, UdsSocket};
 use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use lastdb_node::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
-use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
+use lastdb_node::lastdb_uds::{
+    self, ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool, DATABASES_PATH,
+    DATABASE_SCOPE_PREFIX,
+};
 use lastdb_node::{cloud, exec, jobs, log_sync};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
@@ -261,7 +262,7 @@ fn serve_node(
     let (data_dir, pid) = (home.join("data"), std::process::id());
     let host = Arc::new(rt.block_on(Host::boot(home))?);
     let stop = Arc::new(AtomicBool::new(false));
-    let target_sock = sock_path.unwrap_or_else(|| data_dir.join(uds::SOCKET_FILE_NAME));
+    let target_sock = sock_path.unwrap_or_else(|| data_dir.join(lastdb_uds::SOCKET_FILE_NAME));
     let socket = UdsSocket::bind_at(target_sock)
         .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
     println!("lastdbd serving the owner socket");
@@ -353,7 +354,7 @@ fn run() -> Result<(), String> {
         );
     }
     if cli.socket_path.is_none() {
-        uds::preflight_data_dir(&home.join("data"))
+        lastdb_uds::preflight_data_dir(&home.join("data"))
             .map_err(|e| format!("cannot serve from {}: {e}", home.display()))?;
     }
     let stack = fold_db::env_flag::var_or("RUST_MIN_STACK", 0usize).max(64 * 1024 * 1024);
