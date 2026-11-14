@@ -111,15 +111,14 @@ impl RecordStore {
                     .get(span.base.len()..)
                     .ok_or_else(|| invalid("a record key has no range"))?
                     .to_owned();
-                let (record, cold) = match hit {
-                    Some(cached) => (cached, None),
-                    None => {
-                        let bytes = value.len();
-                        (
-                            Arc::new(decode(&value)?),
-                            warm.as_ref().map(|w| (Arc::clone(w), at, bytes)),
-                        )
-                    }
+                let (record, cold) = if let Some(cached) = hit {
+                    (cached, None)
+                } else {
+                    let bytes = value.len();
+                    (
+                        Arc::new(decode(&value)?),
+                        warm.as_ref().map(|w| (Arc::clone(w), at, bytes)),
+                    )
                 };
                 keys.push(SpanKey {
                     range,

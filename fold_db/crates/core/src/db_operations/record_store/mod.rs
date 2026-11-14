@@ -279,10 +279,7 @@ impl RecordStore {
 
     pub(crate) fn admit_span_records(&self, cold: Vec<(ColdSpanSlot, Arc<StoredRecord>)>) {
         let mut iter = cold.into_iter().peekable();
-        loop {
-            let Some(((warm, slot, bytes), record)) = iter.next() else {
-                break;
-            };
+        while let Some(((warm, slot, bytes), record)) = iter.next() {
             let mut batch = vec![(slot, record, bytes)];
             while let Some(((next_warm, _, _), _)) = iter.peek() {
                 if !Arc::ptr_eq(&warm, next_warm) {
