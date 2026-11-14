@@ -168,6 +168,7 @@ fn is_mutation_log_path(path: &str) -> bool {
             | "/api/cloud/backups/v2/mutation-log/head"
             | "/api/cloud/backups/v2/mutation-log/list"
             | "/api/cloud/backups/v2/mutation-log/ack"
+            | "/api/cloud/backups/v2/mutation-log/settle-submissions"
             | "/api/cloud/backups/v2/mutation-log/snapshot"
             | MUTATION_LOG_SNAPSHOT_BYTES_PATH
             | "/api/cloud/backups/v2/mutation-log/delivery/log"

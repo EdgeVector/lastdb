@@ -1,7 +1,7 @@
 # Social
 
 Social remembers verified contacts in the local personal database and manages
-reader access to owned named LastDB databases set up for sharing. It uses the
+access to owned named LastDB databases set up for sharing. It uses the
 LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
@@ -51,9 +51,22 @@ until LastDB confirms the result or definitively rejects it. A later `add` or
 Run `social --data-dir "$lastdb_home" open` on a running LastDB node. The
 launcher opens a browser window for the local Social session. Add verified
 contacts under People. Use Databases to create a share, see the applied roster,
-revoke a reader, copy the sealed invitation, or accept one. The recipient's
+revoke access, copy the sealed invitation, or accept one. The recipient's
 cloud access and downloaded record readiness are shown separately. Use
 `open --database ID` to go directly to a database's sharing settings.
+
+Choose **Whole database with circle write access** when creating a database
+for circles. Install the database's schemas through LastDB, then open **Circle
+settings** to assign remembered contacts and select the schemas each circle
+can change. A member can read records from every schema in the database.
+An empty write selection grants read-only access. Multiple circles combine
+their write grants. An explicit selection covers the installed definition IDs.
+The **All schemas** choice also covers future definitions. Use **Seal
+invitation** on an active member to get the receipt to hand to them.
+
+LastDB queues member writes for the publisher's online LastDB to validate and
+commit. A successful submission reports that ExeMem queued the write. Read
+the record to confirm it was committed and synced.
 
 TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
 for database creation, invitation, acceptance and revocation.

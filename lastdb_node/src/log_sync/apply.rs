@@ -62,12 +62,14 @@ pub(crate) async fn apply_page(
         return Ok(PagePlan::Ack(*cursor));
     }
     let mut handled = None;
+    let mut consumed = None;
     let whole = crate::host::owned::find_shareable(&host.home, log.database_id())
         .is_ok_and(|entry| entry.whole_database());
     for stored in entries {
         let entry = &stored.entry;
         if whole && &entry.writer.key != log.principal() {
             super::contributions::apply(host, log, entry).await?;
+            consumed = Some(stored.delivery_seq);
             handled = Some(stored.delivery_seq);
             continue;
         }
@@ -78,9 +80,15 @@ pub(crate) async fn apply_page(
             || &entry.writer.device != log.device()
             || !mark_local(host, log.database_id(), entry)?
         {
+            if let Some(through) = consumed {
+                super::contributions::settle(log, through).await?;
+            }
             return Ok(PagePlan::Hold(handled));
         }
         handled = Some(stored.delivery_seq);
+    }
+    if let Some(through) = consumed {
+        super::contributions::settle(log, through).await?;
     }
     Ok(PagePlan::Ack(*cursor))
 }

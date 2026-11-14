@@ -236,8 +236,15 @@ function remember() {
 }
 
 function create() {
-  dialog('New database', 'Create database', [{name: 'name', label: 'Name'}], async (data) => {
-    const database = await api('create', {...data, sharingMode: 'whole_database'});
+  const options = [
+    {name: 'Social albums and photos', nodeKey: 'social'},
+    {name: 'Whole database with circle write access', nodeKey: 'whole_database'},
+  ];
+  dialog('New database', 'Create database', [
+    {name: 'name', label: 'Name'},
+    {name: 'sharingMode', label: 'Sharing', options},
+  ], async (data) => {
+    const database = await api('create', data);
     state.selected = database.id;
   });
 }

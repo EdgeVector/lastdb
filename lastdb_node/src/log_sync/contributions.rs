@@ -32,6 +32,19 @@ const BODY_LIMIT: usize = 96 * 1024;
 const DEVICE_PREFIX: &str = "member-";
 const INBOX_NAMESPACE: &str = "lastdb-member-submission";
 
+pub(super) async fn settle(log: &CloudLog, through: u64) -> Result<(), String> {
+    let request = serde_json::json!({
+        "database_id": log.database_id(),
+        "through": cloud_backup_protocol::DecimalU64::new(through),
+    });
+    let bytes = cloud_backup_protocol::canonical_bytes(&request)
+        .map_err(|_| "member settlement request was not encoded")?;
+    log.post(paths::SETTLE_SUBMISSIONS, bytes)
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("member submissions were not settled: {error}"))
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Submission {
@@ -173,14 +186,17 @@ fn seal_for_retry(
         .open_lock("member-submit.lock")
         .map_err(|_| Unavailable)?;
     lock.try_lock().map_err(|_| Unavailable)?;
-    let canonical = cloud_backup_protocol::canonical_bytes(submission).map_err(|_| Invalid)?;
-    let digest = cloud_backup_protocol::bytes_sha256(&canonical);
+    let operation =
+        cloud_backup_protocol::canonical_bytes(&submission.operation).map_err(|_| Invalid)?;
+    let digest = cloud_backup_protocol::bytes_sha256(&operation);
     let (at, saved) = match super::retry::load(&host.home, database, &name)
         .map_err(|_| Unavailable)?
     {
         Some((seal, bytes)) if seal.namespace == digest.as_str() => (seal.authored_at_ms, bytes),
         Some(_) => return Err(Invalid),
         None => {
+            let canonical =
+                cloud_backup_protocol::canonical_bytes(submission).map_err(|_| Invalid)?;
             let at = fold_db::clock::unix_millis();
             let aad = inbox::context(
                 database,

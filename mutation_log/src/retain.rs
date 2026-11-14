@@ -284,6 +284,7 @@ fn pending_submission(state: &LogState, stored: &StoredEntry) -> bool {
     };
     stored.entry.incorporated_from.is_none()
         && stored.entry.writer.key != *publisher
+        && stored.delivery_seq > state.submissions_consumed_through
         && !state
             .incorporated
             .contains(&(stored.entry.writer.clone(), stored.entry.writer_seq))
