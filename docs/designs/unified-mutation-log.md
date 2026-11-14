@@ -119,11 +119,25 @@ format. The signed delivery route can read those previously stored snapshots.
 
 A routine personal file snapshot freezes the database only after local queued
 writes reach the mutation log and the local applied position matches the cloud
-head. The service verifies the file inventory and may advance a separate
-database-wide native cutoff under the same head and owner guards. It keeps the
-exact manifest available by digest. The current recovery release keeps older
-entries available to clients that do not request native recovery. Only a
-protected, generated DEV operation can physically remove its verified prefix.
+head. The service verifies the file inventory and may advance a database-wide
+native cutoff under the same head and owner guards. It keeps the exact
+manifest available by digest. A separate database-wide physical floor records
+the last delivery entry the service actually removed. Older clients can read
+the retained entries. A client below the physical floor must upgrade to a
+version that can recover from the native snapshot.
+
+`lastdb backup reclaim --database personal --status` reads the verified
+snapshot and physical floor for the owner's personal database.
+`lastdb backup reclaim --database personal --allow-required-client-upgrade`
+can remove a bounded prefix after the service enables reclamation. Use
+`--batches` to limit one invocation to 1–128 requests. The default is 16.
+Each request removes up to eight entries and checks the same snapshot digest
+and the expected physical floor. The service verifies the pinned files and
+requires immutable records of acceptance for every deleted entry. Their
+fingerprints cover the writer and its sequence, author time, namespace and
+encrypted payload, so the cloud can verify an exact retry after it deletes
+the original entry. The cloud does not add a mutable position for any device.
+Physical reclaim stays off in production until a separate rollout enables it.
 
 A compatible personal device includes its saved download position when asking
 for edits. Below the native cutoff it receives an exact signed snapshot
