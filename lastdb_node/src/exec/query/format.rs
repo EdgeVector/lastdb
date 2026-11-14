@@ -68,7 +68,7 @@ pub(in crate::exec) async fn query_batch_route(
     )
 }
 
-pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
+fn batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
     finished.sort_by_key(|(i, _)| *i);
     finished
         .into_iter()
@@ -81,10 +81,7 @@ pub(in crate::exec) fn batch_results(mut finished: Vec<(usize, UdsResponse)>) ->
         .collect()
 }
 
-pub(in crate::exec) fn parse_query_batch(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-) -> Result<Vec<Value>, UdsResponse> {
+fn parse_query_batch(req: &UdsRequest, ctx: &AccessContext) -> Result<Vec<Value>, UdsResponse> {
     let queries = serde_json::from_value::<QueryBatchRequest>(Value::Object(body_object(req)?))
         .map_err(|e| Reject::from_serde_error(&e, None).response())?
         .queries;
@@ -168,26 +165,6 @@ fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
         row.insert("metadata".into(), json!(record.metadata));
     }
     Value::Object(row)
-}
-
-pub(in crate::exec) fn verified_query_page(
-    records: Vec<(KeyValue, Record)>,
-    compact: bool,
-    total_count: Option<usize>,
-    limit: usize,
-    offset: usize,
-    has_more: bool,
-    next_cursor: Option<QueryCursor>,
-) -> Value {
-    let key_form = (!records.is_empty()).then_some("api");
-    page_payload(
-        format_rows(records, compact),
-        total_count,
-        (limit, offset),
-        has_more,
-        next_cursor,
-        key_form,
-    )
 }
 
 pub(in crate::exec) fn format_alternate_page(

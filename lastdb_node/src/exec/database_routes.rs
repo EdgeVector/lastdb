@@ -15,7 +15,6 @@ const ACCEPT_PATH: &str = "/api/databases/accept";
 enum Selection {
     Owner,
     Owned(Arc<FoldDB>),
-    Share(Box<RegisteredShare>),
     Signed(Box<RegisteredShare>),
 }
 
@@ -48,7 +47,11 @@ pub async fn execute_database_request(
     let selector = selector.to_owned();
     req.target = format!("/api/{path}");
     if req.method == "POST" && req.target == "/api/contributors" {
-        return attach_contributor(req, ctx, host, &selector);
+        return error_response(
+            400,
+            "contributor grants are managed on the signed database",
+            ctx,
+        );
     }
     let route = match uds_router::route(req) {
         ControlRoute::Data(route) if is_scoped_operation(route) => route,
@@ -61,9 +64,7 @@ pub async fn execute_database_request(
         Ok(selection) => selection,
         Err(response) => return response,
     };
-    if matches!(selection, Selection::Share(_) | Selection::Signed(_))
-        && !is_database_operation(route)
-    {
+    if matches!(selection, Selection::Signed(_)) && !is_database_operation(route) {
         return content_free(404, "Not Found");
     }
     dispatch(route, req, ctx, host, selection).await
@@ -85,33 +86,13 @@ async fn dispatch(
             )
             .await
         }
-        Selection::Share(share) => received_share(route, req, ctx, share).await,
         Selection::Signed(share) => match route {
-            DataRoute::Mutation | DataRoute::MutationBatch => {
-                received_mutation(route, req, ctx, share.as_ref()).await
-            }
-            DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
+            DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
+            DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
             _ => super::database_signed::read(route, req, ctx, host, share.as_ref()).await,
         },
-    }
-}
-
-async fn received_share(
-    route: DataRoute,
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    share: Box<RegisteredShare>,
-) -> UdsResponse {
-    match route {
-        DataRoute::Mutation | DataRoute::MutationBatch => {
-            received_mutation(route, req, ctx, share.as_ref()).await
-        }
-        DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
-            error_response(403, "operation is unavailable on a received database", ctx)
-        }
-        _ => super::database_read::read(route, req, ctx, share.as_ref()),
     }
 }
 
@@ -154,14 +135,10 @@ pub fn execute_deferred_database_request<'a>(
                 host.with_records(store, execute_deferred_mutation(route, req, ctx, host))
                     .await
             }
-            Ok(Selection::Share(share) | Selection::Signed(share)) => {
-                with_handler_timeout_budget(
-                    ctx,
-                    data_route_budget(route),
-                    received_mutation(route, req, ctx, share.as_ref()),
-                )
-                .await
-            }
+            Ok(Selection::Signed(_)) => match route {
+                DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
+                _ => error_response(403, "operation is unavailable on a received database", ctx),
+            },
             Err(response) => response,
         }
     })
@@ -203,8 +180,7 @@ fn resolve_share(
 ) -> Result<Selection, UdsResponse> {
     match registered_share::resolve(&host.home, selector) {
         Ok(Some(share)) if share.signed_log => Ok(Selection::Signed(Box::new(share))),
-        Ok(Some(share)) => Ok(Selection::Share(Box::new(share))),
-        Ok(None) => Err(error_response(
+        Ok(Some(_) | None) => Err(error_response(
             404,
             "database is not registered on this node",
             ctx,
@@ -219,19 +195,6 @@ fn resolve_share(
 fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
     let (status, message) = error.status();
     error_response(status, message, ctx)
-}
-
-async fn received_mutation(
-    route: DataRoute,
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    share: &RegisteredShare,
-) -> UdsResponse {
-    if route == DataRoute::Mutation {
-        super::database_mutation::mutate(req, ctx, share).await
-    } else {
-        error_response(403, "operation is unavailable on a received database", ctx)
-    }
 }
 
 fn is_database_operation(route: DataRoute) -> bool {
@@ -278,16 +241,9 @@ fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
 
 fn database(home: &std::path::Path, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
-    let ready = (!share.signed_log && share.snapshot.is_some())
-        || (share.signed_log && crate::database_replay::prefix_durable(home, share.id.as_str()));
+    let ready = share.signed_log && crate::database_replay::prefix_durable(home, share.id.as_str());
     value["state"] = json!(if ready { "ready" } else { "restoring" });
-    value["access"] = json!(if share.signed_log {
-        "reader"
-    } else if share.has_unexpired_contributor_grant() {
-        "contributor"
-    } else {
-        "reader"
-    });
+    value["access"] = json!("reader");
     if share.signed_log {
         value["selfAccess"] = json!(crate::log_sync::received_access::view(
             home,
@@ -330,31 +286,6 @@ async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRespon
         }
     }
     registration_reply(result, ctx, &host.home)
-}
-
-fn attach_contributor(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-    selector: &str,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Request {
-        grant: String,
-    }
-    const LIMIT: usize = 64 * 1024;
-    let Ok(body) = decode::<Request>(req, LIMIT) else {
-        return error_response(400, "invalid contributor attachment request", ctx);
-    };
-    let Ok(sealed) = decode_sealed(&body.grant, LIMIT) else {
-        return error_response(400, "invalid encoded contributor grant", ctx);
-    };
-    registration_reply(
-        registered_share::attach_contributor(&host.home, selector, &sealed),
-        ctx,
-        &host.home,
-    )
 }
 
 fn decode<T: serde::de::DeserializeOwned>(req: &UdsRequest, limit: usize) -> Result<T, ()> {

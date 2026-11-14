@@ -18,16 +18,11 @@ cd "$REPO_ROOT"
 # The current API Gateway IDs. Update by editing environments.json
 # (which this lint reads back); never edit this list by hand.
 #
-# `region` is metadata, not a URL. `portal` is excluded too: its
-# prod value is the *shared public web host* (exemem.com — also used by
-# billing, verify-email, marketing), not a unique opaque gateway. Scanning
-# it would wrongly flag every legitimate exemem.com literal across the
-# codebase. The drift this lint guards against is gateway-host drift; the
-# public host is well-known and stable. `strings` drops non-string values
-# such as the `release_log_keys` list: a key is not a host, and an empty
-# list would print `[]`, which matches nearly every file.
+# `region` is metadata, not a URL. `strings` drops non-string values such as
+# the `release_log_keys` list: a key is not a host, and an empty list would
+# print `[]`, which matches nearly every file.
 HOSTNAMES=$(
-    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region" and .key != "portal") | .value | strings' \
+    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region") | .value | strings' \
         lastdb_node/environments.json \
     | sed -E 's|^https?://||; s|/.*$||' \
     | sort -u

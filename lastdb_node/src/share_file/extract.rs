@@ -1,21 +1,10 @@
 use super::*;
-use crate::byte_cloud_restore::{StagedRecord, StagedRecordQuery};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-
-/// Read the file catalog from an already verified and held share snapshot.
-pub fn list_files(
-    schemas: &FileShareSchemas<'_>,
-    mut read: impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
-) -> Result<Vec<FileManifest>, String> {
-    list_files_by_key(schemas, |schema, keys, field| {
-        read_staged_fields(&mut read, schema, keys, field)
-    })
-}
 
 /// Read the catalog through exact database keys.
 pub fn list_files_by_key(
@@ -28,19 +17,6 @@ pub fn list_files_by_key(
     };
     // The catalog lists a new file only after its last chunk is durable.
     Ok(Catalog::read(entries.as_deref())?.files)
-}
-
-/// Verify and install a whole file at a new path. The callback reads each
-/// exact key from the same held share snapshot for this entire call.
-pub fn get_file(
-    schemas: &FileShareSchemas<'_>,
-    id: &Id,
-    output: &Path,
-    mut read: impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
-) -> Result<FileManifest, String> {
-    get_file_by_key(schemas, id, output, |schema, keys, field| {
-        read_staged_fields(&mut read, schema, keys, field)
-    })
 }
 
 /// Verify and install a whole file using bounded exact-key batches. The reader
@@ -92,30 +68,6 @@ fn decode_chunk(encoded: &str, size: usize) -> Result<Vec<u8>, String> {
         return Err("share file chunk differs from its expected size".into());
     }
     Ok(bytes)
-}
-
-fn read_staged_fields(
-    read: &mut impl FnMut(&StagedRecordQuery<'_>) -> Result<Option<StagedRecord>, String>,
-    schema: &str,
-    keys: &[KeyValue],
-    field: &str,
-) -> Result<Vec<Option<String>>, String> {
-    keys.iter()
-        .map(|key| {
-            let query = StagedRecordQuery::new(schema, key.clone(), false)
-                .map_err(|_| "invalid file share record coordinates")?;
-            read(&query)?
-                .map(|record| {
-                    record
-                        .fields()
-                        .get(field)
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .ok_or_else(|| "file share record is missing its data field".into())
-                })
-                .transpose()
-        })
-        .collect()
 }
 
 struct PendingOutput {

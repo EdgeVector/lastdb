@@ -8,7 +8,7 @@ use super::{BackupTransportError, ByteBackupClient, Result};
 use cloud_backup_protocol::v2::jobs::{JobBeginRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::transfer::{
     ObjectReceipt, TransferBatchResponse, TransferInput, TransferItemResult,
-    TransferPrepareRequest, TransferResumeResult, TransferStatus, TransferStatusRequest,
+    TransferPrepareRequest, TransferResumeResult, TransferStatus,
 };
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{bytes_sha256, ErrorCode, ProtocolError};
@@ -89,26 +89,7 @@ impl ByteBackupClient {
         };
         match read_item("complete", input, item)? {
             Step::Stop(upload) => Ok(upload),
-            Step::Continue => self.status_once(input).await,
-        }
-    }
-
-    async fn status_once(&self, input: &TransferInput) -> Result<ExactUpload> {
-        let request = TransferStatusRequest {
-            version: Version::V2,
-            job: input.job.clone(),
-            request_ids: vec![input.request_id.clone()],
-        };
-        let item = match self
-            .transfer_status(&request, std::slice::from_ref(input))
-            .await
-        {
-            Ok(batch) => only_item(batch)?,
-            Err(error) => return held("status", error),
-        };
-        match read_item("status", input, item)? {
-            Step::Stop(upload) => Ok(upload),
-            Step::Continue => Ok(ExactUpload::Retryable("pending")),
+            Step::Continue => Ok(ExactUpload::Retryable("complete")),
         }
     }
 }

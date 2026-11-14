@@ -1,9 +1,9 @@
-//! Node-owned Share bindings on top of the verified cache.
+//! Node-owned Share bindings on top of the registration cache.
 use super::{
-    files, publish, Lock, Registration, Result, ShareCache, ShareCacheError, MANAGED_DIRECTORY,
+    files, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
+    MANAGED_SHARE_DIRECTORY,
 };
 use crate::registered_share::RegisteredShare;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -20,6 +20,7 @@ pub(super) struct ManagedRegistration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     spec: Option<crate::share_spec::PublicationSpec>,
     expires_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     grant: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     grant_version: Option<u64>,
@@ -36,22 +37,18 @@ fn is_false(value: &bool) -> bool {
 
 impl ShareCache {
     pub(crate) fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
-        let root = home.join(MANAGED_DIRECTORY);
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
         if !create
             && matches!(fs::symlink_metadata(root), Err(e) if e.kind() == ErrorKind::NotFound)
         {
             return Ok(None);
         }
         let home = home.canonicalize()?;
-        let root = home.join(MANAGED_DIRECTORY);
-        let recipient = crate::share_publication::recipient(&home)
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
+        let recipient = crate::share_invitation::recipient(&home)
             .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
         files::private_directory(&root, create)?;
-        Ok(Some(Self {
-            root,
-            recipient,
-            managed: true,
-        }))
+        Ok(Some(Self { root, recipient }))
     }
 
     pub(crate) fn managed_ids(&self) -> Result<Vec<Id>> {
@@ -77,7 +74,7 @@ impl ShareCache {
         Ok(ids)
     }
 
-    pub(crate) fn managed_record(&self, home: &Path, id: &Id) -> Result<Option<RegisteredShare>> {
+    pub(crate) fn managed_record(&self, id: &Id) -> Result<Option<RegisteredShare>> {
         let entry = match self.entry(id, false) {
             Ok(entry) => entry,
             Err(ShareCacheError::Unavailable) => return Ok(None),
@@ -87,21 +84,11 @@ impl ShareCache {
         let (registration, _) = entry.load()?;
         registration
             .as_ref()
-            .map(|registration| describe(home, id, registration))
+            .map(|registration| describe(id, registration))
             .transpose()
     }
 
-    pub(crate) fn register_managed(
-        &self,
-        home: &Path,
-        invitation: &[u8],
-        publisher: &Digest,
-        name: Option<&str>,
-    ) -> Result<RegisteredShare> {
-        self.register(home, invitation, publisher, name, None, false)
-    }
-
-    /// Same sealed registration as [`Self::register_managed`], marked as a signed log.
+    /// Sealed registration marked as a signed log.
     ///
     /// `expected` is the stable database id. It must equal the invitation stream.
     /// A mismatch writes nothing.
@@ -113,40 +100,22 @@ impl ShareCache {
         name: Option<&str>,
         expected: Option<&Id>,
     ) -> Result<RegisteredShare> {
-        self.register(home, invitation, publisher, name, expected, true)
-    }
-
-    fn register(
-        &self,
-        home: &Path,
-        invitation: &[u8],
-        publisher: &Digest,
-        name: Option<&str>,
-        expected: Option<&Id>,
-        signed_log: bool,
-    ) -> Result<RegisteredShare> {
         let opened = self.recipient.open(invitation, publisher)?;
         let id = &opened.permission.stream().stream_id;
         if expected.is_some_and(|expected| expected.as_str() != id.as_str()) {
             return Err(ShareCacheError::Invalid("database id"));
-        }
-        if crate::registered_share::local_publication_id(home)?.as_ref() == Some(id) {
-            return Err(ShareCacheError::Invalid(
-                "invitation names the local publication",
-            ));
         }
         let directory = files::private_directory(&self.root, false)?;
         let lock = directory
             .open_lock(REGISTRY_LOCK)
             .map_err(|_| ShareCacheError::Invalid("registry lock"))?;
         lock.try_lock().map_err(|_| ShareCacheError::Busy)?;
-        if signed_log
-            && crate::host::owned::registry_claims(home, id.as_str(), name)
-                .map_err(|()| ShareCacheError::Unavailable)?
+        if crate::host::owned::registry_claims(home, id.as_str(), name)
+            .map_err(|()| ShareCacheError::Unavailable)?
         {
             return Err(ShareCacheError::Invalid("database selector already in use"));
         }
-        self.admit_name(home, id, name)?;
+        self.admit_name(id, name)?;
         let entry = self.entry(id, true)?;
         let _writer = entry.lock(Lock::Writer, true)?;
         let (registration, previous) = entry.load()?;
@@ -176,21 +145,19 @@ impl ShareCache {
             state.spec = Some(spec);
         }
         state.expires_ms = opened.permission.expires_ms();
-        state.signed_log |= signed_log;
-        if state.signed_log {
-            state.grant = None;
-            state.grant_version = None;
-            state.grant_expires_ms = None;
-        }
+        state.signed_log = true;
+        state.grant = None;
+        state.grant_version = None;
+        state.grant_expires_ms = None;
         publish(
             &entry,
             previous.as_deref().map(Vec::as_slice),
             &registration,
         )?;
-        describe(home, id, &registration)
+        describe(id, &registration)
     }
 
-    fn admit_name(&self, home: &Path, id: &Id, name: Option<&str>) -> Result<()> {
+    fn admit_name(&self, id: &Id, name: Option<&str>) -> Result<()> {
         let ids = self.managed_ids()?;
         if ids.len() == MAX_REGISTERED && !ids.contains(id) {
             return Err(ShareCacheError::Invalid("registry size"));
@@ -198,7 +165,7 @@ impl ShareCache {
         if let Some(name) = name {
             for other in ids.iter().filter(|other| *other != id) {
                 if self
-                    .managed_record(home, other)?
+                    .managed_record(other)?
                     .is_some_and(|registered| registered.name.as_deref() == Some(name))
                 {
                     return Err(ShareCacheError::Invalid("name already registered"));
@@ -207,80 +174,23 @@ impl ShareCache {
         }
         Ok(())
     }
-
-    pub(crate) fn attach_managed_grant(
-        &self,
-        home: &Path,
-        id: &Id,
-        sealed: &[u8],
-    ) -> Result<RegisteredShare> {
-        let entry = self.entry(id, false)?;
-        let _writer = entry.lock(Lock::Writer, true)?;
-        let (registration, previous) = entry.load()?;
-        let mut registration = registration.ok_or(ShareCacheError::Unavailable)?;
-        self.require_management(&registration)?;
-        let binding = crate::share_contribution::validate_grant(
-            home,
-            sealed,
-            &registration.publisher,
-            &registration.stream,
-            registration.environment,
-        )
-        .map_err(|_| ShareCacheError::Invalid("contributor grant"))?;
-        let state = registration
-            .managed
-            .as_mut()
-            .ok_or(ShareCacheError::Invalid("managed registration"))?;
-        if state.signed_log {
-            return Err(ShareCacheError::Invalid("contributor grant"));
-        }
-        if state
-            .grant_version
-            .is_some_and(|version| version > binding.version)
-        {
-            return Err(ShareCacheError::Invalid(
-                "contributor grant version regressed",
-            ));
-        }
-        state.grant = Some(URL_SAFE_NO_PAD.encode(sealed));
-        state.grant_version = Some(binding.version);
-        state.grant_expires_ms = Some(binding.expires_ms);
-        publish(
-            &entry,
-            previous.as_deref().map(Vec::as_slice),
-            &registration,
-        )?;
-        describe(home, id, &registration)
-    }
 }
 
-fn describe(home: &Path, id: &Id, registration: &Registration) -> Result<RegisteredShare> {
+fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
     let state = registration
         .managed
         .as_ref()
         .filter(|_| &registration.stream.stream_id == id)
         .ok_or(ShareCacheError::Invalid("managed registration"))?;
-    let contributor_grant = state
-        .grant
-        .as_ref()
-        .map(|grant| URL_SAFE_NO_PAD.decode(grant))
-        .transpose()
-        .map_err(|_| ShareCacheError::Invalid("contributor grant"))?;
     Ok(RegisteredShare {
         id: id.clone(),
         publisher: registration.publisher.clone(),
         name: state.name.clone(),
         spec: state.spec.clone(),
-        snapshot: registration
-            .active
-            .as_ref()
-            .map(|active| active.snapshot.clone()),
+        snapshot: None,
         expires_ms: state.expires_ms,
-        home: home.canonicalize()?,
         stream: registration.stream.clone(),
         environment: registration.environment,
-        contributor_grant,
-        contributor_expires_ms: state.grant_expires_ms,
         signed_log: state.signed_log,
     })
 }

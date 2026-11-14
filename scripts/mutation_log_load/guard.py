@@ -5,8 +5,7 @@ The only table is ``ExememMutationLog-dev``. The database id is
 ``c1da11d0-0000-4000-8000-`` plus 12 hex characters from SHA-256 of the run
 id. LastDB CEO approved LeadingKeys ``c1da11d0-0000-4000-8000-*``.
 DescribeTable belongs in a separate IAM statement on the table ARN only.
-This module does not change IAM. Snapshot rows live in the ``<id>#snap``
-partition of the same table.
+This module does not change IAM.
 """
 
 import hashlib
@@ -99,11 +98,6 @@ def database_id_for_run(run_id):
     return allow_stream(STREAM_PREFIX + digest[:12])
 
 
-def snap_partition(database_id):
-    """The snapshot partition is exactly the load id plus ``#snap``."""
-    return allow_stream(database_id) + "#snap"
-
-
 def sub_partition(database_id):
     """Submission records live in exactly the load id plus ``#sub``."""
     return allow_stream(database_id) + "#sub"
@@ -129,28 +123,14 @@ def submission_key(node, device, writer_seq):
     return "sub#{0}#{1}#{2:020d}".format(node, device, writer_seq)
 
 
-def snap_manifest_key(reference):
-    """Manifest sort key on ``{id}#snap``: ``snap#{reference}``."""
-    return "snap#" + _record_label(reference)
-
-
-def snap_part_key(reference, index):
-    """Chunk sort key on ``{id}#snap``: ``snap#{reference}#{index:06}``."""
-    _record_label(reference)
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-        raise GuardError("record")
-    return "snap#{0}#{1:06d}".format(reference, index)
-
-
 def load_partitions(database_id):
     """The exact partitions owned by this one DEV load."""
     base = allow_stream(database_id)
-    return (base, snap_partition(base), sub_partition(base), writes_partition(base))
+    return (base, sub_partition(base), writes_partition(base))
 
 
 def allow_partition(value):
-    for suffix, builder in (("#snap", snap_partition), ("#sub", sub_partition),
-                            ("#writes", writes_partition)):
+    for suffix, builder in (("#sub", sub_partition), ("#writes", writes_partition)):
         if isinstance(value, str) and value.endswith(suffix):
             base = value[:-len(suffix)]
             if value != builder(base):

@@ -228,6 +228,8 @@ def main(argv):
         raise GuardError("deployed")
     if args.phase == "load" and args.level is None:
         raise GuardError("level")
+    if args.phase == "load" and args.level == "trim":
+        raise LoadError("trim route retired")
     endpoint, table, database_id = target()
     print("database {0}".format(database_id))
     if "jdsx4ixk2i" in endpoint:

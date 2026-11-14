@@ -276,7 +276,9 @@ impl MutationLog for CloudLog {
         _local_cursor: u64,
         _now_ms: u64,
     ) -> Result<Recovery, LogError> {
-        super::restore::recover(self, reader)
+        self.same_reader(&reader.key)?;
+        self.same_device(&reader.device)?;
+        Err(LogError::SnapshotRequired)
     }
 
     fn grant(
@@ -304,11 +306,7 @@ impl MutationLog for CloudLog {
         _snapshot_ref: SnapshotRef,
     ) -> Result<Snapshot, LogError> {
         self.same_reader(caller)?;
-        let body = wire::database_body(self.database_id.as_str())?;
-        wire::snapshot(
-            self.database_id.as_str(),
-            &self.call(paths::SNAPSHOT, body)?,
-        )
+        Err(LogError::UnexpectedOutcome)
     }
 
     fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {

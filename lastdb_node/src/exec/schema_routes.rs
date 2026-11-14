@@ -201,17 +201,6 @@ pub(in crate::exec) fn resolve_schema_name(
     resolve_folded(trimmed, &schemas)
 }
 
-pub(in crate::exec) fn resolve_captured_schema_alias(
-    name: &str,
-    entries: &[SchemaWithState],
-) -> Result<Option<String>, HostError> {
-    if let Some(c) = resolve_exact_alias(name, entries)? {
-        Ok(Some(c))
-    } else {
-        resolve_folded(name.trim(), entries)
-    }
-}
-
 fn resolve_folded(t: &str, schemas: &[SchemaWithState]) -> Result<Option<String>, HostError> {
     if t.is_empty() {
         return Ok(None);

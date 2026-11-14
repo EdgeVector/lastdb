@@ -14,7 +14,7 @@ use lastdb_node::lastdb_uds::uds::{self, UdsSocket};
 use lastdb_node::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use lastdb_node::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
 use lastdb_node::lastdb_uds::worker_pool::{ConnectionWork, SubmitError, UdsWorkerPool};
-use lastdb_node::{cloud, exec, jobs, log_sync, registered_share};
+use lastdb_node::{cloud, exec, jobs, log_sync};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
@@ -182,10 +182,6 @@ fn spawn_background(
             jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(stop)),
         ),
         ("log sync", sync),
-        (
-            "received shares",
-            registered_share::spawn(host.home.clone(), Arc::clone(stop)),
-        ),
         (
             "saved queries",
             jobs::saved_query::spawn(Arc::clone(host), sock.to_path_buf(), Arc::clone(stop)),

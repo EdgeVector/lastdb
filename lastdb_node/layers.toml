@@ -42,7 +42,6 @@ name = "features"
 doc = "Node features over the host: signed log sync, share restore, offline homes, and the app registry index."
 modules = [
   "app_registry_index",
-  "byte_cloud_restore",
   "share_write_gate",
   "log_envelope",
   "named_grant",
@@ -51,9 +50,7 @@ modules = [
   "offline_home",
   "registered_share",
   "share_cache",
-  "share_contribution",
   "share_invitation",
-  "share_publication",
 ]
 
 [[layer]]

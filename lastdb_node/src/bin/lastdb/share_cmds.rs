@@ -4,8 +4,7 @@ use super::{
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
-use lastdb_node::share_invitation::{ShareContact, MAX_SEALED_INVITATION_BYTES};
-use lastdb_node::share_publication;
+use lastdb_node::share_invitation::{self, ShareContact, MAX_SEALED_INVITATION_BYTES};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -144,7 +143,7 @@ fn read_contact(path: &Path, recipient_key: String) -> Result<ShareContact, Stri
 }
 
 fn contact(home: &Path, out: &Path) -> Result<(), String> {
-    let recipient = share_publication::recipient(home)?.contact();
+    let recipient = share_invitation::recipient(home)?.contact();
     write_file(out, recipient.encode().as_bytes())?;
     println!(
         "{}",

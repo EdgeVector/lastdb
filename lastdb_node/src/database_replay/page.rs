@@ -53,7 +53,7 @@ pub(super) async fn replay(
         super::Place::Owned(_) => return Err(RestoreError::Scope("database store")),
     }
     check_page(database_id, publisher, delivered)?;
-    let store = super::open_store(host, database_id, &target, true).await?;
+    let store = super::open_store(host, database_id, &target).await?;
     let decoder = target.decoder(database_id);
     let replay = async {
         for item in delivered {
