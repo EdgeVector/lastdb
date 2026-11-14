@@ -6,7 +6,7 @@ use std::sync::Arc;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use serde::{Deserialize, Serialize};
 
-use super::accepted::{self, Log, Status, UploadIdentity};
+use super::accepted::{self, Status, UploadIdentity};
 use crate::storage::disk_pack::{cas_delete, map, run_node, PackRuntime, CAS_DIR, RUN_DIR};
 use crate::storage::error::{StorageError, StorageResult};
 
@@ -40,12 +40,28 @@ impl PackRuntime {
         }
         cas_delete::require_clear(&self.physical)?;
         let roots = self.physical.current_root();
-        boundary(
-            self.accepted.as_ref(),
-            identity,
-            roots.main.frontier(),
-            roots.cas.frontier(),
-        )
+        let Status {
+            head,
+            acked,
+            snapshot_required,
+            gap,
+            ..
+        } = self.accepted_status();
+        if gap || snapshot_required || head != acked {
+            return Err(unready());
+        }
+        let confirmed = self
+            .accepted_upload_position(identity)
+            .map_err(accepted::storage)?;
+        let Some(position) = confirmed.filter(|position| position.spool_through == head) else {
+            return Err(unready());
+        };
+        Ok(SyncBoundary {
+            main: roots.main.frontier(),
+            files: roots.cas.frontier(),
+            spool: head,
+            writer: position.writer_seq,
+        })
     }
 
     /// Durably take ownership of a never-used writer sequence on a quiet local spool.
@@ -109,36 +125,6 @@ impl StoppedSync {
             boundary,
         })
     }
-}
-
-fn boundary(
-    spool: Option<&Log>,
-    identity: &UploadIdentity,
-    main: u64,
-    files: u64,
-) -> StorageResult<SyncBoundary> {
-    let spool = spool.ok_or_else(unready)?;
-    let Status {
-        head,
-        acked,
-        snapshot_required,
-        gap,
-        ..
-    } = spool.status();
-    if gap || snapshot_required || head != acked {
-        return Err(unready());
-    }
-    let position = spool.upload_position(identity).map_err(accepted::storage)?;
-    let writer = match position {
-        Some(position) if position.spool_through == head => position.writer_seq,
-        _ => return Err(unready()),
-    };
-    Ok(SyncBoundary {
-        main,
-        files,
-        spool: head,
-        writer,
-    })
 }
 
 fn require_absent(path: &Path) -> StorageResult<()> {
