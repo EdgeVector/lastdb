@@ -117,14 +117,6 @@ pub(crate) enum ShareContributorCommand {
         #[arg(long)]
         recipient_key: String,
     },
-    /// Attach a contributor grant to a registered database.
-    Accept {
-        /// Registered database ID or local name.
-        db: String,
-        /// Sealed contributor grant from the publisher.
-        #[arg(long)]
-        grant: PathBuf,
-    },
 }
 
 #[derive(Subcommand, Debug)]

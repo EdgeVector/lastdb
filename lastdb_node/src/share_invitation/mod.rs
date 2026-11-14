@@ -59,18 +59,6 @@ pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, 
     ShareRecipient::from_identity_seed(&seed).map_err(|e| e.to_string())
 }
 
-/// Seal a signed stream permission and publication key to a verified contact.
-///
-/// The caller checks the contact identity before selecting it for this share.
-pub fn seal_invitation(
-    contact: &ShareContact,
-    permission: &GuestReadPermission,
-    publication_key: &[u8; 32],
-    publisher: &Ed25519KeyPair,
-) -> Result<Vec<u8>> {
-    seal(contact, permission, publication_key, publisher, None)
-}
-
 pub(crate) fn seal(
     contact: &ShareContact,
     permission: &GuestReadPermission,

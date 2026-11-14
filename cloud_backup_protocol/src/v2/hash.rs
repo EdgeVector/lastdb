@@ -26,11 +26,6 @@ pub fn input<T: Serialize>(domain: &'static str, value: &T) -> Result<Digest, Pr
     encode(&hash.finalize())
 }
 
-/// SHA-256 of `bytes` with no domain prefix.
-pub fn stored_bytes(bytes: &[u8]) -> Result<Digest, ProtocolError> {
-    encode(&Sha256::digest(bytes))
-}
-
 fn encode(bytes: &[u8]) -> Result<Digest, ProtocolError> {
     Digest::try_from(
         bytes

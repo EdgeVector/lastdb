@@ -12,19 +12,18 @@ use cloud_backup_protocol::v2::{
 };
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
-use std::io::Read;
 
 mod exact_upload;
 mod guest_permission;
 
-pub use super::{BackupTransportError, UploadObservation};
+pub use super::BackupTransportError;
 pub use exact_upload::ExactUpload;
 pub use guest_permission::{GuestReadPermission, ShareEnvironment};
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
 macro_rules! validated_rpc {
-    ($fn:ident($req:ty) -> $resp:ty : $path:literal, $check:ident) => {
-        pub async fn $fn(&self, request: &$req) -> Result<$resp> {
+    ($vis:vis $fn:ident($req:ty) -> $resp:ty : $path:literal, $check:ident) => {
+        $vis async fn $fn(&self, request: &$req) -> Result<$resp> {
             request.validate()?;
             let response: $resp = self.post($path, request).await?;
             response.$check(request)?;
@@ -35,7 +34,7 @@ macro_rules! validated_rpc {
 
 macro_rules! identity_rpc {
     ($fn:ident -> $resp:ty : $path:literal) => {
-        pub async fn $fn(&self, input: &TransferInput) -> Result<$resp> {
+        async fn $fn(&self, input: &TransferInput) -> Result<$resp> {
             let response: $resp = self.post($path, &identity(input)?).await?;
             response.validate_for(input)?;
             Ok(response)
@@ -68,25 +67,25 @@ impl StorageTransferClient {
             .await
     }
 
-    validated_rpc!(context(ContextReadRequest) -> ContextReadResponse : "context/read", validate_for);
+    validated_rpc!(pub context(ContextReadRequest) -> ContextReadResponse : "context/read", validate_for);
     validated_rpc!(begin(JobBeginRequest) -> JobResult : "jobs/begin", validate_for_begin);
-    validated_rpc!(close(JobCloseRequest) -> JobResult : "jobs/close", validate_for_close);
+    validated_rpc!(pub close(JobCloseRequest) -> JobResult : "jobs/close", validate_for_close);
     identity_rpc!(resume -> TransferResumeResult : "transfers/resume");
     identity_rpc!(complete -> TransferItemResult : "transfers/complete");
 
-    pub async fn prepare(&self, request: &TransferPrepareRequest) -> Result<TransferBatchResponse> {
+    async fn prepare(&self, request: &TransferPrepareRequest) -> Result<TransferBatchResponse> {
         request.validate()?;
         let response: TransferBatchResponse = self.post("transfers/prepare", request).await?;
         response.validate_for(&request.items)?;
         Ok(response)
     }
 
-    pub async fn upload(
+    async fn put_presigned(
         &self,
         input: &TransferInput,
         response: &TransferResumeResponse,
-        source: Box<dyn Read + Send>,
-    ) -> Result<UploadObservation> {
+        data: Vec<u8>,
+    ) -> Result<()> {
         response.validate_for(input)?;
         let grant = &response.grant;
         let put = PresignedPut {
@@ -96,7 +95,7 @@ impl StorageTransferClient {
             expires_ms: grant.expires_ms.get(),
             multipart_part: grant.transfer_mode == Some(TransferMode::MultipartPart),
         };
-        self.transport.upload(&put, source).await
+        self.transport.put_presigned(&put, data).await
     }
 }
 

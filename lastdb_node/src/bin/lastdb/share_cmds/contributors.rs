@@ -26,8 +26,5 @@ pub(super) fn run(
         ShareContributorCommand::Revoke { recipient_key } => {
             named::revoke(identity_home, db, recipient_key)
         }
-        ShareContributorCommand::Accept { .. } => {
-            unreachable!("grant attachment is routed to the node")
-        }
     }
 }

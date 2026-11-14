@@ -5,9 +5,10 @@
 
 use super::receipt::SignedRequestTarget;
 use super::{
-    account_key_matches, is_mutation_log_path, MemberListReadResponse, MemberListRevision,
-    MemberListUpdate, NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole,
-    ShareMemberState, SHARE_MEMBER_LIST_READ_PATH,
+    account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
+    NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole, ShareMemberState,
+    MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_DELIVERY_SNAPSHOT_PATH,
+    MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
 use std::cmp::Ordering;
@@ -158,6 +159,22 @@ fn require_signed(
         return Err(ProtocolError::unauthorized("share.cutover.required"));
     };
     state.bind(token, target.environment)
+}
+
+fn is_mutation_log_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/cloud/backups/v2/mutation-log/append"
+            | "/api/cloud/backups/v2/mutation-log/head"
+            | "/api/cloud/backups/v2/mutation-log/list"
+            | "/api/cloud/backups/v2/mutation-log/ack"
+            | "/api/cloud/backups/v2/mutation-log/snapshot"
+            | MUTATION_LOG_SNAPSHOT_BYTES_PATH
+            | "/api/cloud/backups/v2/mutation-log/delivery/log"
+            | MUTATION_LOG_DELIVERY_SNAPSHOT_PATH
+            | MUTATION_LOG_DELIVERY_OBJECT_PATH
+            | "/api/cloud/backups/v2/mutation-log/trim"
+    )
 }
 
 /// Revision object for [`MemberListReadView::RevisionOnly`]. It names no members.

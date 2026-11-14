@@ -144,36 +144,10 @@ impl Begin {
         Ok(())
     }
 
-    /// A retention planner must keep these exact accepted points recursively.
-    pub fn dependencies(&self) -> &[Head] {
-        &self.recovery_dependencies
-    }
     /// Domain-separated SHA-256 of this begin value, after validation.
     pub fn input_sha256(&self) -> Result<Digest, ProtocolError> {
         self.validate()?;
         hash::input("lastdb:cloud-byte-backup:begin:v2", self)
-    }
-    /// Predecessor ordinal plus one, or 1 when there is no predecessor.
-    pub fn ordinal(&self) -> Result<DecimalU64, ProtocolError> {
-        self.validate()?;
-        self.predecessor
-            .as_ref()
-            .map_or(0, |head| head.ordinal.get())
-            .checked_add(1)
-            .map(DecimalU64::new)
-            .ok_or_else(|| ProtocolError::invalid("v2.begin.ordinal"))
-    }
-    /// The acceptance transaction checks this exact predecessor atomically.
-    /// Any native frontier or format ordering is solely a client rule.
-    pub fn validate_successor(&self, previous: &AcceptedBackup) -> Result<(), ProtocolError> {
-        self.validate()?;
-        previous.validate()?;
-        if self.job.stream != previous.job().stream
-            || self.predecessor.as_ref() != Some(&previous.head())
-        {
-            return Err(ProtocolError::invalid("v2.begin.successor"));
-        }
-        Ok(())
     }
 }
 /// Name of a begin request. It is the `Begin` value.
@@ -241,16 +215,9 @@ impl JobResult {
             return Err(ProtocolError::invalid("v2.job_result.begin"));
         }
         if let JobStatus::Published { backup } = &self.status {
-            backup.validate_for(begin, &backup.commit_input()?)?;
-        }
-        Ok(())
-    }
-    /// Require the same job as the status request.
-    pub fn validate_for_status(&self, request: &JobStatusRequest) -> Result<(), ProtocolError> {
-        self.validate()?;
-        request.validate()?;
-        if self.job != request.job {
-            return Err(ProtocolError::invalid("v2.job_result.job"));
+            if &backup.begin != begin {
+                return Err(ProtocolError::invalid("v2.accepted.input"));
+            }
         }
         Ok(())
     }
@@ -265,23 +232,6 @@ impl JobResult {
             return Err(ProtocolError::invalid("v2.job_result.close"));
         }
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-/// Ask for the state of one job.
-pub struct JobStatusRequest {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Stream and commit id this value belongs to.
-    pub job: Job,
-}
-impl JobStatusRequest {
-    /// Validate the job and the encoded size.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.job.validate()?;
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
 

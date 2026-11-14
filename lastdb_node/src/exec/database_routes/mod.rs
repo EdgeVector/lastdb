@@ -48,13 +48,6 @@ pub async fn execute_database_request(
     }
     let selector = selector.to_owned();
     req.target = format!("/api/{path}");
-    if req.method == "POST" && req.target == "/api/contributors" {
-        return error_response(
-            400,
-            "contributor grants are managed on the signed database",
-            ctx,
-        );
-    }
     let route = match uds_router::route(req) {
         ControlRoute::Data(route) if is_scoped_operation(route) => route,
         ControlRoute::MethodNotAllowed { allow } => {
