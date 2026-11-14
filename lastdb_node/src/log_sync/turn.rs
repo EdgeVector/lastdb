@@ -10,6 +10,7 @@ use tracing::Instrument;
 
 use crate::host::Host;
 
+use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
 use super::disk;
 use super::members;
@@ -45,8 +46,9 @@ pub fn spawn(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
+            let mut cleanup = Pacing::default();
             while !shutdown.load(Ordering::Acquire) {
-                let pause = one_turn(&host).await;
+                let pause = one_turn(&host, &mut cleanup).await;
                 if matches!(pause, Pause::Reopen) {
                     reopen.store(true, Ordering::Release);
                     shutdown.store(true, Ordering::Release);
@@ -59,7 +61,7 @@ pub fn spawn(
     )
 }
 
-async fn one_turn(host: &Arc<Host>) -> Pause {
+async fn one_turn(host: &Arc<Host>, cleanup: &mut Pacing) -> Pause {
     if super::status::consume_wake(&host.home) {
         native::clear_payment_hold();
         host.cloud_sync.clear_payment_hold();
@@ -105,7 +107,7 @@ async fn one_turn(host: &Arc<Host>) -> Pause {
     }
     let mut pause = Pause::PaymentHold;
     for database in &databases {
-        let next = native::turn(host, database).await;
+        let next = native::turn(host, database, cleanup).await;
         if matches!(next, Pause::Reopen) {
             return next;
         }
@@ -122,6 +124,7 @@ pub(super) async fn open_native(
     database: &Database,
     log: CloudLog,
     device: &str,
+    cleanup: &mut Pacing,
 ) -> Pause {
     if database.kind == "shareable" && !native_publisher(host, &database.id) {
         warn_once(
@@ -169,6 +172,9 @@ pub(super) async fn open_native(
             if matches!(next, Pause::Idle) {
                 native::clear_hold(&database.id);
                 host.cloud_sync.record_healthy();
+                if database.kind == "personal" && !database.native {
+                    cleanup.turn(&host.home, &log_after).await;
+                }
             }
             next
         }

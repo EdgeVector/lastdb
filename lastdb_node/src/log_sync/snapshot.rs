@@ -110,6 +110,9 @@ async fn publish(
     });
     let chosen = same.map_or(&manifest, |(_, saved)| saved);
     let prev_id = previous.as_ref().map(|(id, _)| id);
+    if advance_cutoff && nonce.is_some() {
+        super::automatic_retention::plan(&host.home, log, chosen, prev_id);
+    }
     let id = transport::publish(log, prev_id, &cut, chosen, advance_cutoff).await?;
     let entries = confirmed(log, through, &id, personal).await?;
     if bootstrap {

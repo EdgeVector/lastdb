@@ -8,6 +8,7 @@ use crate::host::Host;
 use crate::node_read::CanonicalPost;
 use serde::Serialize;
 
+use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
 use super::http::Proof;
 use super::paths;
@@ -31,7 +32,7 @@ enum CreateOutcome {
     Refused(String),
 }
 
-pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
+pub(super) async fn turn(host: &Arc<Host>, database: &Database, cleanup: &mut Pacing) -> Pause {
     if !super::snapshot::pending(&host.home, &database.id) {
         if let Some(pause) = active_hold(&database.id) {
             return pause;
@@ -78,7 +79,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
             }
         }
     }
-    turn::open_native(host, database, log, &device).await
+    turn::open_native(host, database, log, &device, cleanup).await
 }
 
 pub(super) fn hold_payment(database_id: &str) -> Pause {

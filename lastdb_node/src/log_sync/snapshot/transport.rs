@@ -37,7 +37,7 @@ struct Read {
 }
 
 impl Manifest {
-    fn id(&self) -> Result<Digest, String> {
+    pub(in crate::log_sync) fn id(&self) -> Result<Digest, String> {
         canonical_bytes(self)
             .map(|body| bytes_sha256(&body))
             .map_err(|error| error.to_string())
