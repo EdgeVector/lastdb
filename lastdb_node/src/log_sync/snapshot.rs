@@ -5,7 +5,7 @@ mod files;
 mod recovery;
 pub(super) mod transport;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
