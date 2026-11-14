@@ -3,16 +3,30 @@
 from contextlib import closing
 import json
 import os
+import sys
 import uuid
 
 from node import Connection
 from signed_files import retry, run_operation, summary
 from social_app import call, observe_access, window
-from support import decode_json, require
+from support import OperationError, decode_json, require
 
 SCOPE = {"name": "whole-database", "version": 1}
 ALBUM = "dev-albums/Album"
 COMMENT = "dev-comments/Comment"
+REFUSALS = (
+    ("select writable schemas", "circle_invalid_schema_selection"),
+    ("save verified contacts", "circle_contact_unavailable"),
+    ("share_configuration_unconfirmed", "circle_lastdb_unconfirmed"),
+    ("invalid_share_configuration", "circle_lastdb_rejected_config"),
+    ("share_update_pending", "circle_update_pending"),
+    ("mismatched sharing acknowledgement", "circle_ack_mismatch"),
+    ("changed while you edited", "circle_revision_changed"),
+    ("POST /api/mutation", "circle_private_mutation_refused"),
+    ("POST /api/schemas/declare", "circle_private_schema_refused"),
+    ("POST /api/queries/batch", "circle_contact_batch_refused"),
+    ("LastDB could not read a contact", "circle_contact_read_refused"),
+)
 
 
 def declare(node, database, schema):
@@ -72,21 +86,40 @@ def transfer(programs, root, publisher, recipient, api_key):
         sender = programs.command(publisher.home, ["share", "contact", "--out", str(root / "owner.contact")])["recipient_public_key"]
         require(reader != sender, "circle_two_identities")
         call(owner, "/api/remember", {"name": "Ana", "nodeKey": reader, "contactCode": contact.read_text().strip()})
-        retry("circle_cloud_ready", lambda: call(owner, f"/api/database?databaseId={database}"),
-              lambda row: row["sharing"].get("revision") == "0")
+        ready = retry("circle_cloud_ready", lambda: call(owner, f"/api/database?databaseId={database}"),
+                      lambda row: row["sharing"].get("revision") == "0")
+        require(set(definitions).issubset(ready["schemas"]), "circle_schema_catalog_missing")
         circle = {"name": "Family", "members": [reader], "writeSchemas": [COMMENT]}
-        granted = call(owner, "/api/circles", {"databaseId": database, "expectedRevision": "0", "circles": [circle]})
         try:
+            granted = call(owner, "/api/circles", {"databaseId": database, "expectedRevision": "0", "circles": [circle]},
+                           refusals=REFUSALS)
             require(granted["revision"] == "1", "circle_grant_revision")
             receipt = call(owner, "/api/circle-invitation", {"databaseId": database, "nodeKey": reader})
             require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
             with window(recipient) as remote:
                 exercise(publisher, recipient, remote, database, receipt, definitions)
         finally:
-            roster = call(owner, f"/api/database?databaseId={database}")["sharing"]
-            call(owner, "/api/circles", {"databaseId": database, "expectedRevision": roster["revision"], "circles": []})
-            revoked = call(owner, f"/api/database?databaseId={database}")["sharing"]["members"]
-            require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
+            failed = sys.exc_info()[0] is not None
+            try:
+                cleanup(owner, database, reader)
+            except OperationError:
+                summary("The final DEV recipient revocation could not be confirmed.")
+                if not failed:
+                    raise
+
+
+def cleanup(owner, database, reader):
+    path = f"/api/database?databaseId={database}"
+    roster = call(owner, path)["sharing"]
+    if roster.get("status") == "pending":
+        roster = call(owner, "/api/retry", {"databaseId": database}, refusals=REFUSALS)["sharing"]
+    members = roster.get("members")
+    require(members is not None, "circle_cleanup_roster_unavailable")
+    if any(row["state"] == "active" for row in members):
+        call(owner, "/api/revoke", {"databaseId": database, "nodeKey": reader}, refusals=REFUSALS)
+        revoked = call(owner, path)["sharing"].get("members") or []
+        require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
+        summary("ExeMem confirmed the final recipient revocation.")
 
 
 def connect(programs, publisher, api_key):

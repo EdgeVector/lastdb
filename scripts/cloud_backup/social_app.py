@@ -83,7 +83,7 @@ def window(node, database=None):
                 process.wait(timeout=10)
 
 
-def call(window, path, body=None, *, authorized=True, status=200):
+def call(window, path, body=None, *, authorized=True, status=200, refusals=()):
     port, token = window
     headers = {"Content-Type": "application/json"}
     if authorized:
@@ -92,8 +92,14 @@ def call(window, path, body=None, *, authorized=True, status=200):
         connection.request("GET" if body is None else "POST", path,
                            None if body is None else json.dumps(body).encode(), headers)
         with connection.getresponse() as reply:
+            raw = reply.read(4 * 1024 * 1024)
+            if refusals and reply.status != status:
+                response = decode_json(raw)
+                message = response.get("error", "") if isinstance(response, dict) else ""
+                for fragment, code in refusals:
+                    require(fragment not in message, code)
             require(reply.status == status, f"social_app_{path.split('?')[0]}_http_{reply.status}")
-            return decode_json(reply.read(4 * 1024 * 1024))
+            return decode_json(raw)
 
 
 def scoped(node, selection, app, method, path, body=None, status=200):
