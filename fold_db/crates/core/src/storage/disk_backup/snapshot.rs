@@ -5,6 +5,8 @@ use crate::storage::disk_pack::{
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::metadata::Metadata;
+use crate::storage::format::METADATA_NAMESPACE;
+use lastdb_model::kind_partition::exact_prefix_bounds;
 use laststore::disk_run::home::RunSnapshot;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -16,6 +18,8 @@ pub struct DatabaseSnapshot {
     pub native_frontier: u64,
     /// Whether the frozen files must cover writes from before cloud capture.
     pub needs_initial_coverage: bool,
+    /// Whether the files contain no unresolved optimistic log writes.
+    pub log_covered: bool,
     marker: File,
     main: RunSnapshot,
     files: RunSnapshot,
@@ -86,10 +90,26 @@ impl PackRuntime {
         Ok(Some(DatabaseSnapshot {
             native_frontier: self.physical.current_root().frontier(),
             needs_initial_coverage: accepted.snapshot_required,
+            log_covered: self.has_settled_replay().await?,
             marker,
             main: self.physical.home.snapshot().map_err(map)?,
             files: self.physical.cas.snapshot().map_err(map)?,
         }))
+    }
+
+    async fn has_settled_replay(self: &Arc<Self>) -> StorageResult<bool> {
+        let store = self.open_store(METADATA_NAMESPACE).await?;
+        for prefix in ["signed-replay-pending:", "signed-replay-deferred:"] {
+            let (start, end) = exact_prefix_bounds(prefix);
+            if !store
+                .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
+                .await?
+                .is_empty()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 

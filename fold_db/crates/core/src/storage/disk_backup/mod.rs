@@ -2,6 +2,7 @@
 
 pub mod accepted;
 pub mod snapshot;
+pub mod stopped_sync;
 
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::{AtomicBool, Ordering};

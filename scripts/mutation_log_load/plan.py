@@ -3,7 +3,9 @@
 APPENDS = 10
 STEADY_MS = 3 * 60 * 1000
 WRITER_LEVELS = ("5", "20", "100")
-LEVELS = (*WRITER_LEVELS, "all", "private")
+NATIVE_CUTOFF = "private-native-cutoff"
+PRIVATE_LEVELS = ("private", NATIVE_CUTOFF)
+LEVELS = (*WRITER_LEVELS, "all", *PRIVATE_LEVELS)
 PRELIMINARY_LABEL = "finished 10-append run"
 SCALE_LABEL = "3-minute scale run"
 

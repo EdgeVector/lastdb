@@ -5,7 +5,7 @@
 //! envelope. Status bodies are not encoded here.
 
 use base64::Engine as _;
-use cloud_backup_protocol::{canonical_bytes, DecimalU64};
+use cloud_backup_protocol::{canonical_bytes, DecimalU64, Digest};
 use mutation_log::{
     AppendBatch, AppendOutcome, Entry, Incorporation, ListPage, LogError, ScopedHead, Stamp,
     StoredEntry, Writer,
@@ -57,6 +57,12 @@ struct ListRequest<'a> {
     database_id: &'a str,
     after: DecimalU64,
     limit: DecimalU64,
+    #[serde(skip_serializing_if = "is_false")]
+    accept_native_reset: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Deserialize)]
@@ -133,12 +139,18 @@ pub(crate) fn append_request(batch: &AppendBatch) -> Result<Vec<u8>, LogError> {
     canonical_bytes(&request).map_err(|_| LogError::InvalidEntry)
 }
 
-pub(crate) fn list_body(database_id: &str, after: u64, limit: usize) -> Result<Vec<u8>, LogError> {
+pub(crate) fn list_body(
+    database_id: &str,
+    after: u64,
+    limit: usize,
+    accept_native_reset: bool,
+) -> Result<Vec<u8>, LogError> {
     let limit = u64::try_from(limit).map_err(|_| LogError::InvalidEntry)?;
     canonical_bytes(&ListRequest {
         database_id,
         after: DecimalU64::new(after),
         limit: DecimalU64::new(limit),
+        accept_native_reset,
     })
     .map_err(|_| LogError::InvalidEntry)
 }
@@ -213,6 +225,29 @@ pub(crate) fn scoped_head(body: &[u8]) -> Result<Option<ScopedHead>, LogError> {
         cursor: wire.cursor.get(),
         stamp: head_stamp(&wire.entries)?,
     }))
+}
+
+#[derive(Deserialize)]
+pub(super) struct NativeCut {
+    pub native_snapshot_id: Digest,
+    pub snapshot_through: DecimalU64,
+}
+
+pub(super) fn native_cut(body: &[u8], after: u64) -> Option<NativeCut> {
+    let value: Value = serde_json::from_slice(body).ok()?;
+    if value.get("code")?.as_str()? != "predecessor_conflict"
+        || value.get("field")?.as_str()? != "mutation_log.cursor"
+    {
+        return None;
+    }
+    let cut: NativeCut = serde_json::from_value(value).ok()?;
+    (cut.snapshot_through.get() > after).then_some(cut)
+}
+
+pub(super) fn unsupported_reset(body: &[u8]) -> bool {
+    serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(body).is_ok_and(|error| {
+        error.code == cloud_backup_protocol::ErrorCode::InvalidInput && error.field == "http.body"
+    })
 }
 
 pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {

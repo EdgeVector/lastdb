@@ -3,6 +3,7 @@ name: Mutation log DEV load
 # Run against the accepted ExeMem DEV service from main. Manual tiers measure
 # signed appends and paged reads. The daily workflow calls the private device
 # sync and signed log recovery operation with the exact accepted client.
+# The native cutoff operation is manual and leaves provider snapshot bytes.
 # The existing cloud-backup-dev OIDC role and CI account scope all operations.
 
 on:
@@ -13,9 +14,9 @@ on:
         required: true
         type: string
       level:
-        description: "Signed append and read load, or private device sync and signed log recovery"
+        description: "Signed load, private device sync, or private native cutoff with retained provider bytes"
         type: choice
-        options: ["all", "5", "20", "100", "private"]
+        options: ["all", "5", "20", "100", "private", "private-native-cutoff"]
         default: "all"
       duration:
         description: "preliminary finishes 10 appends at 5, 20, and 100 writers. scale is the 3-minute 100-writer clock."
@@ -46,7 +47,10 @@ permissions:
 
 jobs:
   build-client:
-    if: github.ref == 'refs/heads/main' && inputs.level == 'private'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (inputs.level == 'private' ||
+       (inputs.level == 'private-native-cutoff' && github.event_name == 'workflow_dispatch'))
     permissions:
       contents: read
       actions: read
@@ -56,7 +60,9 @@ jobs:
     needs: build-client
     if: >-
       always() && !cancelled() && github.ref == 'refs/heads/main' &&
-      (inputs.level != 'private' || needs.build-client.result == 'success')
+      (inputs.level != 'private-native-cutoff' || github.event_name == 'workflow_dispatch') &&
+      ((inputs.level != 'private' && inputs.level != 'private-native-cutoff') ||
+       needs.build-client.result == 'success')
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -69,12 +75,12 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v8
-        if: inputs.level == 'private'
+        if: inputs.level == 'private' || inputs.level == 'private-native-cutoff'
         with:
           name: ${{ needs.build-client.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client
       - name: Unpack the exact client for private recovery
-        if: inputs.level == 'private'
+        if: inputs.level == 'private' || inputs.level == 'private-native-cutoff'
         run: |
           set -euo pipefail
           client_bin_dir="$RUNNER_TEMP/cloud-backup-bin"
@@ -123,7 +129,7 @@ jobs:
           code=$?
           echo "$code" > "$RUNNER_TEMP/mutation-log-load-exit"
           exit "$code"
-      - name: Delete this run's load rows
+      - name: Delete this run's DynamoDB metadata
         id: cleanup
         if: always()
         continue-on-error: true
@@ -131,11 +137,13 @@ jobs:
           LASTDB_MUTATION_LOG_DEV_TABLE: ExememMutationLog-dev
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
+          LOAD_LEVEL: ${{ inputs.level }}
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
           set +e
           python3 scripts/mutation_log_load/run.py \
             --phase cleanup \
+            --level "$LOAD_LEVEL" \
             --confirm-deployed "$CONFIRM_DEPLOYED" \
             --ledger "$RUNNER_TEMP/mutation-log-load-ledger.json" \
             --summary "$RUNNER_TEMP/mutation-log-load-summary.json"

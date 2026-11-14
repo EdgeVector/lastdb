@@ -45,8 +45,25 @@ impl Manifest {
 }
 
 pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>, String> {
-    let body = canonical_bytes(&json!({"action": "read", "database_id": log.database_id()}))
-        .map_err(|error| error.to_string())?;
+    read(log, None).await
+}
+
+pub(super) async fn exact(log: &CloudLog, id: &Digest) -> Result<Manifest, String> {
+    let (_, manifest) = read(log, Some(id))
+        .await?
+        .ok_or("the requested signed snapshot is unavailable")?;
+    Ok(manifest)
+}
+
+async fn read(
+    log: &CloudLog,
+    expected: Option<&Digest>,
+) -> Result<Option<(Digest, Manifest)>, String> {
+    let mut request = json!({"action": "read", "database_id": log.database_id()});
+    if let Some(id) = expected {
+        request["snapshot_id"] = json!(id);
+    }
+    let body = canonical_bytes(&request).map_err(|error| error.to_string())?;
     let (status, raw) = log
         .post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
         .await
@@ -60,6 +77,9 @@ pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>
     let value: Read = serde_json::from_slice(&raw).map_err(|_| "invalid signed snapshot reply")?;
     if value.database_id.as_str() != log.database_id() {
         return Err("snapshot reply names a different database".into());
+    }
+    if expected.is_some() && value.snapshot_id.as_ref() != expected {
+        return Err("signed snapshot reply does not identify the requested snapshot".into());
     }
     match (value.snapshot_id, value.snapshot) {
         (None, None) => Ok(None),
@@ -76,11 +96,45 @@ pub(super) async fn publish(
     previous: Option<&Digest>,
     cut: &DatabaseSnapshot,
     manifest: &Manifest,
+    advance_cutoff: bool,
 ) -> Result<Digest, String> {
     let id = manifest.id()?;
-    if previous == Some(&id) {
+    if previous != Some(&id) {
+        upload_files(log, cut, manifest).await?;
+    } else if !advance_cutoff {
         return Ok(id);
     }
+    let mut request = json!({
+        "action": "publish",
+        "database_id": log.database_id(),
+        "previous": previous,
+        "snapshot": manifest,
+    });
+    if advance_cutoff {
+        request["advance_cutoff"] = json!(true);
+    }
+    let value = match raw_call(log, &request).await? {
+        (400, body) if advance_cutoff && super::super::wire::unsupported_reset(&body) => {
+            // This signed service accepts an ordinary backup but cannot publish a cutoff.
+            request
+                .as_object_mut()
+                .ok_or("invalid snapshot publication")?
+                .remove("advance_cutoff");
+            call(log, request).await?
+        }
+        (status, body) => decode_reply(status, &body)?,
+    };
+    if value.get("snapshot_id").and_then(serde_json::Value::as_str) != Some(id.as_str()) {
+        return Err("snapshot commit returned a different manifest digest".into());
+    }
+    Ok(id)
+}
+
+async fn upload_files(
+    log: &CloudLog,
+    cut: &DatabaseSnapshot,
+    manifest: &Manifest,
+) -> Result<(), String> {
     let client = client()?;
     for page in manifest.files.chunks(PAGE) {
         let grants = grants(
@@ -100,20 +154,7 @@ pub(super) async fn publish(
             futures::future::try_join_all(transfers).await?;
         }
     }
-    let value = call(
-        log,
-        json!({
-            "action": "publish",
-            "database_id": log.database_id(),
-            "previous": previous,
-            "snapshot": manifest,
-        }),
-    )
-    .await?;
-    if value.get("snapshot_id").and_then(serde_json::Value::as_str) != Some(id.as_str()) {
-        return Err("snapshot commit returned a different manifest digest".into());
-    }
-    Ok(id)
+    Ok(())
 }
 
 async fn upload(
@@ -257,13 +298,20 @@ async fn grants(
 }
 
 async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Value, String> {
-    let body = canonical_bytes(&body).map_err(|error| error.to_string())?;
-    let (status, response) = log
-        .post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
+    let (status, response) = raw_call(log, &body).await?;
+    decode_reply(status, &response)
+}
+
+async fn raw_call(log: &CloudLog, body: &serde_json::Value) -> Result<(u16, Vec<u8>), String> {
+    let body = canonical_bytes(body).map_err(|error| error.to_string())?;
+    log.post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
         .await
-        .map_err(|_| "signed snapshot request did not complete")?;
+        .map_err(|_| "signed snapshot request did not complete".to_owned())
+}
+
+fn decode_reply(status: u16, response: &[u8]) -> Result<serde_json::Value, String> {
     if !(200..300).contains(&status) {
-        let protocol = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(&response)
+        let protocol = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(response)
             .ok()
             .map_or_else(
                 || "unknown failure".to_owned(),
@@ -273,5 +321,5 @@ async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Val
             "signed snapshot request returned HTTP {status} {protocol}"
         ));
     }
-    serde_json::from_slice(&response).map_err(|_| "invalid snapshot response".into())
+    serde_json::from_slice(response).map_err(|_| "invalid snapshot response".into())
 }

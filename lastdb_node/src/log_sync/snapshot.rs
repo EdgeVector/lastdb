@@ -1,6 +1,7 @@
 //! Publish a held database checkpoint through the signed cloud database.
 
 mod files;
+mod recovery;
 mod transport;
 
 use std::fs::File;
@@ -17,6 +18,7 @@ use crate::host::Host;
 use fold_db::security::Ed25519KeyPair;
 
 use super::{cloud::CloudLog, registry, session};
+pub(super) use recovery::restore_cut;
 
 pub(super) const AWAIT_INCOMING: &str = "snapshot awaits incoming signed updates";
 pub(super) const AWAIT_LOCAL_UPLOAD: &str = "snapshot awaits publication of local signed writes";
@@ -110,15 +112,25 @@ async fn publish(
     if bootstrap {
         start_bootstrap(&host.home, log, &manifest, cut.native_frontier)?;
     }
+    let advance_cutoff = personal && manifest.name.is_none() && through > 0 && cut.log_covered;
     let id = match previous.as_ref() {
         Some((id, saved))
             if manifest.through == saved.through
                 && manifest.name == saved.name
                 && manifest.files == saved.files =>
         {
-            id.clone()
+            transport::publish(log, Some(id), &cut, saved, advance_cutoff).await?
         }
-        _ => transport::publish(log, previous.as_ref().map(|(id, _)| id), &cut, &manifest).await?,
+        _ => {
+            transport::publish(
+                log,
+                previous.as_ref().map(|(id, _)| id),
+                &cut,
+                &manifest,
+                advance_cutoff,
+            )
+            .await?
+        }
     };
     let entries = confirmed(log, through, &id, personal).await?;
     if bootstrap {
@@ -338,18 +350,30 @@ pub async fn restore_base(
     let Some((id, manifest)) = transport::current(&log).await? else {
         return Ok(None);
     };
+    install_base(home, database, &log, &id, &manifest)
+        .await
+        .map(Some)
+}
+
+async fn install_base(
+    home: &Path,
+    database: &Id,
+    log: &CloudLog,
+    id: &Digest,
+    manifest: &Manifest,
+) -> Result<RestoredBase, String> {
     let name = manifest.name.as_deref();
     let data = data_path(home, database, name.is_some());
     if let Some(parent) = data.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    transport::download(&log, &id, &manifest, &data).await?;
+    transport::download(log, id, manifest, &data).await?;
     owned::prepare_snapshot_restore(home, database.as_str().to_owned(), name)?;
-    Ok(Some(RestoredBase {
+    Ok(RestoredBase {
         through: manifest.through.get(),
         name: name.unwrap_or("personal").to_owned(),
         member_revision: log.member_revision,
-    }))
+    })
 }
 
 fn data_path(home: &Path, database: &Id, named: bool) -> PathBuf {

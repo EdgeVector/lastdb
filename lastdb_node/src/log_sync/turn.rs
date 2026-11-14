@@ -23,6 +23,7 @@ const GRANTS_LIMIT: usize = 65_536;
 static AUTHORITY_WARNED: AtomicBool = AtomicBool::new(false);
 
 pub(super) enum Pause {
+    Reopen,
     Idle,
     Retry,
     Snapshot,
@@ -33,11 +34,20 @@ enum Prep {
     Ready(Box<run::Ready>),
 }
 
-pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
+pub fn spawn(
+    host: Arc<Host>,
+    shutdown: Arc<AtomicBool>,
+    reopen: Arc<AtomicBool>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
             while !shutdown.load(Ordering::Acquire) {
                 let pause = one_turn(&host).await;
+                if matches!(pause, Pause::Reopen) {
+                    reopen.store(true, Ordering::Release);
+                    shutdown.store(true, Ordering::Release);
+                    break;
+                }
                 sleep_interruptible(&host, &shutdown, pause).await;
             }
         }
@@ -53,7 +63,11 @@ async fn one_turn(host: &Arc<Host>) -> Pause {
         Pause::Snapshot
     };
     for database in &databases {
-        pause = shorter(pause, native::turn(host, database).await);
+        let next = native::turn(host, database).await;
+        if matches!(next, Pause::Reopen) {
+            return next;
+        }
+        pause = shorter(pause, next);
     }
     shorter(pause, received::turn(host).await)
 }
@@ -73,19 +87,16 @@ pub(super) async fn open_native(
     }
     match finish_open(host, &database.id, &database.kind, log, device).await {
         Prep::Pause(pause) => pause,
-        Prep::Ready(mut ready) => {
+        Prep::Ready(ready) => {
             if super::snapshot::pending(&host.home, &database.id) {
                 if let Err(reason) = super::snapshot::requested(host, &ready.log, database).await {
                     tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
                     if reason == super::snapshot::AWAIT_INCOMING {
-                        return shorter(
-                            Pause::Snapshot,
-                            run::pull_and_checkpoint(host, &mut ready).await,
-                        );
+                        return shorter(Pause::Snapshot, run::run_ready(host, *ready).await);
                     }
                 }
             }
-            run::run_ready(host.as_ref(), *ready).await
+            run::run_ready(host, *ready).await
         }
     }
 }
@@ -145,9 +156,10 @@ pub(super) fn shorter(current: Pause, next: Pause) -> Pause {
 
 fn pause_rank(pause: &Pause) -> u8 {
     match pause {
-        Pause::Idle => 0,
-        Pause::Retry => 1,
-        Pause::Snapshot => 2,
+        Pause::Reopen => 0,
+        Pause::Idle => 1,
+        Pause::Retry => 2,
+        Pause::Snapshot => 3,
     }
 }
 
@@ -159,6 +171,7 @@ pub(super) fn warn_once(flag: &AtomicBool, message: &str) {
 
 async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
     let seconds = match pause {
+        Pause::Reopen => 0,
         Pause::Idle => 1,
         Pause::Retry => 5,
         Pause::Snapshot => 30,

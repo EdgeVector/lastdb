@@ -7,6 +7,34 @@ use std::path::Path;
 
 const FILE: &str = "cloud-upload.json";
 
+pub(in crate::storage::disk_backup::accepted) fn stopped_confirmation(
+    root: &Path,
+    identity: &UploadIdentity,
+) -> Result<UploadPosition, Error> {
+    io::require_dir(root)?;
+    match root.join("pending.json").symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(Error::Unavailable),
+        Ok(_) => return Err(Error::Gap),
+    }
+    let state = io::read_json::<super::State>(&root.join("state.json"))?.ok_or(Error::Gap)?;
+    if state.version != 1
+        || state.gap
+        || state.armed
+        || state.head != state.acked
+        || state.retained_bytes != 0
+    {
+        return Err(Error::Gap);
+    }
+    if state.snapshot_required {
+        return Err(Error::Snapshot);
+    }
+    match Checkpoint::read(root, identity)? {
+        Some(position) if position.spool_through == state.head => Ok(position),
+        _ => Err(Error::Behind),
+    }
+}
+
 /// Identity of the destination this home publishes to.
 pub struct UploadIdentity {
     /// Account and generation admitted by the cloud.

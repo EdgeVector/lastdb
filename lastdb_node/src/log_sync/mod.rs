@@ -13,6 +13,7 @@ mod files;
 mod http;
 mod members;
 mod native;
+mod native_reset;
 mod owner_recovery;
 mod paths;
 mod received;
@@ -28,6 +29,7 @@ mod turn;
 mod upload;
 mod wire;
 
+pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub use snapshot::{
     request as request_snapshot, restore_base as restore_snapshot_base, RestoredBase,

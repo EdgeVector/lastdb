@@ -1,5 +1,6 @@
 use std::sync::{mpsc, Arc};
 
+use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
@@ -114,6 +115,12 @@ impl CloudLog {
         })
     }
 
+    pub(super) fn for_staging(&self, host: &Arc<Host>) -> Self {
+        let mut staged = self.clone();
+        staged.host = Some(Arc::clone(host));
+        staged
+    }
+
     pub(super) fn host(&self) -> Result<&Arc<Host>, LogError> {
         self.host.as_ref().ok_or(LogError::UnexpectedOutcome)
     }
@@ -177,6 +184,39 @@ impl CloudLog {
             Ok(result) => result,
             Err(_) => Err(LogError::UnexpectedOutcome.into()),
         }
+    }
+
+    /// Ask for an exact snapshot only when this caller can install one.
+    pub(super) async fn list_with_native_reset(
+        &self,
+        after: u64,
+    ) -> Result<Result<ListPage, wire::NativeCut>, LogError> {
+        let limit = mutation_log::LIST_PAGE_LIMIT;
+        let database = self.database_id();
+        let body = wire::list_body(database, after, limit, true)?;
+        let (status, payload) = self
+            .post_status_limit(paths::LIST, body, Proof::Data, CONTROL_JSON_MAX_BYTES)
+            .await
+            .map_err(|_| LogError::UnexpectedOutcome)?;
+        if status == 400 && wire::unsupported_reset(&payload) {
+            return self.list_retained(after).await.map(Ok);
+        }
+        if status == 409 {
+            if let Some(cut) = wire::native_cut(&payload, after) {
+                return Ok(Err(cut));
+            }
+        }
+        if status == 200 {
+            return wire::list_page(database, &payload).map(Ok);
+        }
+        Err(wire::service_error(&payload).unwrap_or(LogError::UnexpectedOutcome))
+    }
+
+    pub(super) async fn list_retained(&self, after: u64) -> Result<ListPage, LogError> {
+        let database = self.database_id();
+        let body = wire::list_body(database, after, mutation_log::LIST_PAGE_LIMIT, false)?;
+        let reply = self.post(paths::LIST, body).await?;
+        wire::list_page(database, &reply)
     }
 
     pub(super) async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
@@ -255,7 +295,7 @@ impl MutationLog for CloudLog {
         _now_ms: u64,
     ) -> Result<ListPage, LogError> {
         self.same_reader(reader)?;
-        let body = wire::list_body(self.database_id.as_str(), after, limit)?;
+        let body = wire::list_body(self.database_id.as_str(), after, limit, false)?;
         wire::list_page(self.database_id.as_str(), &self.call(paths::LIST, body)?)
     }
 

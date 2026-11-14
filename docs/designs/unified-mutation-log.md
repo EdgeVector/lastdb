@@ -115,16 +115,25 @@ local writes are durable. Older clients can still send an authenticated
 `head` reports the database delivery head. Its stamp is the last entry this
 reader can see, and it is absent when none are visible. The cloud keeps a
 database-wide trim boundary for logs trimmed under the earlier signed snapshot
-format. New backups publish original files through `snapshot/bytes`, with the
-database delivery position captured in the manifest. They do not advance the
-log trim boundary. The earlier snapshot and trim write routes are retired.
-The signed delivery route continues to read previously stored log snapshots.
+format. The signed delivery route can read those previously stored snapshots.
 
-If the device's local position is below the stored trim boundary, the cloud
-returns `CursorExpired`. The device downloads the referenced snapshot, applies
-the suffix, and records the new local position after the result is durable.
-An interrupted application retries the same entries. The cloud does not need
-to know which devices have caught up.
+A routine personal file snapshot freezes the database only after local queued
+writes reach the mutation log and the local applied position matches the cloud
+head. The service verifies the file inventory and may advance a separate
+database-wide native cutoff under the same head and owner guards. It keeps the
+exact manifest available by digest. The current recovery release keeps older
+entries available to clients that do not request native recovery. Only a
+protected, generated DEV operation can physically remove its verified prefix.
+
+A compatible personal device includes its saved download position when asking
+for edits. Below the native cutoff it receives an exact signed snapshot
+reference and its covered position. The device sends its pending local edits
+to the cloud first, downloads the verified files to a private stage, and
+applies the entries after the snapshot to that stage. It installs the stage
+with the store closed and saves its download position after the new files are
+durable. A local write that arrives during staging invalidates the prepared
+replacement and is uploaded on the next attempt. The cloud keeps no device
+catch-up records.
 
 ## Sharing invariant
 
