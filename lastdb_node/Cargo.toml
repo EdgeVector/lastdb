@@ -52,22 +52,22 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 async-trait = { workspace = true }
 libc = "0.2"
-dirs = "6"
+dirs = "7"
 ring = "0.17"
 signal-hook-registry = "1"
 # `connect` / cloud-sync deps (pinned like fold_db_node's — reqwest/chrono are
 # deliberately not workspace deps, feature sets diverge per member).
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 chrono = "0.4"
-bip39 = "2"
+bip39 = "3"
 hex = "0.4.3"
 # Seal path (mirrors fold_db_node auth_envelope + connection crypto).
-aes-gcm = "0.10"
-hkdf = "0.12"
+aes-gcm = "0.11"
+hkdf = "0.13"
 sha2 = "0.10"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-base64 = "0.22"
-rand = "0.8"
+x25519-dalek = { version = "3", features = ["static_secrets"] }
+base64 = "0.23"
+rand = "0.10"
 uuid = { version = "1", features = ["v4"] }
 
 [lib]
