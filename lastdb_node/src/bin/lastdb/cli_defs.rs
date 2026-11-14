@@ -222,6 +222,8 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    /// Inspect or reclaim cloud log entries covered by a personal recovery snapshot.
+    Reclaim(BackupReclaimArgs),
     /// Queue a direct encrypted snapshot of the selected database.
     Snapshot {
         #[arg(long)]

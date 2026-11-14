@@ -48,7 +48,7 @@ pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>
     read(log, None).await
 }
 
-pub(super) async fn exact(log: &CloudLog, id: &Digest) -> Result<Manifest, String> {
+pub(in crate::log_sync) async fn exact(log: &CloudLog, id: &Digest) -> Result<Manifest, String> {
     let (_, manifest) = read(log, Some(id))
         .await?
         .ok_or("the requested signed snapshot is unavailable")?;
@@ -297,7 +297,10 @@ async fn grants(
     Ok(grants)
 }
 
-async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Value, String> {
+pub(in crate::log_sync) async fn call(
+    log: &CloudLog,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let (status, response) = raw_call(log, &body).await?;
     decode_reply(status, &response)
 }
