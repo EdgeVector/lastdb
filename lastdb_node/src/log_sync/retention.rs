@@ -13,12 +13,12 @@ const MAX_STEPS: u8 = 8;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Status {
-    reclaim_enabled: bool,
-    eligible: bool,
-    snapshot_id: Option<Digest>,
-    snapshot_through: DecimalU64,
-    reclaimed_through: DecimalU64,
+pub(super) struct Status {
+    pub(super) reclaim_enabled: bool,
+    pub(super) eligible: bool,
+    pub(super) snapshot_id: Option<Digest>,
+    pub(super) snapshot_through: DecimalU64,
+    pub(super) reclaimed_through: DecimalU64,
 }
 
 #[derive(Deserialize)]
@@ -73,18 +73,7 @@ pub async fn reclaim(
         );
     }
     let (database_id, log) = maintenance::personal_log(home, database).await?;
-    let status = transport::call(
-        &log,
-        json!({"action": "retention", "database_id": database_id}),
-    )
-    .await?;
-    let status: Status =
-        serde_json::from_value(status).map_err(|_| "invalid signed retention response")?;
-    if status.reclaimed_through.get() > status.snapshot_through.get()
-        || (status.snapshot_id.is_none() && status.snapshot_through.get() != 0)
-    {
-        return Err("cloud retention positions are inconsistent".into());
-    }
+    let status = status(&log, "retention").await?;
     if expected_snapshot.is_some_and(|id| status.snapshot_id.as_ref() != Some(id)) {
         return Err("the cloud recovery snapshot differs from --expect-snapshot".into());
     }
@@ -102,6 +91,26 @@ pub async fn reclaim(
         reclaim_batches_for_snapshot(&log, &mut report, batches, steps_per_request).await?;
     }
     Ok(report)
+}
+
+pub(super) async fn automatic_status(log: &CloudLog) -> Result<Status, String> {
+    status(log, "automatic-retention").await
+}
+
+async fn status(log: &CloudLog, action: &str) -> Result<Status, String> {
+    let reply = transport::call(
+        log,
+        json!({"action": action, "database_id": log.database_id()}),
+    )
+    .await?;
+    let status: Status =
+        serde_json::from_value(reply).map_err(|_| "invalid signed retention response")?;
+    if status.reclaimed_through.get() > status.snapshot_through.get()
+        || (status.snapshot_id.is_none() && status.snapshot_through.get() != 0)
+    {
+        return Err("cloud retention positions are inconsistent".into());
+    }
+    Ok(status)
 }
 
 async fn reclaim_batches_for_snapshot(
@@ -130,11 +139,11 @@ async fn reclaim_batches_for_snapshot(
         return Err("the cloud could not verify the selected native recovery snapshot".into());
     }
     for _ in 0..batches {
-        let response = reclaim_batch(log, id, floor, through, steps_per_request).await.map_err(|error| {
+        let window = Window::Explicit(steps_per_request);
+        floor = reclaim_batch(log, id, floor, through, window).await.map_err(|error| {
             format!("{error}. Last confirmed reclamation was through {floor}. Use backup reclaim --status to read the latest position before retrying")
         })?;
-        floor = response.reclaimed_through.get();
-        report.reclaimed_through = response.reclaimed_through;
+        report.reclaimed_through = DecimalU64::new(floor);
         report.batches += 1;
         if floor == through {
             break;
@@ -143,39 +152,58 @@ async fn reclaim_batches_for_snapshot(
     Ok(())
 }
 
+enum Window {
+    Explicit(Option<u8>),
+    Automatic(u64),
+}
+
+pub(super) async fn reclaim_covered(
+    log: &CloudLog,
+    id: &Digest,
+    floor: u64,
+    through: u64,
+    target: u64,
+) -> Result<u64, String> {
+    reclaim_batch(log, id, floor, through, Window::Automatic(target)).await
+}
+
 async fn reclaim_batch(
     log: &CloudLog,
     id: &Digest,
     floor: u64,
     through: u64,
-    steps_per_request: Option<u8>,
-) -> Result<Reclaimed, String> {
+    window: Window,
+) -> Result<u64, String> {
+    let (action, steps, target) = match window {
+        Window::Explicit(steps) => ("reclaim", steps, through),
+        Window::Automatic(target) => ("reclaim-covered", Some(MAX_STEPS), target),
+    };
     let mut body = json!({
-        "action": "reclaim",
+        "action": action,
         "database_id": log.database_id(),
         "snapshot_id": id,
         "expected_floor": DecimalU64::new(floor),
         "require_native_recovery": true,
     });
-    if let Some(steps) = steps_per_request {
+    if let Some(steps) = steps {
         body["max_steps"] = json!(steps);
-        body["target_through"] = json!(DecimalU64::new(through));
+        body["target_through"] = json!(DecimalU64::new(target));
     }
     let response = transport::call(log, body).await?;
     let response: Reclaimed =
         serde_json::from_value(response).map_err(|_| "invalid signed reclaim response")?;
     let reclaimed = response.reclaimed_through.get();
-    let max_advance = RECLAIM_BATCH * u64::from(steps_per_request.unwrap_or(1));
-    let bound = floor.saturating_add(max_advance).min(through);
+    let max_advance = RECLAIM_BATCH * u64::from(steps.unwrap_or(1));
+    let bound = floor.saturating_add(max_advance).min(target);
     if &response.snapshot_id != id
         || response.snapshot_through.get() != through
         || reclaimed <= floor
         || reclaimed > bound
-        || (steps_per_request.is_none() && reclaimed != bound)
+        || (steps.is_none() && reclaimed != bound)
     {
         return Err(
             "cloud reclaim response did not confirm the requested snapshot and range".into(),
         );
     }
-    Ok(response)
+    Ok(reclaimed)
 }

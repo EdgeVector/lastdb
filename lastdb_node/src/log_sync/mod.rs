@@ -7,6 +7,7 @@
 mod accepted;
 mod account;
 mod apply;
+mod automatic_retention;
 mod cloud;
 mod contributions;
 mod disk;

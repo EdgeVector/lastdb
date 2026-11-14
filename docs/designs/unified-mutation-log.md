@@ -134,6 +134,16 @@ zero and releases its queued mutations only after verifying the published
 snapshot. If an older home already queued writes and the exact original
 checkpoint is unavailable, those edits remain queued.
 
+After a qualifying `lastdb backup snapshot` of the root personal database, the
+device resumes bounded cleanup during its normal sync turns. It records the
+candidate digest and covered position before publication, then waits for signed
+confirmation of a verified recovery cutoff. Each request checks the exact
+cloud cutoff and deletes only entries through the locally recorded target. The
+device must have already applied that target. A restarted device uses the
+cloud's current physical floor to resume. A backup can complete while cleanup
+is pending or unavailable from the service. Read `snapshot_through` and
+`reclaimed_through` in `backup reclaim --status` to check progress.
+
 `lastdb backup reclaim --database personal --status` reads the verified
 snapshot and physical floor for the owner's personal database.
 `lastdb backup reclaim --database personal --allow-required-client-upgrade`
@@ -152,7 +162,10 @@ requires immutable records of acceptance for every deleted entry. Their
 fingerprints cover the writer and its sequence, author time, namespace and
 encrypted payload, so the cloud can verify an exact retry after it deletes
 the original entry. The cloud does not add a mutable position for any device.
-Physical reclaim stays off in production until a separate rollout enables it.
+In production, automatic cleanup requires an existing positive physical floor
+established through explicit owner reclamation. A device behind that floor
+needs a recovery-capable client. A Search-enabled device that cannot apply an
+automatic snapshot reset needs an explicit restore.
 
 `lastdb backup index-log-history --database personal --status` reads the first
 delivery covered by the acceptance index. When the service enables indexing
