@@ -3,7 +3,7 @@
 use super::{block_on_cloud, BackupReclaimArgs};
 use std::path::Path;
 
-pub(super) fn run(home: &Path, args: BackupReclaimArgs) -> Result<(), String> {
+pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
     if args.status == args.allow_required_client_upgrade {
         return Err("choose --status or --allow-required-client-upgrade".into());
     }

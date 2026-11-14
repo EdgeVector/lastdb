@@ -46,7 +46,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             restore::run(&lastdb_node::host::resolve_home(data_dir)?, args)
         }
         ByteBackupCommand::Reclaim(args) => {
-            reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, args)
+            reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
         ByteBackupCommand::Snapshot { database, wait } => queue_snapshot(data_dir, &database, wait),
     }
