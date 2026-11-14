@@ -9,7 +9,7 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
 # The same gate with the latest published nightly client:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
-# Native cutoff recovery from the exact accepted client, with provider bytes retained:
+# Native cutoff recovery from the exact accepted client, with provider bytes retained during recovery and removed after writers stop:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff
 #
 # After checking out lastdb, that client and this round trip are:
@@ -31,7 +31,7 @@ on:
           - build
           - nightly
       mode:
-        description: "Round trip, or native cutoff recovery with provider bytes retained"
+        description: "Round trip, or native cutoff recovery; both clean up run-owned data"
         type: choice
         default: round-trip
         options:
@@ -152,11 +152,15 @@ jobs:
           python3 -m pip install --quiet cryptography==41.0.7
           python3 scripts/cloud_backup/snapshot_gate.py native-cutoff \
             --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
-      - name: Delete the signed log and snapshot inventory
+      - name: Delete run-owned provider objects, then signed log and snapshot inventory
         if: always()
         env:
           SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
         run: |
+          python3 -m pip install --quiet cryptography==41.0.7
           if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
             python3 scripts/cloud_backup/snapshot_gate.py cleanup-native-cutoff
           else

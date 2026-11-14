@@ -415,6 +415,8 @@ def verify_cloud_target(guard):
 def cleanup(*, native=False):
     guard = load_guard()
     verify_cloud_target(guard)
+    from snapshot_cleanup import cleanup_objects
+    cleanup_objects(guard, gate_id(), aws, summary)
     deleted = 0
     partitions = guard.load_partitions(gate_id())
     for partition in partitions:
@@ -426,9 +428,7 @@ def cleanup(*, native=False):
             require(not reply.get("Items") and not reply.get("LastEvaluatedKey"),
                     "native_cutoff_cleanup_incomplete")
         summary("Run-owned signed log, accepted-write facts, submissions, and snapshot metadata are empty.")
-    # snapshot/bytes accepts read, prepare, download, and publish. It has no
-    # owner delete, and the DEV load role cannot reach the R2 or B2 objects.
-    summary("provider_objects=left_behind missing=snapshot/bytes delete")
+    summary("provider_objects=deleted metadata=deleted")
 
 
 def opt_into_first_snapshot(home, database_id):
