@@ -589,7 +589,22 @@ def reclaim_step(private, call, request, before, after):
     raise OperationError("native_reclaim_deadline")
 
 
-def reclaim_signed_prefix(private, call, snapshot_id):
+def reclaimed_storage(database):
+    guard = load_guard()
+    require_native_dispatch()
+    require(database == gate_id(), "native_cutoff_scope")
+    entries = cutoff_rows(guard, database, "record_id BETWEEN :start AND :end",
+                          {":start": entry_key(1), ":end": entry_key(SNAPSHOT_THROUGH)})
+    facts = cutoff_rows(guard, guard.writes_partition(database), "begins_with(record_id, :prefix)",
+                        {":prefix": "write#"})
+    return entries, facts
+
+
+def reclaim_signed_prefix(private, call, database, snapshot_id):
+    entries, facts = reclaimed_storage(database)
+    require(set(entries) == {entry_key(position) for position in range(1, SNAPSHOT_THROUGH + 1)},
+            "native_reclaim_initial_bodies")
+    verify_facts(database, SNAPSHOT_THROUGH, entries, facts)
     # A legacy reader can still get the two bodies before the physical floor moves.
     legacy_list = {"after": "10", "limit": "2"}
     before = call("list", legacy_list)
@@ -623,8 +638,9 @@ def reclaim_signed_prefix(private, call, snapshot_id):
     legacy = call("list", legacy_list, expected_error=400)
     require(legacy == {"code": "unsupported_capability", "field": "snapshot.native_reset_required"},
             "native_reclaim_legacy_refused")
+    require(reclaimed_storage(database) == ({}, facts), "native_reclaim_physical_prefix")
     private.check_entry_retry(call, old_entry, SNAPSHOT_THROUGH)
-    summary(f"signed_reclaim=verified floor={SNAPSHOT_THROUGH}")
+    summary(f"signed_reclaim=verified floor={SNAPSHOT_THROUGH} physical_prefix=absent accepted_facts=unchanged")
 
 
 def catch_up(private, programs, call, database, api_key, source, peer, records):
@@ -641,7 +657,7 @@ def catch_up(private, programs, call, database, api_key, source, peer, records):
         state = retention(private, call, snapshot_id, allow_older_service=True)
         require(state is None or state[1] == 0, "native_reclaim_initial_floor")
         if state == (True, 0):
-            reclaim_signed_prefix(private, call, snapshot_id)
+            reclaim_signed_prefix(private, call, database, snapshot_id)
         else:
             prune_verified_prefix(database, snapshot_id, SNAPSHOT_THROUGH)
             reason = "unsupported" if state is None else "disabled"
