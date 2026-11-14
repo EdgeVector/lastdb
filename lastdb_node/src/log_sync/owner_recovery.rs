@@ -77,7 +77,7 @@ pub async fn recover_owned(
         store
             .db_ops()
             .native_runtime()
-            .adopt_restored_snapshot()
+            .adopt_restored_snapshot(base.through == 0)
             .await
             .map_err(|e| e.to_string())?;
         (base.name, base.through)
