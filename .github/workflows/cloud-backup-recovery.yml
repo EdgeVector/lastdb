@@ -28,7 +28,7 @@ on:
       mode:
         description: "Run a DEV operation or prepare a Social registry declaration"
         type: choice
-        options: [signed-files, social-share, social-prepare]
+        options: [signed-files, social-share, social-circles, social-prepare]
         default: signed-files
       social_install_revision:
         description: "For social-share, optionally install this exact signed DEV Social source before the operation"
@@ -149,6 +149,7 @@ jobs:
           case "$OPERATION" in
             signed-files) recipe=signed_files ;;
             social-share) recipe=social_share ;;
+            social-circles) recipe=social_circles ;;
             social-prepare) recipe=social_prepare ;;
             *) exit 2 ;;
           esac

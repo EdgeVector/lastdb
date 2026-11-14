@@ -71,14 +71,15 @@ pub(crate) fn view(home: &Path, id: &str) -> AccessView {
 }
 
 pub(super) fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
-    let previous = view(home, id);
+    let mut previous = view(home, id);
     let result = match observed {
         Some(observed) => confirmed(observed),
         None if previous.stale => return,
-        None => AccessView {
-            stale: true,
-            ..previous
-        },
+        None => {
+            previous.stale = true;
+            save(home, id, &previous);
+            return;
+        }
     };
     if previous.state == result.state
         && previous.role == result.role
@@ -92,7 +93,11 @@ pub(super) fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
     {
         return;
     }
-    if let Ok(bytes) = serde_json::to_vec(&result) {
+    save(home, id, &result);
+}
+
+fn save(home: &Path, id: &str, result: &AccessView) {
+    if let Ok(bytes) = serde_json::to_vec(result) {
         let _ = disk::write_private(&path(home, id), &bytes);
     }
 }

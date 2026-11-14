@@ -41,17 +41,22 @@ pub enum ShareMemberState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ShareWriteScope {
+    /// Sorted exact definition IDs. Empty means read only.
     Selected(Vec<Digest>),
+    /// All installed record schemas, including future definitions.
     All(AllShareSchemas),
 }
 
+/// The wire value for the all-schema scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AllShareSchemas {
+    /// Encodes as the string `all`.
     All,
 }
 
 impl ShareWriteScope {
+    /// Check an exact installed definition ID.
     pub fn permits(&self, definition_id: &Digest) -> bool {
         match self {
             Self::Selected(ids) => ids.binary_search(definition_id).is_ok(),

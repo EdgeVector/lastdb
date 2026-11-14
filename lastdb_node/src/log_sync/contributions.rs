@@ -212,19 +212,43 @@ fn seal_for_retry(
 }
 
 fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
+    use fold_db::record_replacement::RecordTarget;
+    use fold_db::schema::types::operations::Operation;
     if body.len() > BODY_LIMIT {
         return Err(ContributionError::Invalid);
     }
-    let mutation = crate::exec::parse_mutation_body(body)
-        .map_err(|_| ContributionError::Invalid)?
-        .mutation;
-    if mutation.mutation_type == MutationType::Purge
-        || mutation.file.is_some()
-        || mutation.file_write.is_some()
-        || mutation.inline_write.is_some()
-    {
+    let Operation::Mutation {
+        schema,
+        record_fields,
+        key_value,
+        alternates,
+        mutation_type,
+        expected,
+        definition_id,
+        source_file_name,
+        metadata,
+        file,
+        ..
+    } = serde_json::from_slice(body).map_err(|_| ContributionError::Invalid)?;
+    if mutation_type == MutationType::Purge || file.is_some() {
         return Err(ContributionError::Forbidden);
     }
+    let target = RecordTarget {
+        schema,
+        key: key_value,
+        alternates,
+    };
+    let mut mutation = Mutation::with_uuid(
+        String::new(),
+        target,
+        record_fields,
+        String::new(),
+        mutation_type,
+        expected,
+    );
+    mutation.definition_id = definition_id;
+    mutation.source_file_name = source_file_name;
+    mutation.metadata = metadata;
     Ok(mutation)
 }
 
