@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,7 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import baseline_data
 from node import OwnedNode
 from programs import Programs, execute
-from support import OperationError, child_environment, dev_endpoint, failure, require, write_private
+from support import (CREDENTIALS_FILE, OperationError, child_environment, dev_endpoint, failure,
+                     read_json, require, write_private)
 
 
 RECORDS = 300_000
@@ -35,6 +37,8 @@ BUDGET_SECONDS = 60
 SCHEMA = "SnapshotGate"
 LABEL = b"snapshot-gate-v1"
 LOAD_PREFIX = "c1da11d0-0000-4000-8000-"
+TAIL_KEY = "after-snapshot"
+TAIL_BODY = "signed tail"
 
 
 def record_body(index):
@@ -200,20 +204,36 @@ def verify_records(node, database_id, digest):
     return count
 
 
-def live_write(node, database_id):
+def write_record(node, database_id, key, body):
     route = f"/api/databases/{database_id}/mutations/batch"
     reply = node.call(route, {"mutations": [{
-        "type": "mutation", "schema": SCHEMA, "record": {"body": "live"},
-        "key_value": {"hash": "live", "range": None}, "alternates": {},
+        "type": "mutation", "schema": SCHEMA, "record": {"body": body},
+        "key_value": {"hash": key, "range": None}, "alternates": {},
         "mutation_type": "create", "source_file_name": None, "metadata": None, "file": None,
         "expected": {"type": "absent"}, "durability": "durable", "convergence": "sync",
     }]})
-    require(isinstance(reply, dict) and reply.get("count") == 1, "live_write")
+    require(reply.get("count") == 1 and reply.get("durability") == "durable", "record_write")
+
+
+def require_record(node, database_id, key, body):
     found = rows_from_batch(node.call(
         f"/api/databases/{database_id}/queries/batch",
-        {"queries": [{"schema_name": SCHEMA, "limit": 1, "filter": {"HashKey": "live"}}]},
+        {"queries": [{"schema_name": SCHEMA, "limit": 1, "filter": {"HashKey": key}}]},
     ))
-    require(found.get("live") == "live", "live_read")
+    require(found == {key: body}, "record_readback")
+
+
+def wait_for_tail(home, database_id, through):
+    path = home / "log-sync" / database_id / "prefix.json"
+    deadline = time.monotonic() + BUDGET_SECONDS
+    while time.monotonic() < deadline:
+        if path.exists():
+            prefix = read_json(path, 4096)
+            require(prefix.get("database_id") == database_id, "signed_tail_database")
+            if prefix.get("through") == through + 1:
+                return
+        time.sleep(0.25)
+    raise OperationError("signed_tail_deadline")
 
 
 def seed(programs, node, database_id, numbers):
@@ -270,6 +290,7 @@ def restore(programs, source, destination, database_id, phrase, numbers):
     require(elapsed < BUDGET_SECONDS, "restore_budget")
     through, replayed = parse_restore(output)
     require(through == numbers["snapshot_through"], "restore_through")
+    require(replayed == 1, "restore_signed_tail")
     note(numbers, "restore_seconds", round(elapsed, 3))
     note(numbers, "replayed", replayed)
 
@@ -280,7 +301,9 @@ def check_restored(programs, destination, database_id, digest, numbers):
     try:
         restored.start(sign_in=False)
         count = verify_records(restored, database_id, digest)
-        live_write(restored, database_id)
+        require_record(restored, database_id, TAIL_KEY, TAIL_BODY)
+        write_record(restored, database_id, "live", "live")
+        require_record(restored, database_id, "live", "live")
         elapsed = time.monotonic() - started
         restored.stop()
     finally:
@@ -316,8 +339,16 @@ def run_gate(programs, root, phrase, api_key):
                 and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
         node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
+        tail_started = time.monotonic()
+        write_record(node, database_id, TAIL_KEY, TAIL_BODY)
+        wait_for_tail(home, database_id, numbers["snapshot_through"])
+        note(numbers, "signed_tail_seconds", round(time.monotonic() - tail_started, 3))
         node.stop()
-        restore(programs, home, destination, database_id, phrase, numbers)
+        connection = root / "restore-connection"
+        connection.mkdir(mode=0o700)
+        (home / CREDENTIALS_FILE).rename(connection / CREDENTIALS_FILE)
+        shutil.rmtree(home)
+        restore(programs, connection, destination, database_id, phrase, numbers)
         check_restored(programs, destination, database_id, digest, numbers)
     finally:
         node.cleanup_stop()
