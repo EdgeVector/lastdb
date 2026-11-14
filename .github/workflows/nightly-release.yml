@@ -47,7 +47,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Freeze one clean source, version, and immutable tag
@@ -85,7 +85,7 @@ jobs:
           ref: ${{ needs.plan.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
@@ -138,7 +138,7 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Check source syntax and the native host
@@ -249,7 +249,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.source }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
@@ -330,7 +330,7 @@ jobs:
           ref: ${{ needs.plan.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/download-artifact@v8

@@ -90,7 +90,7 @@ jobs:
         working-directory: scripts/mutation_log_load
         run: |
           python3 -c 'from guard import allow_region, allow_role; import os; allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"]); allow_region("us-west-2")'
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2

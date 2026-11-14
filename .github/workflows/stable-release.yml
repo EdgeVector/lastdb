@@ -46,7 +46,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python3 -m pip install cryptography==46.0.3 rfc8785==0.1.4
@@ -115,7 +115,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.source }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
@@ -190,10 +190,10 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.source }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2
@@ -251,10 +251,10 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.source }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2
@@ -335,7 +335,7 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.source }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python3 -m pip install cryptography==46.0.3 rfc8785==0.1.4

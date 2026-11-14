@@ -76,7 +76,7 @@ jobs:
           echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark driver from the workflow revision
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.driver }}
           path: driver
@@ -105,7 +105,7 @@ jobs:
 
       - name: Reclaim disk space only when the corpus budget needs it
         if: steps.disk-measure.outputs.cleanup-required == 'true'
-        uses: jlumbroso/free-disk-space@v1.3.1
+        uses: jlumbroso/free-disk-space@v2.0.0
         with:
           tool-cache: false
           android: true
