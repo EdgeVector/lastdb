@@ -29,7 +29,7 @@ from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
                    allow_table, allow_table_arn, continue_page, database_id_for_run,
                    delete_batch, load_endpoints, query_request, record_ids_from_query,
                    load_partitions, refuse_prod_environment, unprocessed_ids, writes_partition)
-from plan import LEVELS, NATIVE_CUTOFF, PRELIMINARY_LABEL, PRIVATE_LEVELS, SCALE_LABEL, phases
+from plan import LEVELS, PRELIMINARY_LABEL, SCALE_LABEL, phases
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
@@ -138,15 +138,6 @@ def cleanup(table, database_id, ledger):
         purge(table, partition, ledger)
 
 
-def verify_native_cleanup(table, database_id, ledger):
-    if any(list(partition_records(table, partition, ledger)) for partition in load_partitions(database_id)):
-        raise LoadError("native cutoff DynamoDB metadata cleanup is incomplete")
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-        summary.write("Verified the run-owned signed log, accepted-write facts, submissions, "
-                      "and snapshot metadata partitions are empty. Uploaded provider snapshot "
-                      "bytes are outside this DEV role's cleanup scope.\n")
-
-
 def keep_going(stopped):
     """A scaling result does not cancel the tiers that follow it."""
     return stopped not in ("error", "cap")
@@ -223,15 +214,6 @@ def target():
     return endpoint, table, database_id
 
 
-def recover_native_cutoff(database, table, ledger):
-    from native_cut_prune import prune_verified_prefix
-
-    def prune(snapshot_id, through):
-        prune_verified_prefix(table, database, snapshot_id, through, ledger)
-
-    return prune
-
-
 def main(argv):
     parser = argparse.ArgumentParser(description="DEV mutation-log load")
     parser.add_argument("--phase", required=True, choices=("load", "cleanup"))
@@ -248,11 +230,6 @@ def main(argv):
         raise GuardError("level")
     if args.phase == "load" and args.level == "trim":
         raise LoadError("trim route retired")
-    if args.level == NATIVE_CUTOFF and (
-            os.environ.get("GITHUB_ACTIONS") != "true"
-            or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-            or os.environ.get("GITHUB_REF") != "refs/heads/main"):
-        raise GuardError("native cutoff requires manual accepted-main DEV dispatch")
     endpoint, table, database_id = target()
     print("database {0}".format(database_id))
     if "jdsx4ixk2i" in endpoint:
@@ -263,21 +240,16 @@ def main(argv):
         saved = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
         ledger.restore(saved)
         cleanup(table, database_id, ledger)
-        if args.level == NATIVE_CUTOFF:
-            verify_native_cleanup(table, database_id, ledger)
         text = format_estimate(ledger.snapshot())
         if summary_path.is_file():
             text += "\n" + render_summaries(json.loads(summary_path.read_text(encoding="utf-8")))
         print(text)
         return 0
     key, api_key, account_generation = load_ci_key()
-    if args.level in PRIVATE_LEVELS:
+    if args.level == "private":
         from private_recovery import recover as recover_private
         try:
-            prune_native = (recover_native_cutoff(database_id, table, ledger)
-                            if args.level == NATIVE_CUTOFF else None)
-            recover_private(post, endpoint, database_id, key, api_key, account_generation, ledger,
-                            prune_native=prune_native)
+            recover_private(post, endpoint, database_id, key, api_key, account_generation, ledger)
             verify_private_storage(table, database_id, ledger)
         finally:
             Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")

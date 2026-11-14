@@ -1,6 +1,5 @@
 use std::sync::{mpsc, Arc};
 
-use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
@@ -195,7 +194,7 @@ impl CloudLog {
         let database = self.database_id();
         let body = wire::list_body(database, after, limit, true)?;
         let (status, payload) = self
-            .post_status_limit(paths::LIST, body, Proof::Data, CONTROL_JSON_MAX_BYTES)
+            .post_status_limit(paths::LIST, body, Proof::Data, http::JSON_LIMIT)
             .await
             .map_err(|_| LogError::UnexpectedOutcome)?;
         if status == 400 && wire::unsupported_reset(&payload) {

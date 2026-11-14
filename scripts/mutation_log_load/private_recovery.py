@@ -49,7 +49,7 @@ def connect(programs, node, api_key):
             and receipt["account_id"] == node.account, "private_dev_connection")
 
 
-def restore(programs, credentials, destination, database, phrase, through, *, stage, snapshot=0):
+def restore(programs, credentials, destination, database, phrase, through, *, stage):
     try:
         receipt = programs.command(credentials, [
             "backup", "restore", "--database", database, "--recovery-phrase-stdin",
@@ -59,8 +59,7 @@ def restore(programs, credentials, destination, database, phrase, through, *, st
         raise OperationError(stage, cli_refusal=error.cli_refusal) from None
     require(receipt["database_id"] == database and receipt["name"] == "personal"
             and receipt["through_delivery_seq"] == through
-            and receipt["snapshot_through"] == snapshot
-            and receipt["replayed"] == through - snapshot, stage)
+            and receipt["snapshot_through"] == 0 and receipt["replayed"] == through, stage)
 
 
 def prepare_source(node, database, owner):
@@ -335,7 +334,7 @@ def reconnect_lagging_peer(programs, call, database, api_key, source, peer, reco
     return final_head, expected
 
 
-def check_restore(programs, call, database, owner, api_key, prune_native):
+def check_restore(programs, call, database, owner, api_key):
     phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE").strip().encode()
     account = account_id(owner.public)
     with tempfile.TemporaryDirectory(prefix="ldb-signed-", dir="/tmp") as temporary:
@@ -358,19 +357,11 @@ def check_restore(programs, call, database, owner, api_key, prune_native):
         check_devices(page, first, second)
         check_progress(source, database, 6, 10)
         check_progress(peer, database, 4, 10)
-        if prune_native is None:
-            snapshot = 0
-            through, records = reconnect_lagging_peer(
-                programs, call, database, api_key, source, peer, records)
-        else:
-            from native_cut_recovery import catch_up
-
-            snapshot, through, records = catch_up(
-                programs, call, database, api_key, source, peer, records, prune_native)
+        through, records = reconnect_lagging_peer(
+            programs, call, database, api_key, source, peer, records)
         restored = OwnedNode(root / "restored", programs, account=account)
         restore(programs, credentials.home, restored.home, database, phrase, through,
-                stage="private_fresh_native_restore" if snapshot else "private_fresh_log_restore",
-                snapshot=snapshot)
+                stage="private_fresh_log_restore")
         require(device_id(restored) not in (first, second), "private_restored_device_identity")
         require(call("head", {"device_id": device_id(restored)}) == {"last_writer_seq": "0"},
                 "private_never_writer_contents")
@@ -379,13 +370,12 @@ def check_restore(programs, call, database, owner, api_key, prune_native):
         with running(restored):
             require(read_fields(restored, database, records) == [[row] for row in records],
                     "private_recovered_record")
-    fresh_source = "native snapshot and retained log tail" if snapshot else "retained log"
     summary("Each device kept separate local upload and download positions. The cloud "
             "recognized an exact resend and refused a different edit at the same number. "
-            f"A fresh home recovered both devices' edits from the {fresh_source}.")
+            "A fresh home replayed the retained log and read both devices' edits.")
 
 
-def recover(post, endpoint, database, owner, api_key, generation, ledger, *, prune_native=None):
+def recover(post, endpoint, database, owner, api_key, generation, ledger):
     os.umask(0o077)
 
     def call(operation, fields, *, key=owner, scope_generation=generation, allowed=True,
@@ -394,7 +384,7 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger, *, pru
         status, response, _ = post(
             endpoint, key, database, "POST", f"{ROOT}/{operation}", body, api_key,
             scope_generation)
-        ledger.record("read" if operation in ("head", "list", "access", "snapshot/bytes")
+        ledger.record("read" if operation in ("head", "list", "access")
                       else "write", len(body))
         if allowed and expected_error is None and 200 <= status < 300 and isinstance(response, dict):
             return response
@@ -416,7 +406,7 @@ def recover(post, endpoint, database, owner, api_key, generation, ledger, *, pru
                             if not name.startswith("LASTDB_CLOUD_DEV_")
                         })
     try:
-        check_restore(programs, call, database, owner, api_key, prune_native)
+        check_restore(programs, call, database, owner, api_key)
     except OperationError as error:
         raise LoadError(f"LastDB private recovery: {json.dumps(failure(error))}") from None
 
