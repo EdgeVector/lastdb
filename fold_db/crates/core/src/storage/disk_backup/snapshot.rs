@@ -12,10 +12,10 @@ use std::sync::Arc;
 
 /// The database and file storage captured at one write boundary.
 pub struct DatabaseSnapshot {
-    /// Last local accepted change included in the frozen files.
-    pub accepted_head: u64,
     /// Main storage frontier included in the frozen files.
     pub native_frontier: u64,
+    /// Whether the frozen files must cover writes from before cloud capture.
+    pub needs_initial_coverage: bool,
     marker: File,
     main: RunSnapshot,
     files: RunSnapshot,
@@ -23,14 +23,18 @@ pub struct DatabaseSnapshot {
 
 impl PackRuntime {
     /// Start a separate author stream on a newly restored device.
-    pub async fn adopt_restored_snapshot(self: &Arc<Self>) -> StorageResult<()> {
+    pub async fn adopt_restored_snapshot(self: &Arc<Self>, bootstrap: bool) -> StorageResult<()> {
         let runtime = Arc::clone(self);
         self.replay_accepted(async {
             crate::storage::disk_pack::transaction::scope(
                 runtime,
                 Metadata::fork_restored_author(self),
             )
-            .await
+            .await?;
+            if bootstrap {
+                Metadata::clear_restored_bootstrap_pending(self).await?;
+            }
+            Ok::<_, StorageError>(())
         })
         .await?;
         self.flush_native().await?;
@@ -39,13 +43,33 @@ impl PackRuntime {
             .map_err(|e| StorageError::invalid(format!("restore snapshot coverage: {e:?}")))
     }
 
-    /// Pin both native publications under the same database write guard.
-    pub async fn capture_database_snapshot(self: &Arc<Self>) -> StorageResult<DatabaseSnapshot> {
+    /// Pin both native publications after the local upload queue drains.
+    /// `None` means a local edit still needs to be published in the log.
+    pub async fn capture_synced_snapshot(
+        self: &Arc<Self>,
+    ) -> StorageResult<Option<DatabaseSnapshot>> {
         let _write = self.enter_write().await;
         if self.requires_recovery() {
             return Err(StorageError::invalid(
                 "database snapshot requires a healthy writer",
             ));
+        }
+        let accepted = self.accepted_status();
+        if !self.captures_accepted() || accepted.gap {
+            return Err(StorageError::invalid(
+                "snapshot needs intact local write capture",
+            ));
+        }
+        if accepted.acked != accepted.head {
+            if accepted.snapshot_required {
+                // Publishing these edits first would leave a log whose edits
+                // can refer to schema and record state that was never uploaded.
+                // Keep both histories locally until a baseline can be installed.
+                return Err(StorageError::invalid(
+                    "initial snapshot cannot include queued signed writes without a log baseline",
+                ));
+            }
+            return Ok(None);
         }
         cas_delete::require_clear(&self.physical)?;
         if crate::storage::local_file_ref::has_references(self)? {
@@ -59,13 +83,13 @@ impl PackRuntime {
             .parent()
             .ok_or_else(|| StorageError::invalid("database snapshot root"))?;
         let marker = admit::open_nofollow_read(&parent.join(NODE_MARKER))?;
-        Ok(DatabaseSnapshot {
-            accepted_head: self.accepted_status().head,
+        Ok(Some(DatabaseSnapshot {
             native_frontier: self.physical.current_root().frontier(),
+            needs_initial_coverage: accepted.snapshot_required,
             marker,
             main: self.physical.home.snapshot().map_err(map)?,
             files: self.physical.cas.snapshot().map_err(map)?,
-        })
+        }))
     }
 }
 

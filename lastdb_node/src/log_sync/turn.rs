@@ -77,7 +77,7 @@ pub(super) async fn open_native(
             if super::snapshot::pending(&host.home, &database.id) {
                 if let Err(reason) = super::snapshot::requested(host, &ready.log, database).await {
                     tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
-                    if reason == "snapshot awaits incoming signed updates" {
+                    if reason == super::snapshot::AWAIT_INCOMING {
                         return shorter(
                             Pause::Snapshot,
                             run::pull_and_checkpoint(host, &mut ready).await,

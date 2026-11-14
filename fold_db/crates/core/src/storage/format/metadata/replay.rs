@@ -1,11 +1,16 @@
 //! Durable state for the signed database log and replay ordering.
 
 use super::{read_err, Metadata};
+use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::SchemaError;
+use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::hex::{hex_lower, sha256_hex};
+use lastdb_model::kind_partition::exact_prefix_bounds;
 use lastdb_model::record_value::MAX_RECORD_BYTES;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 const MAX_DEFERRED_BYTES: usize = 450 * 1024;
 const MAX_BASELINE_BYTES: usize = MAX_RECORD_BYTES + 2048;
@@ -53,6 +58,48 @@ fn record_key(addr: &str, ctx: &str) -> String {
 }
 
 impl Metadata {
+    /// A fresh snapshot at cloud position zero may contain markers from an
+    /// older client's pre-cloud local writes. Those writes have no cloud echo.
+    /// Keep the record values and discard only their optimistic replay state.
+    pub(in crate::storage) async fn clear_restored_bootstrap_pending(
+        runtime: &Arc<PackRuntime>,
+    ) -> StorageResult<()> {
+        let store = runtime.open_store(super::METADATA_NAMESPACE).await?;
+        let metadata = Self::new(store, Arc::clone(runtime));
+        for prefix in [
+            "signed-replay-pending:",
+            "signed-replay-pending-attachment:",
+            "signed-replay-baseline:",
+            "signed-replay-deferred:",
+        ] {
+            let (start, end) = exact_prefix_bounds(prefix);
+            let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 64);
+            while let Some((start, end, limit)) = walk.request() {
+                let scan = match metadata
+                    .store
+                    .scan_range_yielding(&start, &end, limit, 1)
+                    .await
+                {
+                    Ok(scan) => scan,
+                    Err(StorageError::ReadResourceLimit { .. }) if walk.read_too_big() => continue,
+                    Err(error) => return Err(error),
+                };
+                walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
+                let deletes = scan
+                    .rows
+                    .into_iter()
+                    .map(|(key, _)| {
+                        let key = String::from_utf8(key)
+                            .map_err(|error| StorageError::backend(error.to_string()))?;
+                        Ok((key, None))
+                    })
+                    .collect::<StorageResult<Vec<_>>>()?;
+                transaction::scope(Arc::clone(runtime), metadata.stage(deletes)).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn stage_replay_receipt(&self, id: &[u8; 32], dig: &[u8; 32]) -> Res<bool> {
         let key = format!("signed-replay-receipt:{}", hex_lower(id));
         self.stage_receipt(key, dig, "signed replay ID reused")
