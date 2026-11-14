@@ -11,6 +11,8 @@ mod cloud;
 mod disk;
 mod files;
 mod http;
+mod index_history;
+mod maintenance;
 mod members;
 mod native;
 mod native_reset;
@@ -30,6 +32,7 @@ mod turn;
 mod upload;
 mod wire;
 
+pub use index_history::{index_history, IndexHistoryReport};
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub use retention::{reclaim as reclaim_snapshot_log, ReclaimReport};

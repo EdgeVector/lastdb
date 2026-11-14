@@ -19,6 +19,8 @@ mod account;
 mod dev_keys;
 #[path = "cloud_cmds/enrollment_home.rs"]
 mod enrollment_home;
+#[path = "cloud_cmds/index_history.rs"]
+mod index_history;
 #[path = "cloud_cmds/reclaim.rs"]
 mod reclaim;
 #[path = "cloud_cmds/recovery_home.rs"]
@@ -47,6 +49,9 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         }
         ByteBackupCommand::Reclaim(args) => {
             reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
+        }
+        ByteBackupCommand::IndexLogHistory(args) => {
+            index_history::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
         ByteBackupCommand::Snapshot { database, wait } => queue_snapshot(data_dir, &database, wait),
     }

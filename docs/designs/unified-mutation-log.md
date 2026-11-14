@@ -147,6 +147,15 @@ encrypted payload, so the cloud can verify an exact retry after it deletes
 the original entry. The cloud does not add a mutable position for any device.
 Physical reclaim stays off in production until a separate rollout enables it.
 
+`lastdb backup index-log-history --database personal --status` reads the first
+delivery covered by the acceptance index. When the service enables indexing
+for that personal database, `--batches N` indexes older entries in at most
+256 signed requests per invocation, with up to 32 entries in each request.
+The command reports progress every 16 requests and prints the last confirmed
+position on failure. Read status before retrying after an interruption.
+The database is fully indexed at delivery 1. Indexing can run before a file
+snapshot exists and leaves the cloud log entries and device positions intact.
+
 A compatible personal device includes its saved download position when asking
 for edits. Below the native cutoff it receives an exact signed snapshot
 reference and its covered position. The device sends its pending local edits
