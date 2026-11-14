@@ -4,24 +4,28 @@ use serde_json::{json, Value};
 
 use crate::saved_query::{QueryCatalog, CATALOG_KEY, SAVED_QUERY_SCHEMA};
 
-use super::http::{DatabaseTarget, Store};
+use super::store::QueryStore;
 
 const ATTEMPTS: u8 = 4;
 
-pub(super) fn ids(store: &Store, source: &DatabaseTarget) -> Result<Vec<String>, String> {
-    load(store, source).map(|catalog| catalog.ids)
+pub(super) async fn ids<S: QueryStore>(store: &S, source: &S::Db) -> Result<Vec<String>, String> {
+    load(store, source).await.map(|catalog| catalog.ids)
 }
 
-pub(super) fn remember(store: &Store, source: &DatabaseTarget, id: &str) -> Result<(), String> {
+pub(super) async fn remember<S: QueryStore>(
+    store: &S,
+    source: &S::Db,
+    id: &str,
+) -> Result<(), String> {
     for attempt in 0..ATTEMPTS {
-        let mut catalog = load(store, source)?;
+        let mut catalog = load(store, source).await?;
         if !catalog
             .insert(id)
             .map_err(|error| error.as_str().to_owned())?
         {
             return Ok(());
         }
-        match store_catalog(store, source, &catalog) {
+        match store_catalog(store, source, &catalog).await {
             Ok(()) => return Ok(()),
             Err(error) if error.contains("409") && attempt + 1 < ATTEMPTS => continue,
             Err(error) => return Err(error),
@@ -30,9 +34,9 @@ pub(super) fn remember(store: &Store, source: &DatabaseTarget, id: &str) -> Resu
     Err("saved query catalog changed".into())
 }
 
-pub(super) fn write_hash(
-    store: &Store,
-    source: &DatabaseTarget,
+pub(super) async fn write_hash<S: QueryStore>(
+    store: &S,
+    source: &S::Db,
     schema: &str,
     hash: &str,
     record: &Value,
@@ -53,12 +57,14 @@ pub(super) fn write_hash(
         "durability": "durable",
         "convergence": "sync",
     });
-    store.post(source, "/api/mutation", &body)?;
+    store.mutate(source, &body).await?;
     Ok(())
 }
 
-fn load(store: &Store, source: &DatabaseTarget) -> Result<QueryCatalog, String> {
-    let rows = store.query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": CATALOG_KEY}))?;
+async fn load<S: QueryStore>(store: &S, source: &S::Db) -> Result<QueryCatalog, String> {
+    let rows = store
+        .query(source, SAVED_QUERY_SCHEMA, &json!({"HashKey": CATALOG_KEY}))
+        .await?;
     match rows.as_slice() {
         [] => Ok(QueryCatalog::empty()),
         [row] => QueryCatalog::from_row(row).map_err(|error| error.as_str().to_owned()),
@@ -66,9 +72,9 @@ fn load(store: &Store, source: &DatabaseTarget) -> Result<QueryCatalog, String> 
     }
 }
 
-fn store_catalog(
-    store: &Store,
-    source: &DatabaseTarget,
+async fn store_catalog<S: QueryStore>(
+    store: &S,
+    source: &S::Db,
     catalog: &QueryCatalog,
 ) -> Result<(), String> {
     write_hash(
@@ -81,4 +87,5 @@ fn store_catalog(
             .map_err(|error| error.as_str().to_owned())?,
         catalog.revision.as_deref(),
     )
+    .await
 }

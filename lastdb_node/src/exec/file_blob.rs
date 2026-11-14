@@ -98,6 +98,39 @@ pub(super) fn render_file(
     json_ok(&envelope(&json!({ "file": file }), ctx.user_id.as_str()))
 }
 
+pub(in crate::exec) async fn delete_blob_slice(
+    body: &[u8],
+    host: &Host,
+) -> Result<Value, HostError> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        mutation: Operation,
+        #[serde(default)]
+        placement: Placement,
+    }
+    let b: Body = serde_json::from_slice(body)
+        .map_err(|e| HostError::new(400, format!("invalid delete-blob request: {e}")))?;
+    let mut p = ParsedMutation::from_operation(b.mutation, None);
+    if p.mutation.mutation_type != MutationType::Replace {
+        return Err(HostError::new(
+            400,
+            "delete-blob requires a complete replacement",
+        ));
+    }
+    match b.placement {
+        Placement::Inline => p.mutation.inline_write = Some(InlineWrite::Clear),
+        Placement::Blob if p.mutation.file.is_some() => {
+            return Err(HostError::new(
+                400,
+                "delete-blob requires a complete replacement without a file marker",
+            ));
+        }
+        Placement::Blob => p.mutation.file_write = Some(FileWrite::Clear),
+    }
+    mutation::commit_parsed_mutation(host, p).await
+}
+
 pub(super) async fn db_delete_blob(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -106,37 +139,7 @@ pub(super) async fn db_delete_blob(
     if !ctx.is_owner {
         return error_response(403, "file delete is owner-only", ctx);
     }
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Body {
-        mutation: Operation,
-        #[serde(default)]
-        placement: Placement,
-    }
-    let res = async {
-        let b: Body = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid delete-blob request: {e}")))?;
-        let mut p = ParsedMutation::from_operation(b.mutation, None);
-        if p.mutation.mutation_type != MutationType::Replace {
-            return Err(HostError::new(
-                400,
-                "delete-blob requires a complete replacement",
-            ));
-        }
-        match b.placement {
-            Placement::Inline => p.mutation.inline_write = Some(InlineWrite::Clear),
-            Placement::Blob if p.mutation.file.is_some() => {
-                return Err(HostError::new(
-                    400,
-                    "delete-blob requires a complete replacement without a file marker",
-                ));
-            }
-            Placement::Blob => p.mutation.file_write = Some(FileWrite::Clear),
-        }
-        mutation::commit_parsed_mutation(host, p).await
-    }
-    .await;
-    render(res, ctx)
+    render(delete_blob_slice(&req.body, host).await, ctx)
 }
 
 #[derive(Deserialize)]
@@ -264,7 +267,10 @@ async fn prepare_blob_write(
     }
 }
 
-async fn put_blob_inner(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
+pub(in crate::exec) async fn put_blob_inner(
+    req: &UdsRequest,
+    host: &Host,
+) -> Result<Value, HostError> {
     let (plaintext, body) = parse_put_blob(req)?;
     let mut parsed = ParsedMutation::from_operation(body.mutation, None);
     if !matches!(

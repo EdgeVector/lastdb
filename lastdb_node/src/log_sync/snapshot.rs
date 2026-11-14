@@ -195,7 +195,7 @@ fn remember(
 }
 
 /// Queue a direct cloud snapshot of one owned database.
-pub fn request(home: &std::path::Path, selector: &str) -> Result<(String, String), String> {
+pub(crate) fn request(home: &std::path::Path, selector: &str) -> Result<(String, String), String> {
     let databases = registry::databases(home);
     let selected = databases
         .iter()
@@ -208,6 +208,25 @@ pub fn request(home: &std::path::Path, selector: &str) -> Result<(String, String
     super::disk::write_private(&request_path(home, &selected.id), body.as_bytes())
         .map_err(|_| "cannot save the snapshot request")?;
     Ok((selected.id.clone(), nonce))
+}
+
+pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64, u64)> {
+    let text = std::fs::read_to_string(result_path(home, database)).ok()?;
+    let (mut through, mut head, mut entries, mut request) = (None, None, None, None);
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("through=") {
+            through = value.parse().ok();
+        } else if let Some(value) = line.strip_prefix("head=") {
+            head = value.parse().ok();
+        } else if let Some(value) = line.strip_prefix("log_entries=") {
+            entries = value.parse().ok();
+        } else if let Some(value) = line.strip_prefix("request=") {
+            request = Some(value);
+        } else if !line.is_empty() {
+            return None;
+        }
+    }
+    (through == head && request == Some(nonce)).then_some((through?, entries?))
 }
 
 pub(super) fn pending(home: &Path, database: &str) -> bool {

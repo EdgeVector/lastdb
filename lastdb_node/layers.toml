@@ -22,7 +22,7 @@ modules = [
 
 [[layer]]
 name = "transport"
-doc = "Protocol versions, Unix-domain socket framing and routing, keyed local reads, cloud backup HTTP transport, and saved-query UDS execution."
+doc = "Protocol versions, Unix-domain socket framing and routing, keyed local reads, cloud backup HTTP transport, and in-process saved-query orchestration."
 modules = [
   "cloud_backup_client",
   "lastdb_uds",

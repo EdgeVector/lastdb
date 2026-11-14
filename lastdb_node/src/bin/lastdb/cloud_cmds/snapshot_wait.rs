@@ -25,11 +25,20 @@ pub(super) fn print_backup(value: &Value, json: bool) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn until_head(home: &Path, database: &str, nonce: &str) -> Result<(), String> {
-    let path = home.join("log-sync").join(database).join("snapshot-result");
+pub(super) fn parse_reply(raw: &str, label: &str) -> Result<Value, String> {
+    crate::parse_json_response(raw, label).map_err(|fallback| {
+        raw.split_once("\r\n\r\n")
+            .and_then(|(_, body)| serde_json::from_str::<Value>(body.trim()).ok())
+            .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or(fallback)
+    })
+}
+
+pub(super) fn until_head(socket: &Path, database: &str, nonce: &str) -> Result<(), String> {
+    let path = format!("/api/backup/snapshot?database={database}&nonce={nonce}");
     let deadline = Instant::now() + WAIT;
     loop {
-        if let Some((through, entries)) = read_match(&path, nonce) {
+        if let Some((through, entries)) = poll_match(socket, &path) {
             println!("snapshot_through={through}");
             println!("log_head={through}");
             println!("log_entries={entries}");
@@ -42,24 +51,14 @@ pub(super) fn until_head(home: &Path, database: &str, nonce: &str) -> Result<(),
     }
 }
 
-fn read_match(path: &Path, nonce: &str) -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let mut through = None;
-    let mut head = None;
-    let mut entries = None;
-    let mut request = None;
-    for line in text.lines() {
-        if let Some(value) = line.strip_prefix("through=") {
-            through = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("head=") {
-            head = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("log_entries=") {
-            entries = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("request=") {
-            request = Some(value);
-        } else if !line.is_empty() {
-            return None;
-        }
+fn poll_match(socket: &Path, path: &str) -> Option<(u64, u64)> {
+    let raw = crate::get_path_retry(socket, path, Duration::from_secs(10)).ok()?;
+    let reply = crate::parse_json_response(&raw, "backup snapshot status").ok()?;
+    if reply["ready"].as_bool() != Some(true) {
+        return None;
     }
-    (through == head && request == Some(nonce)).then_some((through?, entries?))
+    Some((
+        reply["snapshot_through"].as_u64()?,
+        reply["log_entries"].as_u64()?,
+    ))
 }
