@@ -201,7 +201,7 @@ pub fn save_developer_key(home: &Path, key: &str) -> Result<PathBuf, String> {
             .and_then(|()| file.sync_all())
             .map_err(|_| "cannot write developer-api-key")?;
         rfs::renameat(&dir, temp.as_str(), &dir, DEVELOPER_API_KEY_FILE)
-            .map_err(|_| "cannot publish developer-api-key")
+            .map_err(|_| "cannot publish developer-api-key".to_owned())
     })();
     if write_res.is_err() {
         let _ = rfs::unlinkat(&dir, temp.as_str(), AtFlags::empty());
