@@ -1,10 +1,19 @@
 name: Cloud backup client build
 
-# One exact DEV client build for the recovery and cleanup workflows. The job
-# has no cloud credentials. Like every cloud backup job, it ends within 10
-# minutes; a slower build fails here instead of delaying the recovery result.
+# One exact DEV client for the recovery and cleanup workflows. `client: build`
+# compiles github.sha with the dev-release profile. `client: nightly` downloads
+# the latest published nightly Linux client and does not compile. Callers that
+# omit client keep the build. The job has no cloud credentials. Like every
+# cloud backup job, it ends within 10 minutes; a slower build fails here
+# instead of delaying the recovery result.
 on:
   workflow_call:
+    inputs:
+      client:
+        description: "build compiles github.sha; nightly downloads the latest published nightly"
+        type: string
+        required: false
+        default: build
     outputs:
       version:
         description: The exact client version that the binaries report.
@@ -18,7 +27,7 @@ permissions:
 
 jobs:
   build:
-    name: Build the exact DEV client
+    name: ${{ inputs.client == 'nightly' && 'Download the published nightly client' || 'Build the exact DEV client' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -36,28 +45,54 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Select the repository toolchain
+      - name: Select the client
         id: version
+        env:
+          CLIENT: ${{ inputs.client }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          rustup show active-toolchain
-          base="$(python3 -c 'import re,tomllib; v=tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"].split("-")[0]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",v); print(v)')"
-          version="$base-nightly.$(date -u +%Y%m%d).g${SOURCE_COMMIT:0:9}"
+          case "$CLIENT" in
+            build|nightly) ;;
+            *) printf 'The client input must be build or nightly\n' >&2; exit 1 ;;
+          esac
+          if [ "$CLIENT" = "nightly" ]; then
+            python3 scripts/release/published_client.py \
+              --out-dir "$RUNNER_TEMP/cloud-backup-client" \
+              > "$RUNNER_TEMP/published-client.txt"
+            mapfile -t lines < "$RUNNER_TEMP/published-client.txt"
+            test "${#lines[@]}" -eq 2
+            version="${lines[0]#version=}"
+            tarball="${lines[1]#tarball=}"
+            test -n "$version"
+            test "$version" != "${lines[0]}"
+            test "$tarball" = "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+            test -f "$tarball"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.g[0-9a-f]{9}$ ]]
+            cat "$RUNNER_TEMP/published-client.txt"
+          else
+            rustup show active-toolchain
+            base="$(python3 -c 'import re,tomllib; v=tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"].split("-")[0]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",v); print(v)')"
+            version="$base-nightly.$(date -u +%Y%m%d).g${SOURCE_COMMIT:0:9}"
+            printf 'CARGO_TARGET_DIR=%s/cloud-backup-build\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          fi
           printf 'CLIENT_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
-          printf 'CARGO_TARGET_DIR=%s/cloud-backup-build\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'version=%s\nartifact=cloud-backup-client-%s-%s\n' \
             "$version" "$SOURCE_COMMIT" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@v2
+        if: success() && inputs.client == 'build'
         with:
           shared-key: cloud-backup-recovery-linux
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the exact accepted client
+        if: success() && inputs.client == 'build'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
           FOLDDB_BUILD_VERSION_OVERRIDE="$CLIENT_VERSION" \
             cargo build --locked --profile dev-release -p lastdb_node --bin lastdb --bin lastdbd
       - name: Package the exact client
+        if: success() && inputs.client == 'build'
         run: |
           set -euo pipefail
           python3 scripts/release/nightly_package.py \
@@ -77,6 +112,7 @@ jobs:
       - name: Record client provenance
         env:
           GH_TOKEN: ${{ github.token }}
+          CLIENT: ${{ inputs.client }}
           ARTIFACT_ID: ${{ steps.client-artifact.outputs.artifact-id }}
           ARTIFACT_URL: ${{ steps.client-artifact.outputs.artifact-url }}
           ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
@@ -97,10 +133,18 @@ jobs:
           test "$expired" = false
           test -n "$expiration"
           {
-            printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
+            if [ "$CLIENT" = "nightly" ]; then
+              printf '\nPublished nightly client: %s\n\n' "$CLIENT_VERSION"
+            else
+              printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
+            fi
             printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
             printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
             sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
             printf 'Artifact expires: %s\n' "$expiration"
-            printf '\nThe build uses no cloud credentials and makes no PROD or primary change.\n'
+            if [ "$CLIENT" = "nightly" ]; then
+              printf '\nThe download uses no cloud credentials and makes no PROD or primary change.\n'
+            else
+              printf '\nThe build uses no cloud credentials and makes no PROD or primary change.\n'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
