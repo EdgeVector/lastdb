@@ -132,12 +132,13 @@ def read_album(node, selections, database, key, title=None):
                for reply in results)
 
 
-def observe_access(browser, database, state, revision=None):
+def observe_access(browser, database, state, revision=None, *, role="read", write_schemas=None):
     def matches(result):
         access = result["database"]["selfAccess"]
         return (access["state"] == state and access["confirmedAtMs"] and not access["stale"]
                 and (revision is None or access["revision"] == str(revision))
-                and (state != "active" or access["role"] == "read"))
+                and (state != "active" or access["role"] == role)
+                and (write_schemas is None or access.get("writeSchemas") == write_schemas))
     retry(f"social_recipient_access_{state}", lambda: call(browser, f"/api/database?databaseId={database}"), matches)
 
 

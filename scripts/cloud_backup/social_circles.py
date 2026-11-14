@@ -103,7 +103,7 @@ def exercise(publisher, recipient, remote, database, receipt, definitions):
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
-    observe_access(remote, database, "active", 1)
+    observe_access(remote, database, "active", 1, role="submit", write_schemas=[definitions[COMMENT]])
     session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
     submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"), 403)
     submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"), 202)
