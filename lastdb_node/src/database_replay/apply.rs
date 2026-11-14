@@ -8,6 +8,7 @@ use fold_db::schema::types::{
 };
 use sha2::{Digest, Sha256};
 
+use super::decode;
 use super::payload::{self, FileFetch, RecordFile, SchemaChange};
 use super::types::{SnapshotEntry, SnapshotFileRequest};
 use super::RestoreError;
