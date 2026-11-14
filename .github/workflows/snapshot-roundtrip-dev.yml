@@ -97,7 +97,7 @@ jobs:
             --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
       - name: Assume the DEV mutation-log cleanup role
         if: always()
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2

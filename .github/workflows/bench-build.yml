@@ -50,7 +50,7 @@ jobs:
           echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark driver from the workflow revision
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.driver }}
           path: driver
@@ -60,14 +60,14 @@ jobs:
         run: python3 -m py_compile driver/scripts/benchmarks/*.py
 
       - name: Checkout exact candidate product source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate }}
           path: candidate
           persist-credentials: false
 
       - name: Checkout exact baseline product source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.baseline }}
           path: baseline
@@ -79,7 +79,7 @@ jobs:
 
       - name: Reclaim disk space only when the build budget needs it
         if: steps.disk-build.outputs.cleanup-required == 'true'
-        uses: jlumbroso/free-disk-space@v1.3.1
+        uses: jlumbroso/free-disk-space@v2.0.0
         with:
           tool-cache: false
           android: true
@@ -107,7 +107,7 @@ jobs:
         run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
 
       - name: Cache dependency downloads only
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -151,7 +151,7 @@ jobs:
       - name: Save the accepted candidate for future baselines
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
@@ -159,7 +159,7 @@ jobs:
       - name: Restore the exact baseline program
         id: baseline-build
         continue-on-error: true
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
@@ -177,7 +177,7 @@ jobs:
         id: baseline-retry
         if: steps.baseline-ready.outputs.ready == 'true'
         continue-on-error: true
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
@@ -198,7 +198,7 @@ jobs:
       - name: Save the exact baseline program on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
