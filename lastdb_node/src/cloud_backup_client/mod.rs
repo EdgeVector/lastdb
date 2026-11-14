@@ -3,14 +3,13 @@ use cloud_backup_protocol::{bytes_sha256, Digest, ProtocolError};
 use futures::StreamExt;
 use reqwest::{header::HeaderMap, Client, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 use std::{
     fmt,
-    io::{self, Read},
+    io::Read,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{io::AsyncReadExt, sync::OwnedSemaphorePermit};
+use tokio::sync::OwnedSemaphorePermit;
 
 pub mod byte_backup;
 
@@ -109,7 +108,7 @@ struct ErrorTag<'a> {
 
 #[derive(Clone)]
 pub(crate) struct BackupTransport {
-    auth: Option<AuthClient>,
+    auth: AuthClient,
     http: Arc<Client>,
     base: Url,
     uploads: Arc<tokio::sync::Semaphore>,
@@ -117,14 +116,7 @@ pub(crate) struct BackupTransport {
 
 impl BackupTransport {
     pub(crate) fn from_auth(auth: AuthClient) -> TransportResult<Self> {
-        Self::new(https(&auth.base_url)?, Some(auth))
-    }
-
-    pub(crate) fn for_guest(base_url: &str) -> TransportResult<Self> {
-        Self::new(https(base_url)?, None)
-    }
-
-    fn new(base: Url, auth: Option<AuthClient>) -> TransportResult<Self> {
+        let base = https(&auth.base_url)?;
         if base.query().is_some() {
             return Err(E::Configuration("endpoint"));
         }
@@ -169,15 +161,13 @@ impl BackupTransport {
             return Err(E::Configuration("request bytes"));
         }
         tokio::time::timeout(REQUEST_TIMEOUT, async {
-            let mut req = self
+            let req = self
                 .http
                 .post(url)
                 .headers(headers)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .header("X-API-Key", self.auth.api_key.as_ref())
                 .body(bytes);
-            if let Some(auth) = &self.auth {
-                req = req.header("X-API-Key", auth.api_key.as_ref());
-            }
             let resp = observability::propagation::inject_w3c(req)
                 .send()
                 .await
@@ -249,57 +239,6 @@ impl BackupTransport {
             .map_err(|_| E::Timeout)?
             .map_err(|_| E::Transport)?;
         Ok((deadline, permit))
-    }
-
-    pub(crate) async fn download_to(
-        &self,
-        bytes: u64,
-        expected: &Digest,
-        grant_url: &str,
-        expires_ms: u64,
-        out: &mut impl io::Write,
-    ) -> TransportResult<()> {
-        let url = https(grant_url)?;
-        if signed_headers(&url)? != "host" {
-            return Err(E::InvalidResponse("signed headers"));
-        }
-        let (deadline, _permit) = self.acquire(bytes, expires_ms).await?;
-        let resp = tokio::time::timeout_at(deadline, self.http.get(url).send())
-            .await
-            .map_err(|_| E::Timeout)?
-            .map_err(|_| E::Transport)?;
-        if resp.status() != reqwest::StatusCode::OK {
-            return Err(E::Http(resp.status().as_u16()));
-        }
-        if resp.content_length().is_some_and(|len| len != bytes) {
-            return Err(E::Integrity("download length"));
-        }
-        let cap = (bytes.min(fold_db::storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
-            as usize)
-            .max(1);
-        let mut reader = tokio_util::io::StreamReader::new(
-            resp.bytes_stream()
-                .map(|i| i.map_err(|_| io::Error::other("native object transport failed"))),
-        );
-        let (mut buf, mut done, mut hash) = (vec![0u8; cap], 0u64, Sha256::new());
-        loop {
-            let n = tokio::time::timeout_at(deadline, reader.read(&mut buf))
-                .await
-                .map_err(|_| E::Timeout)?
-                .map_err(|_| E::Transport)?;
-            if n == 0 {
-                break;
-            }
-            done = done
-                .checked_add(n as u64)
-                .filter(|&d| d <= bytes)
-                .ok_or(E::Integrity("download length"))?;
-            hash.update(&buf[..n]);
-            out.write_all(&buf[..n]).map_err(|_| E::Source)?;
-        }
-        (done == bytes && fold_db::hex::hex_lower(hash.finalize()) == expected.as_str())
-            .then_some(())
-            .ok_or(E::Integrity("download digest"))
     }
 }
 

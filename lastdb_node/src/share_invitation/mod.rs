@@ -45,6 +45,20 @@ pub struct OpenedShareInvitation {
     pub spec: Option<crate::share_spec::PublicationSpec>,
 }
 
+/// Load the recipient decryption and contact authority from a LastDB identity home.
+pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, String> {
+    let directory = crate::offline_home::Directory::open(home).map_err(|e| e.to_string())?;
+    let bytes = directory
+        .read(crate::identity::IDENTITY_KEY_FILE)
+        .map_err(|e| e.to_string())?
+        .ok_or("share requires an initialized LastDB identity")?;
+    let seed = Zeroizing::new(
+        <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| "invalid LastDB identity size".to_owned())?,
+    );
+    ShareRecipient::from_identity_seed(&seed).map_err(|e| e.to_string())
+}
+
 /// Seal a signed stream permission and publication key to a verified contact.
 ///
 /// The caller checks the contact identity before selecting it for this share.

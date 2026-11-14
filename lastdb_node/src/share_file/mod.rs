@@ -8,7 +8,7 @@ use std::collections::HashSet;
 mod extract;
 mod pack;
 
-pub use extract::{get_file, get_file_by_key, list_files, list_files_by_key};
+pub use extract::{get_file_by_key, list_files_by_key};
 pub use pack::{add_file, recover_pending};
 
 pub const CATALOG_HASH: &str = "files-v1";

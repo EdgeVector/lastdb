@@ -48,7 +48,7 @@ pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>
     let body = canonical_bytes(&json!({"action": "read", "database_id": log.database_id()}))
         .map_err(|error| error.to_string())?;
     let (status, raw) = log
-        .post_status_limit(ROUTE, body, Proof::Data, 400 * 1024)
+        .post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
         .await
         .map_err(|_| "snapshot lookup did not complete")?;
     if status == 404 {
@@ -259,7 +259,7 @@ async fn grants(
 async fn call(log: &CloudLog, body: serde_json::Value) -> Result<serde_json::Value, String> {
     let body = canonical_bytes(&body).map_err(|error| error.to_string())?;
     let (status, response) = log
-        .post_status_limit(ROUTE, body, Proof::Data, 400 * 1024)
+        .post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
         .await
         .map_err(|_| "signed snapshot request did not complete")?;
     if !(200..300).contains(&status) {

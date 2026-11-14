@@ -1,12 +1,10 @@
 //! Data-route executor, admin/status routes, and wall-clock timeout budgets for `lastdbd`.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
 use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::schema::types::Schema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -37,9 +35,7 @@ macro_rules! heap_route {
     }};
 }
 
-mod database_mutation;
 mod database_owned;
-mod database_read;
 mod database_routes;
 mod database_session;
 mod database_share;
@@ -52,20 +48,11 @@ mod schema_declare;
 mod schema_routes;
 mod wire;
 
-mod list_keys_route {
-    pub(in crate::exec) use super::reply::{
-        alternate_list_report, decode_alternate_cursor, ListRecordKeysRequest,
-    };
-}
-
 mod schema_resolve {
-    pub(in crate::exec) use super::schema_routes::{
-        resolve_captured_schema_alias, resolve_schema_name,
-    };
+    pub(in crate::exec) use super::schema_routes::resolve_schema_name;
 }
 
 use reply::{content_free, envelope, error_response, json_ok, map_host_err, render, HostError};
-use wire::{body_object, parse_query_body, query_flag, schema_name_from_target, QueryRequest};
 
 pub use database_routes::{
     execute_database_request, execute_deferred_database_request, is_deferred_database_request,

@@ -29,7 +29,7 @@ pub(crate) async fn replay_owned(
     }
     let owner = hex::encode(host.keypair.public_key_bytes());
     super::page::check_page(database_id, &owner, delivered)?;
-    let store = super::open_store(host, database_id, &target, true).await?;
+    let store = super::open_store(host, database_id, &target).await?;
     let mut replay = OwnerReplay {
         store: &store,
         decoder: target.decoder(database_id),

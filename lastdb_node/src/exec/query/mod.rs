@@ -19,10 +19,8 @@ use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 mod format;
 
-pub(in crate::exec) use format::{
-    batch_results, format_alternate_page, parse_query_batch, query_batch_route, verified_query_page,
-};
 use format::{cursor_payload, format_rows, full_schema_scan_rejection, page_payload, sort_rows};
+pub(in crate::exec) use format::{format_alternate_page, query_batch_route};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]

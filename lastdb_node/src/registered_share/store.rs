@@ -5,9 +5,8 @@
 //! store through [`receiver_store`]. This is not `databases/<id>/data` and not
 //! the personal store. There is no raw key file and no second log store.
 
-use crate::byte_cloud_restore::MANAGED_SHARE_DIRECTORY;
 use crate::host::Host;
-use crate::share_cache::ShareCacheError;
+use crate::share_cache::{ShareCacheError, MANAGED_SHARE_DIRECTORY};
 use cloud_backup_protocol::Id;
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;

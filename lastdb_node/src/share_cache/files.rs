@@ -1,4 +1,4 @@
-use super::{Registration, Result, ShareCacheError, MANAGED_DIRECTORY};
+use super::{Registration, Result, ShareCacheError};
 use crate::offline_home::Directory;
 use cloud_backup_protocol::Id;
 use fold_db::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
@@ -21,27 +21,9 @@ pub(super) struct Entry {
 pub(super) enum Lock {
     Writer,
     Pointer,
-    Slot(u8),
 }
 
 type LoadedRegistration = (Option<Registration>, Option<Zeroizing<Vec<u8>>>);
-
-pub(super) fn cache_root(path: &Path, identity_home: &Path) -> Result<PathBuf> {
-    let invalid = || ShareCacheError::Invalid("directory");
-    if !path.is_absolute() {
-        return Err(invalid());
-    }
-    let parent = path.parent().ok_or_else(invalid)?.canonicalize()?;
-    let path = parent.join(path.file_name().ok_or_else(invalid)?);
-    let identity = identity_home.canonicalize()?;
-    if identity.starts_with(&path) || path.starts_with(identity.join(MANAGED_DIRECTORY)) {
-        return Err(invalid());
-    }
-    crate::offline_home::refuse_primary(&path).map_err(|_| invalid())?;
-    Directory::open(&parent).map_err(|_| invalid())?;
-    private_directory(&path, true)?;
-    Ok(path)
-}
 
 impl Entry {
     pub(super) fn open(
@@ -70,12 +52,7 @@ impl Entry {
             open_at_rest_bounded(&self.key, bytes, STATE_BYTES).map_err(|_| invalid())?,
         );
         let registration: Registration = serde_json::from_slice(&decoded).map_err(|_| invalid())?;
-        if registration.version != 1
-            || registration
-                .active
-                .as_ref()
-                .is_some_and(|active| active.slot > 1 || active.snapshot.validate().is_err())
-        {
+        if registration.version != 1 {
             return Err(invalid());
         }
         Ok((Some(registration), previous))
@@ -96,9 +73,6 @@ impl Entry {
         let name = match lock {
             Lock::Writer => "refresh.lock",
             Lock::Pointer => "pointer.lock",
-            Lock::Slot(0) => "snapshot-0.lock",
-            Lock::Slot(1) => "snapshot-1.lock",
-            Lock::Slot(_) => return Err(ShareCacheError::Invalid("snapshot slot")),
         };
         self.directory
             .check()
@@ -134,39 +108,6 @@ impl Entry {
         }
         Ok(file)
     }
-
-    fn slot(&self, slot: u8) -> Result<PathBuf> {
-        let name = match slot {
-            0 => "snapshot-0",
-            1 => "snapshot-1",
-            _ => return Err(ShareCacheError::Invalid("snapshot slot")),
-        };
-        Ok(self.path.join(name))
-    }
-
-    pub(super) fn snapshot_data(&self, slot: u8) -> Result<PathBuf> {
-        let slot = self.slot(slot)?;
-        private_directory(&slot, false)?;
-        Ok(slot.join("data"))
-    }
-
-    pub(super) fn reset_slot(&self, slot: u8) -> Result<PathBuf> {
-        let path = self.slot(slot)?;
-        match private_directory(&path, false) {
-            Ok(_) => fs::remove_dir_all(&path)?,
-            Err(ShareCacheError::Unavailable) => {}
-            Err(error) => return Err(error),
-        }
-        private_directory(&path, true)?;
-        Ok(path)
-    }
-}
-
-pub(super) fn finish_slot(slot: &Path, data: &Path, workspace: &Path) -> Result<()> {
-    fs::rename(data, slot.join("data"))?;
-    fs::remove_dir_all(workspace)?;
-    File::open(slot)?.sync_all()?;
-    Ok(())
 }
 
 pub(super) fn private_directory(path: &Path, create: bool) -> Result<Directory> {

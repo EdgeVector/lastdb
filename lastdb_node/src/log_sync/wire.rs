@@ -1,14 +1,14 @@
 //! JSON for the mutation-log data routes.
 //!
-//! Append, head, list, and the snapshot cut use one encoding: decimal
-//! strings. A shareable list entry is nested. `payload_b64` is unpadded
-//! URL-safe base64 of the envelope. Status bodies are not encoded here.
+//! Append, head, and list use one encoding: decimal strings. A shareable
+//! list entry is nested. `payload_b64` is unpadded URL-safe base64 of the
+//! envelope. Status bodies are not encoded here.
 
 use base64::Engine as _;
 use cloud_backup_protocol::{canonical_bytes, DecimalU64};
 use mutation_log::{
-    AppendBatch, AppendOutcome, Entry, Incorporation, ListPage, LogError, ScopedHead, Snapshot,
-    SnapshotRef, Stamp, StoredEntry, Writer,
+    AppendBatch, AppendOutcome, Entry, Incorporation, ListPage, LogError, ScopedHead, Stamp,
+    StoredEntry, Writer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,15 +102,6 @@ struct HeadBody {
     cursor: DecimalU64,
     next: DecimalU64,
     entries: Vec<StoredWire>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SnapshotResponse {
-    database_id: String,
-    through_delivery_seq: DecimalU64,
-    at_ms: DecimalU64,
-    snapshot_ref: String,
 }
 
 pub(crate) fn database_body(database_id: &str) -> Result<Vec<u8>, LogError> {
@@ -224,19 +215,6 @@ pub(crate) fn scoped_head(body: &[u8]) -> Result<Option<ScopedHead>, LogError> {
     }))
 }
 
-pub(crate) fn snapshot(database_id: &str, body: &[u8]) -> Result<Snapshot, LogError> {
-    let response: SnapshotResponse =
-        serde_json::from_slice(body).map_err(|_| LogError::UnexpectedOutcome)?;
-    if response.database_id != database_id {
-        return Err(LogError::UnexpectedOutcome);
-    }
-    Ok(Snapshot {
-        through_delivery_seq: response.through_delivery_seq.get(),
-        at_ms: response.at_ms.get(),
-        snapshot_ref: SnapshotRef::new(&response.snapshot_ref)?,
-    })
-}
-
 pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
     let value: Value = serde_json::from_slice(body).ok()?;
     let code = value.get("code").and_then(Value::as_str).unwrap_or("");
@@ -261,8 +239,6 @@ pub(crate) fn operation(path: &str) -> &'static str {
         paths::APPEND => "append",
         paths::HEAD => "head",
         paths::LIST => "list",
-        paths::SNAPSHOT => "snapshot",
-        paths::DELIVERY_SNAPSHOT => "delivery-snapshot",
         paths::DELIVERY_OBJECT => "delivery-object",
         _ => "log",
     }

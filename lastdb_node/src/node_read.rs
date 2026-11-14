@@ -19,9 +19,9 @@ use rand::RngCore;
 
 /// Canonical POST. The path is the shared constant for that route.
 ///
-/// Append, head, list, ack, snapshot, snapshot bytes, and trim are data
-/// routes. A shareable database signs them with [`authorization_post`].
-/// The member-list update is not here: it signs [`cloud_backup_protocol::v2::share_access::MemberListUpdate`],
+/// Append, head, list, ack, and snapshot bytes are data routes. A shareable
+/// database signs them with [`authorization_post`]. The member-list update is
+/// not here: it signs [`cloud_backup_protocol::v2::share_access::MemberListUpdate`],
 /// not this header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CanonicalPost {
@@ -102,8 +102,8 @@ pub struct PathPostTarget<'a> {
 
 /// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
 ///
-/// Signed append, head, list, ack, snapshot, and `delivery/snapshot` or
-/// `delivery/object` use this. The path in the token is `target.path`.
+/// Signed append, head, list, ack, `snapshot/bytes`, and `delivery/object`
+/// use this. The path in the token is `target.path`.
 pub fn authorization_post(
     keypair: &Ed25519KeyPair,
     target: PathPostTarget<'_>,

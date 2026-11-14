@@ -19,16 +19,6 @@ pub enum ShareEnvironment {
     Prod,
 }
 
-impl ShareEnvironment {
-    pub(super) fn registry(self) -> crate::profile::endpoints::Environment {
-        use crate::profile::endpoints::Environment;
-        match self {
-            Self::Dev => Environment::Dev,
-            Self::Prod => Environment::Prod,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Claim {
@@ -45,7 +35,6 @@ struct Claim {
 #[serde(rename_all = "lowercase")]
 enum Operation {
     Read,
-    Append,
 }
 
 struct GuestPermission {
@@ -107,13 +96,6 @@ macro_rules! guest_permission_type {
 }
 
 guest_permission_type!(GuestReadPermission, Operation::Read);
-guest_permission_type!(GuestAppendPermission, Operation::Append);
-
-impl GuestReadPermission {
-    pub(super) fn into_read_scope(self) -> (Stream, u64) {
-        (self.0.stream, self.0.expires_ms)
-    }
-}
 
 impl GuestPermission {
     fn sign(
