@@ -8,61 +8,80 @@
 exclude = ["main.rs", "bin"]
 
 [[layer]]
-name = "leaf"
-doc = "Parts that use only other leaf parts: storage homes, queues, the backup runtime and its phase, seals, logs, and versions."
+name = "foundation"
+doc = "Pure node types, endpoints, paths, identities, seals, accepted-write ledgers, and saved-query definitions."
 modules = [
   "accepted_writes",
+  "identity",
+  "profile",
+  "saved_query",
+  "seal",
+  "service_home",
   "share_spec",
+]
+
+[[layer]]
+name = "transport"
+doc = "Protocol versions, Unix-domain socket framing and routing, keyed local reads, cloud backup HTTP transport, and saved-query UDS execution."
+modules = [
   "cloud_backup_client",
   "lastdb_uds",
   "node_read",
-  "profile",
-  "seal",
-  "saved_query",
   "saved_query_run",
   "version",
 ]
 
 [[layer]]
 name = "cloud"
-doc = "Cloud account configuration, registration, the saved cloud credentials loader, and backup access."
+doc = "Cloud account configuration, registration, saved cloud and developer credentials, and backup access."
 modules = [
   "cloud",
 ]
 
 [[layer]]
 name = "host"
-doc = "The booted node host."
+doc = "The booted node host and owned-database lifecycle."
 modules = [
   "host",
 ]
 
 [[layer]]
-name = "features"
-doc = "Node features over the host: signed log sync, share restore, offline homes, and the app registry index."
+name = "share_primitives"
+doc = "Offline home descriptors, share write gates, signed mutation-log envelopes, and sealed share invitations."
 modules = [
-  "app_registry_index",
-  "share_write_gate",
   "log_envelope",
-  "named_grant",
-  "log_sync",
-  "database_replay",
   "offline_home",
+  "share_invitation",
+  "share_write_gate",
+]
+
+[[layer]]
+name = "share_state"
+doc = "Local share caches, registered shares, and named-database member grants."
+modules = [
+  "named_grant",
   "registered_share",
   "share_cache",
-  "share_invitation",
+]
+
+[[layer]]
+name = "sync_replay"
+doc = "Deterministic mutation-log replay and signed cloud log synchronization."
+modules = [
+  "database_replay",
+  "log_sync",
 ]
 
 [[layer]]
 name = "jobs"
-doc = "Background and on-demand work over a booted host: the TTL sweep and saved-query reconciliation."
+doc = "Background and on-demand work over a booted host: TTL sweep and saved-query reconciliation."
 modules = [
   "jobs",
 ]
 
 [[layer]]
 name = "surface"
-doc = "Owner-socket routes (exec) and the crate root re-exports."
+doc = "Owner-socket route handlers (exec) and crate-root exports."
 modules = [
   "crate",
   "exec",

@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
-use app_identity_crypto::{key_id, verifying_key_from_base64, VerifyingKey};
+use app_identity_crypto::{
+    key_id, verifying_key_from_base64, VerifyingKey, REGISTRY_LIST_PUBKEY_B64,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -15,14 +17,14 @@ mod managed_manifest;
 
 pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
-    REGISTRY_LIST_PUBKEY_B64,
 };
 
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 pub const DEFAULT_CHANNEL: &str = "stable";
 pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
-const DEFAULT_INDEX_BASE_URL: &str =
-    crate::profile::endpoints::registry_index_url_for(crate::profile::endpoints::Environment::Prod);
+const DEFAULT_INDEX_BASE_URL: &str = lastdb_node::profile::endpoints::registry_index_url_for(
+    lastdb_node::profile::endpoints::Environment::Prod,
+);
 
 pub(crate) fn str_err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -259,7 +261,7 @@ pub async fn fetch_list(
 
 #[must_use]
 pub fn running_node(home: &Path) -> (String, &'static str, u32, u32) {
-    if let Some(v) = socket_version(&crate::lastdb_uds::uds::socket_path(&home.join("data"))) {
+    if let Some(v) = socket_version(&lastdb_node::lastdb_uds::socket_path(&home.join("data"))) {
         let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
         if let (Some(b), Some(a), Some(o)) = (
             v["build"].as_str(),
@@ -270,8 +272,8 @@ pub fn running_node(home: &Path) -> (String, &'static str, u32, u32) {
         }
     }
     let (api, outbox) = (
-        crate::version::CURRENT_API_VERSION,
-        crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
+        lastdb_node::version::CURRENT_API_VERSION,
+        lastdb_node::version::CURRENT_OUTBOX_FORMAT_VERSION,
     );
     let sibling = std::env::current_exe()
         .ok()
@@ -299,7 +301,7 @@ pub fn running_node(home: &Path) -> (String, &'static str, u32, u32) {
         }
     }
     (
-        crate::version::build_version().to_string(),
+        lastdb_node::version::build_version().to_string(),
         "cli",
         api,
         outbox,
@@ -323,7 +325,7 @@ pub(crate) fn authorized_transition(
     prior: &managed::ManagedReceipt,
     resolution: &Resolution,
 ) -> bool {
-    use crate::profile::endpoints::{
+    use lastdb_node::profile::endpoints::{
         registry_ci_publisher_keys_for, registry_index_url_for, Environment,
     };
     let e = &resolution.entry;

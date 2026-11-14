@@ -1,19 +1,20 @@
-//! App schema declarations, catalog synchronization, and manifest retention.
+//! App schema declarations and catalog synchronization.
+
+mod retention;
 
 use std::collections::HashMap;
 
 use fold_db::access::AccessContext;
 use fold_db::schema::types::DeclarativeSchemaDefinition;
-use fold_db::schema::{
-    ManifestRetention, ManifestRetentionPlan, ManifestRetentionStatus, RetentionSource,
-    SchemaError, SchemaRetentionPolicy,
-};
+use fold_db::schema::{ManifestRetention, ManifestRetentionPlan};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use self::retention::{
+    check_retention, finish_retention, validate_manifest_retention, ManifestRetentionLayout,
+};
 use super::reply::{render, HostError};
 use super::schema_routes::check_owned_local;
-use super::wire::{validate_manifest_retention, RetLayout};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -174,13 +175,15 @@ fn copy_missing<V: Clone>(dst: &mut HashMap<String, V>, src: &HashMap<String, V>
 async fn load_owned(
     host: &Host,
     d: &Proposal,
-    layout: Option<&RetLayout>,
+    layout: Option<&ManifestRetentionLayout>,
 ) -> Result<(String, bool, Option<(ManifestRetentionPlan, bool)>), String> {
     let installed = check_owned_local(host, &d.local_schema_id, &d.catalog_schema)?;
     let inst = installed.as_ref().map(|(s, _)| s);
     let runtime = inst.map_or(d.local_schema_id.as_str(), |s| s.name.as_str());
     let checked = match layout {
-        Some(lay) => Some(check_retention(host, d, runtime, lay.0, lay.3).await?),
+        Some(lay) => {
+            Some(check_retention(host, d, runtime, lay.ttl_seconds, lay.range_keyed).await?)
+        }
         None => None,
     };
     if let Some((schema, false)) = &installed {
@@ -222,154 +225,4 @@ async fn load_owned(
         inst.is_some_and(|i| i.identity_hash == d.catalog_schema.identity_hash),
         checked,
     ))
-}
-
-fn existing_warning(binding: &str, ttl: u64) -> String {
-    format!(
-        "existing_records_may_expire: {binding} already holds records. Every record whose range key is older than {ttl}s is deleted for good: at the next sweep for a Range schema, and in every HashRange partition that receives a later write"
-    )
-}
-
-async fn check_retention(
-    host: &Host,
-    d: &Proposal,
-    anchor: &str,
-    ttl: u64,
-    range_keyed: bool,
-) -> Result<(ManifestRetentionPlan, bool), String> {
-    let binding = d.local_schema_id.as_str();
-    let meta = host
-        .records()
-        .schema_manager()
-        .get_schema_metadata(anchor)
-        .map_err(|e| format!("failed to read schema {anchor}: {e}"))?;
-    if let Some(s) = meta
-        .as_ref()
-        .filter(|s| s.owner_app_id.as_deref() != Some(d.namespace.as_str()))
-    {
-        return Err(format!(
-            "manifest retention refused on {binding}: schema is owned by {}, not {}",
-            s.owner_app_id.as_deref().unwrap_or("unowned"),
-            d.namespace
-        ));
-    }
-    let plan = host
-        .records()
-        .db_ops()
-        .schemas()
-        .plan_manifest_retention(anchor, ttl)
-        .await
-        .map_err(|e| e.to_string())?;
-    let may_expire = match meta.as_ref() {
-        Some(s) if range_keyed && plan.status == ManifestRetentionStatus::Applied => host
-            .records()
-            .db_ops()
-            .records()
-            .schema_may_hold_records(s)
-            .await
-            .map_err(|e| format!("failed to probe the records of {anchor}: {e}"))?,
-        _ => false,
-    };
-    if !d
-        .retention
-        .as_ref()
-        .is_some_and(ManifestRetention::confirmed)
-        && (plan.shortened || may_expire)
-    {
-        let mut why = Vec::new();
-        if may_expire {
-            why.push(existing_warning(binding, ttl));
-        }
-        if plan.shortened {
-            why.push(format!("the manifest TTL would be shortened to {ttl}s, so records between the two TTLs expire"));
-        }
-        return Err(format!(
-            "a manifest TTL on {binding} needs confirmation. {}. Review what would expire, then run `lastdb app check --sync --confirm-expire-existing`",
-            why.join(". ")
-        ));
-    }
-    Ok((plan, may_expire))
-}
-
-async fn finish_retention(
-    host: &Host,
-    d: &Proposal,
-    anchor: &str,
-    layout: Option<RetLayout>,
-    checked: Option<&(ManifestRetentionPlan, bool)>,
-) -> Result<Option<Value>, String> {
-    let records = host.records();
-    let schemas = records.db_ops().schemas();
-    let Some(((ttl, age_rule, mut warnings, _), &(ref plan, may_expire))) = layout.zip(checked)
-    else {
-        let policy = match schemas.get_schema_retention_policy(anchor).await {
-            Ok(p) => p,
-            Err(SchemaError::NotFound(_)) => None,
-            Err(e) => return Err(format!("reading the retention policy of {anchor}: {e}")),
-        };
-        let Some(m_ttl) = policy
-            .as_ref()
-            .and_then(SchemaRetentionPolicy::manifest_ttl_seconds)
-        else {
-            return Ok(None);
-        };
-        let warn = format!(
-            "this manifest no longer declares a retention for {}, but a manifest TTL of {m_ttl}s is still running. Removing the key does not clear the policy. Run `lastdb admin retention clear --schema {anchor}` to remove it",
-            d.local_schema_id
-        );
-        return Ok(Some(json!({
-            "declared": false, "status": "manifest_policy_still_running",
-            "ttl_seconds": m_ttl, "anchor": anchor, "notes": [], "warnings": [warn], "blocked": null,
-        })));
-    };
-    let (confirmed, binding) = (
-        d.retention
-            .as_ref()
-            .is_some_and(ManifestRetention::confirmed),
-        d.local_schema_id.as_str(),
-    );
-    let out = schemas
-        .apply_manifest_retention(anchor, ttl, &d.namespace, confirmed)
-        .await
-        .map_err(|e| e.to_string())?;
-    tracing::info!(
-        target: "lastdb_node::apps_declare_schema",
-        schema = %binding, anchor = %out.anchor, ttl_seconds = ttl, status = ?out.status,
-        "applied the manifest retention"
-    );
-    let prev_ttl = plan
-        .current
-        .as_ref()
-        .and_then(SchemaRetentionPolicy::manifest_ttl_seconds);
-    let change = match (plan.status, plan.current.as_ref()) {
-        (ManifestRetentionStatus::Unchanged, _) => "unchanged",
-        (_, Some(c)) if c.source == RetentionSource::Manifest => {
-            if ttl < c.ttl_seconds {
-                "shortened"
-            } else {
-                "lengthened"
-            }
-        }
-        _ => "new",
-    };
-    if may_expire {
-        warnings.push(existing_warning(binding, ttl));
-    }
-    let notes = match out.status {
-        ManifestRetentionStatus::Applied => vec![format!("a new manifest TTL of {ttl}s is in force")],
-        ManifestRetentionStatus::Updated => vec![format!("the manifest TTL changed from {}s to {ttl}s ({change})", prev_ttl.unwrap_or(0))],
-        ManifestRetentionStatus::Unchanged => Vec::new(),
-        ManifestRetentionStatus::OperatorOverride => vec![format!(
-            "an operator policy of {}s is in force and wins; the manifest TTL of {ttl}s is kept beside it. Clearing the operator policy puts the manifest TTL in force: when it is shorter, that needs `--confirm-expire-existing`",
-            out.effective.ttl_seconds
-        )],
-    };
-    Ok(Some(json!({
-        "ttl_seconds": ttl, "source": RetentionSource::Manifest.as_str(),
-        "anchor": anchor, "change": change, "previous_ttl_seconds": prev_ttl,
-        "age_rule": age_rule, "warnings": warnings,
-        "existing_records_may_expire": may_expire, "shortened": plan.shortened,
-        "confirmed_expire_existing": confirmed, "status": out.status,
-        "effective": out.effective, "notes": notes,
-    })))
 }

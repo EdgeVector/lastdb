@@ -1,13 +1,15 @@
 //! Publish the clean checkout and the running node's exact app interface.
 
 use super::*;
+use crate::app_registry_index as registry;
 use app_identity_crypto::{canonicalize, sign, SigningKey};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
-use lastdb_node::app_registry_index as registry;
 use lastdb_node::exec::normalize_app_manifest_schema;
 use serde_json::{json, Value};
+use std::io::Write;
 use std::process::Command;
+use std::time::Duration;
 
 type SchemaIdentity = (String, Option<String>, Option<String>);
 
@@ -183,7 +185,7 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
     }
     let sha = git(&root, &["rev-parse", "HEAD"])?;
     let (build, _, api_version, outbox) = registry::running_node(home);
-    let sock = lastdb_node::lastdb_uds::uds::socket_path(&home.join("data"));
+    let sock = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     require_held_schemas_listed(&sock, app_id, &listed)?;
     let channel = input
         .channel

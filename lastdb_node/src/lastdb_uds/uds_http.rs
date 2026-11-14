@@ -147,7 +147,7 @@ fn read_body(
     target: &str,
 ) -> Result<Vec<u8>, HttpErr> {
     let put_path = target == "/api/db/put-blob"
-        || super::database_path::split(target).is_some_and(|(_, p)| p == "db/put-blob");
+        || super::split_database_path(target).is_some_and(|(_, p)| p == "db/put-blob");
     let octet = headers
         .iter()
         .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))

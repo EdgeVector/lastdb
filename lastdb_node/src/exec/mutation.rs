@@ -1,4 +1,4 @@
-//! Single, batch, deferred, and retention mutation routes and executors.
+//! Single, batch, and deferred record mutation routes and commit executors.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -7,13 +7,11 @@ use std::pin::Pin;
 use fold_db::access::AccessContext;
 use fold_db::fold_db_core::mutation_manager::{MutationManager, ResidentCommitReceipt};
 use fold_db::record_value::InlineWrite;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, FileWrite, Mutation, SchemaError};
-use fold_db::schema::SchemaRetentionPolicy;
-use serde::Deserialize;
+use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
 use serde_json::{json, Value};
 
-use super::reply::{content_free, map_host_err, render, HostError};
-use super::schema_resolve::resolve_schema_name;
+use super::reply::{content_free, render, HostError};
+use super::schema_routes::resolve_schema_name;
 use super::wire::{parse_batch_mutation_body, parse_mutation_body, ParsedMutation};
 use super::{data_route_budget, with_handler_timeout_budget, ErasedRoute};
 use crate::host::Host;
@@ -247,134 +245,4 @@ fn commit_json(r: &ResidentCommitReceipt, extra: Value) -> Value {
         map.extend(extra_map);
     }
     base
-}
-
-pub(in crate::exec) async fn db_retention(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        action: String,
-        schema: String,
-        ttl_seconds: Option<u64>,
-        #[serde(default)]
-        hash_partitions: Vec<String>,
-        #[serde(default)]
-        confirm_expire_existing: bool,
-        cursor: Option<String>,
-        limit: Option<usize>,
-    }
-    let res = async {
-        if !ctx.is_owner {
-            return Err(HostError::new(403, "schema retention is owner-only"));
-        }
-        let b: Body = serde_json::from_slice(&req.body).map_err(|e| {
-            HostError::new(400, format!("invalid /api/db/schema-retention body: {e}"))
-        })?;
-        if b.schema.is_empty() {
-            return Err(HostError::new(400, "schema is required"));
-        }
-        let store = host.db.db_ops().schemas();
-        let ret_err = |e| HostError::new(400, format!("schema retention failed: {e}"));
-        if b.action == "partitions" {
-            let (p, next) = store
-                .schema_retention_hash_partitions_page(&b.schema, b.cursor.as_deref(), b.limit.unwrap_or(256))
-                .await
-                .map_err(ret_err)?;
-            return Ok(json!({ "schema": b.schema, "observed_hash_partitions": p, "next_cursor": next }));
-        }
-        let prev = store.get_schema_retention_policy(&b.schema).await.map_err(ret_err)?;
-        let mut may_expire = false;
-        if b.action == "clear" {
-            if let (Some(op), Some(res)) = (prev.as_ref(), SchemaRetentionPolicy::after_operator_clear(prev.as_ref())) {
-                if res.ttl_seconds < op.ttl_seconds {
-                    if !b.confirm_expire_existing {
-                        return Err(HostError::new(
-                            409,
-                            format!(
-                                "clearing the operator policy of {}s puts the manifest TTL of {}s in force. existing_records_may_expire: every record older than {}s is deleted for good, a Range schema's at the next sweep.",
-                                op.ttl_seconds, res.ttl_seconds, res.ttl_seconds
-                            ),
-                        ));
-                    }
-                    may_expire = true;
-                }
-            }
-        }
-        let policy = if b.action == "get" {
-            prev
-        } else {
-            match b.action.as_str() {
-                "set" => store
-                    .set_schema_retention_policy(
-                        &b.schema,
-                        SchemaRetentionPolicy::operator(
-                            b.ttl_seconds.ok_or_else(|| HostError::new(400, "ttl_seconds is required for set"))?,
-                            b.hash_partitions,
-                        ),
-                    )
-                    .await
-                    .map_err(ret_err)?,
-                "clear" => store.clear_schema_retention_policy(&b.schema).await.map_err(ret_err)?,
-                _ => return Err(HostError::new(400, "action must be get, set, or clear")),
-            }
-            store.get_schema_retention_policy(&b.schema).await.map_err(ret_err)?
-        };
-        Ok(json!({
-            "schema": b.schema, "retention_policy": policy,
-            "anchor": b.schema, "existing_records_may_expire": may_expire,
-        }))
-    }
-    .await;
-    render(res, ctx)
-}
-
-pub(in crate::exec) async fn seed_system(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Req {
-        schema: DeclarativeSchemaDefinition,
-        #[serde(default)]
-        isolated_copy: bool,
-    }
-    let res = async {
-        let r: Req = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid system seed setup request: {e}")))?;
-        if !r.isolated_copy || !fold_db::env_flag::var_truthy("LASTDB_ISOLATED_COPY") {
-            return Err(HostError::new(
-                409,
-                "system seed setup requires isolated_copy=true and LASTDB_ISOLATED_COPY=1",
-            ));
-        }
-        if r.schema
-            .owner_app_id
-            .as_deref()
-            .is_some_and(|o| !o.trim().is_empty())
-        {
-            return Err(HostError::new(
-                400,
-                "system seed setup requires a schema without owner_app_id",
-            ));
-        }
-        fold_db::schema::require_logical_layout(&r.schema.schema_type)
-            .map_err(|e| HostError::new(400, e.to_string()))?;
-        r.schema
-            .validate()
-            .map_err(|e| map_host_err("system seed setup failed", e.into()))?;
-        let name = r.schema.name.clone();
-        host.records()
-            .schema_manager()
-            .load_schema_internal(r.schema)
-            .await
-            .map_err(|e| map_host_err("system seed setup failed", e.into()))?;
-        Ok(json!({ "system_seed_schema": name, "source": "system_seed" }))
-    }
-    .await;
-    render(res, ctx)
 }

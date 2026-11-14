@@ -1,17 +1,11 @@
 use super::*;
-use lastdb_node::app_registry_index::{self as registry, managed as host};
+use crate::app_registry_index::{self as registry, managed as host};
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
-
-pub(super) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(value).unwrap_or_default()
-    );
-}
 
 pub(super) fn block_on_app<T>(
     fut: impl std::future::Future<Output = Result<T, String>>,

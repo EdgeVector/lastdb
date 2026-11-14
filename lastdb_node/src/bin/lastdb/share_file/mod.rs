@@ -12,9 +12,9 @@ pub use extract::{get_file_by_key, list_files_by_key};
 pub use pack::{add_file, recover_pending};
 
 pub const CATALOG_HASH: &str = "files-v1";
-pub const CATALOG_ENTRIES_FIELD: &str = "entries";
-pub const CHUNK_DATA_FIELD: &str = "data";
-pub const MAX_TOTAL_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const CATALOG_ENTRIES_FIELD: &str = "entries";
+const CHUNK_DATA_FIELD: &str = "data";
+const MAX_TOTAL_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_CATALOG_BYTES: usize = 32 * 1024;
 const MAX_FILES: usize = 128;
 const CHUNK_BYTES: usize = 32 * 1024;
