@@ -1,4 +1,4 @@
-//! Cryptographic primitives, Ed25519 signing, wall clock, and env scalar parsers.
+//! Cryptographic primitives: content cipher keys, AES-GCM envelopes, at-rest sealing, and Ed25519 signing.
 
 use ed25519_compact::x25519;
 use hkdf::Hkdf;
@@ -6,6 +6,7 @@ use sha2::Sha256;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
+pub use crate::platform::{clock, env_flag};
 pub use at_rest::{seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
 pub use envelope::{
     decrypt_envelope, decrypt_envelope_with_aad, encrypt_envelope, encrypt_envelope_with_aad,
@@ -28,11 +29,13 @@ pub enum CryptoError {
 pub type CryptoResult<T> = Result<T, CryptoError>;
 
 #[derive(Clone, Zeroize, zeroize::ZeroizeOnDrop)]
-pub struct E2eKeys {
+pub struct ContentCipherKey {
     encryption_key: [u8; 32],
 }
 
-impl E2eKeys {
+pub type E2eKeys = ContentCipherKey;
+
+impl ContentCipherKey {
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> CryptoResult<Self> {
         let ed_kp = ed25519_compact::KeyPair::from_seed(ed25519_compact::Seed::new(*seed));
         let x25519_sk = x25519::SecretKey::from_ed25519(&ed_kp.sk).map_err(|e| {
@@ -167,54 +170,6 @@ pub mod at_rest {
         (plain.len() as u64 <= max).then_some(plain).ok_or_else(|| {
             CryptoError::InvalidFormat("decoded value exceeds explicit bound".into())
         })
-    }
-}
-
-pub mod clock {
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    fn since_epoch() -> Duration {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-    }
-
-    pub fn unix_secs() -> u64 {
-        since_epoch().as_secs()
-    }
-    pub fn unix_millis() -> u64 {
-        u64::try_from(since_epoch().as_millis()).unwrap_or(u64::MAX)
-    }
-    pub fn unix_nanos() -> u64 {
-        u64::try_from(since_epoch().as_nanos()).unwrap_or(u64::MAX)
-    }
-    pub fn unix_nanos_wide() -> u128 {
-        since_epoch().as_nanos()
-    }
-}
-
-pub mod env_flag {
-    #[must_use]
-    pub fn truthy(raw: &str) -> bool {
-        matches!(
-            raw.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    }
-
-    #[must_use]
-    pub fn var_truthy(name: &str) -> bool {
-        std::env::var(name).ok().is_some_and(|v| truthy(&v))
-    }
-
-    #[must_use]
-    pub fn var_parsed<T: std::str::FromStr>(name: &str) -> Option<T> {
-        std::env::var(name).ok()?.trim().parse().ok()
-    }
-
-    #[must_use]
-    pub fn var_or<T: std::str::FromStr>(name: &str, default: T) -> T {
-        var_parsed(name).unwrap_or(default)
     }
 }
 

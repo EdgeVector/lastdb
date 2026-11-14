@@ -5,13 +5,16 @@ name = "primitives"
 doc = "Leaf helpers with no domain meaning: clock, env parsing, crypto, and signing primitives."
 modules = [
   "crypto",
+  "platform",
 ]
 
 [[layer]]
 name = "model"
 doc = "The core side of the data model: content_limit, schema::types, access context, manifest retention, and error kinds."
 modules = [
+  "access",
   "error",
+  "limits",
   "schema::types",
   "storage::error",
 ]

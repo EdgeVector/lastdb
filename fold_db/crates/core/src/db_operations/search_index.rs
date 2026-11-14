@@ -122,7 +122,7 @@ pub(crate) fn deliver_outbox(
     };
     let name = format!(
         "{}_{}.json",
-        crate::crypto::clock::unix_millis(),
+        crate::platform::clock::unix_millis(),
         Uuid::new_v4().simple()
     );
     let path = inbox.join(&name);
@@ -161,7 +161,7 @@ pub mod queue_policy {
     }
 
     fn max_bytes() -> u64 {
-        crate::crypto::env_flag::var_or("LASTDB_SEARCH_QUEUE_MAX_BYTES", DEFAULT_MAX_BYTES)
+        crate::platform::env_flag::var_or("LASTDB_SEARCH_QUEUE_MAX_BYTES", DEFAULT_MAX_BYTES)
             .clamp(64 * 1024, 1024 * 1024 * 1024)
     }
 
