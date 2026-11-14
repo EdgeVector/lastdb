@@ -4,7 +4,7 @@ mod store;
 pub(crate) use store::receiver_store;
 
 use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
-use crate::share_cache::{ShareCache, ShareCacheError, ShareSnapshot};
+use crate::share_cache::{ShareCache, ShareCacheError};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use serde::Serialize;
 use std::path::Path;
@@ -19,7 +19,6 @@ pub struct RegisteredShare {
     pub publisher: Digest,
     pub name: Option<String>,
     pub spec: Option<crate::share_spec::PublicationSpec>,
-    pub snapshot: Option<ShareSnapshot>,
     pub expires_ms: u64,
     #[serde(skip)]
     pub(crate) stream: Stream,
@@ -35,10 +34,6 @@ impl RegisteredShare {
         self.spec
             .as_ref()
             .is_some_and(crate::share_spec::PublicationSpec::whole_database)
-    }
-
-    pub fn publisher(&self) -> &Digest {
-        &self.publisher
     }
 
     pub fn stream(&self) -> &Stream {

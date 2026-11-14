@@ -20,12 +20,6 @@ pub(super) struct ManagedRegistration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     spec: Option<crate::share_spec::PublicationSpec>,
     expires_ms: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    grant: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    grant_version: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    grant_expires_ms: Option<u64>,
     /// Named-database signed log. Publication shares omit this.
     #[serde(default, skip_serializing_if = "is_false")]
     pub(super) signed_log: bool,
@@ -128,9 +122,6 @@ impl ShareCache {
             name: None,
             spec: None,
             expires_ms: 0,
-            grant: None,
-            grant_version: None,
-            grant_expires_ms: None,
             signed_log: false,
         });
         if let Some(name) = name {
@@ -146,9 +137,6 @@ impl ShareCache {
         }
         state.expires_ms = opened.permission.expires_ms();
         state.signed_log = true;
-        state.grant = None;
-        state.grant_version = None;
-        state.grant_expires_ms = None;
         publish(
             &entry,
             previous.as_deref().map(Vec::as_slice),
@@ -187,7 +175,6 @@ fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
         publisher: registration.publisher.clone(),
         name: state.name.clone(),
         spec: state.spec.clone(),
-        snapshot: None,
         expires_ms: state.expires_ms,
         stream: registration.stream.clone(),
         environment: registration.environment,

@@ -62,7 +62,11 @@ async fn publish(
         && runtime.accepted_status().snapshot_required
         && bootstrap::resume(&runtime, &host.home, log, previous.as_ref())?
     {
-        return remember(&host.home, log.database_id(), 0, 0, nonce);
+        return if bootstrap::complete_or_await_upload(&runtime, nonce)? {
+            remember(&host.home, log.database_id(), 0, 0, nonce)
+        } else {
+            Ok(())
+        };
     }
     if cloud_head != through {
         return Err(AWAIT_INCOMING.into());
@@ -92,38 +96,29 @@ async fn publish(
                     .ok_or("snapshot database has no local name")
             })
             .transpose()?,
-        upload_id: Id::try_from(uuid::Uuid::new_v4().to_string())
-            .map_err(|error| error.to_string())?,
+        upload_id: Id::try_from(uuid::Uuid::new_v4().to_string()).map_err(|e| e.to_string())?,
         files,
     };
     if bootstrap {
         bootstrap::start(&host.home, log, &manifest, cut.native_frontier)?;
     }
     let advance_cutoff = personal && manifest.name.is_none() && through > 0 && cut.log_covered;
-    let id = match previous.as_ref() {
-        Some((id, saved))
-            if manifest.through == saved.through
-                && manifest.name == saved.name
-                && manifest.files == saved.files =>
-        {
-            transport::publish(log, Some(id), &cut, saved, advance_cutoff).await?
-        }
-        _ => {
-            transport::publish(
-                log,
-                previous.as_ref().map(|(id, _)| id),
-                &cut,
-                &manifest,
-                advance_cutoff,
-            )
-            .await?
-        }
-    };
+    let same = previous.as_ref().filter(|(_, saved)| {
+        manifest.through == saved.through
+            && manifest.name == saved.name
+            && manifest.files == saved.files
+    });
+    let chosen = same.map_or(&manifest, |(_, saved)| saved);
+    let prev_id = previous.as_ref().map(|(id, _)| id);
+    let id = transport::publish(log, prev_id, &cut, chosen, advance_cutoff).await?;
     let entries = confirmed(log, through, &id, personal).await?;
     if bootstrap {
         let frontier = cut.native_frontier;
         drop(cut);
         bootstrap::finish(&runtime, &host.home, frontier)?;
+        if !bootstrap::complete_or_await_upload(&runtime, nonce)? {
+            return Ok(());
+        }
     }
     remember(&host.home, log.database_id(), through, entries, nonce)?;
     tracing::info!(target: "lastdbd::log_sync", database_id = %database.id, snapshot = %id.as_str(), "snapshot published");

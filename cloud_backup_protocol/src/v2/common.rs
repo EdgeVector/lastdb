@@ -1,6 +1,6 @@
-use super::{hash, limits};
+use super::limits;
 use crate::{CloudScope, DecimalU64, Digest, Id, ProtocolError};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,25 +95,9 @@ impl ClientDescriptor {
     pub const fn empty() -> Self {
         Self(Value::Null)
     }
-    #[must_use]
-    /// Borrow the raw JSON.
-    pub fn as_value(&self) -> &Value {
-        &self.0
-    }
-    /// Client-only typed interpretation; the transport does not call this method.
-    pub fn parse<T: DeserializeOwned>(&self) -> Result<T, ProtocolError> {
-        self.validate()?;
-        serde_json::from_value(self.0.clone())
-            .map_err(|_| ProtocolError::invalid("v2.client_descriptor"))
-    }
     /// Reject canonical JSON larger than the control-message limit.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-    /// Domain-separated SHA-256 of this descriptor, after the size check.
-    pub fn commitment(&self) -> Result<Digest, ProtocolError> {
-        self.validate()?;
-        hash::input("lastdb:cloud-byte-backup:client-descriptor:v2", self)
     }
 }
 impl<'de> Deserialize<'de> for ClientDescriptor {

@@ -84,7 +84,16 @@ pub(crate) enum ConfigError {
     Invalid(String),
     Conflict(Option<DecimalU64>),
     Pending,
+    PaymentRequired,
     Unconfirmed,
+}
+
+pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
+    if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+        ConfigError::PaymentRequired
+    } else {
+        ConfigError::Unconfirmed
+    }
 }
 
 pub(crate) async fn read_config(
@@ -100,7 +109,7 @@ pub(crate) async fn read_config(
     }
     let session = session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     let document = read(&session, database_id).await?;
     Ok(Configuration {
         database_id: database_id.to_owned(),
@@ -128,7 +137,7 @@ pub(crate) async fn set_config(
     let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
     let session = session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     let expected = request.expected_revision.get();
     if let Some(saved) = pending::load(home, database_id).map_err(|_| ConfigError::Unconfirmed)? {
         if !saved.matches_config(&request.request_id, expected, &members) {
@@ -168,7 +177,7 @@ pub(super) async fn read(
 ) -> Result<MemberListReadResponse, ConfigError> {
     let document = exchange::read_document(session, database_id)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     successor::require_stream(&document, session, database_id)
         .map_err(|_| ConfigError::Unconfirmed)?;
     Ok(document)
@@ -188,12 +197,13 @@ pub(crate) async fn lock_applied(
     }
     let session = session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     Ok((lock, read(&session, database_id).await?))
 }
 
 fn update_error(error: String) -> ConfigError {
     match error.as_str() {
+        msg if msg == crate::cloud::PAYMENT_REQUIRED_MESSAGE => ConfigError::PaymentRequired,
         "share.grant.revision" => ConfigError::Conflict(None),
         "share.grant.identity" | "share.grant.personal" | "mutation_log.transaction" => {
             ConfigError::Invalid(error)

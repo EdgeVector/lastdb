@@ -85,6 +85,9 @@ fn accept(
 }
 
 fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
+    let data_dir = data_dir
+        .map(lastdb_node::profile::paths::expand_tilde_path)
+        .transpose()?;
     let identity_home = match data_dir {
         Some(dir) if dir.is_absolute() => dir
             .canonicalize()

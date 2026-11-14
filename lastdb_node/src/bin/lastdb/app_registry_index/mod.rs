@@ -75,15 +75,18 @@ impl IndexLocation {
         ))
     }
 
-    pub fn resolve(flag: Option<&str>) -> Result<Self, String> {
+    pub fn resolve(
+        flag: Option<&str>,
+        env_override: Option<lastdb_node::profile::endpoints::Environment>,
+    ) -> Result<Self, String> {
         let env = std::env::var("LASTDB_REGISTRY_INDEX").ok();
         let raw = flag
             .or(env.as_deref())
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let default_url = lastdb_node::profile::endpoints::registry_index_url_for(
-            lastdb_node::profile::endpoints::Environment::from_env_or_prod(),
-        );
+        let target_env = env_override
+            .unwrap_or_else(lastdb_node::profile::endpoints::Environment::from_env_or_prod);
+        let default_url = lastdb_node::profile::endpoints::registry_index_url_for(target_env);
         let raw = raw.unwrap_or(default_url).trim_end_matches('/');
         if raw.starts_with("lastsecrets://") {
             return Err("registry index location does not accept a lastsecrets locator".into());

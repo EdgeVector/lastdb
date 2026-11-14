@@ -5,10 +5,10 @@ use super::grant::{authorize, bind_request_scope};
 use super::proof::{NodeReadToken, ShareEnvironment, ShareHttpMethod};
 use super::{MemberListReadResponse, MUTATION_LOG_ACCESS_PATH, MUTATION_LOG_CREATE_DATABASE_PATH};
 use crate::v2::Version;
-use crate::{DecimalU64, Digest, Id, ProtocolError};
+use crate::{Id, ProtocolError};
 use serde::{Deserialize, Serialize};
 
-/// `native`. Not `open` or `committed`.
+/// `native`. Not `open`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeMark {
@@ -16,19 +16,11 @@ pub enum NativeMark {
     Native,
 }
 
-/// `committed`. Not `native`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CommittedMark {
-    /// Legacy migration row.
-    Committed,
-}
-
 /// `open`. This tag does not select a signed digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenMark {
-    /// No native row and no cutover row.
+    /// No native row.
     Open,
 }
 
@@ -59,43 +51,13 @@ impl NativeDatabase {
     }
 }
 
-/// Legacy migration row. No service signature. The node proof signs the body.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CutoverReceipt {
-    /// Always `committed`. A native database does not use this object.
-    pub state: CommittedMark,
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Realm of this commit. A DEV receipt is not a PROD commit.
-    pub environment: ShareEnvironment,
-    /// Database this commit switches.
-    pub database_id: Id,
-    /// SHA-256 of the cutover evidence. Not a timestamp and not a signature.
-    pub evidence_sha256: Digest,
-    /// Member-list revision named by that evidence. Zero is rejected.
-    pub grant_revision: DecimalU64,
-}
-
-impl CutoverReceipt {
-    /// Reject a zero grant revision.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.grant_revision.get() == 0 {
-            return Err(ProtocolError::invalid("share.cutover.grant_revision"));
-        }
-        Ok(())
-    }
-}
-
 /// Signed state of one database. Open is the absence of this value.
 ///
-/// This enum is not the TLS body. Send [`NativeDatabase`] or [`CutoverReceipt`].
+/// This enum is not the TLS body. Send [`NativeDatabase`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignedDatabase {
     /// Spec stored at create. No evidence digest.
     Native(NativeDatabase),
-    /// Migration row stored. Legacy data reads are closed only after this is visible.
-    Committed(CutoverReceipt),
 }
 
 impl SignedDatabase {
@@ -104,7 +66,6 @@ impl SignedDatabase {
     pub fn database_id(&self) -> &Id {
         match self {
             Self::Native(native) => &native.database_id,
-            Self::Committed(receipt) => &receipt.database_id,
         }
     }
 
@@ -113,7 +74,6 @@ impl SignedDatabase {
     pub fn environment(&self) -> ShareEnvironment {
         match self {
             Self::Native(native) => native.environment,
-            Self::Committed(receipt) => receipt.environment,
         }
     }
 
@@ -125,9 +85,6 @@ impl SignedDatabase {
     ) -> Result<(), ProtocolError> {
         if self.database_id() != &token.database_id || self.environment() != service {
             return Err(ProtocolError::unauthorized("share.cutover.identity"));
-        }
-        if let Self::Committed(receipt) = self {
-            receipt.validate()?;
         }
         Ok(())
     }
@@ -210,7 +167,6 @@ pub fn authorize_native_create(
             }
             Ok(())
         }
-        Some(SignedDatabase::Committed(_)) => Err(ProtocolError::invalid("share.create.migrated")),
     }
 }
 

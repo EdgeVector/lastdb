@@ -40,6 +40,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
     let device = match session::device_id(&host.home) {
         Ok(device) => device,
         Err(error) => {
+            host.cloud_sync.record_error(error.clone());
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "device id is unavailable");
             super::snapshot::fail_pending(&host.home, &database.id, &error);
             return Pause::Retry;
@@ -49,6 +50,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
     let log = match CloudLog::connect(host, &database.id, &device, revision).await {
         Ok(log) => log,
         Err(error) => {
+            host.cloud_sync.record_error(error.clone());
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "cloud log is unavailable");
             super::snapshot::fail_pending(&host.home, &database.id, &error);
             return Pause::Retry;
@@ -56,8 +58,12 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
     };
     if !created(&database.id) {
         match register(&log, database).await {
-            CreateOutcome::Live => clear_hold(&database.id),
+            CreateOutcome::Live => {
+                clear_hold(&database.id);
+                host.cloud_sync.clear_payment_hold();
+            }
             CreateOutcome::PaymentRequired => {
+                host.cloud_sync.record_payment_hold();
                 super::snapshot::fail_pending(
                     &host.home,
                     &database.id,
@@ -66,6 +72,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
                 return hold_payment(&database.id);
             }
             CreateOutcome::Refused(detail) => {
+                host.cloud_sync.record_error(detail.clone());
                 super::snapshot::fail_pending(&host.home, &database.id, &detail);
                 return hold_backoff(&database.id, &detail);
             }
@@ -75,6 +82,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database) -> Pause {
 }
 
 pub(super) fn hold_payment(database_id: &str) -> Pause {
+    *payment_hold_until() = Some(Instant::now() + PAYMENT_HOLD);
     set_hold(
         database_id,
         PAYMENT_HOLD,
@@ -87,14 +95,24 @@ pub(super) fn hold_backoff(database_id: &str, detail: &str) -> Pause {
     set_hold(database_id, REFUSAL_HOLD, Pause::Backoff, detail)
 }
 
+pub(super) fn clear_payment_hold() {
+    *payment_hold_until() = None;
+    holds().retain(|_, hold| hold.pause != Pause::PaymentHold);
+}
+
 pub(super) fn clear_hold(database_id: &str) {
+    clear_payment_hold();
     holds().remove(database_id);
 }
 
 fn active_hold(database_id: &str) -> Option<Pause> {
+    let now = Instant::now();
+    if payment_hold_until().is_some_and(|until| now < until) {
+        return Some(Pause::PaymentHold);
+    }
     let guard = holds();
     let hold = guard.get(database_id)?;
-    (Instant::now() < hold.until).then_some(hold.pause)
+    (now < hold.until).then_some(hold.pause)
 }
 
 fn set_hold(database_id: &str, duration: Duration, pause: Pause, message: &str) -> Pause {
@@ -165,6 +183,14 @@ async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> Create
     } else {
         CreateOutcome::Refused("cloud database registration returned an invalid reply".into())
     }
+}
+
+fn payment_hold_until() -> std::sync::MutexGuard<'static, Option<Instant>> {
+    static PAYMENT_UNTIL: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    PAYMENT_UNTIL
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn holds() -> std::sync::MutexGuard<'static, HashMap<String, Hold>> {

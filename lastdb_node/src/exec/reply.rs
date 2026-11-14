@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::lastdb_uds::uds_http::UdsResponse;
 
-const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 423, 503, 507];
+const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 402, 403, 404, 409, 413, 422, 423, 503, 507];
 
 pub(in crate::exec) fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Value {
     let mut map = serde_json::Map::new();
@@ -43,6 +43,7 @@ const fn status_reason(status: u16) -> &'static str {
     match status {
         400 => "Bad Request",
         401 => "Unauthorized",
+        402 => "Payment Required",
         403 => "Forbidden",
         404 => "Not Found",
         409 => "Conflict",

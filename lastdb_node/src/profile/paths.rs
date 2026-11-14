@@ -20,7 +20,11 @@ pub fn expand_tilde_path(path: impl AsRef<Path>) -> Result<PathBuf, String> {
         let home = std::env::var("HOME").map_err(|_| {
             format!("Cannot expand ~ in path \"{raw}\": HOME environment variable not set")
         })?;
-        return Ok(PathBuf::from(home).join(raw.strip_prefix("~/").unwrap_or("")));
+        return Ok(if let Some(rest) = raw.strip_prefix("~/") {
+            PathBuf::from(home).join(rest)
+        } else {
+            PathBuf::from(home)
+        });
     }
     Ok(p.to_path_buf())
 }

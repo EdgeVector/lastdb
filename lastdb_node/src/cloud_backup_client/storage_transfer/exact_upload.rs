@@ -64,7 +64,11 @@ impl StorageTransferClient {
                     return Err(invalid("exact_upload.transfer_mode"));
                 }
                 // The service verifies the stored bytes. The provider reply is not a receipt.
-                drop(self.put_presigned(input, &response, sealed).await);
+                if let Err(error) = self.put_presigned(input, &response, sealed).await {
+                    if !retryable(&error) {
+                        return Err(error);
+                    }
+                }
             }
             Ok(TransferResumeResult::State { transfer }) => {
                 return match read_state(input, transfer.state)? {

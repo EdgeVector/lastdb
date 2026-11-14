@@ -30,6 +30,7 @@ pub(super) struct Ready {
 pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
     if ready.publisher.is_none() {
         if let Err(reason) = accepted::publish_owned(host, &ready.log).await {
+            host.cloud_sync.record_error(reason);
             tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
                 %reason, "owned pull awaits safe local capture");
             return Pause::Retry;

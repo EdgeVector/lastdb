@@ -65,6 +65,8 @@ pub(crate) struct PublishArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct CatalogSource {
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub env: Option<String>,
     #[arg(long)]
     pub channel: Option<String>,
     #[arg(long)]

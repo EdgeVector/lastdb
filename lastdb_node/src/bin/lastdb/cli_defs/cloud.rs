@@ -156,20 +156,11 @@ pub(crate) struct BackupInitArgs {
 #[derive(Args, Debug)]
 pub(crate) struct BackupConnectArgs {
     /// Shorthand for `--env dev`.
-    #[arg(
-        long,
-        required_unless_present = "env",
-        conflicts_with_all = ["env", "existing"]
-    )]
+    #[arg(long, conflicts_with_all = ["env", "existing"])]
     pub(crate) dev: bool,
-    #[arg(long, conflicts_with = "dev", requires_all = ["env", "api_key_stdin"])]
+    #[arg(long, conflicts_with = "dev", requires = "api_key_stdin")]
     pub(crate) existing: bool,
-    #[arg(
-        long,
-        value_parser = ["dev", "prod"],
-        required_unless_present = "dev",
-        conflicts_with = "dev"
-    )]
+    #[arg(long, value_parser = ["dev", "prod"], conflicts_with = "dev")]
     pub(crate) env: Option<String>,
     #[arg(long, requires = "existing")]
     pub(crate) api_key_stdin: bool,
