@@ -2,7 +2,7 @@
 mod files;
 mod managed;
 
-use crate::cloud_backup_client::byte_backup::ShareEnvironment;
+use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};

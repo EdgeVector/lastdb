@@ -1,5 +1,5 @@
-//! Separately versioned opaque byte transport for LastDB cloud backup V2.
-use super::{AuthClient, BackupTransport};
+//! Authenticated cloud storage context, job lifecycle, presigned blob transfer, and guest permissions.
+use super::{AuthClient, BackupTransport, PresignedPut};
 use cloud_backup_protocol::v2::{
     context::{ContextReadRequest, ContextReadResponse},
     jobs::{JobBeginRequest, JobCloseRequest, JobResult},
@@ -44,11 +44,11 @@ macro_rules! identity_rpc {
 }
 
 #[derive(Clone)]
-pub struct ByteBackupClient {
+pub struct StorageTransferClient {
     transport: BackupTransport,
 }
 
-impl ByteBackupClient {
+impl StorageTransferClient {
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         Ok(Self {
             transport: BackupTransport::from_auth(auth)?,
@@ -88,18 +88,15 @@ impl ByteBackupClient {
         source: Box<dyn Read + Send>,
     ) -> Result<UploadObservation> {
         response.validate_for(input)?;
-        let g = &response.grant;
-        let mp = g.transfer_mode == Some(TransferMode::MultipartPart);
-        self.transport
-            .upload(
-                &input.object.sha256,
-                input.object.bytes.get(),
-                g.url.as_str(),
-                g.expires_ms.get(),
-                source,
-                mp,
-            )
-            .await
+        let grant = &response.grant;
+        let put = PresignedPut {
+            sha256: &input.object.sha256,
+            bytes: input.object.bytes.get(),
+            grant_url: grant.url.as_str(),
+            expires_ms: grant.expires_ms.get(),
+            multipart_part: grant.transfer_mode == Some(TransferMode::MultipartPart),
+        };
+        self.transport.upload(&put, source).await
     }
 }
 

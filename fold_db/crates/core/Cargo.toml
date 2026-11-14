@@ -46,8 +46,6 @@ schema_types = { workspace = true }
 # Pure LastDB models: records, field keys, schemas, keys, mutations (no behavior).
 lastdb_model = { workspace = true }
 
-ed25519-compact = "2.2.0"
-
 # Unix-socket peer-credential read. Unix-only and unconditional: reading a
 # socket's kernel peer credential is a generic primitive consumed by the dev
 # node's UDS control socket. Non-Unix targets pull in no `libc` peer-cred FFI.

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::snapshot::transport;
-use crate::cloud_backup_client::{byte_backup::ByteBackupClient, AuthClient};
+use crate::cloud_backup_client::{storage_transfer::StorageTransferClient, AuthClient};
 use crate::log_sync::{cloud::CloudLog, http, registry, session};
 
 const MAX_BATCHES: u8 = 128;
@@ -114,7 +114,7 @@ async fn owner_log(home: &Path, database_id: Id) -> Result<CloudLog, String> {
     }
     let device = session::saved_device_id(home)?.ok_or("home has no existing sync device id")?;
     let endpoint = http::Endpoint::open(&selected.api_url, selected.label)?;
-    let backup = ByteBackupClient::from_auth(AuthClient::new(
+    let backup = StorageTransferClient::from_auth(AuthClient::new(
         saved.api_url,
         std::mem::take(&mut *saved.api_key),
     ))

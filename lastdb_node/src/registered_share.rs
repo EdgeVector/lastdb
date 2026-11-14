@@ -3,7 +3,7 @@ mod store;
 
 pub(crate) use store::receiver_store;
 
-use crate::cloud_backup_client::byte_backup::ShareEnvironment;
+use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
 use crate::share_cache::{ShareCache, ShareCacheError, ShareSnapshot};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use serde::Serialize;

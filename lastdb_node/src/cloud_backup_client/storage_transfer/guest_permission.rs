@@ -3,7 +3,6 @@ use super::{BackupTransportError, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::v2::Stream;
 use cloud_backup_protocol::{CloudScope, Digest, Id, RecoveryDescriptor, RecoveryProfile};
-use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -47,7 +46,9 @@ struct GuestPermission {
 
 macro_rules! guest_permission_type {
     ($name:ident, $op:expr) => {
-        pub struct $name(GuestPermission);
+        pub struct $name {
+            inner: GuestPermission,
+        }
 
         impl $name {
             pub fn sign(
@@ -65,31 +66,31 @@ macro_rules! guest_permission_type {
                     account_public_key,
                     sign,
                 )
-                .map(Self)
+                .map(|inner| Self { inner })
             }
 
             pub fn parse(authorization: &str) -> Result<Self> {
-                GuestPermission::parse(authorization, $op).map(Self)
+                GuestPermission::parse(authorization, $op).map(|inner| Self { inner })
             }
 
             pub fn authorization(&self) -> &str {
-                &self.0.authorization
+                &self.inner.authorization
             }
 
             pub fn stream(&self) -> &Stream {
-                &self.0.stream
+                &self.inner.stream
             }
 
             pub fn environment(&self) -> ShareEnvironment {
-                self.0.environment
+                self.inner.environment
             }
 
             pub fn publisher_public_key(&self) -> &Digest {
-                &self.0.publisher_public_key
+                &self.inner.publisher_public_key
             }
 
             pub fn expires_ms(&self) -> u64 {
-                self.0.expires_ms
+                self.inner.expires_ms
             }
         }
     };
@@ -143,9 +144,7 @@ impl GuestPermission {
         let (expires_ms, key, publisher_public_key) = claim.validated(operation)?;
         let signature = decode_fixed::<64>(signature, "guest permission signature")?;
         let message = format!("{SIGNING_PREFIX}{payload}");
-        UnparsedPublicKey::new(&ED25519, key)
-            .verify(message.as_bytes(), &signature)
-            .map_err(|_| invalid("guest permission signature"))?;
+        verify_ed25519(&key, &signature, message.as_bytes())?;
         Ok(Self {
             authorization: Zeroizing::new(authorization.to_owned()),
             stream: Stream {
@@ -157,6 +156,15 @@ impl GuestPermission {
             publisher_public_key,
         })
     }
+}
+
+fn verify_ed25519(key: &[u8; 32], signature: &[u8; 64], message: &[u8]) -> Result<()> {
+    let verifying_key = app_identity_crypto::VerifyingKey::from_bytes(key)
+        .ok()
+        .filter(|vk| vk.to_edwards().compress().to_bytes() == *key)
+        .ok_or_else(|| invalid("guest permission signature"))?;
+    app_identity_crypto::verify(&verifying_key, signature, message)
+        .map_err(|_| invalid("guest permission signature"))
 }
 
 impl Claim {

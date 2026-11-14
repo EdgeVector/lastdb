@@ -4,7 +4,7 @@
 //! It holds the AES content key, not the node seed and not the personal
 //! content key. There is no second prefix and no raw key file.
 
-use crate::cloud_backup_client::byte_backup::GuestReadPermission;
+use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
 use crate::host::owned;
 use crate::share_invitation::{self, ShareContact};
 use crate::share_spec::PublicationSpec;

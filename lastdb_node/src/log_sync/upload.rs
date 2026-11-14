@@ -19,7 +19,7 @@ use cloud_backup_protocol::{bytes_sha256, canonical_bytes, DecimalU64, Id};
 use fold_db::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 
-use crate::cloud_backup_client::byte_backup::{ByteBackupClient, ExactUpload};
+use crate::cloud_backup_client::storage_transfer::{ExactUpload, StorageTransferClient};
 use crate::database_replay::{self, FileObject};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
@@ -147,7 +147,7 @@ fn same_saved(saved: &FileJob, log: &CloudLog, path: &BlobPath, proposed: &Seal)
 }
 
 async fn verified(
-    client: &ByteBackupClient,
+    client: &StorageTransferClient,
     saved: &FileJob,
     sealed: Vec<u8>,
 ) -> Option<ObjectReceipt> {
@@ -175,7 +175,7 @@ async fn verified(
     }
 }
 
-async fn close_job(client: &ByteBackupClient, saved: &FileJob) -> Option<()> {
+async fn close_job(client: &StorageTransferClient, saved: &FileJob) -> Option<()> {
     let request = JobCloseRequest {
         version: Version::V2,
         job: saved.begin.job.clone(),
