@@ -184,12 +184,18 @@ async fn send_page(
         through = match item {
             Item::Withheld { sequence, .. } => *sequence,
             Item::Publish { sequence, .. } => {
-                let Some(entry) = prepare_item(host, log, key, item, next).await else {
-                    break;
-                };
-                next = next.max(entry.writer_seq + 1);
-                entries.push(entry);
-                *sequence
+                match prepare_item(host, log, key, item, next).await {
+                    Ok(entry) => {
+                        next = next.max(entry.writer_seq + 1);
+                        entries.push(entry);
+                        *sequence
+                    }
+                    Err(err) if err == crate::cloud::PAYMENT_REQUIRED_MESSAGE => {
+                        mark_payment_hold(log.database_id());
+                        return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+                    }
+                    Err(_) => break,
+                }
             }
         };
     }
@@ -214,7 +220,8 @@ async fn prepare_item(
     key: &DatabaseContentKey,
     item: &Item,
     next: u64,
-) -> Option<Entry> {
+) -> Result<Entry, &'static str> {
+    const FAILED: &str = "the next local write could not be prepared for upload";
     let Item::Publish {
         mutation_id,
         kind,
@@ -225,22 +232,22 @@ async fn prepare_item(
         ..
     } = item
     else {
-        return None;
+        return Err(FAILED);
     };
-    let namespace = namespace_of(canonical)?;
-    let saved = retry::load(&host.home, log.database_id(), mutation_id).ok()?;
+    let namespace = namespace_of(canonical).ok_or(FAILED)?;
+    let saved = retry::load(&host.home, log.database_id(), mutation_id).map_err(|_| FAILED)?;
     let source = upload::FileSource {
         canonical,
         row: file_ciphertext.as_deref(),
         reference: file_reference.as_deref(),
     };
-    let sealed = match saved {
+    let (seal, payload) = match saved {
         Some((seal, payload))
             if seal.writer_seq < u64::MAX
                 && seal.writer_seq <= next
                 && seal.namespace == namespace =>
         {
-            Some((seal, payload))
+            (seal, payload)
         }
         None if next < u64::MAX => {
             let seal = Seal {
@@ -248,12 +255,11 @@ async fn prepare_item(
                 authored_at_ms: authored_at_ms.unwrap_or_else(fold_db::clock::unix_millis),
                 namespace,
             };
-            prepare_payload(host, log, key, mutation_id, kind, source, seal).await
+            prepare_payload(host, log, key, mutation_id, kind, source, seal).await?
         }
-        _ => None,
+        _ => return Err(FAILED),
     };
-    let (seal, payload) = sealed?;
-    cloud_entry(log, &seal, payload)
+    cloud_entry(log, &seal, payload).ok_or(FAILED)
 }
 
 async fn prepare_payload(
@@ -264,11 +270,12 @@ async fn prepare_payload(
     kind: &str,
     source: upload::FileSource<'_>,
     seal: Seal,
-) -> Option<(Seal, Vec<u8>)> {
+) -> Result<(Seal, Vec<u8>), &'static str> {
+    const FAILED: &str = "the next local write could not be prepared for upload";
     let (canonical, seal) = if source.row.is_some() || source.reference.is_some() {
         upload::cloud_body(host, log, key, mutation_id, source, seal).await?
     } else if kind == "file" {
-        return None;
+        return Err(FAILED);
     } else {
         (source.canonical.to_vec(), seal)
     };
@@ -285,9 +292,10 @@ async fn prepare_payload(
         },
         &canonical,
     )
-    .ok()?;
-    retry::store(&host.home, log.database_id(), mutation_id, &seal, &envelope).ok()?;
-    Some((seal, envelope))
+    .map_err(|_| FAILED)?;
+    retry::store(&host.home, log.database_id(), mutation_id, &seal, &envelope)
+        .map_err(|_| FAILED)?;
+    Ok((seal, envelope))
 }
 
 fn cloud_entry(log: &CloudLog, seal: &Seal, payload: Vec<u8>) -> Option<Entry> {

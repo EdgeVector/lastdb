@@ -33,8 +33,8 @@ pub use members::{
 };
 pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
 pub use receipt::{
-    authorize_access_read, authorize_native_create, CutoverReceipt, NativeDatabase, NativeMark,
-    OpenDatabase, OpenMark, SignedDatabase, SignedRequestTarget,
+    authorize_access_read, authorize_native_create, NativeDatabase, NativeMark, OpenDatabase,
+    OpenMark, SignedDatabase, SignedRequestTarget,
 };
 
 use crate::{AccountId, Digest, ProtocolError};

@@ -10,13 +10,7 @@ const SCHEME: &str = "LastDBShare";
 const SIGNING_PREFIX: &str = "lastdb-share-permission-v1\n";
 const MAX_HEADER_BYTES: usize = 2048;
 
-/// The Exemem environment bound to a guest permission.
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ShareEnvironment {
-    Dev,
-    Prod,
-}
+pub use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

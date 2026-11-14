@@ -130,6 +130,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                     "build": { "version": crate::version::build_version() },
                     "process_start_ts": host.process_start_ts, "uptime_secs": up,
                     "uds": uds, "search": admin_routes::search_queue_status(host),
+                    "cloud_sync": host.cloud_sync.snapshot(),
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
             }

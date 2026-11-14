@@ -34,6 +34,9 @@ pub(in crate::log_sync) async fn ensure_initial(
         return Ok(());
     }
     let runtime = host.db.db_ops().native_runtime();
+    if !runtime.captures_accepted() {
+        return Err("local capture disabled until the enrolled node restarts".into());
+    }
     if !runtime.accepted_status().snapshot_required {
         discard(&runtime, &host.home);
         return Ok(());
@@ -100,6 +103,20 @@ pub(super) fn finish(runtime: &PackRuntime, home: &Path, frontier: u64) -> Resul
         .map_err(|error| format!("{error:?}"))?;
     discard(runtime, home);
     Ok(())
+}
+
+pub(super) fn complete_or_await_upload(
+    runtime: &PackRuntime,
+    nonce: Option<&str>,
+) -> Result<bool, String> {
+    if runtime.accepted_status().head > 0 {
+        return if nonce.is_some() {
+            Err(super::AWAIT_LOCAL_UPLOAD.into())
+        } else {
+            Ok(false)
+        };
+    }
+    Ok(true)
 }
 
 fn discard(runtime: &PackRuntime, home: &Path) {

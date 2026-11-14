@@ -27,13 +27,25 @@ pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>,
         .map_err(|e| Error::from(format!("Failed to build response: {e}")))
 }
 
+const MAX_REQUEST_BODY_BYTES: usize = 128 * 1024;
+
 pub(crate) fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
 where
     T: DeserializeOwned,
 {
     let raw = match event.body() {
-        Body::Text(s) => s.clone(),
-        Body::Binary(b) => String::from_utf8_lossy(b).into_owned(),
+        Body::Text(s) => {
+            if s.len() > MAX_REQUEST_BODY_BYTES {
+                return Err(payload_too_large());
+            }
+            s.clone()
+        }
+        Body::Binary(b) => {
+            if b.len() > MAX_REQUEST_BODY_BYTES {
+                return Err(payload_too_large());
+            }
+            String::from_utf8_lossy(b).into_owned()
+        }
         Body::Empty => {
             return Err(json_response(
                 400,
@@ -47,4 +59,11 @@ where
             &schema_service_core::error_only_body(&format!("{error}: {parse_error}")),
         )
     })
+}
+
+fn payload_too_large() -> Result<Response<Body>, Error> {
+    json_response(
+        413,
+        &schema_service_core::error_only_body("Request body exceeds 128 KiB limit"),
+    )
 }

@@ -1,5 +1,5 @@
 //! Native backup home initialization, self-serve cloud enrollment, and existing connections.
-use super::enrollment_home::{PreparedHome, PENDING_FILE};
+use super::enrollment_home::{resolve_existing_home_path, PreparedHome, PENDING_FILE};
 use super::snapshot_wait::print_backup;
 use super::{block_on_cloud, read_stdin_no_control, BackupConnectArgs, BackupInitArgs, FreshHome};
 use cloud_backup_protocol::{AccountId, Id};
@@ -11,7 +11,7 @@ use lastdb_node::cloud::{
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::Directory;
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 pub(super) const PHRASE_FILE: &str = "recovery-phrase.txt";
@@ -22,33 +22,49 @@ pub(super) fn run_init(data_dir: Option<&Path>, args: &BackupInitArgs) -> Result
     }
     let env = Environment::try_from_str(&args.env)
         .map_err(|_| "native backup init environment must be dev or prod")?;
-    initialize(&args.into, &args.recovery_phrase_out, env, args.json)
+    let into = lastdb_node::profile::paths::expand_tilde_path(&args.into)?;
+    let phrase_out = lastdb_node::profile::paths::expand_tilde_path(&args.recovery_phrase_out)?;
+    initialize(&into, &phrase_out, env, args.json)
 }
 
-pub(super) fn run_connect(data_dir: Option<&Path>, args: &BackupConnectArgs) -> Result<(), String> {
+fn resolve_connect_env(args: &BackupConnectArgs) -> Result<Environment, String> {
+    let cli_env = match (args.dev, args.env.as_deref()) {
+        (true, None) | (false, Some("dev")) => Some(Environment::Dev),
+        (false, Some("prod")) => Some(Environment::Prod),
+        (false, None) => None,
+        _ => return Err("native backup connect requires --env <dev|prod> or --dev".into()),
+    };
+    cli_env
+        .or_else(Environment::explicit_from_env)
+        .ok_or_else(|| {
+            if args.existing {
+                "existing connection requires --env <dev|prod> or LASTDB_ENV".into()
+            } else {
+                "native backup connect requires --env <dev|prod>, --dev, or LASTDB_ENV".into()
+            }
+        })
+}
+
+pub(super) fn run_connect(
+    data_dir: Option<PathBuf>,
+    args: &BackupConnectArgs,
+) -> Result<(), String> {
     if args.existing {
         if !args.api_key_stdin || args.dev {
             return Err(
                 "existing connection requires only an environment and API key stdin".into(),
             );
         }
-        let home = data_dir.ok_or("existing connection requires an explicit --data-dir")?;
-        let env = args
-            .env
-            .as_deref()
-            .ok_or("existing connection requires --env")?;
-        return connect_existing(home, env, args.expected_user_hash.as_deref(), args.json);
+        let env = resolve_connect_env(args)?;
+        let home = lastdb_node::host::resolve_home(data_dir)?;
+        return connect_existing(&home, env, args.expected_user_hash.as_deref(), args.json);
     }
     if args.api_key_stdin || args.expected_user_hash.is_some() {
         return Err("native backup connect requires --env <dev|prod> or --dev".into());
     }
-    let env = match (args.dev, args.env.as_deref()) {
-        (true, None) | (false, Some("dev")) => Environment::Dev,
-        (false, Some("prod")) => Environment::Prod,
-        _ => return Err("native backup connect requires --env <dev|prod> or --dev".into()),
-    };
-    let home = data_dir.ok_or("native backup connect requires an explicit --data-dir")?;
-    connect(home, env, args.json)
+    let env = resolve_connect_env(args)?;
+    let home = lastdb_node::host::resolve_home(data_dir)?;
+    connect(&home, env, args.json)
 }
 
 fn initialize(
@@ -127,10 +143,13 @@ fn account_from_seed_bytes(seed: &[u8]) -> Result<(Ed25519KeyPair, AccountId), S
 }
 
 fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
+    let resolved = resolve_existing_home_path(home)?;
+    let home = resolved.as_path();
     let dir = PreparedHome::open(home)?;
     let seed = dir.seed()?;
     let (pair, account_id) = account_from_seed_bytes(seed.as_ref())?;
     let emit = |registered: bool, api_key: Option<Zeroizing<String>>| -> Result<(), String> {
+        lastdb_node::log_sync::request_wake(home);
         let mut out = serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": env.as_str(),
             "account_id": account_id, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
@@ -171,12 +190,12 @@ fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
 
 fn connect_existing(
     home: &Path,
-    env_str: &str,
+    env: Environment,
     expected: Option<&str>,
     json: bool,
 ) -> Result<(), String> {
-    let env = Environment::try_from_str(env_str)
-        .map_err(|_| "existing connection requires an absolute home and dev or prod environment")?;
+    let resolved = resolve_existing_home_path(home)?;
+    let home = resolved.as_path();
     let expected = expected
         .map(|v| AccountId::try_from(v.to_owned()).map_err(|_| "invalid expected account identity"))
         .transpose()?;
@@ -231,6 +250,7 @@ fn connect_existing(
         &encoded,
     )
     .map_err(|e| e.to_string())?;
+    lastdb_node::log_sync::request_wake(home);
     let mut out = serde_json::json!({
         "ok": true, "environment": env.as_str(), "account_id": account_id,
         "credentials_saved": true, "registration_attempted": false,
@@ -283,7 +303,7 @@ fn attach_prod_payment_guidance(
         Some((sub, configured))
     });
     let (sub_status, payment_required) = status.map_or((None, true), |(sub, configured)| {
-        let active = !configured || matches!(sub.as_str(), "active" | "trialing");
+        let active = !configured || sub == "active";
         (Some(sub), !active)
     });
     if let Some(obj) = output.as_object_mut() {

@@ -18,11 +18,10 @@ cd "$REPO_ROOT"
 # The current API Gateway IDs. Update by editing environments.json
 # (which this lint reads back); never edit this list by hand.
 #
-# `region` is metadata, not a URL. `strings` drops non-string values such as
-# the `release_log_keys` list: a key is not a host, and an empty list would
-# print `[]`, which matches nearly every file.
+# `region` and `registry_ci_*` keys are metadata/keys, not URLs. `strings`
+# keeps string values and `select(startswith("http"))` extracts URL entries.
 HOSTNAMES=$(
-    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region") | .value | strings' \
+    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region") | .value | strings | select(startswith("http"))' \
         lastdb_node/environments.json \
     | sed -E 's|^https?://||; s|/.*$||' \
     | sort -u

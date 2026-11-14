@@ -21,6 +21,7 @@ use super::run;
 const GRANTS_LIMIT: usize = 65_536;
 
 static AUTHORITY_WARNED: AtomicBool = AtomicBool::new(false);
+static UNARMED_REOPEN_WARNED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pause {
@@ -59,9 +60,46 @@ pub fn spawn(
 }
 
 async fn one_turn(host: &Arc<Host>) -> Pause {
+    if super::status::consume_wake(&host.home) {
+        native::clear_payment_hold();
+        host.cloud_sync.clear_payment_hold();
+    }
+    let captures = host.db.db_ops().native_runtime().captures_accepted();
+    let creds_present = crate::host::has_cloud_credentials(&host.home);
+    host.cloud_sync.refresh(&host.home, captures);
+    if creds_present && !captures {
+        if !host.booted_with_credentials {
+            tracing::info!(
+                target: "lastdbd::log_sync",
+                "cloud credentials enrolled on running node; reopening to arm local capture"
+            );
+            return Pause::Reopen;
+        }
+        warn_once(
+            &UNARMED_REOPEN_WARNED,
+            "cloud credentials were present at boot without local capture; skipping automatic reopen",
+        );
+        host.cloud_sync
+            .record_error("local capture disabled until the enrolled node restarts");
+        return Pause::Backoff;
+    }
     let databases = registry::databases(&host.home);
     let has_received = crate::registered_share::list(&host.home)
         .map_or(true, |shares| shares.iter().any(|share| share.signed_log));
+    if !creds_present {
+        for database in &databases {
+            super::snapshot::fail_pending(
+                &host.home,
+                &database.id,
+                "no saved cloud credentials — run 'lastdb backup connect' first",
+            );
+        }
+        return if has_received {
+            received::turn(host).await
+        } else {
+            Pause::Retry
+        };
+    }
     if databases.is_empty() && !has_received {
         return Pause::Idle;
     }
@@ -102,16 +140,22 @@ pub(super) async fn open_native(
             };
             if let Err(reason) = snapshot {
                 if reason == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+                    host.cloud_sync.record_payment_hold();
                     super::snapshot::fail_pending(&host.home, &database.id, &reason);
                     return native::hold_payment(&database.id);
                 }
-                tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
+                if reason != super::snapshot::AWAIT_LOCAL_UPLOAD {
+                    host.cloud_sync.record_error(reason.clone());
+                    tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
+                }
                 if reason == super::snapshot::AWAIT_INCOMING {
                     return shorter(Pause::Snapshot, run::run_ready(host, *ready).await);
                 }
             }
+            let log_after = ready.log.clone();
             let next = run::run_ready(host, *ready).await;
             if super::accepted::take_payment_hold(&database.id) {
+                host.cloud_sync.record_payment_hold();
                 super::snapshot::fail_pending(
                     &host.home,
                     &database.id,
@@ -119,12 +163,38 @@ pub(super) async fn open_native(
                 );
                 return native::hold_payment(&database.id);
             }
+            if let Some(hold) = service_pending_snapshot(host, &log_after, database).await {
+                return hold;
+            }
             if matches!(next, Pause::Idle) {
                 native::clear_hold(&database.id);
+                host.cloud_sync.record_healthy();
             }
             next
         }
     }
+}
+
+async fn service_pending_snapshot(
+    host: &Arc<Host>,
+    log: &CloudLog,
+    database: &Database,
+) -> Option<Pause> {
+    if !super::snapshot::pending(&host.home, &database.id) {
+        return None;
+    }
+    if let Err(reason) = super::snapshot::requested(host, log, database).await {
+        if reason == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+            host.cloud_sync.record_payment_hold();
+            super::snapshot::fail_pending(&host.home, &database.id, &reason);
+            return Some(native::hold_payment(&database.id));
+        }
+        if reason != super::snapshot::AWAIT_LOCAL_UPLOAD {
+            host.cloud_sync.record_error(reason.clone());
+            tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
+        }
+    }
+    None
 }
 
 async fn finish_open(
@@ -211,7 +281,7 @@ async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
             return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if snapshot_waiting(host) {
+        if snapshot_waiting(host) || super::status::wake_requested(&host.home) {
             return;
         }
     }

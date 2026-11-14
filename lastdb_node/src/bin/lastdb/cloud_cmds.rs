@@ -36,18 +36,24 @@ pub(super) use account::cloud_account_command;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let CloudCommand::BackupV2 { action } = action else {
-        return recovery_home::command(data_dir.as_deref(), action);
+        let expanded = data_dir
+            .map(lastdb_node::profile::paths::expand_tilde_path)
+            .transpose()?;
+        return recovery_home::command(expanded.as_deref(), action);
     };
     match action {
         ByteBackupCommand::Init(a) => setup::run_init(data_dir.as_deref(), &a),
-        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir.as_deref(), &a),
+        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         ByteBackupCommand::Restore(args) => {
-            if data_dir.as_deref().is_none_or(|h| !h.is_absolute()) {
+            let expanded = data_dir
+                .map(lastdb_node::profile::paths::expand_tilde_path)
+                .transpose()?;
+            if expanded.as_deref().is_none_or(|h| !h.is_absolute()) {
                 return Err(
                     "signed backup restore requires an explicit absolute --data-dir home".into(),
                 );
             }
-            restore::run(&lastdb_node::host::resolve_home(data_dir)?, args)
+            restore::run(&lastdb_node::host::resolve_home(expanded)?, args)
         }
         ByteBackupCommand::Reclaim(args) => {
             reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, &args)

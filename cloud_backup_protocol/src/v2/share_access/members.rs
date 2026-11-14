@@ -19,13 +19,6 @@ pub enum ShareMemberRole {
     Submit,
 }
 
-impl ShareMemberRole {
-    /// Reader capability. Wire value `read`.
-    pub const READER: Self = Self::Read;
-    /// Contributor capability. Wire value `submit`.
-    pub const CONTRIBUTOR: Self = Self::Submit;
-}
-
 /// Whether a member row still grants access.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

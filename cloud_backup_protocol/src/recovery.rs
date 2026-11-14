@@ -42,11 +42,6 @@ impl RecoveryDescriptor {
         }
         Ok(())
     }
-
-    /// Domain-separated SHA-256 of this descriptor.
-    pub fn commitment(&self) -> Result<Digest, ProtocolError> {
-        crate::input_digest("lastdb:native-backup:recovery:v1", self)
-    }
 }
 
 fn decode_public_key(encoded: &Digest) -> Result<[u8; 32], ProtocolError> {

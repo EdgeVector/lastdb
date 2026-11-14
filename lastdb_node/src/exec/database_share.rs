@@ -116,7 +116,13 @@ async fn members(req: &UdsRequest, ctx: &AccessContext, host: &Host, id: &str) -
         };
         let ack = named_grant::update_member(&host.home, id, &b.recipient_key, intent)
             .await
-            .map_err(|e| HostError::new(400, e))?;
+            .map_err(|e| {
+                if e == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+                    host_error(ConfigError::PaymentRequired)
+                } else {
+                    HostError::new(400, e)
+                }
+            })?;
         let mut out = json!({
             "database_id": ack.database_id,
             "revision": ack.revision.to_string(),
@@ -127,13 +133,17 @@ async fn members(req: &UdsRequest, ctx: &AccessContext, host: &Host, id: &str) -
                 named_grant::seal_named_invitation(&host.home, &ack.database_id, &contact, hours)
                     .await
                     .map_err(|error| {
-                        HostError::new(
-                            500,
-                            format!(
-                                "member list committed at revision {}; {error}",
-                                ack.revision
-                            ),
-                        )
+                        if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+                            host_error(ConfigError::PaymentRequired)
+                        } else {
+                            HostError::new(
+                                500,
+                                format!(
+                                    "member list committed at revision {}; {error}",
+                                    ack.revision
+                                ),
+                            )
+                        }
                     })?;
             out["sealed"] = json!(base64::engine::general_purpose::STANDARD.encode(sealed));
         }
@@ -190,6 +200,14 @@ fn host_error(error: ConfigError) -> HostError {
             json!({ "revision": revision }),
         ),
         ConfigError::Pending => (409, "share_update_pending", json!({})),
+        ConfigError::PaymentRequired => (
+            402,
+            "payment_required",
+            json!({
+                "reason": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
+                "message": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
+            }),
+        ),
         ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed", json!({})),
     };
     let mut body = body;

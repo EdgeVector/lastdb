@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zeroize::Zeroize;
 
-pub use cloud_backup_protocol::v2::publication::Head as ShareSnapshot;
-
 pub const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
 
 /// A stable node-owned registry for received shares.
@@ -41,14 +39,15 @@ struct Registration {
     environment: ShareEnvironment,
     content_key: [u8; 32],
     invitation: String,
-    #[serde(default)]
-    active: Option<serde_json::Value>,
+    #[serde(rename = "active", default, skip_serializing)]
+    retired_active: serde::de::IgnoredAny,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     managed: Option<managed::ManagedRegistration>,
 }
 
 impl Drop for Registration {
     fn drop(&mut self) {
+        let _ = self.retired_active;
         self.content_key.zeroize();
     }
 }
@@ -116,7 +115,7 @@ impl Registration {
             environment: opened.permission.environment(),
             content_key: *opened.publication_key,
             invitation: String::new(),
-            active: None,
+            retired_active: serde::de::IgnoredAny,
             managed: None,
         });
         registration.require_binding(opened, publisher)?;

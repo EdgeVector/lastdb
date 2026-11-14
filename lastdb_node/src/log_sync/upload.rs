@@ -20,6 +20,7 @@ use fold_db::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 
 use crate::cloud_backup_client::storage_transfer::{ExactUpload, StorageTransferClient};
+use crate::cloud_backup_client::BackupTransportError;
 use crate::database_replay::{self, FileObject};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
@@ -30,6 +31,7 @@ use super::files;
 use super::retry::{self, Seal};
 
 const JOB_LIMIT: usize = 65_536;
+const PREPARE_FAILED: &str = "the next local write could not be prepared for upload";
 
 #[derive(Serialize, Deserialize)]
 struct FileJob {
@@ -54,38 +56,45 @@ pub(super) async fn cloud_body(
     mutation_id: &str,
     source: FileSource<'_>,
     proposed: Seal,
-) -> Option<(Vec<u8>, Seal)> {
-    let path = files::path_for(log.database_id(), mutation_id, source.canonical).ok()?;
-    let mut body = file_body(source.canonical)?;
-    let section = body.file.as_mut()?;
-    let marker = file_marker(section)?;
-    let mut saved = match load(&host.home, log.database_id(), mutation_id).ok()? {
-        Some(saved) if same_saved(&saved, log, &path, &proposed) => saved,
-        Some(_) => return None,
-        None => {
-            let envelope = seal_file(key, log, &source, &marker, &proposed)?;
-            retry::store_file(&host.home, log.database_id(), mutation_id, &envelope).ok()?;
-            let saved = fresh(log, &path, &envelope, proposed)?;
-            store(&host.home, log.database_id(), mutation_id, &saved)?;
-            saved
-        }
-    };
+) -> Result<(Vec<u8>, Seal), &'static str> {
+    let path = files::path_for(log.database_id(), mutation_id, source.canonical)
+        .map_err(|_| PREPARE_FAILED)?;
+    let mut body = file_body(source.canonical).ok_or(PREPARE_FAILED)?;
+    let section = body.file.as_mut().ok_or(PREPARE_FAILED)?;
+    let marker = file_marker(section).ok_or(PREPARE_FAILED)?;
+    let mut saved =
+        match load(&host.home, log.database_id(), mutation_id).map_err(|_| PREPARE_FAILED)? {
+            Some(saved) if same_saved(&saved, log, &path, &proposed) => saved,
+            Some(_) => return Err(PREPARE_FAILED),
+            None => {
+                let envelope =
+                    seal_file(key, log, &source, &marker, &proposed).ok_or(PREPARE_FAILED)?;
+                retry::store_file(&host.home, log.database_id(), mutation_id, &envelope)
+                    .map_err(|_| PREPARE_FAILED)?;
+                let saved = fresh(log, &path, &envelope, proposed).ok_or(PREPARE_FAILED)?;
+                store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
+                saved
+            }
+        };
     if saved.receipt.is_none() || !saved.closed {
-        let client = crate::cloud::client_from_home(&host.home).ok()?;
+        let client = crate::cloud::client_from_home(&host.home).map_err(|_| PREPARE_FAILED)?;
         if saved.receipt.is_none() {
-            let envelope = retry::load_file(&host.home, log.database_id(), mutation_id).ok()??;
+            let envelope = retry::load_file(&host.home, log.database_id(), mutation_id)
+                .map_err(|_| PREPARE_FAILED)?
+                .ok_or(PREPARE_FAILED)?;
             saved.receipt = Some(verified(&client, &saved, envelope).await?);
-            store(&host.home, log.database_id(), mutation_id, &saved)?;
+            store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
         }
         if !saved.closed {
             close_job(&client, &saved).await?;
             saved.closed = true;
-            store(&host.home, log.database_id(), mutation_id, &saved)?;
+            store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
         }
     }
-    let scope = saved.receipt.as_ref()?.scope.clone();
+    let scope = saved.receipt.as_ref().ok_or(PREPARE_FAILED)?.scope.clone();
     section.object = Some(FileObject { scope, path });
-    Some((canonical_bytes(&body).ok()?, saved.seal))
+    let encoded = canonical_bytes(&body).map_err(|_| PREPARE_FAILED)?;
+    Ok((encoded, saved.seal))
 }
 
 fn fresh(log: &CloudLog, path: &BlobPath, ciphertext: &[u8], seal: Seal) -> Option<FileJob> {
@@ -150,19 +159,22 @@ async fn verified(
     client: &StorageTransferClient,
     saved: &FileJob,
     sealed: Vec<u8>,
-) -> Option<ObjectReceipt> {
+) -> Result<ObjectReceipt, &'static str> {
     match client
         .upload_exact(&saved.begin, &saved.input, sealed)
         .await
     {
-        Ok(ExactUpload::Verified(receipt)) => Some(receipt),
+        Ok(ExactUpload::Verified(receipt)) => Ok(receipt),
         Ok(ExactUpload::Retryable(step)) => {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 step,
                 "named file upload can be retried"
             );
-            None
+            Err(PREPARE_FAILED)
+        }
+        Err(BackupTransportError::Protocol(p)) if p.is_payment_subscription() => {
+            Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
         }
         Err(error) => {
             tracing::warn!(
@@ -170,20 +182,26 @@ async fn verified(
                 error = %error,
                 "named file upload stopped"
             );
-            None
+            Err(PREPARE_FAILED)
         }
     }
 }
 
-async fn close_job(client: &StorageTransferClient, saved: &FileJob) -> Option<()> {
+async fn close_job(client: &StorageTransferClient, saved: &FileJob) -> Result<(), &'static str> {
     let request = JobCloseRequest {
         version: Version::V2,
         job: saved.begin.job.clone(),
-        begin_sha256: saved.begin.input_sha256().ok()?,
+        begin_sha256: saved.begin.input_sha256().map_err(|_| PREPARE_FAILED)?,
         reason: CloseReason::UserRequested,
     };
-    client.close(&request).await.ok()?;
-    Some(())
+    client.close(&request).await.map_err(|error| {
+        if matches!(&error, BackupTransportError::Protocol(p) if p.is_payment_subscription()) {
+            crate::cloud::PAYMENT_REQUIRED_MESSAGE
+        } else {
+            PREPARE_FAILED
+        }
+    })?;
+    Ok(())
 }
 
 fn file_body(canonical: &[u8]) -> Option<database_replay::AcceptedBody> {

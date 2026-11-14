@@ -14,13 +14,29 @@ use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 const DEVICE_FILE: &str = ".native_backup_device_id";
 const LOCK_FILE: &str = ".native_backup_enrollment.lock";
 pub(super) const PENDING_FILE: &str = ".native_backup_credentials.pending";
 const FILE_ERR: &str = "native enrollment file must be a private regular owner file";
+
+pub(super) fn resolve_existing_home_path(home: &Path) -> Result<PathBuf, String> {
+    let name = home
+        .file_name()
+        .ok_or("native enrollment needs an explicit home name")?;
+    if home.is_absolute() {
+        return Ok(home.to_path_buf());
+    }
+    let raw_parent = home
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let parent = std::fs::canonicalize(raw_parent)
+        .map_err(|_| "native enrollment needs an existing parent directory")?;
+    Ok(parent.join(name))
+}
 
 pub(super) struct PreparedHome {
     parent: File,
@@ -31,6 +47,8 @@ pub(super) struct PreparedHome {
 
 impl PreparedHome {
     pub(super) fn open(home: &Path) -> Result<Self, String> {
+        let resolved = resolve_existing_home_path(home)?;
+        let home = resolved.as_path();
         let parent = open_directory(home.parent().ok_or("native enrollment needs a home")?)?;
         require_owned_directory(&parent)?;
         let directory = open_directory(home)?;

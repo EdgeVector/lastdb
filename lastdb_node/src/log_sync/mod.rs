@@ -45,4 +45,5 @@ pub(crate) use snapshot::{
     completed as snapshot_completed, error as snapshot_error, request as request_snapshot,
 };
 pub use snapshot::{restore_base as restore_snapshot_base, RestoredBase};
+pub use status::request_wake;
 pub use turn::spawn;
