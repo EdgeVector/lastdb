@@ -1,11 +1,12 @@
 //! Capture the matching main and file roots at one durable write boundary.
 
-use crate::storage::disk_pack::{cas_delete, map, PackRuntime, CAS_DIR, NODE_MARKER, RUN_DIR};
+use crate::storage::disk_pack::{
+    admit, cas_delete, map, PackRuntime, CAS_DIR, NODE_MARKER, RUN_DIR,
+};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::metadata::Metadata;
 use laststore::disk_run::home::RunSnapshot;
-use std::fs::{File, OpenOptions};
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -57,10 +58,7 @@ impl PackRuntime {
             .path()
             .parent()
             .ok_or_else(|| StorageError::invalid("database snapshot root"))?;
-        let marker = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(parent.join(NODE_MARKER))?;
+        let marker = admit::open_nofollow_read(&parent.join(NODE_MARKER))?;
         Ok(DatabaseSnapshot {
             accepted_head: self.accepted_status().head,
             native_frontier: self.physical.current_root().frontier(),

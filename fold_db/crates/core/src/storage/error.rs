@@ -1,7 +1,6 @@
-//! Storage error types, native proof stages, and database path configuration.
+//! Storage error types and database path configuration.
 
 use crate::schema::types::SchemaError;
-use std::fmt;
 use std::io::ErrorKind;
 use thiserror::Error;
 
@@ -10,58 +9,10 @@ pub mod config {
     pub struct DatabaseConfig {
         pub path: std::path::PathBuf,
     }
+
     impl DatabaseConfig {
         pub fn local(path: std::path::PathBuf) -> Self {
             Self { path }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NativeProofStage {
-    NativeReader,
-    Validation,
-    Restore,
-    Profile,
-    PhysicalRoot,
-    Account,
-    FinalBinding,
-}
-
-impl fmt::Display for NativeProofStage {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.write_str(match self {
-            Self::NativeReader => "native_reader",
-            Self::Validation => "validation",
-            Self::Restore => "restore",
-            Self::Profile => "profile",
-            Self::PhysicalRoot => "physical_root",
-            Self::Account => "account",
-            Self::FinalBinding => "final_binding",
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NativeProofCause {
-    Static(&'static str),
-    Io {
-        kind: ErrorKind,
-        os_code: Option<i32>,
-    },
-    Authentication,
-    NativeFormat,
-    Configuration,
-}
-
-impl fmt::Display for NativeProofCause {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { kind, os_code } => write!(out, "io kind={kind:?} os_code={os_code:?}"),
-            Self::Static(code) => out.write_str(code),
-            Self::Authentication => out.write_str("authentication"),
-            Self::NativeFormat => out.write_str("native_format"),
-            Self::Configuration => out.write_str("configuration"),
         }
     }
 }
@@ -72,11 +23,6 @@ pub enum StorageError {
     SerializationError(String),
     #[error("Storage backend error: {0}")]
     BackendError(String),
-    #[error("native proof {stage}: {cause}")]
-    NativeProof {
-        stage: NativeProofStage,
-        cause: NativeProofCause,
-    },
     #[error("read resource limit exceeded: {detail}")]
     ReadResourceLimit { detail: String },
     #[error("write resource limit exceeded: {detail}")]
@@ -100,70 +46,63 @@ pub enum StorageError {
 }
 
 impl StorageError {
-    pub(in crate::storage) fn read_limit(d: impl Into<String>) -> Self {
-        Self::ReadResourceLimit { detail: d.into() }
-    }
-    pub(in crate::storage) fn write_limit(d: impl Into<String>) -> Self {
-        Self::WriteResourceLimit { detail: d.into() }
-    }
-    pub(in crate::storage) fn mutation_limit(d: impl Into<String>) -> Self {
-        Self::MutationLimit { detail: d.into() }
-    }
-    pub(in crate::storage) fn backend(d: impl Into<String>) -> Self {
-        Self::BackendError(d.into())
-    }
-    pub(in crate::storage) fn invalid(d: impl Into<String>) -> Self {
-        Self::InvalidOperation(d.into())
-    }
-    pub(in crate::storage) fn is_storage_full_io(e: &std::io::Error) -> bool {
-        e.kind() == ErrorKind::StorageFull || e.raw_os_error() == Some(28)
-    }
-    pub fn native_proof_context(
-        &self,
-        stage: NativeProofStage,
-    ) -> (NativeProofStage, NativeProofCause) {
-        use NativeProofCause::{Io, Static};
-        use NativeProofStage::{NativeReader, Validation};
-        use StorageError::*;
-        if let NativeProof { stage: p, cause } = self {
-            return (
-                if matches!(p, Validation | NativeReader) {
-                    stage
-                } else {
-                    *p
-                },
-                *cause,
-            );
+    pub(in crate::storage) fn read_limit(detail: impl Into<String>) -> Self {
+        Self::ReadResourceLimit {
+            detail: detail.into(),
         }
-        let cause = match self {
-            IoError(io) => Io {
-                kind: io.kind(),
-                os_code: io.raw_os_error(),
-            },
-            ReadResourceLimit { .. } => Static("read_resource_limit"),
-            WriteResourceLimit { .. } | MutationLimit { .. } => Static("write_resource_limit"),
-            StorageFull { .. } => Static("storage_full"),
-            BackendError(_) => Static("backend"),
-            InvalidOperation(_) => Static("invalid_operation"),
-            EncryptionError(_) => Static("encryption"),
-            _ => Static("other"),
-        };
-        (stage, cause)
     }
-    pub fn at_native_proof(self, stage: NativeProofStage) -> Self {
-        let (stage, cause) = self.native_proof_context(stage);
-        Self::NativeProof { stage, cause }
+
+    pub(in crate::storage) fn write_limit(detail: impl Into<String>) -> Self {
+        Self::WriteResourceLimit {
+            detail: detail.into(),
+        }
+    }
+
+    pub(in crate::storage) fn mutation_limit(detail: impl Into<String>) -> Self {
+        Self::MutationLimit {
+            detail: detail.into(),
+        }
+    }
+
+    pub(in crate::storage) fn backend(detail: impl Into<String>) -> Self {
+        Self::BackendError(detail.into())
+    }
+
+    pub(in crate::storage) fn invalid(detail: impl Into<String>) -> Self {
+        Self::InvalidOperation(detail.into())
+    }
+
+    pub(in crate::storage) fn is_storage_full_io(error: &std::io::Error) -> bool {
+        #[cfg(unix)]
+        if error.raw_os_error() == Some(libc::ENOSPC) {
+            return true;
+        }
+        error.kind() == ErrorKind::StorageFull
+    }
+
+    pub(in crate::storage) fn from_laststore(error: laststore::Error) -> Self {
+        use laststore::Error as E;
+        let detail = error.to_string();
+        match error {
+            E::Io(io) if Self::is_storage_full_io(&io) => Self::StorageFull { detail },
+            E::Io(io) => Self::IoError(io),
+            E::ReadBudgetExceeded => Self::read_limit(detail),
+            E::WriteCapacity(detail) => Self::write_limit(detail),
+            E::AeadAuthFail => Self::EncryptionError(detail),
+            E::Corrupt(_) | E::Config(_) | E::HomeBusy(_) => Self::backend(detail),
+        }
     }
 }
 
 impl From<tokio::task::JoinError> for StorageError {
-    fn from(e: tokio::task::JoinError) -> Self {
-        Self::backend(e.to_string())
+    fn from(error: tokio::task::JoinError) -> Self {
+        Self::backend(error.to_string())
     }
 }
+
 impl<T> From<std::sync::PoisonError<T>> for StorageError {
-    fn from(e: std::sync::PoisonError<T>) -> Self {
-        Self::backend(format!("Lock poisoned: {e}"))
+    fn from(error: std::sync::PoisonError<T>) -> Self {
+        Self::backend(format!("Lock poisoned: {error}"))
     }
 }
 

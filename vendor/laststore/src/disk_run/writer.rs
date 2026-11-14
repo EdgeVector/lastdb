@@ -25,24 +25,29 @@ const PUBLICATION_BYTES: u64 = 4096;
 const OUTPUT_CHUNK_BYTES: u64 = 1 << 20;
 
 #[derive(Clone)]
-pub(crate) struct MergeSpace(Arc<Mutex<Pending>>);
+pub(crate) struct MergeSpace(Arc<Mutex<PendingMergeSpace>>);
 
-struct Pending(SpacePolicy, SpaceReservation, Vec<PathBuf>, bool);
+struct PendingMergeSpace {
+    policy: SpacePolicy,
+    reservation: SpaceReservation,
+    outputs: Vec<PathBuf>,
+    keep_outputs: bool,
+}
 
 impl MergeSpace {
     pub(crate) fn new(root: &Path, policy: &SpacePolicy) -> Result<Self> {
-        let mut pol = policy.clone();
-        pol.replacement_reserve_bytes = 0;
-        let p = Pending(
-            pol.clone(),
-            reserve_space(root, &pol, PUBLICATION_BYTES)?,
-            Vec::new(),
-            false,
-        );
-        Ok(Self(Arc::new(Mutex::new(p))))
+        let mut merge_policy = policy.clone();
+        merge_policy.replacement_reserve_bytes = 0;
+        let reservation = reserve_space(root, &merge_policy, PUBLICATION_BYTES)?;
+        Ok(Self(Arc::new(Mutex::new(PendingMergeSpace {
+            policy: merge_policy,
+            reservation,
+            outputs: Vec::new(),
+            keep_outputs: false,
+        }))))
     }
 
-    fn lock(&self) -> MutexGuard<'_, Pending> {
+    fn lock(&self) -> MutexGuard<'_, PendingMergeSpace> {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -53,113 +58,133 @@ impl MergeSpace {
         } else {
             bytes
         };
-        let mut p = self.lock();
-        if req <= p.1 .2 {
+        let mut pending = self.lock();
+        if req <= pending.reservation.reserved_bytes {
             return Ok(());
         }
         let extra = if chunked {
-            let chunk =
-                p.1 .2
-                    .checked_add(OUTPUT_CHUNK_BYTES)
-                    .ok_or_else(ovf)?
-                    .max(req);
+            let chunk = pending
+                .reservation
+                .reserved_bytes
+                .checked_add(OUTPUT_CHUNK_BYTES)
+                .ok_or_else(ovf)?
+                .max(req);
             let nospc = rustix::io::Errno::NOSPC.raw_os_error();
-            match p.1.reserve_extension(&p.0, chunk) {
+            let policy = pending.policy.clone();
+            match pending.reservation.reserve_extension(&policy, chunk) {
                 Err(Error::Io(io)) if io.raw_os_error() == Some(nospc) => {
-                    p.1.reserve_extension(&p.0, req)?
+                    pending.reservation.reserve_extension(&policy, req)?
                 }
                 res => res?,
             }
         } else {
-            p.1.reserve_extension(&p.0, req)?
+            let policy = pending.policy.clone();
+            pending.reservation.reserve_extension(&policy, req)?
         };
-        p.1.absorb(extra);
+        pending.reservation.absorb(extra);
         Ok(())
     }
 
     pub(crate) fn materialize(&self, bytes: u64) -> Result<()> {
-        self.lock().1.materialize(bytes)
+        self.lock().reservation.materialize(bytes)
     }
+
     pub(crate) fn output(&self, path: &Path) {
-        self.lock().2.push(path.to_path_buf());
+        self.lock().outputs.push(path.to_path_buf());
     }
+
     pub(crate) fn keep_outputs(&self) {
-        self.lock().3 = true;
+        self.lock().keep_outputs = true;
     }
 }
 
-impl Drop for Pending {
+impl Drop for PendingMergeSpace {
     fn drop(&mut self) {
-        if !self.3 {
-            self.2.iter().for_each(|p| drop(fs::remove_file(p)));
+        if !self.keep_outputs {
+            for path in &self.outputs {
+                let _ = fs::remove_file(path);
+            }
         }
     }
 }
 
-pub(crate) struct PreparedRun(pub(crate) RunWriter, PathBuf);
-
-type Paths = (PathBuf, PathBuf);
-type IndexBuf = (Vec<BlockRef>, Vec<u64>, usize);
-
-pub(crate) struct RunWriter(
-    Paths,
-    File,
-    [u8; 32],
-    Option<MergeSpace>,
-    pub(crate) RunMeta,
-    (u64, u64, usize),
-    (Vec<u8>, Vec<u8>),
-    IndexBuf,
-    Vec<BlockRef>,
-    (bool, bool),
-);
+pub(crate) struct PreparedRun {
+    pub(crate) writer: RunWriter,
+    destination: PathBuf,
+}
 
 impl PreparedRun {
     pub(crate) fn finish(mut self) -> Result<RunMeta> {
-        sync_dirty_file(&self.0 .1)?;
-        fs::rename(&self.0 .0 .1, &self.1)?;
-        if let Some(sp) = &self.0 .3 {
-            sp.output(&self.1);
+        sync_dirty_file(&self.writer.file)?;
+        fs::rename(&self.writer.tmp_path, &self.destination)?;
+        if let Some(space) = &self.writer.space {
+            space.output(&self.destination);
         }
-        sync_directory(&self.0 .0 .0)?;
-        self.0 .9 .1 = true;
-        Ok(std::mem::take(&mut self.0 .4))
+        sync_directory(&self.writer.dir)?;
+        self.writer.committed = true;
+        Ok(std::mem::take(&mut self.writer.meta))
     }
+}
+
+pub(crate) struct RunWriter {
+    dir: PathBuf,
+    tmp_path: PathBuf,
+    file: File,
+    key: [u8; 32],
+    space: Option<MergeSpace>,
+    pub(crate) meta: RunMeta,
+    bytes_written: u64,
+    data_blocks: u64,
+    max_payload_bytes: usize,
+    block_buf: Vec<u8>,
+    block_first_key: Vec<u8>,
+    index_refs: Vec<BlockRef>,
+    index_hashes: Vec<u64>,
+    index_est_bytes: usize,
+    top_refs: Vec<BlockRef>,
+    write_failed: bool,
+    committed: bool,
 }
 
 impl RunWriter {
     pub(crate) fn open(dir: &Path, key: &[u8; 32], space: Option<&MergeSpace>) -> Result<Self> {
         let id = Uuid::new_v4();
-        let tmp = dir.join(format!(".{id}.tmp"));
+        let tmp_path = dir.join(format!(".{id}.tmp"));
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(&tmp)?;
-        let (meta, blk) = (
-            RunMeta(id, [0; 5], Vec::new(), Vec::new()),
-            (Vec::with_capacity(BLOCK_BYTES + 1024), Vec::new()),
-        );
-        Ok(Self(
-            (dir.to_path_buf(), tmp),
+            .open(&tmp_path)?;
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            tmp_path,
             file,
-            *key,
-            space.cloned(),
-            meta,
-            (0, 0, 0),
-            blk,
-            Default::default(),
-            Vec::new(),
-            (false, false),
-        ))
+            key: *key,
+            space: space.cloned(),
+            meta: RunMeta {
+                id,
+                ..RunMeta::default()
+            },
+            bytes_written: 0,
+            data_blocks: 0,
+            max_payload_bytes: 0,
+            block_buf: Vec::with_capacity(BLOCK_BYTES + 1024),
+            block_first_key: Vec::new(),
+            index_refs: Vec::new(),
+            index_hashes: Vec::new(),
+            index_est_bytes: 0,
+            top_refs: Vec::new(),
+            write_failed: false,
+            committed: false,
+        })
     }
 
     pub(crate) fn bytes_written(&self) -> u64 {
-        self.5 .0 + self.6 .0.len() as u64
+        self.bytes_written + self.block_buf.len() as u64
     }
 
     fn require_healthy(&self) -> Result<()> {
-        (!self.9 .0)
+        (!self.write_failed)
             .then_some(())
             .ok_or_else(|| Error::WriteCapacity("disk run: earlier block write failed".into()))
     }
@@ -174,78 +199,88 @@ impl RunWriter {
                 "disk run: value larger than the run limit".into(),
             ));
         }
-        if self.4 .1[0] > 0 && self.4 .3.as_slice() >= key {
+        if self.meta.records > 0 && self.meta.last_key.as_slice() >= key {
             return Err(corrupt("keys pushed out of order"));
         }
-        if !self.6 .0.is_empty()
-            && self.6 .0.len() + record_len(&self.4 .3, key, value) > BLOCK_BYTES
+        if !self.block_buf.is_empty()
+            && self.block_buf.len() + record_len(&self.meta.last_key, key, value) > BLOCK_BYTES
         {
             self.flush_block()?;
         }
-        let prev = if self.6 .0.is_empty() {
-            self.6 .1 = key.to_vec();
+        let prev = if self.block_buf.is_empty() {
+            self.block_first_key = key.to_vec();
             &[][..]
         } else {
-            self.4 .3.as_slice()
+            self.meta.last_key.as_slice()
         };
-        put_record(&mut self.6 .0, prev, key, value);
-        self.7 .1.push(bloom::key_hash(key));
-        self.4.note_record(key, value.map(|v| v.len() as u64))
+        put_record(&mut self.block_buf, prev, key, value);
+        self.index_hashes.push(bloom::key_hash(key));
+        self.meta.note_record(key, value.map(|v| v.len() as u64))
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         let len = bytes.len() as u64;
-        if let Some(sp) = &self.3 {
-            sp.admit(len, true)?;
+        if let Some(space) = &self.space {
+            space.admit(len, true)?;
         }
-        self.1.write_all(bytes)?;
-        if let Some(sp) = &self.3 {
-            sp.materialize(len)?;
+        self.file.write_all(bytes)?;
+        if let Some(space) = &self.space {
+            space.materialize(len)?;
         }
         Ok(())
     }
 
     fn write_frame(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
         let res = (|| {
-            let frame = encode_frame(&self.2, self.4 .0, counter, payload)?;
+            let frame = encode_frame(&self.key, self.meta.id, counter, payload)?;
             let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
             self.write_bytes(&frame)?;
-            let off = self.5 .0;
-            self.5 = (
-                off + frame.len() as u64,
-                self.5 .1,
-                self.5 .2.max(payload.len()),
-            );
-            Ok((off, len))
+            let offset = self.bytes_written;
+            self.bytes_written = offset + frame.len() as u64;
+            self.max_payload_bytes = self.max_payload_bytes.max(payload.len());
+            Ok((offset, len))
         })();
-        self.9 .0 |= res.is_err();
+        self.write_failed |= res.is_err();
         res
     }
 
     fn flush_block(&mut self) -> Result<()> {
-        let mut payload = std::mem::take(&mut self.6 .0);
-        let first = std::mem::take(&mut self.6 .1);
-        let (num, klen) = (self.5 .1, first.len());
-        let (off, len) = self.write_frame(num, &payload)?;
+        let mut payload = std::mem::take(&mut self.block_buf);
+        let first_key = std::mem::take(&mut self.block_first_key);
+        let (number, key_len) = (self.data_blocks, first_key.len());
+        let (offset, len) = self.write_frame(number, &payload)?;
         payload.clear();
-        self.6 .0 = payload;
-        self.7 .2 += klen + 16;
-        self.5 .1 = num + 1;
-        self.7 .0.push(BlockRef(first, num, off, len));
-        if self.7 .2 >= INDEX_BYTES || self.7 .0.len() >= MAX_INDEX_ENTRIES {
+        self.block_buf = payload;
+        self.index_est_bytes += key_len + 16;
+        self.data_blocks = number + 1;
+        self.index_refs.push(BlockRef {
+            first_key,
+            number,
+            offset,
+            len,
+        });
+        if self.index_est_bytes >= INDEX_BYTES || self.index_refs.len() >= MAX_INDEX_ENTRIES {
             self.flush_index()?;
         }
         Ok(())
     }
 
     fn flush_index(&mut self) -> Result<()> {
-        let mut payload = Vec::with_capacity(self.7 .2 + self.7 .1.len() * 2);
-        put_refs(&mut payload, &self.7 .0);
-        bloom::put_filter(&mut payload, &self.7 .1, BLOOM_BITS_PER_KEY);
-        let (num, first) = (self.8.len() as u64, self.7 .0[0].0.clone());
-        let (off, len) = self.write_frame(INDEX_COUNTER_BASE + num, &payload)?;
-        self.8.push(BlockRef(first, num, off, len));
-        self.7 = Default::default();
+        let mut payload = Vec::with_capacity(self.index_est_bytes + self.index_hashes.len() * 2);
+        put_refs(&mut payload, &self.index_refs);
+        bloom::put_filter(&mut payload, &self.index_hashes, BLOOM_BITS_PER_KEY);
+        let number = self.top_refs.len() as u64;
+        let first_key = self.index_refs[0].first_key.clone();
+        let (offset, len) = self.write_frame(INDEX_COUNTER_BASE + number, &payload)?;
+        self.top_refs.push(BlockRef {
+            first_key,
+            number,
+            offset,
+            len,
+        });
+        self.index_refs.clear();
+        self.index_hashes.clear();
+        self.index_est_bytes = 0;
         Ok(())
     }
 
@@ -255,43 +290,58 @@ impl RunWriter {
 
     pub(crate) fn prepare_finish(mut self) -> Result<PreparedRun> {
         self.require_healthy()?;
-        if !self.6 .0.is_empty() {
+        if !self.block_buf.is_empty() {
             self.flush_block()?;
         }
-        if !self.7 .0.is_empty() {
+        if !self.index_refs.is_empty() {
             self.flush_index()?;
         }
-        let max_p = u32::try_from(self.5 .2).map_err(|_| corrupt("over 4 GiB"))?;
-        let blocks = u32::try_from(self.5 .1).map_err(|_| corrupt("too many blocks"))?;
-        let top = Top(
-            (self.4 .1[0], self.5 .1, u64::from(max_p)),
-            std::mem::take(&mut self.8),
-            self.4 .3.clone(),
-        );
+        let max_payload_bytes =
+            u32::try_from(self.max_payload_bytes).map_err(|_| corrupt("over 4 GiB"))?;
+        let data_blocks =
+            u32::try_from(self.data_blocks).map_err(|_| corrupt("too many blocks"))?;
+        let top = Top {
+            records: self.meta.records,
+            data_blocks: self.data_blocks,
+            max_payload_bytes: u64::from(max_payload_bytes),
+            indexes: std::mem::take(&mut self.top_refs),
+            last_key: self.meta.last_key.clone(),
+        };
         let top_bytes = top.encode();
-        if top.1.len() > MAX_INDEX_ENTRIES || top_bytes.len() > MAX_TOP_BYTES {
+        if top.indexes.len() > MAX_INDEX_ENTRIES || top_bytes.len() > MAX_TOP_BYTES {
             return Err(Error::WriteCapacity(
                 "disk run: top block over read limit".into(),
             ));
         }
-        let (top_off, top_len) = self.write_frame(TOP_COUNTER, &top_bytes)?;
-        let (id, records) = (self.4 .0, self.4 .1[0]);
-        self.write_bytes(&Footer(id, top_off, top_len, records, max_p, blocks).encode())?;
+        let (top_offset, top_len) = self.write_frame(TOP_COUNTER, &top_bytes)?;
+        let (run_id, records) = (self.meta.id, self.meta.records);
+        let footer = Footer {
+            run_id,
+            top_offset,
+            top_len,
+            records,
+            max_payload_bytes,
+            data_blocks,
+        };
+        self.write_bytes(&footer.encode())?;
         if records == 0 {
             return Err(Error::Config(
                 "disk run home: an empty run has no place".into(),
             ));
         }
-        self.4 .1[4] = self.5 .0 + FOOTER_BYTES as u64;
-        let dest = self.0 .0.join(format!("{id}{RUN_SUFFIX}"));
-        Ok(PreparedRun(self, dest))
+        self.meta.file_bytes = self.bytes_written + FOOTER_BYTES as u64;
+        let destination = self.dir.join(format!("{run_id}{RUN_SUFFIX}"));
+        Ok(PreparedRun {
+            writer: self,
+            destination,
+        })
     }
 }
 
 impl Drop for RunWriter {
     fn drop(&mut self) {
-        if !self.9 .1 {
-            let _ = fs::remove_file(&self.0 .1);
+        if !self.committed {
+            let _ = fs::remove_file(&self.tmp_path);
         }
     }
 }

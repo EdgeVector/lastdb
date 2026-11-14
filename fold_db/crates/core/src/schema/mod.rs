@@ -11,7 +11,6 @@ pub use crate::limits::manifest_retention::{
     self, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
     ManifestRetentionStatus,
 };
-pub use crate::schema::types::catalog_types as schema_types;
 pub use crate::schema::types::catalog_types::{
     RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
 };

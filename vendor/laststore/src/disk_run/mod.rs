@@ -1,11 +1,14 @@
 //! Disk format v2 run files: one immutable, sorted run of records.
 
+pub(crate) mod codec;
 pub mod home;
+mod memo;
 mod merge;
 mod reader;
 mod writer;
 
-pub(crate) use merge::{count_merged_keys, merge_runs, Block, MergeIter, MetadataMemo, RunRange};
+pub(crate) use memo::MetadataMemo;
+pub(crate) use merge::{merge_runs, Block, MergeIter, RunRange};
 pub(crate) use reader::RunReader;
 pub(crate) use writer::{MergeSpace, PreparedRun, RunWriter};
 
@@ -32,45 +35,54 @@ pub(crate) enum Found {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct RunMeta(
-    pub(crate) Uuid,
-    pub(crate) [u64; 5],
-    pub(crate) Vec<u8>,
-    pub(crate) Vec<u8>,
-);
+pub(crate) struct RunMeta {
+    pub(crate) id: Uuid,
+    pub(crate) records: u64,
+    pub(crate) tombstones: u64,
+    pub(crate) logical_bytes: u64,
+    pub(crate) tombstone_key_bytes: u64,
+    pub(crate) file_bytes: u64,
+    pub(crate) first_key: Vec<u8>,
+    pub(crate) last_key: Vec<u8>,
+}
 
 impl RunMeta {
     pub(crate) fn note_record(&mut self, key: &[u8], body: Option<u64>) -> Result<()> {
         let add = |a: u64, b: u64| a.checked_add(b).ok_or(Error::ReadBudgetExceeded);
-        let klen = key.len() as u64;
-        self.1[0] = add(self.1[0], 1)?;
-        self.1[2] = add(self.1[2], add(klen, body.unwrap_or(0))?)?;
+        let key_len = key.len() as u64;
+        self.records = add(self.records, 1)?;
+        self.logical_bytes = add(self.logical_bytes, add(key_len, body.unwrap_or(0))?)?;
         if body.is_none() {
-            (self.1[1], self.1[3]) = (self.1[1] + 1, self.1[3] + klen);
+            self.tombstones += 1;
+            self.tombstone_key_bytes += key_len;
         }
-        if self.1[0] == 1 {
-            self.2 = key.to_vec();
+        if self.records == 1 {
+            self.first_key = key.to_vec();
         }
-        self.3.clear();
-        self.3.extend_from_slice(key);
+        self.last_key.clear();
+        self.last_key.extend_from_slice(key);
         Ok(())
     }
 
     pub(crate) fn covers(&self, key: &[u8]) -> bool {
-        self.2.as_slice() <= key && key <= self.3.as_slice()
+        self.first_key.as_slice() <= key && key <= self.last_key.as_slice()
     }
+
     pub(crate) fn overlaps(&self, lower: &[u8], upper: Option<&[u8]>) -> bool {
-        self.3.as_slice() >= lower && upper.is_none_or(|u| self.2.as_slice() < u)
+        self.last_key.as_slice() >= lower && upper.is_none_or(|u| self.first_key.as_slice() < u)
     }
 }
 
-pub(crate) struct IndexBlock(pub(crate) Vec<footer::BlockRef>, Vec<u8>);
+pub(crate) struct IndexBlock {
+    pub(crate) blocks: Vec<footer::BlockRef>,
+    filter: Vec<u8>,
+}
 
 impl IndexBlock {
     pub(crate) fn parse(payload: Vec<u8>, first_key: &[u8], avail: Option<u64>) -> Result<Self> {
         let mut at = 0;
         let (blocks, _) = footer::get_refs_bounded(&payload, &mut at, avail.unwrap_or(u64::MAX))?;
-        if blocks.first().map(|b| b.0.as_slice()) != Some(first_key) {
+        if blocks.first().map(|b| b.first_key.as_slice()) != Some(first_key) {
             return Err(codec::corrupt("index block first key mismatch"));
         }
         let filter = bloom::read_filter(&payload, &mut at)?;
@@ -81,21 +93,27 @@ impl IndexBlock {
         if avail.is_some_and(|lim| (payload.capacity() + fp) as u64 > lim) {
             return Err(Error::ReadBudgetExceeded);
         }
-        Ok(Self(blocks, filter.to_vec()))
+        Ok(Self {
+            blocks,
+            filter: filter.to_vec(),
+        })
     }
 
     pub(crate) fn block_pos(&self, key: &[u8]) -> Option<usize> {
-        self.0
-            .partition_point(|b| b.0.as_slice() <= key)
+        self.blocks
+            .partition_point(|b| b.first_key.as_slice() <= key)
             .checked_sub(1)
     }
+
     pub(crate) fn locate(&self, key: &[u8]) -> Option<&footer::BlockRef> {
-        bloom::may_hold(&self.1, bloom::key_hash(key))
-            .then(|| self.block_pos(key).map(|i| &self.0[i]))
+        bloom::may_hold(&self.filter, bloom::key_hash(key))
+            .then(|| self.block_pos(key).map(|i| &self.blocks[i]))
             .flatten()
     }
+
     pub(crate) fn footprint(&self) -> u64 {
-        (footer::refs_footprint(&self.0, self.0.capacity()) + self.1.capacity()) as u64
+        (footer::refs_footprint(&self.blocks, self.blocks.capacity()) + self.filter.capacity())
+            as u64
     }
 }
 
@@ -111,37 +129,38 @@ pub(crate) mod footer {
     pub(crate) type Span = (u64, u32, u64);
 
     pub(crate) fn try_vec<T>(count: usize) -> Result<Vec<T>> {
-        let mut v = Vec::new();
-        v.try_reserve_exact(count)
+        let mut out = Vec::new();
+        out.try_reserve_exact(count)
             .map_err(|_| Error::ReadBudgetExceeded)?;
-        Ok(v)
+        Ok(out)
     }
 
     pub(crate) fn refs_footprint(refs: &[BlockRef], cap: usize) -> usize {
-        cap * std::mem::size_of::<BlockRef>() + refs.iter().map(|r| r.0.capacity()).sum::<usize>()
+        cap * std::mem::size_of::<BlockRef>()
+            + refs.iter().map(|r| r.first_key.capacity()).sum::<usize>()
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) struct Footer(
-        pub(crate) Uuid,
-        pub(crate) u64,
-        pub(crate) u32,
-        pub(crate) u64,
-        pub(crate) u32,
-        pub(crate) u32,
-    );
+    pub(crate) struct Footer {
+        pub(crate) run_id: Uuid,
+        pub(crate) top_offset: u64,
+        pub(crate) top_len: u32,
+        pub(crate) records: u64,
+        pub(crate) max_payload_bytes: u32,
+        pub(crate) data_blocks: u32,
+    }
 
     impl Footer {
         pub(crate) fn encode(&self) -> [u8; FOOTER_BYTES] {
             let mut out = [0u8; FOOTER_BYTES];
             out[0..8].copy_from_slice(&MAGIC);
             out[8..12].copy_from_slice(&VERSION.to_le_bytes());
-            out[12..28].copy_from_slice(self.0.as_bytes());
-            out[28..36].copy_from_slice(&self.1.to_le_bytes());
-            out[36..40].copy_from_slice(&self.2.to_le_bytes());
-            out[40..48].copy_from_slice(&self.3.to_le_bytes());
-            out[48..52].copy_from_slice(&self.4.to_le_bytes());
-            out[52..56].copy_from_slice(&self.5.to_le_bytes());
+            out[12..28].copy_from_slice(self.run_id.as_bytes());
+            out[28..36].copy_from_slice(&self.top_offset.to_le_bytes());
+            out[36..40].copy_from_slice(&self.top_len.to_le_bytes());
+            out[40..48].copy_from_slice(&self.records.to_le_bytes());
+            out[48..52].copy_from_slice(&self.max_payload_bytes.to_le_bytes());
+            out[52..56].copy_from_slice(&self.data_blocks.to_le_bytes());
             let crc = crc32fast::hash(&out[..60]).to_le_bytes();
             out[60..64].copy_from_slice(&crc);
             out
@@ -153,44 +172,43 @@ pub(crate) mod footer {
             if b[0..8] != MAGIC || u32_at(60) != crc32fast::hash(&b[..60]) {
                 return Err(corrupt("bad footer"));
             }
-            let id = Uuid::from_slice(&b[12..28]).unwrap();
-            let f = Self(
-                id,
-                u64_at(28),
-                u32_at(36),
-                u64_at(40),
-                u32_at(48),
-                u32_at(52),
-            );
+            let footer = Self {
+                run_id: Uuid::from_slice(&b[12..28]).unwrap(),
+                top_offset: u64_at(28),
+                top_len: u32_at(36),
+                records: u64_at(40),
+                max_payload_bytes: u32_at(48),
+                data_blocks: u32_at(52),
+            };
             (u32_at(8) == VERSION)
-                .then_some(f)
+                .then_some(footer)
                 .ok_or_else(|| corrupt("unknown run version"))
         }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) struct BlockRef(
-        pub(crate) Vec<u8>,
-        pub(crate) u64,
-        pub(crate) u64,
-        pub(crate) u32,
-    );
+    pub(crate) struct BlockRef {
+        pub(crate) first_key: Vec<u8>,
+        pub(crate) number: u64,
+        pub(crate) offset: u64,
+        pub(crate) len: u32,
+    }
 
     impl BlockRef {
         pub(crate) fn span(&self) -> Span {
-            (self.2, self.3, self.1)
+            (self.offset, self.len, self.number)
         }
     }
 
     pub(crate) fn put_refs(out: &mut Vec<u8>, refs: &[BlockRef]) {
         put_varint(out, refs.len() as u64);
         let mut prev: &[u8] = &[];
-        for b in refs {
-            put_key(out, prev, &b.0);
-            [b.1, b.2, u64::from(b.3)]
-                .into_iter()
-                .for_each(|v| put_varint(out, v));
-            prev = &b.0;
+        for block in refs {
+            put_key(out, prev, &block.first_key);
+            for val in [block.number, block.offset, u64::from(block.len)] {
+                put_varint(out, val);
+            }
+            prev = &block.first_key;
         }
     }
 
@@ -212,7 +230,7 @@ pub(crate) mod footer {
             .ok_or(Error::ReadBudgetExceeded)?;
         let mut used = admit(admit(0, b.len(), max)?, sz, max)?;
         for _ in 0..count {
-            let prev = refs.last().map_or(&[][..], |e| e.0.as_slice());
+            let prev = refs.last().map_or(&[][..], |e| e.first_key.as_slice());
             let shared = get_len(b, at, prev.len())?;
             let suffix = get_bytes(b, at, MAX_RUN_KEY_BYTES - shared)?;
             let (number, offset) = (get_varint(b, at)?, get_varint(b, at)?);
@@ -221,40 +239,45 @@ pub(crate) mod footer {
             used = admit(used, first_key.capacity(), max)?;
             first_key.extend_from_slice(&prev[..shared]);
             first_key.extend_from_slice(suffix);
-            if refs.last().is_some_and(|p| p.0 >= first_key) {
+            if refs.last().is_some_and(|p| p.first_key >= first_key) {
                 return Err(corrupt("block entries are not ascending"));
             }
-            refs.push(BlockRef(first_key, number, offset, len));
+            refs.push(BlockRef {
+                first_key,
+                number,
+                offset,
+                len,
+            });
         }
         Ok((refs, used))
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
-    pub(crate) struct Top(
-        pub(crate) (u64, u64, u64),
-        pub(crate) Vec<BlockRef>,
-        pub(crate) Vec<u8>,
-    );
+    pub(crate) struct Top {
+        pub(crate) records: u64,
+        pub(crate) data_blocks: u64,
+        pub(crate) max_payload_bytes: u64,
+        pub(crate) indexes: Vec<BlockRef>,
+        pub(crate) last_key: Vec<u8>,
+    }
 
     impl Top {
         pub(crate) fn encode(&self) -> Vec<u8> {
             let mut out = Vec::new();
-            [self.0 .0, self.0 .1, self.0 .2]
-                .into_iter()
-                .for_each(|v| put_varint(&mut out, v));
-            put_refs(&mut out, &self.1);
-            put_varint(&mut out, self.2.len() as u64);
-            out.extend_from_slice(&self.2);
+            for val in [self.records, self.data_blocks, self.max_payload_bytes] {
+                put_varint(&mut out, val);
+            }
+            put_refs(&mut out, &self.indexes);
+            put_varint(&mut out, self.last_key.len() as u64);
+            out.extend_from_slice(&self.last_key);
             out
         }
 
         pub(crate) fn decode_bounded(bytes: &[u8], max: u64) -> Result<Self> {
             let mut at = 0;
-            let counts = (
-                get_varint(bytes, &mut at)?,
-                get_varint(bytes, &mut at)?,
-                get_varint(bytes, &mut at)?,
-            );
+            let records = get_varint(bytes, &mut at)?;
+            let data_blocks = get_varint(bytes, &mut at)?;
+            let max_payload_bytes = get_varint(bytes, &mut at)?;
             let (indexes, used) = get_refs_bounded(bytes, &mut at, max)?;
             let last = get_bytes(bytes, &mut at, MAX_RUN_KEY_BYTES)?;
             if at != bytes.len() {
@@ -263,109 +286,13 @@ pub(crate) mod footer {
             let mut last_key = try_vec(last.len())?;
             admit(used, last_key.capacity(), max)?;
             last_key.extend_from_slice(last);
-            Ok(Self(counts, indexes, last_key))
+            Ok(Self {
+                records,
+                data_blocks,
+                max_payload_bytes,
+                indexes,
+                last_key,
+            })
         }
-    }
-}
-
-pub(crate) mod codec {
-    use crate::disk_run::{Found, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
-    use crate::{Error, Result};
-
-    pub(crate) fn put_varint(out: &mut Vec<u8>, mut value: u64) {
-        while value >= 0x80 {
-            out.push((value as u8) | 0x80);
-            value >>= 7;
-        }
-        out.push(value as u8);
-    }
-
-    fn varint_len(value: u64) -> usize {
-        ((64 - value.leading_zeros().min(63)) as usize).div_ceil(7)
-    }
-
-    pub(crate) fn get_varint(bytes: &[u8], at: &mut usize) -> Result<u64> {
-        let mut value = 0u64;
-        for shift in (0..64).step_by(7) {
-            let byte = *bytes.get(*at).ok_or_else(|| corrupt("varint eof"))?;
-            *at += 1;
-            value |= u64::from(byte & 0x7f) << shift;
-            if byte & 0x80 == 0 {
-                return Ok(value);
-            }
-        }
-        Err(corrupt("varint overflow"))
-    }
-
-    pub(crate) fn get_len(bytes: &[u8], at: &mut usize, limit: usize) -> Result<usize> {
-        let n = usize::try_from(get_varint(bytes, at)?).ok();
-        n.filter(|&n| n <= limit)
-            .ok_or_else(|| corrupt("length limit"))
-    }
-
-    pub(crate) fn get_slice<'a>(bytes: &'a [u8], at: &mut usize, len: usize) -> Result<&'a [u8]> {
-        let end = at
-            .checked_add(len)
-            .filter(|&e| e <= bytes.len())
-            .ok_or_else(|| corrupt("eof"))?;
-        let slice = &bytes[*at..end];
-        *at = end;
-        Ok(slice)
-    }
-
-    pub(crate) fn get_bytes<'a>(bytes: &'a [u8], at: &mut usize, limit: usize) -> Result<&'a [u8]> {
-        let len = get_len(bytes, at, limit)?;
-        get_slice(bytes, at, len)
-    }
-
-    fn shared_prefix(a: &[u8], b: &[u8]) -> usize {
-        a.iter().zip(b).take_while(|(x, y)| x == y).count()
-    }
-
-    pub(super) fn put_key(out: &mut Vec<u8>, prev: &[u8], key: &[u8]) {
-        let shared = shared_prefix(prev, key);
-        put_varint(out, shared as u64);
-        put_varint(out, (key.len() - shared) as u64);
-        out.extend_from_slice(&key[shared..]);
-    }
-
-    pub(crate) fn record_len(prev: &[u8], key: &[u8], value: Option<&[u8]>) -> usize {
-        let (shared, vlen) = (shared_prefix(prev, key), value.map_or(0, <[u8]>::len));
-        let (suffix, tag) = (key.len() - shared, value.map_or(0, |v| v.len() as u64 + 1));
-        varint_len(shared as u64) + varint_len(suffix as u64) + suffix + varint_len(tag) + vlen
-    }
-
-    pub(crate) fn put_record(out: &mut Vec<u8>, prev: &[u8], key: &[u8], value: Option<&[u8]>) {
-        put_key(out, prev, key);
-        put_varint(out, value.map_or(0, |v| v.len() as u64 + 1));
-        if let Some(v) = value {
-            out.extend_from_slice(v);
-        }
-    }
-
-    pub(crate) type BlockRecords = Vec<(Vec<u8>, Found)>;
-
-    pub(crate) fn decode_block(payload: &[u8]) -> Result<BlockRecords> {
-        let (mut records, mut at, mut key): (BlockRecords, usize, Vec<u8>) =
-            (Vec::new(), 0, Vec::new());
-        while at < payload.len() {
-            let shared = get_len(payload, &mut at, key.len())?;
-            let suffix = get_bytes(payload, &mut at, MAX_RUN_KEY_BYTES - shared)?;
-            key.truncate(shared);
-            key.extend_from_slice(suffix);
-            if key.is_empty() || records.last().is_some_and(|(b, _)| *b >= key) {
-                return Err(corrupt("block keys not ascending"));
-            }
-            let found = match get_len(payload, &mut at, MAX_RUN_VALUE_BYTES + 1)?.checked_sub(1) {
-                Some(len) => Found::Value(get_slice(payload, &mut at, len)?.to_vec()),
-                None => Found::Tombstone,
-            };
-            records.push((key.clone(), found));
-        }
-        Ok(records)
-    }
-
-    pub(crate) fn corrupt(what: &str) -> Error {
-        Error::Corrupt(format!("disk run: {what}"))
     }
 }
