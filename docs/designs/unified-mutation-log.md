@@ -139,6 +139,9 @@ snapshot and physical floor for the owner's personal database.
 `lastdb backup reclaim --database personal --allow-required-client-upgrade`
 can remove a bounded prefix after the service enables reclamation. Use
 `--batches` to limit one invocation to 1–128 requests. The default is 16.
+Use `--expect-snapshot DIGEST` on repeated invocations to keep the same
+snapshot and covered position. If the cloud selects another snapshot, the
+command stops before it sends a reclaim request.
 Each request removes up to eight entries and checks the same snapshot digest
 and the expected physical floor. The service verifies the pinned files and
 requires immutable records of acceptance for every deleted entry. Their
@@ -146,6 +149,15 @@ fingerprints cover the writer and its sequence, author time, namespace and
 encrypted payload, so the cloud can verify an exact retry after it deletes
 the original entry. The cloud does not add a mutable position for any device.
 Physical reclaim stays off in production until a separate rollout enables it.
+
+`lastdb backup index-log-history --database personal --status` reads the first
+delivery covered by the acceptance index. When the service enables indexing
+for that personal database, `--batches N` indexes older entries in at most
+256 signed requests per invocation, with up to 32 entries in each request.
+The command reports progress every 16 requests and prints the last confirmed
+position on failure. Read status before retrying after an interruption.
+The database is fully indexed at delivery 1. Indexing can run before a file
+snapshot exists and leaves the cloud log entries and device positions intact.
 
 A compatible personal device includes its saved download position when asking
 for edits. Below the native cutoff it receives an exact signed snapshot
