@@ -17,7 +17,7 @@ pub mod offline_home;
 pub mod profile;
 pub mod registered_share;
 pub mod saved_query;
-pub mod saved_query_run;
+pub(crate) mod saved_query_run;
 pub(crate) mod seal;
 pub(crate) mod service_home;
 pub mod share_cache;

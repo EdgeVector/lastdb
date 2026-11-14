@@ -33,7 +33,6 @@ mod wire;
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub use retention::{reclaim as reclaim_snapshot_log, ReclaimReport};
-pub use snapshot::{
-    request as request_snapshot, restore_base as restore_snapshot_base, RestoredBase,
-};
+pub(crate) use snapshot::{completed as snapshot_completed, request as request_snapshot};
+pub use snapshot::{restore_base as restore_snapshot_base, RestoredBase};
 pub use turn::spawn;

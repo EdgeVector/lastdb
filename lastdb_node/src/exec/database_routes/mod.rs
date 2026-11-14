@@ -2,6 +2,8 @@
 
 mod catalog;
 
+pub(in crate::exec) use catalog::list_rows as list_database_rows;
+
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
@@ -192,7 +194,7 @@ fn resolve_share(
     }
 }
 
-pub(super) fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
+fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
     let (status, message) = error.status();
     error_response(status, message, ctx)
 }

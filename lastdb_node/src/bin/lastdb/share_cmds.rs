@@ -90,12 +90,23 @@ fn run_offline(
     db: Option<&str>,
     action: ShareCommand,
 ) -> Result<(), String> {
-    let identity_home = data_dir
-        .filter(|p| p.is_absolute())
-        .ok_or("share requires an explicit absolute --data-dir identity home")?;
-    let identity_home = identity_home
-        .canonicalize()
-        .map_err(|_| "share identity home must exist")?;
+    let identity_home = match data_dir {
+        Some(dir) if dir.is_absolute() => dir
+            .canonicalize()
+            .map_err(|_| "share identity home must exist".to_owned())?,
+        None if matches!(
+            action,
+            ShareCommand::Invite { .. } | ShareCommand::Contributors(_)
+        ) =>
+        {
+            let (home, sock) = crate::resolve_client_home_and_socket(None)?;
+            if crate::probe_health(&sock).is_err() {
+                return Err("share requires an explicit absolute --data-dir identity home".into());
+            }
+            home.canonicalize().unwrap_or(home)
+        }
+        _ => return Err("share requires an explicit absolute --data-dir identity home".into()),
+    };
     match action {
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::VerifyContact {

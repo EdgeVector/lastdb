@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use fold_db::access::AccessContext;
-
 use super::uds_http::{UdsRequest, UdsResponse};
 
 pub const API_VERSION: u32 = 34;
@@ -134,6 +132,7 @@ pub enum DataRoute {
     ListRecordKeys,
     GetSchema,
     DeclareSchema,
+    AppsDeclareSchema,
     SeedSystemSchema,
     DropSchema,
     Status,
@@ -149,12 +148,16 @@ pub enum DataRoute {
     DbPutBlob,
     DbFetchBlob,
     DbDeleteBlob,
+    BackupSnapshot,
+    SavedQuerySave,
+    SavedQueryReconcile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlRoute {
     Health,
     Version,
+    Database,
     Data(DataRoute),
     MethodNotAllowed { allow: &'static str },
     NotFound,
@@ -162,6 +165,9 @@ pub enum ControlRoute {
 
 pub fn route(req: &UdsRequest) -> ControlRoute {
     use DataRoute::*;
+    if req.target == DATABASES_PATH || req.target.starts_with(DATABASE_SCOPE_PREFIX) {
+        return ControlRoute::Database;
+    }
     let path = req.target.split(['?', '#']).next().unwrap_or(&req.target);
     let m = req.method.as_str();
     let check = |allow: &'static str, r: ControlRoute| {
@@ -174,11 +180,11 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
     match path {
         "/health" => return check("GET", ControlRoute::Health),
         "/api/version" => return check("GET", ControlRoute::Version),
-        "/api/db/native-status" | "/api/db/cleanup" => {
-            let d = if path == "/api/db/cleanup" {
-                DbCleanup
-            } else {
-                DbNativeStatus
+        "/api/db/native-status" | "/api/db/cleanup" | "/api/backup/snapshot" => {
+            let d = match path {
+                "/api/db/cleanup" => DbCleanup,
+                "/api/backup/snapshot" => BackupSnapshot,
+                _ => DbNativeStatus,
             };
             return if matches!(m, "GET" | "POST") {
                 ControlRoute::Data(d)
@@ -192,6 +198,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/schemas" => Some(("GET", ListSchemas)),
         "/api/list" => Some(("GET", ListRecordKeys)),
         "/api/schemas/declare" => Some(("POST", DeclareSchema)),
+        "/api/apps/declare-schema" => Some(("POST", AppsDeclareSchema)),
         "/api/schemas/seed-system" => Some(("POST", SeedSystemSchema)),
         "/api/schemas/drop" => Some(("POST", DropSchema)),
         "/api/status" => Some(("GET", Status)),
@@ -203,6 +210,8 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/db/put-blob" => Some(("POST", DbPutBlob)),
         "/api/db/fetch-blob" => Some(("POST", DbFetchBlob)),
         "/api/db/delete-blob" => Some(("POST", DbDeleteBlob)),
+        "/api/saved-queries/save" => Some(("POST", SavedQuerySave)),
+        "/api/saved-queries/reconcile" => Some(("POST", SavedQueryReconcile)),
         "/api/query" => Some(("POST", Query)),
         "/api/mutation" => Some(("POST", Mutation)),
         "/api/mutations/batch" => Some(("POST", MutationBatch)),
@@ -237,33 +246,26 @@ fn json_200(body: String) -> UdsResponse {
     UdsResponse::new(200, "OK", body.into_bytes()).with_header("Content-Type", "application/json")
 }
 
-pub fn health_response() -> UdsResponse {
+pub fn health_response(requires_recovery: bool) -> UdsResponse {
+    if requires_recovery {
+        let body = br#"{"status":"error","error":"storage_requires_recovery"}"#.to_vec();
+        return UdsResponse::new(503, "Service Unavailable", body)
+            .with_header("Content-Type", "application/json");
+    }
     json_200(format!("{{\"status\":\"ok\",\"api_version\":{API_VERSION},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{}\"}}", instance_id()))
+}
+
+pub fn version_response() -> UdsResponse {
+    let build = serde_json::Value::String(crate::version::build_version().into());
+    let (min_api, out, min_out) = (
+        crate::version::MIN_SUPPORTED_API_VERSION,
+        crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
+        crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    );
+    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
 }
 
 pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
     UdsResponse::new(405, "Method Not Allowed", b"Method Not Allowed".to_vec())
         .with_header("Allow", allow.to_string())
-}
-
-pub fn dispatch<F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse>(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    exec: F,
-) -> UdsResponse {
-    match route(req) {
-        ControlRoute::Health => health_response(),
-        ControlRoute::Version => {
-            let build = serde_json::Value::String(crate::version::build_version().into());
-            let (min_api, out, min_out) = (
-                crate::version::MIN_SUPPORTED_API_VERSION,
-                crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
-                crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-            );
-            json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
-        }
-        ControlRoute::Data(data) => exec(data, req, ctx),
-        ControlRoute::NotFound => UdsResponse::new(404, "Not Found", b"Not Found".to_vec()),
-        ControlRoute::MethodNotAllowed { allow } => method_not_allowed_response(allow),
-    }
 }

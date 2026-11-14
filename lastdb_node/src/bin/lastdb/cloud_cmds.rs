@@ -53,11 +53,24 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
 }
 
 fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
-    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
+    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
-    let (id, nonce) = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    let raw = post_json_admin(
+        &socket,
+        "/api/backup/snapshot",
+        &serde_json::json!({ "database": database }),
+    )?;
+    let reply = snapshot_wait::parse_reply(&raw, "backup snapshot")?;
+    let id = reply["database_id"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("backup snapshot response missing database_id")?;
+    let nonce = reply["nonce"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return snapshot_wait::until_head(&home, &id, &nonce);
+        return snapshot_wait::until_head(&socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())

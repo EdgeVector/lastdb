@@ -103,11 +103,10 @@ pub async fn execute_apps_declare_schema_route(
     render(res, ctx)
 }
 
-pub(in crate::exec) async fn declare_schema(
-    req: &UdsRequest,
-    ctx: &AccessContext,
+pub(in crate::exec) async fn declare_schema_slice(
+    body: &[u8],
     host: &Host,
-) -> UdsResponse {
+) -> Result<Value, HostError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Req {
@@ -116,16 +115,20 @@ pub(in crate::exec) async fn declare_schema(
         #[serde(default)]
         intent: SchemaSyncIntent,
     }
-    let res = async {
-        let b: Req = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid /api/schemas/declare body: {e}")))?;
-        let SchemaSyncIntent::CatalogSync = b.intent;
-        let d = normalize_proposal("namespace", &b.namespace, b.schema, None)
-            .map_err(|e| HostError::new(400, e))?;
-        dispatch_declare(host, &d).await
-    }
-    .await;
-    render(res, ctx)
+    let b: Req = serde_json::from_slice(body)
+        .map_err(|e| HostError::new(400, format!("invalid /api/schemas/declare body: {e}")))?;
+    let SchemaSyncIntent::CatalogSync = b.intent;
+    let d = normalize_proposal("namespace", &b.namespace, b.schema, None)
+        .map_err(|e| HostError::new(400, e))?;
+    dispatch_declare(host, &d).await
+}
+
+pub(in crate::exec) async fn declare_schema(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    render(declare_schema_slice(&req.body, host).await, ctx)
 }
 
 async fn dispatch_declare(host: &Host, d: &Proposal) -> Result<Value, HostError> {
