@@ -78,6 +78,7 @@ async fn open_receiver(host: &Host, id: &Id) -> Result<Arc<FoldDB>> {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox),
             capture_accepted: false,
+            capture_initial_snapshot: false,
         },
     )
     .await

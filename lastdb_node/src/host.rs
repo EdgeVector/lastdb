@@ -109,20 +109,17 @@ impl Host {
         let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|e| format!("E2E key derivation failed: {e}"))?;
         let inbox = fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
-        let capture_accepted = signed_restore
-            || fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
-                .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?
-            || crate::cloud::load_saved_credentials(home).map_or_else(
-                |e| {
-                    tracing::warn!(error = %e, "personal database stays local until cloud credentials load");
-                    false
-                },
-                |s| s.is_some(),
-            );
+        let has_spool = !signed_restore
+            && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
+                .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
+        let wants_initial = !signed_restore && crate::cloud::first_backup_intent(home);
+        let connected =
+            !signed_restore && (!has_spool || wants_initial) && has_cloud_credentials(home);
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox.clone()),
-            capture_accepted,
+            capture_accepted: signed_restore || has_spool || connected,
+            capture_initial_snapshot: wants_initial && connected,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
             &DatabaseConfig::local(data_dir),
@@ -153,6 +150,16 @@ impl Host {
 
     pub fn public_key(&self) -> String {
         self.keypair.public_key_base64()
+    }
+}
+
+fn has_cloud_credentials(home: &Path) -> bool {
+    match crate::cloud::load_saved_credentials(home) {
+        Ok(saved) => saved.is_some(),
+        Err(error) => {
+            tracing::warn!(%error, "personal database stays local until cloud credentials load");
+            false
+        }
     }
 }
 

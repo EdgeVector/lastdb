@@ -14,7 +14,21 @@ use std::time::Duration;
 use zeroize::Zeroizing;
 
 pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
+#[doc(hidden)]
+pub const FIRST_BACKUP_INTENT_FILE: &str = ".native-first-backup";
+#[doc(hidden)]
+pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
 pub const DEVELOPER_API_KEY_FILE: &str = "developer-api-key";
+
+pub(crate) fn first_backup_intent(home: &Path) -> bool {
+    read_private_named(
+        &home.join(FIRST_BACKUP_INTENT_FILE),
+        FIRST_BACKUP_INTENT.len() as u64,
+        "invalid first backup intent file",
+        "invalid first backup intent length",
+    )
+    .is_ok_and(|bytes| bytes.as_deref() == Some(FIRST_BACKUP_INTENT))
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -88,12 +88,15 @@ pub(super) async fn open_native(
     match finish_open(host, &database.id, &database.kind, log, device).await {
         Prep::Pause(pause) => pause,
         Prep::Ready(ready) => {
-            if super::snapshot::pending(&host.home, &database.id) {
-                if let Err(reason) = super::snapshot::requested(host, &ready.log, database).await {
-                    tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
-                    if reason == super::snapshot::AWAIT_INCOMING {
-                        return shorter(Pause::Snapshot, run::run_ready(host, *ready).await);
-                    }
+            let snapshot = if super::snapshot::pending(&host.home, &database.id) {
+                super::snapshot::requested(host, &ready.log, database).await
+            } else {
+                super::snapshot::ensure_initial(host, &ready.log, database).await
+            };
+            if let Err(reason) = snapshot {
+                tracing::warn!(target: "lastdbd::log_sync", %reason, "snapshot publication awaits retry");
+                if reason == super::snapshot::AWAIT_INCOMING {
+                    return shorter(Pause::Snapshot, run::run_ready(host, *ready).await);
                 }
             }
             run::run_ready(host, *ready).await

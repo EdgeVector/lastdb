@@ -39,7 +39,7 @@ fn read_stopped_node_profile(root: &Path) -> StorageResult<u16> {
         .ok_or_else(|| bad_admission("the node range format is unsupported"))
 }
 
-pub(super) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
+pub(in crate::storage) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     let version = read_stopped_node_profile(root)?;
     let budget = ReadBudget::new(8 << 20, 64);
     let mut main = RunRead::open_existing(&root.join(RUN_DIR), &run_node::home_key(key), budget)

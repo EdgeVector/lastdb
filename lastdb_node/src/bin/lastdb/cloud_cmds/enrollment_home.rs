@@ -1,7 +1,9 @@
 //! Descriptor-pinned home guard for self-serve cloud backup enrollment.
 use super::setup::{canonical_backup_endpoint, encode_connected_credentials, PHRASE_FILE};
 use cloud_backup_protocol::AccountId;
-use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
+use lastdb_node::cloud::{
+    SavedCredentials, CLOUD_CREDENTIALS_FILE, FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE,
+};
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use lastdb_node::offline_home::{
     entry_present, open_directory, open_private_at, read_private_file, require_owned_directory,
@@ -188,6 +190,21 @@ impl PreparedHome {
         file.write_all(bytes)
             .and_then(|()| file.sync_all())
             .map_err(|_| "cannot write protected native enrollment file")?;
+        self.sync()
+    }
+
+    pub(super) fn mark_first_backup(&self) -> Result<(), String> {
+        if !entry_present(&self.directory, FIRST_BACKUP_INTENT_FILE)? {
+            self.write_new(FIRST_BACKUP_INTENT_FILE, FIRST_BACKUP_INTENT)?;
+        }
+        let bytes = read_private_file(
+            &self.directory,
+            FIRST_BACKUP_INTENT_FILE,
+            FIRST_BACKUP_INTENT.len() as u64,
+        )?;
+        if bytes != FIRST_BACKUP_INTENT {
+            return Err("invalid first backup intent".into());
+        }
         self.sync()
     }
 

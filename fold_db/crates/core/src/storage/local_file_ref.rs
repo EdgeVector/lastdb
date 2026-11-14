@@ -89,7 +89,12 @@ fn load(path: &Path) -> StorageResult<Catalog> {
 
 pub(super) fn has_references(runtime: &PackRuntime) -> StorageResult<bool> {
     let _guard = catalog_lock(runtime)?;
-    Ok(!load(&sidecar_path(runtime)?.0)?.files.is_empty())
+    let (_, node) = sidecar_path(runtime)?;
+    has_stopped_references(&node)
+}
+
+pub(super) fn has_stopped_references(node: &Path) -> StorageResult<bool> {
+    Ok(!load(&node.join("local-file-refs.json"))?.files.is_empty())
 }
 
 pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {

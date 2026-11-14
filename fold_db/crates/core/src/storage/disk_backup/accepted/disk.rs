@@ -108,7 +108,7 @@ impl Log {
         }
     }
 
-    pub(super) fn status(&self) -> Status {
+    pub(in crate::storage::disk_backup) fn status(&self) -> Status {
         self.inner.lock().map_or(
             Status {
                 head: 0,
@@ -135,6 +135,21 @@ impl Log {
     pub(super) fn note_snapshot(&self, covered: u64) -> Result<(), Error> {
         let mut inner = self.lock()?;
         inner.note_snapshot(&self.root, covered)
+    }
+
+    pub(in crate::storage) fn pin_initial_frontier(&self, covered: u64) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        inner.refuse_gap()?;
+        if let Some(state) = &inner.state {
+            return (state.snapshot_required && state.opened_frontier == covered)
+                .then_some(())
+                .ok_or(Error::Snapshot);
+        }
+        if !inner.history || inner.frontier != covered {
+            return Err(Error::Snapshot);
+        }
+        let state = inner.fresh(covered, true);
+        inner.store(&self.root, state)
     }
 
     pub(super) fn mark_born(&self, frontier: u64) -> Result<(), Error> {
