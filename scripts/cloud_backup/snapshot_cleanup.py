@@ -6,11 +6,12 @@ admission until the service confirms both provider prefixes are empty.
 
 import json
 import os
+from pathlib import Path
 import time
 import urllib.error
 import http.client
 
-from support import OperationError, dev_endpoint, require
+from support import OperationError, dev_endpoint, read_json, require, write_private
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log/snapshot/bytes"
@@ -24,6 +25,15 @@ def cleanup_objects(guard, database, aws, summary):
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
     guard.allow_stream(database)
     endpoint = dev_endpoint()
+    receipt = Path(os.environ["RUNNER_TEMP"]) / f"snapshot-provider-cleanup-{database}.json"
+    expected = {"database_id": database, "run_id": os.environ["GITHUB_RUN_ID"],
+                "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1"), "complete": True}
+    # A metadata purge can fail after deleting admission rows. A private,
+    # exact-run absence receipt permits retry without reusing deleted admission.
+    if os.path.lexists(receipt):
+        require(read_json(receipt, 1024) == expected, "snapshot_cleanup_receipt")
+        summary("provider_objects=empty prior_run_local_confirmation")
+        return
     # Before registration there can be no upload grants. Once registered, all
     # admission metadata survives provider cleanup, even on partial failure.
     found = aws(guard, "query", guard.query_request(guard.DEV_TABLE, database))
@@ -55,6 +65,7 @@ def cleanup_objects(guard, database, aws, summary):
                 and (not complete or count == 0), "snapshot_cleanup_reply")
         deleted += count
         if complete:
+            write_private(receipt, json.dumps(expected).encode("ascii"))
             summary(f"provider_objects=empty confirmed_deleted={deleted}")
             return
     raise OperationError("snapshot_cleanup_incomplete_metadata_retained")
