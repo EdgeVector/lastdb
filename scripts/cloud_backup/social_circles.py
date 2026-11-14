@@ -66,9 +66,12 @@ def submit(node, database, session, update, expected):
         })
         with connection.getresponse() as reply:
             require(reply.status == expected, f"circle_write_http_{reply.status}_expected_{expected}")
-            body = decode_json(reply.read(65537))
+            raw = reply.read(65537)
     if expected == 202:
+        body = decode_json(raw)
         require(body["mutation_id"] == mutation_id and body["status"] == "submitted", "circle_submission_receipt")
+    else:
+        require(raw == b"this member cannot write to the requested schema", "circle_schema_refusal")
 
 
 def transfer(programs, root, publisher, recipient, api_key):
@@ -76,6 +79,7 @@ def transfer(programs, root, publisher, recipient, api_key):
     with window(publisher) as owner:
         database = call(owner, "/api/create", {"name": name, "sharingMode": "whole_database"})["id"]
         summary(f"Owned DEV mutation log `{database}` for `{name}`.")
+        print(f"Owned DEV mutation log {database} for {name}.", flush=True)
         definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
         for schema in (ALBUM, COMMENT):
             publisher.call(f"/api/databases/{database}/mutation",
@@ -136,9 +140,11 @@ def exercise(publisher, recipient, remote, database, receipt, definitions):
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
+    summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas=[definitions[COMMENT]])
     session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
     submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"), 403)
+    summary("LastDB refused Ana's Album write because the circle grants write access only to Comment.")
     submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"), 202)
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
