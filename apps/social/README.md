@@ -64,9 +64,11 @@ their write grants. An explicit selection covers the installed definition IDs.
 The **All schemas** choice also covers future definitions. Use **Seal
 invitation** on an active member to get the receipt to hand to them.
 
-LastDB queues member writes for the publisher's online LastDB to validate and
-commit. A successful submission reports that ExeMem queued the write. Read
-the record to confirm it was committed and synced.
+LastDB queues member writes for the publisher's LastDB to check against the
+current schema grant. A successful submission confirms that ExeMem queued
+the write. ExeMem delivers pending writes only to the publisher, and members
+receive only entries authored by the publisher. Read the record to confirm
+it was committed and synced.
 
 TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
 for database creation, invitation, acceptance and revocation.

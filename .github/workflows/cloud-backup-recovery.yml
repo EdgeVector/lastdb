@@ -8,6 +8,8 @@ on:
       - '.github/workflows/cloud-backup-recovery.yml'
       - '.github/workflows/cloud-backup-build.yml'
       - 'scripts/cloud_backup/**'
+      - 'scripts/mutation_log_load/node_auth.py'
+      - 'mutation_log/**'
       - 'apps/social/**'
       - 'lastdb_app_sdk/**'
       - 'lastdb-app.json'
@@ -59,7 +61,7 @@ jobs:
           test "$SELECTED_REF" = refs/heads/main
       - name: Check the operational recipe syntax
         run: |
-          python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
+          python3 -m py_compile scripts/cloud_backup/*.py scripts/mutation_log_load/node_auth.py apps/social/*.py apps/social/social
           python3 -m json.tool lastdb-app.json > /dev/null
           node --check apps/social/web/app.js
           node --check scripts/cloud_backup/social_sdk.mjs
@@ -149,7 +151,10 @@ jobs:
           case "$OPERATION" in
             signed-files) recipe=signed_files ;;
             social-share) recipe=social_share ;;
-            social-circles) recipe=social_circles ;;
+            social-circles)
+              python3 -m pip install --quiet cryptography==41.0.7
+              recipe=social_circles
+              ;;
             social-prepare) recipe=social_prepare ;;
             *) exit 2 ;;
           esac
