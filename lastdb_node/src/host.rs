@@ -112,7 +112,7 @@ impl Host {
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        let wants_initial = !signed_restore && crate::log_sync::should_stage_initial_snapshot(home);
+        let wants_initial = !signed_restore && crate::cloud::first_backup_intent(home);
         let connected =
             !signed_restore && (!has_spool || wants_initial) && has_cloud_credentials(home);
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {

@@ -22,7 +22,6 @@ use zeroize::Zeroizing;
 
 use super::{cloud::CloudLog, registry, session};
 pub(super) use bootstrap::ensure_initial;
-pub(crate) use bootstrap::should_stage_initial_snapshot;
 pub(super) use recovery::restore_cut;
 
 pub(super) const AWAIT_INCOMING: &str = "snapshot awaits incoming signed updates";

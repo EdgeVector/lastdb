@@ -1,7 +1,7 @@
 //! Preserve the first personal snapshot intent and resume its signed publication.
 
 use super::{registry, CloudLog, Manifest};
-use crate::cloud::{FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE};
+use crate::cloud::{first_backup_intent, FIRST_BACKUP_INTENT_FILE};
 use crate::host::Host;
 use crate::log_sync::disk;
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, Digest};
@@ -21,23 +21,6 @@ struct Bootstrap {
     native_frontier: u64,
 }
 
-pub(crate) fn should_stage_initial_snapshot(home: &Path) -> bool {
-    if explicit_intent(home) {
-        return true;
-    }
-    registry::databases(home)
-        .first()
-        .is_some_and(|owner| owner.kind == "personal" && first_path(home, &owner.id).is_file())
-}
-
-fn explicit_intent(home: &Path) -> bool {
-    disk::read_limited(
-        &home.join(FIRST_BACKUP_INTENT_FILE),
-        FIRST_BACKUP_INTENT.len(),
-    )
-    .is_ok_and(|bytes| bytes.as_deref() == Some(FIRST_BACKUP_INTENT))
-}
-
 pub(super) fn first_path(home: &Path, id: &str) -> PathBuf {
     home.join("log-sync").join(id).join("snapshot-first")
 }
@@ -47,7 +30,7 @@ pub(in crate::log_sync) async fn ensure_initial(
     log: &CloudLog,
     database: &registry::Database,
 ) -> Result<(), String> {
-    if database.native || database.kind != "personal" || !explicit_intent(&host.home) {
+    if database.native || database.kind != "personal" || !first_backup_intent(&host.home) {
         return Ok(());
     }
     let runtime = host.db.db_ops().native_runtime();
