@@ -66,7 +66,7 @@ async fn publish(
         && through == 0
         && cloud_head == 0
         && runtime.accepted_status().snapshot_required
-        && finish_bootstrap(runtime, &host.home, log, previous.as_ref())?
+        && finish_bootstrap(&runtime, &host.home, log, previous.as_ref())?
     {
         return remember(&host.home, log.database_id(), 0, 0, nonce);
     }
