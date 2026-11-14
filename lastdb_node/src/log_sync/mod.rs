@@ -20,6 +20,7 @@ mod received;
 pub(crate) mod received_access;
 mod registry;
 mod restore;
+mod retention;
 mod retry;
 mod run;
 mod session;
@@ -31,6 +32,7 @@ mod wire;
 
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
+pub use retention::{reclaim as reclaim_snapshot_log, ReclaimReport};
 pub use snapshot::{
     request as request_snapshot, restore_base as restore_snapshot_base, RestoredBase,
 };

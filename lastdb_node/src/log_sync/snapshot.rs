@@ -2,7 +2,7 @@
 
 mod files;
 mod recovery;
-mod transport;
+pub(super) mod transport;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -25,9 +25,9 @@ pub(super) const AWAIT_LOCAL_UPLOAD: &str = "snapshot awaits publication of loca
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Manifest {
-    through: DecimalU64,
-    name: Option<String>,
+pub(super) struct Manifest {
+    pub(super) through: DecimalU64,
+    pub(super) name: Option<String>,
     upload_id: Id,
     files: Vec<files::FileEntry>,
 }

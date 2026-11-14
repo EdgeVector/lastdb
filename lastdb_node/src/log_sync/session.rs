@@ -27,20 +27,27 @@ pub(super) fn label_ok(value: &str) -> bool {
 }
 
 pub(crate) fn device_id(home: &Path) -> Result<String, String> {
+    if let Some(device) = saved_device_id(home)? {
+        return Ok(device);
+    }
+    let fresh = uuid::Uuid::new_v4().to_string();
+    disk::write_private(&device_path(home), format!("{fresh}\n").as_bytes())
+        .map_err(|_| "cannot write device id")?;
+    Ok(fresh)
+}
+
+pub(super) fn saved_device_id(home: &Path) -> Result<Option<String>, String> {
     let path = device_path(home);
     if let Some(bytes) = disk::read_limited(&path, LIMIT).map_err(|_| "cannot read device id")? {
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| "device id is not text")?
             .trim();
         if label_ok(text) {
-            return Ok(text.to_owned());
+            return Ok(Some(text.to_owned()));
         }
         return Err("device id is not a log label".into());
     }
-    let fresh = uuid::Uuid::new_v4().to_string();
-    disk::write_private(&path, format!("{fresh}\n").as_bytes())
-        .map_err(|_| "cannot write device id")?;
-    Ok(fresh)
+    Ok(None)
 }
 
 pub(crate) fn load_cursor(home: &Path, database_id: &str) -> Result<u64, String> {

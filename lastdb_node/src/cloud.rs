@@ -231,20 +231,27 @@ pub fn remove_saved_developer_key_if_prefix(home: &Path, prefix: &str) -> Result
 }
 
 pub fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
+    load_home_keypair(home)?
+        .map(|pair| user_hash_from_pubkey(&pair.public_key_base64()))
+        .transpose()
+}
+
+pub(crate) fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {
     const PRIV_ERR: &str = "home identity.key must be a private owner file";
     const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
     let Some(raw) = read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)?
     else {
         return Ok(None);
     };
+    let raw = Zeroizing::new(raw);
     let seed: Zeroizing<[u8; 32]> = raw
         .as_slice()
         .try_into()
         .map(Zeroizing::new)
         .map_err(|_| "home identity.key must contain exactly 32 bytes".to_owned())?;
-    let pair =
-        Ed25519KeyPair::from_secret_key(seed.as_ref()).map_err(|_| "invalid home identity.key")?;
-    user_hash_from_pubkey(&pair.public_key_base64()).map(Some)
+    Ed25519KeyPair::from_secret_key(seed.as_ref())
+        .map(Some)
+        .map_err(|_| "invalid home identity.key".into())
 }
 
 pub fn client_from_home(

@@ -99,7 +99,26 @@ pub(crate) enum ByteBackupCommand {
     Init(BackupInitArgs),
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    Reclaim(BackupReclaimArgs),
     Snapshot { database: String, wait: bool },
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct BackupReclaimArgs {
+    /// `personal` or its exact database id in this home.
+    #[arg(long)]
+    pub(crate) database: String,
+    /// Read the cloud recovery snapshot and reclaimed position without changing either.
+    #[arg(long, required_unless_present = "allow_required_client_upgrade")]
+    pub(crate) status: bool,
+    /// Reclaim covered entries after the cloud enables it. Devices behind the snapshot must upgrade.
+    #[arg(long, conflicts_with = "status")]
+    pub(crate) allow_required_client_upgrade: bool,
+    /// Maximum batches of up to eight entries each (1–128, default 16).
+    #[arg(long, requires = "allow_required_client_upgrade", value_parser = clap::value_parser!(u8).range(1..=128))]
+    pub(crate) batches: Option<u8>,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]

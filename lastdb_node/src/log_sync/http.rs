@@ -55,6 +55,12 @@ pub(crate) struct Endpoint {
 pub(crate) fn selected_service(home: &std::path::Path) -> Result<SelectedService, String> {
     let saved = crate::cloud::load_saved_credentials(home)?
         .ok_or("log sync needs saved cloud credentials")?;
+    saved_service(&saved)
+}
+
+pub(super) fn saved_service(
+    saved: &crate::cloud::SavedCredentials,
+) -> Result<SelectedService, String> {
     let connection = saved
         .connection
         .as_ref()
@@ -72,7 +78,7 @@ pub(crate) fn selected_service(home: &std::path::Path) -> Result<SelectedService
         return Err("log sync requires an origin cloud endpoint".into());
     }
     Ok(SelectedService {
-        api_url: saved.api_url,
+        api_url: saved.api_url.clone(),
         label,
     })
 }

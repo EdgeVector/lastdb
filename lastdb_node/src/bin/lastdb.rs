@@ -94,6 +94,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 action: match b {
                     BackupCommand::Connect(a) => ByteBackupCommand::Connect(a),
                     BackupCommand::Restore(a) => ByteBackupCommand::Restore(a),
+                    BackupCommand::Reclaim(a) => ByteBackupCommand::Reclaim(a),
                     BackupCommand::Snapshot { database, wait } => ByteBackupCommand::Snapshot {
                         database: database.or(cli.db).unwrap_or_else(|| "personal".to_owned()),
                         wait,
