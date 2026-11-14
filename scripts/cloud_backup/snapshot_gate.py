@@ -401,6 +401,8 @@ def main():
     require(command == "run", "command")
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
+    # Daemon-created shutdown receipts inherit the runner's file-creation mask.
+    os.umask(0o077)
     dev_endpoint()
     phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE").strip().encode()
     api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY").encode()
