@@ -183,7 +183,7 @@ pub(super) async fn prepare(
     if !stage_data.same_device(origin.data) {
         return Err("native recovery needs both data directories on one filesystem".into());
     }
-    let stage_lock = open_stopped(&data, &seed(&stage.path)?, &origin)?;
+    let stage_lock = open_stopped(&data, &*seed(&stage.path)?, &origin)?;
     if stage_lock.boundary.writer_sequence() != origin.boundary.writer_sequence() {
         return Err("the staged upload position changed before recovery was prepared".into());
     }
@@ -356,7 +356,7 @@ fn retire(home: &Path, stage: &Path, name: &str) -> Result<(), String> {
 }
 
 fn identity_matches(home: &Path, origin: &Origin) -> Result<(), String> {
-    let pair = Ed25519KeyPair::from_secret_key(&seed(home)?)
+    let pair = Ed25519KeyPair::from_secret_key(seed(home)?.as_ref())
         .map_err(|_| "invalid native recovery identity")?;
     let device = disk::read_limited(&home.join("log-sync").join("device-id"), 128)
         .map_err(io_error)?
