@@ -35,7 +35,7 @@ pub(super) async fn prepare(
     let staged = Arc::new(Host::boot_for_snapshot_restore(stage.path()).await?);
     let recovery = async {
         let through = owner_recovery::recover_cut(&staged, log, base).await?;
-        install::bind_stage_upload(&staged, &origin).await?;
+        install::bind_stage_upload(&staged, &origin)?;
         Ok::<_, String>(through)
     }
     .await;

@@ -5,11 +5,10 @@ use std::path::Path;
 
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{CloudScope, Digest, Id};
-use fold_db::crypto::E2eKeys;
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::disk_backup::{
     accepted::{UploadIdentity, UploadPosition},
-    stopped_sync::{StoppedSync, SyncBoundary},
+    stopped_sync::SyncBoundary,
 };
 use mutation_log::MutationLog;
 use serde::{Deserialize, Serialize};
@@ -21,8 +20,8 @@ use super::super::{cloud::CloudLog, disk, session, wire::NativeCut};
 mod files;
 
 use files::{
-    checked_child, directory, durable_file, exchange, file_inode, inode, io_error, lock_home, seed,
-    sync_dir, valid_stage_name, Inode, Stage,
+    checked_child, directory, durable_file, exchange, file_inode, inode, io_error, lock_home,
+    open_stopped, seed, storage_error, sync_dir, valid_stage_name, Inode, Stage,
 };
 
 const JOURNAL: &str = ".native-sync-recovery.json";
@@ -111,7 +110,7 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         runtime
             .bind_empty_sync_writer(&upload)
             .await
-            .map_err(storage_error)?;
+            .map_err(|error| storage_error(&error))?;
     }
     let origin = Origin {
         database_id,
@@ -120,11 +119,11 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         device_id: log.device().as_str().to_owned(),
         principal: log.principal().as_str().to_owned(),
         cursor,
-        data: inode(&host.home.join("data")).map_err(io_error)?,
+        data: inode(&host.home.join("data")).map_err(|error| io_error(&error))?,
         boundary: runtime
             .sync_boundary(&upload)
             .await
-            .map_err(storage_error)?,
+            .map_err(|error| storage_error(&error))?,
     };
     identity_matches(&host.home, &origin)?;
     Ok(origin)
@@ -134,7 +133,7 @@ pub(super) fn stage_home(host: &Host) -> Result<Stage, String> {
     Stage::create(host)
 }
 
-pub(super) async fn bind_stage_upload(staged: &Host, origin: &Origin) -> Result<(), String> {
+pub(super) fn bind_stage_upload(staged: &Host, origin: &Origin) -> Result<(), String> {
     let runtime = staged.db.db_ops().native_runtime();
     let status = runtime.accepted_status();
     if status.head != 0 || status.acked != 0 || status.gap || status.snapshot_required {
@@ -164,7 +163,7 @@ pub(super) async fn prepare(
     if prepared_native_recovery(&host.home)?
         || cut.snapshot_through.get() <= origin.cursor
         || through < cut.snapshot_through.get()
-        || inode(&stage.path).map_err(io_error)? != stage.inode
+        || inode(&stage.path).map_err(|error| io_error(&error))? != stage.inode
         || stage.path.parent() != Some(host.home.as_path())
         || session::load_cursor(stage.path(), origin.database_id.as_str())? != through
     {
@@ -179,11 +178,11 @@ pub(super) async fn prepare(
         return Err("local writes or cloud scope changed while preparing recovery".into());
     }
     let data = stage.path.join("data");
-    let stage_data = inode(&data).map_err(io_error)?;
+    let stage_data = inode(&data).map_err(|error| io_error(&error))?;
     if !stage_data.same_device(origin.data) {
         return Err("native recovery needs both data directories on one filesystem".into());
     }
-    let stage_lock = open_stopped(&data, &*seed(&stage.path)?, &origin)?;
+    let stage_lock = open_stopped(&data, &*seed(&stage.path)?, &origin.upload())?;
     if stage_lock.boundary.writer_sequence() != origin.boundary.writer_sequence() {
         return Err("the staged upload position changed before recovery was prepared".into());
     }
@@ -217,7 +216,7 @@ pub(super) async fn prepare(
 pub fn prepared_native_recovery(home: &Path) -> Result<bool, String> {
     disk::read_limited(&home.join(JOURNAL), LIMIT)
         .map(|value| value.is_some())
-        .map_err(io_error)
+        .map_err(|error| io_error(&error))
 }
 
 /// Activate a verified stage while the daemon is closed. Returns false if no
@@ -227,7 +226,9 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
         return Ok(false);
     }
     let _lock = lock_home(home)?;
-    let Some(bytes) = disk::read_limited(&home.join(JOURNAL), LIMIT).map_err(io_error)? else {
+    let Some(bytes) =
+        disk::read_limited(&home.join(JOURNAL), LIMIT).map_err(|error| io_error(&error))?
+    else {
         return Ok(false);
     };
     let journal: Journal =
@@ -235,17 +236,19 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     let stage_home = home.join(valid_stage_name(&journal.stage_name)?);
     let data = home.join("data");
     let staged = stage_home.join("data");
-    if journal.version != 1 || inode(&stage_home).map_err(io_error)? != journal.stage_home {
+    if journal.version != 1
+        || inode(&stage_home).map_err(|error| io_error(&error))? != journal.stage_home
+    {
         return Err("native recovery stage identity changed".into());
     }
     let order = (
-        inode(&data).map_err(io_error)?,
-        inode(&staged).map_err(io_error)?,
+        inode(&data).map_err(|error| io_error(&error))?,
+        inode(&staged).map_err(|error| io_error(&error))?,
     );
     let prior = (journal.origin.data, journal.stage_data);
     if order == (prior.1, prior.0) {
         let seed = seed(home)?;
-        let installed = open_stopped(&data, &seed, &journal.origin)?;
+        let installed = open_stopped(&data, &seed, &journal.origin.upload())?;
         if installed.boundary != journal.stage_boundary {
             return Err("installed native recovery stage changed before local completion".into());
         }
@@ -283,8 +286,8 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     }
     let seed = seed(home)?;
     let (Ok(source), Ok(candidate)) = (
-        open_stopped(&data, &seed, &journal.origin),
-        open_stopped(&staged, &seed, &journal.origin),
+        open_stopped(&data, &seed, &journal.origin.upload()),
+        open_stopped(&staged, &seed, &journal.origin.upload()),
     ) else {
         stale(home, &stage_home)?;
         return Ok(false);
@@ -350,7 +353,7 @@ fn stale(home: &Path, stage: &Path) -> Result<(), String> {
 }
 
 fn retire(home: &Path, stage: &Path, name: &str) -> Result<(), String> {
-    fs::rename(home.join(JOURNAL), stage.join(name)).map_err(io_error)?;
+    fs::rename(home.join(JOURNAL), stage.join(name)).map_err(|error| io_error(&error))?;
     sync_dir(stage)?;
     sync_dir(home)
 }
@@ -359,7 +362,7 @@ fn identity_matches(home: &Path, origin: &Origin) -> Result<(), String> {
     let pair = Ed25519KeyPair::from_secret_key(seed(home)?.as_ref())
         .map_err(|_| "invalid native recovery identity")?;
     let device = disk::read_limited(&home.join("log-sync").join("device-id"), 128)
-        .map_err(io_error)?
+        .map_err(|error| io_error(&error))?
         .ok_or("missing original sync device")?;
     let owner = super::super::registry::databases(home).into_iter().next();
     if hex::encode(pair.public_key_bytes()) != origin.principal
@@ -387,14 +390,4 @@ fn saved_environment(home: &Path, scope: &CloudScope) -> Result<String, String> 
 
 fn search_enabled() -> bool {
     fold_db::db_operations::search_index::queue_policy::enabled()
-}
-
-fn open_stopped(data: &Path, seed: &[u8; 32], origin: &Origin) -> Result<StoppedSync, String> {
-    let key =
-        E2eKeys::from_ed25519_seed(seed).map_err(|_| "could not derive the native recovery key")?;
-    StoppedSync::open(data, &key.encryption_key(), &origin.upload()).map_err(storage_error)
-}
-
-fn storage_error(error: fold_db::storage::error::StorageError) -> String {
-    format!("native recovery cannot prove a stopped database: {error}")
 }

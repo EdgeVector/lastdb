@@ -5,6 +5,8 @@ use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+use fold_db::crypto::E2eKeys;
+use fold_db::storage::disk_backup::{accepted::UploadIdentity, stopped_sync::StoppedSync};
 use rustix::fs::{self as rfs, FlockOperation, RenameFlags};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -39,9 +41,9 @@ impl Stage {
         fs::DirBuilder::new()
             .mode(0o700)
             .create(&path)
-            .map_err(io_error)?;
+            .map_err(|error| io_error(&error))?;
         let stage = Self {
-            inode: inode(&path).map_err(io_error)?,
+            inode: inode(&path).map_err(|error| io_error(&error))?,
             path,
             keep: false,
         };
@@ -58,7 +60,7 @@ impl Stage {
     }
 
     pub(super) fn remove_identity(&self) -> Result<(), String> {
-        fs::remove_file(self.path.join(IDENTITY_KEY_FILE)).map_err(io_error)
+        fs::remove_file(self.path.join(IDENTITY_KEY_FILE)).map_err(|error| io_error(&error))
     }
 }
 
@@ -73,7 +75,7 @@ impl Drop for Stage {
 pub(super) fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     let bytes = Zeroizing::new(
         disk::read_limited(&home.join(IDENTITY_KEY_FILE), 32)
-            .map_err(io_error)?
+            .map_err(|error| io_error(&error))?
             .ok_or("native recovery identity is missing")?,
     );
     let value = bytes
@@ -95,14 +97,14 @@ pub(super) fn inode(path: &Path) -> io::Result<Inode> {
 }
 
 pub(super) fn file_inode(file: &File) -> Result<Inode, String> {
-    let m = file.metadata().map_err(io_error)?;
+    let m = file.metadata().map_err(|error| io_error(&error))?;
     Ok(Inode(m.dev(), m.ino()))
 }
 
 pub(super) fn checked_child(parent: &File, name: &str) -> Result<Inode, String> {
     let flags = rfs::OFlags::RDONLY | rfs::OFlags::DIRECTORY | rfs::OFlags::NOFOLLOW;
-    let child = rfs::openat(parent, name, flags, rfs::Mode::empty())
-        .map_err(|error| io_error(error.into()))?;
+    let child =
+        rfs::openat(parent, name, flags, rfs::Mode::empty()).map_err(|error| io_error(&error))?;
     file_inode(&File::from(child))
 }
 
@@ -126,8 +128,8 @@ pub(super) fn lock_home(home: &Path) -> Result<File, String> {
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(home.join(LOCK))
-        .map_err(io_error)?;
-    if !crate::cloud::is_private_file(&lock.metadata().map_err(io_error)?) {
+        .map_err(|error| io_error(&error))?;
+    if !crate::cloud::is_private_file(&lock.metadata().map_err(|error| io_error(&error))?) {
         return Err("native recovery lock is not a private file".into());
     }
     rfs::flock(&lock, FlockOperation::NonBlockingLockExclusive)
@@ -137,7 +139,7 @@ pub(super) fn lock_home(home: &Path) -> Result<File, String> {
 
 pub(super) fn exchange(home: &File, stage: &File) -> Result<(), String> {
     rfs::renameat_with(home, "data", stage, "data", RenameFlags::EXCHANGE)
-        .map_err(|error| io_error(error.into()))
+        .map_err(|error| io_error(&error))
 }
 
 fn write_new(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -147,10 +149,10 @@ fn write_new(path: &Path, contents: &[u8]) -> Result<(), String> {
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
-        .map_err(io_error)?;
+        .map_err(|error| io_error(&error))?;
     file.write_all(contents)
         .and_then(|()| file.sync_all())
-        .map_err(io_error)
+        .map_err(|error| io_error(&error))
 }
 
 pub(super) fn durable_file(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -158,7 +160,7 @@ pub(super) fn durable_file(path: &Path, contents: &[u8]) -> Result<(), String> {
     let name = format!(".native-sync-{}.tmp", uuid::Uuid::new_v4());
     let pending = parent.join(name);
     let result = write_new(&pending, contents)
-        .and_then(|()| fs::rename(&pending, path).map_err(io_error))
+        .and_then(|()| fs::rename(&pending, path).map_err(|error| io_error(&error)))
         .and_then(|()| sync_dir(parent));
     if result.is_err() {
         let _ = fs::remove_file(&pending);
@@ -171,13 +173,29 @@ pub(super) fn directory(path: &Path) -> Result<File, String> {
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
         .open(path)
-        .map_err(io_error)
+        .map_err(|error| io_error(&error))
 }
 
 pub(super) fn sync_dir(path: &Path) -> Result<(), String> {
-    directory(path)?.sync_all().map_err(io_error)
+    directory(path)?
+        .sync_all()
+        .map_err(|error| io_error(&error))
 }
 
-pub(super) fn io_error(error: io::Error) -> String {
+pub(super) fn io_error(error: &impl std::fmt::Display) -> String {
     format!("native recovery filesystem: {error}")
+}
+
+pub(super) fn open_stopped(
+    data: &Path,
+    seed: &[u8; 32],
+    identity: &UploadIdentity,
+) -> Result<StoppedSync, String> {
+    let key =
+        E2eKeys::from_ed25519_seed(seed).map_err(|_| "could not derive the native recovery key")?;
+    StoppedSync::open(data, &key.encryption_key(), identity).map_err(|error| storage_error(&error))
+}
+
+pub(super) fn storage_error(error: &fold_db::storage::error::StorageError) -> String {
+    format!("native recovery cannot prove a stopped database: {error}")
 }
