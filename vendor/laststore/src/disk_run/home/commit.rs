@@ -43,16 +43,6 @@ pub struct RunCommit {
     pub run_bytes: u64,
 }
 
-impl RunCommit {
-    fn new_for_manifest(run_id: Uuid, run_bytes: u64, root: &Manifest) -> Self {
-        Self {
-            run_id,
-            frontier: root.frontier,
-            run_bytes,
-        }
-    }
-}
-
 impl RunHome {
     pub(super) fn commit_lock(&self) -> Result<MutexGuard<'_, ()>> {
         self.commit_mutex.lock().map_err(|_| self.poisoned_lock())
@@ -131,6 +121,10 @@ impl RunHome {
         if installed.is_err() && !self.is_poisoned() {
             file.retire();
         }
-        Ok(RunCommit::new_for_manifest(run_id, run_bytes, &installed?))
+        Ok(RunCommit {
+            run_id,
+            frontier: installed?.frontier,
+            run_bytes,
+        })
     }
 }
