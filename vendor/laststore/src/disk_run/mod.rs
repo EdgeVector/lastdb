@@ -2,18 +2,16 @@
 
 pub(crate) mod codec;
 pub mod home;
-mod memo;
 mod merge;
 mod reader;
 mod writer;
 
-pub(crate) use memo::MetadataMemo;
-pub(crate) use merge::{merge_runs, Block, MergeIter, RunRange};
-pub(crate) use reader::RunReader;
+pub(crate) use merge::{merge_runs, MergeIter, RunRange};
+pub(crate) use reader::{MetadataMemo, RunReader};
 pub(crate) use writer::{MergeSpace, PreparedRun, RunWriter};
 
-use crate::bloom;
 use crate::{Error, Result};
+use codec::bloom;
 use uuid::Uuid;
 
 pub(crate) const RUN_SUFFIX: &str = ".ldrun";
@@ -79,19 +77,15 @@ pub(crate) struct IndexBlock {
 }
 
 impl IndexBlock {
-    pub(crate) fn parse(payload: Vec<u8>, first_key: &[u8], avail: Option<u64>) -> Result<Self> {
+    pub(crate) fn parse(payload: Vec<u8>, first_key: &[u8]) -> Result<Self> {
         let mut at = 0;
-        let (blocks, _) = footer::get_refs_bounded(&payload, &mut at, avail.unwrap_or(u64::MAX))?;
+        let (blocks, _) = footer::get_refs_bounded(&payload, &mut at, u64::MAX)?;
         if blocks.first().map(|b| b.first_key.as_slice()) != Some(first_key) {
             return Err(codec::corrupt("index block first key mismatch"));
         }
         let filter = bloom::read_filter(&payload, &mut at)?;
         if at != payload.len() {
             return Err(codec::corrupt("trailing bytes in index block"));
-        }
-        let fp = footer::refs_footprint(&blocks, blocks.capacity()) + filter.len();
-        if avail.is_some_and(|lim| (payload.capacity() + fp) as u64 > lim) {
-            return Err(Error::ReadBudgetExceeded);
         }
         Ok(Self {
             blocks,
@@ -128,7 +122,7 @@ pub(crate) mod footer {
     pub(crate) const FOOTER_BYTES: usize = 64;
     pub(crate) type Span = (u64, u32, u64);
 
-    pub(crate) fn try_vec<T>(count: usize) -> Result<Vec<T>> {
+    fn try_vec<T>(count: usize) -> Result<Vec<T>> {
         let mut out = Vec::new();
         out.try_reserve_exact(count)
             .map_err(|_| Error::ReadBudgetExceeded)?;

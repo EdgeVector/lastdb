@@ -97,6 +97,33 @@ pub(super) fn has_stopped_references(node: &Path) -> StorageResult<bool> {
     Ok(!load(&node.join("local-file-refs.json"))?.files.is_empty())
 }
 
+pub(in crate::storage) fn sha256_regular_file(
+    path: &Path,
+    expected_size: Option<u64>,
+) -> StorageResult<(u64, String)> {
+    let display = path.display();
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(invalid(format!(
+            "local file {display} is not a regular file"
+        )));
+    }
+    if expected_size.is_some_and(|size| metadata.len() != size) {
+        return Err(invalid(format!("local file {display} size mismatch")));
+    }
+    let (mut file, mut hasher, mut buffer, mut seen) =
+        (File::open(path)?, Sha256::new(), [0u8; 65536], 0u64);
+    while let count @ 1.. = file.read(&mut buffer)? {
+        seen = seen
+            .checked_add(count as u64)
+            .ok_or_else(|| invalid("length overflow"))?;
+        hasher.update(&buffer[..count]);
+    }
+    (seen == metadata.len())
+        .then(|| (seen, hex_lower(hasher.finalize())))
+        .ok_or_else(|| invalid(format!("local file {display} changed during hash")))
+}
+
 pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<DescribedFile> {
     let (_, node) = sidecar_path(runtime)?;
     let display = path.display();
@@ -107,33 +134,12 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
             "a local file reference must stay outside the node home",
         ));
     }
-    let metadata = fs::metadata(&canonical)?;
-    let canonical_display = canonical.display();
-    if !metadata.is_file() {
-        return Err(invalid(format!(
-            "local file {canonical_display} is not a regular file"
-        )));
-    }
-    let mut file = File::open(&canonical)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 65536];
-    let mut length = 0u64;
-    while let count @ 1.. = file.read(&mut buffer)? {
-        length = length
-            .checked_add(count as u64)
-            .ok_or_else(|| invalid("length overflow"))?;
-        hasher.update(&buffer[..count]);
-    }
-    if length != metadata.len() {
-        return Err(invalid(format!(
-            "local file {canonical_display} changed during hash"
-        )));
-    }
+    let (length, sha256) = sha256_regular_file(&canonical, None)?;
     let file_name = canonical
         .file_name()
         .and_then(|name| name.to_str())
         .map(Into::into);
-    Ok((canonical, file_name, length, hex_lower(hasher.finalize())))
+    Ok((canonical, file_name, length, sha256))
 }
 
 pub(crate) fn apply(runtime: &PackRuntime, plan: SidecarPlan) -> StorageResult<()> {

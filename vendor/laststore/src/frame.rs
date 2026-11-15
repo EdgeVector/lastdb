@@ -1,9 +1,5 @@
 //! AEAD frame codec for encrypted LastStore run blocks and manifests.
 
-mod reader;
-
-pub(crate) use reader::VerifiedFrameReader;
-
 use crate::{Error, Result};
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};

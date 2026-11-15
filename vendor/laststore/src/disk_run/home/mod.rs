@@ -7,15 +7,13 @@ mod diagnostics;
 mod manifest;
 mod range;
 mod read;
-mod snapshot;
 
 pub use cleanup::CheckpointSpec;
 pub use commit::{HomeMutation, RunCommit};
 pub use diagnostics::{LogicalInventory, RunHomeDiagnostics};
 pub use manifest::{CURRENT, RUNS};
 pub use range::{RunHashRange, RunRangePage};
-pub use read::{ReadBudget, RunRead, RunReadCosts};
-pub use snapshot::{RunRoot, RunSnapshot};
+pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot, RunSnapshot};
 
 use super::codec::corrupt;
 use super::{MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
@@ -35,8 +33,6 @@ use uuid::Uuid;
 const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
-/// Directory of the home owner's cloud backup: the capture source and the run holds.
-pub const BACKUP_DIR: &str = "cloud-byte-v2";
 /// File name of the clear home descriptor.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 
@@ -156,7 +152,7 @@ impl RunHome {
             }
             Err(e) => return Err(std::io::Error::from(e).into()),
         }
-        let manifest = Manifest::load(&root_dir, key, identity, None)?;
+        let manifest = Manifest::load(&root_dir, key, identity)?;
         for entry in fs::read_dir(&root_dir)? {
             let entry = entry?;
             let name = entry.file_name();

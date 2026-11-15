@@ -1,9 +1,8 @@
 //! Signed-log replay clock, local pending markers, and schema-level replay coordination.
 
-mod baseline;
 mod records;
 
-use super::{AuthoredMutation, MutationManager, ReplayStamp};
+use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::{Schema, SchemaError, SchemaState};
 use crate::storage::disk_backup::accepted;

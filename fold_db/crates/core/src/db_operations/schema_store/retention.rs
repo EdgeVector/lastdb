@@ -1,12 +1,12 @@
 //! Retention policy CRUD and manifest retention planning/application on [`SchemaStore`].
 
-use super::{SchemaStore, StateChange, StateDelete, StateKey, Tracking};
+use super::SchemaStore;
 use crate::limits::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
 use crate::schema::types::catalog_types::{RetentionSource, SchemaRetentionPolicy};
 use crate::schema::types::{KeyValue, SchemaError};
-use crate::storage::format::schemas::keys::*;
+use crate::storage::format::schemas::*;
 
 pub(super) fn invalid(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
@@ -166,7 +166,7 @@ impl SchemaStore {
             });
         }
         self.format.delete_states(keys).await?;
-        self.format.flush_states().await?;
+        self.format.flush().await?;
         Ok(())
     }
 
@@ -203,7 +203,7 @@ impl SchemaStore {
                 policy,
             })
             .await?;
-        self.format.flush_states().await?;
+        self.format.flush().await?;
         Ok(())
     }
 }

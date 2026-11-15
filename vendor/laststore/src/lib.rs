@@ -3,10 +3,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-use serde_json as _;
 use std::fmt;
 
-pub(crate) mod bloom;
 pub mod disk_run;
 mod frame;
 pub mod space;

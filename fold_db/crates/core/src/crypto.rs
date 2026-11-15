@@ -5,7 +5,6 @@ use sha2::Sha256;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
-pub use crate::platform::{clock, env_flag};
 pub use at_rest::{seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
 pub use envelope::{
     decrypt_envelope, decrypt_envelope_with_aad, encrypt_envelope, encrypt_envelope_with_aad,

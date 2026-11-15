@@ -2,12 +2,13 @@
 
 mod worker;
 
+use crate::platform::unpoison;
 use crate::storage::disk_pack::{map, physical};
 use crate::storage::error::{StorageError, StorageResult};
 use laststore::disk_run::home::CheckpointSpec;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use uuid::Uuid;
 use NativeCleanupPhase::*;
 
@@ -135,7 +136,7 @@ impl CleanupJob {
     }
 
     fn lock_status(&self) -> MutexGuard<'_, NativeCleanupStatus> {
-        self.status.lock().unwrap_or_else(PoisonError::into_inner)
+        unpoison(&self.status)
     }
 
     fn get(&self) -> NativeCleanupStatus {

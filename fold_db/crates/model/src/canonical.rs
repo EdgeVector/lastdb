@@ -6,9 +6,6 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub use crate::keys::{key_value, kind_partition, QueryCursor, SortOrder};
-pub use crate::limits::{content_limit, storage_policy};
-
 pub struct SortedKeyJsonValue<'a> {
     pub value: &'a Value,
 }
@@ -19,8 +16,6 @@ impl<'a> SortedKeyJsonValue<'a> {
         Self { value }
     }
 }
-
-pub type CanonicalValue<'a> = SortedKeyJsonValue<'a>;
 
 impl Serialize for SortedKeyJsonValue<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

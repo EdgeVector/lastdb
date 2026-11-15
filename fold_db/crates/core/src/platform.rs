@@ -1,4 +1,10 @@
-//! Wall-clock helpers and environment-variable scalar/flag parsers.
+//! Wall-clock helpers, mutex recovery, and environment-variable scalar/flag parsers.
+
+pub fn unpoison<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 pub mod clock {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};

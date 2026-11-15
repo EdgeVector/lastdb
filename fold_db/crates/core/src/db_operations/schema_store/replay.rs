@@ -1,13 +1,13 @@
 //! Reserve a schema for paged removal, sweep retention tracking, and finish with a durable receipt.
 
-use super::{SchemaStore, StateDelete, StateKey, Tracking};
+use super::SchemaStore;
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::catalog_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
 use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayTarget, SchemaReplayDrop};
-use crate::storage::format::schemas::keys::*;
+use crate::storage::format::schemas::*;
 use crate::storage::format::SCHEMA_RELEASE_ROWS;
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use std::sync::Arc;

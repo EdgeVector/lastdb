@@ -6,7 +6,6 @@ doc = "Leaf helpers with no domain meaning: canonical byte framing, hex, key coo
 modules = [
   "canonical",
   "keys",
-  "limits",
 ]
 
 [[layer]]

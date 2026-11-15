@@ -164,18 +164,6 @@ impl PackRuntime {
         log.prefix(after, limit)
     }
 
-    /// Record that the consumer published every entry through `through`.
-    pub fn acknowledge_accepted(&self, through: u64) -> Result<(), Error> {
-        let Some(log) = &self.accepted else {
-            return if through == 0 {
-                Ok(())
-            } else {
-                Err(Error::Ahead)
-            };
-        };
-        log.acknowledge(through)
-    }
-
     /// Read the upload checkpoint and finish an interrupted local acknowledgement.
     pub fn accepted_upload_position(
         &self,

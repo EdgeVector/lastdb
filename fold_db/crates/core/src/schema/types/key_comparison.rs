@@ -85,11 +85,6 @@ impl KeyComparisonContext {
         Ok(())
     }
 
-    #[must_use]
-    pub fn range_comparison(&self) -> &RangeKeyComparison {
-        &self.range
-    }
-
     pub fn cursor_binding(&self, request: &impl serde::Serialize) -> Result<String, SchemaError> {
         let bytes = serde_json::to_vec(&(&self.identity, request)).map_err(|_| {
             SchemaError::InvalidData("cannot encode cursor comparison context".into())

@@ -3,9 +3,7 @@
 mod recover;
 pub(super) mod upload;
 
-use super::body;
-use super::io;
-use super::{Error, Page, Status};
+use super::{body, io, Error, Page, Status};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -74,6 +72,7 @@ pub(super) struct Meta {
     pub(super) file_bytes: u64,
 }
 
+#[derive(Default)]
 struct Inner {
     state: Option<State>,
     frontier: u64,
@@ -91,11 +90,8 @@ impl Log {
     pub(in crate::storage) fn open(home: &Path, frontier: u64) -> Self {
         let root = home.join(DIR);
         let mut inner = Inner {
-            state: None,
             frontier,
-            history: false,
-            blocked: false,
-            legacy_through: 0,
+            ..Inner::default()
         };
         if !root.exists() {
             inner.history = frontier > 0;
@@ -123,18 +119,11 @@ impl Log {
     }
 
     pub(super) fn prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
-        let mut inner = self.lock()?;
-        inner.prefix(&self.root, after, limit)
-    }
-
-    pub(super) fn acknowledge(&self, through: u64) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.acknowledge(&self.root, through)
+        self.lock()?.prefix(&self.root, after, limit)
     }
 
     pub(super) fn note_snapshot(&self, covered: u64) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.note_snapshot(&self.root, covered)
+        self.lock()?.note_snapshot(&self.root, covered)
     }
 
     pub(in crate::storage) fn pin_initial_frontier(&self, covered: u64) -> Result<(), Error> {
@@ -153,18 +142,16 @@ impl Log {
     }
 
     pub(super) fn mark_born(&self, frontier: u64) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.mark_born(&self.root, frontier)
+        self.lock()?.mark_born(&self.root, frontier)
     }
 
     pub(super) fn prepare(&self, frontier_before: u64, notes: &[Note]) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.prepare(&self.root, frontier_before, notes)
+        self.lock()?.prepare(&self.root, frontier_before, notes)
     }
 
     pub(super) fn publish(&self, frontier_before: u64, frontier_after: u64) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.publish(&self.root, frontier_before, frontier_after)
+        self.lock()?
+            .publish(&self.root, frontier_before, frontier_after)
     }
 
     pub(super) fn abort(&self) -> Result<(), Error> {
@@ -174,19 +161,16 @@ impl Log {
     }
 
     pub(super) fn force_gap(&self) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.block(&self.root, Error::Gap);
+        self.lock()?.block(&self.root, Error::Gap);
         Err(Error::Gap)
     }
 
     pub(super) fn arm_split(&self) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.arm_split(&self.root)
+        self.lock()?.arm_split(&self.root)
     }
 
     pub(super) fn note_split_committed(&self, frontier_before: u64) -> Result<(), Error> {
-        let inner = self.lock()?;
-        inner.refuse_gap()?;
+        self.lock()?.refuse_gap()?;
         recover::mark_committed(&self.root, frontier_before)
     }
 
@@ -275,7 +259,7 @@ impl Inner {
         let needed = self
             .state
             .as_ref()
-            .map_or(self.frontier, |state| state.opened_frontier);
+            .map_or(self.frontier, |s| s.opened_frontier);
         if covered < needed {
             return Err(Error::Snapshot);
         }
@@ -321,21 +305,16 @@ impl Inner {
         recover::write_pending(root, frontier_before, notes, &planned)
     }
 
-    fn publish(
-        &mut self,
-        root: &Path,
-        frontier_before: u64,
-        frontier_after: u64,
-    ) -> Result<(), Error> {
+    fn publish(&mut self, root: &Path, before: u64, after: u64) -> Result<(), Error> {
         let Some(pending) = io::read_json::<Pending>(&root.join("pending.json"))? else {
-            self.frontier = frontier_after;
+            self.frontier = after;
             return recover::clear_armed(root, self);
         };
-        if frontier_after <= frontier_before || pending.frontier_before != frontier_before {
+        if after <= before || pending.frontier_before != before {
             self.block(root, Error::Gap);
             return Err(Error::Gap);
         }
-        self.frontier = frontier_after;
+        self.frontier = after;
         recover::finish_pending(root, self)
     }
 
@@ -344,11 +323,9 @@ impl Inner {
     }
 
     fn refuse_gap(&self) -> Result<(), Error> {
-        if self.blocked || self.state.as_ref().is_some_and(|state| state.gap) {
-            Err(Error::Gap)
-        } else {
-            Ok(())
-        }
+        (!self.blocked && !self.state.as_ref().is_some_and(|s| s.gap))
+            .then_some(())
+            .ok_or(Error::Gap)
     }
 
     fn block(&mut self, root: &Path, _error: Error) {
@@ -386,7 +363,7 @@ pub(super) fn sha_ok(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub(super) fn id_ok(id: &str) -> bool {

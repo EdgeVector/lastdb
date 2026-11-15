@@ -1,12 +1,11 @@
 //! Run file writer and merge space reservations.
 
-use super::codec::{corrupt, put_record, record_len};
+use super::codec::{bloom, corrupt, put_record, record_len};
 use super::footer::{put_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::{
     RunMeta, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
     MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
 };
-use crate::bloom;
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::encode_frame;
 use crate::space::{reserve_space, SpacePolicy, SpaceReservation};

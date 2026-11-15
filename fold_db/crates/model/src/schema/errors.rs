@@ -1,6 +1,6 @@
 //! Schema domain errors and structured JSON error bodies.
 
-use crate::limits::content_limit::RECORD_TOO_LARGE_HINT;
+use crate::keys::content_limit::RECORD_TOO_LARGE_HINT;
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;

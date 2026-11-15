@@ -1,9 +1,9 @@
 //! Retention write-age and hash-partition index tracking inside native write scopes.
 
 use super::retention::latest_keys;
-use super::{SchemaStore, StateChange, StateDelete, Tracking};
+use super::SchemaStore;
 use crate::schema::types::{KeyValue, SchemaError};
-use crate::storage::format::schemas::keys::*;
+use crate::storage::format::schemas::*;
 use std::collections::HashMap;
 
 impl SchemaStore {

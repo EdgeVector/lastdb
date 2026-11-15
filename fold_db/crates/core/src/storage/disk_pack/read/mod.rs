@@ -7,11 +7,8 @@ use super::transaction::PendingBatch;
 use super::*;
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{MutexGuard, PoisonError};
 
-pub(in crate::storage::disk_pack) fn unpoison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+pub(in crate::storage::disk_pack) use crate::platform::unpoison;
 
 pub(in crate::storage::disk_pack) type NativeRows = Vec<(String, Vec<u8>)>;
 pub(in crate::storage::disk_pack) type Coordinate = (String, String);

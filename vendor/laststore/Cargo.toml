@@ -2,8 +2,6 @@
 autotests = false
 name = "laststore"
 version = "0.1.0"
-# Its path dependency lastdb_storage_policy is unpublished, so this crate cannot
-# be published either. cargo-deny allows wildcard path deps only in private crates.
 publish = false
 edition.workspace = true
 description = "Last Store — the LastDB disk engine (disk format v2: sorted, encrypted run files)"
@@ -15,13 +13,10 @@ categories = ["database-implementations", "filesystem"]
 exclude = ["target/", ".git/"]
 
 [dependencies]
-lastdb_model = { workspace = true }
 crc32fast = "1.5"
 serde.workspace = true
-serde_json = "1"
 aes-gcm = "0.10"
 hkdf = "0.12"
-openssl = "0.10.76"
 sha2 = "0.10"
 rustix = { version = "1", features = ["fs", "process"] }
 uuid = { version = "1", features = ["v4"] }

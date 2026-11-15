@@ -1,15 +1,15 @@
 //! Private files for one accepted stream. Bodies are not control JSON.
 
 use super::Error;
+use crate::storage::disk_pack::admit;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 const CONTROL_MAX: u64 = 65_536;
-const NOFOLLOW: i32 = libc::O_NOFOLLOW | libc::O_NONBLOCK;
 
 pub(super) fn ensure_dir(path: &Path) -> Result<(), Error> {
     if path.exists() {
@@ -17,20 +17,16 @@ pub(super) fn ensure_dir(path: &Path) -> Result<(), Error> {
     }
     let parent = path.parent().ok_or(Error::Unavailable)?;
     require_dir(parent)?;
-    fs::DirBuilder::new()
-        .mode(0o700)
-        .create(path)
-        .map_err(|_| Error::Unavailable)?;
+    admit::create_private_dir(path).map_err(|_| Error::Unavailable)?;
     require_dir(path)?;
     sync_dir(parent)
 }
 
 pub(super) fn require_dir(path: &Path) -> Result<(), Error> {
-    let info = fs::symlink_metadata(path).map_err(|_| Error::Unavailable)?;
-    if !info.is_dir() || info.uid() != euid() || info.mode() & 0o077 != 0 {
-        return Err(Error::Unavailable);
+    match admit::private_dir_status(path) {
+        Ok(Some(true)) => Ok(()),
+        _ => Err(Error::Unavailable),
     }
-    Ok(())
 }
 
 pub(super) fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Error> {
@@ -54,14 +50,7 @@ pub(super) fn write_bytes(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     let parent = path.parent().ok_or(Error::Unavailable)?;
     require_dir(parent)?;
     let pending = path.with_extension("partial");
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .custom_flags(NOFOLLOW)
-        .open(&pending)
-        .map_err(|_| Error::Unavailable)?;
+    let mut file = admit::open_private_write(&pending, false).map_err(|_| Error::Unavailable)?;
     file.write_all(bytes).map_err(|_| Error::Unavailable)?;
     file.sync_all().map_err(|_| Error::Unavailable)?;
     fs::rename(&pending, path).map_err(|_| Error::Unavailable)?;
@@ -78,19 +67,10 @@ pub(super) fn read_limited(path: &Path, max: u64) -> Result<Option<Vec<u8>>, Err
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(Error::Unavailable),
     };
-    if !info.is_file()
-        || info.uid() != euid()
-        || info.mode() & 0o077 != 0
-        || info.nlink() != 1
-        || info.len() > max
-    {
+    if !info.is_file() || !admit::is_private_meta(&info) || info.nlink() != 1 || info.len() > max {
         return Err(Error::Gap);
     }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(NOFOLLOW)
-        .open(path)
-        .map_err(|_| Error::Unavailable)?;
+    let file = admit::open_nofollow_read(path).map_err(|_| Error::Unavailable)?;
     let mut bytes = Vec::new();
     file.take(max + 1)
         .read_to_end(&mut bytes)
@@ -123,8 +103,4 @@ pub(super) fn remove_dir(path: &Path) -> Result<(), Error> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(Error::Unavailable),
     }
-}
-
-fn euid() -> u32 {
-    unsafe { libc::geteuid() }
 }

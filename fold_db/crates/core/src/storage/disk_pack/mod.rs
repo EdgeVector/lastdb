@@ -95,8 +95,6 @@ impl PackRuntime {
         16_384
     }
 
-    pub(crate) fn record_read_stage(&self, _stage: &'static str, _items: usize) {}
-
     pub(crate) fn fresh_initialization_pending(&self) -> bool {
         self.initializing.load(Ordering::Acquire)
     }

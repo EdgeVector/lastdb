@@ -1,6 +1,5 @@
 //! Product-owned definitions of the format 15 whole-record home.
 
-pub(crate) mod bind;
 pub(crate) mod current_keys;
 pub(crate) mod metadata;
 pub(crate) mod records;
@@ -276,7 +275,7 @@ pub(crate) mod control {
     use crate::storage::{error::StorageResult, StorageError};
     use serde::Deserialize;
 
-    pub(in crate::storage::format) fn invalid(text: impl std::fmt::Display) -> StorageError {
+    pub(in crate::storage) fn invalid(text: impl std::fmt::Display) -> StorageError {
         StorageError::invalid(format!("delete replay cutoff: {text}"))
     }
 

@@ -155,10 +155,6 @@ impl V2Read {
 }
 
 impl PackRuntime {
-    pub fn subscribe_durable_writes(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.completed.subscribe()
-    }
-
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let root = self
