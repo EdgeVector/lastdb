@@ -270,38 +270,60 @@ fn store_plan(
 /// Pace cleanup independently of upload and download. One turn requests at most
 /// one bounded delivery or provider cleanup step.
 #[derive(Default)]
-pub(super) struct Pacing(Option<Instant>);
+pub(super) struct Pacing {
+    next: Option<Instant>,
+    checked_scope: Option<(CloudScope, String)>,
+}
 
 impl Pacing {
     pub(super) async fn turn(&mut self, home: &Path, log: &CloudLog) {
-        if self.0.is_some_and(|next| next > Instant::now()) {
+        if self.next.is_some_and(|next| next > Instant::now()) {
             return;
         }
-        let delay = match run(home, log).await {
-            Ok(Some(delay)) => delay,
-            Ok(None) => {
-                self.0 = None;
-                return;
+        let check_existing = self.checked_scope.as_ref().is_none_or(|(scope, database)| {
+            scope != &log.scope || database.as_str() != log.database_id()
+        });
+        let delay = match run(home, log, check_existing).await {
+            Ok(delay) => {
+                if check_existing {
+                    self.checked_scope = Some((log.scope.clone(), log.database_id().to_owned()));
+                }
+                delay
             }
             Err(error) => {
                 tracing::debug!(target: "lastdbd::log_sync", %error, "snapshot cleanup awaits retry");
-                RETRY
+                Some(RETRY)
             }
         };
-        self.0 = Some(Instant::now() + delay);
+        self.next = delay.map(|delay| Instant::now() + delay);
     }
 }
 
-async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
+async fn run(
+    home: &Path,
+    log: &CloudLog,
+    check_existing: bool,
+) -> Result<Option<Duration>, String> {
     let path = path(home, log);
     let mut work = Work::read(&path)?.filter(|work| work.matches(log));
     let mut provider = ProviderWork::read(&path, log)?;
+    if !check_existing && work.is_none() && provider.is_none() {
+        return Ok(None);
+    }
+    let status = retention::automatic_status(log).await?;
+    let floor = status.reclaimed_through.get();
+    if check_existing
+        && floor > 0
+        && status.eligible
+        && status.reclaim_enabled
+        && status.snapshot_id.is_some()
+    {
+        ProviderWork::queue(&path, log, &mut provider, floor)?;
+    }
     if work.is_none() && provider.is_none() {
         return Ok(None);
     }
     let work = work.get_or_insert_with(|| Work::new(log));
-    let status = retention::automatic_status(log).await?;
-    let floor = status.reclaimed_through.get();
     work.finish_through(&path, log, &mut provider, floor)?;
     let Some(snapshot_id) = status
         .snapshot_id
