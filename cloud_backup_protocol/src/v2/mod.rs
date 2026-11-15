@@ -4,15 +4,12 @@ pub mod blobs;
 mod common;
 pub mod context;
 pub mod hash;
-pub mod inventory;
 pub mod jobs;
 pub mod limits;
-pub mod publication;
 pub mod share_access;
 pub mod transfer;
 mod version;
 
 pub use common::{ClientDescriptor, Destination, Job, Object, Stream};
-pub use jobs::{Begin, CoveredLog};
-pub use publication::{AcceptedBackup, Head};
+pub use jobs::Begin;
 pub use version::Version;

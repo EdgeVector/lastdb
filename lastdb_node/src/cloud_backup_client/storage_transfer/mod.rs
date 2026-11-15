@@ -6,7 +6,7 @@ use cloud_backup_protocol::v2::{
     limits::CONTROL_JSON_MAX_BYTES,
     transfer::{
         TransferBatchResponse, TransferIdentityRequest, TransferInput, TransferItemResult,
-        TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
+        TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
     },
     Version,
 };
@@ -93,7 +93,6 @@ impl StorageTransferClient {
             bytes: input.object.bytes.get(),
             grant_url: grant.url.as_str(),
             expires_ms: grant.expires_ms.get(),
-            multipart_part: grant.transfer_mode == Some(TransferMode::MultipartPart),
         };
         self.transport.put_presigned(&put, data).await
     }

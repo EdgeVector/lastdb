@@ -6,12 +6,8 @@ use serde::Serialize;
 pub const CONTROL_JSON_MAX_BYTES: u64 = 256 * 1024;
 /// Maximum JSON bytes of one signed mutation-log snapshot part response.
 pub const MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES: u64 = 1024 * 1024;
-/// Maximum canonical JSON bytes of one inventory page or index.
-pub const INVENTORY_JSON_MAX_BYTES: u64 = 256 * 1024;
 /// Maximum items in one V2 batch.
 pub const MAX_BATCH_ITEMS: usize = 4;
-/// Maximum pages in one inventory index.
-pub const MAX_PAGES: usize = 1024;
 
 /// Reject canonical JSON of `value` larger than `maximum`.
 pub fn encoded<T: Serialize>(value: &T, maximum: u64) -> Result<(), ProtocolError> {

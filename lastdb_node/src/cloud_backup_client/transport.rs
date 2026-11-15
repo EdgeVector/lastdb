@@ -61,7 +61,6 @@ pub(crate) struct PresignedPut<'a> {
     pub bytes: u64,
     pub grant_url: &'a str,
     pub expires_ms: u64,
-    pub multipart_part: bool,
 }
 
 #[derive(Clone)]
@@ -144,7 +143,7 @@ impl BackupTransport {
         put: &PresignedPut<'_>,
         data: Vec<u8>,
     ) -> TransportResult<()> {
-        let (url, if_none_match) = upload_url(put.grant_url, put.multipart_part)?;
+        let (url, if_none_match) = upload_url(put.grant_url)?;
         if data.len() as u64 != put.bytes || bytes_sha256(&data) != *put.sha256 {
             return Err(E::Integrity("upload source"));
         }
@@ -191,22 +190,20 @@ fn signed_headers(url: &Url) -> TransportResult<String> {
     }
 }
 
-fn upload_url(value: &str, multipart: bool) -> TransportResult<(Url, bool)> {
+fn upload_url(value: &str) -> TransportResult<(Url, bool)> {
     let url = https(value)?;
-    let if_none_match = match (multipart, signed_headers(&url)?.as_str()) {
-        (false, "content-length;host;if-none-match") => true,
-        (_, "content-length;host") => false,
+    let if_none_match = match signed_headers(&url)?.as_str() {
+        "content-length;host;if-none-match" => true,
+        "content-length;host" => false,
         _ => return Err(E::InvalidResponse("signed headers")),
     };
-    let (mut up, mut pt) = (0usize, 0usize);
-    for (k, v) in url.query_pairs() {
-        up += usize::from(k == "uploadId") * if v.is_empty() { 2 } else { 1 };
-        pt += usize::from(k == "partNumber") * if v == "1" { 1 } else { 2 };
+    if url
+        .query_pairs()
+        .any(|(k, _)| k == "uploadId" || k == "partNumber")
+    {
+        return Err(E::InvalidResponse("upload operation"));
     }
-    let expected = usize::from(multipart);
-    ((up, pt) == (expected, expected))
-        .then_some((url, if_none_match))
-        .ok_or(E::InvalidResponse("upload operation"))
+    Ok((url, if_none_match))
 }
 
 fn transfer_timeout(bytes: u64, expires_ms: u64) -> TransportResult<Duration> {
