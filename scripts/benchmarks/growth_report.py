@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Publish resource comparisons; growth regressions remain advisory."""
+"""Publish advisory resource growth comparisons and the required v2 disk-size budget."""
+
+from __future__ import annotations
 
 import argparse
 import json
 import math
-import os
 from pathlib import Path
 import statistics
 
-from advisories import confirm, lines as confirmation_lines, notices
+import disk_budget
 from growth import CASES, slope
-from node import home_format_line, save
-from disk_usage import validate as validate_breakdown
+from node import home_format_line, publish_summary, save, validate_breakdown
+from report import confirm, confirmation_lines, notices
 
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
             "memory_growth_bytes_per_round", "disk_before_compaction_bytes", "compacted_disk_bytes",
@@ -70,22 +71,22 @@ def validate(case, result, recipe):
             raise ValueError(f"{case}: invalid allocated disk samples")
         if any(not math.isfinite(metrics[name]) for name in ALLOCATED_MEASURES):
             raise ValueError(f"{case}: nonfinite allocated disk result")
-        expected = {name: points[-1][name] for name in allocated}
         source = "compacted_allocated_disk_bytes"
-        expected.update(allocated_disk_growth_bytes=points[-1][source] - points[0][source],
-                        allocated_disk_growth_bytes_per_round=slope(points, source),
-                        compacted_allocated_disk_bytes_per_record=points[-1][source] / metrics["live_records"])
+        expected = {
+            **{name: points[-1][name] for name in allocated},
+            "allocated_disk_growth_bytes": points[-1][source] - points[0][source],
+            "allocated_disk_growth_bytes_per_round": slope(points, source),
+            "compacted_allocated_disk_bytes_per_record": points[-1][source] / metrics["live_records"],
+        }
         if any(metrics[name] != value for name, value in expected.items()):
             raise ValueError(f"{case}: invalid allocated disk result")
 
 
-def percent(base, candidate):
+def _percent(base, candidate):
     return 100 * (candidate / base - 1) if base is not None and candidate is not None and base > 0 else None
 
 
-def advisory(base, candidate, floor):
-    # A zero or negative base growth can still regress. Require an absolute
-    # excess as well as 20% of the nonnegative reference to suppress small noise.
+def _advisory(base, candidate, floor):
     return candidate - base >= floor and candidate >= max(0, base) * (1 + PERCENT / 100)
 
 
@@ -105,8 +106,7 @@ def compare(output, manifest):
     pairs = set(range(manifest["recipe"]["pairs"]))
     if any(set(v) != pairs for v in values.values()):
         raise ValueError("The growth measurements lack a complete pair")
-    comparison = {}
-    measures = (*MEASURES, *ALLOCATED_MEASURES)
+    comparison, measures = {}, (*MEASURES, *ALLOCATED_MEASURES)
     for case in CASES:
         item = {}
         for label, runs in values.items():
@@ -115,41 +115,35 @@ def compare(output, manifest):
                            if all(s.get(name) is not None for s in samples) else None
                            for name in (*measures, "live_records")}
         base, candidate = item["baseline"], item["candidate"]
-        item["changes_percent"] = {name: percent(base[name], candidate[name]) for name in measures}
+        item["changes_percent"] = {name: _percent(base[name], candidate[name]) for name in measures}
         item["paired_changes_percent"] = {
-            name: [percent(values["baseline"][p][case]["metrics"].get(name),
-                           values["candidate"][p][case]["metrics"].get(name)) for p in sorted(pairs)]
+            name: [_percent(values["baseline"][p][case]["metrics"].get(name),
+                            values["candidate"][p][case]["metrics"].get(name)) for p in sorted(pairs)]
             for name in measures}
         item["advisories"] = [name for name, floor in (
             ("peak_memory_bytes", MEMORY_FLOOR), ("idle_memory_bytes", MEMORY_FLOOR),
             ("memory_growth_bytes", MEMORY_FLOOR), ("compacted_disk_bytes", DISK_FLOOR),
-            ("disk_growth_bytes", DISK_FLOOR)) if advisory(base[name], candidate[name], floor)]
+            ("disk_growth_bytes", DISK_FLOOR)) if _advisory(base[name], candidate[name], floor)]
         comparison[case] = item
     return comparison
 
 
-def change(value):
-    return f"{value:+.1f}%" if value is not None else "n/a (base ≤ 0)"
-
-
 def render(output, manifest, comparison):
     recipe = manifest["recipe"]["growth"]
+    change = lambda value: f"{value:+.1f}%" if value is not None else "n/a (base ≤ 0)"
+    pair = lambda item, name, divisor=2**20: " → ".join(
+        "unreported" if item[label].get(name) is None else f"{item[label][name] / divisor:.2f}"
+        for label in ("baseline", "candidate"))
     lines = ["# LastDB disk and memory growth — advisory", "",
              f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**. "
              f"Seed records: **{recipe['records']}**. Rounds: **{recipe['rounds']}**.", "",
              f"Base: `{manifest['binaries']['baseline']['revision']}`  ",
              f"Candidate: `{manifest['binaries']['candidate']['revision']}`  ",
-             f"Driver: `{manifest['driver_revision']}`", "",
-             home_format_line(output, manifest), "",
+             f"Driver: `{manifest['driver_revision']}`", "", home_format_line(output, manifest), "",
              "Values are medians across alternating pairs. Arrows show base → candidate.",
              "Growth is the final checkpoint minus the initial checkpoint. The slope uses all checkpoints.", "",
              "| Case | Live records | Peak memory MiB | Idle memory MiB | Idle change | Memory growth MiB | Memory MiB/round |",
              "|---|---:|---:|---:|---:|---:|---:|"]
-
-    def pair(item, name, divisor=2**20):
-        return " → ".join("unreported" if item[label].get(name) is None else f"{item[label][name] / divisor:.2f}"
-                          for label in ("baseline", "candidate"))
-
     for case, item in comparison.items():
         lines.append(f"| {case} | {int(item['candidate']['live_records'])} | {pair(item, 'peak_memory_bytes')} | "
                      f"{pair(item, 'idle_memory_bytes')} | {change(item['changes_percent']['idle_memory_bytes'])} | "
@@ -196,13 +190,107 @@ def render(output, manifest, comparison):
     return "\n".join(lines) + "\n"
 
 
+def compare_disk_budget(output, manifest):
+    recipe = manifest["recipe"]
+    if recipe.get("disk_budget") is not True or recipe.get("search_enabled") is not False or recipe.get("pairs") != 1:
+        raise ValueError("The disk budget requires one pair with Search off")
+    values = {label: {} for label in ("baseline", "candidate")}
+    for run in manifest["runs"]:
+        if not run["complete"]:
+            raise ValueError("A disk budget measurement did not complete")
+        directory = output / run["directory"]
+        for corpus in (directory, directory / "delete"):
+            for phase in ("before", "after"):
+                search = json.loads((corpus / f"disk-search-{phase}.json").read_text())
+                if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
+                    raise ValueError("The disk budget does not establish Search off in both homes")
+        cases = json.loads((directory / "growth.json").read_text())
+        if set(cases) != set(disk_budget.CASES):
+            raise ValueError("The disk budget cases differ from the recipe")
+        deleted = json.loads((directory / "delete/growth.json").read_text())
+        cleanup = json.loads((directory / "delete/cleanup.json").read_text())
+        if (deleted != {"delete": cases["delete"]}
+                or cleanup.get("daemon_stopped") is not True or not cleanup.get("removed")):
+            raise ValueError("The separate delete case lacks matching results and complete cleanup")
+        for case in disk_budget.CASES:
+            disk_budget.validate(case, cases[case], recipe["growth"])
+        if run["pair"] in values[run["label"]]:
+            raise ValueError("The disk budget contains a duplicate pair")
+        values[run["label"]][run["pair"]] = cases
+    if any(set(runs) != {0} for runs in values.values()):
+        raise ValueError("The disk budget lacks its single complete pair")
+    comparison = {}
+    for case in disk_budget.CASES:
+        item = {label: {name: runs[0][case]["metrics"][name] for name in disk_budget.MEASURES}
+                for label, runs in values.items()}
+        item["paired_changes_percent"] = {
+            name: [100 * (item["candidate"][name] / item["baseline"][name] - 1) if item["baseline"][name] else None]
+            for name in disk_budget.MEASURES}
+        item["advisories"] = disk_budget.advisories(item["baseline"], item["candidate"])
+        comparison[case] = item
+    return comparison
+
+
+def _headroom_lines(comparison):
+    rows = ["", "## Room below the total 1.5× limit", "",
+            "At each case's highest settled ratio. Negative room means excess.", "",
+            "| Case | Maximum ratio | Room MiB | Room % of limit |", "|---|---:|---:|---:|"]
+    for case, item in comparison.items():
+        value = item["candidate"]
+        rows.append(f"| {case} | {value['max_disk_to_logical_ratio']:.6f}× | "
+                    f"{value['limit_headroom_bytes'] / 2**20:.3f} | {value['limit_headroom_percent']:.2f}% |")
+    deleted = comparison["delete"]["candidate"]
+    rows.extend(["", f"Delete corpus: {deleted['starting_stored_record_bytes'] / 2**20:.3f} MiB logical; "
+                 f"deleted {deleted['deleted_records']} of {deleted['starting_live_records']} records; "
+                 f"{deleted['stored_record_bytes'] / 2**20:.3f} MiB logical remains."])
+    return "\n".join(rows) + "\n"
+
+
+def _disk_budget_notices(comparison):
+    for case, item in comparison.items():
+        ratio = item["candidate"]["max_disk_to_logical_ratio"]
+        if ratio > disk_budget.LIMIT:
+            print(f"::error title=Required disk size limit exceeded::{case}: {ratio:.6f}x exceeds "
+                  f"{disk_budget.LIMIT}x total. This single-pass result blocks merge.")
+        for name in item["advisories"]:
+            print(f"::warning title=Disk growth advisory::{case}: {name}; "
+                  f"{item['baseline'][name]} -> {item['candidate'][name]} bytes. This does not block merge.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("growth", "disk-budget"), default="growth")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--job-status", required=True)
-    parser.add_argument("--confirmation-status", required=True)
+    parser.add_argument("--confirmation-status")
     args = parser.parse_args()
-    args.output.mkdir(parents=True, exist_ok=True)
+    if args.mode == "disk-budget":
+        exceeded = False
+        try:
+            manifest = json.loads((args.output / "benchmark.json").read_text())
+            if not manifest["complete"] or args.job_status != "success":
+                raise ValueError("The disk budget measurement did not complete")
+            comparison = compare_disk_budget(args.output, manifest)
+            save(args.output / "comparison.json", comparison)
+            exceeded = any(i["candidate"]["max_disk_to_logical_ratio"] > disk_budget.LIMIT for i in comparison.values())
+            report = ("# LastDB v2 disk size budget — required 1.5× total limit\n\n"
+                      f"Required limit: **{'FAIL' if exceeded else 'PASS'}**. One pair; no repeat.\n\n"
+                      f"Profile: **{manifest['profile']}**.  \n"
+                      f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
+                      f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
+                      f"Driver: `{manifest['driver_revision']}`  \n"
+                      + home_format_line(args.output, manifest) + "\n"
+                      + disk_budget.render(comparison) + _headroom_lines(comparison))
+            complete = True
+        except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
+            report = f"# LastDB v2 disk size budget — incomplete\n\n{type(failure).__name__}: {failure}\n"
+            complete = False
+        publish_summary(args.output, report)
+        if complete:
+            _disk_budget_notices(comparison)
+        return 0 if complete and not exceeded else 1
+    if args.confirmation_status is None:
+        parser.error("--confirmation-status is required in growth mode")
     try:
         manifest = json.loads((args.output / "benchmark.json").read_text())
         if not manifest["complete"] or args.job_status != "success":
@@ -210,18 +298,13 @@ def main():
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
-        report = render(args.output, manifest, comparison) + confirmation_lines(decision)
-        complete = True
+        report, complete = render(args.output, manifest, comparison) + confirmation_lines(decision), True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"
                   f"{type(failure).__name__}: {failure}\n\n"
                   "This run supplies no valid growth comparison. Inspect the run artifact.\n")
         complete = False
-    (args.output / "summary.md").write_text(report)
-    if os.environ.get("GITHUB_STEP_SUMMARY"):
-        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-            stream.write(report)
-    print(report)
+    publish_summary(args.output, report)
     if complete:
         notices(decision)
     return 0 if complete else 1

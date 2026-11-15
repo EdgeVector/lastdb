@@ -9,18 +9,11 @@ import urllib.parse
 import uuid
 
 _SCRIPTS = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_SCRIPTS / "benchmarks"))
-sys.path.insert(0, str(_SCRIPTS))
-from harness.daemon import marker_format, poll_until  # noqa: E402
-from harness.uds import send_unix_request  # noqa: E402
+sys.path[:0] = [str(_SCRIPTS), str(_SCRIPTS / "benchmarks")]
+from harness import conditioned, marker_format, mutation as native_mutation, poll_until, send_unix_request  # noqa: E402
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node  # noqa: E402
-import record_format_refusal  # noqa: E402
-import record_runs  # noqa: E402
-from record_requests import mutation as native_mutation, conditioned  # noqa: E402
-import record_drop_tracking  # noqa: E402
-import record_inline_files  # noqa: E402
-import record_named_databases  # noqa: E402
+import record_drop_tracking, record_format_refusal, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -38,28 +31,24 @@ def install(node):
         definition = {
             "source": "system_seed", "name": name, "descriptive_name": name,
             "schema_type": "HashRange" if ranged else "Hash",
-            "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if ranged else {"kind": "hash"}, "alternates": {}},
-            "fields": FIELDS,
-            "field_types": {field: "String" for field in FIELDS},
-            "field_descriptions": {field: "Record home example " + field for field in FIELDS},
-            "field_versions": {field: 1 for field in FIELDS},
+            "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if ranged else {"kind": "hash"},
+                            "alternates": {"by_bucket": {"kind": "hash_range", "range_type": "String"}} if name == "RecordById" else {}},
+            "fields": FIELDS, "field_types": {f: "String" for f in FIELDS},
+            "field_descriptions": {f: "Record home example " + f for f in FIELDS},
+            "field_versions": {f: 1 for f in FIELDS},
         }
-        if name == "RecordById":
-            definition["record_keys"]["alternates"] = {"by_bucket": {"kind": "hash_range", "range_type": "String"}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
 
 
 def mutation(schema, key, values, operation="replace", expected=None, alternates=None):
     if alternates is None:
-        alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
-                      if schema == "RecordById" and values else {})
+        alternates = {"by_bucket": {"hash": values["bucket"], "range": values["id"]}} if schema == "RecordById" and values else {}
     return native_mutation(schema, key, values, operation, alternates=alternates,
                            expected=expected or ({"type": "absent"} if operation == "create" else None))
 
 
 def mutate(node, schema, key, values, operation="replace", **options):
-    request = mutation(schema, key, values, operation, **options)
-    return node.call("/api/mutation", conditioned(node, [request])[0])[0]
+    return node.call("/api/mutation", conditioned(node, [mutation(schema, key, values, operation, **options)])[0])[0]
 
 
 def refused(call, words):
@@ -141,51 +130,41 @@ def external_boundaries(node, external):
 def wide_empty_record_erasure(node):
     schema = "RecordWideEmpty"
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
-        "source": "system_seed", "name": schema, "descriptive_name": schema,
-        "schema_type": "Hash", "fields": [], "field_types": {},
-        "record_keys": {"primary": {"kind": "hash"},
-                        "alternates": {"by_alias": {"kind": "hash"}}},
+        "source": "system_seed", "name": schema, "descriptive_name": schema, "schema_type": "Hash",
+        "fields": [], "field_types": {},
+        "record_keys": {"primary": {"kind": "hash"}, "alternates": {"by_alias": {"kind": "hash"}}},
     }})
     key, aliases = {"hash": "k" * 65_000}, {"by_alias": {"hash": "wide-empty"}}
     created = mutate(node, schema, key, {}, "create", alternates=aliases)
     request = mutation(schema, key, {}, "delete", alternates=aliases,
                        expected={"type": "revision", "revision": created["record_revision"]})
     deleted = node.call("/api/mutation", request)[0]
-    request.update(mutation_type="purge",
-                   expected={"type": "revision", "revision": deleted["record_revision"]})
+    request.update(mutation_type="purge", expected={"type": "revision", "revision": deleted["record_revision"]})
     node.call("/api/mutation", request)
-    reply = node.call("/api/query", {"schema_name": schema,
-        "filter": {"HashKey": "wide-empty"}, "key_name": "by_alias"})[0]
+    reply = node.call("/api/query", {"schema_name": schema, "filter": {"HashKey": "wide-empty"}, "key_name": "by_alias"})[0]
     require(reply["results"] == [], "wide empty record retained its alternate after erasure")
     print("Wide empty record: complete-address delete and revision-guarded tombstone purge passed", flush=True)
 
 
 def alternate_keys(node):
-    def lookup(selector):
-        return query(node, "RecordById", selector, key_name="by_bucket")
-    require(ids(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}})) == ["one"],
-            "the alternate key did not find its record")
+    lookup = lambda selector: query(node, "RecordById", selector, key_name="by_bucket")
+    require(ids(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}})) == ["one"], "the alternate key did not find its record")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b2", "value": "v2"})
-    require(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}}) == [],
-            "the old alternate entry still resolves")
+    require(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}}) == [], "the old alternate entry still resolves")
     rows = lookup({"HashRangeRange": {"hash": "b2", "start": "a", "end": "z"}})
-    require(ids(rows) == ["one"] and rows[0]["fields"]["value"] == "v2",
-            "the new alternate entry lost its record")
-    require(sorted(ids(lookup({"HashKey": "b9"}))) == ["three", "two"],
-            "the alternate hash read returned other records")
+    require(ids(rows) == ["one"] and rows[0]["fields"]["value"] == "v2", "the new alternate entry lost its record")
+    require(sorted(ids(lookup({"HashKey": "b9"}))) == ["three", "two"], "the alternate hash read returned other records")
     print("Alternate keys: read, move on update, range read passed", flush=True)
 
 
 def range_records(node):
     for key in ["c", "a", "e", "b", "d"]:
-        mutate(node, "RecordByBucket", {"hash": "bk", "range": key},
-               {"id": key, "bucket": "bk", "value": key.upper()}, "create")
-    mutate(node, "RecordByBucket", {"hash": "other", "range": "a"},
-           {"id": "a", "bucket": "other", "value": "OTHER"}, "create")
+        mutate(node, "RecordByBucket", {"hash": "bk", "range": key}, {"id": key, "bucket": "bk", "value": key.upper()}, "create")
+    mutate(node, "RecordByBucket", {"hash": "other", "range": "a"}, {"id": "a", "bucket": "other", "value": "OTHER"}, "create")
     require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "c", "d", "e"],
             "the records under one hash are missing or out of order")
-    require(ids(query(node, "RecordByBucket", {"HashRangeRange": {"hash": "bk", "start": "b", "end": "d"}}))
-            == ["b", "c"], "the range under one hash returned other records")
+    require(ids(query(node, "RecordByBucket", {"HashRangeRange": {"hash": "bk", "start": "b", "end": "d"}})) == ["b", "c"],
+            "the range under one hash returned other records")
     require(ids(query(node, "RecordByBucket", {"HashRangePrefix": {"hash": "bk", "prefix": "c"}})) == ["c"],
             "the prefix under one hash returned other records")
     row = query(node, "RecordByBucket", {"HashRangeKey": {"hash": "other", "range": "a"}})
@@ -196,13 +175,10 @@ def range_records(node):
 def preconditions(node):
     fields = {"id": "one", "bucket": "b2", "value": "v3"}
     old = query(node, "RecordById", {"HashKey": "one"})[0]["revision"]
-    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, "create",
-                           expected={"type": "absent"}), "HTTP 4")
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, "create", expected={"type": "absent"}), "HTTP 4")
     require(one(node, "one")["value"] == "v2", "a refused create changed the record")
-    mutate(node, "RecordById", {"hash": "one"}, fields,
-           expected={"type": "revision", "revision": old})
-    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields,
-                           expected={"type": "revision", "revision": old}), "HTTP 409")
+    mutate(node, "RecordById", {"hash": "one"}, fields, expected={"type": "revision", "revision": old})
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"}, fields, expected={"type": "revision", "revision": old}), "HTTP 409")
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b9", "value": "four"}, "create")
     print("Expected-absent creation and whole-record revision refusal passed", flush=True)
 

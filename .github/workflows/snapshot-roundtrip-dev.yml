@@ -59,7 +59,7 @@ on:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
       - '.github/workflows/cloud-backup-build.yml'
-      - 'scripts/harness/**'
+      - 'scripts/harness.py'
       - 'scripts/cloud_backup/**'
       - 'scripts/release/published_client.py'
       - 'scripts/release/nightly_package.py'
@@ -111,7 +111,7 @@ jobs:
           fi
       - name: Check the operational recipe syntax
         run: |
-          python3 -m py_compile scripts/harness/*.py scripts/cloud_backup/*.py
+          python3 -m py_compile scripts/harness.py scripts/cloud_backup/*.py
           python3 -m py_compile scripts/release/published_client.py
 
   build-client:

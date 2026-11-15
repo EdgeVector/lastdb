@@ -20,8 +20,7 @@ for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
     if _entry not in sys.path:
         sys.path.append(_entry)
 
-from harness.daemon import poll_until, read_shutdown_receipt, verify_shutdown_receipt  # noqa: E402
-from harness.uds import UnixConnection, send_unix_request  # noqa: E402,F401
+from harness import UnixConnection, poll_until, read_shutdown_receipt, send_unix_request, verify_shutdown_receipt  # noqa: E402,F401
 from home_format import NODE_MARKER  # noqa: E402
 
 

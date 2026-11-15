@@ -20,7 +20,7 @@ for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)
 
-from harness.uds import UnixConnection  # noqa: E402
+from harness import UnixConnection  # noqa: E402
 from home_format import FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, source_constant  # noqa: E402
 
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")

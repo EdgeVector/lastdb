@@ -1,12 +1,14 @@
-"""Measure retained v2 disk space against the node's record report."""
+"""Measure retained v2 disk space, durable deletes, and absence against the node's record report."""
+
+from __future__ import annotations
 
 import math
 import statistics
+import time
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
-from disk_deletes import delete_records, prepare_delete, verify_deleted
-from node import Node, save
-from disk_usage import validate as validate_breakdown
+from node import Node, save, validate_breakdown
+from workload import HASH, SCHEMA, Workload, key, read_request
 
 LIMIT = 1.5
 PERCENT = 10
@@ -19,6 +21,52 @@ MEASURES = ("stored_record_bytes", "retained_disk_bytes", "disk_to_logical_ratio
             "starting_stored_record_bytes", "starting_live_records", "deleted_records")
 
 
+def prepare_delete(workload, logical_storage_fn):
+    target = workload.recipe["delete_target_bytes"]
+    deadline = time.monotonic() + 300
+    for batch in range(512):
+        report = logical_storage_fn(workload.node)
+        if batch == 0 and report["total_logical_bytes"] >= target:
+            raise ValueError("The fresh delete seed already meets or exceeds its fixed size target")
+        if report["total_logical_bytes"] >= target:
+            workload.delete_start_records = workload.live_records
+            workload.delete_keep_records = (workload.live_records + 3) // 4
+            return
+        if time.monotonic() >= deadline:
+            break
+        workload.phase = "prepare-delete-corpus"
+        workload.write(workload.live_records, 128, "delete-seed", True)
+        workload.live_records += 128
+    raise ValueError("The bounded delete seed did not reach its logical-size target")
+
+
+def delete_records(workload, count):
+    first = workload.live_records - count
+    if first < workload.delete_keep_records:
+        raise ValueError("The delete workload must retain one quarter of its starting records")
+    for start in range(first, workload.live_records, 128):
+        numbers = list(range(start, min(start + 128, workload.live_records)))
+        request = {"mutations": [{"type": "mutation", "schema": SCHEMA, "mutation_type": "delete",
+                                  "durability": "durable", "key_value": {"hash": HASH, "range": key(n)},
+                                  "fields_and_values": {}} for n in numbers]}
+        result, _, _ = workload.node.call("/api/mutations/batch", request)
+        Workload.validate_write(result, len(numbers))
+        for number in numbers:
+            del workload.expected[number]
+    workload.live_records = first
+    workload.deleted_records = getattr(workload, "deleted_records", 0) + count
+
+
+def verify_deleted(workload):
+    first = workload.live_records
+    until = first + getattr(workload, "deleted_records", 0)
+    for start in range(first, until, 64):
+        numbers = list(range(start, min(start + 64, until)))
+        result, _, _ = workload.node.call("/api/query", read_request(numbers))
+        if result.get("returned_count") != 0 or result.get("results") != []:
+            raise ValueError("A deleted key still returns data")
+
+
 def require_search_off(node, output, phase):
     status, _, _ = node.call("/api/db/native-status")
     search = status.get("search")
@@ -28,22 +76,20 @@ def require_search_off(node, output, phase):
 
 
 def logical_storage(node):
-    report, _, _ = node.call("/api/db/schemas")
-    report = report["schema_storage"]
+    report = node.call("/api/db/schemas")[0]["schema_storage"]
     validate_logical(report, node.home_format())
     return report
 
 
-def validate_logical(report, home_format):
+def validate_logical(report, _home_format):
     """A home stores one record per key. Its logical bytes are the stored record values."""
     rows = report["per_schema"]
-    if (not rows
-            or report["total_logical_bytes"] != report["total_record_bytes"]
+    if (not rows or report["total_logical_bytes"] != report["total_record_bytes"]
             or report["total_logical_bytes"] != sum(row["bytes"] for row in rows)
             or report["total_record_bytes"] != sum(row["record_bytes"] for row in rows)
             or report["total_records"] != sum(row["record_count"] for row in rows)
-            or any(type(row[key]) is not int or row[key] <= 0
-                   for row in rows for key in ("bytes", "record_bytes", "record_count"))):
+            or any(type(row[name]) is not int or row[name] <= 0
+                   for row in rows for name in ("bytes", "record_bytes", "record_count"))):
         raise ValueError("The record report is incomplete")
 
 
@@ -75,8 +121,6 @@ class DiskBudgetWorkload(GrowthWorkload):
     case_names = GROWTH_CASES
 
     def run(self):
-        # Nightly inserts can already exceed the fixed delete target. Give
-        # deletes a fresh owned home instead of inheriting that larger corpus.
         output = self.output / "delete"
         output.mkdir()
         node = Node(self.node.binary, self.node.revision, output,
@@ -91,8 +135,7 @@ class DiskBudgetWorkload(GrowthWorkload):
             workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)
             workload.case_names = ("delete",)
             GrowthWorkload.run(workload)
-            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-            save(output / "disk-format.json", {"marker": marker})
+            save(output / "disk-format.json", {"marker": (node.home / "data" / "laststore-pack-node-v1").read_text()})
             require_search_off(node, output, "after")
             self.cases.update(workload.cases)
         finally:
@@ -100,8 +143,7 @@ class DiskBudgetWorkload(GrowthWorkload):
         super().run()
 
     def checkpoint(self, number):
-        result, _, _ = self.node.call("/api/db/flush", {})
-        if result.get("durable") is not True:
+        if self.node.call("/api/db/flush", {})[0].get("durable") is not True:
             raise ValueError("The disk budget checkpoint lacks a durable flush")
         self.phase = "verify-disk-budget"
         self.read(0, self.live_records)
@@ -111,21 +153,19 @@ class DiskBudgetWorkload(GrowthWorkload):
         idle = []
         current, samples, settled = self.settle_disk(idle, self.node.disk_breakdown)
         inventory = getattr(self, "delete_start_records", 0) > 0
-        status, _, _ = self.node.call("/api/db/native-status", {"inventory": True} if inventory else None)
-        diagnostics = status.get("storage_diagnostics")
+        diagnostics = self.node.call("/api/db/native-status", {"inventory": True} if inventory else None)[0].get(
+            "storage_diagnostics")
         if "delete_target_bytes" in self.recipe and (
                 not isinstance(diagnostics, dict)
                 or any(not isinstance(diagnostics.get(name), dict) for name in ("main", "cas"))):
             raise ValueError("The disk budget lacks both physical storage diagnostics")
-        if inventory and any(not diagnostics[name].get("inventory", {}).get("complete")
-                             for name in ("main", "cas")):
+        if inventory and any(not diagnostics[name].get("inventory", {}).get("complete") for name in ("main", "cas")):
             raise ValueError("The delete checkpoint lacks a complete storage inventory")
         return {"round": number, "live_records": self.live_records, "home_format": self.node.home_format(),
                 "delete_start_records": getattr(self, "delete_start_records", 0),
                 "delete_keep_records": getattr(self, "delete_keep_records", 0),
                 "deleted_records": getattr(self, "deleted_records", 0), "disk": current["whole_home"],
-                "storage_diagnostics": diagnostics,
-                "disk_breakdown": current,
+                "storage_diagnostics": diagnostics, "disk_breakdown": current,
                 "logical_storage": logical, "settled_seconds": settled,
                 "disk_samples": samples, "idle_memory_bytes": statistics.median(idle),
                 "idle_memory_samples": idle}
@@ -206,12 +246,8 @@ def validate(case, result, recipe):
 
 
 def advisories(base, candidate):
-    result = []
-    for name in ("retained_disk_bytes", "search_queue_bytes"):
-        if (candidate[name] - base[name] >= FLOOR
-                and candidate[name] >= base[name] * (1 + PERCENT / 100)):
-            result.append(name)
-    return result
+    return [name for name in ("retained_disk_bytes", "search_queue_bytes")
+            if candidate[name] - base[name] >= FLOOR and candidate[name] >= base[name] * (1 + PERCENT / 100)]
 
 
 def render(comparison):
@@ -219,10 +255,8 @@ def render(comparison):
              "|---|---:|---:|---:|---:|"]
     for case, item in comparison.items():
         cells = [" → ".join(f"{item[label][name] / divisor:.3f}{unit}" for label in ("baseline", "candidate"))
-                 for name, divisor, unit in (("stored_record_bytes", 2**20, ""),
-                                             ("retained_disk_bytes", 2**20, ""),
-                                             ("disk_to_logical_ratio", 1, "×"),
-                                             ("max_disk_to_logical_ratio", 1, "×"))]
+                 for name, divisor, unit in (("stored_record_bytes", 2**20, ""), ("retained_disk_bytes", 2**20, ""),
+                                             ("disk_to_logical_ratio", 1, "×"), ("max_disk_to_logical_ratio", 1, "×"))]
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines.extend(["", "| Case | Search queue MiB, base → candidate | Queue files, base → candidate | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
                   "|---|---:|---:|---:|---:|"])
