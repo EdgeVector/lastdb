@@ -8,8 +8,9 @@ pub use dev_key::{
 };
 pub(crate) use enrollment::load_home_keypair;
 pub use enrollment::{
-    account_from_phrase, app_publisher_signing_key, client_from_home, load_home_account_id,
-    pin_schema_service_environment_from_home, register_native_device, seed_from_phrase,
+    account_from_phrase, app_publisher_signing_key, client_from_home,
+    client_from_home_with_keypair, load_home_account_id, pin_schema_service_environment_from_home,
+    register_native_device, seed_from_phrase,
 };
 
 use cloud_backup_protocol::{limits::REQUEST_JSON_MAX_BYTES, AccountId, Id};

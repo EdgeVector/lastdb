@@ -10,6 +10,6 @@ pub mod share_access;
 pub mod transfer;
 mod version;
 
-pub use common::{ClientDescriptor, Destination, Job, Object, Stream};
+pub use common::{Destination, Job, Object, Stream};
 pub use jobs::Begin;
 pub use version::Version;

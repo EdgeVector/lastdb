@@ -21,7 +21,10 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     FreshHome::preflight_empty(&destination)?;
     let restored = signed_restore_worker(|| async {
         let account_id = lastdb_node::cloud::account_from_phrase(&phrase)?;
-        let mut scope = lastdb_node::cloud::client_from_home(home)?
+        let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(&phrase)?);
+        let pair = fold_db::security::Ed25519KeyPair::from_secret_key(seed.as_ref())
+            .map_err(|_| "invalid recovery identity".to_owned())?;
+        let mut scope = lastdb_node::cloud::client_from_home_with_keypair(home, Arc::new(pair))?
             .context(&ContextReadRequest {
                 version: Version::V2,
                 account_id,
@@ -34,7 +37,6 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
             scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
         }
         let staged_path = parent.join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
-        let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(&phrase)?);
         let mut fresh = FreshHome::preflight_empty(&staged_path)?.create()?;
         fresh.write(IDENTITY_KEY_FILE, seed.as_ref())?;
         fresh.commit()?;

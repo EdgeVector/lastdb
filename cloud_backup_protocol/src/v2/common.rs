@@ -1,7 +1,5 @@
-use super::limits;
 use crate::{CloudScope, DecimalU64, Digest, Id, ProtocolError};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,32 +74,5 @@ impl Object {
             return Err(ProtocolError::invalid("v2.object.bytes"));
         }
         Ok(())
-    }
-}
-
-/// Bounded opaque client JSON. Only the client interprets its contents.
-/// Transparent serialization preserves the existing descriptor commitment.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct ClientDescriptor(Value);
-impl ClientDescriptor {
-    fn new(value: Value) -> Result<Self, ProtocolError> {
-        let descriptor = Self(value);
-        descriptor.validate()?;
-        Ok(descriptor)
-    }
-    #[must_use]
-    /// A JSON null. It still has to pass the encoded-size check when committed.
-    pub const fn empty() -> Self {
-        Self(Value::Null)
-    }
-    /// Reject canonical JSON larger than the control-message limit.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-}
-impl<'de> Deserialize<'de> for ClientDescriptor {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

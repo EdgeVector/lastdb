@@ -64,6 +64,8 @@ pub const SHARE_MEMBER_LIST_UPDATE_PATH: &str = "/api/cloud/backups/v2/share/mem
 /// `cloud/backups/v2/share/members/read`.
 pub const SHARE_MEMBER_LIST_READ_PATH: &str = "/api/cloud/backups/v2/share/members/read";
 
+/// Read or upload signed cold-blob bytes and account context.
+pub const MUTATION_LOG_BLOB_BYTES_PATH: &str = "/api/cloud/backups/v2/mutation-log/blob/bytes";
 /// Read or publish the reference to a client-uploaded encrypted snapshot.
 pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";

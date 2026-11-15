@@ -7,7 +7,7 @@ use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{AccountId, Id};
 
 use super::{cloud::CloudLog, http, registry, session};
-use crate::cloud_backup_client::{storage_transfer::StorageTransferClient, AuthClient};
+use crate::cloud_backup_client::{AuthClient, SignedBlobClient};
 
 pub(super) async fn personal_log(home: &Path, selector: &str) -> Result<(Id, CloudLog), String> {
     let database = registry::databases(home)
@@ -35,10 +35,10 @@ async fn owner_log(home: &Path, database_id: Id) -> Result<CloudLog, String> {
     }
     let device = session::saved_device_id(home)?.ok_or("home has no existing sync device id")?;
     let endpoint = http::Endpoint::open(&selected.api_url, selected.label)?;
-    let backup = StorageTransferClient::from_auth(AuthClient::new(
-        saved.api_url,
-        std::mem::take(&mut *saved.api_key),
-    ))
+    let backup = SignedBlobClient::from_auth_and_keypair(
+        AuthClient::new(saved.api_url, std::mem::take(&mut *saved.api_key)),
+        Arc::clone(&keypair),
+    )
     .map_err(|error| error.to_string())?;
     let context = backup
         .context(&ContextReadRequest {

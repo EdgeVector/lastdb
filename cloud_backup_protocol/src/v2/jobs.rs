@@ -1,9 +1,8 @@
 //! Begin, status, and close messages for one cold-blob job.
 
-use super::{hash, limits, ClientDescriptor, Destination, Job, Version};
+use super::{hash, limits, Destination, Job, Version};
 use crate::{Digest, ProtocolError};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13,45 +12,17 @@ pub struct Begin {
     pub version: Version,
     /// Stream and commit id this value belongs to.
     pub job: Job,
-    /// Legacy client descriptor slot; cold-blob transport requires `ClientDescriptor::empty()`.
-    #[serde(default)]
-    pub descriptor: ClientDescriptor,
     /// The providers that hold the objects of this job. The list is not empty.
     pub required_destinations: Vec<Destination>,
-    /// Retired R2 multipart toggle; must be `None` for cold-blob transport.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r2_multipart: Option<bool>,
-    /// Retired predecessor slot; must be `None` for cold-blob transport.
-    #[serde(default)]
-    pub predecessor: Option<Value>,
-    /// Retired recovery-dependency slot; must be empty for cold-blob transport.
-    #[serde(default)]
-    pub recovery_dependencies: Vec<Value>,
-    /// Retired covered-log slot; must be empty for cold-blob transport.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub covered_logs: Vec<Value>,
 }
 impl Begin {
-    /// Reject retired V2 byte-backup fields, a bad job or descriptor, or oversized JSON.
+    /// Reject an empty or duplicate destination list, a bad job, or oversized JSON.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         super::common::validate_destinations(&self.required_destinations)?;
         if self.required_destinations.is_empty() {
             return Err(ProtocolError::invalid("v2.begin.required_destinations"));
         }
-        if self.r2_multipart.is_some() {
-            return Err(ProtocolError::invalid("v2.begin.r2_multipart"));
-        }
-        if self.predecessor.is_some() {
-            return Err(ProtocolError::invalid("v2.begin.predecessor"));
-        }
-        if !self.recovery_dependencies.is_empty() {
-            return Err(ProtocolError::invalid("v2.begin.recovery_dependencies"));
-        }
-        if !self.covered_logs.is_empty() {
-            return Err(ProtocolError::invalid("v2.begin.covered_logs"));
-        }
         self.job.validate()?;
-        self.descriptor.validate()?;
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 
