@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    DatabaseId, DatabaseKind, Grant, Head, LogError, PrincipalId, Snapshot, SubmissionRecord,
-    Writer,
+    AppendBatch, AppendOutcome, Capability, DatabaseId, DatabaseKind, Grant, Head, LogError,
+    NamespacePolicy, PrincipalId, ScopedHead, Snapshot, SubmissionRecord, Writer,
 };
 
 /// The whole log as a value. The shell stores it. This crate does not.
@@ -24,8 +24,6 @@ pub struct LogState {
     pub trimmed_tips: BTreeMap<Writer, u64>,
     /// Who may read or append. This list is not a storage path.
     pub grants: Vec<Grant>,
-    /// Highest delivery sequence each reading device has acknowledged.
-    pub acks: BTreeMap<Writer, u64>,
     /// Retained entries in delivery order.
     pub entries: Vec<crate::StoredEntry>,
     /// Open appends, one per writer (node key, device).
@@ -42,12 +40,6 @@ pub struct LogState {
     /// adapter stores this set with the log. Trim drops a key when the
     /// submission it names is dropped.
     pub incorporated: BTreeSet<(Writer, u64)>,
-    /// Rejected pending submissions that are still stored.
-    ///
-    /// The key is `(writer, writer_seq)`. Trim moves a key into
-    /// [`SubmissionRecord`] when the entry is dropped. The key stays while
-    /// the entry is stored.
-    pub rejected: BTreeSet<(Writer, u64)>,
     /// Dropped pending submissions, kept for the life of the log.
     ///
     /// The value is the writer, sequence, rejected or expired, and the time
@@ -67,14 +59,12 @@ impl LogState {
             tips: BTreeMap::new(),
             trimmed_tips: BTreeMap::new(),
             grants: Vec::new(),
-            acks: BTreeMap::new(),
             entries: Vec::new(),
             inflight: BTreeSet::new(),
             snapshot: None,
             trimmed_through: 0,
             submissions_consumed_through: 0,
             incorporated: BTreeSet::new(),
-            rejected: BTreeSet::new(),
             submission_records: BTreeMap::new(),
         }
     }
@@ -101,38 +91,102 @@ impl LogState {
         Ok(next)
     }
 
-    /// Last accepted writer sequence for `writer`, or zero when it has no entries.
-    ///
-    /// `reader` must be that writer's node key, and that key must be allowed to append.
-    pub fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {
-        if reader != &writer.key {
-            return Err(LogError::Unauthorized);
-        }
-        self.authorize_append(writer)?;
-        Ok(self.tips.get(writer).copied().unwrap_or(0))
-    }
-
     pub(crate) fn authorize_append(&self, writer: &Writer) -> Result<(), LogError> {
-        match &self.kind {
-            DatabaseKind::Personal => authorize_owner(self, &writer.key),
-            DatabaseKind::Shareable { publisher } if &writer.key == publisher => Ok(()),
-            DatabaseKind::Shareable { .. } => authorize_submit(self, &writer.key),
+        let allowed = match &self.kind {
+            DatabaseKind::Personal => crate::read::holds_owner(self, &writer.key),
+            DatabaseKind::Shareable { publisher } => {
+                &writer.key == publisher || crate::read::holds_submit(self, &writer.key)
+            }
+        };
+        if allowed {
+            Ok(())
+        } else {
+            Err(LogError::Unauthorized)
         }
     }
 }
 
-fn authorize_owner(state: &LogState, key: &PrincipalId) -> Result<(), LogError> {
-    if crate::auth::holds_owner(state, key) {
-        Ok(())
-    } else {
-        Err(LogError::Unauthorized)
-    }
+/// One log operation. The shell supplies every value. Nothing here reads the world.
+pub enum Command {
+    /// Mark one writer's append open.
+    BeginAppend {
+        /// Writer (node key, device) that will append.
+        writer: Writer,
+    },
+    /// Apply one batch on an open writer.
+    Append(AppendBatch),
+    /// Mark the writer's append closed.
+    FinishAppend {
+        /// Writer (node key, device) whose append is closing.
+        writer: Writer,
+    },
+    /// Read the last entry visible to a principal.
+    Head {
+        /// Who is reading.
+        reader: PrincipalId,
+    },
+    /// Allow a principal to read or append.
+    Grant {
+        /// Publisher key, or an owner key making the grant.
+        caller: PrincipalId,
+        /// Node key receiving the grant.
+        principal: PrincipalId,
+        /// Capability they receive.
+        capability: Capability,
+    },
 }
 
-fn authorize_submit(state: &LogState, key: &PrincipalId) -> Result<(), LogError> {
-    if crate::auth::holds_submit(state, key) {
-        Ok(())
-    } else {
-        Err(LogError::Unauthorized)
-    }
+/// What a successful step did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The writer's append is open.
+    AppendBegun,
+    /// The batch was classified and, when it had new entries, stored.
+    Appended(AppendOutcome),
+    /// The writer's append is closed.
+    AppendFinished,
+    /// The last visible entry, or nothing visible yet.
+    Head(Option<ScopedHead>),
+    /// The grant was stored, or it was already present.
+    Granted,
+}
+
+/// The state to keep, and what the step did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepResult {
+    /// Next log value. Read steps clone the input.
+    pub state: LogState,
+    /// What the command produced.
+    pub outcome: Outcome,
+}
+
+/// Apply one command. On `Err`, the caller keeps its previous state.
+pub fn step(
+    state: &LogState,
+    command: Command,
+    policy: &impl NamespacePolicy,
+) -> Result<StepResult, LogError> {
+    let (state, outcome) = match command {
+        Command::BeginAppend { writer } => (state.begin_append(&writer)?, Outcome::AppendBegun),
+        Command::Append(batch) => {
+            let (state, append) = state.append(&batch, policy)?;
+            (state, Outcome::Appended(append))
+        }
+        Command::FinishAppend { writer } => {
+            (state.finish_append(&writer)?, Outcome::AppendFinished)
+        }
+        Command::Head { reader } => (
+            state.clone(),
+            Outcome::Head(state.head_for(&reader, policy)?),
+        ),
+        Command::Grant {
+            caller,
+            principal,
+            capability,
+        } => (
+            state.grant(&caller, principal, capability)?,
+            Outcome::Granted,
+        ),
+    };
+    Ok(StepResult { state, outcome })
 }

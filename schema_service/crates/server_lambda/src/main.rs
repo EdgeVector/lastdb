@@ -6,17 +6,132 @@
 #![allow(clippy::result_large_err)]
 
 mod catalog;
-mod dispatch;
-mod http;
-
-// API Gateway sets Access-Control-Allow-Origin; the Lambda adds methods and headers.
-pub(crate) const ACCESS_CONTROL_ALLOW_METHODS: &str = "GET, POST, OPTIONS";
-pub(crate) const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type";
 
 use std::sync::Arc;
 
 use lambda_http::{run, service_fn, Body, Error, Request, Response};
+use schema_service_core::advice::SchemaAdviceRequest;
 use schema_service_core::SchemaServiceState;
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
+
+const ACCESS_CONTROL_ALLOW_METHODS: &str = "GET, POST, OPTIONS";
+const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type";
+const MAX_REQUEST_BODY_BYTES: usize = 128 * 1024;
+
+type HandlerResult<T> = Result<T, Result<Response<Body>, Error>>;
+type RouteResult = Option<Result<Response<Body>, Error>>;
+
+pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>, Error> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .header("Access-Control-Allow-Methods", ACCESS_CONTROL_ALLOW_METHODS)
+        .header("Access-Control-Allow-Headers", ACCESS_CONTROL_ALLOW_HEADERS)
+        .body(Body::from(body.to_string()))
+        .map_err(|e| Error::from(format!("Failed to build response: {e}")))
+}
+
+fn payload_too_large() -> Result<Response<Body>, Error> {
+    json_response(
+        413,
+        &schema_service_core::error_only_body("Request body exceeds 128 KiB limit"),
+    )
+}
+
+fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
+where
+    T: DeserializeOwned,
+{
+    let raw = match event.body() {
+        Body::Text(s) => {
+            if s.len() > MAX_REQUEST_BODY_BYTES {
+                return Err(payload_too_large());
+            }
+            s.clone()
+        }
+        Body::Binary(b) => {
+            if b.len() > MAX_REQUEST_BODY_BYTES {
+                return Err(payload_too_large());
+            }
+            String::from_utf8_lossy(b).into_owned()
+        }
+        Body::Empty => {
+            return Err(json_response(
+                400,
+                &schema_service_core::error_only_body("Request body is empty"),
+            ));
+        }
+    };
+    serde_json::from_str(&raw).map_err(|parse_error| {
+        json_response(
+            400,
+            &schema_service_core::error_only_body(&format!("{error}: {parse_error}")),
+        )
+    })
+}
+
+fn dispatch_stateless(method: &str, path: &str) -> RouteResult {
+    match (method, path) {
+        ("GET", "/health" | "/v1/health") => Some(json_response(
+            200,
+            &json!({
+                "status": "healthy",
+                "service": "schema-service"
+            }),
+        )),
+        ("GET" | "POST", "/") => Some(json_response(
+            200,
+            &json!({
+                "service": "LastDB Advisory Schema Service",
+                "version": "3.0.0",
+                "endpoints": {
+                    "GET /health": "Health check (unversioned alias)",
+                    "GET /v1/health": "Health check",
+                    "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
+                    "POST /v1/advice/schema": "Advice for one draft schema declaration (read-only, never blocks)"
+                }
+            }),
+        )),
+        _ => None,
+    }
+}
+
+async fn dispatch_with_state(
+    state: &SchemaServiceState,
+    catalog: Option<&catalog::Catalog>,
+    event: &Request,
+) -> Result<Response<Body>, Error> {
+    let method = event.method().as_str();
+    let path = event.uri().path();
+    match (method, path) {
+        ("GET", "/v1/fields/vocabulary") => json_response(200, state.canonical_vocabulary()),
+        ("POST", "/v1/advice/schema") => {
+            let request: SchemaAdviceRequest =
+                match typed_json_body(event, "Invalid advice request") {
+                    Ok(request) => request,
+                    Err(response) => return response,
+                };
+            match state.schema_advice(&request) {
+                Ok(mut response) => {
+                    let status = match catalog {
+                        Some(catalog) => catalog.examples(&request, &mut response).await,
+                        None => catalog::unavailable(),
+                    };
+                    json_response(
+                        200,
+                        &json!({"findings": response.findings, "catalog": status}),
+                    )
+                }
+                Err(message) => json_response(400, &schema_service_core::error_only_body(&message)),
+            }
+        }
+        _ => json_response(
+            404,
+            &schema_service_core::error_only_body(&format!("Not found: {method} {path}")),
+        ),
+    }
+}
 
 #[allow(
     clippy::unused_async,
@@ -33,7 +148,7 @@ async fn function_handler(
 
     tracing::info!("Request: {method} {path}");
 
-    if let Some(resp) = dispatch::dispatch_stateless(method, path) {
+    if let Some(resp) = dispatch_stateless(method, path) {
         return resp;
     }
 
@@ -41,7 +156,7 @@ async fn function_handler(
         return catalog::scheduled(catalog.as_deref(), &event).await;
     }
 
-    dispatch::dispatch_with_state(&state, catalog.as_deref(), &event).await
+    dispatch_with_state(&state, catalog.as_deref(), &event).await
 }
 
 #[tokio::main]

@@ -28,27 +28,17 @@ pub const LIST_CHANNELS: [&str; 2] = ["stable", "next"];
 /// The largest list (or list signature) a reader accepts, in bytes.
 pub const MAX_LIST_BYTES: usize = 2_097_152;
 
-/// The most apps one list may name.
-pub const MAX_LIST_APPS: usize = 500;
+const MAX_LIST_APPS: usize = 500;
 
-/// The detached signature file next to a list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IndexSignature {
-    /// Signature algorithm. Only `ed25519` is accepted.
-    pub alg: String,
-    /// Lowercase hex SHA-256 of the signing public key.
-    pub key_id: String,
-    /// Lowercase hex SHA-256 of the exact list bytes.
-    pub payload_sha256: String,
-    /// Base64 Ed25519 signature over the ASCII bytes of `payload_sha256`.
-    pub sig: String,
+struct IndexSignature {
+    alg: String,
+    key_id: String,
+    payload_sha256: String,
+    sig: String,
 }
 
-/// Verify a detached signature against the exact bytes under `trust`.
-///
-/// # Errors
-/// Names the first check that fails: algorithm, key id, digest, or signature.
-pub fn verify_index_bytes(
+fn verify_index_bytes(
     trust: &VerifyingKey,
     index_bytes: &[u8],
     signature: &IndexSignature,
@@ -111,7 +101,7 @@ pub struct ListEntry {
     pub publisher_account: String,
     /// Base64 Ed25519 public key of the publisher.
     pub publisher_key: String,
-    /// Base64 Ed25519 signature over [`ListEntry::signed_fields`].
+    /// Base64 Ed25519 signature over the entry's canonical signed fields.
     pub publisher_sig: String,
     /// Listing state. A valid list carries only `listed` entries.
     pub status: String,
@@ -123,9 +113,7 @@ pub struct ListEntry {
 }
 
 impl ListEntry {
-    /// RFC 8785 input, shared by publish and list verification.
-    #[must_use]
-    pub fn signed_fields(&self) -> Value {
+    fn signed_fields(&self) -> Value {
         let mut fields = json!({
             "app_id": self.app_id, "channel": self.channel, "app_version": self.app_version,
             "source": self.source, "sha": self.sha, "api_version": self.api_version,
@@ -140,7 +128,7 @@ impl ListEntry {
         fields
     }
 
-    /// Verify the publisher signature over [`ListEntry::signed_fields`].
+    /// Verify the publisher signature over the entry's canonical signed fields.
     ///
     /// # Errors
     /// A malformed publisher key or signature, or a signature that does not verify.

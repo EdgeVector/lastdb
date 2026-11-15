@@ -1,6 +1,6 @@
 use crate::{
-    auth::can_read, DatabaseKind, LogError, LogState, NamespaceKind, NamespacePolicy, PrincipalId,
-    SnapshotRef, Stamp, StoredEntry, Writer, LIST_PAGE_LIMIT,
+    Capability, DatabaseKind, Entry, Grant, LogError, LogState, NamespaceKind, NamespacePolicy,
+    PrincipalId, SnapshotRef, Stamp, StoredEntry, LIST_PAGE_LIMIT,
 };
 
 /// Head a reader is allowed to see.
@@ -52,36 +52,51 @@ pub struct ListPage {
     pub next: u64,
 }
 
-/// Entries `reader` may see. Hidden entries are omitted, not redacted in place.
+/// Whether `principal` may read this entry.
 ///
-/// A share receiver gets entries whose writer key is the publisher key and whose
-/// namespace is official. Only the publisher sees legacy pending submissions.
-/// An entry from another database is omitted.
-/// An app-private namespace on a shareable database is omitted for every reader.
-pub fn filter_readable<'a>(
-    entries: &'a [StoredEntry],
-    reader: &PrincipalId,
+/// On a personal database, only an owner key reads. On a shareable database
+/// the publisher key reads every entry except an app-private namespace. A
+/// receiver reads entries whose writer key is the publisher key, including
+/// re-appends, and does not read an app-private namespace. Pending member
+/// entries are visible only to the publisher. This matches the list filter.
+#[must_use]
+pub fn can_read(
+    principal: &PrincipalId,
     database: &LogState,
+    entry: &Entry,
     policy: &impl NamespacePolicy,
-) -> Vec<&'a StoredEntry> {
-    entries
-        .iter()
-        .filter(|stored| entry_visible(database, stored, reader, policy))
-        .collect()
+) -> bool {
+    if entry.database_id != database.database_id {
+        return false;
+    }
+    if shareable_app_private(database, entry, policy) {
+        return false;
+    }
+    match &database.kind {
+        DatabaseKind::Personal => holds_owner(database, principal),
+        DatabaseKind::Shareable { publisher } => share_read(database, principal, publisher, entry),
+    }
 }
 
-/// Merge order. Delivery order stays in [`StoredEntry::delivery_seq`].
-///
-/// Equal stamps break ties by delivery sequence so the order is total.
-#[must_use]
-pub fn merge_order(entries: &[StoredEntry]) -> Vec<&StoredEntry> {
-    let mut ordered: Vec<&StoredEntry> = entries.iter().collect();
-    ordered.sort_by(|left, right| {
-        left.merge_stamp()
-            .cmp(&right.merge_stamp())
-            .then(left.delivery_seq.cmp(&right.delivery_seq))
-    });
-    ordered
+fn shareable_app_private(
+    database: &LogState,
+    entry: &Entry,
+    policy: &impl NamespacePolicy,
+) -> bool {
+    matches!(database.kind, DatabaseKind::Shareable { .. })
+        && policy.classify(&entry.namespace) == NamespaceKind::AppPrivate
+}
+
+fn share_read(
+    database: &LogState,
+    principal: &PrincipalId,
+    publisher: &PrincipalId,
+    entry: &Entry,
+) -> bool {
+    if principal == publisher {
+        return true;
+    }
+    &entry.writer.key == publisher && holds_receive(database, principal)
 }
 
 /// Whether one stored entry is visible to `reader` in `database`.
@@ -113,6 +128,59 @@ fn shareable_namespace_allowed(
 }
 
 impl LogState {
+    /// Whether this key may call list or head.
+    #[must_use]
+    pub fn reader_allowed(&self, principal: &PrincipalId) -> bool {
+        match &self.kind {
+            DatabaseKind::Personal => holds_owner(self, principal),
+            DatabaseKind::Shareable { publisher } => {
+                principal == publisher
+                    || holds_receive(self, principal)
+                    || holds_submit(self, principal)
+            }
+        }
+    }
+
+    /// Grant `capability` to `principal`. The caller must already be allowed.
+    ///
+    /// The first grant on a personal database is an owner key granting itself.
+    /// A personal database rejects [`Capability::Receive`] and [`Capability::Submit`].
+    /// A shareable database rejects [`Capability::Owner`].
+    pub fn grant(
+        &self,
+        caller: &PrincipalId,
+        principal: PrincipalId,
+        capability: Capability,
+    ) -> Result<Self, LogError> {
+        self.reject_wrong_kind(&capability)?;
+        authorize_grant(self, caller, &principal, &capability)?;
+        if self
+            .grants
+            .iter()
+            .any(|grant| grant.principal == principal && grant.capability == capability)
+        {
+            return Ok(self.clone());
+        }
+        let mut next = self.clone();
+        next.grants.push(Grant {
+            principal,
+            capability,
+        });
+        Ok(next)
+    }
+
+    fn reject_wrong_kind(&self, capability: &Capability) -> Result<(), LogError> {
+        match (&self.kind, capability) {
+            (DatabaseKind::Personal, Capability::Receive | Capability::Submit) => {
+                Err(LogError::PersonalNotShareable)
+            }
+            (DatabaseKind::Shareable { .. }, Capability::Owner) => {
+                Err(LogError::DeviceGrantNotShareable)
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Last visible entry, with the cursor set to the last delivery scanned.
     pub fn head_for(
         &self,
@@ -125,44 +193,6 @@ impl LogState {
         Ok(scoped_head(self, reader, policy))
     }
 
-    /// Entries still stored after the lesser of the local cursor and the stored ack.
-    ///
-    /// A reinstall that reuses a device id can have a local cursor behind the
-    /// ack this log stored. Delivery starts at that lesser position. A start
-    /// below the trim floor returns a reset naming the snapshot ref.
-    pub fn recover(
-        &self,
-        reader: &Writer,
-        local_cursor: u64,
-        now_ms: u64,
-        policy: &impl NamespacePolicy,
-    ) -> Result<Recovery, LogError> {
-        if !self.reader_allowed(&reader.key) {
-            return Err(LogError::Unauthorized);
-        }
-        let floor = self.effective_floor(now_ms);
-        let server_ack = self.acks.get(reader).copied().unwrap_or(0);
-        let start = local_cursor.min(server_ack);
-        let page = recover_page(self, &reader.key, start, policy);
-        Ok(Recovery {
-            reset: reset_for(self, start, floor)?,
-            next: recovery_cursor(&page, floor),
-            entries: page.entries,
-        })
-    }
-
-    /// List visible entries after `after`. A cursor below the trim floor expires.
-    pub fn list(
-        &self,
-        reader: &PrincipalId,
-        after: u64,
-        limit: usize,
-        now_ms: u64,
-        policy: &impl NamespacePolicy,
-    ) -> Result<ListPage, LogError> {
-        self.list_after_floor(reader, after, limit, self.effective_floor(now_ms), policy)
-    }
-
     /// List after the caller's position using the last persisted trim boundary.
     pub fn list_retained(
         &self,
@@ -171,24 +201,13 @@ impl LogState {
         limit: usize,
         policy: &impl NamespacePolicy,
     ) -> Result<ListPage, LogError> {
-        self.list_after_floor(reader, after, limit, self.trimmed_through, policy)
-    }
-
-    fn list_after_floor(
-        &self,
-        reader: &PrincipalId,
-        after: u64,
-        limit: usize,
-        floor: u64,
-        policy: &impl NamespacePolicy,
-    ) -> Result<ListPage, LogError> {
         if limit == 0 || limit > LIST_PAGE_LIMIT {
             return Err(LogError::InvalidPage);
         }
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
         }
-        if after < floor {
+        if after < self.trimmed_through {
             return Err(LogError::CursorExpired {
                 snapshot_through: self
                     .snapshot
@@ -198,6 +217,71 @@ impl LogState {
         }
         Ok(page(self, reader, after, limit, policy))
     }
+}
+
+fn authorize_grant(
+    state: &LogState,
+    caller: &PrincipalId,
+    principal: &PrincipalId,
+    capability: &Capability,
+) -> Result<(), LogError> {
+    match &state.kind {
+        DatabaseKind::Shareable { publisher } => caller_is(caller, publisher),
+        DatabaseKind::Personal => authorize_personal_grant(state, caller, principal, capability),
+    }
+}
+
+fn authorize_personal_grant(
+    state: &LogState,
+    caller: &PrincipalId,
+    principal: &PrincipalId,
+    capability: &Capability,
+) -> Result<(), LogError> {
+    let bootstrapping = !state
+        .grants
+        .iter()
+        .any(|grant| matches!(grant.capability, Capability::Owner));
+    if bootstrapping {
+        return if caller == principal && matches!(capability, Capability::Owner) {
+            Ok(())
+        } else {
+            Err(LogError::Unauthorized)
+        };
+    }
+    if holds_owner(state, caller) {
+        Ok(())
+    } else {
+        Err(LogError::Unauthorized)
+    }
+}
+
+fn caller_is(caller: &PrincipalId, expected: &PrincipalId) -> Result<(), LogError> {
+    if caller == expected {
+        Ok(())
+    } else {
+        Err(LogError::Unauthorized)
+    }
+}
+
+pub(crate) fn holds_owner(database: &LogState, principal: &PrincipalId) -> bool {
+    database
+        .grants
+        .iter()
+        .any(|grant| grant.principal == *principal && matches!(grant.capability, Capability::Owner))
+}
+
+fn holds_receive(database: &LogState, principal: &PrincipalId) -> bool {
+    database
+        .grants
+        .iter()
+        .any(|grant| grant.principal == *principal && grant.capability == Capability::Receive)
+}
+
+pub(crate) fn holds_submit(database: &LogState, principal: &PrincipalId) -> bool {
+    database
+        .grants
+        .iter()
+        .any(|grant| grant.principal == *principal && grant.capability == Capability::Submit)
 }
 
 fn scoped_head(
@@ -213,50 +297,6 @@ fn scoped_head(
         }
     }
     Some(ScopedHead { cursor, stamp })
-}
-
-fn reset_for(state: &LogState, start: u64, floor: u64) -> Result<Option<Reset>, LogError> {
-    if start >= floor {
-        return Ok(None);
-    }
-    let cut = state.snapshot.as_ref().ok_or(LogError::SnapshotRequired)?;
-    Ok(Some(Reset {
-        snapshot_ref: cut.snapshot_ref.clone(),
-        through: cut.through_delivery_seq,
-        at_ms: cut.at_ms,
-    }))
-}
-
-fn recovery_cursor(page: &ListPage, floor: u64) -> u64 {
-    if page.entries.len() == LIST_PAGE_LIMIT {
-        page.next
-    } else {
-        page.next.max(floor)
-    }
-}
-
-fn recover_page(
-    state: &LogState,
-    reader: &PrincipalId,
-    device_ack: u64,
-    policy: &impl NamespacePolicy,
-) -> ListPage {
-    let mut entries = Vec::new();
-    let mut next = device_ack;
-    for stored in &state.entries {
-        if stored.delivery_seq <= device_ack {
-            continue;
-        }
-        next = stored.delivery_seq;
-        if !entry_visible(state, stored, reader, policy) {
-            continue;
-        }
-        entries.push(stored.clone());
-        if entries.len() == LIST_PAGE_LIMIT {
-            break;
-        }
-    }
-    ListPage { entries, next }
 }
 
 fn page(

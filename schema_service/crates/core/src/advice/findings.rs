@@ -1,13 +1,11 @@
 //! Findings for one draft schema against the curated canonical vocabulary.
 
 use super::{
-    draft, finding, AdviceEvidence, AdviceFinding, AdviceKind, Draft, SchemaAdviceReply,
-    SchemaAdviceRequest, SchemaAdviceResponse,
+    draft, finding, AdviceEvidence, AdviceFinding, AdviceKind, Draft, SchemaAdviceRequest,
+    SchemaAdviceResponse,
 };
-use crate::field_name_policy::validate_new_field_name;
-use crate::types::{CanonicalField, DataClassification};
-use crate::vocabulary_matching::{name_overlap, same_description};
-use crate::SchemaServiceState;
+use crate::field_name_policy::{name_overlap, same_description, validate_new_field_name};
+use crate::{CanonicalField, DataClassification, SchemaServiceState};
 use schema_types::FieldValueType;
 use std::collections::HashMap;
 
@@ -185,14 +183,5 @@ impl SchemaServiceState {
             }
         }
         Ok(SchemaAdviceResponse { findings })
-    }
-
-    /// [`Self::schema_advice`], classified for HTTP.
-    #[must_use]
-    pub fn schema_advice_reply(&self, request: &SchemaAdviceRequest) -> SchemaAdviceReply {
-        match self.schema_advice(request) {
-            Ok(response) => SchemaAdviceReply::Ready(response),
-            Err(message) => SchemaAdviceReply::Invalid(message),
-        }
     }
 }

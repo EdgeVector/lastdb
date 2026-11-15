@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::http::json_response;
+use crate::json_response;
 use storage::Store;
 
 pub(crate) const FEED_PATH: &str = "/v1/internal/catalog-feed";

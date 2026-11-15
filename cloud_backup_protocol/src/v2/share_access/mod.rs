@@ -42,7 +42,6 @@ pub use receipt::{
 
 use crate::{AccountId, Digest, ProtocolError};
 use serde::{Deserialize, Deserializer, Serialize};
-use sha2::{Digest as _, Sha256};
 
 /// Domain for `MemberListUpdate::digest`.
 pub const SHARE_MEMBER_LIST_UPDATE_DOMAIN: &str = "lastdb:share:member-list-update:v1";
@@ -86,7 +85,6 @@ pub const MUTATION_LOG_INBOX_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-l
 pub const MUTATION_LOG_INBOX_SETTLE_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/settle";
 
 const SIGNATURE_HEX_LEN: usize = 128;
-const PUBLIC_KEY_HEX_LEN: usize = 64;
 
 /// Lowercase hex encoding of a 64-byte Ed25519 signature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -132,29 +130,5 @@ pub(super) fn account_key_matches(
     public_key: &Digest,
     account: &AccountId,
 ) -> Result<(), ProtocolError> {
-    let raw = raw_public_key(public_key)?;
-    let hash = Sha256::digest(raw);
-    let derived: String = hash[..16]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    if derived != account.as_str() {
-        return Err(ProtocolError::invalid("share.publisher_public_key"));
-    }
-    Ok(())
-}
-
-fn raw_public_key(encoded: &Digest) -> Result<[u8; 32], ProtocolError> {
-    if !exact_lower_hex(encoded.as_str(), PUBLIC_KEY_HEX_LEN) {
-        return Err(ProtocolError::invalid("share.public_key"));
-    }
-    let bytes = encoded.as_str().as_bytes();
-    let mut raw = [0u8; 32];
-    for (index, slot) in raw.iter_mut().enumerate() {
-        let pair = std::str::from_utf8(&bytes[index * 2..index * 2 + 2])
-            .map_err(|_| ProtocolError::invalid("share.public_key"))?;
-        *slot =
-            u8::from_str_radix(pair, 16).map_err(|_| ProtocolError::invalid("share.public_key"))?;
-    }
-    Ok(raw)
+    crate::verify_account_public_key(public_key, account, "share.publisher_public_key")
 }

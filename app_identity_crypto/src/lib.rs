@@ -4,21 +4,23 @@
 //! JSON canonicalization, and verification of signed app registry interface lists.
 #![warn(missing_docs)]
 
-mod ed25519;
 mod registry_list;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+use ed25519_dalek::{Signature, Signer};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-pub use ed25519::{
-    key_id, sign, verify, verifying_key_from_base64, SigningKey, VerifyingKey, PUBLIC_KEY_LEN,
-    SIGNATURE_LEN,
-};
+pub use ed25519_dalek::{SigningKey, VerifyingKey};
 pub use registry_list::{
-    github_repo, interface_list_path, valid_app_id, valid_source, validate_channel,
-    verify_index_bytes, IndexSignature, InterfaceList, ListEntry, LIST_CHANNELS, MAX_LIST_APPS,
-    MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
+    github_repo, interface_list_path, valid_app_id, valid_source, validate_channel, InterfaceList,
+    ListEntry, LIST_CHANNELS, MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
 };
+
+const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
+pub(crate) const SIGNATURE_LEN: usize = ed25519_dalek::SIGNATURE_LENGTH;
 
 #[derive(Debug, Error)]
 /// JCS canonicalization failed.
@@ -66,4 +68,70 @@ pub fn hex_lower(bytes: &[u8]) -> String {
 /// Ed25519 signing across Rust and TypeScript implementations.
 pub fn canonicalize(value: &Value) -> Result<Vec<u8>, CanonicalizeError> {
     json_canon::to_vec(value).map_err(CanonicalizeError::from)
+}
+
+/// Parse a base64 (standard alphabet, padded) Ed25519 public key into a
+/// [`VerifyingKey`].
+///
+/// Rejects non-canonical y-coordinates (`y >= 2^255 - 19`) so [`key_id`] has
+/// one accepted wire form per point, and rejects the eight small-order points
+/// that fail [`VerifyingKey::verify_strict`].
+pub fn verifying_key_from_base64(b64: &str) -> Result<VerifyingKey, KeyParseError> {
+    let bytes = BASE64
+        .decode(b64.as_bytes())
+        .map_err(|_| KeyParseError::NotBase64)?;
+    let arr: [u8; PUBLIC_KEY_LEN] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| KeyParseError::WrongLength)?;
+    if !is_canonical_y(&arr) {
+        return Err(KeyParseError::InvalidPoint);
+    }
+    let vk = VerifyingKey::from_bytes(&arr).map_err(|_| KeyParseError::InvalidPoint)?;
+    if vk.is_weak() {
+        return Err(KeyParseError::WeakKey);
+    }
+    Ok(vk)
+}
+
+fn is_canonical_y(bytes: &[u8; PUBLIC_KEY_LEN]) -> bool {
+    for i in (0..PUBLIC_KEY_LEN).rev() {
+        let y_byte = if i == 31 { bytes[i] & 0x7F } else { bytes[i] };
+        let p_byte = match i {
+            0 => 0xED,
+            31 => 0x7F,
+            _ => 0xFF,
+        };
+        if y_byte < p_byte {
+            return true;
+        }
+        if y_byte > p_byte {
+            return false;
+        }
+    }
+    false
+}
+
+/// Sign `payload` with `signing_key`. Returns the raw 64-byte signature.
+pub fn sign(signing_key: &SigningKey, payload: &[u8]) -> [u8; SIGNATURE_LEN] {
+    signing_key.sign(payload).to_bytes()
+}
+
+/// Verify that `sig` is a valid strict Ed25519 signature over `payload` under
+/// `verifying_key`.
+pub fn verify(
+    verifying_key: &VerifyingKey,
+    sig: &[u8; SIGNATURE_LEN],
+    payload: &[u8],
+) -> Result<(), ed25519_dalek::SignatureError> {
+    let signature = Signature::from_bytes(sig);
+    verifying_key.verify_strict(payload, &signature)
+}
+
+/// Derive the envelope `key_id` for a verifying key: the lowercase hex
+/// SHA-256 of the 32-byte Ed25519 public key.
+#[must_use]
+pub fn key_id(verifying_key: &VerifyingKey) -> String {
+    let digest = Sha256::digest(verifying_key.to_bytes());
+    hex_lower(&digest)
 }
