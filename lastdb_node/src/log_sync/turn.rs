@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use tracing::Instrument;
@@ -20,6 +20,8 @@ use super::registry::{self, Database};
 use super::run;
 
 const GRANTS_LIMIT: usize = 65_536;
+const SHUTDOWN_CHECK: Duration = Duration::from_millis(250);
+const FALLBACK_MARKER_CHECK: Duration = Duration::from_secs(30);
 
 static AUTHORITY_WARNED: AtomicBool = AtomicBool::new(false);
 static UNARMED_REOPEN_WARNED: AtomicBool = AtomicBool::new(false);
@@ -62,7 +64,7 @@ pub fn spawn(
 }
 
 async fn one_turn(host: &Arc<Host>, cleanup: &mut Pacing) -> Pause {
-    if super::status::consume_wake(&host.home) {
+    if super::signals::consume_wake(&host.home) {
         native::clear_payment_hold();
         host.cloud_sync.clear_payment_hold();
     }
@@ -274,29 +276,44 @@ pub(super) fn warn_once(flag: &AtomicBool, message: &str) {
 }
 
 async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
-    let seconds = match pause {
-        Pause::Reopen => 0,
-        Pause::Idle => 1,
-        Pause::Retry => 5,
-        Pause::Snapshot => 30,
-        Pause::Backoff => 60,
-        Pause::PaymentHold => 300,
+    let duration = match pause {
+        Pause::Reopen => return,
+        Pause::Idle => Duration::from_secs(1),
+        Pause::Retry => Duration::from_secs(5),
+        Pause::Snapshot => Duration::from_secs(30),
+        Pause::Backoff => Duration::from_secs(60),
+        Pause::PaymentHold => Duration::from_secs(300),
     };
-    for _ in 0..seconds {
-        if shutdown.load(Ordering::Acquire) {
+    let deadline = Instant::now() + duration;
+    let mut notified = std::pin::pin!(host.cloud_sync.notified());
+    if notified.as_mut().enable() {
+        return;
+    }
+    if shutdown.load(Ordering::Acquire) || super::signals::wake_requested(&host.home) {
+        return;
+    }
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             return;
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        if snapshot_waiting(host) || super::status::wake_requested(&host.home) {
-            return;
+        tokio::select! {
+            biased;
+            () = wait_for_shutdown(shutdown) => return,
+            () = &mut notified => return,
+            () = tokio::time::sleep(remaining.min(FALLBACK_MARKER_CHECK)) => {
+                if Instant::now() >= deadline || super::signals::any_wake_marker(&host.home) {
+                    return;
+                }
+            }
         }
     }
 }
 
-fn snapshot_waiting(host: &Host) -> bool {
-    registry::databases(&host.home)
-        .iter()
-        .any(|database| super::snapshot::pending(&host.home, &database.id))
+async fn wait_for_shutdown(shutdown: &AtomicBool) {
+    while !shutdown.load(Ordering::Acquire) {
+        tokio::time::sleep(SHUTDOWN_CHECK).await;
+    }
 }
 
 pub(super) fn native_publisher(host: &Host, database_id: &str) -> bool {

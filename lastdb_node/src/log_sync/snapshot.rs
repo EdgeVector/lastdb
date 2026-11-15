@@ -5,7 +5,7 @@ mod files;
 mod recovery;
 pub(super) mod transport;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
@@ -19,9 +19,10 @@ use crate::host::{
 use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair, storage::StorageError};
 use zeroize::Zeroizing;
 
-use super::{cloud::CloudLog, registry, session};
+use super::{cloud::CloudLog, registry, session, signals};
 pub(super) use bootstrap::ensure_initial;
 pub(super) use recovery::restore_cut;
+pub(super) use signals::snapshot_pending as pending;
 
 pub(super) const AWAIT_INCOMING: &str = "snapshot awaits incoming signed updates";
 pub(super) const AWAIT_LOCAL_UPLOAD: &str = "snapshot awaits publication of local signed writes";
@@ -75,7 +76,8 @@ async fn publish(
     let bootstrap = at_start
         && previous.is_none()
         && (cut.needs_initial_coverage
-            || (nonce.is_some() && bootstrap::first_path(&host.home, log.database_id()).is_file()));
+            || (nonce.is_some()
+                && signals::snapshot_first_path(&host.home, log.database_id()).is_file()));
     if cut.needs_initial_coverage && !bootstrap {
         return Err("initial snapshot requires a new personal cloud database".into());
     }
@@ -186,7 +188,7 @@ fn remember(
     let report =
         format!("through={through}\nhead={through}\nlog_entries={entries}\nrequest={nonce}\n");
     super::disk::write_private(
-        &sync_file(home, database, "snapshot-result"),
+        &signals::snapshot_result_path(home, database),
         report.as_bytes(),
     )
     .map_err(|_| "cannot record the signed snapshot read")?;
@@ -203,10 +205,10 @@ pub(crate) fn request(home: &Path, selector: &str) -> Result<(String, String), S
     Id::try_from(selected.id.clone()).map_err(|e| e.to_string())?;
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let body = format!("snapshot-v1\n{nonce}\n");
-    std::fs::remove_file(sync_file(home, &selected.id, "snapshot-result")).ok();
-    std::fs::remove_file(sync_file(home, &selected.id, "snapshot-error")).ok();
+    std::fs::remove_file(signals::snapshot_result_path(home, &selected.id)).ok();
+    std::fs::remove_file(signals::snapshot_error_path(home, &selected.id)).ok();
     super::disk::write_private(
-        &sync_file(home, &selected.id, "snapshot-request"),
+        &signals::snapshot_request_path(home, &selected.id),
         body.as_bytes(),
     )
     .map_err(|_| "cannot save the snapshot request")?;
@@ -214,7 +216,7 @@ pub(crate) fn request(home: &Path, selector: &str) -> Result<(String, String), S
 }
 
 pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string(sync_file(home, database, "snapshot-result")).ok()?;
+    let text = std::fs::read_to_string(signals::snapshot_result_path(home, database)).ok()?;
     let (mut through, mut head, mut entries, mut request) = (None, None, None, None);
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("through=") {
@@ -233,23 +235,19 @@ pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64
 }
 
 pub(crate) fn error(home: &Path, database: &str) -> Option<String> {
-    let text = std::fs::read_to_string(sync_file(home, database, "snapshot-error")).ok()?;
+    let text = std::fs::read_to_string(signals::snapshot_error_path(home, database)).ok()?;
     let trimmed = text.trim();
     (!trimmed.is_empty() && trimmed != AWAIT_INCOMING && trimmed != AWAIT_LOCAL_UPLOAD)
         .then(|| trimmed.to_owned())
 }
 
-pub(super) fn pending(home: &Path, database: &str) -> bool {
-    sync_file(home, database, "snapshot-request").exists()
-}
-
 pub(super) fn fail_pending(home: &Path, database: &str, error: &str) {
-    let path = sync_file(home, database, "snapshot-request");
+    let path = signals::snapshot_request_path(home, database);
     if !path.exists() {
         return;
     }
     let _ = super::disk::write_private(
-        &sync_file(home, database, "snapshot-error"),
+        &signals::snapshot_error_path(home, database),
         error.as_bytes(),
     );
     let _ = std::fs::remove_file(path);
@@ -261,12 +259,12 @@ pub(super) async fn requested(
     database: &registry::Database,
 ) -> Result<(), String> {
     let id = log.database_id();
-    let path = sync_file(&host.home, id, "snapshot-request");
+    let path = signals::snapshot_request_path(&host.home, id);
     let Some(request) = request_bytes(host, id)? else {
         return Ok(());
     };
     let nonce = request_nonce(&request)?;
-    let failure = sync_file(&host.home, id, "snapshot-error");
+    let failure = signals::snapshot_error_path(&host.home, id);
     std::fs::remove_file(&failure).ok();
     if let Err(error) = publish(host, log, database, Some(&nonce)).await {
         if error == AWAIT_INCOMING || error == AWAIT_LOCAL_UPLOAD {
@@ -291,7 +289,7 @@ pub(super) async fn requested(
 }
 
 fn request_bytes(host: &Host, database: &str) -> Result<Option<Vec<u8>>, String> {
-    super::disk::read_limited(&sync_file(&host.home, database, "snapshot-request"), 64)
+    super::disk::read_limited(&signals::snapshot_request_path(&host.home, database), 64)
         .map_err(|_| "cannot read snapshot request".into())
 }
 
@@ -315,10 +313,6 @@ fn request_nonce(bytes: &[u8]) -> Result<String, String> {
 }
 
 const LOG_ENTRY_REPORT_CAP: u64 = 9;
-
-fn sync_file(home: &Path, id: &str, name: &str) -> PathBuf {
-    home.join("log-sync").join(id).join(name)
-}
 
 /// Restore the snapshot before booting the isolated destination.
 pub async fn restore_base(

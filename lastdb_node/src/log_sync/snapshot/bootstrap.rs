@@ -1,14 +1,13 @@
 //! Preserve the first personal snapshot intent and resume its signed publication.
 
 use super::{registry, CloudLog, Manifest};
-use crate::cloud::{first_backup_intent, FIRST_BACKUP_INTENT_FILE};
 use crate::host::Host;
-use crate::log_sync::disk;
+use crate::log_sync::{disk, signals};
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, Digest};
 use fold_db::storage::disk_pack::PackRuntime;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Deserialize, Serialize)]
@@ -21,16 +20,15 @@ struct Bootstrap {
     native_frontier: u64,
 }
 
-pub(super) fn first_path(home: &Path, id: &str) -> PathBuf {
-    home.join("log-sync").join(id).join("snapshot-first")
-}
-
 pub(in crate::log_sync) async fn ensure_initial(
     host: &Arc<Host>,
     log: &CloudLog,
     database: &registry::Database,
 ) -> Result<(), String> {
-    if database.native || database.kind != "personal" || !first_backup_intent(&host.home) {
+    if database.native
+        || database.kind != "personal"
+        || !signals::has_first_backup_intent(&host.home)
+    {
         return Ok(());
     }
     let runtime = host.db.db_ops().native_runtime();
@@ -59,7 +57,7 @@ pub(super) fn start(
         native_frontier,
     };
     let bytes = canonical_bytes(&saved).map_err(|error| error.to_string())?;
-    let path = bootstrap_path(home, log.database_id());
+    let path = signals::snapshot_bootstrap_path(home, log.database_id());
     let parent = path
         .parent()
         .ok_or("cannot locate the initial snapshot record")?;
@@ -79,8 +77,11 @@ pub(super) fn resume(
     else {
         return Ok(false);
     };
-    let Some(bytes) = disk::read_limited(&bootstrap_path(home, log.database_id()), 4096)
-        .map_err(|_| "cannot read the initial snapshot record")?
+    let Some(bytes) = disk::read_limited(
+        &signals::snapshot_bootstrap_path(home, log.database_id()),
+        4096,
+    )
+    .map_err(|_| "cannot read the initial snapshot record")?
     else {
         return Ok(false);
     };
@@ -129,17 +130,5 @@ fn release(runtime: &PackRuntime, home: &Path) -> Result<(), String> {
     runtime
         .release_initial_snapshot()
         .map_err(|error| error.to_string())?;
-    match fs::remove_file(home.join(FIRST_BACKUP_INTENT_FILE)) {
-        Ok(()) => File::open(home)
-            .and_then(|file| file.sync_all())
-            .map_err(|err| err.to_string()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-fn bootstrap_path(home: &Path, id: &str) -> PathBuf {
-    home.join("log-sync")
-        .join(id)
-        .join("snapshot-bootstrap.json")
+    signals::clear_first_backup_intent(home)
 }

@@ -1,8 +1,8 @@
-//! Owner-only signed cloud snapshot request and completion-poll route.
+//! Owner-only signed cloud snapshot and cloud-sync wake routes.
 
 use fold_db::access::AccessContext;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Map, Value};
 
 use super::reply::{render, HostError};
 use super::wire;
@@ -62,8 +62,29 @@ pub(super) async fn backup_snapshot(
                 };
                 HostError::new(status, e)
             })?;
+        host.cloud_sync.wake();
         Ok(json!({ "database_id": id, "nonce": nonce }))
     }
     .await;
+    render(res, ctx)
+}
+
+pub(super) fn cloud_wake(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let res = (|| {
+        if !ctx.is_owner {
+            return Err(HostError::new(403, "cloud wake is owner-only"));
+        }
+        if !req.body.is_empty()
+            && !serde_json::from_slice::<Map<String, Value>>(&req.body).is_ok_and(|f| f.is_empty())
+        {
+            return Err(HostError::new(
+                400,
+                "invalid /api/cloud/wake body: expected an empty JSON object",
+            ));
+        }
+        crate::log_sync::ensure_wake(&host.home);
+        host.cloud_sync.wake();
+        Ok(json!({}))
+    })();
     render(res, ctx)
 }

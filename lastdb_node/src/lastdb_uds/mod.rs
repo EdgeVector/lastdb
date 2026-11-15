@@ -17,8 +17,8 @@ mod worker_pool;
 
 use uds_router::{bind_socket_listener, record_fd_exhaustion};
 pub use uds_router::{
-    preflight_data_dir, socket_path, split_database_path, valid_selector, DATABASES_PATH,
-    DATABASE_SCOPE_PREFIX, SOCKET_FILE_NAME,
+    preflight_data_dir, socket_path, split_database_path, valid_selector, CLOUD_WAKE_PATH,
+    DATABASES_PATH, DATABASE_SCOPE_PREFIX, SOCKET_FILE_NAME,
 };
 pub use worker_pool::{ConnectionWork, SubmitError, UdsPoolSnapshot, UdsWorkerPool};
 
