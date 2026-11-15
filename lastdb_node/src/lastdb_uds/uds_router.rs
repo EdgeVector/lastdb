@@ -17,7 +17,7 @@ pub const CLOUD_WAKE_PATH: &str = "/api/cloud/wake";
 
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
-const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"named_schema_write_grants_v1":true}"#;
+const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"named_schema_write_grants_v1":true,"whole_database_create_retry_v1":true}"#;
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)

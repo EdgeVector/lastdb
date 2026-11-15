@@ -10,7 +10,7 @@ import uuid
 
 from node import Connection
 from signed_files import retry, run_operation, summary
-from social_app import call, observe_access, sdk, window
+from social_app import call, install, observe_access, sdk, window
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require
 
@@ -81,6 +81,8 @@ def submit(node, database, session, update):
 
 def transfer(programs, root, publisher, recipient, api_key):
     name = f"ci-circles-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+    if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
+        install(publisher, root, revision)
     with window(publisher) as owner:
         created = sdk(publisher, "create-shared", name=name)
         require(created["sharingMode"] == "whole_database" and created["name"] == name, "circle_sdk_create")
@@ -206,6 +208,9 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
+    sdk_access = next(row for row in sdk(recipient, "list-databases") if row["id"] == database)["selfAccess"]
+    require(sdk_access["state"] == "active" and sdk_access["stale"] is False
+            and sdk_access["writeSchemas"] == COMMENT_GRANT, "circle_sdk_confirmed_grant")
     created = mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana")
     created["metadata"] = {"share_author": "unverified-author"}
     updates = [

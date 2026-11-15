@@ -33,11 +33,11 @@ class Sharing:
         self.node = node
         self.people = people
 
-    def create(self, name, whole=False):
+    def create(self, name, whole=False, *, request_id=None):
         policy = {"sharingMode": "whole_database"} if whole else {"spec": SPEC}
         return self.node.call("POST", "/api/databases", {
             "name": name, "kind": "shareable", **policy,
-        })["database"]
+        }, request_id=request_id)["database"]
 
     def databases(self):
         return self.node.call("GET", "/api/databases")["databases"]

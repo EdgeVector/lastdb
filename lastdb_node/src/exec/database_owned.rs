@@ -31,7 +31,26 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     if let Err(error) = owned::validate_create(&body.name, spec.as_ref()) {
         return fail(error, ctx);
     }
-    if let Some(response) = share_conflict(host, &body.name, ctx) {
+    let requested_id = match req.header("Idempotency-Key") {
+        None => None,
+        Some(key) => match uuid::Uuid::parse_str(key) {
+            Ok(id)
+                if id.get_version_num() == 4
+                    && body.sharing_mode.as_deref() == Some("whole_database")
+                    && id.to_string() == key =>
+            {
+                Some(id)
+            }
+            _ => {
+                return error_response(
+                    400,
+                    "whole-database creation uses a v4 UUID idempotency key",
+                    ctx,
+                )
+            }
+        },
+    };
+    if let Some(response) = share_conflict(host, &body.name, requested_id, ctx) {
         return response;
     }
     match host
@@ -42,6 +61,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
             &body.name,
             kind,
             spec,
+            requested_id,
         )
         .await
     {
@@ -84,20 +104,22 @@ pub(super) fn row(entry: &Entry) -> Value {
     })
 }
 
-fn share_conflict(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {
-    registered_name(host, name, ctx)
-}
-
-fn registered_name(host: &Host, name: &str, ctx: &AccessContext) -> Option<UdsResponse> {
+fn share_conflict(
+    host: &Host,
+    name: &str,
+    requested_id: Option<uuid::Uuid>,
+    ctx: &AccessContext,
+) -> Option<UdsResponse> {
+    let id = requested_id.map(|id| id.to_string());
     match registered_share::list(&host.home) {
         Ok(shares)
-            if shares
-                .iter()
-                .any(|share| share.name.as_deref() == Some(name)) =>
+            if shares.iter().any(|share| {
+                share.name.as_deref() == Some(name) || id.as_deref() == Some(share.id.as_str())
+            }) =>
         {
             Some(error_response(
                 409,
-                "database name is already registered",
+                "database name or ID is already registered",
                 ctx,
             ))
         }

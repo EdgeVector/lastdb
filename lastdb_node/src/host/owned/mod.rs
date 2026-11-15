@@ -121,6 +121,7 @@ struct State {
 pub(crate) struct Tables {
     state: RwLock<State>,
     changed: watch::Sender<u64>,
+    creating: tokio::sync::Mutex<()>,
 }
 
 struct CommitError {
@@ -152,6 +153,7 @@ impl Tables {
                 stores,
             }),
             changed,
+            creating: tokio::sync::Mutex::new(()),
         })
     }
 

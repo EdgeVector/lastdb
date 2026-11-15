@@ -25,7 +25,10 @@ export interface SocialInvitation {
 export type SocialSetupRequest = {
   setupName: string;
   requiredVersion?: number;
-} & ({ localName: string; databaseId?: never } | { databaseId: string; localName?: never });
+} & (
+  { localName: string; databaseId?: never; finishExisting?: never }
+  | { databaseId: string; localName?: never; finishExisting?: true }
+);
 
 export interface SocialDatabaseSetup {
   databaseId: string;
@@ -86,6 +89,7 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
       const args = [`--setup=${request.setupName}`, `--version=${request.requiredVersion ?? 1}`];
       if (request.localName !== undefined) args.push(`--name=${request.localName}`);
       if (request.databaseId !== undefined) args.push(`--database=${request.databaseId}`);
+      if (request.finishExisting) args.push('--finish-existing');
       return parseSetup(await run('setup-database', args), request);
     },
 

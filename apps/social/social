@@ -88,6 +88,8 @@ def parser():
     target = setup.add_mutually_exclusive_group(required=True)
     target.add_argument("--name", help="Name for a database provisioned by Social")
     target.add_argument("--database", help="Verify a database by its exact ID")
+    setup.add_argument("--finish-existing", action="store_true",
+                       help="Install missing setup schemas in the owned database selected by ID")
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
     add.add_argument("--user", required=True)
     add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
@@ -125,7 +127,8 @@ def run(args, node):
     if args.action == "setup-database":
         target = {"localName": args.name} if args.name is not None else {"databaseId": args.database}
         return SocialApp(node).setup_database(
-            {"setupName": args.setup, "requiredVersion": args.version, **target})
+            {"setupName": args.setup, "requiredVersion": args.version,
+             "finishExisting": args.finish_existing, **target})
     if args.action == "remember":
         return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
     if args.action == "pick-database":

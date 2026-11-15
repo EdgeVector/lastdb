@@ -10,23 +10,38 @@ impl Tables {
         name: &str,
         kind: Kind,
         spec: Option<SpecBinding>,
+        requested_id: Option<uuid::Uuid>,
     ) -> Result<Entry, OwnedError> {
         if kind == Kind::Personal && spec.is_some() {
             return Err(OwnedError::InvalidSpec);
         }
         validate_create(name, spec.as_ref())?;
-        let id = self.allocate(name)?;
-        self.create_registered(
-            home,
-            signer,
-            Entry {
-                id,
-                name: Some(name.to_owned()),
-                kind,
-                spec,
-            },
-        )
-        .await
+        let _creating = self.creating.lock().await;
+        let id = match requested_id {
+            Some(id) => id.to_string(),
+            None => self.allocate(name)?,
+        };
+        let entry = Entry {
+            id,
+            name: Some(name.to_owned()),
+            kind,
+            spec,
+        };
+        if requested_id.is_some() {
+            let state = self.read()?;
+            if let Some(existing) = state.owned.iter().find(|row| row.id == entry.id) {
+                return if existing == &entry {
+                    Ok(entry)
+                } else {
+                    Err(OwnedError::AlreadyRegistered)
+                };
+            }
+            ensure_free(&state, name)?;
+            if state.registry_owner.id == entry.id {
+                return Err(OwnedError::AlreadyRegistered);
+            }
+        }
+        self.create_registered(home, signer, entry).await
     }
 
     /// Register the cloud id in an isolated fresh recovery home.

@@ -108,6 +108,11 @@ social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 
 social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --database DATABASE_ID
 ```
 
+For an incomplete owned setup, pass `--finish-existing` with its exact ID.
+Social verifies the schemas already present before installing missing ones.
+With retryable whole-database creation, setup by local name reserves its ID
+before creating the database and can resume by the same name.
+
 Apps use the sharing settings to show which changes the publisher allows.
 Every active receiver can send an encrypted change to the pending mutation
 log. A successful submission confirms that ExeMem queued it. Only the

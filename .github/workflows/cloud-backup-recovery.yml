@@ -33,7 +33,7 @@ on:
         options: [signed-files, social-share, social-circles, social-prepare]
         default: signed-files
       social_install_revision:
-        description: "For social-share, optionally install this exact signed DEV Social source before the operation"
+        description: "For either Social sharing mode, optionally install this exact signed DEV Social source"
         type: string
 
 permissions:
