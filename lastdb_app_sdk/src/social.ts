@@ -21,6 +21,21 @@ export interface SocialInvitation {
   invitation: string;
 }
 
+/** Provision by a new local name or verify an explicitly selected database. */
+export type SocialSetupRequest = {
+  setupName: string;
+  requiredVersion?: number;
+} & ({ localName: string; databaseId?: never } | { databaseId: string; localName?: never });
+
+export interface SocialDatabaseSetup {
+  databaseId: string;
+  name: string | null;
+  setupName: string;
+  version: number;
+  /** Verified installed definition IDs keyed by canonical schema name. */
+  definitions: Record<string, string>;
+}
+
 /** Share with people through Social. Use `connect` and `select` for content. */
 export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: SocialClientOptions) {
   const baseArgs = ['--data-dir', dataDir];
@@ -55,6 +70,14 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
     /** Create a named database using Social's built-in sharing format. */
     async createDatabase(name: string): Promise<ListedDatabase> {
       return parseListedDatabase(await run('create-db', ['--', name]));
+    },
+
+    /** Open a versioned database setup using Social's catalog. */
+    async setupDatabase(request: SocialSetupRequest): Promise<SocialDatabaseSetup> {
+      const args = [`--setup=${request.setupName}`, `--version=${request.requiredVersion ?? 1}`];
+      if (request.localName !== undefined) args.push(`--name=${request.localName}`);
+      if (request.databaseId !== undefined) args.push(`--database=${request.databaseId}`);
+      return parseSetup(await run('setup-database', args), request);
     },
 
     /** Omit contactPath when Social already remembers the verified recipient. */
@@ -104,4 +127,22 @@ function parseInvitation(result: unknown): SocialInvitation {
     }
   }
   throw new UnexpectedResponseError('Social returned an invalid invitation receipt', 0, null);
+}
+
+function parseSetup(result: unknown, request: SocialSetupRequest): SocialDatabaseSetup {
+  if (isObject(result)) {
+    const { databaseId, name, setupName, version, definitions } = result;
+    if (typeof databaseId === 'string' && databaseId.length > 0
+      && (request.databaseId === undefined || databaseId === request.databaseId)
+      && (name === null || typeof name === 'string')
+      && typeof setupName === 'string' && setupName === request.setupName
+      && typeof version === 'number' && version === (request.requiredVersion ?? 1)
+      && isObject(definitions)) {
+      const entries = Object.entries(definitions);
+      if (entries.length > 0 && entries.every(([, id]) => typeof id === 'string' && /^[0-9a-f]{64}$/.test(id))) {
+        return { databaseId, name, setupName, version, definitions: definitions as Record<string, string> };
+      }
+    }
+  }
+  throw new UnexpectedResponseError('Social returned an invalid database setup', 0, null);
 }

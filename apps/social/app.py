@@ -6,6 +6,7 @@ import re
 from lastdb import SocialError
 from circles import Circles
 from people import People
+from setups import Setups
 from sharing import Sharing, can_manage_sharing
 
 
@@ -29,6 +30,7 @@ class SocialApp:
         self.people = People(node)
         self.sharing = Sharing(node, self.people)
         self.circles = Circles(node, self.people, self.sharing)
+        self.setups = Setups(node, self.sharing)
 
     def remember(self, args):
         require_node_key(args["nodeKey"])
@@ -42,6 +44,9 @@ class SocialApp:
 
     def create(self, name, whole=False):
         return self.sharing.create(checked_name(name), whole=whole)
+
+    def setup_database(self, args):
+        return self.setups.open(args)
 
     def accept(self, receipt, publisher, name):
         require_node_key(publisher)

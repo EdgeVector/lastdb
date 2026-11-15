@@ -239,13 +239,19 @@ function create() {
   const options = [
     {name: 'Social albums and photos', nodeKey: 'social'},
     {name: 'Whole database with circle write access', nodeKey: 'whole_database'},
+    {name: 'Shared albums (version 1)', nodeKey: 'shared-albums'},
   ];
   dialog('New database', 'Create database', [
     {name: 'name', label: 'Name'},
-    {name: 'sharingMode', label: 'Sharing', options},
+    {name: 'sharingMode', label: 'Database setup', options},
   ], async (data) => {
-    const database = await api('create', data);
-    state.selected = database.id;
+    if (data.sharingMode === 'shared-albums') {
+      const setup = await api('setup-database', {setupName: 'shared-albums', localName: data.name});
+      state.selected = setup.databaseId;
+    } else {
+      const database = await api('create', data);
+      state.selected = database.id;
+    }
   });
 }
 

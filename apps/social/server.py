@@ -136,6 +136,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.remember(args)
         if target.path == "/api/create":
             return app.create(args["name"], whole=args.get("sharingMode") == "whole_database")
+        if target.path == "/api/setup-database":
+            return app.setup_database(args)
         if target.path == "/api/circles":
             return app.set_circles(args)
         if target.path == "/api/circle-invitation":

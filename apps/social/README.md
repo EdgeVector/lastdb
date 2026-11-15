@@ -64,6 +64,18 @@ their write grants. An explicit selection covers the installed definition IDs.
 The **All schemas** choice also covers future definitions. Use **Seal
 invitation** on an active member to get the receipt to hand to them.
 
+Choose **Shared albums (version 1)** to create a whole-database share with
+the catalog definitions for Album, AlbumItem, Photo, and Comment already
+installed. Social records the newly created database ID before installing
+schemas and can resume setup by the same provisioning name. To reopen a
+compatible owned or received share, select its stable ID. Reopening verifies
+the installed definitions and reports their IDs without changing the database.
+
+```sh
+social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --name family
+social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --database DATABASE_ID
+```
+
 Apps use the sharing settings to show which changes the publisher allows.
 Every active receiver can send an encrypted change to the pending mutation
 log. A successful submission confirms that ExeMem queued it. Only the
