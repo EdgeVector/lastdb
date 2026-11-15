@@ -34,8 +34,6 @@ struct Work {
     device: String,
     active: Option<Covered>,
     planned: Option<Covered>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    provider_through: Option<u64>,
 }
 
 impl Work {
@@ -48,7 +46,6 @@ impl Work {
             device: log.device().as_str().to_owned(),
             active: None,
             planned: None,
-            provider_through: None,
         }
     }
 
@@ -61,7 +58,6 @@ impl Work {
         let work: Self = serde_json::from_slice(&bytes)
             .map_err(|_| "local snapshot cleanup state is invalid")?;
         if work.version != 1
-            || work.provider_through == Some(0)
             || work
                 .active
                 .iter()
@@ -81,41 +77,36 @@ impl Work {
     }
 
     fn save(&self, path: &Path) -> Result<(), String> {
-        let parent = path
-            .parent()
-            .ok_or("snapshot cleanup state has no directory")?;
-        if self.active.is_none() && self.planned.is_none() && self.provider_through.is_none() {
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-                Err(_) => return Err("cannot remove completed local snapshot cleanup state".into()),
-            }
-        } else {
-            let bytes =
-                serde_json::to_vec(self).map_err(|_| "cannot encode snapshot cleanup state")?;
-            disk::write_private(path, &bytes).map_err(|_| "cannot store snapshot cleanup state")?;
-        }
-        File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|_| "cannot sync snapshot cleanup state directory".into())
+        save_record(
+            path,
+            (self.active.is_some() || self.planned.is_some()).then_some(self),
+        )
     }
 
-    fn finish_through(&mut self, path: &Path, floor: u64) -> Result<(), String> {
+    fn finish_through(
+        &mut self,
+        path: &Path,
+        log: &CloudLog,
+        provider: &mut Option<ProviderWork>,
+        floor: u64,
+    ) -> Result<(), String> {
         let remove_active = self.active.as_ref().is_some_and(|cut| cut.through <= floor);
         let remove_planned = self
             .planned
             .as_ref()
             .is_some_and(|cut| cut.through <= floor);
+        if !remove_active && !remove_planned {
+            return Ok(());
+        }
+        // Record follow-up work before removing the completed delivery plan.
+        ProviderWork::queue(path, log, provider, floor)?;
         if remove_active {
             self.active = None;
         }
         if remove_planned {
             self.planned = None;
         }
-        if remove_active || remove_planned {
-            self.provider_through = Some(self.provider_through.unwrap_or(0).max(floor));
-            self.save(path)?;
-        }
+        self.save(path)?;
         if remove_active {
             tracing::info!(target: "lastdbd::log_sync", through = floor, "snapshot log cleanup reached cutoff");
         }
@@ -148,6 +139,82 @@ impl Work {
         }
         true
     }
+}
+
+// Keep provider progress separate so older daemons can still read snapshot-reclaim.json.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderWork {
+    scope: CloudScope,
+    environment: String,
+    database_id: String,
+    device: String,
+    through: u64,
+}
+
+impl ProviderWork {
+    fn path(delivery_path: &Path) -> PathBuf {
+        delivery_path.with_file_name("snapshot-provider-cleanup.json")
+    }
+
+    fn read(delivery_path: &Path, log: &CloudLog) -> Result<Option<Self>, String> {
+        let Some(bytes) = disk::read_limited(&Self::path(delivery_path), 4096)
+            .map_err(|_| "cannot read local snapshot provider cleanup state")?
+        else {
+            return Ok(None);
+        };
+        let work: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| "local snapshot provider cleanup state is invalid")?;
+        if work.through == 0 {
+            return Err("local snapshot provider cleanup state is invalid".into());
+        }
+        Ok((work.scope == log.scope
+            && work.environment == log.environment()
+            && work.database_id == log.database_id()
+            && work.device == log.device().as_str())
+        .then_some(work))
+    }
+
+    fn queue(
+        delivery_path: &Path,
+        log: &CloudLog,
+        work: &mut Option<Self>,
+        through: u64,
+    ) -> Result<(), String> {
+        if work.as_ref().is_some_and(|work| work.through >= through) {
+            return Ok(());
+        }
+        let pending = Self {
+            scope: log.scope.clone(),
+            environment: log.environment().to_owned(),
+            database_id: log.database_id().to_owned(),
+            device: log.device().as_str().to_owned(),
+            through,
+        };
+        save_record(&Self::path(delivery_path), Some(&pending))?;
+        *work = Some(pending);
+        Ok(())
+    }
+}
+
+fn save_record<T: Serialize>(path: &Path, record: Option<&T>) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or("snapshot cleanup state has no directory")?;
+    if let Some(record) = record {
+        let bytes =
+            serde_json::to_vec(record).map_err(|_| "cannot encode snapshot cleanup state")?;
+        disk::write_private(path, &bytes).map_err(|_| "cannot store snapshot cleanup state")?;
+    } else {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err("cannot remove completed local snapshot cleanup state".into()),
+        }
+    }
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| "cannot sync snapshot cleanup state directory".into())
 }
 
 fn path(home: &Path, log: &CloudLog) -> PathBuf {
@@ -227,15 +294,15 @@ impl Pacing {
 
 async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
     let path = path(home, log);
-    let Some(mut work) = Work::read(&path)?.filter(|work| work.matches(log)) else {
-        return Ok(None);
-    };
-    let status = retention::automatic_status(log).await?;
-    let floor = status.reclaimed_through.get();
-    work.finish_through(&path, floor)?;
-    if work.active.is_none() && work.planned.is_none() && work.provider_through.is_none() {
+    let mut work = Work::read(&path)?.filter(|work| work.matches(log));
+    let mut provider = ProviderWork::read(&path, log)?;
+    if work.is_none() && provider.is_none() {
         return Ok(None);
     }
+    let work = work.get_or_insert_with(|| Work::new(log));
+    let status = retention::automatic_status(log).await?;
+    let floor = status.reclaimed_through.get();
+    work.finish_through(&path, log, &mut provider, floor)?;
     let Some(snapshot_id) = status
         .snapshot_id
         .filter(|_| status.reclaim_enabled && status.eligible)
@@ -251,16 +318,15 @@ async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
     }
     if let Some(floor) = reclaim_pending_log(home, log, work.active.as_ref(), &cloud, floor).await?
     {
-        work.finish_through(&path, floor)?;
+        work.finish_through(&path, log, &mut provider, floor)?;
         return Ok(Some(Duration::ZERO));
     }
-    if work.provider_through.is_none_or(|through| floor < through) {
+    if provider.is_none_or(|pending| floor < pending.through) {
         return Ok(Some(PAUSED));
     }
     match retention::cleanup_retired(log, &cloud.snapshot_id, floor, cloud.through).await? {
         Some(retention::ProviderCleanup::Complete) => {
-            work.provider_through = None;
-            work.save(&path)?;
+            save_record::<ProviderWork>(&ProviderWork::path(&path), None)?;
             tracing::info!(target: "lastdbd::log_sync", through = floor, "retired snapshot provider cleanup completed");
             Ok(Some(Duration::ZERO))
         }
