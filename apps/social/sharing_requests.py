@@ -87,7 +87,7 @@ class SharingRequests:
         if "receipt" in data:
             return status(declaration, data["receipt"])
         _, _, directory = self.reusable.load()
-        active = directory.get("operation")
+        active = directory["operations"].get(declaration["change"]["databaseId"])
         if active and active["requestId"] == request_id:
             return status(declaration, active)
         # A newer operation may have archived this receipt between the reads.
@@ -102,7 +102,7 @@ class SharingRequests:
                 raise SocialError("sharing request does not exist")
             request = data["declaration"]
             _, _, directory = self.reusable.load()
-            active = directory.get("operation")
+            active = directory["operations"].get(request["change"]["databaseId"])
             if "receipt" in data or (active and active["requestId"] == request_id):
                 return self.status(request_id)
             edit, operation, label = self.edit(request, directory, review)
@@ -112,6 +112,23 @@ class SharingRequests:
             self.archive(active)
             self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation)
             return self.status(request_id)
+
+    def decline(self, request_id):
+        with self.reusable.circles.lock():
+            definition, record, data = self.load(request_id)
+            if data is None:
+                raise SocialError("sharing request does not exist")
+            request = data["declaration"]
+            receipt = data.get("receipt")
+            if receipt and receipt["status"] == "declined":
+                return status(request, receipt)
+            _, _, directory = self.reusable.load()
+            active = directory["operations"].get(request["change"]["databaseId"])
+            if receipt or (active and active["requestId"] == request_id):
+                raise SocialError("only requests awaiting approval can be declined")
+            receipt = {"status": "declined"}
+            self.save(definition, request_id, {**data, "receipt": receipt}, record)
+            return status(request, receipt)
 
     def edit(self, request, directory, review):
         change = request["change"]

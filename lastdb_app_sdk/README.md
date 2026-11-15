@@ -10,7 +10,7 @@ databases, and short-lived scoped database sessions.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.11.0.tgz
+npm install /path/to/lastdb-app-sdk-0.12.0.tgz
 ```
 
 Use the tarball from the Social sharing DEV operation, or build one from
@@ -235,11 +235,14 @@ const request = await social.requestSharing({
 Open the owner review with `social open --sharing-request <requestId>`
 using the same LastDB home. The app can fetch the result with
 `social.getSharingStatus(request.requestId)`. Status is
-`awaitingApproval`, `pending`, `needsReview`, or `confirmed`. When
-confirmed, use the existing invitation method for a new recipient. Use
-`writeSchemas` in place of a preset to suggest the app's canonical schema
-names. The owner can later edit membership in Social and preview the
-resulting grants across all databases that follow that circle.
+`awaitingApproval`, `pending`, `needsReview`, or `confirmed`. Social 0.6.0
+can also return `declined` when the owner declines. Retrying the same request
+UUID returns that outcome. When confirmed, use the existing invitation method
+for a new recipient. Use `writeSchemas` in place of a preset to suggest the
+app's canonical schema names. The owner can later edit membership in Social
+and preview the resulting grants across all databases that follow that circle.
+A pending grant update blocks further changes to its database. Distinct
+databases can proceed with their own owner review.
 
 `acceptInvitation` and `listDatabases` expose the receiving node's
 `selfAccess` when available. An initial response can be unknown while

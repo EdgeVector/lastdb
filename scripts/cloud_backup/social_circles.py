@@ -10,7 +10,7 @@ import uuid
 
 from node import Connection
 from social_app import call, install, observe_access, sdk, window
-from social_declarations import configure_bindings, external_changes, revoke_roster
+from social_declarations import configure_bindings, external_changes, independent_update, revoke_roster
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require, retry, run_operation, summary
 
@@ -65,8 +65,8 @@ def wait_text(node, database, schema, key, text, stage):
           lambda rows: len(rows) == 1 and rows[0]["fields"]["text"] == text)
 
 
-def submit(node, database, session, update):
-    mutation_id = str(uuid.uuid4())
+def submit(node, database, session, update, *, mutation_id=None):
+    mutation_id = mutation_id or str(uuid.uuid4())
     with closing(Connection(node.socket)) as connection:
         connection.request("POST", f"/api/databases/{database}/mutation", json.dumps(update), {
             "Content-Type": "application/json", "Idempotency-Key": mutation_id,
@@ -143,6 +143,7 @@ def transfer(programs, root, publisher, recipient, api_key):
                 observe_access(remote, second, "revoked")
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
                 external_changes(publisher, owner, circle, database, reader, COMMENT)
+                independent_update(publisher, owner, circle["id"], database, second, reader, COMMENT)
                 report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
             failed = sys.exc_info()[0] is not None
@@ -221,6 +222,7 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     queued = queue_and_restart(publisher, recipient, remote, database, scope, 1, updates,
                                check_status=True)
     verify_results(recipient, database, queued)
+    verify_settled_retry(publisher, recipient, remote, database, scope, updates[1], queued[1])
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
@@ -344,6 +346,19 @@ def verify_results(recipient, database, queued):
     require([row["status"] for row in results] == ["discarded", "published", "discarded", "unknown"],
             "circle_sdk_final_proposal_results")
     report("The receiving SDK read the final outcome of each of Ana's proposals by UUID.")
+
+
+def verify_settled_retry(publisher, recipient, remote, database, scope, update, mutation_id):
+    pending = inbox(publisher, scope, database, 1)
+    require(not pending["entries"], "circle_retry_starts_with_settled_inbox")
+    published = published_views(recipient, scope, database, 1)
+    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
+    submit(recipient, database, session, update, mutation_id=mutation_id)
+    results = sdk(recipient, "submission-status", database=database, ids=[mutation_id])
+    require([row["status"] for row in results] == ["published"], "circle_retry_preserves_outcome")
+    require(inbox(publisher, scope, database, 1) == pending, "circle_retry_does_not_enqueue")
+    require(published_views(recipient, scope, database, 1) == published, "circle_retry_does_not_publish")
+    report("Ana retried a settled mutation with the same UUID and operation. Its published outcome and both log positions stayed the same.")
 
 
 def queue_and_restart(publisher, recipient, remote, database, scope, revision, updates, *, check_status=False):

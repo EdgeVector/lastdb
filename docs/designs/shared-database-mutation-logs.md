@@ -14,6 +14,7 @@ These requirements apply as Social adds features and as LastDB and ExeMem change
 - Every active receiver can read the whole published database and send an encrypted proposal, even with an empty write grant. Receivers follow only the published log. Only the publisher can read or settle the pending log, including entries submitted by a receiver who asks for their own.
 - Keep the current publisher-signed configuration for each database, including its revision, receiver identities, active or revoked state, and schema write grants. ExeMem checks active membership. The publisher's LastDB uses the confirmed configuration on its machine to check every downloaded and decrypted proposal. Apps display the grant.
 - Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher uploads the committed change under its own key before marking the pending entry processed. LastDB decides when stored entries and retry records are safe to retire.
+- The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the pending log. Retain the identity needed for exact append retries and any outcome the publisher supplied. Settling an entry preserves both logs, their positions, and the publisher's accepted record history.
 
 Tom's explicit direction is required to change these requirements. [Agent instructions](../../AGENTS.md#preserve-whole-database-sharing-tom-2026-11-14)
 
@@ -48,11 +49,11 @@ opens the returned stable database ID in the ordinary LastDB data client.
 2. A publisher write commits to its LastDB and is captured for upload into the publisher's log. Every active receiver can sync the resulting data across all schemas.
 3. Any active receiver's LastDB can send a signed, encrypted mutation through the existing append API. ExeMem checks that the signed node identity is on the active roster and routes it to the private inbox. HTTP 202 means queued. The receiver's published download cursor stays at the same position.
 4. The publisher's LastDB reads the inbox, decrypts each submission, and checks its sharing revision and the sender's current write access to the target schema. A receiver with an empty write scope can submit, and the publisher discards their mutations. It also discards mutations that fail the schema or record rules. It durably commits valid changes using the submission identity for retries. Accepted changes go through normal publication under the publisher's key. Every active receiver can sync them, including the original sender.
-5. The publisher advances the inbox position after the page has been decided and the durable accepted writes through that point have been published. A restart can repeat an unsettled page. The same submitter and submission ID identify the same mutation across retries. Receivers confirm acceptance by reading the resulting record.
+5. The publisher advances the inbox position after the page has been decided and the durable accepted writes through that point have been published. An unsettled page remains available after a restart. ExeMem replaces newly settled ciphertext with a receipt when it advances the position. ExeMem recognizes the same submitter, submission ID, and encrypted entry as an exact append retry and adds no new pending entry.
 
 The submitting receiver can request the outcome for its mutation UUID.
 The publisher supplies the outcome in its authenticated settlement after
-publication. ExeMem saves the outcomes with the settled position and
+publication. ExeMem retains it with a digest of the original encrypted entry and
 returns only the caller's own result through the signed access route.
 The result carries the UUID and status alone. Older publishers can settle
 without an outcome, which the receiver reports as unknown.
@@ -65,7 +66,7 @@ Whole-database revocation stops new reads and submissions. Narrowing a write gra
 
 ExeMem stores the inbox in a separate partition for the original database ID. It keeps the inbox delivery position, settlement position, and idempotency records independent of the published log. It treats the mutation payloads as ciphertext. LastDB owns schema validation, record and attachment semantics, and decisions about safe retirement of data.
 
-The first upgraded publisher's inbox read activates the split for its whole-database share. An older publisher continues to drain the existing queue until it upgrades. Racing appends either complete before activation in the old queue, or retry against the new inbox after activation. The upgraded publisher continues to drain historical entries through the existing publisher-only path. The published view served to receivers filters out every historical entry written by a receiver. The initial inbox keeps settled entries and retry identities for recovery. Deletion requires a LastDB retention decision.
+The first upgraded publisher's inbox read activates the split for its whole-database share. An older publisher continues to drain the existing queue until it upgrades. Racing appends either complete before activation in the old queue, or retry against the new inbox after activation. The upgraded publisher continues to drain historical entries through the existing publisher-only path. The published view served to receivers filters out every historical entry written by a receiver. The earlier ExeMem implementation kept ciphertext after settlement. ExeMem deploys support for reading the compact receipt before enabling replacement on new settlements. Earlier settled entries and historical mixed logs follow their existing read and recovery paths.
 
 ## Publisher device authority
 
