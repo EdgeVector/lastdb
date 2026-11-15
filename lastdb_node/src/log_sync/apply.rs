@@ -85,6 +85,7 @@ pub(super) async fn apply_page(
             &mut files,
         )
         .await?;
+        super::blob_retention::record_pulled_personal(host, log, entries);
         return Ok(PagePlan::Ack(*cursor));
     }
     let mut handled = None;

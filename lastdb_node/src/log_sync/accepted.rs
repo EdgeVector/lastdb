@@ -6,9 +6,11 @@
 mod position;
 mod source;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
 use fold_db::storage::disk_backup::accepted::UploadPosition;
@@ -70,7 +72,9 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
                     .await
                     .map_err(|_| "old accepted write could not be protected")?;
             }
-            send_page(host, log, &runtime, &key, &page).await.err()
+            send_page(host, log, &runtime, &key, &page, private)
+                .await
+                .err()
         }
         Ok(Ok(None)) => None,
         Ok(Err(reason)) => Some(reason),
@@ -105,6 +109,7 @@ async fn send_page(
     runtime: &Arc<PackRuntime>,
     key: &DatabaseContentKey,
     page: &Page,
+    private: bool,
 ) -> Result<(), &'static str> {
     let Some(first) = page.items.first() else {
         return Ok(());
@@ -118,30 +123,43 @@ async fn send_page(
     };
     let mut next = upload.position.writer_seq + 1;
     let mut entries = Vec::with_capacity(page.items.len());
+    let mut blobs = HashMap::new();
     let mut through = after;
     for item in &page.items {
         through = match item {
             Item::Withheld { sequence, .. } => *sequence,
-            Item::Publish { sequence, .. } => {
-                match prepare_item(host, log, key, item, next).await {
-                    Ok(entry) => {
-                        next = next.max(entry.writer_seq + 1);
-                        entries.push(entry);
-                        *sequence
+            Item::Publish {
+                sequence,
+                mutation_id,
+                canonical,
+                file_ciphertext,
+                file_reference,
+                ..
+            } => match prepare_item(host, log, key, item, next).await {
+                Ok(entry) => {
+                    if private && (file_ciphertext.is_some() || file_reference.is_some()) {
+                        if let Ok(path) =
+                            super::files::path_for(log.database_id(), mutation_id, canonical)
+                        {
+                            blobs.insert(entry.writer_seq, path);
+                        }
                     }
-                    Err(err) if err == crate::cloud::PAYMENT_REQUIRED_MESSAGE => {
-                        mark_payment_hold(log.database_id());
-                        return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
-                    }
-                    Err(_) => break,
+                    next = next.max(entry.writer_seq + 1);
+                    entries.push(entry);
+                    *sequence
                 }
-            }
+                Err(err) if err == crate::cloud::PAYMENT_REQUIRED_MESSAGE => {
+                    mark_payment_hold(log.database_id());
+                    return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+                }
+                Err(_) => break,
+            },
         };
     }
     if through == after {
         return Err("the next local write could not be prepared for upload");
     }
-    append_entries(log, entries).await?;
+    append_entries(&host.home, log, entries, &blobs).await?;
     upload
         .confirm(
             runtime,
@@ -249,7 +267,12 @@ fn cloud_entry(log: &CloudLog, seal: &Seal, payload: Vec<u8>) -> Option<Entry> {
     })
 }
 
-async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> Result<(), &'static str> {
+async fn append_entries(
+    home: &Path,
+    log: &CloudLog,
+    entries: Vec<Entry>,
+    blobs: &HashMap<u64, BlobPath>,
+) -> Result<(), &'static str> {
     if entries.is_empty() {
         return Ok(());
     }
@@ -287,7 +310,21 @@ async fn append_entries(log: &CloudLog, entries: Vec<Entry>) -> Result<(), &'sta
         };
         if (200..300).contains(&status) {
             match wire::append_outcome(&reply, &batch) {
-                Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {}
+                Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {
+                    if !blobs.is_empty() {
+                        let start = batch.entries.len() - delivery_seqs.len();
+                        let committed: Vec<_> = batch.entries[start..]
+                            .iter()
+                            .zip(&delivery_seqs)
+                            .filter_map(|(entry, &delivery_seq)| {
+                                blobs
+                                    .get(&entry.writer_seq)
+                                    .map(|path| (delivery_seq, path.clone()))
+                            })
+                            .collect();
+                        super::blob_retention::record_personal(home, log, &committed);
+                    }
+                }
                 Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
                 _ => return Err("cloud did not confirm the upload"),
             }

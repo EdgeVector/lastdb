@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
 
-use super::{cloud::CloudLog, maintenance, snapshot::transport};
+use super::{blob_retention, cloud::CloudLog, maintenance, snapshot::transport};
 
 const MAX_BATCHES: u8 = 128;
 const RECLAIM_BATCH: u64 = 8;
@@ -29,7 +29,7 @@ struct Reclaimed {
     snapshot_through: DecimalU64,
 }
 
-#[derive(Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum ProviderCleanup {
     Progress,
@@ -38,7 +38,7 @@ pub(super) enum ProviderCleanup {
 }
 
 impl ProviderCleanup {
-    fn name(&self) -> &'static str {
+    pub(super) fn name(&self) -> &'static str {
         match self {
             Self::Progress => "progress",
             Self::Waiting => "waiting",
@@ -119,7 +119,7 @@ pub async fn reclaim(
         provider_cleanup: None,
     };
     if let Some(batches) = reclaim_batches {
-        reclaim_batches_for_snapshot(&log, &mut report, batches, steps_per_request).await?;
+        reclaim_batches_for_snapshot(home, &log, &mut report, batches, steps_per_request).await?;
     }
     Ok(report)
 }
@@ -145,6 +145,7 @@ async fn status(log: &CloudLog, action: &str) -> Result<Status, String> {
 }
 
 async fn reclaim_batches_for_snapshot(
+    home: &Path,
     log: &CloudLog,
     report: &mut ReclaimReport,
     batches: u8,
@@ -171,11 +172,22 @@ async fn reclaim_batches_for_snapshot(
     }
     for _ in 0..batches {
         if floor == through {
-            let Some(cleaned) = cleanup_retired(log, id, floor, through).await? else {
-                break;
-            };
-            report.provider_cleanup = Some(cleaned.name());
-            if cleaned == ProviderCleanup::Progress {
+            let mut progressed = false;
+            if let Some(cleaned) = cleanup_retired(log, id, floor, through).await? {
+                report.provider_cleanup = Some(cleaned.name());
+                progressed = cleaned == ProviderCleanup::Progress;
+            }
+            if !progressed && floor > 0 && blob_retention::has_covered(home, log, floor)? {
+                if let Some(state) = blob_retention::reclaim_step(home, log, id, floor).await? {
+                    if report.provider_cleanup.is_none()
+                        || report.provider_cleanup == Some("complete")
+                    {
+                        report.provider_cleanup = Some(state.name());
+                    }
+                    progressed = state == ProviderCleanup::Progress;
+                }
+            }
+            if progressed {
                 continue;
             }
             break;
