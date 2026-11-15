@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for cross-environment URLs. Edit ONLY here. lastdb_node/build.rs reads this at compile time and emits Rust constants in OUT_DIR. DO NOT hardcode any gateway hostnames anywhere else; scripts/lints/lint-no-hardcoded-urls.sh enforces this in CI.",
+  "_comment": "Single source of truth for cross-environment URLs. Edit ONLY here. lastdb_node/build.rs reads this at compile time and emits Rust constants in OUT_DIR. DO NOT hardcode any gateway hostnames anywhere else; scripts/lints/source_lints.py enforces this in CI.",
   "environments": {
     "dev": {
       "region": "us-west-2",
