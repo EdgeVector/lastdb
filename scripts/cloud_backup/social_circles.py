@@ -116,21 +116,25 @@ def transfer(programs, root, publisher, recipient, api_key):
                 wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
                 observe_access(remote, second, "active", 1, write_schemas=[])
                 definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database, definitions[COMMENT])
-                call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
                 read_circle = {**circle, "links": {database: [], second: [COMMENT]}}
+                preview = call(owner, "/api/circles/preview", {"circle": read_circle})
+                call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
+                call(owner, "/api/circles/apply", {"circle": read_circle, "token": preview["token"]}, status=400)
                 require(edit_circle(owner, read_circle) == {database: "2", second: "2"}, "circle_reader_revision")
                 observe_access(remote, second, "revoked", 2)
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
                 report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
             failed = sys.exc_info()[0] is not None
-            try:
-                for target in (database, second):
+            cleanup_error = None
+            for target in (database, second):
+                try:
                     cleanup(owner, target, reader)
-            except OperationError:
-                summary("The final DEV recipient revocation could not be confirmed.")
-                if not failed:
-                    raise
+                except OperationError as error:
+                    summary(f"The final DEV recipient revocation for {target} could not be confirmed.")
+                    cleanup_error = cleanup_error or error
+            if cleanup_error and not failed:
+                raise cleanup_error
 
 
 def create_database(owner, name):
