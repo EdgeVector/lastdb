@@ -75,7 +75,8 @@ jobs:
     needs: plan
     if: needs.plan.outputs.skip != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Leave 10 minutes after the 5400s gate wait for checkout and evidence.
+    timeout-minutes: 100
     permissions:
       contents: read
       checks: read
@@ -105,7 +106,7 @@ jobs:
       - name: Require exact-source CI, benchmarks, the snapshot gate, and security analysis
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/nightly_plan.py gates --plan "$RUNNER_TEMP/nightly-plan.json" --wait-seconds 1800
+        run: python3 scripts/release/nightly_plan.py gates --plan "$RUNNER_TEMP/nightly-plan.json" --wait-seconds 5400
 
   build:
     needs: plan

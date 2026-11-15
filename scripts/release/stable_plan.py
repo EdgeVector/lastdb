@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 from urllib.error import HTTPError
 
-from nightly_plan import _capture, wait_gates
+from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
 
 TAP = "EdgeVector/homebrew-lastdb"
 APPS = ("brain", "lastsecrets", "search")
@@ -103,8 +103,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "gates"))
     parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--wait-seconds", type=int, default=RELEASE_GATE_WAIT_SECONDS)
     args = parser.parse_args()
-    result = make(args.plan) if args.command == "plan" else wait_gates(load(args.plan))
+    result = (make(args.plan) if args.command == "plan"
+              else wait_gates(load(args.plan), args.wait_seconds))
     print(json.dumps(result, sort_keys=True))
 
 
