@@ -383,6 +383,8 @@ def run_gate(programs, root, phrase, api_key):
         ], input_bytes=api_key, timeout=60)
         require(connected.get("ok") is True and connected.get("credentials_saved") is True
                 and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
+        from snapshot_cleanup import register_and_track
+        register_and_track(load_guard(), database_id, phrase, api_key)
         node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
         tail_started = time.monotonic()
@@ -452,23 +454,21 @@ def verify_cloud_target(guard):
     guard.allow_table_arn(described.get("Table", {}).get("TableArn", ""), guard.DEV_TABLE)
 
 
-def cleanup(*, native=False):
+def cleanup():
     guard = load_guard()
     verify_cloud_target(guard)
+    from snapshot_cleanup import cleanup_objects
+    cleanup_objects(guard, gate_id(), aws, summary)
     deleted = 0
     partitions = guard.load_partitions(gate_id())
     for partition in partitions:
         deleted += purge_partition(guard, partition)
     summary(f"cleanup_rows={deleted}")
-    if native:
-        for partition in partitions:
-            reply = aws(guard, "query", guard.query_request(guard.DEV_TABLE, partition))
-            require(not reply.get("Items") and not reply.get("LastEvaluatedKey"),
-                    "native_cutoff_cleanup_incomplete")
-        summary("Run-owned signed log, accepted-write facts, submissions, and snapshot metadata are empty.")
-    # snapshot/bytes accepts read, prepare, download, and publish. It has no
-    # owner delete, and the DEV load role cannot reach the R2 or B2 objects.
-    summary("provider_objects=left_behind missing=snapshot/bytes delete")
+    for partition in partitions:
+        reply = aws(guard, "query", guard.query_request(guard.DEV_TABLE, partition))
+        require(not reply.get("Items") and not reply.get("LastEvaluatedKey"),
+                "snapshot_metadata_cleanup_incomplete")
+    summary("Run-owned signed log, accepted-write facts, submissions, and snapshot metadata are empty.")
 
 
 def opt_into_first_snapshot(home, database_id):
@@ -1035,23 +1035,14 @@ def require_native_dispatch():
 
 def run_native_cutoff(programs, root, phrase, api_key, *, require_automatic):
     guard = load_guard()
-    from node_auth import NodeKey, account_id
     import private_recovery as private
     from run import post
+    from snapshot_cleanup import owner_identity, start_tracking
 
     verify_cloud_target(guard)
     database = guard.allow_stream(gate_id())
     summary(f"database_id={database}")
-    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
-    require(0 < len(raw) <= 65536, "native_cutoff_baseline")
-    baseline = json.loads(raw)
-    require(isinstance(baseline, dict), "native_cutoff_baseline")
-    generation = baseline.get("account_generation")
-    seed = baseline_data.seed(phrase)
-    owner = NodeKey.from_seed(seed)
-    require(baseline.get("account") == account_id(owner.public) == baseline_data.ACCOUNT
-            and isinstance(generation, str) and re.fullmatch(r"0|[1-9][0-9]{0,19}", generation)
-            and int(generation) <= 2**64 - 1, "native_cutoff_baseline_scope")
+    owner, generation = owner_identity(phrase)
     endpoint = dev_endpoint()
     api_key = api_key.decode("utf-8")
 
@@ -1087,6 +1078,7 @@ def run_native_cutoff(programs, root, phrase, api_key, *, require_automatic):
     for result in (call("create-database", {"kind": "personal"}), call("access", {})):
         require(result.get("state") == "native" and result.get("database_id") == database,
                 "private_native_registration")
+    start_tracking(call, database)
     automatic = automatic_supported(call, eligible=False, allow_older_service=True)
     require(automatic or not require_automatic, "native_automatic_reclaim_required")
     history_supported = index_status(call, database, None, allow_older_service=True)
@@ -1094,7 +1086,7 @@ def run_native_cutoff(programs, root, phrase, api_key, *, require_automatic):
         summary("history_index=unsupported signed_bulk_reclaim=not_exercised")
     credentials = OwnedNode(root / "connection", programs, account=baseline_data.ACCOUNT)
     credentials.home.mkdir(mode=0o700)
-    write_private(credentials.home / "identity.key", seed)
+    write_private(credentials.home / "identity.key", baseline_data.seed(phrase))
     private.connect(programs, credentials, api_key)
     source, peer = (OwnedNode(root / name, programs, account=baseline_data.ACCOUNT,
                               isolated_copy=True, keep_saved_credentials=True)
@@ -1143,7 +1135,7 @@ def main():
         require_native_dispatch()
     if command in ("cleanup", "cleanup-native-cutoff"):
         require(len(sys.argv) == 2, "arguments")
-        cleanup(native=native)
+        cleanup()
         return
     require(command == "run" or native, "command")
     require(os.environ.get("GITHUB_ACTIONS") == "true"
