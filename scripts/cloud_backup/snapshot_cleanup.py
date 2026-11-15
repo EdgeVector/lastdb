@@ -34,6 +34,12 @@ class SnapshotOwner:
     phrase: bytes
     api_key: str
 
+    @property
+    def account(self):
+        from node_auth import account_id
+
+        return account_id(self.key.public)
+
 
 @dataclass(frozen=True)
 class RunAttempt:

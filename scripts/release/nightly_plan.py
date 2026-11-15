@@ -236,8 +236,8 @@ def _latest_checks(source):
     raise ValueError("The exact-source check list did not finish within its bound")
 
 
-# snapshot-roundtrip-dev holds one concurrency slot (queue: max). 5400s covers
-# one queued run plus this source, and stays inside the 7200s cap below.
+# The snapshot gate includes the exact-source build, operation and provider
+# retirement. Keep the release wait within the 7200s cap below.
 RELEASE_GATE_WAIT_SECONDS = 5400
 
 

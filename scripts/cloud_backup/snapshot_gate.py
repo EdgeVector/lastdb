@@ -20,6 +20,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from programs import Programs  # noqa: E402
+from snapshot_attempt_account import provision, retire  # noqa: E402
 from snapshot_cleanup import RunAttempt, current_attempt, load_owner  # noqa: E402
 from snapshot_gate_aws import cleanup, load_guard, require_native_dispatch, summary  # noqa: E402
 from snapshot_gate_cutoff import run_native_cutoff  # noqa: E402
@@ -32,6 +33,11 @@ PROOF_STEPS = {
     "snapshot-roundtrip-dev": "Seed, snapshot, and restore the gate database",
     "snapshot-roundtrip-published-nightly": "Seed, snapshot, and restore the gate database",
     "snapshot-native-cutoff-dev": "Recover a lagging device across the native snapshot cutoff",
+}
+DISPOSABLE_PROOF_STEPS = {
+    "snapshot-import-dev": "Seed, snapshot, and restore the gate database",
+    "snapshot-import-published-nightly": "Seed, snapshot, and restore the gate database",
+    "snapshot-native-cutoff-operation-dev": "Recover a lagging device across the native snapshot cutoff",
 }
 MAX_REPLY_BYTES = 2_000_000
 
@@ -62,16 +68,20 @@ def _proof_result(reply, target):
     jobs = reply.get("jobs")
     require(isinstance(jobs, list) and len(jobs) == reply.get("total_count") and len(jobs) <= 50,
             "snapshot_resume_original_jobs")
-    proofs = [job for job in jobs if isinstance(job, dict) and job.get("name") in PROOF_STEPS]
+    proofs = [job for job in jobs if isinstance(job, dict) and job.get("name") in DISPOSABLE_PROOF_STEPS]
+    disposable = bool(proofs)
+    names = DISPOSABLE_PROOF_STEPS if disposable else PROOF_STEPS
+    if not disposable:
+        proofs = [job for job in jobs if isinstance(job, dict) and job.get("name") in names]
     require(len(proofs) == 1, "snapshot_resume_original_proof")
     job = proofs[0]
     require(job.get("run_id") == int(target.run_id) and job.get("run_attempt") == int(target.attempt)
             and job.get("status") == "completed" and isinstance(job.get("steps"), list),
             "snapshot_resume_original_job_scope")
     steps = [step for step in job["steps"]
-             if isinstance(step, dict) and step.get("name") == PROOF_STEPS[job["name"]]]
+             if isinstance(step, dict) and step.get("name") == names[job["name"]]]
     require(len(steps) <= 1, "snapshot_resume_original_proof_step")
-    return steps[0].get("conclusion") if steps else None
+    return (steps[0].get("conclusion") if steps else None), disposable
 
 
 def verified_attempt(run_id, attempt_number):
@@ -97,41 +107,54 @@ def verified_attempt(run_id, attempt_number):
     revision = run.get("head_sha")
     require(isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision),
             "snapshot_resume_original_revision")
-    return target, revision, _proof_result(_github_json(f"{path}/jobs?per_page=50", token), target)
+    proof, disposable = _proof_result(_github_json(f"{path}/jobs?per_page=50", token), target)
+    return target, revision, proof, disposable
+
+
+def resume_cleanup(command):
+    require(len(sys.argv) == 4, "arguments")
+    attempt, revision, proof, disposable = verified_attempt(sys.argv[2], sys.argv[3])
+    summary(
+        f"original_run={attempt.run_id} original_attempt={attempt.attempt} "
+        f"original_source={revision} database_id={attempt.database}"
+    )
+    if command == "resume-legacy-cleanup":
+        require(not disposable, "snapshot_resume_disposable_attempt")
+        cleanup(load_guard(), attempt, load_owner(), expect_charge=proof == "success", resume=True,
+                proof_skipped=proof == "skipped")
+    elif disposable:
+        retire(attempt, summary, expect_charge=proof == "success")
+    else:
+        output = os.environ.get("GITHUB_OUTPUT")
+        require(output, "snapshot_resume_legacy_output")
+        with open(output, "a", encoding="ascii") as stream:
+            stream.write("legacy=true\n")
 
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    native = command in ("native-cutoff", "cleanup-native-cutoff")
-    resume = command == "resume-cleanup"
+    native = command == "native-cutoff"
+    resume = command in ("resume-cleanup", "resume-legacy-cleanup")
     if native or resume:
         require_native_dispatch()
-    require(command in ("run", "cleanup") or native or resume, "command")
+    require(command in ("run", "retire") or native or resume, "command")
     require(
         os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF") == "refs/heads/main",
         "accepted_main_only",
     )
     os.umask(0o077)
     dev_endpoint()
-    guard = load_guard()
-    owner = load_owner()
     if resume:
-        require(len(sys.argv) == 4, "arguments")
-        attempt, revision, proof = verified_attempt(sys.argv[2], sys.argv[3])
-        summary(
-            f"original_run={attempt.run_id} original_attempt={attempt.attempt} "
-            f"original_source={revision} database_id={attempt.database}"
-        )
-        cleanup(guard, attempt, owner, expect_charge=proof == "success", resume=True, proof_skipped=proof == "skipped")
+        resume_cleanup(command)
         return
-    if command in ("cleanup", "cleanup-native-cutoff"):
+    if command == "retire":
         require(len(sys.argv) == 2, "arguments")
-        cleanup(
-            guard,
-            current_attempt(),
-            owner,
-            expect_charge=os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true",
-        )
+        attempt = current_attempt()
+        proof_attempt = os.environ.get("SNAPSHOT_PROOF_ATTEMPT", "")
+        require(not proof_attempt or proof_attempt == attempt.attempt, "snapshot_retire_rerun_all_jobs")
+        expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
+        require(not expect_charge or proof_attempt == attempt.attempt, "snapshot_retire_proof_attempt")
+        retire(attempt, summary, expect_charge=expect_charge)
         return
     parser_args = sys.argv[2:]
     require_automatic = native and parser_args[-1:] == ["--require-automatic"]
@@ -147,6 +170,10 @@ def main():
             (root / name).mkdir(mode=0o700)
         programs = Programs(Path(parser_args[1]).resolve(strict=True), parser_args[3], child_environment(root))
         try:
+            guard = load_guard()
+            attempt = current_attempt()
+            owner = provision(programs, root, attempt)
+            summary(f"snapshot_account=provisioned account_id={owner.account} database_id={attempt.database}")
             if native:
                 run_native_cutoff(programs, root, guard, owner, require_automatic=require_automatic)
             else:
