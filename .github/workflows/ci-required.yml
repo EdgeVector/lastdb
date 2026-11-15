@@ -40,7 +40,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install ripgrep
-        run: bash scripts/ci/install-ripgrep.sh
+        uses: EdgeVector/.github/install-ripgrep@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
       - name: Install Rust
         run: |
           rustup toolchain install --profile minimal --component clippy,rustfmt
@@ -77,12 +77,24 @@ jobs:
           date +%s >"$state_dir/job_started_at_epoch"
           echo "unknown-pre-instrumented-step" >"$state_dir/last_step"
           echo "MINI_GATE_STATE_DIR=$state_dir" >>"$GITHUB_ENV"
-      - name: Cloud recovery recipe syntax
+      - name: Python script syntax
         env:
-          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/cloud-recipe-pycache
-        run: bash scripts/ci/mini-gate-step.sh "Cloud recovery recipe and Social syntax" -- python3 -m py_compile scripts/cloud_backup/*.py apps/social/*.py apps/social/social
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/python-script-pycache
+        run: >-
+          bash scripts/ci/mini-gate-step.sh "Python script and Social syntax" --
+          python3 -m py_compile
+          scripts/harness/*.py
+          scripts/operations/*.py
+          scripts/benchmarks/*.py
+          scripts/cloud_backup/*.py
+          scripts/mutation_log_load/*.py
+          scripts/release/*.py
+          apps/social/*.py
+          apps/social/social
       - name: No build-artifact blobs in tree
-        run: bash scripts/ci/mini-gate-step.sh "No build-artifact blobs in tree" -- bash scripts/lints/lint-no-build-artifacts.sh --tree HEAD
+        uses: EdgeVector/.github/no-build-artifacts@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
+        with:
+          tree: HEAD
       - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition)
         run: bash scripts/ci/mini-gate-step.sh "Source lints" -- bash scripts/lints/source-lints.sh
       - name: cargo fmt --check
@@ -92,7 +104,9 @@ jobs:
       - name: Model purity lint
         run: bash scripts/ci/mini-gate-step.sh "Model purity lint" -- bash scripts/ci/model-purity-lint.sh
       - name: Module layer check
-        run: bash scripts/ci/mini-gate-step.sh "Module layer check" -- python3 scripts/ci/layer-check.py --crate fold_db/crates/model --crate fold_db/crates/core --crate lastdb_node
+        uses: EdgeVector/.github/layer-check@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
+        with:
+          crates: fold_db/crates/model fold_db/crates/core lastdb_node
       - name: Heavy clippy workspace-coverage lint
         run: bash scripts/ci/mini-gate-step.sh "Heavy clippy workspace-coverage lint" -- ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
       - name: cargo clippy (path-selected required lane)
@@ -155,7 +169,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
       - name: Install ripgrep
-        run: bash scripts/ci/install-ripgrep.sh
+        uses: EdgeVector/.github/install-ripgrep@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
       - name: Install Rust
         run: |
           rustup toolchain install --profile minimal --component clippy,rustfmt
@@ -198,26 +212,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Install tree-sitter (pinned)
-        run: python3 -m pip install --quiet tree-sitter==0.23.2 tree-sitter-rust==0.23.2
-      - name: Touched Rust functions stay under the size limit
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/lints/lint-diff-fn-size.py --base "$BASE_SHA" --head "$HEAD_SHA"
-      - name: Changed Rust files stay under the size limit
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/lints/lint-diff-file-size.py --base "$BASE_SHA" --head "$HEAD_SHA"
-      - name: No new too_many_arguments allows
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/lints/lint-diff-new-allows.py --base "$BASE_SHA" --head "$HEAD_SHA"
+      - name: Enforce source diff size and allow policy
+        uses: EdgeVector/.github/source-diff-policy@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
+        with:
+          base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+          extensions: .rs,.py
 
   secret_scan:
     name: secret scan
@@ -226,7 +226,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Scan tracked text files for secrets
-        run: python3 scripts/lints/lint-secrets.py
+        uses: EdgeVector/.github/secret-scan@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
 
   # Both tools read Cargo.lock, the manifests, and the RustSec advisory DB.
   # Neither compiles. A newly published advisory fails this job on every PR

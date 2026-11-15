@@ -1,59 +1,39 @@
 """Owned generated homes and actual HTTP requests over the daemon socket."""
 
-import hashlib
 import http.client
 import json
 import os
 from pathlib import Path
 import shutil
-import socket
 import subprocess
+import sys
 import tempfile
-import time
 
-from disk_usage import usage
-from record_protocol import RecordProtocol
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
-
-def marker_format(marker):
-    """The `format=` number of a home marker text, or None for no marker."""
-    if marker is None:
-        return None
-    first = marker.split("\n", 1)[0]
-    return int(first[len("format="):]) if first.startswith("format=") else None
-
-
-def save(path, value):
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+from disk_usage import usage  # noqa: E402
+from harness.ci import file_sha256 as file_hash, save_json as save  # noqa: E402,F401
+from harness.daemon import (  # noqa: E402,F401
+    marker_format,
+    poll_until,
+    read_shutdown_receipt,
+    stop_process,
+    verify_shutdown_receipt,
+)
+from harness.uds import UnixConnection, send_unix_request  # noqa: E402,F401
+from record_protocol import RecordProtocol  # noqa: E402
 
 
 def home_format_line(output, manifest):
-    """One summary line with the home format of each label, from the home-format.json of each run."""
+    """One summary line with the home format of each label, from home-format.json of each run."""
     found = {"baseline": set(), "candidate": set()}
     for run in manifest["runs"]:
         path = output / run["directory"] / "home-format.json"
         found[run["label"]].add(str(json.loads(path.read_text())["format"]) if path.exists() else "unreported")
     shown = {label: ", ".join(sorted(values)) or "unreported" for label, values in found.items()}
     return f"Home format: base **{shown['baseline']}**, candidate **{shown['candidate']}**."
-
-
-def file_hash(path):
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-class UnixConnection(http.client.HTTPConnection):
-    def __init__(self, path):
-        super().__init__("localhost", timeout=60)
-        self.path = path
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.settimeout(self.timeout)
-        self.sock.connect(str(self.path))
 
 
 class Node:
@@ -66,14 +46,17 @@ class Node:
         self.workers = workers
         self.environment = environment or {}
         self.arguments = tuple(arguments)
-        # The first health reply can wait for the new home creation.
         self.start_seconds = start_seconds
-        # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir=temporary_directory or "/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
         self.home.mkdir(mode=0o700)
-        self.owner = {"pid": os.getpid(), "uid": os.getuid(), "root": str(self.root),
-                      "inode": self.root.stat().st_ino, "generated_data_only": True}
+        self.owner = {
+            "pid": os.getpid(),
+            "uid": os.getuid(),
+            "root": str(self.root),
+            "inode": self.root.stat().st_ino,
+            "generated_data_only": True,
+        }
         save(self.root / "owner.json", self.owner)
         save(output / "ownership.json", self.owner)
         self.process, self.log = None, None
@@ -81,54 +64,67 @@ class Node:
     def call(self, path, body=None, receipt=False, request_id=None, transport=None,
              complete_records=False, timeout=60):
         if self.record_protocol is not None:
-            return self.record_protocol.call(self._exchange, path, body, receipt=receipt,
-                request_id=request_id, transport=transport, complete_records=complete_records,
-                timeout=timeout)
+            return self.record_protocol.call(
+                self._exchange,
+                path,
+                body,
+                receipt=receipt,
+                request_id=request_id,
+                transport=transport,
+                complete_records=complete_records,
+                timeout=timeout,
+            )
         return self._exchange(path, body, receipt=receipt, request_id=request_id, transport=transport, timeout=timeout)
 
     def _exchange(self, path, body=None, receipt=False, request_id=None, transport=None, timeout=60):
-        if body is not None and not isinstance(body, bytes):
-            body = json.dumps(body, separators=(",", ":")).encode()
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark"}
         if request_id is not None:
             headers["X-LastDB-Request-Id"] = request_id
         if receipt:
             headers["x-lastdb-read-receipt"] = "true"
-        connection = UnixConnection(self.socket)
-        connection.timeout = timeout
-        started = time.perf_counter_ns()
+        status, raw, resp_headers, elapsed, req_bytes = send_unix_request(
+            self.socket,
+            "GET" if body is None else "POST",
+            path,
+            body,
+            headers,
+            timeout=timeout,
+        )
+        if transport is not None:
+            transport.update(
+                request_body_bytes=req_bytes,
+                response_body_bytes=len(raw),
+                rpc_count=1,
+                response_status=status,
+                latency_ms=elapsed,
+            )
+        cost = resp_headers.get("x-lastdb-read-receipt")
+        if status != 200:
+            error = RuntimeError(f"{path}: HTTP {status}: {raw[:600]!r}")
+            error.status = status
+            raise error
         try:
-            connection.request("GET" if body is None else "POST", path, body, headers)
-            response = connection.getresponse()
-            raw = response.read()
-            elapsed = (time.perf_counter_ns() - started) / 1e6
-            if transport is not None:
-                transport.update(request_body_bytes=len(body or b""),
-                                 response_body_bytes=len(raw), rpc_count=1,
-                                 response_status=response.status, latency_ms=elapsed)
-            cost = response.getheader("x-lastdb-read-receipt")
-            if response.status != 200:
-                error = RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
-                error.status = response.status
-                raise error
-            try:
-                result = json.loads(raw)
-            except json.JSONDecodeError as error:
-                raise RuntimeError(f"{path}: HTTP {response.status} returned non-JSON: {raw[:600]!r}") from error
-            if result.get("ok") is False:
-                raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
-            return result.get("data", result), elapsed, json.loads(cost) if cost else None
-        finally:
-            connection.close()
+            result = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"{path}: HTTP {status} returned non-JSON: {raw[:600]!r}") from error
+        if result.get("ok") is False:
+            raise RuntimeError(f"{path}: HTTP {status}: {raw[:600]!r}")
+        return result.get("data", result), elapsed, json.loads(cost) if cost else None
 
     def start(self):
         if self.process is not None:
             raise RuntimeError("The owned daemon is already active")
-        environment = {name: value for name, value in os.environ.items()
-                       if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))}
-        environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-                           LASTDB_HOME=str(self.home),
-                           RUST_MIN_STACK="16777216")
+        environment = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))
+        }
+        environment.update(
+            LASTDB_ISOLATED_COPY="1",
+            LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
+            LASTDB_HOME=str(self.home),
+            RUST_MIN_STACK="16777216",
+        )
         environment.update(self.environment)
         if self.native_timing:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
@@ -136,59 +132,52 @@ class Node:
             environment["LASTDB_UDS_WORKERS"] = str(self.workers)
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
-            [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
-             *self.arguments],
-            # Arguments are explicit driver inputs, never inherited from the host.
-            env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
-        deadline = time.monotonic() + self.start_seconds
-        while time.monotonic() < deadline:
+            [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket), *self.arguments],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=self.log,
+            stderr=self.log,
+        )
+
+        def check_boot():
             if self.process.poll() is not None:
                 raise RuntimeError("The owned daemon exited before health; inspect node.log")
-            if self.socket.exists():
-                try:
-                    health, _, _ = self.call("/health")
-                    if health.get("ok") is True or health.get("status") == "ok":
-                        version, _, _ = self.call("/api/version")
-                        self.api_version = version["api_version"]
-                        save(self.output / "version.json", version)
-                        if f"bench-{self.revision}" not in json.dumps(version):
-                            raise RuntimeError("The actual daemon version differs from the selected revision")
-                        if self.workers:
-                            status, _, _ = self.call("/api/status")
-                            observed = status["status"]["uds"]["workers"]
-                            save(self.output / "worker-config.json",
-                                 {"requested": self.workers, "observed": observed})
-                            if observed != self.workers:
-                                raise RuntimeError("The daemon worker count differs from the selected count")
-                        return
-                except (OSError, http.client.HTTPException):
-                    pass
-            time.sleep(0.05)
-        raise RuntimeError("The owned daemon missed its health deadline")
+            if not self.socket.exists():
+                return False
+            try:
+                health, _, _ = self.call("/health")
+                if health.get("ok") is not True and health.get("status") != "ok":
+                    return False
+                version, _, _ = self.call("/api/version")
+            except (OSError, http.client.HTTPException):
+                return False
+            self.api_version = version["api_version"]
+            save(self.output / "version.json", version)
+            if f"bench-{self.revision}" not in json.dumps(version):
+                raise RuntimeError("The actual daemon version differs from the selected revision")
+            if self.workers:
+                status, _, _ = self.call("/api/status")
+                observed = status["status"]["uds"]["workers"]
+                save(self.output / "worker-config.json", {"requested": self.workers, "observed": observed})
+                if observed != self.workers:
+                    raise RuntimeError("The daemon worker count differs from the selected count")
+            return True
+
+        poll_until(self.start_seconds, check_boot, interval=0.05, timeout_error="The owned daemon missed its health deadline")
 
     def stop(self):
         if self.process is None:
             return
-        process, forced = self.process, False
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=45)
-            except subprocess.TimeoutExpired:
-                forced = True
-                process.kill()
-                process.wait(timeout=5)
+        process = self.process
+        forced = stop_process(process, timeout=45, kill_timeout=5)
         self.process = None
         if self.record_protocol is not None:
             save(self.output / "client-protocol.json", {"api_version": self.api_version, **self.record_protocol.status()})
         self.log.close()
         self.log = None
-        receipt_path = self.home / ".shutdown_flush_ready"
-        receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
-        save(self.output / "shutdown.json", {"exit_code": process.returncode, "forced": forced,
-                                             "receipt": receipt})
-        if (forced or process.returncode != 0 or not receipt
-                or receipt.get("pid") != process.pid or receipt.get("flush_ok") is not True):
+        receipt = read_shutdown_receipt(self.home)
+        save(self.output / "shutdown.json", {"exit_code": process.returncode, "forced": forced, "receipt": receipt})
+        if forced or process.returncode != 0 or not verify_shutdown_receipt(receipt, process.pid):
             raise RuntimeError("The owned daemon lacks a successful shutdown receipt")
 
     def close(self):
@@ -196,9 +185,12 @@ class Node:
             self.stop()
         finally:
             if self.process is None:
-                if (self.root.is_symlink() or self.root.stat().st_uid != os.getuid()
-                        or self.root.stat().st_ino != self.owner["inode"]
-                        or json.loads((self.root / "owner.json").read_text()) != self.owner):
+                if (
+                    self.root.is_symlink()
+                    or self.root.stat().st_uid != os.getuid()
+                    or self.root.stat().st_ino != self.owner["inode"]
+                    or json.loads((self.root / "owner.json").read_text()) != self.owner
+                ):
                     raise RuntimeError("The owned home identity changed; refuse cleanup")
                 shutil.rmtree(self.root)
                 save(self.output / "cleanup.json", {"removed": str(self.root), "daemon_stopped": True})
@@ -215,12 +207,10 @@ class Node:
         return None
 
     def marker(self):
-        """The home marker, or None before the daemon creates the home."""
         path = self.home / "data" / "laststore-pack-node-v1"
         return path.read_text() if path.exists() else None
 
     def home_format(self):
-        """The `format=` number of the home marker, or None before the daemon creates the home."""
         return marker_format(self.marker())
 
     def disk_bytes(self):

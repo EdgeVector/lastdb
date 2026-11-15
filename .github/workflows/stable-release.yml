@@ -15,6 +15,7 @@ on:
       - '.github/workflows/stable-release.yml'
       - 'scripts/release/stable_*.py'
       - '.github/workflows/app-compatibility-publish.yml'
+      - 'scripts/harness/**'
       - 'scripts/release/nightly_*.py'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs.rs'

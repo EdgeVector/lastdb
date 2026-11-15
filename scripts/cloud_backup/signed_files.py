@@ -14,7 +14,7 @@ import uuid
 import baseline_data
 from node import OwnedNode
 from programs import Programs
-from support import OperationError, dev_endpoint, failure, require, write_private
+from support import OperationError, dev_endpoint, failure, require, summary_line, write_private
 
 
 @contextmanager
@@ -43,8 +43,7 @@ def retry(stage, command, complete):
 
 
 def summary(message):
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
-        output.write(message + "\n")
+    summary_line(message, echo=False)
 
 
 def transfer(programs, root, publisher, recipient, api_key):
