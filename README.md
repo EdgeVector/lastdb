@@ -138,6 +138,16 @@ stdin. A record with a required file cannot be written without its file. A
 bare record replacement keeps the existing file. A replacement with
 `file: null` in the same envelope removes an optional file.
 
+### Share a database
+
+The publisher sets read access and schema write permissions in Social. Apps
+use those settings to show available actions. In a whole-database share, any
+active receiver can send an encrypted change to the pending mutation log.
+Only the publisher reads it and checks the proposed change against the
+current rules. The publisher saves and uploads accepted changes to a separate
+published log, which all active receivers follow.
+[How sharing works](docs/designs/shared-database-mutation-logs.md)
+
 ### Share files
 
 Create a named database with the Files spec. Use an existing publisher home

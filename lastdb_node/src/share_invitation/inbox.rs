@@ -1,4 +1,6 @@
-//! Private contribution payloads for the publisher's per-database inbox key.
+//! Encrypt a pending mutation for the publisher before sending it to ExeMem.
+//! The publisher derives the private key for the database. The invitation
+//! gives receivers the public key they use to encrypt their submissions.
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};

@@ -59,16 +59,19 @@ Choose **Whole database with circle write access** when creating a database
 for circles. Install the database's schemas through LastDB, then open **Circle
 settings** to assign remembered contacts and select the schemas each circle
 can change. A member can read records from every schema in the database.
-An empty write selection grants read-only access. Multiple circles combine
+An empty write selection grants whole-database reads and no schema changes. Multiple circles combine
 their write grants. An explicit selection covers the installed definition IDs.
 The **All schemas** choice also covers future definitions. Use **Seal
 invitation** on an active member to get the receipt to hand to them.
 
-LastDB queues member writes for the publisher's LastDB to check against the
-current schema grant. A successful submission confirms that ExeMem queued
-the write. ExeMem delivers pending writes only to the publisher, and members
-receive only entries authored by the publisher. Read the record to confirm
-it was committed and synced.
+Apps use the sharing settings to show which changes the publisher allows.
+Every active receiver can send an encrypted change to the pending mutation
+log. A successful submission confirms that ExeMem queued it. Only the
+publisher's LastDB can read pending changes. It checks each one against the
+current schema permissions and record rules, discards refusals, and uploads
+accepted changes to the separate published log. Receivers follow that log
+and can read the resulting record after it syncs.
+[How sharing works](../../docs/designs/shared-database-mutation-logs.md)
 
 TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
 for database creation, invitation, acceptance and revocation.

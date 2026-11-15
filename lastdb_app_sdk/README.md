@@ -190,6 +190,15 @@ Keep sealed receipts out of logs.
 
 ## Registered Shares
 
+For whole-database shares, use the receiver's current schema permissions to
+show available edit actions. Any active receiver can submit an encrypted
+mutation. A `submitted` receipt confirms delivery to the publisher's pending
+mutation log. The publisher's LastDB checks the current sharing settings and
+record rules, then publishes accepted changes under the publisher's key.
+Use the normal query API to read the result after sync. The receiver's LastDB
+follows the published log. Access to the pending log belongs to the publisher.
+[Sharing and write approval](../docs/designs/shared-database-mutation-logs.md)
+
 Pass the database ID or alias from `lastdb db list` to `connect` or `select`
 on the recipient's socket:
 
@@ -210,7 +219,7 @@ const receipt = await share.mutate('photos/Comment', {
   record: { text: 'Great photo' },
 }, { mutationId });
 if ('status' in receipt && receipt.status === 'submitted') {
-  console.log(`Submitted ${receipt.mutationId} at ${receipt.submissionSequence}`);
+  console.log(`Queued ${receipt.mutationId}`);
 }
 ```
 

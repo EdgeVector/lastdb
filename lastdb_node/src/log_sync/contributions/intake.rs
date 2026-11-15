@@ -12,8 +12,10 @@ use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_applied;
 
-/// Validate the caller and commit one submitted write to the owner store.
-/// A terminal refusal consumes the delivery entry without publishing a record.
+/// Check a downloaded mutation against the publisher's confirmed sharing
+/// settings and record rules. The receiver app's UI grants no write authority.
+/// Commit an allowed change to the publisher's store for normal publication.
+/// A terminal refusal consumes the pending entry without publishing a record.
 pub(in crate::log_sync) async fn apply(
     host: &Host,
     log: &CloudLog,

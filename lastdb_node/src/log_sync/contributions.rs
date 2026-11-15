@@ -1,4 +1,7 @@
-//! Admit encrypted member updates through the signed database log.
+//! Queue encrypted mutations from active receivers in the publisher's pending log.
+//!
+//! Receiver apps use schema grants to guide the UI. The publisher's intake
+//! checks those grants against the actual mutation before any shared write.
 
 mod intake;
 
