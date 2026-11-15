@@ -2,8 +2,6 @@
 
 mod catalog;
 
-pub(crate) use catalog::list_rows as list_database_rows;
-
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;

@@ -14,7 +14,7 @@ const LIMIT_REMEDIATION: &str =
     r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RejectKind {
+pub(in crate::exec) enum RejectKind {
     MalformedBody,
     MissingRequiredKey,
     InvalidValue,
@@ -22,7 +22,7 @@ pub(crate) enum RejectKind {
 }
 
 impl RejectKind {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub(in crate::exec) const fn as_str(self) -> &'static str {
         match self {
             Self::MalformedBody => "malformed_body",
             Self::MissingRequiredKey => "missing_required_key",
@@ -43,7 +43,7 @@ impl RejectKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reject {
-    pub(crate) kind: RejectKind,
+    pub(in crate::exec) kind: RejectKind,
     key: Option<(&'static str, &'static str)>,
 }
 
@@ -189,7 +189,9 @@ pub(crate) struct QueryRequest {
     pub(in crate::exec) response_format: QueryResponseFormat,
 }
 
-pub(crate) fn parse_query_body(mut obj: Map<String, Value>) -> Result<QueryRequest, UdsResponse> {
+pub(in crate::exec) fn parse_query_body(
+    mut obj: Map<String, Value>,
+) -> Result<QueryRequest, UdsResponse> {
     let bad = |n, r| Reject::kv(RejectKind::InvalidValue, n, r).response();
     let take_num = |m: &mut Map<String, Value>, n: &'static str, r: &'static str| match m.remove(n)
     {

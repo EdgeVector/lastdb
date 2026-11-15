@@ -52,10 +52,6 @@ fn spawn_background(
             jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(stop)),
         ),
         ("log sync", sync),
-        (
-            "saved queries",
-            jobs::saved_query::spawn(Arc::clone(host), Arc::clone(stop)),
-        ),
     ]
 }
 

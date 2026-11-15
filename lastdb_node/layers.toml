@@ -9,12 +9,11 @@ exclude = ["main.rs", "bin"]
 
 [[layer]]
 name = "foundation"
-doc = "Pure node types, endpoints, paths, identities, seals, accepted-write ledgers, and saved-query definitions."
+doc = "Pure node types, endpoints, paths, identities, seals, and accepted-write ledgers."
 modules = [
   "accepted_writes",
   "identity",
   "profile",
-  "saved_query",
   "seal",
   "service_home",
   "share_spec",
@@ -73,15 +72,14 @@ modules = [
 
 [[layer]]
 name = "surface"
-doc = "Owner-socket route handlers (exec) and in-process saved-query orchestration."
+doc = "Owner-socket route handlers (exec)."
 modules = [
   "exec",
-  "saved_query_run",
 ]
 
 [[layer]]
 name = "jobs"
-doc = "Background and on-demand work over a booted host (TTL sweep and saved-query reconciliation) and crate-root exports."
+doc = "Background and on-demand work over a booted host (TTL sweep) and crate-root exports."
 modules = [
   "crate",
   "jobs",
