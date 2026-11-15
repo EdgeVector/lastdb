@@ -88,6 +88,11 @@ async fn one_turn(host: &Arc<Host>, cleanup: &mut Pacing) -> Pause {
         return Pause::Backoff;
     }
     let databases = registry::databases(&host.home);
+    host.cloud_sync.retain_databases(|id| {
+        databases
+            .iter()
+            .any(|database| database.kind == "personal" && database.id == id)
+    });
     let has_received = crate::registered_share::list(&host.home)
         .map_or(true, |shares| shares.iter().any(|share| share.signed_log));
     if !creds_present {
