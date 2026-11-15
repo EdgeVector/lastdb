@@ -19,6 +19,8 @@ pub struct FoldDbOptions {
     pub capture_accepted: bool,
     /// Preserve the original native root before a personal home starts cloud capture.
     pub capture_initial_snapshot: bool,
+    /// Remember the publisher's mutation identity beside each whole-database share record.
+    pub track_shared_record_revisions: bool,
 }
 
 /// Creates a fully initialized FoldDB instance based on the database configuration.

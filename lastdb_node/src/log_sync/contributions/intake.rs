@@ -1,12 +1,12 @@
 use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
 use fold_db::canonical::CanonicalWriter;
-use fold_db::schema::types::{mutation::ContributionAdmission, Mutation, SchemaError};
+use fold_db::schema::types::{mutation::ContributionAdmission, Mutation};
 use mutation_log::Entry;
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    inbox, parse, resolve_schema, CloudLog, ContributionError, Submission, DEVICE_PREFIX,
-    INBOX_NAMESPACE,
+    inbox, parse, resolve_schema, revision, terminal_record_error, CloudLog, ContributionError,
+    Submission, DEVICE_PREFIX, INBOX_NAMESPACE,
 };
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
@@ -85,7 +85,10 @@ pub(in crate::log_sync) async fn apply(
         }
         _ => return Ok(()),
     };
-    if mutation.definition_id.as_deref() != Some(definition.as_str()) {
+    let base = submission.base_mutation.as_deref();
+    if mutation.definition_id.as_deref() != Some(definition.as_str())
+        || !revision::bind_publisher_revision(&store, &mut mutation, base).await?
+    {
         return Ok(());
     }
     prepare(
@@ -94,7 +97,7 @@ pub(in crate::log_sync) async fn apply(
         writer,
         id.as_str(),
         definition.as_str(),
-        &body,
+        if base.is_some() { &bytes } else { &body },
     );
     let result = store
         .mutation_manager()
@@ -102,14 +105,8 @@ pub(in crate::log_sync) async fn apply(
         .await;
     drop(lock);
     match result {
-        Ok(_)
-        | Err(
-            SchemaError::CasConflict { .. }
-            | SchemaError::InvalidData(_)
-            | SchemaError::InvalidField(_)
-            | SchemaError::NotFound(_)
-            | SchemaError::RecordTooLarge { .. },
-        ) => Ok(()),
+        Ok(_) => Ok(()),
+        Err(error) if terminal_record_error(&error) => Ok(()),
         Err(_) => Err("member write could not be committed".into()),
     }
 }

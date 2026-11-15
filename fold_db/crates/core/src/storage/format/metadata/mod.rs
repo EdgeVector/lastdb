@@ -2,6 +2,7 @@
 
 mod files;
 mod replay;
+mod shared_revision;
 
 pub(in crate::storage::format) use files::FileChange;
 pub(crate) use files::{decrypt_file_row, require_row, seal_row};

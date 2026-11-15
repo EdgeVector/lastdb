@@ -127,6 +127,7 @@ impl Host {
             search_outbox_inbox: Some(inbox.clone()),
             capture_accepted: signed_restore || has_spool || connected,
             capture_initial_snapshot: wants_initial && connected,
+            track_shared_record_revisions: false,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
             &DatabaseConfig::local(data_dir),

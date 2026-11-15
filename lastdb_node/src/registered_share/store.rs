@@ -35,7 +35,7 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     if let Some(store) = open.get(id.as_str()) {
         return Ok(Arc::clone(store));
     }
-    let store = open_receiver(host, id).await?;
+    let store = open_receiver(host, id, share.whole_database()).await?;
     open.insert(id.as_str().to_owned(), Arc::clone(&store));
     Ok(store)
 }
@@ -65,7 +65,7 @@ impl Host {
     }
 }
 
-async fn open_receiver(host: &Host, id: &Id) -> Result<Arc<FoldDB>> {
+async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {
     let keys = content_keys(&host.home, id)?;
     let (data, inbox) = store_dirs(&host.home, id)?;
     fold_db::db_operations::search_index::queue_policy::prepare(&inbox)
@@ -79,6 +79,7 @@ async fn open_receiver(host: &Host, id: &Id) -> Result<Arc<FoldDB>> {
             search_outbox_inbox: Some(inbox),
             capture_accepted: false,
             capture_initial_snapshot: false,
+            track_shared_record_revisions: whole_database,
         },
     )
     .await

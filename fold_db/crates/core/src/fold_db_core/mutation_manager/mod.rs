@@ -2,6 +2,7 @@
 
 mod replace;
 mod replay;
+mod shared_revision;
 mod write_records;
 
 use std::collections::BTreeMap;
@@ -38,12 +39,14 @@ pub use crate::resident::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 pub use crate::storage::format::metadata::ReplayStamp;
+pub use shared_revision::SharedRecordRevision;
 
 pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
     pub(super) schema_manager: Arc<SchemaCore>,
     pub(super) signer: Arc<Ed25519KeyPair>,
     pub(super) search_outbox_inbox: Option<PathBuf>,
+    track_shared_record_revisions: bool,
 }
 
 impl MutationManager {
@@ -52,12 +55,14 @@ impl MutationManager {
         schema_manager: Arc<SchemaCore>,
         signer: Arc<Ed25519KeyPair>,
         search_outbox_inbox: Option<PathBuf>,
+        track_shared_record_revisions: bool,
     ) -> Self {
         Self {
             db_ops,
             schema_manager,
             signer,
             search_outbox_inbox,
+            track_shared_record_revisions,
         }
     }
 

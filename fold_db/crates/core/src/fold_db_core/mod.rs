@@ -57,6 +57,7 @@ impl FoldDB {
             Arc::clone(&schema_manager),
             signer,
             options.search_outbox_inbox,
+            options.track_shared_record_revisions,
         ));
         info!("Created MutationManager for mutation operations");
         if !options.offline_maintenance {
