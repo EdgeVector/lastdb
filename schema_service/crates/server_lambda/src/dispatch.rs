@@ -1,5 +1,6 @@
 //! Method + path routing for the advisory Schema Service Lambda.
 
+use crate::catalog::{self, Catalog};
 use crate::http::{json_response, typed_json_body};
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::advice::SchemaAdviceRequest;
@@ -36,8 +37,9 @@ pub(crate) fn dispatch_stateless(method: &str, path: &str) -> RouteResult {
 }
 
 /// Dispatch advisory routes against the initialized canonical vocabulary state.
-pub(crate) fn dispatch_with_state(
+pub(crate) async fn dispatch_with_state(
     state: &SchemaServiceState,
+    catalog: Option<&Catalog>,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
     let method = event.method().as_str();
@@ -51,7 +53,16 @@ pub(crate) fn dispatch_with_state(
                     Err(response) => return response,
                 };
             match state.schema_advice_reply(&request).into_http() {
-                Ok(response) => json_response(200, &json!(response)),
+                Ok(mut response) => {
+                    let status = match catalog {
+                        Some(catalog) => catalog.examples(&request, &mut response).await,
+                        None => catalog::unavailable(),
+                    };
+                    json_response(
+                        200,
+                        &json!({"findings": response.findings, "catalog": status}),
+                    )
+                }
                 Err((status, body)) => json_response(status, &body),
             }
         }

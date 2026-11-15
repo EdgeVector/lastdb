@@ -1,10 +1,11 @@
 //! Advisory Schema Service Lambda handler.
 //!
 //! Serves `/v1/health` (`/health`), `/v1/fields/vocabulary`, and
-//! `POST /v1/advice/schema` from the built-in curated canonical vocabulary.
+//! `POST /v1/advice/schema` from the curated vocabulary and public registry catalog.
 
 #![allow(clippy::result_large_err)]
 
+mod catalog;
 mod dispatch;
 mod http;
 
@@ -24,6 +25,7 @@ use schema_service_core::SchemaServiceState;
 )]
 async fn function_handler(
     state: Arc<SchemaServiceState>,
+    catalog: Option<Arc<catalog::Catalog>>,
     event: Request,
 ) -> Result<Response<Body>, Error> {
     let method = event.method().as_str();
@@ -35,7 +37,11 @@ async fn function_handler(
         return resp;
     }
 
-    dispatch::dispatch_with_state(&state, &event)
+    if method == "POST" && path == catalog::FEED_PATH {
+        return catalog::scheduled(catalog.as_deref(), &event).await;
+    }
+
+    dispatch::dispatch_with_state(&state, catalog.as_deref(), &event).await
 }
 
 #[tokio::main]
@@ -55,8 +61,16 @@ async fn main() -> Result<(), Error> {
 
     tracing::info!("Advisory Schema Service Lambda starting...");
 
+    let catalog = match catalog::Catalog::from_environment() {
+        Ok(catalog) => catalog.map(Arc::new),
+        Err(reason) => {
+            tracing::warn!(%reason, "schema_catalog_configuration_unavailable");
+            None
+        }
+    };
+
     run(service_fn(move |event| {
-        function_handler(Arc::clone(&state), event)
+        function_handler(Arc::clone(&state), catalog.clone(), event)
     }))
     .await
 }

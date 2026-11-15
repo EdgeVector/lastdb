@@ -19,6 +19,8 @@ on:
       - "schema_service/crates/server_lambda/**"
       - "schema_service/crates/core/**"
       - "schema_service/crates/schema_types/**"
+      - "app_identity_crypto/**"
+      - "lastdb_node/environments.json"
       - "fold_db/crates/observability/**"
       - "Cargo.toml"
       - "Cargo.lock"
