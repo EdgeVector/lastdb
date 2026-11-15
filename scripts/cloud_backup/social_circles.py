@@ -218,7 +218,9 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
         created,
         mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed"),
     ]
-    queue_and_restart(publisher, recipient, remote, database, scope, 1, updates)
+    queued = queue_and_restart(publisher, recipient, remote, database, scope, 1, updates,
+                               check_status=True)
+    verify_results(recipient, database, queued)
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
@@ -336,19 +338,31 @@ def exercise_reader(publisher, recipient, remote, database, definitions, scope):
     summary(message)
 
 
-def queue_and_restart(publisher, recipient, remote, database, scope, revision, updates):
+def verify_results(recipient, database, queued):
+    unknown = str(uuid.uuid4())
+    results = sdk(recipient, "submission-status", database=database, ids=[*queued, unknown])
+    require([row["status"] for row in results] == ["discarded", "published", "discarded", "unknown"],
+            "circle_sdk_final_proposal_results")
+    report("The receiving SDK read the final outcome of each of Ana's proposals by UUID.")
+
+
+def queue_and_restart(publisher, recipient, remote, database, scope, revision, updates, *, check_status=False):
     session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
     publisher.stop()
     try:
         require(not inbox(publisher, scope, database, revision)["entries"], "circle_empty_inbox")
         published_before = published_views(recipient, scope, database, revision)
         queued = [submit(recipient, database, session, update) for update in updates]
+        if check_status:
+            results = sdk(recipient, "submission-status", database=database, ids=queued)
+            require(all(row["status"] == "submitted" for row in results), "circle_sdk_proposals_pending")
         through = pending_positions(publisher, recipient, scope, database, revision, queued, published_before)
         summary("ExeMem queued the mutations in the publisher's inbox and refused Ana's inbox read and settlement. The published log did not advance.")
     finally:
         publisher.start()
     retry("circle_publisher_consumed_submissions", lambda: inbox(publisher, scope, database, revision),
           lambda page: int(page["next"]) >= through and not page["entries"])
+    return queued
 
 
 if __name__ == "__main__":

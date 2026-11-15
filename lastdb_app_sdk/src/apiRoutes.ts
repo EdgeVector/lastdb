@@ -14,6 +14,7 @@ export const LASTDB_API_ROUTES = {
   mutation: '/api/mutation',
   /** Atomic batch of complete conditional record mutations. */
   mutationBatch: '/api/mutations/batch',
+  shareSubmissionStatus: '/api/submissions/status',
   /** Create or replace a record's blob, inline, or local-reference file. */
   putBlob: '/api/db/put-blob',
   /** Fetch a record's blob or inline file bytes. */

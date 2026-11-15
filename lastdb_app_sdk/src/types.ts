@@ -36,6 +36,7 @@ export type {
   Row,
   RowFields,
   ShareSubmissionResult,
+  ShareSubmissionStatus,
 } from './writeTypes.js';
 
 /** Pass the complete cursor back unchanged. Values stay strings, including large integers and dates. */

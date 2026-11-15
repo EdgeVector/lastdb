@@ -74,6 +74,40 @@ pub(super) async fn read(
     response
 }
 
+pub(super) async fn submission_status(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+    share: &RegisteredShare,
+) -> UdsResponse {
+    use crate::log_sync::ContributionError;
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Request {
+        mutation_id: Id,
+    }
+    if req.body.len() > 256 {
+        return error_response(400, "invalid submission status request", ctx);
+    }
+    let Ok(body) = serde_json::from_slice::<Request>(&req.body) else {
+        return error_response(400, "invalid submission status request", ctx);
+    };
+    match crate::log_sync::share_write_status(host, share, &body.mutation_id).await {
+        Ok(status) => {
+            json_ok(&json!({"ok": true, "mutation_id": body.mutation_id, "status": status}))
+        }
+        Err(ContributionError::Forbidden) => {
+            error_response(403, "submission status access refused", ctx)
+        }
+        Err(ContributionError::Invalid) => {
+            error_response(400, "invalid submission status request", ctx)
+        }
+        Err(ContributionError::Unavailable) => {
+            error_response(503, "submission status is unavailable", ctx)
+        }
+    }
+}
+
 fn replay_durable(host: &Host, share: &RegisteredShare) -> bool {
     crate::database_replay::prefix_durable(&host.home, share.id.as_str())
 }

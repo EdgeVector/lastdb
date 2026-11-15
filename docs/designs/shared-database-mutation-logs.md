@@ -50,6 +50,13 @@ opens the returned stable database ID in the ordinary LastDB data client.
 4. The publisher's LastDB reads the inbox, decrypts each submission, and checks its sharing revision and the sender's current write access to the target schema. A receiver with an empty write scope can submit, and the publisher discards their mutations. It also discards mutations that fail the schema or record rules. It durably commits valid changes using the submission identity for retries. Accepted changes go through normal publication under the publisher's key. Every active receiver can sync them, including the original sender.
 5. The publisher advances the inbox position after the page has been decided and the durable accepted writes through that point have been published. A restart can repeat an unsettled page. The same submitter and submission ID identify the same mutation across retries. Receivers confirm acceptance by reading the resulting record.
 
+The submitting receiver can request the outcome for its mutation UUID.
+The publisher supplies the outcome in its authenticated settlement after
+publication. ExeMem saves the outcomes with the settled position and
+returns only the caller's own result through the signed access route.
+The result carries the UUID and status alone. Older publishers can settle
+without an outcome, which the receiver reports as unknown.
+
 Whole-database revocation stops new reads and submissions. Narrowing a write grant leaves whole-database reads available. The publisher refuses an uncommitted submission from a superseded sharing revision. A contributor with current permission can submit the write again. Previously published records and data already downloaded remain available under the normal database rules.
 
 ## Transport and rollout

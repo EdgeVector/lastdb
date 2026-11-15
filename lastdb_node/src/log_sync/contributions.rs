@@ -22,9 +22,28 @@ use crate::registered_share::{self, RegisteredShare};
 use crate::share_invitation::inbox;
 
 use super::cloud::CloudLog;
-use super::{http::Endpoint, members, paths, received, wire as log_wire};
+use super::{
+    http::{Endpoint, Proof},
+    members, paths, received, wire as log_wire,
+};
 
 pub(super) use intake::apply;
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ProposalResult {
+    Published,
+    Discarded,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ShareWriteStatus {
+    Submitted,
+    Published,
+    Discarded,
+    Unknown,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum ContributionError {
@@ -186,6 +205,41 @@ pub(crate) async fn submit(
         Ok(AppendOutcome::Accepted { .. } | AppendOutcome::Duplicate { next_seq: 2 }) => Ok(1),
         _ => Err(Unavailable),
     }
+}
+
+pub(crate) async fn status(
+    host: &Host,
+    share: &RegisteredShare,
+    id: &Id,
+) -> Result<ShareWriteStatus, ContributionError> {
+    if !share.whole_database() {
+        return Err(ContributionError::Forbidden);
+    }
+    let log = connection(host, share, id)?;
+    let body = cloud_backup_protocol::canonical_bytes(&serde_json::json!({
+        "database_id": log.database_id(), "mutation_id": id,
+    }))
+    .map_err(|_| ContributionError::Invalid)?;
+    let (status, body) = log
+        .post_status(paths::ACCESS, body, Proof::Data)
+        .await
+        .map_err(|_| ContributionError::Unavailable)?;
+    if matches!(status, 401 | 403) {
+        return Err(ContributionError::Forbidden);
+    }
+    if status != 200 {
+        return Err(ContributionError::Unavailable);
+    }
+    let reply: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|_| ContributionError::Unavailable)?;
+    // An older service returns its ordinary access response.
+    if reply.get("mutation_id").is_none() {
+        return Ok(ShareWriteStatus::Unknown);
+    }
+    if reply["mutation_id"].as_str() != Some(id.as_str()) {
+        return Err(ContributionError::Unavailable);
+    }
+    serde_json::from_value(reply["status"].clone()).map_err(|_| ContributionError::Unavailable)
 }
 
 fn connection(

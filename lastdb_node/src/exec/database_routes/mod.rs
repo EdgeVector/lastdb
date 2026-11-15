@@ -94,6 +94,7 @@ async fn dispatch(
 /// Bounded mutation and sharing requests can leave the socket worker.
 pub(in crate::exec) fn is_deferred_database_request(req: &UdsRequest) -> bool {
     scoped_mutation(req).is_some()
+        || submission_status_selector(req).is_some()
         || split_database_path(&req.target)
             .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
@@ -105,6 +106,20 @@ pub(in crate::exec) async fn execute_deferred_database_request(
 ) -> UdsResponse {
     if !ctx.is_owner {
         return content_free(404, "Not Found");
+    }
+    if let Some(selector) = submission_status_selector(req) {
+        return match resolve_database(selector, ctx, host) {
+            Ok(Selection::Signed(share)) => {
+                with_handler_timeout_budget(
+                    ctx,
+                    handler_timeout(),
+                    super::database_signed::submission_status(req, ctx, host, &share),
+                )
+                .await
+            }
+            Ok(_) => error_response(404, "this database has no received submissions", ctx),
+            Err(response) => response,
+        };
     }
     if let Some((selector, route)) = split_database_path(&req.target)
         .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
@@ -149,6 +164,11 @@ fn scoped_mutation(req: &UdsRequest) -> Option<(&str, &str, DataRoute)> {
         _ => return None,
     };
     Some((selector, path, route))
+}
+
+fn submission_status_selector(req: &UdsRequest) -> Option<&str> {
+    let (selector, path) = split_database_path(&req.target)?;
+    (req.method == "POST" && path == "submissions/status").then_some(selector)
 }
 
 fn resolve_database(
