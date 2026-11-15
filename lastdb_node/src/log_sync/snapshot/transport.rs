@@ -45,29 +45,43 @@ impl Manifest {
 }
 
 pub(super) async fn current(log: &CloudLog) -> Result<Option<(Digest, Manifest)>, String> {
-    read(log, None).await
+    read(log, None, false).await
 }
 
 pub(in crate::log_sync) async fn exact(log: &CloudLog, id: &Digest) -> Result<Manifest, String> {
-    let (_, manifest) = read(log, Some(id))
+    let (_, manifest) = read(log, Some(id), false)
         .await?
         .ok_or("the requested signed snapshot is unavailable")?;
     Ok(manifest)
 }
 
+/// Reserve the chosen manifest before requesting its first provider page.
+pub(super) async fn for_restore(
+    log: &CloudLog,
+    expected: Option<&Digest>,
+) -> Result<Option<(Digest, Manifest)>, String> {
+    read(log, expected, true).await
+}
+
 async fn read(
     log: &CloudLog,
     expected: Option<&Digest>,
+    restore: bool,
 ) -> Result<Option<(Digest, Manifest)>, String> {
     let mut request = json!({"action": "read", "database_id": log.database_id()});
     if let Some(id) = expected {
         request["snapshot_id"] = json!(id);
     }
-    let body = canonical_bytes(&request).map_err(|error| error.to_string())?;
-    let (status, raw) = log
-        .post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
-        .await
-        .map_err(|_| "snapshot lookup did not complete")?;
+    if restore {
+        request["action"] = json!("read-for-restore");
+    }
+    let (status, raw) = match raw_call(log, &request).await? {
+        (400, body) if restore && super::super::wire::unsupported_reset(&body) => {
+            request["action"] = json!("read");
+            raw_call(log, &request).await?
+        }
+        reply => reply,
+    };
     if status == 404 {
         return Ok(None);
     }
