@@ -10,11 +10,9 @@ use cloud_backup_protocol::v2::share_access::{
 use cloud_backup_protocol::{canonical_bytes, DecimalU64};
 use mutation_log::ListPage;
 
-use crate::accepted_writes;
 use crate::host::Host;
-use crate::log_envelope::DatabaseContentKey;
 
-use super::{accepted, cloud::CloudLog, contributions, http, wire};
+use super::{cloud::CloudLog, contributions, http, wire};
 
 pub(super) async fn drain(host: &Host, log: &CloudLog) -> Result<(), String> {
     let Some(page) = list(log).await? else {
@@ -29,7 +27,7 @@ pub(super) async fn drain(host: &Host, log: &CloudLog) -> Result<(), String> {
         }
         contributions::apply(host, log, &stored.entry).await?;
     }
-    publish_before_settlement(host, log).await?;
+    contributions::publish_before_settlement(host, log).await?;
     let request = serde_json::json!({
         "database_id": log.database_id(),
         "through": DecimalU64::new(page.next),
@@ -62,19 +60,4 @@ async fn list(log: &CloudLog) -> Result<Option<ListPage>, String> {
         404 => Ok(None),
         _ => Err(format!("inbox list returned HTTP {status}")),
     }
-}
-
-async fn publish_before_settlement(host: &Host, log: &CloudLog) -> Result<(), String> {
-    let (store, _) = DatabaseContentKey::local_store(host, log.database_id())
-        .map_err(|_| "inbox write store is unavailable")?
-        .ok_or("inbox write store is unavailable")?;
-    let runtime = store.db_ops().native_runtime();
-    let through = accepted_writes::status(&runtime).head;
-    if accepted_writes::status(&runtime).acked < through {
-        accepted::publish_owned(host, log).await?;
-    }
-    if accepted_writes::status(&runtime).acked < through {
-        return Err("accepted inbox writes still await publication".into());
-    }
-    Ok(())
 }
