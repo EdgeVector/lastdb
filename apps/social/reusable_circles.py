@@ -29,6 +29,10 @@ class ReusableCircles:
         definition = self.node.declare_private("CircleDirectory")
         record = self.node.get_record(SCHEMA, KEY)
         data = json.loads(record["fields"]["directory"]) if record else {"circles": [], "pending": []}
+        operations = data.setdefault("operations", {})
+        previous = data.pop("operation", None)
+        if previous:
+            operations.setdefault(previous["databaseId"], previous)
         return definition, record, data
 
     def save(self, definition, record, data):
@@ -63,49 +67,56 @@ class ReusableCircles:
         if not self.node.has_named_grants():
             raise SocialError("reusable circles need a LastDB build with grants by schema name")
         definition, record, data = self.load()
-        prior, pending = data["circles"], data["pending"]
-        if pending and ("circle" in args or operation):
-            raise SocialError("finish the pending circle update before starting another")
+        prior, pending = data["circles"], set(data["pending"])
+        retrying = "circle" not in args and operation is None
         if "circle" in args:
             desired, databases = self.replacement(prior, args["circle"], args.get("remove") is True)
             if operation:
                 databases.add(operation["databaseId"])
         elif operation:
-            desired, databases = prior, [operation["databaseId"]]
+            desired, databases = prior, {operation["databaseId"]}
         else:
-            if not pending:
-                raise SocialError("there is no pending circle update")
             desired, databases = prior, pending
-        active = operation or data.get("operation")
-        plans = self.prepare(desired, databases, args.get("review", {}), self.direct_intent(active))
+            if "databaseId" in args:
+                databases = pending.intersection({args["databaseId"]})
+            if not databases:
+                raise SocialError("there is no pending circle update for the selection")
+        if not retrying and pending.intersection(databases):
+            raise SocialError("finish the pending sharing update for the affected database before changing it again")
+
+        operations = dict(data["operations"])
+        if operation:
+            operations[operation["databaseId"]] = {**operation, "status": "pending"}
+        review = args.get("review", {})
+        plans = self.prepare(desired, databases, operations, review)
         fingerprint = sha256(encoded([record["revision"] if record else None, desired,
                                       plans, operation]).encode()).hexdigest()
         if not apply:
             return {"token": fingerprint, "databases": [impact(plan) for plan in plans]}
         if args.get("token") != fingerprint:
             raise SocialError("sharing changed since the preview; review the changes again")
-        if not pending and any("error" in plan and "conflicts" not in plan for plan in plans):
+        if not retrying and any("error" in plan and "conflicts" not in plan for plan in plans):
             raise SocialError("resolve the unavailable databases before applying this edit")
-        if operation:
-            if any("error" in plan for plan in plans):
-                raise SocialError("resolve the outside grants in the preview before approving this request")
-            data["operation"] = {**operation, "status": "pending"}
-        data.update(circles=desired, pending=sorted(databases))
+        if operation and any("error" in plan for plan in plans):
+            raise SocialError("resolve the outside grants in the preview before approving this request")
+        data.update(circles=desired, pending=sorted(pending | databases), operations=operations)
         record = self.save(definition, record, data)
-        if pending:
-            plans = self.replay_pending(data, plans, args.get("review", {}))
+        if retrying:
+            plans = self.replay_pending(data, plans, review)
         return self.finish(definition, record, data, plans)
 
-    def resume(self):
-        if not self.load()[2]["pending"]:
-            return {"databases": [], "pending": []}
+    def resume(self, database=None):
+        pending = self.load()[2]["pending"]
+        if not pending or (database is not None and database not in pending):
+            return {"databases": [], "pending": pending}
         with self.circles.lock():
             definition, record, data = self.load()
-            if data["pending"]:
-                plans = self.prepare(data["circles"], data["pending"],
-                                     direct=self.direct_intent(data.get("operation")))
+            pending = data["pending"]
+            selected = pending if database is None else [item for item in pending if item == database]
+            if selected:
+                plans = self.prepare(data["circles"], selected, data["operations"])
                 return self.finish(definition, record, data, self.replay_pending(data, plans))
-            return {"databases": [], "pending": []}
+            return {"databases": [], "pending": pending}
 
     @staticmethod
     def direct_intent(operation):
@@ -128,22 +139,27 @@ class ReusableCircles:
         # A saved request can belong to another action in Social. Confirm the
         # approved circle or direct declaration against the resulting roster.
         refreshed = {plan["databaseId"]: plan for plan in self.prepare(
-            data["circles"], reopened, review, self.direct_intent(data.get("operation"))
+            data["circles"], reopened, data["operations"], review
         )} if reopened else {}
         return [refreshed.get(plan["databaseId"], plan) for plan in plans]
 
     def finish(self, definition, record, data, plans):
         with ThreadPoolExecutor(max_workers=4) as pool:
             outcomes = list(pool.map(self.deliver, plans))
-        data["pending"] = [row["databaseId"] for row in outcomes if "error" in row]
-        operation = data.get("operation")
-        if operation and operation["status"] != "confirmed":
-            outcome = next((row for row in outcomes if row["databaseId"] == operation["databaseId"]), None)
-            if outcome:
-                direct = self.direct_intent(operation) if outcome["status"] != "confirmed" else None
+        pending = set(data["pending"])
+        operations = data["operations"]
+        for outcome in outcomes:
+            database = outcome["databaseId"]
+            if outcome["status"] == "confirmed":
+                pending.discard(database)
+            operation = operations.get(database)
+            if operation and operation["status"] != "confirmed":
                 receipt = {key: outcome[key] for key in ("databaseId", "status", "revision", "error")
                            if key in outcome}
-                data["operation"] = {"requestId": operation["requestId"], "direct": direct, **receipt}
+                operations[database] = {"requestId": operation["requestId"], **receipt}
+                if outcome["status"] != "confirmed" and "direct" in operation:
+                    operations[database]["direct"] = operation["direct"]
+        data["pending"] = sorted(pending)
         self.save(definition, record, data)
         return {"databases": outcomes, "pending": data["pending"]}
 
@@ -179,7 +195,7 @@ class ReusableCircles:
             databases = {database for database in databases if old_links.get(database) != links.get(database)}
         return sorted(desired, key=lambda item: item["id"]), databases
 
-    def prepare(self, desired, databases, review=None, direct=None):
+    def prepare(self, desired, databases, operations, review=None):
         owned = self.owned()
 
         def plan(database):
@@ -193,7 +209,7 @@ class ReusableCircles:
                     {**normalize([{**circle, "writeSchemas": circle["links"][database]}], definitions)[0],
                      "id": circle["id"]} for circle in desired if database in circle["links"]
                 ]
-                change = direct if direct and direct["databaseId"] == database else None
+                change = self.direct_intent(operations.get(database))
                 plan = self.circles.plan(database, definitions, linked, review=(review or {}).get(database),
                                          direct_change=change)
                 return {**item, **plan}

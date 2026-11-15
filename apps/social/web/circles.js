@@ -5,9 +5,9 @@ function renderReusableList() {
     if (tab === 'circles') $(tab).setAttribute('aria-current', 'page');
     else $(tab).removeAttribute('aria-current');
   }
-  const action = pending.length ? button('Review unfinished changes', () => previewReusable({}))
-    : button('New circle', () => editReusable());
-  $('actions').replaceChildren(action, button('Refresh', refresh, 'quiet'));
+  const actions = [button('New circle', () => editReusable())];
+  if (pending.length) actions.push(button('Review unfinished changes', () => previewReusable({}), 'quiet'));
+  $('actions').replaceChildren(...actions, button('Refresh', refresh, 'quiet'));
   if (!circles.some((circle) => circle.id === state.selected)) state.selected = circles[0]?.id ?? null;
   $('list').replaceChildren(...circles.map((circle) => {
     const entry = button(circle.name, () => { state.selected = circle.id; renderReusableList();
@@ -35,7 +35,7 @@ function renderReusableCircle(panel, selected) {
     return row;
   });
   section(panel, 'Databases', links, 'No linked databases.');
-  if (!pending.length) panel.append(button('Edit circle', () => editReusable(circle)),
+  panel.append(button('Edit circle', () => editReusable(circle)),
     button('Remove circle', () => previewReusable({circle, remove: true}), 'quiet'));
 }
 
@@ -83,7 +83,9 @@ async function previewReusable(edit) {
     const result = await api('circles/apply', {...edit, token});
     return async () => {
       await refresh();
-      if (result.pending.length) report(new Error('Some database changes need review. Open the unfinished changes to continue.'));
+      if (result.databases.some((row) => row.status !== 'confirmed')) {
+        report(new Error('Some database changes need review. Open the unfinished changes to continue.'));
+      }
     };
   });
   renderGrantImpact(databases);
@@ -141,6 +143,7 @@ async function showSharingRequest(panel, requestId) {
     awaitingApproval: 'Awaiting owner approval',
     pending: 'Waiting for LastDB confirmation',
     confirmed: `Confirmed at revision ${request.revision}`,
+    declined: 'Declined by the owner',
     needsReview: 'A grant needs review',
   };
   const requestPanel = element('section', null, 'invitation');
@@ -148,9 +151,11 @@ async function showSharingRequest(panel, requestId) {
     element('p', labels[request.status], 'status'));
   if (request.error) requestPanel.append(element('p', request.error));
   if (request.status === 'awaitingApproval') {
-    requestPanel.append(button('Review app request', () => previewSharingRequest(requestId)));
+    requestPanel.append(button('Review app request', () => previewSharingRequest(requestId)),
+      button('Decline request', () => dialog('Decline sharing request?', 'Decline request', [],
+        () => api('sharing-request/decline', {requestId})), 'quiet'));
   } else if (request.status === 'needsReview' || request.status === 'pending') {
-    requestPanel.append(button('Review unfinished changes', () => previewReusable({})));
+    requestPanel.append(button('Review unfinished changes', () => previewReusable({databaseId: request.databaseId})));
   }
   panel.append(requestPanel);
 }

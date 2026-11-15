@@ -15,6 +15,7 @@ from support import decode_json, require, summary
 def configure_bindings(publisher, owner, circle, first, second, scopes):
     require(sdk(publisher, "circles") == [{"id": circle["id"], "name": circle["name"]}],
             "app_circle_discovery")
+    decline_binding(publisher, circle["id"], first)
     requests = []
     for app, database, grant in (
         ("photo-journal", first, {"writeSchemas": scopes}),
@@ -41,6 +42,29 @@ def configure_bindings(publisher, owner, circle, first, second, scopes):
     summary("Two app callers proposed independent bindings through the packaged SDK. The owner approved "
             "both and their confirmed status survived reopening Social.")
     return links
+
+
+def decline_binding(publisher, circle, database):
+    change = {"operation": "setCircleBinding", "databaseId": database,
+              "circleId": circle, "preset": "commenter"}
+    declaration = propose(publisher, "photo-journal", change)
+    request = {"requestId": declaration["requestId"]}
+    before = roster(publisher, database)
+    with window(publisher, sharing_request=declaration["requestId"]) as review_window:
+        preview = preview_request(review_window, declaration["requestId"])
+        call(review_window, "/api/sharing-request/decline", request, authorized=False, status=403)
+        declined = call(review_window, "/api/sharing-request/decline", request)
+        require(declined["status"] == "declined", "app_owner_declined")
+        require(approve(review_window, declaration["requestId"], preview) == declined,
+                "app_decline_cannot_be_approved")
+    with window(publisher, sharing_request=declaration["requestId"]) as reopened:
+        require(call(reopened, "/api/sharing-request/decline", request) == declined,
+                "app_decline_idempotent_after_reopen")
+    status = sdk(publisher, "sharing-status", **request)
+    require(status["status"] == "declined" and sdk(publisher, "request-sharing", **declaration) == status
+            and roster(publisher, database) == before, "app_decline_returned_through_sdk")
+    summary("A signed-in owner declined a proposal. Its terminal status survived reopening, "
+            "a repeated request, and an old approval preview without changing the roster.")
 
 
 def propose(publisher, app, change):
@@ -128,6 +152,47 @@ def person_requests(publisher, owner, database, reader, separate):
                 and grant["writeSchemas"] == [] and separate in rows, "app_direct_grant_lifecycle")
     summary("The app requested an explicit revoke and restore for one person, and the publisher kept "
             "the other independent grant in place.")
+
+
+def independent_update(publisher, owner, circle_id, first, second, reader, schema):
+    circle = next(row for row in call(owner, "/api/reusable-circles")["circles"] if row["id"] == circle_id)
+    current = roster(publisher, first)
+    outside = {"nodeKey": reader, "state": "active", "role": "submit", "writeSchemas": {"names": [schema]}}
+    put_members(publisher, first, current["revision"], [
+        outside if row["nodeKey"] == reader else row for row in current["members"]
+    ])
+    first_before = roster(publisher, first)
+    edit = {"circle": {**circle, "links": {**circle["links"], first: [schema]}}}
+    preview = call(owner, "/api/circles/preview", edit)
+    require(preview["databases"][0]["conflicts"][0]["nodeKey"] == reader,
+            "app_overlapping_owner_edit_needs_review")
+    pending = call(owner, "/api/circles/apply", {**edit, "token": preview["token"]})
+    require(pending["pending"] == [first], "app_first_database_pending")
+    overlap = propose(publisher, "photo-journal", {
+        "operation": "setCircleBinding", "databaseId": first, "circleId": circle_id, "preset": "viewer",
+    })
+    blocked = call(owner, "/api/sharing-request/preview", {"requestId": overlap["requestId"]}, status=400)
+    require("finish the pending sharing update" in blocked["error"], "app_same_database_waits")
+    call(owner, "/api/sharing-request/decline", {"requestId": overlap["requestId"]})
+
+    request_id = propose(publisher, "album-viewer", {
+        "operation": "restorePerson", "databaseId": second, "nodeKey": reader, "preset": "viewer",
+    })["requestId"]
+    with window(publisher, sharing_request=request_id) as reopened:
+        result = approve(reopened, request_id, preview_request(reopened, request_id))
+    active = next(row for row in roster(publisher, second)["members"] if row["nodeKey"] == reader)
+    require(result["status"] == "confirmed" and active["state"] == "active"
+            and call(owner, "/api/reusable-circles")["pending"] == [first]
+            and roster(publisher, first) == first_before, "app_second_database_confirmed_while_first_pending")
+
+    retry = {"databaseId": first, "review": {first: {reader: "keepDirect"}}}
+    preview = call(owner, "/api/circles/preview", retry)
+    result = call(owner, "/api/circles/apply", {**retry, "token": preview["token"]})
+    require(not result["pending"] and roster(publisher, first) == first_before
+            and sdk(publisher, "sharing-status", requestId=request_id)["status"] == "confirmed",
+            "app_first_database_finished_without_disturbing_second")
+    summary("A pending grant review blocked the same database while a second database confirmed its own "
+            "owner-approved update. Resolving the first preserved the second outcome.")
 
 
 def revoke_roster(node, database):

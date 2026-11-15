@@ -59,7 +59,7 @@ export interface SocialSharingRequest {
 export interface SocialSharingStatus {
   requestId: string;
   databaseId: string;
-  status: 'awaitingApproval' | 'pending' | 'confirmed' | 'needsReview';
+  status: 'awaitingApproval' | 'pending' | 'confirmed' | 'needsReview' | 'declined';
   revision?: string;
   error?: string;
 }
@@ -195,7 +195,8 @@ function parseSharingStatus(value: unknown, expectedId: string): SocialSharingSt
   if (isObject(value)) {
     const { requestId, databaseId, status, revision, error } = value;
     if (requestId === expectedId && typeof databaseId === 'string'
-      && (status === 'awaitingApproval' || status === 'pending' || status === 'needsReview' || status === 'confirmed')
+      && (status === 'awaitingApproval' || status === 'pending' || status === 'needsReview'
+        || status === 'confirmed' || status === 'declined')
       && (revision === undefined || typeof revision === 'string')
       && (error === undefined || typeof error === 'string')
       && (status !== 'confirmed' || typeof revision === 'string')) {

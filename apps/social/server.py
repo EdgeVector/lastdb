@@ -151,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.reusable_circles.edit(args, apply=target.path.endswith("/apply"))
         if target.path == "/api/sharing-request/preview":
             return app.sharing_requests.preview(args["requestId"], args.get("review"))
+        if target.path == "/api/sharing-request/decline":
+            return app.sharing_requests.decline(args["requestId"])
         if target.path == "/api/sharing-request/apply":
             if not isinstance(args["token"], str):
                 raise SocialError("review the sharing request before approving it")
@@ -172,9 +174,9 @@ class Handler(BaseHTTPRequestHandler):
         raise SocialError("unknown Social operation")
 
 
-def resume_sharing(server):
+def resume_sharing(server, database):
     try:
-        server.app.reusable_circles.resume()
+        server.app.reusable_circles.resume(database)
     except (SocialError, OSError, HTTPException):
         # The saved update remains available for retry in the owner UI.
         pass
@@ -191,7 +193,7 @@ def run_server(node, open_browser, database_id=None, sharing_request=None):
             query.update(databaseId=result["databaseId"], sharingRequest=sharing_request)
         if query:
             server.url = f"{server.origin}/?{urlencode(query)}#session={server.session}"
-        Thread(target=resume_sharing, args=(server,), daemon=True).start()
+        Thread(target=resume_sharing, args=(server, query.get("databaseId")), daemon=True).start()
         print(server.url, flush=True)
         if open_browser:
             webbrowser.open(server.url)

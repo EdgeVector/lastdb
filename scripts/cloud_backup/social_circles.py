@@ -10,7 +10,7 @@ import uuid
 
 from node import Connection
 from social_app import call, install, observe_access, sdk, window
-from social_declarations import configure_bindings, external_changes, revoke_roster
+from social_declarations import configure_bindings, external_changes, independent_update, revoke_roster
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require, retry, run_operation, summary
 
@@ -143,6 +143,7 @@ def transfer(programs, root, publisher, recipient, api_key):
                 observe_access(remote, second, "revoked")
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
                 external_changes(publisher, owner, circle, database, reader, COMMENT)
+                independent_update(publisher, owner, circle["id"], database, second, reader, COMMENT)
                 report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
             failed = sys.exc_info()[0] is not None
