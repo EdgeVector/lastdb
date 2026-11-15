@@ -1,26 +1,23 @@
 //! Upload one sealed file for a signed log entry.
 //!
-//! The begin value, transfer input, and sealed bytes are durable before the
-//! first request. A verified receipt is durable before the job closes. The
-//! cloud body then names `file.object` from that receipt and omits the local
-//! sealed-row hash. This module does not read a stream head, release a blob,
-//! or prepare a backup commit.
+//! The blob metadata and sealed bytes are durable before the first request. A
+//! verified upload is durable before the log entry references `file.object`.
+//! Legacy in-flight `.job.json` records migrate seamlessly on load.
 
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::v2::jobs::{CloseReason, JobBeginRequest, JobCloseRequest};
 use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
-use cloud_backup_protocol::v2::{ClientDescriptor, Destination, Job, Object, Stream, Version};
-use cloud_backup_protocol::{bytes_sha256, canonical_bytes, DecimalU64, Id};
+use cloud_backup_protocol::v2::{Destination, Job};
+use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, DecimalU64, Digest};
 use fold_db::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 
-use crate::cloud_backup_client::storage_transfer::{ExactUpload, StorageTransferClient};
-use crate::cloud_backup_client::BackupTransportError;
+use crate::cloud_backup_client::{BackupTransportError, BlobUploadTarget};
 use crate::database_replay::{self, FileObject};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
@@ -34,9 +31,28 @@ const JOB_LIMIT: usize = 65_536;
 const PREPARE_FAILED: &str = "the next local write could not be prepared for upload";
 
 #[derive(Serialize, Deserialize)]
-struct FileJob {
+#[serde(deny_unknown_fields)]
+struct PendingBlobUpload {
     seal: Seal,
-    begin: JobBeginRequest,
+    scope: CloudScope,
+    path: BlobPath,
+    bytes: DecimalU64,
+    sha256: Digest,
+    #[serde(default)]
+    verified: bool,
+}
+
+#[derive(Deserialize)]
+struct LegacyBegin {
+    job: Job,
+    #[serde(default)]
+    predecessor: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct LegacyFileJob {
+    seal: Seal,
+    begin: LegacyBegin,
     input: TransferInput,
     #[serde(default)]
     receipt: Option<ObjectReceipt>,
@@ -76,132 +92,82 @@ pub(super) async fn cloud_body(
                 saved
             }
         };
-    if saved.receipt.is_none() || !saved.closed {
-        let client = crate::cloud::client_from_home(&host.home).map_err(|_| PREPARE_FAILED)?;
-        if saved.receipt.is_none() {
-            let envelope = retry::load_file(&host.home, log.database_id(), mutation_id)
-                .map_err(|_| PREPARE_FAILED)?
-                .ok_or(PREPARE_FAILED)?;
-            saved.receipt = Some(verified(&client, &saved, envelope).await?);
-            store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
-        }
-        if !saved.closed {
-            close_job(&client, &saved).await?;
-            saved.closed = true;
-            store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
-        }
+    if !saved.verified {
+        let envelope = retry::load_file(&host.home, log.database_id(), mutation_id)
+            .map_err(|_| PREPARE_FAILED)?
+            .ok_or(PREPARE_FAILED)?;
+        upload_verified(host, log, &saved, envelope).await?;
+        saved.verified = true;
+        store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
     }
-    let scope = saved.receipt.as_ref().ok_or(PREPARE_FAILED)?.scope.clone();
-    section.object = Some(FileObject { scope, path });
+    section.object = Some(FileObject {
+        scope: saved.scope,
+        path,
+    });
     let encoded = canonical_bytes(&body).map_err(|_| PREPARE_FAILED)?;
     Ok((encoded, saved.seal))
 }
 
-fn fresh(log: &CloudLog, path: &BlobPath, ciphertext: &[u8], seal: Seal) -> Option<FileJob> {
-    let stream_id = Id::try_from(log.database_id().to_owned()).ok()?;
-    let commit_id = Id::try_from(uuid::Uuid::new_v4().to_string()).ok()?;
-    let request_id = Id::try_from(uuid::Uuid::new_v4().to_string()).ok()?;
-    let len = u64::try_from(ciphertext.len()).ok()?;
-    let begin = JobBeginRequest {
-        version: Version::V2,
-        job: Job {
-            stream: Stream {
-                scope: log.scope.clone(),
-                stream_id,
-            },
-            commit_id,
-        },
-        descriptor: ClientDescriptor::empty(),
-        required_destinations: vec![Destination::B2],
-        r2_multipart: None,
-        predecessor: None,
-        recovery_dependencies: Vec::new(),
-        covered_logs: Vec::new(),
-    };
-    let input = TransferInput {
-        version: Version::V2,
-        request_id,
-        job: begin.job.clone(),
-        object: Object {
-            sha256: bytes_sha256(ciphertext),
-            bytes: DecimalU64::new(len),
-            destination: Destination::B2,
-        },
-        blob: Some(path.clone()),
-    };
-    begin.validate().ok()?;
-    input.validate().ok()?;
-    Some(FileJob {
+fn fresh(
+    log: &CloudLog,
+    path: &BlobPath,
+    ciphertext: &[u8],
+    seal: Seal,
+) -> Option<PendingBlobUpload> {
+    let len = u64::try_from(ciphertext.len()).ok().filter(|&n| n > 0)?;
+    log.scope.validate().ok()?;
+    path.validate().ok()?;
+    if path.database.as_str() != log.database_id() {
+        return None;
+    }
+    Some(PendingBlobUpload {
         seal,
-        begin,
-        input,
-        receipt: None,
-        closed: false,
+        scope: log.scope.clone(),
+        path: path.clone(),
+        bytes: DecimalU64::new(len),
+        sha256: bytes_sha256(ciphertext),
+        verified: false,
     })
 }
 
-fn same_saved(saved: &FileJob, log: &CloudLog, path: &BlobPath, proposed: &Seal) -> bool {
+fn same_saved(saved: &PendingBlobUpload, log: &CloudLog, path: &BlobPath, proposed: &Seal) -> bool {
     saved.seal.writer_seq == proposed.writer_seq
         && saved.seal.namespace == proposed.namespace
-        && saved.begin.predecessor.is_none()
-        && saved.begin.job == saved.input.job
-        && saved.begin.job.stream.scope == log.scope
-        && saved.begin.job.stream.stream_id.as_str() == log.database_id()
-        && saved.input.blob.as_ref() == Some(path)
-        && saved.input.object.destination == Destination::B2
-        && (!saved.closed || saved.receipt.is_some())
-        && saved.receipt.as_ref().is_none_or(|receipt| {
-            receipt.scope == saved.input.job.stream.scope && receipt.object == saved.input.object
-        })
+        && saved.scope == log.scope
+        && saved.path == *path
+        && saved.path.database.as_str() == log.database_id()
+        && saved.bytes.get() > 0
 }
 
-async fn verified(
-    client: &StorageTransferClient,
-    saved: &FileJob,
+async fn upload_verified(
+    host: &Host,
+    log: &CloudLog,
+    saved: &PendingBlobUpload,
     sealed: Vec<u8>,
-) -> Result<ObjectReceipt, &'static str> {
-    match client
-        .upload_exact(&saved.begin, &saved.input, sealed)
-        .await
-    {
-        Ok(ExactUpload::Verified(receipt)) => Ok(receipt),
-        Ok(ExactUpload::Retryable(step)) => {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                step,
-                "named file upload can be retried"
-            );
-            Err(PREPARE_FAILED)
-        }
+) -> Result<(), &'static str> {
+    let client = crate::cloud::client_from_home_with_keypair(&host.home, Arc::clone(&host.keypair))
+        .map_err(|_| PREPARE_FAILED)?;
+    let target = BlobUploadTarget {
+        scope: &saved.scope,
+        path: &saved.path,
+        bytes: saved.bytes,
+        sha256: &saved.sha256,
+        member_revision: log.member_revision,
+    };
+    match client.upload_blob(target, sealed).await {
+        Ok(()) => Ok(()),
         Err(BackupTransportError::Protocol(p)) if p.is_payment_subscription() => {
             Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
         }
         Err(error) => {
             tracing::warn!(
                 target: "lastdbd::log_sync",
-                error = %error,
-                "named file upload stopped"
+                %error,
+                "signed file blob upload stopped"
             );
             Err(PREPARE_FAILED)
         }
     }
-}
-
-async fn close_job(client: &StorageTransferClient, saved: &FileJob) -> Result<(), &'static str> {
-    let request = JobCloseRequest {
-        version: Version::V2,
-        job: saved.begin.job.clone(),
-        begin_sha256: saved.begin.input_sha256().map_err(|_| PREPARE_FAILED)?,
-        reason: CloseReason::UserRequested,
-    };
-    client.close(&request).await.map_err(|error| {
-        if matches!(&error, BackupTransportError::Protocol(p) if p.is_payment_subscription()) {
-            crate::cloud::PAYMENT_REQUIRED_MESSAGE
-        } else {
-            PREPARE_FAILED
-        }
-    })?;
-    Ok(())
 }
 
 fn file_body(canonical: &[u8]) -> Option<database_replay::AcceptedBody> {
@@ -235,14 +201,11 @@ fn seal_file(
     marker: &FileMarker,
     seal: &Seal,
 ) -> Option<Vec<u8>> {
-    let plain = match source.row {
-        Some(row) => fold_db::storage::disk_backup::accepted::open_file_row(
-            key.encryption_bytes(),
-            marker,
-            row,
-        )
-        .ok()?,
-        None => read_reference(source.reference?, marker)?,
+    let plain = if let Some(row) = source.row {
+        fold_db::storage::disk_backup::accepted::open_file_row(key.encryption_bytes(), marker, row)
+            .ok()?
+    } else {
+        read_reference(source.reference?, marker)?
     };
     let binding = LogBinding {
         database_id: log.database_id(),
@@ -274,16 +237,58 @@ fn read_reference(path: &str, marker: &FileMarker) -> Option<Vec<u8>> {
         .then_some(bytes)
 }
 
-fn load(home: &Path, database_id: &str, mutation_id: &str) -> Result<Option<FileJob>, ()> {
+fn load(
+    home: &Path,
+    database_id: &str,
+    mutation_id: &str,
+) -> Result<Option<PendingBlobUpload>, ()> {
     let Some(bytes) =
         disk::read_limited(&job_path(home, database_id, mutation_id), JOB_LIMIT).map_err(|_| ())?
     else {
         return Ok(None);
     };
-    serde_json::from_slice(&bytes).map(Some).map_err(|_| ())
+    if let Ok(saved) = serde_json::from_slice::<PendingBlobUpload>(&bytes) {
+        return Ok(Some(saved));
+    }
+    migrate_legacy(&bytes).map(Some)
 }
 
-fn store(home: &Path, database_id: &str, mutation_id: &str, saved: &FileJob) -> Option<()> {
+fn migrate_legacy(bytes: &[u8]) -> Result<PendingBlobUpload, ()> {
+    let legacy: LegacyFileJob = serde_json::from_slice(bytes).map_err(|_| ())?;
+    legacy.input.validate().map_err(|_| ())?;
+    if legacy.begin.predecessor.is_some()
+        || legacy.begin.job != legacy.input.job
+        || legacy.input.object.destination != Destination::B2
+        || (legacy.closed && legacy.receipt.is_none())
+    {
+        return Err(());
+    }
+    let path = legacy.input.blob.ok_or(())?;
+    let (scope, verified) = if let Some(receipt) = legacy.receipt {
+        receipt.validate().map_err(|_| ())?;
+        if receipt.scope != legacy.input.job.stream.scope || receipt.object != legacy.input.object {
+            return Err(());
+        }
+        (receipt.scope, true)
+    } else {
+        (legacy.input.job.stream.scope, false)
+    };
+    Ok(PendingBlobUpload {
+        seal: legacy.seal,
+        scope,
+        path,
+        bytes: legacy.input.object.bytes,
+        sha256: legacy.input.object.sha256,
+        verified,
+    })
+}
+
+fn store(
+    home: &Path,
+    database_id: &str,
+    mutation_id: &str,
+    saved: &PendingBlobUpload,
+) -> Option<()> {
     let bytes = serde_json::to_vec(saved).ok()?;
     if bytes.len() > JOB_LIMIT {
         return None;

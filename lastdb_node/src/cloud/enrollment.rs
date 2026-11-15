@@ -1,7 +1,8 @@
 //! Home identity key loading, recovery-phrase derivation, environment pinning, and device enrollment.
 use super::{load_saved_credentials, read_private_named};
-use crate::cloud_backup_client::storage_transfer::StorageTransferClient;
-use crate::cloud_backup_client::{bounded, build_shared_http_client, https, AuthClient};
+use crate::cloud_backup_client::{
+    bounded, build_shared_http_client, https, AuthClient, SignedBlobClient,
+};
 use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
 use app_identity_crypto::SigningKey;
@@ -10,6 +11,7 @@ use fold_db::security::Ed25519KeyPair;
 use hkdf::Hkdf;
 use sha2::Sha256;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -55,11 +57,26 @@ pub(crate) fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, S
         .map_err(|_| "invalid home identity.key".into())
 }
 
-pub fn client_from_home(home: &Path) -> Result<StorageTransferClient, String> {
+pub fn client_from_home(home: &Path) -> Result<SignedBlobClient, String> {
+    let pair = load_home_keypair(home)?.ok_or("cloud sync needs an initialized home identity")?;
+    client_from_home_with_keypair(home, Arc::new(pair))
+}
+
+pub fn client_from_home_with_keypair(
+    home: &Path,
+    keypair: Arc<Ed25519KeyPair>,
+) -> Result<SignedBlobClient, String> {
     let mut creds =
         load_saved_credentials(home)?.ok_or("cloud sync needs existing account credentials")?;
+    if let Some(conn) = &creds.connection {
+        let expected = endpoints::environment_for_exemem_api_url(&creds.api_url)
+            .ok_or("invalid saved cloud API URL")?;
+        if conn.environment != expected.as_str() {
+            return Err("saved cloud connection environment does not match API URL".into());
+        }
+    }
     let auth = AuthClient::new(creds.api_url, std::mem::take(&mut *creds.api_key));
-    StorageTransferClient::from_auth(auth).map_err(|error| error.to_string())
+    SignedBlobClient::from_auth_and_keypair(auth, keypair).map_err(|error| error.to_string())
 }
 
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {

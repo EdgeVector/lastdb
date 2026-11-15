@@ -111,9 +111,7 @@ pub(super) fn canonical_backup_endpoint(env: Environment, api_key: &str) -> Resu
         exemem_api_url_for(env).to_owned(),
         api_key.to_owned(),
     );
-    lastdb_node::cloud_backup_client::storage_transfer::StorageTransferClient::from_auth(auth)
-        .map_err(|e| e.to_string())
-        .map(|c| c.canonical_endpoint())
+    lastdb_node::cloud_backup_client::canonical_backup_endpoint(auth).map_err(|e| e.to_string())
 }
 
 pub(super) fn encode_connected_credentials(

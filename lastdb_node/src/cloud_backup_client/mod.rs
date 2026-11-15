@@ -4,9 +4,11 @@ use futures::StreamExt;
 use reqwest::{Client, Url};
 use std::{fmt, sync::Arc, sync::Mutex, time::Duration};
 
+mod signed_blob;
 pub mod storage_transfer;
 mod transport;
 
+pub use signed_blob::{canonical_backup_endpoint, BlobUploadTarget, SignedBlobClient};
 pub(crate) use transport::{cached_runtime_client, BackupTransport, PresignedPut};
 
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
