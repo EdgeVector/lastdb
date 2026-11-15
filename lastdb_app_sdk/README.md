@@ -10,7 +10,7 @@ databases, and short-lived scoped database sessions.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.8.0.tgz
+npm install /path/to/lastdb-app-sdk-0.9.0.tgz
 ```
 
 Use the tarball from the Social sharing DEV operation, or build one from
@@ -68,11 +68,8 @@ existing client.
 
 ```ts
 const root = await connect({ appId: 'photos' });
-const created = await root.createDatabase({
-  name: 'social-family',
-  spec: { name: 'social', version: 1 },
-});
-const family = root.select(created.id);
+const created = await root.createDatabase({ name: 'photo-drafts', kind: 'personal' });
+const drafts = root.select(created.id);
 const same = await connect({ appId: 'photos', databaseId: created.name ?? created.id });
 ```
 
@@ -81,8 +78,8 @@ and attach `X-LastDB-Database-Session` to every scoped request, call
 `issueDatabaseSession` or `openDatabaseSession`:
 
 ```ts
-const { session, client: familyReader } = await root.openDatabaseSession(created.id, 'read');
-const rows = await familyReader.query('photos/Album', { filter: { HashKey: 'vacation' } });
+const { session, client: draftReader } = await root.openDatabaseSession(created.id, 'read');
+const rows = await draftReader.query('photos/Album', { filter: { HashKey: 'vacation' } });
 
 // Or hand `session.session` to an isolated client process:
 const delegated = await connect({
@@ -103,7 +100,7 @@ Attach, read, or clear a record's external `blob` or `inline` file over the
 Unix-socket binary fast path:
 
 ```ts
-const uploaded = await family.putBlob('photos/Photo', {
+const uploaded = await drafts.putBlob('photos/Photo', {
   op: {
     mutationType: 'create',
     expected: { type: 'absent' },
@@ -117,10 +114,10 @@ const uploaded = await family.putBlob('photos/Photo', {
   thumbnail: { bytes: thumbBytes, name: 'sunset-thumb.jpg', mediaType: 'image/jpeg' },
 });
 
-const blob = await family.fetchBlob('photos/Photo', 'photo-7');
-const thumb = await family.fetchBlob('photos/Photo', 'photo-7', { placement: 'inline' });
+const blob = await drafts.fetchBlob('photos/Photo', 'photo-7');
+const thumb = await drafts.fetchBlob('photos/Photo', 'photo-7', { placement: 'inline' });
 
-await family.deleteBlob('photos/Photo', {
+await drafts.deleteBlob('photos/Photo', {
   mutationType: 'replace',
   expected: { type: 'revision', revision: uploaded.recordRevision },
   alternates: {},
@@ -162,31 +159,58 @@ console.log(batch.count, batch.operations, batch.recordRevisions);
 
 ## Set up sharing with Social
 
-Use `socialClient` with Social 0.2.0 or later and the same LastDB home
-as your data client. Use a database name to create, invite, or revoke.
-The create helper uses LastDB's existing Social format.
+Import `socialClient` from the same SDK as `connect`. It invokes the installed
+Social app. Social manages verified contacts, reusable circles, and invitations.
+`connect` and `select` use the LastDB data API for schemas, records, and files.
+Use Social 0.3.0 or later for the whole-database helpers and point both clients
+at the same LastDB home. The publisher needs a connected ExeMem account.
+
+### Share an app's own database
+
+Create an empty named whole-database share when your app owns the schemas.
+Save the stable database ID and declare the app's schemas with the selected
+LastDB client. For standard album and comment schemas, use the setup below.
 
 ```ts
+import { join } from 'node:path';
 import { connect, socialClient } from '@lastdb/app-sdk';
 
-const social = socialClient({ dataDir });
-const root = await connect({ appId: 'photo-journal', socketPath });
-const database = await social.createDatabase('family');
-const family = root.select(database.id);
-
-const receipt = await social.inviteReader('family', {
-  name: 'Ana',
-  nodeKey: anaVerifiedKey,
-  contactPath: anaContactFile,
+const social = socialClient({ dataDir: publisherHome });
+const root = await connect({
+  appId: 'photo-journal',
+  socketPath: join(publisherHome, 'data', 'folddb.sock'),
 });
+const database = await social.createSharedDatabase('family-trips');
+const trips = root.select(database.id);
+await trips.declareSchema(tripSchema);
 ```
 
-On Ana's device, call `social.acceptInvitation(receipt, verifiedPublisherKey)`.
-The returned database includes its verified spec. Use `root.select(database.id)`
-on that device to open it, and save the ID to reopen it later. The publisher
-can call `social.revokeAccess('family', anaVerifiedKey)`. Social remembers
-verified contacts across databases, so later invitations can omit `contactPath`.
-Keep sealed receipts out of logs.
+Open Social on the publisher's device to add verified contacts and link a
+circle to the database. Choose read-only access or the schemas that circle
+can write, then preview and apply the change. Use `social --data-dir HOME open --database ID`
+to go directly to the database. After Social confirms the grant, the app can
+get a sealed receipt with `await social.sealInvitation(database.id, anaVerifiedKey)`.
+The caller delivers the receipt to Ana. Keep sealed receipts out of logs.
+
+On Ana's device, use a Social client pointed at her home. Pass the publisher
+key verified independently of the receipt, and save the returned database ID.
+
+```ts
+const recipientSocial = socialClient({ dataDir: recipientHome });
+const received = await recipientSocial.acceptInvitation(receipt, verifiedPublisherKey, 'family-trips');
+const recipient = await connect({
+  appId: 'photo-journal',
+  socketPath: join(recipientHome, 'data', 'folddb.sock'),
+});
+
+// Wait for this ID to be ready in listDatabases() before reading its content.
+const { client: sharedTrips } = await recipient.openDatabaseSession(received.id, 'read');
+const trip = await sharedTrips.get('photo-journal/Trip', tripKey);
+```
+
+Use the same ID when another app opens this share on Ana's device. The owner
+can manage access in Social or revoke a recipient with
+`await social.revokeAccess(database.id, anaVerifiedKey)`.
 
 ### Use a named database setup
 
@@ -208,44 +232,64 @@ albums.rememberDefinition('social/Album', verified.definitions['social/Album']!)
 ```
 
 Verification by ID also works on a received share once it has synced its
-schemas. Existing sharing settings continue to apply. Setup version 1
-requires the catalog's schema shapes and leaves schema upgrades to an
-explicit owner operation.
+schemas. Setup version 1 requires the catalog's schema shapes and leaves
+schema upgrades to an explicit owner operation. Use the same circle and
+invitation flow as for an app-owned share.
+
+### Existing filtered shares
+
+`social.createDatabase(name)` uses the original filtered Social format.
+`social.inviteReader(database, { name, nodeKey, contactPath })` grants reader
+access and returns a sealed invitation. Social reuses verified contacts, so
+later reader invitations can omit `contactPath`. Use `sealInvitation` when
+the recipient already has a circle grant on a whole-database share.
 
 ## Registered Shares
 
-For whole-database shares, use the receiver's current schema permissions to
-show available edit actions. Any active receiver can submit an encrypted
-mutation. A `submitted` receipt confirms delivery to the publisher's pending
-mutation log. The publisher's LastDB checks the current sharing settings and
-record rules, then publishes accepted changes under the publisher's key.
-Use the normal query API to read the result after sync. The receiver's LastDB
-follows the published log. Access to the pending log belongs to the publisher.
+Every active receiver can read the whole database. Social supplies the
+current schema grants for the app to show available edit actions. A receiver
+with a `social/Comment` grant can create comments and edit comments they
+originally created. The publisher handles moderation and deletion.
+
+Any active receiver can submit an encrypted mutation. A `submitted` receipt
+confirms delivery to the publisher's private pending log. The publisher's
+LastDB checks the current schema grant and record rules, then publishes
+accepted changes under the publisher's key. Use the normal query API to
+read the result after sync. The receiver follows the separate published log.
 [Sharing and write approval](../docs/designs/shared-database-mutation-logs.md)
 
-Pass the database ID or alias from `lastdb db list` to `connect` or `select`
-on the recipient's socket:
+After accepting and syncing a shared-albums database, verify the setup on the
+receiver's node. Use the returned definition and a write session for the
+selected album database.
 
 ```ts
 import { randomUUID } from 'node:crypto';
-import { connect } from '@lastdb/app-sdk';
 
-const share = await connect({ appId: 'photos', databaseId: 'family-photos' });
-const comments = await share.query('photos/Comment', { filter: { HashKey: 'photo-7' } });
-
-share.rememberDefinition('photos/Comment', commentDefinitionId);
+const verified = await recipientSocial.setupDatabase({
+  setupName: 'shared-albums', requiredVersion: 1, databaseId: albumDatabaseId,
+});
+const { client: share } = await recipient.openDatabaseSession(albumDatabaseId, 'write');
+share.rememberDefinition('social/Comment', verified.definitions['social/Comment']!);
 const mutationId = randomUUID();
-const receipt = await share.mutate('photos/Comment', {
+const proposal = await share.mutate('social/Comment', {
   mutationType: 'create',
   expected: { type: 'absent' },
   alternates: {},
   key: { hash: 'photo-7', range: mutationId },
-  record: { text: 'Great photo' },
+  record: {
+    target: { database: albumDatabaseId, schema: 'social/Photo', key: 'photo-7' },
+    social_comment_text: 'Great photo',
+    created_at: new Date().toISOString(),
+  },
 }, { mutationId });
-if ('status' in receipt && receipt.status === 'submitted') {
-  console.log(`Queued ${receipt.mutationId}`);
+if ('status' in proposal && proposal.status === 'submitted') {
+  console.log(`Queued ${proposal.mutationId}`);
 }
 ```
+
+The publisher derives `author_id` from the verified sender. To edit a comment,
+read its current version, carry forward every field you are leaving as is,
+and send the full record with its primary key and revision.
 
 When a Share submission outcome is uncertain, `mutate` throws
 `ShareSubmissionUncertainError` with `.mutationId` so the caller can retry with

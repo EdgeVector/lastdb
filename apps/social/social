@@ -78,7 +78,9 @@ def parser():
     selection.add_argument("--database")
     selection.add_argument("--cancel", action="store_true")
     selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
-    create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
+    create = actions.add_parser("create-db", help="Create a named shareable database")
+    create.add_argument("--whole-database", action="store_true",
+                        help="Share all schemas with circle-based write grants")
     create.add_argument("name")
     setup = actions.add_parser("setup-database", help="Create or verify a named Social setup")
     setup.add_argument("--setup", required=True)
@@ -91,6 +93,9 @@ def parser():
     add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
     add.add_argument("--contact", type=Path, help="Contact file for a new or updated contact")
     add.add_argument("--database", required=True)
+    seal = actions.add_parser("seal-invitation", help="Seal an invitation for an existing whole-database grant")
+    seal.add_argument("--database", required=True, help="Exact database ID")
+    seal.add_argument("--node-key", required=True, help="Verified node key from Social's contacts")
     revoke = actions.add_parser("remove", help="Revoke a person's access")
     who = revoke.add_mutually_exclusive_group(required=True)
     who.add_argument("--user")
@@ -116,7 +121,7 @@ def run(args, node):
     people = People(node)
     sharing = Sharing(node, people)
     if args.action == "create-db":
-        return sharing.create(args.name)
+        return sharing.create(args.name, whole=args.whole_database)
     if args.action == "setup-database":
         target = {"localName": args.name} if args.name is not None else {"databaseId": args.database}
         return SocialApp(node).setup_database(
@@ -137,6 +142,8 @@ def run(args, node):
         return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
     if args.action == "add":
         return sharing.invite(args.database, args.user, args.node_key, args.contact)
+    if args.action == "seal-invitation":
+        return SocialApp(node).circle_invitation({"databaseId": args.database, "nodeKey": args.node_key})
     if args.action == "remove":
         return remove(sharing, people, args)
     if args.action == "grants":
