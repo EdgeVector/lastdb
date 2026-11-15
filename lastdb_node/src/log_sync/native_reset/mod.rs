@@ -60,22 +60,22 @@ pub(super) async fn prepare(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(self) struct Inode(u64, u64);
+struct Inode(u64, u64);
 
 impl Inode {
-    pub(self) fn same_device(self, other: Self) -> bool {
+    fn same_device(self, other: Self) -> bool {
         self.0 == other.0
     }
 }
 
-pub(self) struct Stage {
-    pub(self) path: PathBuf,
-    pub(self) inode: Inode,
-    pub(self) keep: bool,
+struct Stage {
+    path: PathBuf,
+    inode: Inode,
+    keep: bool,
 }
 
 impl Stage {
-    pub(self) fn create(host: &Host) -> Result<Self, String> {
+    fn create(host: &Host) -> Result<Self, String> {
         let path = host
             .home
             .join(format!("{STAGE_PREFIX}{}", uuid::Uuid::new_v4()));
@@ -103,11 +103,11 @@ impl Stage {
         Ok(stage)
     }
 
-    pub(self) fn path(&self) -> &Path {
+    fn path(&self) -> &Path {
         &self.path
     }
 
-    pub(self) fn remove_identity(&self) -> Result<(), String> {
+    fn remove_identity(&self) -> Result<(), String> {
         fs::remove_file(self.path.join(IDENTITY_KEY_FILE)).map_err(|error| io_error(&error))
     }
 }
@@ -120,7 +120,7 @@ impl Drop for Stage {
     }
 }
 
-pub(self) fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
+fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     let bytes = Zeroizing::new(
         disk::read_limited(&home.join(IDENTITY_KEY_FILE), 32)
             .map_err(|error| io_error(&error))?
@@ -133,7 +133,7 @@ pub(self) fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     Ok(Zeroizing::new(value))
 }
 
-pub(self) fn inode(path: &Path) -> io::Result<Inode> {
+fn inode(path: &Path) -> io::Result<Inode> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() {
         return Err(io::Error::new(
@@ -144,19 +144,19 @@ pub(self) fn inode(path: &Path) -> io::Result<Inode> {
     Ok(Inode(metadata.dev(), metadata.ino()))
 }
 
-pub(self) fn file_inode(file: &File) -> Result<Inode, String> {
+fn file_inode(file: &File) -> Result<Inode, String> {
     let m = file.metadata().map_err(|error| io_error(&error))?;
     Ok(Inode(m.dev(), m.ino()))
 }
 
-pub(self) fn checked_child(parent: &File, name: &str) -> Result<Inode, String> {
+fn checked_child(parent: &File, name: &str) -> Result<Inode, String> {
     let flags = rfs::OFlags::RDONLY | rfs::OFlags::DIRECTORY | rfs::OFlags::NOFOLLOW;
     let child =
         rfs::openat(parent, name, flags, rfs::Mode::empty()).map_err(|error| io_error(&error))?;
     file_inode(&File::from(child))
 }
 
-pub(self) fn valid_stage_name(name: &str) -> Result<&str, String> {
+fn valid_stage_name(name: &str) -> Result<&str, String> {
     let id = name
         .strip_prefix(STAGE_PREFIX)
         .ok_or("invalid native recovery stage name")?;
@@ -167,7 +167,7 @@ pub(self) fn valid_stage_name(name: &str) -> Result<&str, String> {
     }
 }
 
-pub(self) fn lock_home(home: &Path) -> Result<File, String> {
+fn lock_home(home: &Path) -> Result<File, String> {
     let lock = OpenOptions::new()
         .read(true)
         .write(true)
@@ -185,16 +185,16 @@ pub(self) fn lock_home(home: &Path) -> Result<File, String> {
     Ok(lock)
 }
 
-pub(self) fn exchange(home: &File, stage: &File) -> Result<(), String> {
+fn exchange(home: &File, stage: &File) -> Result<(), String> {
     rfs::renameat_with(home, "data", stage, "data", RenameFlags::EXCHANGE)
         .map_err(|error| io_error(&error))
 }
 
-pub(self) fn durable_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+fn durable_file(path: &Path, contents: &[u8]) -> Result<(), String> {
     disk::write_private(path, contents).map_err(|error| io_error(&error))
 }
 
-pub(self) fn directory(path: &Path) -> Result<File, String> {
+fn directory(path: &Path) -> Result<File, String> {
     OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
@@ -202,17 +202,17 @@ pub(self) fn directory(path: &Path) -> Result<File, String> {
         .map_err(|error| io_error(&error))
 }
 
-pub(self) fn sync_dir(path: &Path) -> Result<(), String> {
+fn sync_dir(path: &Path) -> Result<(), String> {
     directory(path)?
         .sync_all()
         .map_err(|error| io_error(&error))
 }
 
-pub(self) fn io_error(error: &impl std::fmt::Display) -> String {
+fn io_error(error: &impl std::fmt::Display) -> String {
     format!("native recovery filesystem: {error}")
 }
 
-pub(self) fn open_stopped(
+fn open_stopped(
     data: &Path,
     seed: &[u8; 32],
     identity: &UploadIdentity,
@@ -222,6 +222,6 @@ pub(self) fn open_stopped(
     StoppedSync::open(data, &key.encryption_key(), identity).map_err(|error| storage_error(&error))
 }
 
-pub(self) fn storage_error(error: &fold_db::storage::error::StorageError) -> String {
+fn storage_error(error: &fold_db::storage::error::StorageError) -> String {
     format!("native recovery cannot prove a stopped database: {error}")
 }
