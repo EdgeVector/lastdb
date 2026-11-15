@@ -202,6 +202,8 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     album = sdk(recipient, "read", database=database, schema=ALBUM, key="seed")
+    second_app = sdk(recipient, "read", database=database, schema=ALBUM, key="seed", appId="album-viewer")
+    require(second_app == album, "independent_app_opens_same_published_album")
     require(album["fields"]["text"] == f"Initial {ALBUM}", "circle_sdk_read_shared_content")
     report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")

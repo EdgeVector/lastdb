@@ -15,6 +15,7 @@ from support import decode_json, require, summary
 def configure_bindings(publisher, owner, circle, first, second, scopes):
     require(sdk(publisher, "circles") == [{"id": circle["id"], "name": circle["name"]}],
             "app_circle_discovery")
+    requests = []
     for app, database, grant in (
         ("photo-journal", first, {"writeSchemas": scopes}),
         ("album-viewer", second, {"preset": "viewer"}),
@@ -24,12 +25,14 @@ def configure_bindings(publisher, owner, circle, first, second, scopes):
         current = roster(publisher, database)
         require(current["revision"] == "0" and not current["members"], "app_request_needs_owner_approval")
         request_id = declaration["requestId"]
+        requests.append(request_id)
         with window(publisher, sharing_request=request_id) as review_window:
             preview = preview_request(review_window, request_id)
             require(preview["status"] == "awaitingApproval", "app_request_visible_on_reopen")
             call(review_window, "/api/sharing-request/apply", {"requestId": request_id, "token": preview["token"]},
                  authorized=False, status=403)
             approve(review_window, request_id, preview)
+    for request_id in requests:
         require(sdk(publisher, "sharing-status", requestId=request_id)["revision"] == "0",
                 "app_request_confirmed_empty_circle")
     directory = call(owner, "/api/reusable-circles")

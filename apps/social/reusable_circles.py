@@ -98,7 +98,7 @@ class ReusableCircles:
         data.update(circles=desired, pending=sorted(databases))
         record = self.save(definition, record, data)
         if pending:
-            plans = self.replay_pending(plans)
+            plans = self.replay_pending(data, plans, args.get("review", {}))
         return self.finish(definition, record, data, plans)
 
     def resume(self):
@@ -109,28 +109,33 @@ class ReusableCircles:
             if data["pending"]:
                 plans = self.prepare(data["circles"], data["pending"],
                                      direct=self.direct_intent(data.get("operation")))
-                return self.finish(definition, record, data, self.replay_pending(plans))
+                return self.finish(definition, record, data, self.replay_pending(data, plans))
             return {"databases": [], "pending": []}
 
     @staticmethod
     def direct_intent(operation):
         return operation.get("direct") if operation and operation.get("status") != "confirmed" else None
 
-    def replay_pending(self, plans):
-        def resume(plan):
-            if not plan.get("savedRequest"):
-                return plan
-            database = plan["databaseId"]
+    def replay_pending(self, data, plans, review=None):
+        saved = [plan["databaseId"] for plan in plans if plan.get("savedRequest")]
+        if not saved:
+            return plans
+
+        def resume(database):
             try:
-                revision = self.sharing.resume_pending(database)
-                if revision is not None:
-                    return {"databaseId": database, "name": plan["name"], "replayed": revision}
+                self.sharing.resume_pending(database)
             except (SocialError, OSError, HTTPException):
-                return plan
-            return plan
+                return None
+            return database
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            return list(pool.map(resume, plans))
+            reopened = [database for database in pool.map(resume, saved) if database]
+        # A saved request can belong to another action in Social. Confirm the
+        # approved circle or direct declaration against the resulting roster.
+        refreshed = {plan["databaseId"]: plan for plan in self.prepare(
+            data["circles"], reopened, review, self.direct_intent(data.get("operation"))
+        )} if reopened else {}
+        return [refreshed.get(plan["databaseId"], plan) for plan in plans]
 
     def finish(self, definition, record, data, plans):
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -141,7 +146,9 @@ class ReusableCircles:
             outcome = next((row for row in outcomes if row["databaseId"] == operation["databaseId"]), None)
             if outcome:
                 direct = self.direct_intent(operation) if outcome["status"] != "confirmed" else None
-                data["operation"] = {"requestId": operation["requestId"], "direct": direct, **outcome}
+                receipt = {key: outcome[key] for key in ("databaseId", "status", "revision", "error")
+                           if key in outcome}
+                data["operation"] = {"requestId": operation["requestId"], "direct": direct, **receipt}
         self.save(definition, record, data)
         return {"databases": outcomes, "pending": data["pending"]}
 
@@ -207,8 +214,6 @@ class ReusableCircles:
 
     def deliver(self, plan):
         row = {key: plan[key] for key in ("databaseId", "name")}
-        if "replayed" in plan:
-            return {**row, "revision": plan["replayed"], "status": "confirmed"}
         if "conflicts" in plan:
             return {**row, "error": plan["error"], "conflicts": plan["conflicts"], "status": "needsReview"}
         if "error" in plan:

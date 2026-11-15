@@ -16,6 +16,7 @@ from support import OperationError, failure, require, running, summary
 sys.path.insert(0, str(ROOT / "apps/social"))
 from app import SocialApp  # noqa: E402
 from lastdb import LastDB  # noqa: E402
+from sharing_requests import DEFINITION as SHARING_REQUEST  # noqa: E402
 
 
 def prepare():
@@ -42,6 +43,7 @@ def prepare():
             app = SocialApp(lastdb)
             app.home()
             app.sharing.pending_edit("registry-preflight")
+            lastdb.declare_private(SHARING_REQUEST)
             origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True).strip()
             expected_origin = "https://github.com/EdgeVector/lastdb.git"
             require(origin in (expected_origin, expected_origin.removesuffix(".git")), "social_prepare_origin")
