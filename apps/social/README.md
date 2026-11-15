@@ -41,7 +41,9 @@ requires review. After approval, the binding follows changes to the circle.
 Social applies each database independently and saves unfinished work for
 retry when it opens again. An unfinished update only blocks new changes that
 affect the same database. The owner can review a new app request for another
-database while the earlier change is pending.
+database while the earlier change is pending. Reopen any Social windows
+after upgrading. Once Social 0.6.0 saves the circle directory, use 0.6.0
+or later to edit circles and resume its sharing updates.
 
 The owner sees the current and proposed grants when another publisher tool
 changes a grant that Social manages. They can preserve the outside grant as

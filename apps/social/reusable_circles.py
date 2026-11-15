@@ -28,7 +28,11 @@ class ReusableCircles:
     def load(self):
         definition = self.node.declare_private("CircleDirectory")
         record = self.node.get_record(SCHEMA, KEY)
-        data = json.loads(record["fields"]["directory"]) if record else {"circles": [], "pending": []}
+        data = json.loads(record["fields"]["directory"]) if record else {"circles": []}
+        # Older versions require the legacy key before any edit or replay.
+        # Saving only pendingDatabases prevents them from replaying these operations.
+        legacy_pending = data.pop("pending", [])
+        data.setdefault("pendingDatabases", legacy_pending)
         operations = data.setdefault("operations", {})
         previous = data.pop("operation", None)
         if previous:
@@ -51,7 +55,7 @@ class ReusableCircles:
             catalogs = list(pool.map(self.catalog, owned))
         databases = [{"id": key, "name": row["name"], "schemas": names}
                      for (key, row), names in zip(owned.items(), catalogs)]
-        return {"circles": data["circles"], "pending": data["pending"], "databases": databases}
+        return {"circles": data["circles"], "pending": data["pendingDatabases"], "databases": databases}
 
     def catalog(self, database):
         try:
@@ -67,7 +71,7 @@ class ReusableCircles:
         if not self.node.has_named_grants():
             raise SocialError("reusable circles need a LastDB build with grants by schema name")
         definition, record, data = self.load()
-        prior, pending = data["circles"], set(data["pending"])
+        prior, pending = data["circles"], set(data["pendingDatabases"])
         retrying = "circle" not in args and operation is None
         if "circle" in args:
             desired, databases = self.replacement(prior, args["circle"], args.get("remove") is True)
@@ -99,19 +103,19 @@ class ReusableCircles:
             raise SocialError("resolve the unavailable databases before applying this edit")
         if operation and any("error" in plan for plan in plans):
             raise SocialError("resolve the outside grants in the preview before approving this request")
-        data.update(circles=desired, pending=sorted(pending | databases), operations=operations)
+        data.update(circles=desired, pendingDatabases=sorted(pending | databases), operations=operations)
         record = self.save(definition, record, data)
         if retrying:
             plans = self.replay_pending(data, plans, review)
         return self.finish(definition, record, data, plans)
 
     def resume(self, database=None):
-        pending = self.load()[2]["pending"]
+        pending = self.load()[2]["pendingDatabases"]
         if not pending or (database is not None and database not in pending):
             return {"databases": [], "pending": pending}
         with self.circles.lock():
             definition, record, data = self.load()
-            pending = data["pending"]
+            pending = data["pendingDatabases"]
             selected = pending if database is None else [item for item in pending if item == database]
             if selected:
                 plans = self.prepare(data["circles"], selected, data["operations"])
@@ -146,7 +150,7 @@ class ReusableCircles:
     def finish(self, definition, record, data, plans):
         with ThreadPoolExecutor(max_workers=4) as pool:
             outcomes = list(pool.map(self.deliver, plans))
-        pending = set(data["pending"])
+        pending = set(data["pendingDatabases"])
         operations = data["operations"]
         for outcome in outcomes:
             database = outcome["databaseId"]
@@ -159,9 +163,9 @@ class ReusableCircles:
                 operations[database] = {"requestId": operation["requestId"], **receipt}
                 if outcome["status"] != "confirmed" and "direct" in operation:
                     operations[database]["direct"] = operation["direct"]
-        data["pending"] = sorted(pending)
+        data["pendingDatabases"] = sorted(pending)
         self.save(definition, record, data)
-        return {"databases": outcomes, "pending": data["pending"]}
+        return {"databases": outcomes, "pending": data["pendingDatabases"]}
 
     def replacement(self, prior, change, remove):
         identity = change["id"]
