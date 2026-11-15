@@ -61,19 +61,18 @@ fn read_dev_key(reader: impl Read) -> Result<SigningKey, String> {
         return Err("publisher signing key exceeds size limit".into());
     }
     let text = Zeroizing::new(
-        String::from_utf8(raw.to_vec())
-            .map_err(|_| format!("dev key {} is not UTF-8", path.display()))?,
+        String::from_utf8(raw.to_vec()).map_err(|_| "publisher signing key is not UTF-8")?,
     );
     let decoded = Zeroizing::new(
         BASE64
             .decode(text.trim())
-            .map_err(|e| format!("dev key {} is not valid base64: {e}", path.display()))?,
+            .map_err(|_| "publisher signing key is not valid base64")?,
     );
     let secret: Zeroizing<[u8; 32]> = decoded
         .as_slice()
         .try_into()
         .map(Zeroizing::new)
-        .map_err(|_| format!("dev key {} is not a 32-byte Ed25519 secret", path.display()))?;
+        .map_err(|_| "publisher signing key is not a 32-byte Ed25519 secret")?;
     Ok(SigningKey::from_bytes(&secret))
 }
 
