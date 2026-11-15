@@ -28,8 +28,9 @@ from node import OwnedNode
 from native_records import create, key as record_key, replace
 from programs import Programs, execute
 from signed_files import retry, running
-from snapshot_cleanup import (SNAPSHOT_DEV_ACCOUNT, cleanup_objects, load_owner,
-                              register_and_track, start_tracking)
+from snapshot_cleanup import (SNAPSHOT_DEV_ACCOUNT, cleanup_objects, current_attempt,
+                              load_owner, register_and_track, start_tracking)
+from snapshot_resume import verified_attempt
 from support import (CREDENTIALS_FILE, OperationError, child_environment, dev_endpoint, failure,
                      private_file, read_json, require, stable, write_private)
 
@@ -43,7 +44,7 @@ MAX_REPLAYED = 8
 BUDGET_SECONDS = 60
 SCHEMA = "SnapshotGate"
 LABEL = b"snapshot-gate-v1"
-LOAD_PREFIX = "c1da11d0-0000-4000-8000-"
+ADMISSION_HEAD = "head"
 TAIL_KEY = "after-snapshot"
 TAIL_BODY = "signed tail"
 
@@ -77,10 +78,7 @@ def note(numbers, key, value):
 
 
 def gate_id():
-    """Use a run-owned ID in the DEV prefix the cleanup role can delete."""
-    material = os.environ["GITHUB_RUN_ID"] + ":" + os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    require(re.fullmatch(r"[1-9][0-9]{0,18}:[1-9][0-9]{0,4}", material), "run_id")
-    return LOAD_PREFIX + hashlib.sha256(material.encode("ascii")).hexdigest()[:12]
+    return current_attempt().database
 
 
 def install_registry(home, database_id):
@@ -362,7 +360,8 @@ def check_restored(programs, destination, database_id, digest, numbers):
 
 def run_gate(programs, root, guard, owner):
     numbers = {}
-    database_id = gate_id()
+    attempt = current_attempt()
+    database_id = attempt.database
     note(numbers, "database_id", database_id)
     home = root / "source"
     home.mkdir(mode=0o700)
@@ -384,7 +383,7 @@ def run_gate(programs, root, guard, owner):
         ], input_bytes=owner.api_key.encode(), timeout=60)
         require(connected.get("ok") is True and connected.get("credentials_saved") is True
                 and connected.get("account_id") == SNAPSHOT_DEV_ACCOUNT, "dev_connection")
-        register_and_track(guard, database_id, owner)
+        register_and_track(guard, attempt, owner)
         node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
         tail_started = time.monotonic()
@@ -425,18 +424,23 @@ def aws(guard, operation, payload):
     return json.loads(result.stdout)
 
 
-def purge_partition(guard, partition):
-    pending, start, deleted = [], None, 0
+def partition_keys(guard, partition):
+    keys, start = [], None
     while True:
         request = guard.query_request(guard.DEV_TABLE, partition)
+        request["ProjectionExpression"] = "database_id, record_id"
         if start is not None:
             request["ExclusiveStartKey"] = start
         found = aws(guard, "query", request)
-        pending.extend(guard.record_ids_from_query(found, partition))
+        keys.extend(guard.record_ids_from_query(found, partition))
         nxt = found.get("LastEvaluatedKey")
         if not guard.continue_page(nxt, start):
-            break
+            return keys
         start = nxt
+
+
+def delete_keys(guard, partition, pending):
+    deleted = 0
     while pending:
         chunk = pending[:25]
         response = aws(guard, "batch-write-item", guard.delete_batch(guard.DEV_TABLE, partition, chunk))
@@ -454,18 +458,36 @@ def verify_cloud_target(guard):
     guard.allow_table_arn(described.get("Table", {}).get("TableArn", ""), guard.DEV_TABLE)
 
 
-def cleanup(guard, owner):
+def cleanup(guard, attempt, owner, *, expect_charge, resume=False, proof_skipped=False):
     verify_cloud_target(guard)
-    cleanup_objects(guard, gate_id(), owner, aws, summary)
+    database = attempt.database
+    partitions = guard.load_partitions(database)
+    head_present = ADMISSION_HEAD in partition_keys(guard, database)
+    if not head_present and not resume:
+        require(not expect_charge and all(not partition_keys(guard, part) for part in partitions),
+                "snapshot_cleanup_missing_head")
+        summary("provider_objects=not_registered")
+        return
+    receipt = cleanup_objects(guard, attempt, owner, summary, expect_charge=expect_charge,
+                              receipt_only=not head_present)
+    if not receipt:
+        require(proof_skipped and all(not partition_keys(guard, part) for part in partitions),
+                "snapshot_resume_no_verified_receipt")
+        summary("provider_objects=not_registered original_proof_skipped")
+        return
     deleted = 0
-    partitions = guard.load_partitions(gate_id())
+    # Keep admission alive until the signed completion receipt is durable and
+    # every other metadata key is gone. The receipt also survives head removal.
     for partition in partitions:
-        deleted += purge_partition(guard, partition)
+        keep = [ADMISSION_HEAD] if partition == database and head_present else []
+        deleted += delete_keys(guard, partition,
+                               [key for key in partition_keys(guard, partition) if key not in keep])
+        require(partition_keys(guard, partition) == keep, "snapshot_metadata_cleanup_incomplete")
+    if head_present:
+        deleted += delete_keys(guard, database, [ADMISSION_HEAD])
     summary(f"cleanup_rows={deleted}")
     for partition in partitions:
-        reply = aws(guard, "query", guard.query_request(guard.DEV_TABLE, partition))
-        require(not reply.get("Items") and not reply.get("LastEvaluatedKey"),
-                "snapshot_metadata_cleanup_incomplete")
+        require(not partition_keys(guard, partition), "snapshot_metadata_cleanup_incomplete")
     summary("Run-owned signed log, accepted-write facts, submissions, and snapshot metadata are empty.")
 
 
@@ -1036,7 +1058,8 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
     from run import post
 
     verify_cloud_target(guard)
-    database = guard.allow_stream(gate_id())
+    attempt = current_attempt()
+    database = guard.allow_stream(attempt.database)
     summary(f"database_id={database}")
     endpoint = dev_endpoint()
 
@@ -1072,7 +1095,7 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
     for result in (call("create-database", {"kind": "personal"}), call("access", {})):
         require(result.get("state") == "native" and result.get("database_id") == database,
                 "private_native_registration")
-    start_tracking(call, database)
+    start_tracking(call, attempt)
     automatic = automatic_supported(call, eligible=False, allow_older_service=True)
     require(automatic or not require_automatic, "native_automatic_reclaim_required")
     history_supported = index_status(call, database, None, allow_older_service=True)
@@ -1126,9 +1149,10 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     native = command in ("native-cutoff", "cleanup-native-cutoff")
-    if native:
+    resume = command == "resume-cleanup"
+    if native or resume:
         require_native_dispatch()
-    require(command in ("run", "cleanup") or native, "command")
+    require(command in ("run", "cleanup") or native or resume, "command")
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
     # Daemon-created shutdown receipts inherit the runner's file-creation mask.
@@ -1136,9 +1160,18 @@ def main():
     dev_endpoint()
     guard = load_guard()
     owner = load_owner()
+    if resume:
+        require(len(sys.argv) == 4, "arguments")
+        attempt, revision, proof = verified_attempt(sys.argv[2], sys.argv[3])
+        summary(f"original_run={attempt.run_id} original_attempt={attempt.attempt} "
+                f"original_source={revision} database_id={attempt.database}")
+        cleanup(guard, attempt, owner, expect_charge=proof == "success", resume=True,
+                proof_skipped=proof == "skipped")
+        return
     if command in ("cleanup", "cleanup-native-cutoff"):
         require(len(sys.argv) == 2, "arguments")
-        cleanup(guard, owner)
+        cleanup(guard, current_attempt(), owner,
+                expect_charge=os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true")
         return
     parser_args = sys.argv[2:]
     require_automatic = native and parser_args[-1:] == ["--require-automatic"]

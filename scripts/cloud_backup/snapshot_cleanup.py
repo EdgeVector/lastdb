@@ -5,16 +5,16 @@ admission until the service confirms both provider prefixes are empty.
 """
 
 from dataclasses import dataclass
+import hashlib
 import http.client
 import json
 import os
-from pathlib import Path
 import re
 import time
 import urllib.error
 
 import baseline_data
-from support import OperationError, dev_endpoint, read_json, require, write_private
+from support import OperationError, dev_endpoint, require
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
@@ -23,6 +23,7 @@ SNAPSHOT_DEV_ACCOUNT = "f0fa35067ce1bb7cda7810ca96a100df"
 GRANT_TTL_MS = 900_000
 CLEANUP_BUDGET = 1_200
 DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
+DATABASE_PREFIX = "c1da11d0-0000-4000-8000-"
 
 
 @dataclass(frozen=True, repr=False)
@@ -33,9 +34,26 @@ class SnapshotOwner:
     api_key: str
 
 
-def run_fields(database):
-    return {"database_id": database, "run_id": os.environ["GITHUB_RUN_ID"],
-            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1")}
+@dataclass(frozen=True)
+class RunAttempt:
+    run_id: str
+    attempt: str
+
+    def __post_init__(self):
+        require(re.fullmatch(r"[1-9][0-9]{0,18}", self.run_id)
+                and re.fullmatch(r"[1-9][0-9]{0,4}", self.attempt), "snapshot_run_attempt")
+
+    @property
+    def database(self):
+        material = f"{self.run_id}:{self.attempt}".encode("ascii")
+        return DATABASE_PREFIX + hashlib.sha256(material).hexdigest()[:12]
+
+    def fields(self):
+        return {"database_id": self.database, "run_id": self.run_id, "run_attempt": self.attempt}
+
+
+def current_attempt():
+    return RunAttempt(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
 
 
 def load_owner():
@@ -66,15 +84,15 @@ def load_owner():
     return SnapshotOwner(key, generation, phrase, api_key)
 
 
-def start_tracking(call, database):
-    result = call("snapshot/bytes", {**run_fields(database), "action": "track_dev"})
-    require(result == {"database_id": database, "tracking": True}, "snapshot_tracking")
+def start_tracking(call, attempt):
+    result = call("snapshot/bytes", {**attempt.fields(), "action": "track_dev"})
+    require(result == {"database_id": attempt.database, "tracking": True}, "snapshot_tracking")
 
 
-def register_and_track(guard, database, owner):
+def register_and_track(guard, attempt, owner):
     from run import post
 
-    guard.allow_stream(database)
+    database = guard.allow_stream(attempt.database)
     endpoint = dev_endpoint()
 
     def call(operation, fields):
@@ -91,7 +109,7 @@ def register_and_track(guard, database, owner):
     registration = call("create-database", {"kind": "personal"})
     require(registration.get("database_id") == database
             and registration.get("state") == "native", "snapshot_tracking_registration")
-    start_tracking(call, database)
+    start_tracking(call, attempt)
 
 
 def released_bytes(value):
@@ -100,36 +118,16 @@ def released_bytes(value):
     return int(value)
 
 
-def cleanup_objects(guard, database, owner, aws, summary):
+def cleanup_objects(guard, attempt, owner, summary, *, expect_charge, receipt_only=False):
     # Imports use snapshot_gate.load_guard's mutation_log_load path.
     from run import post
 
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
-    guard.allow_stream(database)
+    database = guard.allow_stream(attempt.database)
     endpoint = dev_endpoint()
-    expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
-    receipt = Path(os.environ["RUNNER_TEMP"]) / f"snapshot-provider-cleanup-{database}.json"
-    expected = {**run_fields(database), "complete": True, "account": SNAPSHOT_DEV_ACCOUNT,
-                "account_generation": owner.generation}
-    # A metadata purge can fail after deleting admission rows. A private,
-    # exact-run absence receipt permits retry without reusing deleted admission.
-    if os.path.lexists(receipt):
-        saved = read_json(receipt, 1024)
-        require(isinstance(saved, dict) and {**saved, "released_bytes": None}
-                == {**expected, "released_bytes": None}, "snapshot_cleanup_receipt")
-        released = released_bytes(saved.get("released_bytes"))
-        require(not expect_charge or released > 0, "snapshot_cleanup_missing_charge")
-        summary(f"provider_objects=empty released_bytes={released} prior_run_local_confirmation")
-        return
-    # Before registration there can be no upload grants. Once registered, all
-    # admission metadata survives provider cleanup, even on partial failure.
-    found = aws(guard, "query", guard.query_request(guard.DEV_TABLE, database))
-    if not found.get("Items") and not found.get("LastEvaluatedKey"):
-        require(not expect_charge, "snapshot_cleanup_missing_metadata")
-        summary("provider_objects=not_registered_or_already_cleaned")
-        return
-    body = json.dumps({**run_fields(database), "action": "cleanup_dev"},
+    action = "cleanup_receipt_dev" if receipt_only else "cleanup_dev"
+    body = json.dumps({**attempt.fields(), "action": action},
                       separators=(",", ":")).encode("utf-8")
     deleted = 0
     deadline = time.monotonic() + CLEANUP_BUDGET
@@ -147,6 +145,9 @@ def cleanup_objects(guard, database, owner, aws, summary):
         if status in (429, 502, 503, 504):
             time.sleep(2)
             continue
+        if receipt_only and status == 404 and result == {"code": "not_found",
+                                                        "field": "snapshot.cleanup.receipt"}:
+            return False
         require(status == 200 and isinstance(result, dict) and set(result) ==
                 {"database_id", "deleted", "complete", "retry_after_ms", "released_bytes"}
                 and result.get("database_id") == database, "snapshot_cleanup_service")
@@ -157,14 +158,15 @@ def cleanup_objects(guard, database, owner, aws, summary):
                 and type(wait_ms) is int and 0 <= wait_ms <= GRANT_TTL_MS
                 and (not complete or count == wait_ms == 0)
                 and (complete or released == 0)
-                and (wait_ms == 0 or count == 0), "snapshot_cleanup_reply")
+                and (wait_ms == 0 or count == 0)
+                and (not receipt_only or complete), "snapshot_cleanup_reply")
         deleted += count
         if complete:
             require(not expect_charge or released > 0, "snapshot_cleanup_missing_charge")
-            write_private(receipt, json.dumps({**expected,
-                                               "released_bytes": str(released)}).encode("ascii"))
+            if receipt_only:
+                summary("provider_cleanup_receipt=verified")
             summary(f"provider_objects=empty confirmed_deleted={deleted} released_bytes={released}")
-            return
+            return True
         if wait_ms:
             time.sleep(min(wait_ms / 1000, max(0, deadline - time.monotonic())))
     raise OperationError("snapshot_cleanup_incomplete_metadata_retained")
