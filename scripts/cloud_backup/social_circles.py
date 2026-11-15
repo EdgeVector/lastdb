@@ -110,13 +110,13 @@ def transfer(programs, root, publisher, recipient, api_key):
             receipt = call(owner, "/api/circle-invitation", {"databaseId": database, "nodeKey": reader})
             require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
             with window(recipient) as remote:
-                exercise(publisher, recipient, remote, database, receipt, definitions, scope)
+                exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader)
                 second_receipt = call(owner, "/api/circle-invitation", {"databaseId": second, "nodeKey": reader})
                 call(remote, "/api/accept", {"receipt": second_receipt, "publisher": sender, "name": "second"})
                 wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
                 observe_access(remote, second, "active", 1, write_schemas=[])
                 definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database,
-                                                        definitions[COMMENT], scope)
+                                                        definitions[COMMENT], scope, sender)
                 read_circle = {**circle, "links": {database: [], second: [COMMENT]}}
                 preview = call(owner, "/api/circles/preview", {"circle": read_circle})
                 call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
@@ -182,16 +182,18 @@ def connect(programs, publisher, api_key):
             and receipt["credentials_saved"] is True, "circle_dev_connection")
 
 
-def exercise(publisher, recipient, remote, database, receipt, definitions, scope):
+def exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader):
     accepted = call(remote, "/api/accept", {"receipt": receipt, "publisher": receipt["publisher"], "name": "family"})
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas={"names": [COMMENT]})
+    created = mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana")
+    created["metadata"] = {"share_author": "unverified-author"}
     updates = [
         mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"),
-        mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"),
+        created,
         mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed"),
     ]
     queue_and_restart(publisher, recipient, remote, database, scope, 1, updates)
@@ -199,23 +201,29 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
         wait_text(node, database, COMMENT, "seed", f"Initial {COMMENT}", "circle_invalid_create_discarded")
-    message = "The publisher published the valid Comment and discarded the Album and invalid Comment mutations."
+    stored = query(publisher, database, COMMENT, "allowed")[0]
+    require(stored["metadata"]["metadata"]["share_author"] == reader, "circle_comment_author_from_sender")
+    message = "The publisher set the new Comment's author from its verified sender and discarded the Album and invalid Comment mutations."
     print(message, flush=True)
     summary(message)
 
 
-def exercise_upgrade(publisher, recipient, remote, database, previous, scope):
+def exercise_upgrade(publisher, recipient, remote, database, previous, scope, sender):
     new = declare(publisher, database, COMMENT, expanded=True)
     require(new != previous, "circle_schema_upgrade_new_definition")
     seeded = mutation(COMMENT, new, "upgrade", "Before edit")
     seeded["record"]["caption"] = "Keep the optional field"
+    seeded["source_file_name"] = "dev-comment-import.txt"
+    seeded["metadata"] = {"import_origin": "publisher", "share_author": sender}
     publisher.call(f"/api/databases/{database}/mutation", seeded)
     wait_text(recipient, database, COMMENT, "upgrade", "Before edit", "circle_upgraded_record_received")
     observe_access(remote, database, "active", 1, role="submit", write_schemas={"names": [COMMENT]})
     current = query(recipient, database, COMMENT, "upgrade")[0]
+    require(current.get("metadata") is None, "circle_publisher_metadata_private")
     update = mutation(COMMENT, new, "upgrade", "After edit")
     update.update(mutation_type="replace", expected={"type": "revision", "revision": current["revision"]},
-                  record={**current["fields"], "text": "After edit"})
+                  record={**current["fields"], "text": "After edit"},
+                  source_file_name="replacement.txt", metadata={"share_author": "replacement-author"})
     stale = {**update, "record": {**update["record"], "text": "Stale edit"}}
     queue_and_restart(publisher, recipient, remote, database, scope, 1, [update, stale])
     for node in (publisher, recipient):
@@ -223,7 +231,10 @@ def exercise_upgrade(publisher, recipient, remote, database, previous, scope):
         require(query(node, database, COMMENT, "upgrade")[0]["fields"] == update["record"],
                 "circle_upgraded_fields_preserved")
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_old_records_preserved")
-    report("Ana edited the upgraded Comment at the same sharing revision. The added field and older record remained, and the publisher discarded the stale edit.")
+    stored = query(publisher, database, COMMENT, "upgrade")[0]["metadata"]
+    require(stored["source_file_name"] == seeded["source_file_name"] and stored["metadata"] == seeded["metadata"],
+            "circle_publisher_metadata_preserved")
+    report("Ana edited the upgraded Comment at the same sharing revision. The added field, older record, and publisher metadata remained. The publisher discarded the stale edit.")
     return new
 
 

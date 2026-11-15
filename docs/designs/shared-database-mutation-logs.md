@@ -25,6 +25,8 @@ A named scope such as `"writeSchemas": {"names": ["social/Comment"]}` matches th
 
 For a conditional replacement or delete, the receiver passes the identity of the published record version in the encrypted proposal. LastDB stores this identity with each whole-database share record it writes or downloads. The publisher checks the identity against its current record and uses its own record revision when committing. An intervening write causes the proposal to be discarded. A record already present before both clients track this identity needs an updated publication before a receiver can edit it this way.
 
+An accepted receiver create records the verified sender as the author. On a receiver edit, the publisher copies the stored record metadata, including the source filename and any original author, from the same record version checked for the edit. The accepted mutation records the editor's identity.
+
 | Identity on this database | Read published log | Append to published log | Append to pending log | Read and mark pending entries processed |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |

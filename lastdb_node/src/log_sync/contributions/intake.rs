@@ -134,9 +134,9 @@ fn prepare(
     .into_uuid()
     .to_string();
     mutation.pub_key = writer.to_owned();
-    if !matches!(
+    if matches!(
         mutation.mutation_type,
-        fold_db::schema::types::MutationType::Delete
+        fold_db::schema::types::MutationType::Create
     ) {
         mutation
             .metadata
