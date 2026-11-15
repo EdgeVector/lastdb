@@ -46,7 +46,7 @@ def scope_for(publisher, api_key):
     return scope
 
 
-def view(node, scope, database, action, *, expect_denial=False):
+def view(node, scope, database, action, revision, *, expect_denial=False):
     key = NodeKey.from_seed((node.home / "identity.key").read_bytes())
     path = f"{ROOT}/mutation-log/{action}"
     fields = {"database_id": database}
@@ -57,25 +57,25 @@ def view(node, scope, database, action, *, expect_denial=False):
     body = json.dumps(fields).encode()
     header, _ = authorization(key, path, database, time.time_ns() // 1_000_000, body,
                               scope["account_generation"], account=scope["account_id"],
-                              member_revision="1")
+                              member_revision=str(revision))
     return key.public.hex(), post(path, body, {"Authorization": header}, expect_denial=expect_denial)
 
 
-def inbox(publisher, scope, database):
-    return view(publisher, scope, database, "inbox/list")[1]
+def inbox(publisher, scope, database, revision):
+    return view(publisher, scope, database, "inbox/list", revision)[1]
 
 
-def published_views(recipient, scope, database):
+def published_views(recipient, scope, database, revision):
     with ThreadPoolExecutor(max_workers=2) as pool:
-        return list(pool.map(lambda action: view(recipient, scope, database, action)[1], ("list", "head")))
+        return list(pool.map(lambda action: view(recipient, scope, database, action, revision)[1], ("list", "head")))
 
 
-def pending_positions(publisher, recipient, scope, database, mutation_ids, published_before):
+def pending_positions(publisher, recipient, scope, database, revision, mutation_ids, published_before):
     calls = [(publisher, "list", False), (publisher, "inbox/list", False),
              (recipient, "inbox/list", True), (recipient, "inbox/settle", True)]
     with ThreadPoolExecutor(max_workers=len(calls)) as pool:
         owner, owner_inbox, reader_inbox, _ = list(pool.map(
-            lambda call: view(call[0], scope, database, call[1], expect_denial=call[2]), calls))
+            lambda call: view(call[0], scope, database, call[1], revision, expect_denial=call[2]), calls))
     publisher_key, published = owner
     _, page = owner_inbox
     recipient_key = reader_inbox[0]
@@ -83,8 +83,8 @@ def pending_positions(publisher, recipient, scope, database, mutation_ids, publi
                if row["entry"]["node_public_key"] == recipient_key
                and row["entry"]["namespace"] == "lastdb-member-submission"}
     expected = {f"member-{mutation_id}" for mutation_id in mutation_ids}
-    require(set(pending) == expected, "circle_publisher_sees_both_pending_submissions")
-    published_after = published_views(recipient, scope, database)
+    require(set(pending) == expected, "circle_publisher_sees_all_pending_submissions")
+    published_after = published_views(recipient, scope, database, revision)
     require(published_after[0]["entries"], "circle_exemem_receiver_has_published_entries")
     require(published_after == published_before, "circle_inbox_did_not_advance_published_log")
     for view_body in (published, *published_after):

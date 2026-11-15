@@ -106,6 +106,11 @@ def transfer(programs, root, publisher, recipient, api_key):
             require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
             with window(recipient) as remote:
                 exercise(publisher, recipient, remote, database, receipt, definitions, scope)
+                read_scope = {"name": "Family", "members": [reader], "writeSchemas": []}
+                changed = call(owner, "/api/circles", {"databaseId": database, "expectedRevision": "1",
+                                                       "circles": [read_scope]}, refusals=REFUSALS)
+                require(changed["revision"] == "2", "circle_reader_revision")
+                exercise_reader(publisher, recipient, remote, database, definitions, scope)
         finally:
             failed = sys.exc_info()[0] is not None
             try:
@@ -147,26 +152,46 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas=[definitions[COMMENT]])
-    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
-    publisher.stop()
-    try:
-        require(not inbox(publisher, scope, database)["entries"], "circle_empty_inbox")
-        published_before = published_views(recipient, scope, database)
-        denied = submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"))
-        allowed = submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"))
-        through = pending_positions(publisher, recipient, scope, database, (denied, allowed), published_before)
-        summary("ExeMem queued both writes in the publisher's inbox and refused Ana's inbox read and settlement. The published log did not advance.")
-    finally:
-        publisher.start()
-    retry("circle_publisher_consumed_submissions", lambda: inbox(publisher, scope, database),
-          lambda page: int(page["next"]) >= through and not page["entries"])
+    updates = [
+        mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"),
+        mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"),
+        mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed"),
+    ]
+    queue_and_restart(publisher, recipient, remote, database, scope, 1, updates)
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
-    message = ("Ana read Album and Comment. ExeMem hid both submissions from her log view. "
-               "The publisher processed both, rejected the Album write, and published the Comment.")
+        wait_text(node, database, COMMENT, "seed", f"Initial {COMMENT}", "circle_invalid_create_discarded")
+    message = "The publisher published the valid Comment and discarded the Album and invalid Comment mutations."
     print(message, flush=True)
     summary(message)
+
+
+def exercise_reader(publisher, recipient, remote, database, definitions, scope):
+    observe_access(remote, database, "active", 2)
+    wait_text(recipient, database, COMMENT, "allowed", "From Ana", "circle_reader_retains_access")
+    updates = [mutation(COMMENT, definitions[COMMENT], "reader", "Reader submission")]
+    queue_and_restart(publisher, recipient, remote, database, scope, 2, updates)
+    for node in (publisher, recipient):
+        require(not query(node, database, COMMENT, "reader"), "circle_reader_write_discarded")
+    message = "Ana submitted with an empty write scope. The publisher consumed the entry and published no record."
+    print(message, flush=True)
+    summary(message)
+
+
+def queue_and_restart(publisher, recipient, remote, database, scope, revision, updates):
+    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
+    publisher.stop()
+    try:
+        require(not inbox(publisher, scope, database, revision)["entries"], "circle_empty_inbox")
+        published_before = published_views(recipient, scope, database, revision)
+        queued = [submit(recipient, database, session, update) for update in updates]
+        through = pending_positions(publisher, recipient, scope, database, revision, queued, published_before)
+        summary("ExeMem queued the mutations in the publisher's inbox and refused Ana's inbox read and settlement. The published log did not advance.")
+    finally:
+        publisher.start()
+    retry("circle_publisher_consumed_submissions", lambda: inbox(publisher, scope, database, revision),
+          lambda page: int(page["next"]) >= through and not page["entries"])
 
 
 if __name__ == "__main__":

@@ -135,7 +135,7 @@ function showDatabase(panel, result) {
       const scope = database.selfAccess.writeSchemas;
       panel.append(element('p', scope === 'all' ? 'Can read the whole database and write all schemas.'
         : scope?.length ? 'Can read the whole database and write selected schemas.'
-          : 'Can read the whole database. Read only.', 'status'));
+          : 'Can read the whole database. The publisher granted no schema writes.', 'status'));
     }
     return;
   }

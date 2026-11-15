@@ -49,11 +49,8 @@ fn path(home: &Path, id: &str) -> PathBuf {
 }
 
 impl AccessView {
-    pub(crate) fn can_write(&self) -> bool {
-        !self.stale
-            && self.state == AccessState::Active
-            && self.role == Some(ShareMemberRole::Submit)
-            && self.write_schemas.is_some()
+    pub(crate) fn can_submit(&self) -> bool {
+        !self.stale && self.state == AccessState::Active
     }
 }
 
