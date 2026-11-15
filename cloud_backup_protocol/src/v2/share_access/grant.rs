@@ -19,9 +19,10 @@ use std::cmp::Ordering;
 pub enum ShareAccess {
     /// Account key for this database. It is not a member row.
     Publisher,
-    /// Active `read` member.
+    /// Active member with no schema writes granted.
     Reader,
-    /// Active `submit` member. Reader rights plus inbox append access.
+    /// Active member with a contributor grant. Whole-database inbox append
+    /// access depends on active membership for both roles.
     Contributor,
 }
 

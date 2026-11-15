@@ -2,7 +2,7 @@
 
 mod intake;
 
-use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareWriteScope};
+use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{Mutation, MutationType, Schema};
@@ -112,12 +112,7 @@ pub(crate) async fn submit(
     let definition = resolve_definition(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
     let observed = members::access(&log).await.ok_or(Unavailable)?;
-    let members::ObservedAccess::Active {
-        revision,
-        role: Some(ShareMemberRole::Submit),
-        ..
-    } = observed
-    else {
+    let members::ObservedAccess::Active { revision, .. } = observed else {
         return Err(Forbidden);
     };
     log.member_revision = revision;

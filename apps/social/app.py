@@ -17,10 +17,9 @@ def public_person(person):
     return {"nodeKey": person["node_key"], "name": person["display_name"]}
 
 
-def can_write_received(row):
+def can_submit_received(row):
     access = row.get("selfAccess") or {}
     return (row.get("sharingMode") == "whole_database" and access.get("state") == "active"
-            and access.get("role") == "submit" and bool(access.get("writeSchemas"))
             and access.get("stale") is False)
 
 
@@ -126,7 +125,7 @@ class SocialApp:
                  "kind": row["kind"], "state": row["state"], "selfAccess": row.get("selfAccess")}
                 for row in self.sharing.databases() if row.get("spec") == spec
                 and (row["kind"] == "shareable" or (row["kind"] == "received"
-                     and row["state"] == "ready" and (intent == "read" or can_write_received(row))))]
+                     and row["state"] == "ready" and (intent == "read" or can_submit_received(row))))]
 
     def pick(self, spec, intent, database_id):
         if database_id is None:

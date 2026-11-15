@@ -9,8 +9,7 @@ Social owns contacts and circles on the publisher's LastDB. For a database, it r
 | Identity on this database | Read publisher log | Append to publisher log | Append to inbox | Read and settle inbox |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |
-| Receiver with read access | Yes | | | |
-| Receiver with write access | Yes | | Yes | |
+| Active receiver | Yes | | Yes | |
 | Outside the active roster | | | | |
 
 The inbox rules are fixed. Every receiver is unable to read any raw receiver entry, including their own. The sharing specification has no setting that changes this rule. Receivers see their own grant and the published data. The publisher sees the roster.
@@ -19,8 +18,8 @@ The inbox rules are fixed. Every receiver is unable to read any raw receiver ent
 
 1. The publisher sets sharing in Social. Once LastDB confirms the roster in ExeMem, it returns a sealed invitation for the caller to deliver. The recipient accepts it with the verified publisher key. The recipient's LastDB obtains the database identity and keys, confirms current access, and syncs published records and schema definitions.
 2. A publisher write commits to its LastDB and is captured for upload into the publisher's log. Every active receiver can sync the resulting data across all schemas.
-3. A contributor's LastDB sends a signed, encrypted write through the existing append API. ExeMem checks the signed node identity and current database grant, and routes it to the private inbox. HTTP 202 means queued. The receiver's published download cursor stays at the same position.
-4. The publisher's LastDB reads the inbox, decrypts each submission, and checks its sharing revision and the sender's current write access to the target schema. It durably commits valid changes using the submission identity for retries. It discards refused changes. Accepted changes go through normal publication under the publisher's key. Every active receiver can sync them, including the original contributor.
+3. Any active receiver's LastDB can send a signed, encrypted mutation through the existing append API. ExeMem checks that the signed node identity is on the active roster and routes it to the private inbox. HTTP 202 means queued. The receiver's published download cursor stays at the same position.
+4. The publisher's LastDB reads the inbox, decrypts each submission, and checks its sharing revision and the sender's current write access to the target schema. A receiver with an empty write scope can submit, and the publisher discards their mutations. It also discards mutations that fail the schema or record rules. It durably commits valid changes using the submission identity for retries. Accepted changes go through normal publication under the publisher's key. Every active receiver can sync them, including the original sender.
 5. The publisher advances the inbox position after the page has been decided and the durable accepted writes through that point have been published. A restart can repeat an unsettled page. The same submitter and submission ID identify the same mutation across retries. Receivers confirm acceptance by reading the resulting record.
 
 Whole-database revocation stops new reads and submissions. Narrowing a write grant leaves whole-database reads available. The publisher refuses an uncommitted submission from a superseded sharing revision. A contributor with current permission can submit the write again. Previously published records and data already downloaded remain available under the normal database rules.
