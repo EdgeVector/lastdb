@@ -38,6 +38,33 @@ pub struct UploadSyncStatus {
 pub struct DownloadSyncStatus {
     pub applied_through: Option<u64>,
     pub last_error: Option<String>,
+    pub blocked: Option<BlockedDelivery>,
+}
+
+/// A specific delivery refusing replay while the local cursor stays behind it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct BlockedDelivery {
+    pub delivery_sequence: u64,
+    pub reason: ReplayBlockReason,
+}
+
+/// The local rule preventing a delivered mutation from being acknowledged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayBlockReason {
+    AttachmentConflict,
+    SchemaConflict,
+    MissingEarlierRecord,
+}
+
+impl ReplayBlockReason {
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::AttachmentConflict => "concurrent attachment changes require reconciliation",
+            Self::SchemaConflict => "a local schema change or write awaits ordered replay",
+            Self::MissingEarlierRecord => "replay lacks the earlier accepted record",
+        }
+    }
 }
 
 pub(crate) struct CloudSyncTracker {
@@ -138,7 +165,13 @@ impl CloudSyncTracker {
             .last_error = Some(error.to_owned());
     }
 
-    pub(crate) fn record_download(&self, database_id: &str, through: u64, error: Option<String>) {
+    pub(crate) fn record_download(
+        &self,
+        database_id: &str,
+        through: u64,
+        error: Option<String>,
+        blocked: Option<BlockedDelivery>,
+    ) {
         self.lock()
             .databases
             .entry(database_id.to_owned())
@@ -146,6 +179,7 @@ impl CloudSyncTracker {
             .download = DownloadSyncStatus {
             applied_through: Some(through),
             last_error: error,
+            blocked,
         };
     }
 

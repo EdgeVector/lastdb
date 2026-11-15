@@ -3,6 +3,8 @@
 use fold_db::fold_db_core::mutation_manager::{MutationManager, ReplayStamp};
 use fold_db::schema::types::{KeyValue, Mutation, MutationType, SchemaError};
 
+use crate::host::ReplayBlockReason;
+
 use super::SnapshotEntry;
 
 pub(super) struct RecordReplay<'a> {
@@ -15,6 +17,7 @@ pub(super) struct RecordReplay<'a> {
     pub(super) explicit_attachment: bool,
     pub(super) incoming_ready: bool,
     pub(super) prior: Option<(Vec<u8>, Mutation)>,
+    pub(super) blocked: Option<ReplayBlockReason>,
 }
 
 impl RecordReplay<'_> {
@@ -97,15 +100,13 @@ impl RecordReplay<'_> {
                 }
             }
         } else if !manager.apply_replay_baseline(schema, key, winner).await? {
-            return Err(SchemaError::Blocked(
-                "owned replay lacks the earlier accepted record".into(),
-            ));
+            return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
         }
         Ok(())
     }
 
     async fn guard_attachments(
-        &self,
+        &mut self,
         manager: &MutationManager,
         mutation: &Mutation,
         overlaps_pending: bool,
@@ -121,11 +122,14 @@ impl RecordReplay<'_> {
                 || (erases && manager.replay_record_has_attachment(schema, key).await?)
                 || (overlaps_pending && manager.pending_replay_attachment(schema, key).await?))
         {
-            return Err(SchemaError::Blocked(
-                "concurrent attachment changes require reconciliation".into(),
-            ));
+            return Err(self.block(ReplayBlockReason::AttachmentConflict));
         }
         Ok(())
+    }
+
+    fn block(&mut self, reason: ReplayBlockReason) -> SchemaError {
+        self.blocked = Some(reason);
+        SchemaError::Blocked(reason.message().into())
     }
 }
 

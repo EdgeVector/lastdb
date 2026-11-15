@@ -7,8 +7,8 @@ use base64::Engine;
 use mutation_log::{Entry, Incorporation, StoredEntry};
 use mutation_log_sync::Outcome;
 
-use crate::database_replay::{DeliveredEntry, IncorporatedFrom, SnapshotEntry};
-use crate::host::Host;
+use crate::database_replay::{DeliveredEntry, IncorporatedFrom, RestoreError, SnapshotEntry};
+use crate::host::{BlockedDelivery, Host};
 
 use super::cloud::CloudLog;
 use super::disk;
@@ -23,25 +23,52 @@ pub(crate) enum PagePlan {
     Hold(Option<u64>),
 }
 
-pub(crate) async fn apply_page(
+pub(super) struct PageFailure {
+    pub(super) message: String,
+    pub(super) blocked: Option<BlockedDelivery>,
+}
+
+impl From<String> for PageFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            blocked: None,
+        }
+    }
+}
+
+impl From<RestoreError> for PageFailure {
+    fn from(error: RestoreError) -> Self {
+        Self {
+            message: error.to_string(),
+            blocked: error.blocked_delivery(),
+        }
+    }
+}
+
+pub(super) async fn apply_page(
     host: &Host,
     log: &CloudLog,
     outcome: &Outcome,
     publisher: Option<&str>,
-) -> Result<PagePlan, String> {
+) -> Result<PagePlan, PageFailure> {
     let Outcome::Pulled {
         entries,
         cursor,
         reset,
     } = outcome
     else {
-        return Err("pull did not return a page".into());
+        return Err("pull did not return a page".to_owned().into());
     };
     if reset.is_some() {
-        return Err("pulled page still carries a snapshot reset".to_owned());
+        return Err("pulled page still carries a snapshot reset"
+            .to_owned()
+            .into());
     }
     if let Some(publisher) = publisher {
-        return received_page(host, log, publisher, entries, *cursor).await;
+        return received_page(host, log, publisher, entries, *cursor)
+            .await
+            .map_err(Into::into);
     }
     let owned_private = host
         .owned
@@ -57,8 +84,7 @@ pub(crate) async fn apply_page(
             &delivered,
             &mut files,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
         return Ok(PagePlan::Ack(*cursor));
     }
     let mut handled = None;
