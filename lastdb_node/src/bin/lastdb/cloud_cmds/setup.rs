@@ -6,7 +6,6 @@ use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{
     register_native_device, SavedConnection, SavedCredentials, CLOUD_CREDENTIALS_FILE,
-    FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE,
 };
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::Directory;
@@ -49,6 +48,7 @@ pub(super) fn run_connect(
     data_dir: Option<PathBuf>,
     args: &BackupConnectArgs,
 ) -> Result<(), String> {
+    let data_dir_explicit = data_dir.is_some();
     if args.existing {
         if !args.api_key_stdin || args.dev {
             return Err(
@@ -57,14 +57,20 @@ pub(super) fn run_connect(
         }
         let env = resolve_connect_env(args)?;
         let home = lastdb_node::host::resolve_home(data_dir)?;
-        return connect_existing(&home, env, args.expected_user_hash.as_deref(), args.json);
+        return connect_existing(
+            &home,
+            data_dir_explicit,
+            env,
+            args.expected_user_hash.as_deref(),
+            args.json,
+        );
     }
     if args.api_key_stdin || args.expected_user_hash.is_some() {
         return Err("native backup connect requires --env <dev|prod> or --dev".into());
     }
     let env = resolve_connect_env(args)?;
     let home = lastdb_node::host::resolve_home(data_dir)?;
-    connect(&home, env, args.json)
+    connect(&home, data_dir_explicit, env, args.json)
 }
 
 fn initialize(
@@ -142,7 +148,27 @@ fn account_from_seed_bytes(seed: &[u8]) -> Result<(Ed25519KeyPair, AccountId), S
     Ok((pair, account_id))
 }
 
-fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
+pub(super) fn poke_running_daemon(data_dir_explicit: bool, home: &Path) {
+    let socket = (!data_dir_explicit)
+        .then(|| std::env::var_os("LASTDB_SOCKET_PATH"))
+        .flatten()
+        .filter(|value| !value.is_empty())
+        .and_then(|value| lastdb_node::profile::paths::expand_tilde_path(value).ok())
+        .unwrap_or_else(|| lastdb_node::lastdb_uds::socket_path(&home.join("data")));
+    let _ = crate::post_json_with_timeout(
+        &socket,
+        lastdb_node::lastdb_uds::CLOUD_WAKE_PATH,
+        &serde_json::json!({}),
+        std::time::Duration::from_millis(500),
+    );
+}
+
+fn connect(
+    home: &Path,
+    data_dir_explicit: bool,
+    env: Environment,
+    json: bool,
+) -> Result<(), String> {
     let resolved = resolve_existing_home_path(home)?;
     let home = resolved.as_path();
     let dir = PreparedHome::open(home)?;
@@ -150,6 +176,7 @@ fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
     let (pair, account_id) = account_from_seed_bytes(seed.as_ref())?;
     let emit = |registered: bool, api_key: Option<Zeroizing<String>>| -> Result<(), String> {
         lastdb_node::log_sync::request_wake(home);
+        poke_running_daemon(data_dir_explicit, home);
         let mut out = serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": env.as_str(),
             "account_id": account_id, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
@@ -190,6 +217,7 @@ fn connect(home: &Path, env: Environment, json: bool) -> Result<(), String> {
 
 fn connect_existing(
     home: &Path,
+    data_dir_explicit: bool,
     env: Environment,
     expected: Option<&str>,
     json: bool,
@@ -241,8 +269,7 @@ fn connect_existing(
     let encoded =
         encode_connected_credentials(env, &account_id, api_key.as_str().to_owned(), existing_home)?;
     if prev.is_none() {
-        dir.publish(FIRST_BACKUP_INTENT_FILE, None, FIRST_BACKUP_INTENT)
-            .map_err(|error| error.to_string())?;
+        lastdb_node::log_sync::publish_first_backup_intent(&dir)?;
     }
     dir.publish(
         CLOUD_CREDENTIALS_FILE,
@@ -251,6 +278,7 @@ fn connect_existing(
     )
     .map_err(|e| e.to_string())?;
     lastdb_node::log_sync::request_wake(home);
+    poke_running_daemon(data_dir_explicit, home);
     let mut out = serde_json::json!({
         "ok": true, "environment": env.as_str(), "account_id": account_id,
         "credentials_saved": true, "registration_attempted": false,

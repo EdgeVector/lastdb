@@ -179,6 +179,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::BackupSnapshot => {
                 heap_route!(backup_routes::backup_snapshot, req, ctx, host)
             }
+            DataRoute::CloudWake => return backup_routes::cloud_wake(req, ctx, host),
             DataRoute::SavedQuerySave => heap_route!(saved_queries::save_route, req, ctx, host),
             DataRoute::SavedQueryReconcile => {
                 heap_route!(saved_queries::reconcile_route, req, ctx, host)
@@ -198,6 +199,7 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppsDeclareSchema
         | DataRoute::DropSchema
         | DataRoute::BackupSnapshot
+        | DataRoute::CloudWake
         | DataRoute::SavedQuerySave
         | DataRoute::SavedQueryReconcile => admin_handler_timeout(),
         DataRoute::Status => Duration::from_secs(2),

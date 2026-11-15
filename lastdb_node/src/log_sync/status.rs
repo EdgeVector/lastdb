@@ -1,40 +1,13 @@
-//! Live create and access bodies plus log-sync wakeup signal.
+//! Live create and access bodies.
 //!
 //! `NativeDatabase` is `state`, `version`, `environment`, and `database_id`.
 //! Nothing signs this object. A saved file is not one.
-
-use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::v2::Version;
 use serde::Deserialize;
 use serde_json::Value;
 
 const BODY_LIMIT: usize = 65_536;
-
-fn wake_path(home: &Path) -> PathBuf {
-    home.join("log-sync").join("wake")
-}
-
-/// Touch `<home>/log-sync/wake` so a sleeping `lastdbd` wakes on its next 1s check.
-pub fn request_wake(home: &Path) {
-    if !home.is_dir() {
-        return;
-    }
-    let _ = super::disk::write_private(&wake_path(home), b"wake\n");
-}
-
-pub(super) fn wake_requested(home: &Path) -> bool {
-    wake_path(home).exists()
-}
-
-pub(super) fn consume_wake(home: &Path) -> bool {
-    let path = wake_path(home);
-    if !path.exists() {
-        return false;
-    }
-    let _ = std::fs::remove_file(path);
-    true
-}
 
 /// What the latest signed create or access body said about one database.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

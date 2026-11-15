@@ -13,6 +13,7 @@ pub const API_VERSION: u32 = 34;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 pub const DATABASES_PATH: &str = "/api/databases";
 pub const DATABASE_SCOPE_PREFIX: &str = "/api/databases/";
+pub const CLOUD_WAKE_PATH: &str = "/api/cloud/wake";
 
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
@@ -149,6 +150,7 @@ pub enum DataRoute {
     DbFetchBlob,
     DbDeleteBlob,
     BackupSnapshot,
+    CloudWake,
     SavedQuerySave,
     SavedQueryReconcile,
 }
@@ -203,6 +205,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/schemas/drop" => Some(("POST", DropSchema)),
         "/api/status" => Some(("GET", Status)),
         "/api/admin/shed" => Some(("POST", AdminShed)),
+        CLOUD_WAKE_PATH => Some(("POST", CloudWake)),
         "/api/db/schemas" => Some(("GET", DbSchemas)),
         "/api/db/flush" => Some(("POST", DbFlush)),
         "/api/db/delete-ledger" => Some(("GET", DbDeleteLedger)),

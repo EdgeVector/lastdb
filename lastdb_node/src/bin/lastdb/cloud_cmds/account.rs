@@ -28,10 +28,11 @@ pub(crate) fn cloud_account_command(
     data_dir: Option<PathBuf>,
     action: CloudAccountCommand,
 ) -> Result<(), String> {
+    let data_dir_explicit = data_dir.is_some();
     let home = lastdb_node::host::resolve_home(data_dir)?;
     let session = load_cloud_session(&home)?;
     match action {
-        CloudAccountCommand::Payment(cmd) => run_payment(&home, &session, &cmd),
+        CloudAccountCommand::Payment(cmd) => run_payment(&home, data_dir_explicit, &session, &cmd),
         CloudAccountCommand::DeveloperKey(cmd) => {
             dev_keys::run_developer_key(&home, &session, &cmd)
         }
@@ -75,11 +76,14 @@ fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
 
 fn run_payment(
     home: &Path,
+    data_dir_explicit: bool,
     session: &CloudSession,
     action: &CloudPaymentCommand,
 ) -> Result<(), String> {
     match *action {
-        CloudPaymentCommand::Status { json } => payment_status(home, session, json),
+        CloudPaymentCommand::Status { json } => {
+            payment_status(home, data_dir_explicit, session, json)
+        }
         CloudPaymentCommand::Checkout { json } => payment_hosted_url(
             session,
             "/api/auth/payments/checkout",
@@ -97,7 +101,12 @@ fn run_payment(
     }
 }
 
-fn payment_status(home: &Path, session: &CloudSession, json: bool) -> Result<(), String> {
+fn payment_status(
+    home: &Path,
+    data_dir_explicit: bool,
+    session: &CloudSession,
+    json: bool,
+) -> Result<(), String> {
     let (status, body) = block_on_cloud(
         "payment status",
         exchange_json(session, Method::GET, "/api/auth/payments/status", None),
@@ -120,6 +129,7 @@ fn payment_status(home: &Path, session: &CloudSession, json: bool) -> Result<(),
     let review_required = bool_field(&body, "review_required", "payment status")?;
     if !configured || sub_status == "active" {
         lastdb_node::log_sync::request_wake(home);
+        super::setup::poke_running_daemon(data_dir_explicit, home);
     }
     if json {
         print_pretty_json(&json!({

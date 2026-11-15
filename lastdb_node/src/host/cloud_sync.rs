@@ -1,9 +1,10 @@
 //! Thread-safe cloud sync status snapshot exposed via `GET /api/status`.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
+use tokio::sync::{futures::Notified, Notify};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CloudSyncStatus {
@@ -16,6 +17,7 @@ pub struct CloudSyncStatus {
 
 pub(crate) struct CloudSyncTracker {
     state: Mutex<CloudSyncStatus>,
+    wake_notify: Arc<Notify>,
 }
 
 impl CloudSyncTracker {
@@ -29,7 +31,16 @@ impl CloudSyncTracker {
                 payment_hold: false,
                 last_error,
             }),
+            wake_notify: Arc::new(Notify::new()),
         }
+    }
+
+    pub(crate) fn wake(&self) {
+        self.wake_notify.notify_one();
+    }
+
+    pub(crate) fn notified(&self) -> Notified<'_> {
+        self.wake_notify.notified()
     }
 
     pub(crate) fn refresh(&self, home: &Path, captures_accepted: bool) {
