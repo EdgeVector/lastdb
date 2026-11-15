@@ -55,8 +55,8 @@ pub struct ListPage {
 /// Entries `reader` may see. Hidden entries are omitted, not redacted in place.
 ///
 /// A share receiver gets entries whose writer key is the publisher key and whose
-/// namespace is official. A pending submission is returned only to its author
-/// key and to the publisher key. An entry from another database is omitted.
+/// namespace is official. Only the publisher sees legacy pending submissions.
+/// An entry from another database is omitted.
 /// An app-private namespace on a shareable database is omitted for every reader.
 pub fn filter_readable<'a>(
     entries: &'a [StoredEntry],

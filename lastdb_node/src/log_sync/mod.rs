@@ -13,6 +13,7 @@ mod contributions;
 mod disk;
 mod files;
 mod http;
+mod inbox;
 mod index_history;
 mod maintenance;
 mod members;

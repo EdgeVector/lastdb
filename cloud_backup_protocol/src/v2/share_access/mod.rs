@@ -75,6 +75,10 @@ pub const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/create-database";
 /// Read whether the database is open, native, or committed.
 pub const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
+/// Read a pending page from the publisher-only contribution inbox.
+pub const MUTATION_LOG_INBOX_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/list";
+/// Settle a durable page in the publisher-only contribution inbox.
+pub const MUTATION_LOG_INBOX_SETTLE_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/settle";
 
 const SIGNATURE_HEX_LEN: usize = 128;
 const PUBLIC_KEY_HEX_LEN: usize = 64;
