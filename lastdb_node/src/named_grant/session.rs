@@ -1,20 +1,17 @@
 //! Saved publisher session. The API key is used for context, then dropped.
 
-use crate::cloud::load_saved_credentials;
+use crate::cloud::{load_home_keypair, load_saved_credentials};
 use crate::cloud_backup_client::{
     build_shared_http_client, AuthClient, BackupTransportError, SignedBlobClient,
 };
-use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
+use crate::service_home::user_hash_from_pubkey;
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{AccountId, CloudScope, Digest};
 use fold_db::security::Ed25519KeyPair;
 use reqwest::Url;
-use std::fs::OpenOptions;
-use std::io::Read as _;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::Arc;
 use zeroize::Zeroizing;
@@ -23,7 +20,7 @@ pub(super) struct PublisherSession {
     pub http: reqwest::Client,
     pub origin: Url,
     pub environment: ShareEnvironment,
-    pub signer: Ed25519KeyPair,
+    pub signer: Arc<Ed25519KeyPair>,
     pub publisher: Digest,
     pub scope: CloudScope,
     pub seed: Zeroizing<[u8; 32]>,
@@ -41,14 +38,12 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
     if saved.api_url != endpoint {
         return Err("saved credentials do not match the share publisher and environment".into());
     }
-    let seed = read_seed(home)?;
-    let signer = Ed25519KeyPair::from_secret_key(seed.as_ref())
-        .map_err(|_| "invalid share publisher key")?;
-    let backup_signer = Ed25519KeyPair::from_secret_key(seed.as_ref())
-        .map_err(|_| "invalid share publisher key")?;
+    let signer =
+        Arc::new(load_home_keypair(home)?.ok_or("share requires an initialized LastDB identity")?);
+    let seed = Zeroizing::new(signer.secret_key_bytes());
     let backup = SignedBlobClient::from_auth_and_keypair(
         AuthClient::new(endpoint.to_owned(), saved.api_key.as_str().to_owned()),
-        Arc::new(backup_signer),
+        Arc::clone(&signer),
     )
     .map_err(|_| "share publisher credentials were refused")?;
     if connection.endpoint != backup.canonical_endpoint() {
@@ -117,29 +112,6 @@ fn origin(endpoint: &str) -> Result<Url, String> {
         return Err("saved credentials do not match the share publisher and environment".into());
     }
     Ok(url)
-}
-
-fn read_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
-    let path = home.join(IDENTITY_KEY_FILE);
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&path)
-        .map_err(|_| "share requires an initialized LastDB identity")?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| "cannot inspect LastDB identity")?;
-    if !metadata.is_file()
-        || metadata.len() != 32
-        || metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.permissions().mode() & 0o077 != 0
-    {
-        return Err("share requires an initialized LastDB identity".into());
-    }
-    let mut bytes = [0u8; 32];
-    file.read_exact(&mut bytes)
-        .map_err(|_| "cannot read LastDB identity")?;
-    Ok(Zeroizing::new(bytes))
 }
 
 impl std::fmt::Debug for PublisherSession {

@@ -3,18 +3,17 @@
 use cloud_backup_protocol::canonical_bytes;
 use cloud_backup_protocol::v2::share_access::{
     MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareWriteScope,
+    SHARE_MEMBER_LIST_READ_PATH,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
 use serde::Deserialize;
 
-use crate::node_read::CanonicalPost;
-
 use super::cloud::CloudLog;
 use super::http::Proof;
 
 pub(super) async fn revision(log: &CloudLog) -> Option<u64> {
-    match read(log, Proof::Canonical(CanonicalPost::MemberRead)).await {
+    match read(log, Proof::Data).await {
         Some(ObservedAccess::Active { revision, .. }) => Some(revision),
         _ => None,
     }
@@ -31,7 +30,7 @@ pub(super) enum ObservedAccess {
 }
 
 pub(super) async fn access(log: &CloudLog) -> Option<ObservedAccess> {
-    read(log, Proof::SelfAccess(CanonicalPost::MemberRead)).await
+    read(log, Proof::SelfAccess).await
 }
 
 async fn read(log: &CloudLog, proof: Proof) -> Option<ObservedAccess> {
@@ -45,7 +44,7 @@ async fn read(log: &CloudLog, proof: Proof) -> Option<ObservedAccess> {
     request.validate().ok()?;
     let (status, bytes) = log
         .post_status(
-            CanonicalPost::MemberRead.path(),
+            SHARE_MEMBER_LIST_READ_PATH,
             canonical_bytes(&request).ok()?,
             proof,
         )

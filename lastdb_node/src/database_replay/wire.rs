@@ -58,16 +58,8 @@ fn entry_from(doc: EntryDoc) -> SnapshotEntry {
         writer_seq: doc.writer_seq,
         authored_at_ms: doc.authored_at_ms,
         namespace: doc.namespace,
-        incorporated_from: doc.incorporated_from.map(incorporated_from),
+        incorporated_from: doc.incorporated_from,
         payload_b64: doc.payload,
-    }
-}
-
-fn incorporated_from(from: IncorporatedDoc) -> IncorporatedFrom {
-    IncorporatedFrom {
-        writer_key: from.writer_key,
-        writer_device: from.writer_device,
-        writer_seq: from.writer_seq,
     }
 }
 
@@ -102,14 +94,6 @@ struct EntryDoc {
     authored_at_ms: u64,
     namespace: String,
     #[serde(default)]
-    incorporated_from: Option<IncorporatedDoc>,
+    incorporated_from: Option<IncorporatedFrom>,
     payload: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct IncorporatedDoc {
-    writer_key: String,
-    writer_device: String,
-    writer_seq: u64,
 }

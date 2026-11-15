@@ -81,6 +81,7 @@ pub struct SnapshotEntry {
 
 /// Writer identity an incorporated entry was copied from.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct IncorporatedFrom {
     /// Writer node key.
     pub writer_key: String,

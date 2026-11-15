@@ -9,6 +9,7 @@ use mutation_log_sync::Outcome;
 
 use crate::database_replay::{DeliveredEntry, IncorporatedFrom, RestoreError, SnapshotEntry};
 use crate::host::{BlockedDelivery, Host};
+use crate::log_envelope::{IncorporatedRef, LogBinding};
 
 use super::cloud::CloudLog;
 use super::disk;
@@ -196,6 +197,26 @@ fn incorporated_from(source: &Incorporation) -> IncorporatedFrom {
         writer_key: source.writer.key.as_str().to_owned(),
         writer_device: source.writer.device.as_str().to_owned(),
         writer_seq: source.writer_seq,
+    }
+}
+
+pub(super) fn stored_binding<'a>(database_id: &'a str, stored: &'a StoredEntry) -> LogBinding<'a> {
+    let entry = &stored.entry;
+    LogBinding {
+        database_id,
+        writer_key: entry.writer.key.as_str(),
+        writer_device: entry.writer.device.as_str(),
+        writer_seq: entry.writer_seq,
+        authored_at_ms: entry.authored_at_ms,
+        namespace: entry.namespace.as_str(),
+        incorporated_from: entry
+            .incorporated_from
+            .as_ref()
+            .map(|source| IncorporatedRef {
+                writer_key: source.writer.key.as_str(),
+                writer_device: source.writer.device.as_str(),
+                writer_seq: source.writer_seq,
+            }),
     }
 }
 

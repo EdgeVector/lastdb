@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 
 use super::Host;
 
-mod adopt;
 mod create;
 mod lookup;
 mod registry;
@@ -36,19 +35,6 @@ pub(crate) fn content_encryption_key(
 
 tokio::task_local! {
     static ACTIVE_STORE: Arc<FoldDB>;
-}
-
-pub(crate) fn active_store(personal: &Arc<FoldDB>) -> Arc<FoldDB> {
-    ACTIVE_STORE
-        .try_with(Arc::clone)
-        .unwrap_or_else(|_| Arc::clone(personal))
-}
-
-pub(crate) async fn with_store<T>(
-    store: Arc<FoldDB>,
-    future: impl std::future::Future<Output = T>,
-) -> T {
-    ACTIVE_STORE.scope(store, future).await
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -323,7 +309,9 @@ impl Tables {
 
 impl Host {
     pub(crate) fn records(&self) -> Arc<FoldDB> {
-        active_store(&self.db)
+        ACTIVE_STORE
+            .try_with(Arc::clone)
+            .unwrap_or_else(|_| Arc::clone(&self.db))
     }
 
     pub(crate) async fn with_records<T>(
@@ -331,7 +319,7 @@ impl Host {
         store: Arc<FoldDB>,
         future: impl std::future::Future<Output = T>,
     ) -> T {
-        with_store(store, future).await
+        ACTIVE_STORE.scope(store, future).await
     }
 
     /// Flush sibling stores. The daemon binary calls this before the owner store.

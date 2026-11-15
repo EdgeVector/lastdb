@@ -53,20 +53,6 @@ pub(crate) enum CloudDeveloperKeyCommand {
     },
 }
 
-pub(crate) enum CloudCommand {
-    BackupV2 {
-        action: ByteBackupCommand,
-    },
-    RecoverCredentialsHome(RecoverCredentialsArgs),
-    RecoverDevCredentialsHome {
-        into: PathBuf,
-        expected_user_hash: String,
-        identity_seed_stdin: bool,
-        json: bool,
-    },
-    PrepareRecoveryHome(PrepareRecoveryArgs),
-}
-
 #[derive(Args, Debug)]
 pub(crate) struct RecoverCredentialsArgs {
     #[arg(long)]
@@ -79,27 +65,6 @@ pub(crate) struct RecoverCredentialsArgs {
     pub(crate) identity_seed_stdin: bool,
     #[arg(long)]
     pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct PrepareRecoveryArgs {
-    #[arg(long)]
-    pub(crate) into: PathBuf,
-    #[arg(long, value_parser = ["dev", "prod"])]
-    pub(crate) env: String,
-    #[arg(long, required = true)]
-    pub(crate) api_key_stdin: bool,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-pub(crate) enum ByteBackupCommand {
-    Init(BackupInitArgs),
-    Connect(BackupConnectArgs),
-    Restore(BackupRestoreArgs),
-    IndexLogHistory(BackupIndexLogHistoryArgs),
-    Reclaim(BackupReclaimArgs),
-    Snapshot { database: String, wait: bool },
 }
 
 #[derive(Args, Debug)]

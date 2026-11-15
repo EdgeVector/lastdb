@@ -40,28 +40,24 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     Ok(store)
 }
 
-pub(crate) async fn shutdown_stores(host: &Host) -> std::result::Result<(), String> {
-    let stores: Vec<Arc<FoldDB>> = {
-        let mut open = host.received.lock().await;
-        open.drain().map(|(_, store)| store).collect()
-    };
-    let mut failed = false;
-    for store in stores {
-        if store.shutdown().await.is_err() {
-            failed = true;
-        }
-    }
-    if failed {
-        Err("received database shutdown flush failed".into())
-    } else {
-        Ok(())
-    }
-}
-
 impl Host {
     /// Flush signed-log receiver stores before the owned sibling stores.
     pub async fn shutdown_received_databases(&self) -> std::result::Result<(), String> {
-        shutdown_stores(self).await
+        let stores: Vec<Arc<FoldDB>> = {
+            let mut open = self.received.lock().await;
+            open.drain().map(|(_, store)| store).collect()
+        };
+        let mut failed = false;
+        for store in stores {
+            if store.shutdown().await.is_err() {
+                failed = true;
+            }
+        }
+        if failed {
+            Err("received database shutdown flush failed".into())
+        } else {
+            Ok(())
+        }
     }
 }
 

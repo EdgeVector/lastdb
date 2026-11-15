@@ -1,4 +1,4 @@
-//! Database target resolution and `lastdb db` catalog commands (`create`, `list`, `select`).
+//! Database target resolution and `lastdb db` catalog commands (`create`, `list`).
 
 use super::*;
 use lastdb_node::lastdb_uds::{valid_selector, DATABASES_PATH, DATABASE_SCOPE_PREFIX};
@@ -75,18 +75,15 @@ pub(super) fn create_database(
     data_dir: Option<PathBuf>,
     name: &str,
     private: bool,
-    spec_name: Option<&str>,
-    spec_version: Option<u32>,
     json: bool,
 ) -> Result<(), String> {
-    let spec = create_spec(name, spec_name, spec_version)?;
+    if !lastdb_node::profile::valid_database_name(name) {
+        return Err("invalid database name".into());
+    }
     let target = DatabaseTarget::open(data_dir, None)?;
     let mut body = serde_json::json!({ "name": name });
     if private {
         body["kind"] = Value::String("personal".into());
-    }
-    if let Some(spec) = spec {
-        body["spec"] = spec;
     }
     let raw = post_json_with_timeout(
         &target.socket,
@@ -99,59 +96,6 @@ pub(super) fn create_database(
         .get("database")
         .ok_or("database create returned no database")?;
     print_database(database, json)
-}
-
-pub(super) fn select_database(
-    data_dir: Option<PathBuf>,
-    selector: &str,
-    json: bool,
-) -> Result<(), String> {
-    let target = DatabaseTarget::open(data_dir, None)?;
-    print_database(&registered_database(&target.socket, selector)?, json)
-}
-
-pub(super) fn registered_database(socket: &Path, selector: &str) -> Result<Value, String> {
-    if !valid_selector(selector) {
-        return Err("invalid database selector".into());
-    }
-    let mut body = fetch_databases(socket)?;
-    let list = body["databases"]
-        .as_array_mut()
-        .ok_or("missing database list")?;
-    let index = list
-        .iter()
-        .position(|db| db["id"].as_str() == Some(selector))
-        .or_else(|| {
-            list.iter()
-                .position(|db| db["name"].as_str() == Some(selector))
-        })
-        .ok_or("database is not registered")?;
-    Ok(list.swap_remove(index))
-}
-
-fn create_spec(
-    name: &str,
-    spec_name: Option<&str>,
-    spec_version: Option<u32>,
-) -> Result<Option<Value>, String> {
-    if !valid_database_name(name) {
-        return Err("invalid database name".into());
-    }
-    let spec = match (spec_name, spec_version) {
-        (None, None) => None,
-        (Some(spec_name), Some(version)) if valid_selector(spec_name) && version >= 1 => {
-            Some(serde_json::json!({ "name": spec_name, "version": version }))
-        }
-        _ => return Err("invalid spec binding".into()),
-    };
-    Ok(spec)
-}
-
-/// Same create-name rule as the owned-database host: a label, not `personal`, not a UUID.
-fn valid_database_name(name: &str) -> bool {
-    valid_selector(name)
-        && !name.eq_ignore_ascii_case("personal")
-        && uuid::Uuid::parse_str(name).is_err()
 }
 
 fn print_database(database: &Value, json: bool) -> Result<(), String> {

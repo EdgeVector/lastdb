@@ -9,14 +9,14 @@ use super::{registry, Entry, Kind};
 
 /// Resolve one shareable sibling by id or exact name.
 pub(crate) fn find_shareable(home: &Path, selector: &str) -> Result<Entry, String> {
-    if !valid_selector(selector) {
+    if !crate::profile::valid_label_64(selector) {
         return Err("invalid database selector".into());
     }
     let file = registry::read(home)
         .map_err(|_| "database registry is unavailable".to_owned())?
         .ok_or("database is not registered on this node")?;
     if matches_entry(&file.owner, selector) {
-        return Err(owner_refusal(&file.owner));
+        return Err("personal database is not shareable".into());
     }
     let mut found = None;
     for entry in &file.owned {
@@ -56,22 +56,6 @@ pub(crate) fn registry_claims(home: &Path, id: &str, name: Option<&str>) -> Resu
     Ok(claimed(&file.owner) || file.owned.iter().any(claimed))
 }
 
-fn owner_refusal(owner: &Entry) -> String {
-    if owner.kind == Kind::Personal {
-        "personal database is not shareable".into()
-    } else {
-        "publication home uses share invite --home".into()
-    }
-}
-
 fn matches_entry(entry: &Entry, selector: &str) -> bool {
     entry.id == selector || entry.name.as_deref() == Some(selector)
-}
-
-fn valid_selector(selector: &str) -> bool {
-    !selector.is_empty()
-        && selector.len() <= 64
-        && selector
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }

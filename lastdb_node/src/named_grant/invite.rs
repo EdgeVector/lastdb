@@ -6,8 +6,8 @@
 
 use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
 use crate::host::owned;
+use crate::profile::PublicationSpec;
 use crate::share_invitation::{self, ShareContact};
-use crate::share_spec::PublicationSpec;
 use cloud_backup_protocol::v2::share_access::ShareMemberState;
 use cloud_backup_protocol::v2::Stream;
 use cloud_backup_protocol::{Digest, Id};

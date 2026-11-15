@@ -34,6 +34,17 @@ use record_get_cmds::*;
 use status_ops_cmds::*;
 pub(crate) use uds_client::*;
 
+pub(crate) fn block_on<T>(
+    label: &str,
+    future: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("cannot construct {label} runtime: {e}"))?
+        .block_on(future)
+}
+
 fn main() {
     std::panic::set_hook(Box::new(|info| {
         let p = info.payload();
@@ -85,41 +96,15 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
-        Command::Backup(b) => cloud_command(
-            cli.data_dir,
-            CloudCommand::BackupV2 {
-                action: match b {
-                    BackupCommand::Connect(a) => ByteBackupCommand::Connect(a),
-                    BackupCommand::Restore(a) => ByteBackupCommand::Restore(a),
-                    BackupCommand::IndexLogHistory(a) => ByteBackupCommand::IndexLogHistory(a),
-                    BackupCommand::Reclaim(a) => ByteBackupCommand::Reclaim(a),
-                    BackupCommand::Snapshot { database, wait } => ByteBackupCommand::Snapshot {
-                        database: database.or(cli.db).unwrap_or_else(|| "personal".to_owned()),
-                        wait,
-                    },
-                },
-            },
-        ),
+        Command::Backup(b) => backup_command(cli.data_dir, cli.db, b),
         Command::Cloud(c) => cloud_account_command(cli.data_dir, c),
         Command::Share(a) => share_cmds::run(cli.data_dir, cli.db.as_deref(), a),
         Command::Db(DatabaseCommand::List { json }) => list_databases(cli.data_dir, json),
-        Command::Db(DatabaseCommand::Select { selector, json }) => {
-            select_database(cli.data_dir, &selector, json)
-        }
         Command::Db(DatabaseCommand::Create {
             name,
             private,
-            spec_name,
-            spec_version,
             json,
-        }) => create_database(
-            cli.data_dir,
-            &name,
-            private,
-            spec_name.as_deref(),
-            spec_version,
-            json,
-        ),
+        }) => create_database(cli.data_dir, &name, private, json),
         Command::Admin(a) => run_admin(cli.data_dir, a),
         Command::App(a) => app_command(cli.data_dir, a),
         c => {

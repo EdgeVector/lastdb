@@ -8,11 +8,14 @@ mod exchange;
 mod files;
 mod invite;
 mod pending;
-mod proof;
 mod session;
 mod successor;
 
-use cloud_backup_protocol::Digest;
+use crate::node_read::{self, PathPostTarget};
+use cloud_backup_protocol::v2::share_access::{MemberListReadRequest, SHARE_MEMBER_LIST_READ_PATH};
+use cloud_backup_protocol::v2::{Stream, Version};
+use cloud_backup_protocol::{Digest, Id};
+use session::PublisherSession;
 use std::path::Path;
 
 pub(crate) use config::{lock_applied, read_config, set_config, ConfigError, ConfigUpdate};
@@ -67,4 +70,39 @@ pub(crate) async fn update_member(
     let signed = successor::sign(&session, &document, node, intent)?;
     pending::store(home, &entry.id, node, intent, &signed.body)?;
     exchange::commit(&session, home, &entry.id, &signed).await
+}
+
+fn read_body(session: &PublisherSession, database_id: &str) -> Result<Vec<u8>, String> {
+    let request = MemberListReadRequest {
+        version: Version::V2,
+        stream: Stream {
+            scope: session.scope.clone(),
+            stream_id: Id::try_from(database_id.to_owned())
+                .map_err(|_| "database registry is unavailable")?,
+        },
+    };
+    request.validate().map_err(|error| error.field)?;
+    serde_json::to_vec(&request).map_err(|_| "cannot encode member list read".into())
+}
+
+fn authorization(
+    session: &PublisherSession,
+    body: &[u8],
+    database_id: &str,
+    revision: u64,
+) -> Result<String, String> {
+    let database_id = Id::try_from(database_id.to_owned())
+        .map_err(|_| "database registry is unavailable".to_string())?;
+    node_read::authorization_post(
+        &session.signer,
+        PathPostTarget {
+            scope: &session.scope,
+            database_id: &database_id,
+            environment: session.environment,
+            path: SHARE_MEMBER_LIST_READ_PATH,
+        },
+        body,
+        revision,
+        fold_db::clock::unix_millis(),
+    )
 }

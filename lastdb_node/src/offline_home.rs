@@ -1,4 +1,4 @@
-//! Primary-home guard and descriptor-relative private home primitives.
+//! Descriptor-relative private home primitives.
 use crate::cloud::is_private_file;
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::fs::{File, Metadata};
@@ -28,34 +28,6 @@ impl From<io::Error> for DirectoryError {
 
 type DirectoryResult<T> = Result<T, DirectoryError>;
 
-/// Refuse `path` when it is, or lies under, the primary home `~/.lastdb`.
-pub fn refuse_primary(path: &Path) -> Result<(), String> {
-    let user = PathBuf::from(std::env::var_os("HOME").ok_or("HOME unset")?);
-    let abs = canonicalize_lenient(path);
-    if abs.starts_with(canonicalize_lenient(
-        &user.join(crate::profile::paths::LASTDB_DIR),
-    )) {
-        return Err(format!(
-            "refusing primary path {}: use a home outside ~/.lastdb",
-            abs.display()
-        ));
-    }
-    Ok(())
-}
-
-fn canonicalize_lenient(path: &Path) -> PathBuf {
-    let (mut tail, mut cur) = (Vec::new(), path);
-    while std::fs::canonicalize(cur).is_err() {
-        let (Some(parent), Some(name)) = (cur.parent(), cur.file_name()) else {
-            return path.to_path_buf();
-        };
-        tail.push(name.to_os_string());
-        cur = parent;
-    }
-    let base = std::fs::canonicalize(cur).unwrap_or_else(|_| path.to_path_buf());
-    tail.iter().rev().fold(base, |acc, part| acc.join(part))
-}
-
 fn eq_fd(a: &File, b: &File) -> io::Result<bool> {
     let (x, y) = (a.metadata()?, b.metadata()?);
     Ok(x.dev() == y.dev() && x.ino() == y.ino())
@@ -71,29 +43,14 @@ pub fn require_absolute(path: &Path) -> Result<(), String> {
 }
 
 pub fn open_directory(path: &Path) -> Result<File, String> {
-    open_directory_excluding(path, None)
-}
-
-pub fn open_directory_excluding(path: &Path, excluded: Option<&File>) -> Result<File, String> {
     require_absolute(path)?;
-    let check = |cur: &File| -> Result<(), String> {
-        match excluded.map(|ex| eq_fd(cur, ex)).transpose() {
-            Ok(Some(true)) => {
-                Err("destination parent must not contain the source home or its aliases".into())
-            }
-            Ok(_) => Ok(()),
-            Err(_) => Err("cannot inspect directory".into()),
-        }
-    };
     let mut dir = File::from(
         fs::open("/", DIR_FLAGS, Mode::empty()).map_err(|_| "cannot open directory root")?,
     );
-    check(&dir)?;
     for part in path.components() {
         if let Component::Normal(name) = part {
             dir = openat(&dir, name, DIR_FLAGS, 0)
                 .map_err(|_| "directory path must exist without symlink components")?;
-            check(&dir)?;
         }
     }
     Ok(dir)
@@ -191,7 +148,6 @@ pub fn same_inode<P: rustix::path::Arg>(dir: &File, name: P, held: &File) -> boo
 pub struct Directory {
     path: PathBuf,
     file: File,
-    max_bytes: u64,
 }
 
 fn openat(
@@ -207,10 +163,6 @@ fn openat(
 
 impl Directory {
     pub fn open(path: &Path) -> DirectoryResult<Self> {
-        Self::open_with_limit(path, MAX_BYTES)
-    }
-
-    pub(crate) fn open_with_limit(path: &Path, max_bytes: u64) -> DirectoryResult<Self> {
         require_absolute(path).map_err(|_| DirectoryError("invalid offline directory path"))?;
         let file =
             open_directory(path).map_err(|_| DirectoryError("offline directory disk failure"))?;
@@ -219,7 +171,6 @@ impl Directory {
         Ok(Self {
             path: path.to_path_buf(),
             file,
-            max_bytes,
         })
     }
 
@@ -242,14 +193,6 @@ impl Directory {
             .ok_or(DirectoryError("offline directory identity changed"))
     }
 
-    pub(crate) fn remove_exact(&self, name: &str, expected: &[u8]) -> DirectoryResult<()> {
-        if self.read(name)?.as_deref().map(Vec::as_slice) != Some(expected) {
-            return Err(DirectoryError("offline directory identity changed"));
-        }
-        fs::unlinkat(&self.file, name, AtFlags::empty()).map_err(io::Error::from)?;
-        self.file.sync_all().map_err(Into::into)
-    }
-
     pub fn read(&self, name: &str) -> DirectoryResult<Option<Zeroizing<Vec<u8>>>> {
         self.check()?;
         let flags = OFlags::RDONLY | OFlags::NONBLOCK | SAFE;
@@ -259,12 +202,12 @@ impl Directory {
             Err(e) => return Err(io::Error::from(e).into()),
         };
         let before = file.metadata()?;
-        if !is_private_0600(&before, Some(self.max_bytes)) {
+        if !is_private_0600(&before, Some(MAX_BYTES)) {
             return Err(DirectoryError("offline directory identity changed"));
         }
         let mut bytes = Zeroizing::new(Vec::new());
         (&mut file)
-            .take(self.max_bytes.saturating_add(1))
+            .take(MAX_BYTES.saturating_add(1))
             .read_to_end(&mut bytes)?;
         let (after, cur) = (
             file.metadata()?,
@@ -285,7 +228,7 @@ impl Directory {
         expected: Option<&[u8]>,
         bytes: &[u8],
     ) -> DirectoryResult<()> {
-        if bytes.len() as u64 > self.max_bytes {
+        if bytes.len() as u64 > MAX_BYTES {
             return Err(DirectoryError("offline directory file exceeds byte limit"));
         }
         let current = self.read(name)?;

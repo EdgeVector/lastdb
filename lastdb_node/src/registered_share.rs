@@ -18,7 +18,7 @@ pub struct RegisteredShare {
     pub id: Id,
     pub publisher: Digest,
     pub name: Option<String>,
-    pub spec: Option<crate::share_spec::PublicationSpec>,
+    pub spec: Option<crate::profile::PublicationSpec>,
     pub expires_ms: u64,
     #[serde(skip)]
     pub(crate) stream: Stream,
@@ -33,7 +33,7 @@ impl RegisteredShare {
     pub(crate) fn whole_database(&self) -> bool {
         self.spec
             .as_ref()
-            .is_some_and(crate::share_spec::PublicationSpec::whole_database)
+            .is_some_and(crate::profile::PublicationSpec::whole_database)
     }
 
     pub fn stream(&self) -> &Stream {
@@ -108,14 +108,7 @@ pub fn resolve(home: &Path, selector: &str) -> Result<Option<RegisteredShare>> {
 }
 
 fn require_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        || name.eq_ignore_ascii_case("personal")
-        || uuid::Uuid::parse_str(name).is_ok()
-    {
+    if !crate::profile::valid_database_name(name) {
         return Err(ShareCacheError::Invalid("database name"));
     }
     Ok(())

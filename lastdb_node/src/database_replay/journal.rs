@@ -3,13 +3,13 @@
 //! A crash retries the same chain. The cursor moves only after the record
 //! marker is on disk. `complete` is set only after the store flush.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::Id;
 use serde::{Deserialize, Serialize};
+
+use crate::profile::private_fs;
 
 use super::chain::Link;
 use super::decode;
@@ -277,38 +277,13 @@ pub(super) fn read_bytes(
     limit: usize,
     detail: &'static str,
 ) -> Result<Option<Vec<u8>>, RestoreError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(RestoreError::Durable(detail)),
-    };
-    if !metadata.is_file()
-        || metadata.permissions().mode() & 0o022 != 0
-        || metadata.len() > limit as u64
-    {
-        return Err(class_for(detail));
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|_| RestoreError::Durable(detail))?;
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| RestoreError::Durable(detail))?;
-    if bytes.len() > limit {
-        return Err(class_for(detail));
-    }
-    Ok(Some(bytes))
-}
-
-fn class_for(detail: &'static str) -> RestoreError {
-    if detail == "applied marker" {
-        RestoreError::Conflict(detail)
-    } else {
-        RestoreError::Durable(detail)
-    }
+    private_fs::read_limited(path, limit).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData && detail == "applied marker" {
+            RestoreError::Conflict(detail)
+        } else {
+            RestoreError::Durable(detail)
+        }
+    })
 }
 
 pub(super) fn write_private(
@@ -316,39 +291,9 @@ pub(super) fn write_private(
     bytes: &[u8],
     detail: &'static str,
 ) -> Result<(), RestoreError> {
-    let parent = path.parent().ok_or(RestoreError::Durable(detail))?;
-    fs::create_dir_all(parent).map_err(|_| RestoreError::Durable(detail))?;
-    let temporary = path.with_extension("tmp");
-    {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&temporary)
-            .map_err(|_| RestoreError::Durable(detail))?;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| RestoreError::Durable(detail))?;
-        file.write_all(bytes)
-            .map_err(|_| RestoreError::Durable(detail))?;
-        file.sync_all().map_err(|_| RestoreError::Durable(detail))?;
-    }
-    fs::rename(&temporary, path).map_err(|_| RestoreError::Durable(detail))?;
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| RestoreError::Durable(detail))?;
-    Ok(())
+    private_fs::write_private(path, bytes).map_err(|_| RestoreError::Durable(detail))
 }
 
 pub(super) fn remove_private(path: &Path, detail: &'static str) -> Result<(), RestoreError> {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => return Err(RestoreError::Durable(detail)),
-    }
-    let parent = path.parent().ok_or(RestoreError::Durable(detail))?;
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| RestoreError::Durable(detail))
+    private_fs::remove_private(path).map_err(|_| RestoreError::Durable(detail))
 }

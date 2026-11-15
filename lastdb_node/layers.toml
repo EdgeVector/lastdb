@@ -9,14 +9,11 @@ exclude = ["main.rs", "bin"]
 
 [[layer]]
 name = "foundation"
-doc = "Pure node types, endpoints, paths, identities, seals, and accepted-write ledgers."
+doc = "Pure node types, endpoints, paths, private files, identities, and accepted-write ledgers."
 modules = [
   "accepted_writes",
-  "identity",
   "profile",
-  "seal",
   "service_home",
-  "share_spec",
 ]
 
 [[layer]]
@@ -45,12 +42,11 @@ modules = [
 
 [[layer]]
 name = "share_primitives"
-doc = "Offline home descriptors, share write gates, signed mutation-log envelopes, and sealed share invitations."
+doc = "Offline home descriptors, signed mutation-log envelopes, and sealed share invitations."
 modules = [
   "log_envelope",
   "offline_home",
   "share_invitation",
-  "share_write_gate",
 ]
 
 [[layer]]

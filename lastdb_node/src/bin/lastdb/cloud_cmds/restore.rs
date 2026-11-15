@@ -1,7 +1,7 @@
 //! Offline signed cloud backup restore orchestration (`lastdb backup restore`).
 
-use super::snapshot_wait::print_backup;
-use super::{block_on_cloud, read_stdin_secret, BackupRestoreArgs, FreshHome};
+use super::log_ops::print_backup;
+use super::{read_stdin_secret, BackupRestoreArgs, FreshHome};
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::Id;
 use lastdb_node::host::{Host, IDENTITY_KEY_FILE};
@@ -89,7 +89,7 @@ where
             .name("lastdb-signed-restore".to_owned())
             .stack_size(stack)
             .spawn_scoped(scope, move || {
-                block_on_cloud("signed restore", make_future())
+                crate::block_on("signed restore", make_future())
             })
             .map_err(|_| "cannot start signed restore worker".to_owned())?
             .join()

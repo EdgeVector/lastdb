@@ -20,8 +20,6 @@ use sha2::{Digest, Sha256};
 use super::accepted_record;
 use super::RestoreError;
 
-const HEX: &[u8; 16] = b"0123456789abcdef";
-
 /// One accepted mutation after the envelope is open.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -245,14 +243,7 @@ fn schema_id(name: &str, tag: &str) -> String {
     hasher.update(name.as_bytes());
     hasher.update([0]);
     hasher.update(tag.as_bytes());
-    let digest = hasher.finalize();
-    let mut id = String::with_capacity(41);
-    id.push('s');
-    for byte in digest.iter().take(20) {
-        id.push(HEX[(byte >> 4) as usize] as char);
-        id.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    id
+    format!("s{}", hex::encode(&hasher.finalize()[..20]))
 }
 
 fn valid_schema(schema: &str, private: bool) -> bool {

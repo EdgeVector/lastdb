@@ -8,16 +8,6 @@ use std::path::{Path, PathBuf};
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
 
-pub(super) fn block_on_app<T>(
-    fut: impl std::future::Future<Output = Result<T, String>>,
-) -> Result<T, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("tokio runtime construction failed: {e}"))?
-        .block_on(fut)
-}
-
 type Catalog = (
     registry::InterfaceList,
     String,
@@ -49,7 +39,7 @@ fn load_catalog(
     let loc = registry::IndexLocation::resolve(index, env_override)?;
     let (vk, trust) = registry::resolve_list_trust_key(trust_key)?;
     let (build, node_src, api, outbox) = registry::running_node(home);
-    let mut list = block_on_app(registry::fetch_list(&loc, ch, api, &vk))?;
+    let mut list = crate::block_on("app catalog", registry::fetch_list(&loc, ch, api, &vk))?;
     list.apps
         .retain(|e| e.outbox_format_version.is_none_or(|v| v == outbox));
     let idx = loc.describe_interface(ch, list.api_version);
@@ -331,16 +321,14 @@ fn upgrade_apps(
     ids: &[String],
     src: &CatalogSource,
 ) -> Result<(), String> {
-    let owned;
-    let names: &[String] = if all {
-        owned = installed_app_ids()?;
-        &owned
+    let names = if all {
+        installed_app_ids()?
     } else {
-        ids
+        ids.to_vec()
     };
     let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1");
     let (mut lists, mut results, mut failed) = (HashMap::new(), Vec::new(), false);
-    for app in names {
+    for app in &names {
         match upgrade_one(home, (accept_install, polling), src, &mut lists, app) {
             Ok(Some(res)) => results.push(res),
             Ok(None) => {}
@@ -353,11 +341,9 @@ fn upgrade_apps(
     if !polling || !results.is_empty() {
         print_pretty_json(&results);
     }
-    if failed {
-        Err("one or more app upgrades failed; prior versions retained".into())
-    } else {
-        Ok(())
-    }
+    (!failed)
+        .then_some(())
+        .ok_or_else(|| "one or more app upgrades failed; prior versions retained".into())
 }
 
 fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), String> {
@@ -369,17 +355,13 @@ fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), Str
             Ok(r) => {
                 let probe = host::verify(&root, check.then_some(home), &r).err();
                 failed |= probe.is_some();
-                let state = if probe.is_some() {
-                    "red"
-                } else if r.inactive {
-                    "inactive"
-                } else {
-                    "current"
+                let state = match (probe.is_some(), r.inactive) {
+                    (true, _) => "red",
+                    (false, true) => "inactive",
+                    (false, false) => "current",
                 };
-                let (act, pri) = (
-                    std::fs::read_link(root.join("current")).ok(),
-                    std::fs::read_link(root.join("previous")).ok(),
-                );
+                let act = std::fs::read_link(root.join("current")).ok();
+                let pri = std::fs::read_link(root.join("previous")).ok();
                 rows.push(json!({"app": app, "state": state, "installed_release": r.sha, "active_release": act, "prior_release": pri, "probe": probe, "receipt": r}));
             }
             Err(error) => {
@@ -389,9 +371,7 @@ fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), Str
         }
     }
     print_pretty_json(&rows);
-    if failed {
-        Err("one or more apps are unhealthy".into())
-    } else {
-        Ok(())
-    }
+    (!failed)
+        .then_some(())
+        .ok_or_else(|| "one or more apps are unhealthy".into())
 }

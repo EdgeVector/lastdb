@@ -3,7 +3,7 @@
 use cloud_backup_protocol::Id;
 
 use super::*;
-use crate::host::database_sessions::LIFETIME;
+use crate::host::SESSION_LIFETIME as LIFETIME;
 use crate::lastdb_uds::{split_database_path, uds_router};
 
 const HEADER: &str = "X-LastDB-Database-Session";

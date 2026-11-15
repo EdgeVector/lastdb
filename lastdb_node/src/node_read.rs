@@ -1,93 +1,19 @@
 //! `LastDBNode` authorization for one canonical POST.
 //!
-//! H verifies [`NodeReadToken::digest`] of the exact HTTP body. The token JSON
-//! includes `database_id`. Create, access, and the member-list read use
-//! [`authorization`]. [`authorization_post`] is the same token for a POST
-//! path that enum does not name: a shareable data route, or a delivery fetch.
-//! Dev and prod use this helper for database sync and delivery.
+//! ExeMem verifies [`NodeReadToken::digest`] of the exact HTTP body. The token
+//! JSON includes `database_id`. Dev and prod use [`authorization_post`] for
+//! database sync, member-list reads, and delivery fetches.
 
 use base64::Engine as _;
 use cloud_backup_protocol::v2::share_access::{
-    NodeReadToken, ShareEnvironment, ShareHttpMethod, MUTATION_LOG_ACCESS_PATH,
-    MUTATION_LOG_CREATE_DATABASE_PATH, SHARE_MEMBER_LIST_READ_PATH,
-    SHARE_NODE_AUTHORIZATION_SCHEME,
+    NodeReadToken, ShareEnvironment, ShareHttpMethod, SHARE_NODE_AUTHORIZATION_SCHEME,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Id, Text};
 use fold_db::security::Ed25519KeyPair;
 use rand::RngCore;
 
-/// Canonical POST. The path is the shared constant for that route.
-///
-/// Append, head, list, ack, and snapshot bytes are data routes. A shareable
-/// database signs them with [`authorization_post`]. The member-list update is
-/// not here: it signs [`cloud_backup_protocol::v2::share_access::MemberListUpdate`],
-/// not this header.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CanonicalPost {
-    /// Fresh database create.
-    CreateDatabase,
-    /// Open, native, or committed state.
-    Access,
-    /// Publisher member-list read.
-    MemberRead,
-}
-
-impl CanonicalPost {
-    /// Raw path, including `/api`.
-    #[must_use]
-    pub const fn path(self) -> &'static str {
-        match self {
-            Self::CreateDatabase => MUTATION_LOG_CREATE_DATABASE_PATH,
-            Self::Access => MUTATION_LOG_ACCESS_PATH,
-            Self::MemberRead => SHARE_MEMBER_LIST_READ_PATH,
-        }
-    }
-}
-
-/// Account, database, realm, and route of one signed POST.
-///
-/// [`authorization`] still takes the raw body, the clock, the signing key,
-/// and the grant revision. Those values are not fields of this target.
-#[derive(Clone, Copy)]
-pub struct SignedPostTarget<'a> {
-    /// Scope that signs this post. A receiver uses the invitation stream scope.
-    pub scope: &'a CloudScope,
-    /// Database id. The token sets `stream.stream_id` to this same id.
-    pub database_id: &'a Id,
-    /// Realm of this signature. A receiver uses the invitation environment.
-    pub environment: ShareEnvironment,
-    /// Canonical route. [`CanonicalPost::path`] is the path in the token.
-    pub route: CanonicalPost,
-}
-
-/// Authorization header value for one POST. A new nonce is used every call.
-///
-/// `body` is the exact octets that will be sent. `now_ms` is the clock.
-/// `member_revision` is the grant revision in the token.
-pub fn authorization(
-    keypair: &Ed25519KeyPair,
-    target: SignedPostTarget<'_>,
-    body: &[u8],
-    member_revision: u64,
-    now_ms: u64,
-) -> Result<String, String> {
-    let token = issued(
-        keypair,
-        target.scope,
-        target.database_id,
-        target.environment,
-        target.route.path(),
-        member_revision,
-        now_ms,
-    )?;
-    header(keypair, &token, body)
-}
-
-/// Account, database, realm, and raw path of one signed data POST.
-///
-/// [`authorization_post`] still takes the raw body, the clock, the signing key,
-/// and the grant revision. Those values are not fields of this target.
+/// Account, database, realm, and raw path of one signed POST.
 #[derive(Clone, Copy)]
 pub struct PathPostTarget<'a> {
     /// Scope that signs this post.
@@ -100,10 +26,10 @@ pub struct PathPostTarget<'a> {
     pub path: &'a str,
 }
 
-/// Same token as [`authorization`], for one POST path outside [`CanonicalPost`].
+/// Authorization header value for one POST. A new nonce is used every call.
 ///
-/// Signed append, head, list, ack, `snapshot/bytes`, `delivery/snapshot`,
-/// and `delivery/object` use this. The path in the token is `target.path`.
+/// `body` is the exact octets that will be sent. `now_ms` is the clock.
+/// `member_revision` is the grant revision in the token.
 pub fn authorization_post(
     keypair: &Ed25519KeyPair,
     target: PathPostTarget<'_>,

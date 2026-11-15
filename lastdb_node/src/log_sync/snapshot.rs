@@ -2,7 +2,6 @@
 
 mod bootstrap;
 mod files;
-mod recovery;
 pub(super) mod transport;
 
 use std::path::Path;
@@ -20,8 +19,7 @@ use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair, storage::StorageError};
 use zeroize::Zeroizing;
 
 use super::{cloud::CloudLog, registry, session, signals};
-pub(super) use bootstrap::ensure_initial;
-pub(super) use recovery::restore_cut;
+pub(super) use bootstrap::{ensure_initial, restore_cut};
 pub(super) use signals::snapshot_pending as pending;
 
 pub(super) const AWAIT_INCOMING: &str = "snapshot awaits incoming signed updates";
@@ -218,17 +216,13 @@ pub(crate) fn request(home: &Path, selector: &str) -> Result<(String, String), S
 pub(crate) fn completed(home: &Path, database: &str, nonce: &str) -> Option<(u64, u64)> {
     let text = std::fs::read_to_string(signals::snapshot_result_path(home, database)).ok()?;
     let (mut through, mut head, mut entries, mut request) = (None, None, None, None);
-    for line in text.lines() {
-        if let Some(value) = line.strip_prefix("through=") {
-            through = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("head=") {
-            head = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("log_entries=") {
-            entries = value.parse().ok();
-        } else if let Some(value) = line.strip_prefix("request=") {
-            request = Some(value);
-        } else if !line.is_empty() {
-            return None;
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        match line.split_once('=')? {
+            ("through", v) => through = v.parse().ok(),
+            ("head", v) => head = v.parse().ok(),
+            ("log_entries", v) => entries = v.parse().ok(),
+            ("request", v) => request = Some(v),
+            _ => return None,
         }
     }
     (through == head && request == Some(nonce)).then_some((through?, entries?))
@@ -297,14 +291,9 @@ fn request_nonce(bytes: &[u8]) -> Result<String, String> {
     let text =
         std::str::from_utf8(bytes).map_err(|_| "snapshot request has an unsupported version")?;
     let mut lines = text.lines();
-    if lines.next() != Some("snapshot-v1") {
-        return Err("snapshot request has an unsupported version".into());
-    }
-    match lines.next() {
-        Some(nonce)
-            if nonce.len() == 32
-                && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
-                && lines.next().is_none() =>
+    match (lines.next(), lines.next(), lines.next()) {
+        (Some("snapshot-v1"), Some(nonce), None)
+            if nonce.len() == 32 && nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
         {
             Ok(nonce.to_owned())
         }
@@ -340,7 +329,7 @@ pub async fn restore_base(
     }
     let saved = transport::for_restore(&log, None).await?;
     if let Some(cut) =
-        recovery::newer_cut(&log, saved.as_ref().map(|(_, manifest)| manifest)).await?
+        bootstrap::newer_cut(&log, saved.as_ref().map(|(_, manifest)| manifest)).await?
     {
         return restore_cut(home, &log, &cut).await.map(Some);
     }

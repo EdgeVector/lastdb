@@ -1,7 +1,5 @@
 //! Pseudonymous Stripe payment commands and shared cloud session client for a LastDB home.
-use super::{
-    block_on_cloud, dev_keys, print_pretty_json, CloudAccountCommand, CloudPaymentCommand,
-};
+use super::{dev_keys, print_pretty_json, CloudAccountCommand, CloudPaymentCommand};
 use cloud_backup_protocol::AccountId;
 use futures::StreamExt;
 use lastdb_node::cloud::{load_home_account_id, load_saved_credentials};
@@ -107,7 +105,7 @@ fn payment_status(
     session: &CloudSession,
     json: bool,
 ) -> Result<(), String> {
-    let (status, body) = block_on_cloud(
+    let (status, body) = crate::block_on(
         "payment status",
         exchange_json(session, Method::GET, "/api/auth/payments/status", None),
     )?;
@@ -157,7 +155,7 @@ fn payment_hosted_url(
     json: bool,
 ) -> Result<(), String> {
     let empty = json!({});
-    let (status, body) = block_on_cloud(
+    let (status, body) = crate::block_on(
         label,
         exchange_json(session, Method::POST, path, Some(&empty)),
     )?;

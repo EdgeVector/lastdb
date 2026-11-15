@@ -3,8 +3,8 @@ use super::{load_saved_credentials, read_private_named};
 use crate::cloud_backup_client::{
     bounded, build_shared_http_client, https, AuthClient, SignedBlobClient,
 };
-use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
+use crate::service_home::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::AccountId;
 use fold_db::security::Ed25519KeyPair;

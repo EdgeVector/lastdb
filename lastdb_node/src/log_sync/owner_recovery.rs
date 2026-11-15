@@ -8,16 +8,15 @@ use cloud_backup_protocol::{CloudScope, Id};
 use mutation_log::{ListPage, LogError, MutationLog};
 use zeroize::Zeroizing;
 
-use crate::database_replay::{self, SnapshotEntry};
+use crate::database_replay::{self, snapshot_binding, SnapshotEntry};
 use crate::host::owned::Resolved;
 use crate::host::Host;
-use crate::log_envelope::{self, DatabaseContentKey, IncorporatedRef, LogBinding};
-use crate::node_read::CanonicalPost;
+use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
 use super::cloud::{CloudLog, LogOpen};
 use super::http::{self, Endpoint, Proof};
-use super::status::NativeView;
-use super::{apply, paths, restore, session, status, wire};
+use super::native::{native_body, NativeView};
+use super::{apply, paths, restore, session, wire};
 
 /// Delivery cursor applied into the fresh home, and the local database name.
 pub struct RecoveredPrefix {
@@ -58,11 +57,11 @@ pub async fn recover_owned(
     let body = wire::database_body(log.database_id())
         .map_err(|_| "signed recovery could not name the database")?;
     let (status_code, bytes) = log
-        .post_status(paths::ACCESS, body, Proof::Canonical(CanonicalPost::Access))
+        .post_status(paths::ACCESS, body, Proof::Data)
         .await
         .map_err(|_| "the signed cloud database is unavailable to this owner".to_owned())?;
     if !(200..300).contains(&status_code)
-        || status::native_body(&bytes, log.database_id(), log.environment()) != NativeView::Live
+        || native_body(&bytes, log.database_id(), log.environment()) != NativeView::Live
     {
         return Err("the signed cloud database is unavailable to this owner".into());
     }
@@ -167,7 +166,7 @@ async fn owner_envelope(host: &Host, log: &CloudLog, through: u64) -> Result<boo
             owner_opens(
                 host,
                 log.database_id(),
-                &stored_binding(log.database_id(), stored),
+                &apply::stored_binding(log.database_id(), stored),
                 &stored.entry.payload,
             )
         }
@@ -200,50 +199,6 @@ fn owner_opens(
         Ok(_) => Ok(true),
         Err(log_envelope::LogEnvelopeError::Open) => Ok(false),
         Err(_) => Err("signed recovery could not read the database envelope".into()),
-    }
-}
-
-fn stored_binding<'a>(
-    database_id: &'a str,
-    stored: &'a mutation_log::StoredEntry,
-) -> LogBinding<'a> {
-    let entry = &stored.entry;
-    LogBinding {
-        database_id,
-        writer_key: entry.writer.key.as_str(),
-        writer_device: entry.writer.device.as_str(),
-        writer_seq: entry.writer_seq,
-        authored_at_ms: entry.authored_at_ms,
-        namespace: entry.namespace.as_str(),
-        incorporated_from: entry.incorporated_from.as_ref().map(stored_source),
-    }
-}
-
-fn stored_source(source: &mutation_log::Incorporation) -> IncorporatedRef<'_> {
-    IncorporatedRef {
-        writer_key: source.writer.key.as_str(),
-        writer_device: source.writer.device.as_str(),
-        writer_seq: source.writer_seq,
-    }
-}
-
-fn snapshot_binding<'a>(database_id: &'a str, entry: &'a SnapshotEntry) -> LogBinding<'a> {
-    LogBinding {
-        database_id,
-        writer_key: &entry.writer_key,
-        writer_device: &entry.writer_device,
-        writer_seq: entry.writer_seq,
-        authored_at_ms: entry.authored_at_ms,
-        namespace: &entry.namespace,
-        incorporated_from: entry.incorporated_from.as_ref().map(snapshot_source),
-    }
-}
-
-fn snapshot_source(source: &database_replay::IncorporatedFrom) -> IncorporatedRef<'_> {
-    IncorporatedRef {
-        writer_key: &source.writer_key,
-        writer_device: &source.writer_device,
-        writer_seq: source.writer_seq,
     }
 }
 

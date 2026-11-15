@@ -3,13 +3,11 @@ use base64::Engine as _;
 use cloud_backup_protocol::Digest;
 use lastdb_node::share_invitation::{self, ShareContact, MAX_SEALED_INVITATION_BYTES};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[path = "share_cmds/contributors.rs"]
-mod contributors;
 #[path = "share_cmds/named.rs"]
 mod named;
 
@@ -39,7 +37,7 @@ pub(super) fn run(
             expires_in_hours,
             regrant,
         }),
-        ShareCommand::Contributors(action) => contributors::run(data_dir, db, action),
+        ShareCommand::Contributors(action) => named::contributors(data_dir, db, action),
         action => run_offline(data_dir, action),
     }
 }
@@ -51,7 +49,7 @@ fn accept(
     publisher: &str,
     name: Option<&str>,
 ) -> Result<(), String> {
-    let sealed = read_file(invitation, MAX_SEALED_INVITATION_BYTES as u64)?;
+    let sealed = read_file(invitation, MAX_SEALED_INVITATION_BYTES)?;
     let mut body = serde_json::json!({
         "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
         "publisher": publisher,
@@ -119,26 +117,11 @@ fn contact(home: &Path, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .map_err(|_| "cannot open share input file")?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| "cannot inspect share input file")?;
-    if !metadata.is_file() || metadata.len() > limit {
-        return Err("share input must be a bounded regular file".into());
-    }
-    let mut bytes = Vec::new();
-    file.take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read share input file")?;
-    if bytes.len() as u64 > limit {
-        return Err("share input exceeds its size limit".into());
-    }
-    Ok(bytes)
+fn read_file(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
+    lastdb_node::profile::private_fs::read_file_limited(path, limit, false)
+        .ok()
+        .flatten()
+        .ok_or_else(|| "cannot read share input file".into())
 }
 
 fn write_file(out: &Path, bytes: &[u8]) -> Result<(), String> {

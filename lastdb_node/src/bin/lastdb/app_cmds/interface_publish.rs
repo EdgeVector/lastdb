@@ -241,9 +241,10 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
     let post = |api_key: &str, source: &str| {
-        block_on_app(publish_credentials::post_publish(
-            &url, api_key, source, &payload,
-        ))
+        crate::block_on(
+            "app publish",
+            publish_credentials::post_publish(&url, api_key, source, &payload),
+        )
     };
     let response = match publish_credentials::resolve_publish_api_key(
         home,
