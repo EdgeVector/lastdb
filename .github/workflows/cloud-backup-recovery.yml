@@ -85,6 +85,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    env:
+      PACKAGE_SOCIAL_SDK: ${{ inputs.mode == 'social-share' || inputs.mode == 'social-circles' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,7 +97,7 @@ jobs:
           name: ${{ needs.build-client.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client
       - name: Build the Social SDK for the DEV operation
-        if: inputs.mode == 'social-share'
+        if: env.PACKAGE_SOCIAL_SDK == 'true'
         working-directory: lastdb_app_sdk
         run: |
           npm ci
@@ -106,7 +108,7 @@ jobs:
           cp ../scripts/cloud_backup/social_sdk.mjs "$RUNNER_TEMP/social-sdk/exercise.mjs"
           printf 'SOCIAL_SDK_OPERATION=%s/social-sdk/exercise.mjs\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Retain the SDK package for app developers
-        if: inputs.mode == 'social-share'
+        if: env.PACKAGE_SOCIAL_SDK == 'true'
         id: social-sdk
         uses: actions/upload-artifact@v7
         with:
@@ -115,7 +117,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Record SDK package provenance
-        if: inputs.mode == 'social-share'
+        if: env.PACKAGE_SOCIAL_SDK == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SDK_ARTIFACT_ID: ${{ steps.social-sdk.outputs.artifact-id }}
