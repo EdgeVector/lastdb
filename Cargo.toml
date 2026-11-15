@@ -22,9 +22,7 @@ members = [
     "database_policy",
     # Pure unified mutation log (one log per database). No I/O.
     "mutation_log",
-    # In-memory MutationLog adapter. Off unless the caller enables it.
-    "mutation_log_mem",
-    # Shared-sync step over that port. Off unless the caller enables it.
+    # Shared-sync step over the MutationLog port. Off unless the caller enables it.
     "mutation_log_sync",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +

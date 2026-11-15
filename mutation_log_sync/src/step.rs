@@ -1,5 +1,5 @@
-use crate::error::SyncError;
 use crate::model::{writer_of, SyncEvent, SyncRole, SyncState};
+use crate::SyncError;
 use mutation_log::{
     AppendBatch, DatabaseKind, DeviceId, Entry, Incorporation, LogError, Namespace, NamespaceKind,
     NamespacePolicy, PrincipalId, Writer,

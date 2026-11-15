@@ -5,8 +5,7 @@ use sha2::{Digest, Sha256};
 
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 
-use crate::error::KeyParseError;
-use crate::hex::hex_lower;
+use crate::{hex_lower, KeyParseError};
 
 /// Length in bytes of an Ed25519 public key.
 pub const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;

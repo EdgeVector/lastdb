@@ -1,8 +1,5 @@
 //! Database operations coordinator, alternate-key surface, writer watch, and page scopes.
 
-mod core {
-    mod open;
-}
 pub mod record_store;
 mod reports;
 pub mod schema_store;
@@ -25,9 +22,10 @@ use crate::platform::env_flag;
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::disk_pack::{
     transaction::{self, blocked::write_scopes},
-    PackReadScope, PackRuntime,
+    PackNamespacedStore, PackReadScope, PackRuntime,
 };
-use crate::storage::error::StorageResult;
+use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::format::bind::{self, BoundFormat};
 use crate::storage::format::metadata::Metadata;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
@@ -101,6 +99,25 @@ pub struct DbOperations {
 }
 
 impl DbOperations {
+    /// Bind one concrete format with the node key.
+    pub async fn from_namespaced_store_with_content_and_field_keys(
+        store: PackNamespacedStore,
+        node_key: [u8; 32],
+    ) -> Result<Self, StorageError> {
+        let BoundFormat {
+            runtime,
+            schemas,
+            records,
+            metadata,
+        } = bind::open(store, node_key).await?;
+        Ok(Self {
+            runtime,
+            schema_store: SchemaStore::new(schemas, node_key, metadata.clone()),
+            record_store: RecordStore::new(records, node_key),
+            metadata,
+        })
+    }
+
     pub fn schemas(&self) -> &SchemaStore {
         &self.schema_store
     }

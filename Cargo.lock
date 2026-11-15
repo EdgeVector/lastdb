@@ -1904,13 +1904,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mutation_log_mem"
-version = "0.1.0"
-dependencies = [
- "mutation_log",
-]
-
-[[package]]
 name = "mutation_log_sync"
 version = "0.1.0"
 dependencies = [

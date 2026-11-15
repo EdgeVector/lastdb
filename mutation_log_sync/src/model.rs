@@ -1,4 +1,4 @@
-use crate::error::SyncError;
+use crate::SyncError;
 use mutation_log::{
     DatabaseId, DatabaseKind, DeviceId, LogError, MutationLog, Namespace, PrincipalId, Reset,
     StoredEntry, Writer,
