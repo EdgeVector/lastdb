@@ -4,6 +4,8 @@
 import json
 import os
 import re
+
+from notify_run_order import admit, reconcile_context
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -178,8 +180,9 @@ def record_success(api, issue, context):
     if issue.get("state") != "open":
         return
     number = issue["number"]
-    api.call("POST", f"/issues/{number}/comments", {
-        "body": f"Recovered: {context['url']} (`{context['sha']}`, {context['event']})."})
+    if not comment_has(api, number, context["url"]):
+        api.call("POST", f"/issues/{number}/comments", {
+            "body": f"Recovered: {context['url']} (`{context['sha']}`, {context['event']})."})
     api.call("PATCH", f"/issues/{number}", {"state": "closed", "state_reason": "completed"})
     note(f"Closed issue #{number}")
 
@@ -195,7 +198,8 @@ def close_duplicate(api, issue, canonical):
 def create_issue(api, workflow_file, context):
     name = WORKFLOWS[workflow_file]
     body = "\n".join([
-        marker(workflow_file), "",
+        marker(workflow_file),
+        f"<!-- lastdb-notify-order:{context['order'][0]}:{context['order'][1]} -->", "",
         f"Scheduled workflow **{name}** failed.", "",
         f"- Workflow: `.github/workflows/{workflow_file}`",
         f"- Run: {context['url']}",
@@ -227,9 +231,17 @@ def main():
         return 0
     context = run_context()
     api = GitHub(os.environ.get("GH_TOKEN", ""))
+    selected = reconcile_context(api, context, outcome, workflow_file)
+    if selected is None:
+        note("Notification skipped for a superseded attempt")
+        return 0
+    context, outcome = selected
     if outcome == "failure":
         ensure_label(api)
     matches = tracked(listed_issues(api), workflow_file)
+    if not admit(api, matches, context):
+        note("Notification skipped behind the recorded run")
+        return 0
     if outcome == "failure" and not matches:
         create_issue(api, workflow_file, context)
         return 0
