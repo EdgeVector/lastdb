@@ -231,7 +231,12 @@ def _latest_checks(source):
     raise ValueError("The exact-source check list did not finish within its bound")
 
 
-def wait_gates(plan, wait_seconds=1800):
+# snapshot-roundtrip-dev holds one concurrency slot (queue: max). 5400s covers
+# one queued run plus this source, and stays inside the 7200s cap below.
+RELEASE_GATE_WAIT_SECONDS = 5400
+
+
+def wait_gates(plan, wait_seconds=RELEASE_GATE_WAIT_SECONDS):
     """Require current Actions successes for every named context at one source."""
     if (not isinstance(plan, dict) or plan.get("repository") != REPOSITORY
             or plan.get("event_name") not in {"pull_request", "workflow_dispatch", "schedule", "push"}):
@@ -269,7 +274,7 @@ def main():
     plan.add_argument("--output", type=Path, required=True)
     gates = commands.add_parser("gates")
     gates.add_argument("--plan", type=Path, required=True)
-    gates.add_argument("--wait-seconds", type=int, default=1800)
+    gates.add_argument("--wait-seconds", type=int, default=RELEASE_GATE_WAIT_SECONDS)
     args = parser.parse_args()
     result = (make_plan(args.output) if args.command == "plan"
               else wait_gates(load_plan(args.plan), args.wait_seconds))

@@ -70,7 +70,8 @@ jobs:
     needs: plan
     if: needs.plan.outputs.skip != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Leave 10 minutes after the 5400s gate wait for checkout and evidence.
+    timeout-minutes: 100
     permissions:
       contents: read
       checks: read
@@ -88,7 +89,7 @@ jobs:
       - name: Require CI, benchmarks, the snapshot gate, and every security analysis
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/stable_plan.py gates --plan "$RUNNER_TEMP/stable-plan.json"
+        run: python3 scripts/release/stable_plan.py gates --plan "$RUNNER_TEMP/stable-plan.json" --wait-seconds 5400
       - uses: EdgeVector/.github/generated-evidence@31b28c2a07e8ba7f80df6735579c7dc1050b9232
         with:
           base: ${{ needs.plan.outputs.base }}
