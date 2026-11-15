@@ -129,9 +129,16 @@ pub(crate) async fn set_config(
     let mut members: Vec<ShareMember> = request.members.into_iter().map(Into::into).collect();
     members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
     for member in &mut members {
-        if let Some(ShareWriteScope::Selected(ids)) = &mut member.write_schemas {
-            ids.sort_unstable();
-            ids.dedup();
+        match &mut member.write_schemas {
+            Some(ShareWriteScope::Selected(ids)) => {
+                ids.sort_unstable();
+                ids.dedup();
+            }
+            Some(ShareWriteScope::Named { names }) => {
+                names.sort_unstable();
+                names.dedup();
+            }
+            _ => {}
         }
     }
     let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
