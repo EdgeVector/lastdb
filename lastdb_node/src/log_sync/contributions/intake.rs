@@ -78,8 +78,8 @@ pub(in crate::log_sync) async fn apply(
     let (store, _) = DatabaseContentKey::local_store(host, database)
         .map_err(|_| "member write store is unavailable")?
         .ok_or("member write store is unavailable")?;
-    let definition = match resolve_schema(&store, &mutation) {
-        Ok((name, definition)) if scope.permits(&name, &definition) => definition,
+    let (name, definition) = match resolve_schema(&store, &mutation) {
+        Ok((name, definition)) if scope.permits(&name, &definition) => (name, definition),
         Err(ContributionError::Unavailable) => {
             return Err("member write schema is unavailable".into())
         }
@@ -87,7 +87,7 @@ pub(in crate::log_sync) async fn apply(
     };
     let base = submission.base_mutation.as_deref();
     if mutation.definition_id.as_deref() != Some(definition.as_str())
-        || !revision::bind_publisher_revision(&store, &mut mutation, base).await?
+        || !revision::check_record_write(&store, &mut mutation, base, &name, writer).await?
     {
         return Ok(());
     }

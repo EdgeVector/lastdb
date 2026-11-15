@@ -27,6 +27,8 @@ For a conditional replacement or delete, the receiver passes the identity of the
 
 An accepted receiver create records the verified sender as the author. On a receiver edit, the publisher copies the stored record metadata, including the source filename and any original author, from the same record version checked for the edit. The accepted mutation records the editor's identity.
 
+The standard `social/Comment` schema has a fixed write rule on whole-database shares. A receiver with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. LastDB derives the visible `author_id` for receiver writes from the verified sender and records the original creator with the record's revision in internal storage. That provenance follows the comment through publisher edits. A comment without verified creation history remains readable and only the publisher can edit it. Existing record metadata cannot establish a creator. Social and apps can describe the rule, and LastDB enforces it for every grant, including all-schema grants. Other schemas keep their existing write behavior.
+
 | Identity on this database | Read published log | Append to published log | Append to pending log | Read and mark pending entries processed |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |
