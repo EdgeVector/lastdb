@@ -3,7 +3,8 @@ name: Snapshot round trip
 # Owner signed-database snapshot backup and restore on DEV, with generated
 # records only. A pull request checks this recipe's syntax and receives no
 # cloud credentials. The gate itself runs only for a push to main, the daily
-# schedule, or a manual dispatch of main.
+# schedule, or a manual dispatch of main. Both modes and provider cleanup
+# use the same dedicated DEV snapshot account.
 #
 # exemem-infra deploy.yml can start a build of this commit with no inputs:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
@@ -142,9 +143,9 @@ jobs:
         if: github.event.inputs.mode != 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
         run: |
           python3 scripts/cloud_backup/snapshot_gate.py run \
             --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
@@ -160,9 +161,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
           REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
         run: |
           args=()
@@ -176,9 +177,9 @@ jobs:
         env:
           SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
           REQUIRE_RELEASED_SNAPSHOT_BYTES: ${{ steps.snapshot-roundtrip.outcome == 'success' || steps.native-cutoff.outcome == 'success' }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
         run: |
           if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
             python3 scripts/cloud_backup/snapshot_gate.py cleanup-native-cutoff

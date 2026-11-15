@@ -4,6 +4,7 @@ No cache is shared across these unique database IDs. Keep metadata and owner
 admission until the service confirms both provider prefixes are empty.
 """
 
+from dataclasses import dataclass
 import http.client
 import json
 import os
@@ -12,13 +13,24 @@ import re
 import time
 import urllib.error
 
+import baseline_data
 from support import OperationError, dev_endpoint, read_json, require, write_private
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
+# Public hash for the dedicated DEV snapshot signer.
+SNAPSHOT_DEV_ACCOUNT = "f0fa35067ce1bb7cda7810ca96a100df"
 GRANT_TTL_MS = 900_000
 CLEANUP_BUDGET = 1_200
 DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
+
+
+@dataclass(frozen=True, repr=False)
+class SnapshotOwner:
+    key: object
+    generation: str
+    phrase: bytes
+    api_key: str
 
 
 def run_fields(database):
@@ -26,23 +38,29 @@ def run_fields(database):
             "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "1")}
 
 
-def owner_identity(phrase):
-    import baseline_data
+def load_owner():
     from node_auth import NodeKey, account_id
 
+    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
+    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
     raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
+    require(0 < len(api_key.encode()) <= 4096, "dev_api_key")
     require(0 < len(raw) <= 65_536, "snapshot_baseline")
     try:
         baseline = json.loads(raw)
     except json.JSONDecodeError:
         raise OperationError("snapshot_baseline") from None
-    require(isinstance(baseline, dict), "snapshot_baseline")
+    require(isinstance(baseline, dict) and set(baseline) == {"account", "account_generation"},
+            "snapshot_baseline")
     generation = baseline.get("account_generation")
-    owner = NodeKey.from_seed(baseline_data.seed(phrase))
-    require(baseline.get("account") == account_id(owner.public) == baseline_data.ACCOUNT
+    try:
+        key = NodeKey.from_seed(baseline_data.seed(phrase))
+    except baseline_data.BaselineDataError:
+        raise OperationError("snapshot_phrase") from None
+    require(baseline.get("account") == account_id(key.public) == SNAPSHOT_DEV_ACCOUNT
             and isinstance(generation, str) and DECIMAL.fullmatch(generation)
             and int(generation) <= 2**64 - 1, "snapshot_baseline_scope")
-    return owner, generation
+    return SnapshotOwner(key, generation, phrase, api_key)
 
 
 def start_tracking(call, database):
@@ -50,20 +68,18 @@ def start_tracking(call, database):
     require(result == {"database_id": database, "tracking": True}, "snapshot_tracking")
 
 
-def register_and_track(guard, database, phrase, api_key):
+def register_and_track(guard, database, owner):
     from run import post
 
     guard.allow_stream(database)
-    owner, generation = owner_identity(phrase)
     endpoint = dev_endpoint()
-    api_key = api_key.decode("utf-8")
 
     def call(operation, fields):
         body = json.dumps({**fields, "database_id": database},
                           separators=(",", ":")).encode("utf-8")
         try:
-            status, result, _ = post(endpoint, owner, database, "POST", f"{ROOT}/{operation}",
-                                     body, api_key, generation)
+            status, result, _ = post(endpoint, owner.key, database, "POST", f"{ROOT}/{operation}",
+                                     body, owner.api_key, owner.generation)
         except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
             raise OperationError("snapshot_tracking_transport") from None
         require(200 <= status < 300 and isinstance(result, dict), "snapshot_tracking_service")
@@ -81,9 +97,9 @@ def released_bytes(value):
     return int(value)
 
 
-def cleanup_objects(guard, database, aws, summary):
+def cleanup_objects(guard, database, owner, aws, summary):
     # Imports use snapshot_gate.load_guard's mutation_log_load path.
-    from run import load_ci_key, post
+    from run import post
 
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
@@ -91,7 +107,8 @@ def cleanup_objects(guard, database, aws, summary):
     endpoint = dev_endpoint()
     expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
     receipt = Path(os.environ["RUNNER_TEMP"]) / f"snapshot-provider-cleanup-{database}.json"
-    expected = {**run_fields(database), "complete": True}
+    expected = {**run_fields(database), "complete": True, "account": SNAPSHOT_DEV_ACCOUNT,
+                "account_generation": owner.generation}
     # A metadata purge can fail after deleting admission rows. A private,
     # exact-run absence receipt permits retry without reusing deleted admission.
     if os.path.lexists(receipt):
@@ -109,7 +126,6 @@ def cleanup_objects(guard, database, aws, summary):
         require(not expect_charge, "snapshot_cleanup_missing_metadata")
         summary("provider_objects=not_registered_or_already_cleaned")
         return
-    owner, api_key, generation = load_ci_key()
     body = json.dumps({**run_fields(database), "action": "cleanup_dev"},
                       separators=(",", ":")).encode("utf-8")
     deleted = 0
@@ -120,8 +136,8 @@ def cleanup_objects(guard, database, aws, summary):
         if time.monotonic() >= deadline:
             break
         try:
-            status, result, _ = post(endpoint, owner, database, "POST", f"{ROOT}/snapshot/bytes",
-                                     body, api_key, generation)
+            status, result, _ = post(endpoint, owner.key, database, "POST", f"{ROOT}/snapshot/bytes",
+                                     body, owner.api_key, owner.generation)
         except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
             time.sleep(2)
             continue
