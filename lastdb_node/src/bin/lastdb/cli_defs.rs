@@ -158,9 +158,13 @@ pub(crate) enum AppCommand {
         app_id: Option<String>,
         #[arg(long)]
         check: bool,
+        #[arg(long)]
+        json: bool,
     },
     Rollback {
         app_id: String,
+        #[arg(long)]
+        json: bool,
     },
     Publish(PublishArgs),
     List {
@@ -182,6 +186,8 @@ pub(crate) enum AppCommand {
         accept_install: bool,
         #[arg(long)]
         inactive: bool,
+        #[arg(long)]
+        json: bool,
     },
     Upgrade {
         #[arg(required_unless_present = "all")]
@@ -192,6 +198,8 @@ pub(crate) enum AppCommand {
         accept_install: bool,
         #[command(flatten)]
         source: CatalogSource,
+        #[arg(long)]
+        json: bool,
     },
 }
 

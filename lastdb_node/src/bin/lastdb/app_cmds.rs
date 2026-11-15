@@ -49,11 +49,11 @@ fn load_catalog(
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
-        AppCommand::Rollback { app_id } => {
+        AppCommand::Rollback { app_id, .. } => {
             print_pretty_json(&host::rollback(&app_id, &home)?);
             Ok(())
         }
-        AppCommand::Status { app_id, check } => {
+        AppCommand::Status { app_id, check, .. } => {
             lastdb_node::cloud::pin_schema_service_environment_from_home(&home);
             status_apps(&home, app_id.as_deref(), check)
         }
@@ -72,6 +72,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             source,
             accept_install,
             inactive,
+            ..
         } => {
             pin_app_env(&home, source.env.as_deref())?;
             install_apps(&home, accept_install, inactive, &app_ids, &source)
@@ -81,6 +82,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             all,
             accept_install,
             source,
+            ..
         } => {
             pin_app_env(&home, source.env.as_deref())?;
             upgrade_apps(&home, all, accept_install, &app_ids, &source)
