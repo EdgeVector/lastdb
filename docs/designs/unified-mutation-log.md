@@ -110,6 +110,10 @@ entries plus the last delivery sequence scanned, including positions hidden
 by share permissions. A client advances its position only after the resulting
 local writes are durable. The signed cloud client keeps this position locally.
 
+Attachment or schema conflicts can block personal replay at an exact delivery.
+The proposed [conflict custody design](personal-replay-conflict-custody.md)
+specifies how to preserve their data before moving that position.
+
 `head` reports the database delivery head. Its stamp is the last entry this
 reader can see, and it is absent when none are visible. The cloud keeps a
 database-wide trim boundary for logs trimmed under the earlier signed snapshot
