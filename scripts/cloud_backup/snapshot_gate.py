@@ -24,11 +24,12 @@ import urllib.error
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import baseline_data
 from node import OwnedNode
 from native_records import create, key as record_key, replace
 from programs import Programs, execute
 from signed_files import retry, running
+from snapshot_cleanup import (SNAPSHOT_DEV_ACCOUNT, cleanup_objects, load_owner,
+                              register_and_track, start_tracking)
 from support import (CREDENTIALS_FILE, OperationError, child_environment, dev_endpoint, failure,
                      private_file, read_json, require, stable, write_private)
 
@@ -343,7 +344,7 @@ def restore(programs, source, destination, database_id, phrase, numbers):
 
 def check_restored(programs, destination, database_id, digest, numbers):
     started = time.monotonic()
-    restored = OwnedNode(destination, programs, account=baseline_data.ACCOUNT)
+    restored = OwnedNode(destination, programs, account=SNAPSHOT_DEV_ACCOUNT)
     try:
         restored.start(sign_in=False)
         count = verify_records(restored, database_id, digest)
@@ -359,15 +360,15 @@ def check_restored(programs, destination, database_id, digest, numbers):
     note(numbers, "live_write", "ok")
 
 
-def run_gate(programs, root, phrase, api_key):
+def run_gate(programs, root, guard, owner):
     numbers = {}
     database_id = gate_id()
     note(numbers, "database_id", database_id)
     home = root / "source"
     home.mkdir(mode=0o700)
-    node = OwnedNode(home, programs, account=baseline_data.ACCOUNT, isolated_copy=True,
+    node = OwnedNode(home, programs, account=SNAPSHOT_DEV_ACCOUNT, isolated_copy=True,
                      keep_saved_credentials=True)
-    write_private(home / "identity.key", baseline_data.seed(phrase))
+    write_private(home / "identity.key", owner.key.private.private_bytes_raw())
     install_registry(home, database_id)
     opt_into_first_snapshot(home, database_id)
     destination = root / "restored"
@@ -379,12 +380,11 @@ def run_gate(programs, root, phrase, api_key):
         node.stop()
         connected = programs.command(home, [
             "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-            "--expected-user-hash", baseline_data.ACCOUNT, "--json",
-        ], input_bytes=api_key, timeout=60)
+            "--expected-user-hash", SNAPSHOT_DEV_ACCOUNT, "--json",
+        ], input_bytes=owner.api_key.encode(), timeout=60)
         require(connected.get("ok") is True and connected.get("credentials_saved") is True
-                and connected.get("account_id") == baseline_data.ACCOUNT, "dev_connection")
-        from snapshot_cleanup import register_and_track
-        register_and_track(load_guard(), database_id, phrase, api_key)
+                and connected.get("account_id") == SNAPSHOT_DEV_ACCOUNT, "dev_connection")
+        register_and_track(guard, database_id, owner)
         node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
         tail_started = time.monotonic()
@@ -396,7 +396,7 @@ def run_gate(programs, root, phrase, api_key):
         connection.mkdir(mode=0o700)
         (home / CREDENTIALS_FILE).rename(connection / CREDENTIALS_FILE)
         shutil.rmtree(home)
-        restore(programs, connection, destination, database_id, phrase, numbers)
+        restore(programs, connection, destination, database_id, owner.phrase, numbers)
         check_restored(programs, destination, database_id, digest, numbers)
     finally:
         node.cleanup_stop()
@@ -454,11 +454,9 @@ def verify_cloud_target(guard):
     guard.allow_table_arn(described.get("Table", {}).get("TableArn", ""), guard.DEV_TABLE)
 
 
-def cleanup():
-    guard = load_guard()
+def cleanup(guard, owner):
     verify_cloud_target(guard)
-    from snapshot_cleanup import cleanup_objects
-    cleanup_objects(guard, gate_id(), aws, summary)
+    cleanup_objects(guard, gate_id(), owner, aws, summary)
     deleted = 0
     partitions = guard.load_partitions(gate_id())
     for partition in partitions:
@@ -1033,25 +1031,21 @@ def require_native_dispatch():
             and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "native_cutoff_manual_main_only")
 
 
-def run_native_cutoff(programs, root, phrase, api_key, *, require_automatic):
-    guard = load_guard()
+def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
     import private_recovery as private
     from run import post
-    from snapshot_cleanup import owner_identity, start_tracking
 
     verify_cloud_target(guard)
     database = guard.allow_stream(gate_id())
     summary(f"database_id={database}")
-    owner, generation = owner_identity(phrase)
     endpoint = dev_endpoint()
-    api_key = api_key.decode("utf-8")
 
     def call(operation, fields, *, expected_error=None, allow_unknown_outcome=False,
              allow_older_service=False):
         body = json.dumps({**fields, "database_id": database}, separators=(",", ":")).encode("utf-8")
         try:
-            status, result, _ = post(endpoint, owner, database, "POST", f"{private.ROOT}/{operation}",
-                                     body, api_key, generation)
+            status, result, _ = post(endpoint, owner.key, database, "POST", f"{private.ROOT}/{operation}",
+                                     body, owner.api_key, owner.generation)
         except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
             if allow_unknown_outcome:
                 return None
@@ -1084,28 +1078,29 @@ def run_native_cutoff(programs, root, phrase, api_key, *, require_automatic):
     history_supported = index_status(call, database, None, allow_older_service=True)
     if not history_supported:
         summary("history_index=unsupported signed_bulk_reclaim=not_exercised")
-    credentials = OwnedNode(root / "connection", programs, account=baseline_data.ACCOUNT)
+    credentials = OwnedNode(root / "connection", programs, account=SNAPSHOT_DEV_ACCOUNT)
     credentials.home.mkdir(mode=0o700)
-    write_private(credentials.home / "identity.key", baseline_data.seed(phrase))
-    private.connect(programs, credentials, api_key)
-    source, peer = (OwnedNode(root / name, programs, account=baseline_data.ACCOUNT,
+    write_private(credentials.home / "identity.key", owner.key.private.private_bytes_raw())
+    private.connect(programs, credentials, owner.api_key)
+    source, peer = (OwnedNode(root / name, programs, account=SNAPSHOT_DEV_ACCOUNT,
                               isolated_copy=True, keep_saved_credentials=True)
                     for name in ("source", "peer"))
-    private.prepare_source(source, database, owner)
-    private.connected_exchange(programs, call, database, phrase, api_key, credentials, source, peer)
+    private.prepare_source(source, database, owner.key)
+    private.connected_exchange(programs, call, database, owner.phrase, owner.api_key,
+                               credentials, source, peer)
     records = private.reconnect(call, database, source, peer)
     page = call("list", {"after": "0", "limit": "20"})
     require(private.decimal(page["next"]) == 10, "private_native_starting_head")
     private.check_devices(page, private.device_id(source), private.device_id(peer))
-    final_head, expected = catch_up(private, programs, call, database, api_key, source, peer, records,
-                                    history_supported=history_supported, automatic=automatic)
+    final_head, expected = catch_up(private, programs, call, database, owner.api_key, source, peer,
+                                    records, history_supported=history_supported, automatic=automatic)
 
-    restored = OwnedNode(root / "restored", programs, account=baseline_data.ACCOUNT)
+    restored = OwnedNode(root / "restored", programs, account=SNAPSHOT_DEV_ACCOUNT)
     try:
         receipt = programs.command(credentials.home, [
             "backup", "restore", "--database", database, "--recovery-phrase-stdin",
             "--into", str(restored.home), "--json",
-        ], input_bytes=phrase, timeout=100)
+        ], input_bytes=owner.phrase, timeout=100)
     except OperationError as error:
         raise OperationError("private_native_fresh_restore", cli_refusal=error.cli_refusal) from None
     require(receipt["database_id"] == database and receipt["name"] == "personal"
@@ -1133,19 +1128,18 @@ def main():
     native = command in ("native-cutoff", "cleanup-native-cutoff")
     if native:
         require_native_dispatch()
-    if command in ("cleanup", "cleanup-native-cutoff"):
-        require(len(sys.argv) == 2, "arguments")
-        cleanup()
-        return
-    require(command == "run" or native, "command")
+    require(command in ("run", "cleanup") or native, "command")
     require(os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
     # Daemon-created shutdown receipts inherit the runner's file-creation mask.
     os.umask(0o077)
     dev_endpoint()
-    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE").strip().encode()
-    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY").encode()
-    require(0 < len(api_key) <= 4096, "dev_api_key")
+    guard = load_guard()
+    owner = load_owner()
+    if command in ("cleanup", "cleanup-native-cutoff"):
+        require(len(sys.argv) == 2, "arguments")
+        cleanup(guard, owner)
+        return
     parser_args = sys.argv[2:]
     require_automatic = native and parser_args[-1:] == ["--require-automatic"]
     if require_automatic:
@@ -1160,15 +1154,12 @@ def main():
                             child_environment(root))
         try:
             if native:
-                run_native_cutoff(programs, root, phrase, api_key, require_automatic=require_automatic)
+                run_native_cutoff(programs, root, guard, owner, require_automatic=require_automatic)
             else:
-                run_gate(programs, root, phrase, api_key)
+                run_gate(programs, root, guard, owner)
         except OperationError as error:
             summary("snapshot gate failed: " + json.dumps(failure(error), sort_keys=True))
             raise
-        finally:
-            del phrase
-            del api_key
 
 
 if __name__ == "__main__":
