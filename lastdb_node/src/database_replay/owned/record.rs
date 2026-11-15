@@ -40,13 +40,17 @@ impl RecordReplay<'_> {
         let winner = manager.replay_record_winner(schema, key).await?;
         let settles_local = self.is_local && pending.as_deref() == Some(self.mutation_id);
         let loses = winner.as_ref().is_some_and(|winner| winner >= &self.stamp);
-        self.guard_attachments(
-            manager,
-            mutation,
-            !self.is_local && pending.is_some(),
-            loses,
-        )
-        .await?;
+        if self
+            .attachments_conflict(
+                manager,
+                mutation,
+                !self.is_local && pending.is_some(),
+                loses,
+            )
+            .await?
+        {
+            return Err(self.block(ReplayBlockReason::AttachmentConflict));
+        }
 
         if settles_local && loses {
             let winner = winner.as_ref().ok_or_else(needs_preparation)?;
@@ -105,26 +109,22 @@ impl RecordReplay<'_> {
         Ok(())
     }
 
-    async fn guard_attachments(
-        &mut self,
+    async fn attachments_conflict(
+        &self,
         manager: &MutationManager,
         mutation: &Mutation,
         overlaps_pending: bool,
         loses: bool,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<bool, SchemaError> {
         let erases = matches!(
             mutation.mutation_type,
             MutationType::Delete | MutationType::Purge
         );
         let (schema, key) = (&self.schema, &self.key);
-        if (overlaps_pending || loses)
+        Ok((overlaps_pending || loses)
             && (self.explicit_attachment
                 || (erases && manager.replay_record_has_attachment(schema, key).await?)
-                || (overlaps_pending && manager.pending_replay_attachment(schema, key).await?))
-        {
-            return Err(self.block(ReplayBlockReason::AttachmentConflict));
-        }
-        Ok(())
+                || (overlaps_pending && manager.pending_replay_attachment(schema, key).await?)))
     }
 
     fn block(&mut self, reason: ReplayBlockReason) -> SchemaError {
