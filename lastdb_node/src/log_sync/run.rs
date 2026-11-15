@@ -27,16 +27,42 @@ pub(super) struct Ready {
     pub(super) state: SyncState,
 }
 
-pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
+impl Ready {
+    fn reports_personal(&self, host: &Host) -> bool {
+        self.publisher.is_none()
+            && host
+                .owned
+                .is_private_id(&self.database_id)
+                .is_ok_and(|private| private)
+    }
+
+    fn record_download(&self, host: &Host, through: u64, error: Option<String>) {
+        if self.reports_personal(host) {
+            host.cloud_sync
+                .record_download(&self.database_id, through, error);
+        }
+    }
+
+    fn download_failed(&self, host: &Host, error: impl Into<String>) -> Pause {
+        self.record_download(host, self.state.cursor(), Some(error.into()));
+        Pause::Retry
+    }
+}
+
+pub(super) async fn run_ready(host: &Host, ready: Ready) -> Pause {
     if ready.publisher.is_none() {
         if let Err(reason) = accepted::publish_owned(host, &ready.log).await {
+            if ready.reports_personal(host) {
+                host.cloud_sync
+                    .record_upload_error(&ready.database_id, reason);
+            }
             host.cloud_sync.record_error(reason);
             tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
                 %reason, "owned pull awaits safe local capture");
             return Pause::Retry;
         }
     }
-    let pause = pull_and_checkpoint(host, &mut ready).await;
+    let pause = pull_and_checkpoint(host, &ready).await;
     if ready.publisher.is_none()
         && crate::host::owned::find_shareable(&host.home, &ready.database_id)
             .is_ok_and(|entry| entry.whole_database())
@@ -50,7 +76,7 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
     pause
 }
 
-pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause {
+async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
     if super::native_reset::supports(host, ready) {
         let after = ready.state.cursor();
         match ready.log.list_with_native_reset(after).await {
@@ -67,14 +93,15 @@ pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause
                     Ok(_) | Err(LogError::CursorExpired { .. } | LogError::SnapshotRequired) => {}
                     Err(error) => {
                         tracing::warn!(target: "lastdbd::log_sync", %error, "retained log read failed");
-                        return Pause::Retry;
+                        return ready
+                            .download_failed(host, format!("retained log read failed: {error}"));
                     }
                 }
                 return match super::native_reset::prepare(host, &ready.log, after, &cut).await {
                     Ok(()) => Pause::Reopen,
                     Err(error) => {
                         tracing::warn!(target: "lastdbd::log_sync", %error, "native recovery awaits retry");
-                        Pause::Retry
+                        ready.download_failed(host, "native recovery awaits retry")
                     }
                 };
             }
@@ -83,14 +110,14 @@ pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause
             }
             Err(error) => {
                 tracing::warn!(target: "lastdbd::log_sync", %error, "pull failed");
-                return Pause::Retry;
+                return ready.download_failed(host, format!("cloud pull failed: {error}"));
             }
         }
     }
     let event = SyncEvent::Pull {
         now_ms: fold_db::clock::unix_millis(),
     };
-    let (next, outcome) = match ready.log.drive_once(ready.state.clone(), event).await {
+    let (_, outcome) = match ready.log.drive_once(ready.state.clone(), event).await {
         Ok(pulled) => pulled,
         Err(error) => {
             if matches!(
@@ -103,10 +130,9 @@ pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause
                 );
             }
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "pull failed");
-            return Pause::Retry;
+            return ready.download_failed(host, format!("cloud pull failed: {error}"));
         }
     };
-    ready.state = next;
     apply_and_checkpoint(host, ready, &outcome).await
 }
 
@@ -119,7 +145,7 @@ fn contiguous(after: u64, page: &ListPage) -> bool {
 async fn apply_contiguous(host: &Host, ready: &Ready, after: u64, page: ListPage) -> Pause {
     if !contiguous(after, &page) {
         tracing::warn!(target: "lastdbd::log_sync", "personal delivery page has a gap");
-        return Pause::Retry;
+        return ready.download_failed(host, "personal delivery page has a gap");
     }
     let outcome = Outcome::Pulled {
         cursor: page.next,
@@ -135,26 +161,26 @@ async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &Outcome) -> 
         Ok(plan) => plan,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "pulled page was not applied");
-            return Pause::Retry;
+            return ready.download_failed(host, error);
         }
     };
     match plan {
-        PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => {
-            checkpoint_download(host, &ready.database_id, seq)
-        }
+        PagePlan::Ack(seq) | PagePlan::Hold(Some(seq)) => checkpoint_download(host, ready, seq),
         PagePlan::Hold(None) => Pause::Retry,
     }
 }
 
-fn checkpoint_download(host: &Host, database_id: &str, seq: u64) -> Pause {
-    if let Err(error) = session::store_cursor(&host.home, database_id, seq) {
+fn checkpoint_download(host: &Host, ready: &Ready, seq: u64) -> Pause {
+    if let Err(error) = session::store_cursor(&host.home, &ready.database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "delivery cursor was not stored");
-        return Pause::Retry;
+        return ready.download_failed(host, error);
     }
-    if let Err(error) = session::mark_prefix(&host.home, database_id, seq) {
+    if let Err(error) = session::mark_prefix(&host.home, &ready.database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "durable prefix was not stored");
+        ready.record_download(host, seq, Some(error));
         return Pause::Retry;
     }
+    ready.record_download(host, seq, None);
     Pause::Idle
 }
 

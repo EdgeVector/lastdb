@@ -4,31 +4,29 @@
 //! every item is published or withheld. Cloud delivery progress stays in `run`.
 
 mod position;
+mod source;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
-use fold_db::schema::types::KeyValue;
 use fold_db::storage::disk_backup::accepted::UploadPosition;
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Namespace};
-use serde::Deserialize;
 use zeroize::Zeroizing;
 
-use crate::accepted_writes::{self, Blocked, Item, Page, Publication};
+use crate::accepted_writes::{self, Item, Page};
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
 use position::LocalUpload;
+use source::{capture_block, legacy_pending, read_page, PublishPolicy};
 
 use super::cloud::CloudLog;
 use super::registry;
 use super::retry::{self, Seal};
 use super::{upload, wire};
-
-const PAGE_LIMIT: u32 = 64;
 
 pub(super) fn take_payment_hold(database_id: &str) -> bool {
     payment_holds().remove(database_id)
@@ -61,103 +59,44 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     let material = Zeroizing::new(*key.encryption_bytes());
     let reader = Arc::clone(&runtime);
     let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
-    if let Ok(Some(page)) = joined {
-        if private {
-            let pending = legacy_pending(&page).ok_or("old accepted write metadata unreadable")?;
-            store
-                .mutation_manager()
-                .stage_legacy_replay_pending(&pending)
-                .await
-                .map_err(|_| "old accepted write could not be protected")?;
-        }
-        if let Err(reason) = send_page(host, log, &runtime, &key, &page).await {
-            tracing::warn!(target: "lastdbd::log_sync", database_id = %log.database_id(),
-                reason, "pending local writes were retained");
-            if reason == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
-                return Err(reason);
+    let failure = match joined {
+        Ok(Ok(Some(page))) => {
+            if private {
+                let pending =
+                    legacy_pending(&page).ok_or("old accepted write metadata unreadable")?;
+                store
+                    .mutation_manager()
+                    .stage_legacy_replay_pending(&pending)
+                    .await
+                    .map_err(|_| "old accepted write could not be protected")?;
             }
+            send_page(host, log, &runtime, &key, &page).await.err()
         }
-    }
-    if private {
-        let status = accepted_writes::status(&runtime);
-        if status.gap {
-            return Err("local capture has a gap");
-        }
-        if status.snapshot_required {
-            return Err("recovery required for writes from before local capture");
-        }
-        if status.acked < status.legacy_through {
-            return Err("old local writes still await cloud acceptance");
-        }
-    }
-    Ok(())
-}
-
-#[derive(Deserialize)]
-struct AcceptedTarget {
-    schema: String,
-    key: Option<KeyValue>,
-    action: String,
-    file: Option<serde::de::IgnoredAny>,
-    inline_file: Option<serde::de::IgnoredAny>,
-}
-
-type LegacyPending<'a> = (String, Option<KeyValue>, &'a str, bool);
-
-fn legacy_pending(page: &Page) -> Option<Vec<LegacyPending<'_>>> {
-    page.items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Publish {
-                mutation_id,
-                kind,
-                canonical,
-                authored_at_ms: None,
-                ..
-            } => Some((mutation_id, kind, canonical)),
-            _ => None,
-        })
-        .map(|(id, kind, canonical)| {
-            let target: AcceptedTarget = serde_json::from_slice(canonical).ok()?;
-            let attachment_affected = target.file.is_some()
-                || target.inline_file.is_some()
-                || matches!(target.action.as_str(), "delete" | "purge");
-            ((kind == "schema") == target.key.is_none()).then_some((
-                target.schema,
-                target.key,
-                id.as_str(),
-                attachment_affected,
-            ))
-        })
-        .collect()
-}
-
-enum PublishPolicy {
-    Private,
-    Share(SpecBinding),
-}
-
-fn read_page(runtime: &PackRuntime, key: &[u8; 32], policy: &PublishPolicy) -> Option<Page> {
-    let status = accepted_writes::status(runtime);
-    if status.gap {
-        tracing::warn!(target: "lastdbd::log_sync", "accepted prefix has a gap");
-        return None;
-    }
-    if status.snapshot_required {
-        return None;
-    }
-    let publication = match policy {
-        PublishPolicy::Private => Publication::Personal,
-        PublishPolicy::Share(spec) => Publication::Share(spec),
+        Ok(Ok(None)) => None,
+        Ok(Err(reason)) => Some(reason),
+        Err(_) => Some("the local upload queue reader stopped"),
     };
-    match accepted_writes::prefix(runtime, key, publication, status.acked, PAGE_LIMIT) {
-        Ok(page) if !page.snapshot_required => Some(page),
-        Ok(_) | Err(Blocked::Snapshot | Blocked::Gap) => None,
-        Err(blocked) => {
-            tracing::warn!(target: "lastdbd::log_sync", reason = ?blocked, "accepted prefix was not read");
-            None
-        }
+    if let Some(reason) = failure {
+        tracing::warn!(target: "lastdbd::log_sync", database_id = %log.database_id(),
+            reason, "pending local writes were retained");
     }
+    let blocked = if private {
+        let status = accepted_writes::status(&runtime);
+        let blocked = capture_block(&status);
+        host.cloud_sync.record_upload(
+            log.database_id(),
+            status.head,
+            status.acked,
+            failure.or(blocked),
+        );
+        blocked
+    } else {
+        None
+    };
+    if failure == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
+        return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+    }
+    blocked.map_or(Ok(()), Err)
 }
 
 async fn send_page(
