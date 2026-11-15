@@ -79,20 +79,29 @@ pub(crate) fn validate_write_scopes(
     else {
         return Err(ConfigError::Unconfirmed);
     };
-    let installed: std::collections::HashSet<_> = store
+    let schemas = store
         .schema_manager()
         .get_schemas()
-        .map_err(|_| ConfigError::Unconfirmed)?
+        .map_err(|_| ConfigError::Unconfirmed)?;
+    let installed: std::collections::HashSet<_> = schemas
         .values()
         .filter_map(|schema| schema_id(schema).ok())
         .collect();
     for scope in update.scoped_members() {
-        if let ShareWriteScope::Selected(ids) = scope {
-            if ids.iter().any(|id| !installed.contains(id)) {
+        match scope {
+            ShareWriteScope::Selected(ids) if ids.iter().any(|id| !installed.contains(id)) => {
                 return Err(invalid(
                     "write scope contains a schema definition outside this database",
                 ));
             }
+            ShareWriteScope::Named { names }
+                if names.iter().any(|name| !schemas.contains_key(name)) =>
+            {
+                return Err(invalid(
+                    "write scope contains a schema name outside this database",
+                ));
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -112,7 +121,7 @@ pub(crate) async fn submit(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| Unavailable)?;
-    let definition = resolve_definition(&store, &mutation)?;
+    let (_, definition) = resolve_schema(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
     let observed = members::access(&log).await.ok_or(Unavailable)?;
     let members::ObservedAccess::Active { revision, .. } = observed else {
@@ -263,13 +272,17 @@ fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
     Ok(mutation)
 }
 
-fn resolve_definition(store: &FoldDB, mutation: &Mutation) -> Result<Digest, ContributionError> {
+fn resolve_schema(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<(String, Digest), ContributionError> {
     let schema = store
         .schema_manager()
         .get_schema_metadata(&mutation.schema_name)
         .map_err(|_| ContributionError::Unavailable)?
         .ok_or(ContributionError::Invalid)?;
-    schema_id(&schema)
+    let definition = schema_id(&schema)?;
+    Ok((schema.name.clone(), definition))
 }
 
 pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, ContributionError> {

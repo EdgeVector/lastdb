@@ -31,12 +31,15 @@ pub enum ShareMemberState {
     Revoked,
 }
 
-/// Exact schema definitions a member can write, or every schema in the database.
+/// Selected schema names or every schema in the database. Older signed
+/// configurations can still select exact definitions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum ShareWriteScope {
     /// Sorted exact definition IDs. Empty permits no schema changes.
     Selected(Vec<Digest>),
+    /// Sorted canonical names. The publisher checks the current definition separately.
+    Named { names: Vec<String> },
     /// All installed record schemas, including future definitions.
     All(AllShareSchemas),
 }
@@ -50,10 +53,13 @@ pub enum AllShareSchemas {
 }
 
 impl ShareWriteScope {
-    /// Check an exact installed definition ID.
-    pub fn permits(&self, definition_id: &Digest) -> bool {
+    /// Check the publisher-resolved canonical schema and its installed definition.
+    pub fn permits(&self, name: &str, definition_id: &Digest) -> bool {
         match self {
             Self::Selected(ids) => ids.binary_search(definition_id).is_ok(),
+            Self::Named { names } => names
+                .binary_search_by(|value| value.as_str().cmp(name))
+                .is_ok(),
             Self::All(_) => true,
         }
     }
@@ -64,6 +70,17 @@ impl ShareWriteScope {
                 Err(ProtocolError::invalid("share.members.write_schemas.order"))
             }
             Self::Selected(ids) => Ok(!ids.is_empty()),
+            Self::Named { names } => {
+                if names.iter().any(|name| {
+                    name.is_empty() || name.trim() != name || name.chars().any(char::is_control)
+                }) {
+                    return Err(ProtocolError::invalid("share.members.write_schemas.name"));
+                }
+                if names.windows(2).any(|pair| pair[0] >= pair[1]) {
+                    return Err(ProtocolError::invalid("share.members.write_schemas.order"));
+                }
+                Ok(!names.is_empty())
+            }
             Self::All(_) => Ok(true),
         }
     }

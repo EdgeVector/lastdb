@@ -5,7 +5,7 @@ use mutation_log::Entry;
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    inbox, parse, resolve_definition, CloudLog, ContributionError, Submission, DEVICE_PREFIX,
+    inbox, parse, resolve_schema, CloudLog, ContributionError, Submission, DEVICE_PREFIX,
     INBOX_NAMESPACE,
 };
 use crate::host::Host;
@@ -78,8 +78,8 @@ pub(in crate::log_sync) async fn apply(
     let (store, _) = DatabaseContentKey::local_store(host, database)
         .map_err(|_| "member write store is unavailable")?
         .ok_or("member write store is unavailable")?;
-    let definition = match resolve_definition(&store, &mutation) {
-        Ok(definition) if scope.permits(&definition) => definition,
+    let definition = match resolve_schema(&store, &mutation) {
+        Ok((name, definition)) if scope.permits(&name, &definition) => definition,
         Err(ContributionError::Unavailable) => {
             return Err("member write schema is unavailable".into())
         }
