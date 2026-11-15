@@ -149,7 +149,7 @@ impl Segment {
             return Err("encoded local blob retention segment exceeds file limit".into());
         }
         let path = ledger_dir(home, &self.database_id).join(format!("{id:016}.json"));
-        disk::write_private(&path, &bytes).map_err(|_| "cannot store local blob retention segment")
+        disk::write_private(&path, &bytes).map_err(|_| "cannot store blob retention segment".into())
     }
 }
 
