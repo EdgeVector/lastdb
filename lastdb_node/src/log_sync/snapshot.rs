@@ -115,7 +115,7 @@ async fn publish(
     if advance_cutoff && nonce.is_some() {
         super::automatic_retention::plan(&host.home, log, chosen, prev_id);
     }
-    let id = transport::publish(log, prev_id, &cut, chosen, advance_cutoff).await?;
+    let id = transport::publish(log, previous.as_ref(), &cut, chosen, advance_cutoff).await?;
     let entries = confirmed(log, through, &id, personal).await?;
     if bootstrap {
         let frontier = cut.native_frontier;
