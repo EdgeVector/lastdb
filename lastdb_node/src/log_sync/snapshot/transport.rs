@@ -1,6 +1,6 @@
 //! Sign the snapshot inventory and transfer its original files directly.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -93,21 +93,23 @@ async fn read(
 
 pub(super) async fn publish(
     log: &CloudLog,
-    previous: Option<&Digest>,
+    previous: Option<&(Digest, Manifest)>,
     cut: &DatabaseSnapshot,
     manifest: &Manifest,
     advance_cutoff: bool,
 ) -> Result<Digest, String> {
     let id = manifest.id()?;
-    if previous != Some(&id) {
-        upload_files(log, cut, manifest).await?;
+    let previous_id = previous.map(|(saved_id, _)| saved_id);
+    if previous_id != Some(&id) {
+        let previous_files = previous.map_or(&[][..], |(_, saved)| saved.files.as_slice());
+        upload_files(log, cut, manifest, previous_files).await?;
     } else if !advance_cutoff {
         return Ok(id);
     }
     let mut request = json!({
         "action": "publish",
         "database_id": log.database_id(),
-        "previous": previous,
+        "previous": previous_id,
         "snapshot": manifest,
     });
     if advance_cutoff {
@@ -130,13 +132,33 @@ pub(super) async fn publish(
     Ok(id)
 }
 
+fn object_key(entry: &files::FileEntry) -> (u8, u64, &str) {
+    let destination = match entry.destination {
+        cloud_backup_protocol::v2::Destination::R2 => 0,
+        cloud_backup_protocol::v2::Destination::B2 => 1,
+    };
+    (destination, entry.bytes.get(), entry.sha256.as_str())
+}
+
 async fn upload_files(
     log: &CloudLog,
     cut: &DatabaseSnapshot,
     manifest: &Manifest,
+    previous_files: &[files::FileEntry],
 ) -> Result<(), String> {
+    let mut covered: BTreeSet<(u8, u64, &str)> = previous_files.iter().map(object_key).collect();
+    let mut pending = Vec::new();
+    for entry in &manifest.files {
+        if covered.insert(object_key(entry)) {
+            pending.push(entry);
+        }
+    }
+    drop(covered);
+    if pending.is_empty() {
+        return Ok(());
+    }
     let client = client()?;
-    for page in manifest.files.chunks(PAGE) {
+    for page in pending.chunks(PAGE) {
         let grants = grants(
             log,
             json!({
@@ -148,7 +170,7 @@ async fn upload_files(
         .await?;
         for (entries, grants) in page.chunks(PARALLEL).zip(grants.chunks(PARALLEL)) {
             let mut transfers = Vec::with_capacity(entries.len());
-            for (entry, grant) in entries.iter().zip(grants) {
+            for (&entry, grant) in entries.iter().zip(grants) {
                 transfers.push(upload(&client, cut, entry, grant));
             }
             futures::future::try_join_all(transfers).await?;
