@@ -27,6 +27,7 @@ jobs:
     concurrency:
       group: lastdb-notification-${{ inputs.workflow_file }}
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@v7
         with:
