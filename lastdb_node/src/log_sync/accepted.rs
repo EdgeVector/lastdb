@@ -322,7 +322,8 @@ async fn append_entries(
                                     .map(|path| (delivery_seq, path.clone()))
                             })
                             .collect();
-                        super::blob_retention::record_personal(home, log, &committed);
+                        super::blob_retention::record_personal(home, log, &committed)
+                            .map_err(|_| "local blob retention ledger could not be stored")?;
                     }
                 }
                 Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
