@@ -1,8 +1,8 @@
-//! One name rule for canonical field publication and schema advice.
+//! One name rule and vocabulary matching helpers for canonical fields and schema advice.
 
-use crate::types::CanonicalField;
+use crate::CanonicalField;
 use schema_types::{FoldDbError, FoldDbResult};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Validation rule version; excluded from field identity hashes.
 pub const NAME_POLICY_VERSION: u32 = 1;
@@ -74,7 +74,24 @@ pub fn validate_new_field_name(name: &str) -> Result<(), String> {
     }
 }
 
-pub fn validate_canonical_field(name: &str, field: &CanonicalField) -> FoldDbResult<()> {
+/// Validate against existing definitions and earlier entries in the batch.
+pub fn canonical_fields_after_insert(
+    existing: &HashMap<String, CanonicalField>,
+    fields: &[(String, CanonicalField)],
+) -> FoldDbResult<HashMap<String, CanonicalField>> {
+    let mut candidate = existing.clone();
+    for (name, field) in fields {
+        validate_insert(&candidate, name, field)?;
+        candidate.insert(name.clone(), field.clone());
+    }
+    Ok(candidate)
+}
+
+fn validate_insert(
+    existing: &HashMap<String, CanonicalField>,
+    name: &str,
+    field: &CanonicalField,
+) -> FoldDbResult<()> {
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
     if field.name_policy_version != NAME_POLICY_VERSION {
         return Err(FoldDbError::Config(format!(
@@ -86,39 +103,80 @@ pub fn validate_canonical_field(name: &str, field: &CanonicalField) -> FoldDbRes
             "canonical_field_definition_conflict: '{name}' requires a description and a positive identity version"
         )));
     }
-    crate::vocabulary_matching::validate_description(name, field)
-}
-
-pub fn validate_canonical_insert(
-    existing: &HashMap<String, CanonicalField>,
-    name: &str,
-    field: &CanonicalField,
-) -> FoldDbResult<()> {
-    validate_canonical_field(name, field)?;
+    if field.description.len() > 4096 || words(&field.description).len() < 3 {
+        return Err(FoldDbError::Config(format!(
+            "invalid_canonical_description: '{name}' requires a specific description of 3 or more words, at most 4096 bytes"
+        )));
+    }
     if existing.get(name).is_some_and(|stored| stored != field) {
         return Err(FoldDbError::Config(format!(
             "canonical_field_conflict: '{name}' already has another definition; reset it explicitly before replacement"
         )));
     }
     for (other_name, other) in existing {
-        if other_name != name
-            && crate::vocabulary_matching::same_description(&other.description, &field.description)
-        {
-            return Err(crate::vocabulary_matching::reuse_error(name, other_name));
+        if other_name != name && same_description(&other.description, &field.description) {
+            return Err(FoldDbError::Config(format!(
+                "canonical_field_reuse_required: '{name}' duplicates '{other_name}'; reuse that concept or describe a distinct subject and property"
+            )));
         }
     }
     Ok(())
 }
 
-/// Validate against existing definitions and earlier entries in the batch.
-pub fn canonical_fields_after_insert(
-    existing: &HashMap<String, CanonicalField>,
-    fields: &[(String, CanonicalField)],
-) -> FoldDbResult<HashMap<String, CanonicalField>> {
-    let mut candidate = existing.clone();
-    for (name, field) in fields {
-        validate_canonical_insert(&candidate, name, field)?;
-        candidate.insert(name.clone(), field.clone());
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+pub(crate) fn same_description(left: &str, right: &str) -> bool {
+    words(left) == words(right)
+}
+
+fn overlap(left: &str, right: &str) -> f32 {
+    let left: BTreeSet<_> = words(left).into_iter().collect();
+    let right: BTreeSet<_> = words(right).into_iter().collect();
+    let union = left.union(&right).count();
+    if union == 0 {
+        return 0.0;
     }
-    Ok(candidate)
+    left.intersection(&right).count() as f32 / union as f32
+}
+
+fn different_qualifiers(left: &str, right: &str) -> bool {
+    let left = words(left);
+    let right = words(right);
+    [
+        &["created", "updated", "deleted"][..],
+        &["start", "end"][..],
+        &["source", "target", "destination"][..],
+        &["minimum", "maximum"][..],
+        &["first", "last"][..],
+        &["public", "private"][..],
+        &["latitude", "longitude"][..],
+        &["seconds", "milliseconds", "microseconds"][..],
+        &["bytes", "bits"][..],
+    ]
+    .iter()
+    .any(|qualifiers| {
+        let a: BTreeSet<_> = left
+            .iter()
+            .filter(|word| qualifiers.contains(&word.as_str()))
+            .collect();
+        let b: BTreeSet<_> = right
+            .iter()
+            .filter(|word| qualifiers.contains(&word.as_str()))
+            .collect();
+        !a.is_empty() && !b.is_empty() && a.is_disjoint(&b)
+    })
+}
+
+/// Name overlap of a canonical name close enough to suggest in advice.
+pub(crate) fn name_overlap(name: &str, other_name: &str) -> Option<f32> {
+    if name == other_name || different_qualifiers(name, other_name) {
+        return None;
+    }
+    let score = overlap(name, other_name);
+    (score >= 0.5).then_some(score)
 }

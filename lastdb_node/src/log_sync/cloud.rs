@@ -3,8 +3,8 @@ use std::sync::{mpsc, Arc};
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::{
-    AppendBatch, AppendOutcome, Capability, ListPage, LogError, MutationLog, PrincipalId, Recovery,
-    ScopedHead, Snapshot, SnapshotRef, Writer,
+    AppendBatch, AppendOutcome, ListPage, LogError, MutationLog, PrincipalId, Recovery, ScopedHead,
+    Writer,
 };
 use mutation_log_sync::{Outcome, SyncEvent, SyncState};
 use serde::{Deserialize, Serialize};
@@ -298,17 +298,6 @@ impl MutationLog for CloudLog {
         wire::list_page(self.database_id.as_str(), &self.call(paths::LIST, body)?)
     }
 
-    fn ack(&mut self, reader: &Writer, through: u64) -> Result<u64, LogError> {
-        self.same_reader(&reader.key)?;
-        self.same_device(&reader.device)?;
-        // The signed cloud log has no reader progress to update.
-        Ok(through)
-    }
-
-    fn register_reader(&mut self, _reader: &Writer) -> Result<(), LogError> {
-        Ok(())
-    }
-
     fn recover(
         &self,
         reader: &Writer,
@@ -316,34 +305,6 @@ impl MutationLog for CloudLog {
         _now_ms: u64,
     ) -> Result<Recovery, LogError> {
         super::restore::recover(self, reader, local_cursor)
-    }
-
-    fn grant(
-        &mut self,
-        _caller: &PrincipalId,
-        _principal: PrincipalId,
-        _capability: Capability,
-    ) -> Result<(), LogError> {
-        Err(LogError::UnexpectedOutcome)
-    }
-
-    fn revoke(
-        &mut self,
-        _caller: &PrincipalId,
-        _principal: &PrincipalId,
-        _capability: &Capability,
-    ) -> Result<(), LogError> {
-        Err(LogError::UnexpectedOutcome)
-    }
-
-    fn snapshot(
-        &mut self,
-        caller: &PrincipalId,
-        _at_ms: u64,
-        _snapshot_ref: SnapshotRef,
-    ) -> Result<Snapshot, LogError> {
-        self.same_reader(caller)?;
-        Err(LogError::UnexpectedOutcome)
     }
 
     fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {

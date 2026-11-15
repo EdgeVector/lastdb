@@ -1,6 +1,6 @@
 //! Spec catalog and share admission for named LastDB databases.
 //!
-//! The crate reads no clock and opens no file. [`admit_share`] and
+//! The crate reads no clock and opens no file. [`SpecBinding::admitted`] and
 //! [`admit_namespace`] are the narrow policy. A missing binding is
 //! [`PolicyError::BindingAbsent`]. Callers deny that result.
 //!
@@ -13,24 +13,88 @@
 //! `spec/social/`. A database name does not select a spec. The stored
 //! `{ "name", "version" }` binding does. `social-graph` stays in `personal`.
 
-mod catalog;
-
 /// Union of provisioned share namespaces, for callers that do not yet
 /// carry a per-database binding. Named databases use [`admit_namespace`].
 pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social"];
 
-const PERSONAL: &str = "personal";
 const WHOLE_DATABASE: &str = "whole-database";
 
-/// One published or personal-only schema and the fields it declares.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SchemaSpec {
-    /// Namespace that owns the schema.
-    pub namespace: &'static str,
-    /// Schema name inside that namespace.
-    pub name: &'static str,
-    /// Fields the schema declares. Unlisted fields stay in `personal`.
-    pub fields: &'static [&'static str],
+struct SchemaSpec {
+    namespace: &'static str,
+    name: &'static str,
+    fields: &'static [&'static str],
+}
+
+struct ShareSpec {
+    namespaces: &'static [&'static str],
+    schemas: &'static [SchemaSpec],
+}
+
+const SOCIAL: ShareSpec = ShareSpec {
+    namespaces: &["social"],
+    schemas: &[
+        SchemaSpec {
+            namespace: "social",
+            name: "Card",
+            fields: &["person_id", "display_name", "avatar"],
+        },
+        SchemaSpec {
+            namespace: "social",
+            name: "Photo",
+            fields: &[
+                "photo_taken_at",
+                "photo_caption",
+                "image_width_pixels",
+                "image_height_pixels",
+                "file_media_type",
+                "file_size_bytes",
+                "camera_make",
+                "camera_model",
+                "geographic_latitude_degrees",
+                "geographic_longitude_degrees",
+            ],
+        },
+        SchemaSpec {
+            namespace: "social",
+            name: "Album",
+            fields: &["title", "description", "cover_photo_id", "created_at"],
+        },
+        SchemaSpec {
+            namespace: "social",
+            name: "AlbumItem",
+            fields: &["photo_id", "added_by", "position"],
+        },
+        SchemaSpec {
+            namespace: "social",
+            name: "Comment",
+            fields: &["target", "author_id", "social_comment_text", "created_at"],
+        },
+    ],
+};
+
+const FILES: ShareSpec = ShareSpec {
+    namespaces: &["lastdb-files"],
+    schemas: &[
+        SchemaSpec {
+            namespace: "lastdb-files",
+            name: "FileCatalog",
+            fields: &["entries"],
+        },
+        SchemaSpec {
+            namespace: "lastdb-files",
+            name: "FileChunk",
+            fields: &["data"],
+        },
+    ],
+};
+
+fn share_spec(name: &str, version: u32) -> Result<&'static ShareSpec, PolicyError> {
+    match (name, version) {
+        ("lastdb-files", 1) => Ok(&FILES),
+        ("social", 1) => Ok(&SOCIAL),
+        ("lastdb-files" | "social", _) => Err(PolicyError::UnsupportedVersion),
+        _ => Err(PolicyError::UnknownSpec),
+    }
 }
 
 /// Versioned spec binding stored beside a database id, name, and kind.
@@ -45,7 +109,7 @@ pub struct SpecBinding {
 
 impl SpecBinding {
     /// Accept a syntactically valid spec name and version. Catalog membership
-    /// is checked by the admit functions.
+    /// is checked by [`Self::admitted`] and [`admit_namespace`].
     pub fn new(name: &str, version: u32) -> Result<Self, PolicyError> {
         if !valid_label(name) {
             return Err(PolicyError::InvalidName);
@@ -57,22 +121,6 @@ impl SpecBinding {
             })
         } else {
             Err(PolicyError::UnsupportedVersion)
-        }
-    }
-
-    /// The provisioned social spec. Registry version `1` is catalog `1.0`.
-    pub fn social_v1() -> Self {
-        Self {
-            name: "social".to_owned(),
-            version: 1,
-        }
-    }
-
-    /// Explicit `lastdb-files` version 1. A missing spec is not this binding.
-    pub fn legacy_files_publication() -> Self {
-        Self {
-            name: "lastdb-files".to_owned(),
-            version: 1,
         }
     }
 
@@ -110,45 +158,8 @@ impl SpecBinding {
     /// A missing spec is not this call. An unknown catalog entry is an error.
     pub fn admitted(name: &str, version: u32) -> Result<Self, PolicyError> {
         let binding = Self::new(name, version)?;
-        admit_share(Some(&binding))?;
+        share_namespaces(Some(&binding))?;
         Ok(binding)
-    }
-}
-
-/// Whether the database is the builtin personal database or a shareable one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DatabaseClass {
-    /// The non-shareable personal database.
-    Personal,
-    /// A database whose binding publishes one catalog spec.
-    Shareable,
-}
-
-/// A database the catalog accepts.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Admission {
-    /// Builtin `personal`. The binding is absent.
-    Personal,
-    /// A shareable database bound to one spec.
-    Share(ShareScope),
-}
-
-/// Namespaces a shareable binding may store.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ShareScope {
-    binding: SpecBinding,
-    namespaces: &'static [&'static str],
-}
-
-impl ShareScope {
-    /// Borrow the binding that produced this scope.
-    pub fn binding(&self) -> &SpecBinding {
-        &self.binding
-    }
-
-    /// Exact namespaces this binding publishes.
-    pub fn namespaces(&self) -> &'static [&'static str] {
-        self.namespaces
     }
 }
 
@@ -170,58 +181,21 @@ pub enum PolicyError {
     UnknownSpec,
     /// The spec name exists and this version does not.
     UnsupportedVersion,
-    /// Personal data was offered as a share, or a second personal database was asked for.
-    PersonalNotShareable,
     /// The database name or spec name is outside the selector alphabet.
     InvalidName,
     /// The namespace is outside the selector alphabet.
     InvalidNamespace,
 }
 
-impl PolicyError {
-    /// Stable denial text. It contains no database contents.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::BindingAbsent => "share creation requires a spec binding",
-            Self::UnknownSpec => "unknown database spec",
-            Self::UnsupportedVersion => "unsupported database spec version",
-            Self::PersonalNotShareable => "personal database is not shareable",
-            Self::InvalidName => "invalid database or spec name",
-            Self::InvalidNamespace => "invalid namespace",
-        }
-    }
-}
-
-/// Admit one named database. `personal` takes no binding. Any other valid
-/// name is a label. A share without a binding is [`PolicyError::BindingAbsent`].
-pub fn admit_database(
-    name: &str,
-    class: DatabaseClass,
-    binding: Option<&SpecBinding>,
-) -> Result<Admission, PolicyError> {
-    if !valid_label(name) {
-        return Err(PolicyError::InvalidName);
-    }
-    if name.eq_ignore_ascii_case(PERSONAL) {
-        return admit_personal(name, class, binding);
-    }
-    admit_named_instance(class, binding)
-}
-
-/// Admit a share binding. `None` is [`PolicyError::BindingAbsent`].
-pub fn admit_share(binding: Option<&SpecBinding>) -> Result<ShareScope, PolicyError> {
+fn share_namespaces(binding: Option<&SpecBinding>) -> Result<&'static [&'static str], PolicyError> {
     let Some(binding) = binding else {
         return Err(PolicyError::BindingAbsent);
     };
-    let namespaces = if binding.is_whole_database() {
-        &[][..]
+    if binding.is_whole_database() {
+        Ok(&[])
     } else {
-        catalog::share_spec(binding.name(), binding.version())?.namespaces
-    };
-    Ok(ShareScope {
-        binding: binding.clone(),
-        namespaces,
-    })
+        Ok(share_spec(binding.name(), binding.version())?.namespaces)
+    }
 }
 
 /// Classify one namespace for a share binding. A missing or unknown binding
@@ -233,43 +207,12 @@ pub fn admit_namespace(
     if !valid_label(namespace) {
         return Err(PolicyError::InvalidNamespace);
     }
-    let scope = admit_share(binding)?;
-    if scope.binding.is_whole_database() || scope.namespaces.contains(&namespace) {
+    let namespaces = share_namespaces(binding)?;
+    if binding.is_some_and(SpecBinding::is_whole_database) || namespaces.contains(&namespace) {
         Ok(NamespaceClass::Official)
     } else {
         Ok(NamespaceClass::AppPrivate)
     }
-}
-
-/// Schemas and fields the binding publishes.
-pub fn schemas(binding: &SpecBinding) -> Result<&'static [SchemaSpec], PolicyError> {
-    Ok(catalog::share_spec(binding.name(), binding.version())?.schemas)
-}
-
-/// True when the bound spec lists this schema. This does not make a file eligible.
-pub fn schema_is_shareable(
-    binding: &SpecBinding,
-    namespace: &str,
-    schema: &str,
-) -> Result<bool, PolicyError> {
-    let listed = schemas(binding)?;
-    Ok(listed
-        .iter()
-        .any(|item| item.namespace == namespace && item.name == schema))
-}
-
-/// True only for eligible file bytes on a listed schema.
-///
-/// Social `Photo` and `lastdb-files` `FileChunk` qualify. A listed schema
-/// with no file, and every private schema, is `Ok(false)`. A bad binding
-/// is an error. A missing spec is not classified here.
-pub fn file_is_shareable(
-    binding: &SpecBinding,
-    namespace: &str,
-    schema: &str,
-) -> Result<bool, PolicyError> {
-    let listed = schema_is_shareable(binding, namespace, schema)?;
-    Ok(listed && catalog::carries_file(namespace, schema))
 }
 
 /// True when LastDB may publish this record on the binding.
@@ -286,60 +229,21 @@ pub fn record_is_shareable(
     fields: &[&str],
     file: bool,
 ) -> Result<bool, PolicyError> {
-    if !schema_is_shareable(binding, namespace, schema)? {
+    let listed = share_spec(binding.name(), binding.version())?.schemas;
+    let Some(found) = listed
+        .iter()
+        .find(|item| item.namespace == namespace && item.name == schema)
+    else {
+        return Ok(false);
+    };
+    if fields.iter().any(|field| !found.fields.contains(field)) {
         return Ok(false);
     }
-    for field in fields {
-        if !field_is_shareable(binding, namespace, schema, field)? {
-            return Ok(false);
-        }
-    }
-    if file {
-        file_is_shareable(binding, namespace, schema)
-    } else {
-        Ok(true)
-    }
-}
-
-/// True only when the bound spec lists this field. Other fields stay in `personal`.
-pub fn field_is_shareable(
-    binding: &SpecBinding,
-    namespace: &str,
-    schema: &str,
-    field: &str,
-) -> Result<bool, PolicyError> {
-    let listed = schemas(binding)?;
-    Ok(listed.iter().any(|item| {
-        item.namespace == namespace && item.name == schema && item.fields.contains(&field)
-    }))
-}
-
-/// Standard schemas that are personal-only. App-private namespaces are every
-/// namespace a share binding does not list, including these.
-pub fn personal_schemas() -> &'static [SchemaSpec] {
-    catalog::PERSONAL_SCHEMAS
-}
-
-fn admit_personal(
-    name: &str,
-    class: DatabaseClass,
-    binding: Option<&SpecBinding>,
-) -> Result<Admission, PolicyError> {
-    if name == PERSONAL && class == DatabaseClass::Personal && binding.is_none() {
-        Ok(Admission::Personal)
-    } else {
-        Err(PolicyError::PersonalNotShareable)
-    }
-}
-
-fn admit_named_instance(
-    class: DatabaseClass,
-    binding: Option<&SpecBinding>,
-) -> Result<Admission, PolicyError> {
-    if class != DatabaseClass::Shareable {
-        return Err(PolicyError::PersonalNotShareable);
-    }
-    admit_share(binding).map(Admission::Share)
+    Ok(!file
+        || matches!(
+            (namespace, schema),
+            ("social", "Photo") | ("lastdb-files", "FileChunk")
+        ))
 }
 
 fn valid_label(value: &str) -> bool {

@@ -23,13 +23,6 @@ pub enum SyncEvent {
         /// Shell clock, used for retention.
         now_ms: u64,
     },
-    /// Publisher key copies one submission into the log.
-    Reappend {
-        /// The submission entry the publisher read.
-        entry: mutation_log::Entry,
-        /// When the shell accepted the copy.
-        accepted_at_ms: u64,
-    },
 }
 
 /// What [`crate::drive`] did to the log.
@@ -151,7 +144,7 @@ impl SyncState {
     /// rejoins calls it before appending, so the next mutation does not reuse
     /// a stored sequence. A receiver has nothing to resume.
     pub fn resume<L: MutationLog>(state: &Self, log: &L) -> Result<Self, SyncError> {
-        let Some(writer) = crate::step::role_writer(state) else {
+        let Some(writer) = crate::role_writer(state) else {
             return Ok(state.clone());
         };
         let tip = log.writer_tip(state.reader(), &writer)?;

@@ -190,8 +190,7 @@ fn submission_expired(state: &LogState, writer: &Writer, seq: u64) -> bool {
 }
 
 fn submission_rejected(state: &LogState, writer: &Writer, seq: u64) -> bool {
-    state.rejected.contains(&(writer.clone(), seq))
-        || record_status(state, writer, seq) == Some(crate::SubmissionStatus::Rejected)
+    record_status(state, writer, seq) == Some(crate::SubmissionStatus::Rejected)
 }
 
 fn record_status(state: &LogState, writer: &Writer, seq: u64) -> Option<crate::SubmissionStatus> {

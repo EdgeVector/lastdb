@@ -57,8 +57,6 @@ pub enum LogError {
         /// Delivery sequence the latest snapshot covers, or zero when none exists.
         snapshot_through: u64,
     },
-    /// An ack named a delivery sequence the log has not reached.
-    AckAhead,
     /// Trim would drop entries, and no snapshot pointer covers that floor.
     SnapshotRequired,
     /// A pending submission aged out before the publisher copied it.
@@ -143,7 +141,6 @@ impl fmt::Display for LogError {
                     "cursor expired; snapshot covers {snapshot_through}"
                 )
             }
-            Self::AckAhead => write!(formatter, "ack is ahead of the log head"),
             Self::SnapshotRequired => {
                 write!(formatter, "trim needs a snapshot that covers the floor")
             }

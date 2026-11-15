@@ -99,8 +99,6 @@ impl std::error::Error for ProtocolError {}
 pub enum PendingReason {
     /// Bytes for this operation have not arrived.
     AwaitingBytes,
-    /// The service is still checking the bytes.
-    Verifying,
     /// The provider outcome is not known yet.
     OutcomeUnknown,
 }
