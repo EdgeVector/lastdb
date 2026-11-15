@@ -38,9 +38,11 @@ class LastDB:
         self.socket = self.home / "data" / "folddb.sock"
         self.executable = executable.resolve()
 
-    def call(self, method, path, body=None):
+    def call(self, method, path, body=None, *, request_id=None):
         payload = None if body is None else json.dumps(body, separators=(",", ":")).encode()
         headers = {"X-LastDB-Client": "social", "Content-Type": "application/json"}
+        if request_id is not None:
+            headers["Idempotency-Key"] = request_id
         with closing(LocalConnection(self.socket)) as connection:
             connection.request(method, path, payload, headers)
             with connection.getresponse() as response:
@@ -70,6 +72,10 @@ class LastDB:
     def has_named_grants(self):
         return (self.call("GET", "/api/version").get("capabilities", {})
                 .get("named_schema_write_grants_v1") is True)
+
+    def can_retry_database_create(self):
+        return (self.call("GET", "/api/version").get("capabilities", {})
+                .get("whole_database_create_retry_v1") is True)
 
     def verify_contact(self, path, expected_key):
         return self.command("share", "verify-contact", str(path), "--recipient-key", expected_key)

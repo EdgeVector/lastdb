@@ -95,9 +95,9 @@ def revoke(publisher, database, reader_key, revision):
 
 def transfer(programs, root, publisher, recipient, api_key):
     name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
-    verify_shared_albums_setup(recipient, name + "-albums")
     if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
         install(publisher, root, revision)
+    verify_shared_albums_setup(recipient, name + "-albums")
     created = sdk(publisher, "create", name=name)
     database = str(uuid.UUID(created["id"]))
     require(database == created["id"] and created["spec"] == SPEC, "social_created_database")
@@ -153,6 +153,10 @@ def verify_shared_albums_setup(node, name):
         reopened = sdk(node, "setup", **setup, databaseId=database)
         repeated = sdk(node, "setup", **setup, localName=name)
         require(reopened == repeated == created, "social_named_setup_stable_id")
+        incomplete = sdk(node, "create-shared", name=f"{name}-repair")
+        recovered = sdk(node, "setup", **setup, databaseId=incomplete["id"], finishExisting=True)
+        require(recovered["databaseId"] == incomplete["id"]
+                and recovered["definitions"] == definitions, "social_named_setup_repaired_by_id")
         app_call(browser, "/api/setup-database", {**setup, "databaseId": database,
                                                   "requiredVersion": 2}, status=400)
         write_album(node, database, definitions[SCHEMA], 0)

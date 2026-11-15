@@ -26,6 +26,7 @@ export type {
 } from './databases.js';
 
 export { socialClient } from './social.js';
+export type { SharedDatabaseAccess, ShareWriteScope } from './shareAccess.js';
 export type { SocialClientOptions, SocialDatabaseSetup, SocialInvitation, SocialSetupRequest } from './social.js';
 
 export {

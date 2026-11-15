@@ -10,7 +10,7 @@ databases, and short-lived scoped database sessions.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.9.0.tgz
+npm install /path/to/lastdb-app-sdk-0.10.0.tgz
 ```
 
 Use the tarball from the Social sharing DEV operation, or build one from
@@ -212,6 +212,11 @@ Use the same ID when another app opens this share on Ana's device. The owner
 can manage access in Social or revoke a recipient with
 `await social.revokeAccess(database.id, anaVerifiedKey)`.
 
+`acceptInvitation` and `listDatabases` expose the receiving node's
+`selfAccess` when available. An initial response can be unknown while
+access is confirmed. An active grant with `stale: false` can guide which
+write actions the app displays. The publisher still checks each proposal.
+
 ### Use a named database setup
 
 Social can provision **shared-albums** version 1 with the standard
@@ -235,6 +240,11 @@ Verification by ID also works on a received share once it has synced its
 schemas. Setup version 1 requires the catalog's schema shapes and leaves
 schema upgrades to an explicit owner operation. Use the same circle and
 invitation flow as for an app-owned share.
+
+Social 0.4.0 and a LastDB build with retryable whole-database creation
+resume interrupted provisioning by the original local name. An owner can
+choose an existing incomplete setup by its ID and pass `finishExisting: true`
+to install missing schemas after checking compatibility.
 
 ### Existing filtered shares
 
@@ -294,6 +304,8 @@ and send the full record with its primary key and revision.
 When a Share submission outcome is uncertain, `mutate` throws
 `ShareSubmissionUncertainError` with `.mutationId` so the caller can retry with
 the same body and UUID.
+`submissionSequence` is the writer sequence within this submission. Use
+`mutationId` to correlate it with an app action.
 
 ## Access Model & Operations
 

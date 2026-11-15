@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
+from uuid import uuid4
 
 from lastdb import LastDBError, SocialError
 
@@ -46,11 +47,19 @@ class Setups:
         value = args[selector]
         if not isinstance(value, str) or not LABEL.fullmatch(value):
             raise SocialError("enter a valid database ID or local name")
+        finish = args.get("finishExisting") is True
+        if finish and selector != "databaseId":
+            raise SocialError("select an owned database by ID to finish setup")
         definitions = {f"social/{name}": json.loads((CATALOG / f"{name}.json").read_text())
                        for name in ALBUM_SCHEMAS}
         if selector == "databaseId":
             database = self.database(value)
-            verified = self.verify(value, definitions)
+            if finish:
+                if database["kind"] != "shareable" or not database.get("name"):
+                    raise SocialError("select a named database you own to finish setup")
+                database, verified = self.provision(database["name"], definitions, existing=database)
+            else:
+                verified = self.verify(value, definitions)
         else:
             database, verified = self.provision(value, definitions)
         return {"databaseId": database["id"], "name": database.get("name"),
@@ -63,23 +72,24 @@ class Setups:
             raise SocialError("select a ready whole-database share by ID")
         return row
 
-    def provision(self, name, definitions):
-        # Save the created ID before installing anything. A matching local name
-        # alone is never authority to adopt or change an existing database.
+    def provision(self, name, definitions, *, existing=None):
+        # Reserve the ID before issuing the create request so a lost reply is retryable.
         key = f"{SHARED_ALBUMS}:{VERSION}:{name}"
         record_definition = self.node.declare_private(RECORD)
         saved = self.node.get_record(SCHEMA, key)
         if saved is None:
-            if any(row.get("name") == name for row in self.sharing.databases()):
-                raise SocialError("that name is already in use; select an existing database by ID")
-            database = self.sharing.create(name, whole=True)
-            fields = {"database_id": database["id"], "ready": False}
-            written = self.node.write_record(SCHEMA, record_definition, key, fields, None)
-            saved = {"fields": fields, "revision": written["record_revision"]}
+            saved = self.reserve(name, key, record_definition, existing)
+        database_id = saved["fields"]["database_id"]
+        if existing and existing["id"] != database_id:
+            raise SocialError("this setup is already bound to a different database")
+        if existing or saved["fields"]["ready"]:
+            database = existing or self.database(database_id)
         else:
-            database = self.database(saved["fields"]["database_id"])
-            if database["kind"] != "shareable":
-                raise SocialError("this setup belongs to an owned database")
+            if not self.node.can_retry_database_create():
+                raise SocialError("resume setup using LastDB with retryable whole-database creation")
+            database = self.sharing.create(name, whole=True, request_id=database_id)
+        if database["id"] != database_id or database["kind"] != "shareable":
+            raise SocialError("this setup belongs to an owned database")
         database_id = database["id"]
         if saved["fields"]["ready"]:
             return database, self.verify(database_id, definitions)
@@ -96,6 +106,24 @@ class Setups:
             if error.status != 409 or (self.node.get_record(SCHEMA, key) or {}).get("fields") != fields:
                 raise
         return database, verified
+
+    def reserve(self, name, key, definition, existing):
+        if existing is None:
+            if not self.node.can_retry_database_create():
+                raise SocialError("creating a setup needs LastDB with retryable whole-database creation")
+            if any(row.get("name") == name for row in self.sharing.databases()):
+                raise SocialError("that name is already in use; select the owned database by ID to finish setup")
+        fields = {"database_id": existing["id"] if existing else str(uuid4()), "ready": False}
+        try:
+            written = self.node.write_record(SCHEMA, definition, key, fields, None)
+        except LastDBError as error:
+            if error.status != 409:
+                raise
+            saved = self.node.get_record(SCHEMA, key)
+            if not saved:
+                raise
+            return saved
+        return {"fields": fields, "revision": written["record_revision"]}
 
     def install(self, database_id, request):
         try:

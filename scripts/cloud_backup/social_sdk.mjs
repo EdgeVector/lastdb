@@ -37,6 +37,11 @@ try {
       result = await client.get(input.schema, input.key);
       break;
     }
+    case 'list-databases': {
+      const root = await connect({ appId: 'social-dev-sdk', socketPath: join(dataDir, 'data', 'folddb.sock') });
+      result = await root.listDatabases();
+      break;
+    }
     default:
       throw new Error('Unknown SDK operation');
   }

@@ -11,6 +11,7 @@ import {
 import { mapDataError } from './clientHelpers.js';
 import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
+import { parseSharedDatabaseAccess, type SharedDatabaseAccess } from './shareAccess.js';
 import type { Transport } from './transport.js';
 import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
@@ -35,6 +36,7 @@ export interface ListedDatabase {
   access: string;
   state: string;
   sharingMode?: 'whole_database';
+  selfAccess?: SharedDatabaseAccess;
   publisher?: string;
   snapshot?: string | null;
   expires_ms?: number;
@@ -206,6 +208,9 @@ export function parseListedDatabase(value: unknown): ListedDatabase {
   }
   if (value['sharingMode'] === 'whole_database') {
     listed.sharingMode = value['sharingMode'];
+  }
+  if (value['selfAccess'] !== undefined) {
+    listed.selfAccess = parseSharedDatabaseAccess(value['selfAccess']);
   }
   if (value['snapshot'] === null || typeof value['snapshot'] === 'string') {
     listed.snapshot = value['snapshot'];
