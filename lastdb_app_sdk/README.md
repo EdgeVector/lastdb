@@ -10,7 +10,7 @@ databases, and short-lived scoped database sessions.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.10.0.tgz
+npm install /path/to/lastdb-app-sdk-0.11.0.tgz
 ```
 
 Use the tarball from the Social sharing DEV operation, or build one from
@@ -211,6 +211,35 @@ const trip = await sharedTrips.get('photo-journal/Trip', tripKey);
 Use the same ID when another app opens this share on Ana's device. The owner
 can manage access in Social or revoke a recipient with
 `await social.revokeAccess(database.id, anaVerifiedKey)`.
+
+### Propose circle sharing
+
+With Social 0.5.0, choose a circle from `await social.listCircles()` and
+submit a declaration. Use one stable UUID for the request and its retries.
+
+```ts
+import { randomUUID } from 'node:crypto';
+
+const request = await social.requestSharing({
+  requestId: randomUUID(),
+  appId: 'photo-journal',
+  change: {
+    operation: 'setCircleBinding',
+    databaseId: database.id,
+    circleId: family.id,
+    preset: 'commenter',
+  },
+});
+```
+
+Open the owner review with `social open --sharing-request <requestId>`
+using the same LastDB home. The app can fetch the result with
+`social.getSharingStatus(request.requestId)`. Status is
+`awaitingApproval`, `pending`, `needsReview`, or `confirmed`. When
+confirmed, use the existing invitation method for a new recipient. Use
+`writeSchemas` in place of a preset to suggest the app's canonical schema
+names. The owner can later edit membership in Social and preview the
+resulting grants across all databases that follow that circle.
 
 `acceptInvitation` and `listDatabases` expose the receiving node's
 `selfAccess` when available. An initial response can be unknown while

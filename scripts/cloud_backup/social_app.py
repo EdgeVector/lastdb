@@ -52,10 +52,12 @@ def install(publisher, root, revision):
 
 
 @contextmanager
-def window(node, database=None):
+def window(node, database=None, sharing_request=None):
     launch = [*command(node), "open", "--no-browser"]
     if database:
         launch.extend(("--database", database))
+    if sharing_request:
+        launch.extend(("--sharing-request", sharing_request))
     with subprocess.Popen(launch, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                           env=node.programs.environment) as process:
         try:
@@ -65,6 +67,8 @@ def window(node, database=None):
             require(target.hostname == "127.0.0.1" and target.port, "social_loopback")
             if database:
                 require(parse_qs(target.query).get("databaseId") == [database], "social_settings_deep_link")
+            if sharing_request:
+                require(parse_qs(target.query).get("sharingRequest") == [sharing_request], "social_request_deep_link")
             token = parse_qs(target.fragment).get("session", [None])[0]
             require(bool(token), "social_window_session")
             with closing(HTTPConnection(target.hostname, target.port, timeout=10)) as connection:

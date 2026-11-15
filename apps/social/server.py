@@ -18,6 +18,7 @@ from lastdb import SocialError
 ASSETS = Path(__file__).resolve().parent / "web"
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
           "/circles.js": ("circles.js", "text/javascript"),
+          "/requests.js": ("requests.js", "text/javascript"),
           "/styles.css": ("styles.css", "text/css")}
 MAX_BODY = 16_384
 
@@ -119,6 +120,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.database(query["databaseId"][0])
         if target.path == "/api/reusable-circles":
             return app.reusable_circles.overview()
+        if target.path == "/api/sharing-request":
+            return app.sharing_requests.status(query["requestId"][0])
         raise SocialError("unknown Social operation")
 
     def body(self):
@@ -145,6 +148,12 @@ class Handler(BaseHTTPRequestHandler):
             return app.set_circles(args)
         if target.path in ("/api/circles/preview", "/api/circles/apply"):
             return app.reusable_circles.edit(args, apply=target.path.endswith("/apply"))
+        if target.path == "/api/sharing-request/preview":
+            return app.sharing_requests.preview(args["requestId"], args.get("review"))
+        if target.path == "/api/sharing-request/apply":
+            if not isinstance(args["token"], str):
+                raise SocialError("review the sharing request before approving it")
+            return app.sharing_requests.preview(args["requestId"], args.get("review"), args["token"])
         if target.path == "/api/circle-invitation":
             return app.circle_invitation(args)
         if target.path == "/api/invite":
@@ -162,12 +171,26 @@ class Handler(BaseHTTPRequestHandler):
         raise SocialError("unknown Social operation")
 
 
-def run_server(node, open_browser, database_id=None):
+def resume_sharing(server):
+    try:
+        server.app.reusable_circles.resume()
+    except (SocialError, OSError, HTTPException):
+        # The saved update remains available for retry in the owner UI.
+        pass
+
+
+def run_server(node, open_browser, database_id=None, sharing_request=None):
     with SocialServer(node) as server:
+        query = {}
         if database_id is not None:
             server.app.selected(database_id)
-            query = urlencode({"databaseId": database_id})
-            server.url = f"{server.origin}/?{query}#session={server.session}"
+            query["databaseId"] = database_id
+        if sharing_request is not None:
+            result = server.app.sharing_requests.status(sharing_request)
+            query.update(databaseId=result["databaseId"], sharingRequest=sharing_request)
+        if query:
+            server.url = f"{server.origin}/?{urlencode(query)}#session={server.session}"
+        Thread(target=resume_sharing, args=(server,), daemon=True).start()
         print(server.url, flush=True)
         if open_browser:
             webbrowser.open(server.url)

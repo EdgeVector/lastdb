@@ -20,6 +20,30 @@ revocation. It calls the installed Social app. Use the returned stable
 database ID with the regular LastDB client for schemas, records, and files.
 Use the Circles screen to set reusable people and schema grants.
 
+### Accept sharing declarations from apps
+
+Social 0.5.0 lets a local app list reusable circle names and IDs with
+`social list-circles`, then submit a sharing request as JSON on stdin to
+`social request-sharing`. Reuse the same request UUID when retrying the
+same declaration. The command saves the proposal with `awaitingApproval`
+and returns the request ID. Use `social open --sharing-request UUID` to
+put the proposal in front of the owner and `social sharing-status UUID`
+to look up its outcome after the owner reviews it.
+
+An app can request a circle binding, remove a binding, set a direct person
+grant, revoke, or explicitly restore a person. Give a list of installed
+canonical schema names or choose the `viewer`, `commenter`, or
+`album-organizer` preset. A full write scope includes future schemas and
+requires review. After approval, the binding follows changes to the circle.
+Social applies each database independently and saves unfinished work for
+retry when it opens again.
+
+The owner sees the current and proposed grants when another publisher tool
+changes a grant that Social manages. They can preserve the outside grant as
+a direct grant or approve Social's proposed write scopes. Unrelated grants
+and explicit revocations are preserved. Use `seal-invitation` after a
+new recipient's grant is confirmed.
+
 ## Existing filtered shares
 
 Create an owned database with `social create-db NAME`. This uses the existing

@@ -142,7 +142,7 @@ class Sharing:
         definition = self.node.declare_private(PENDING)
         saved = self.node.get_record(PENDING_SCHEMA, database_id)
         if saved and saved["fields"]["request"]:
-            self.finish_update(database_id, definition, saved)
+            return self.finish_update(database_id, definition, saved)
 
     def pending_edit(self, database_id):
         self.node.declare_private(PENDING)
