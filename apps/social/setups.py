@@ -26,8 +26,7 @@ RECORD = {
 }
 LABEL = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DEFINITION_ID = re.compile(r"[0-9a-f]{64}\Z")
-CONTRACT_FIELDS = ("descriptive_name", "purpose_statement", "schema_type",
-                   "field_types", "field_descriptions")
+CONTRACT_FIELDS = ("descriptive_name", "purpose_statement", "schema_type")
 
 
 class Setups:
@@ -128,9 +127,12 @@ def matches(row, request):
     definition = row.get("definition_id")
     expected = request["schema"]
     keys = row.get("record_keys") or {}
+    required_fields = set(expected["fields"])
     return (isinstance(definition, str) and bool(DEFINITION_ID.fullmatch(definition))
             and row.get("file_required", False) == expected.get("file_required", False)
-            and sorted(row.get("fields") or []) == sorted(expected["fields"])
+            and required_fields.issubset(row.get("fields") or [])
             and keys.get("primary") == expected["record_keys"]["primary"]
             and keys.get("alternates", {}) == expected["record_keys"]["alternates"]
-            and all(row.get(field) == expected[field] for field in CONTRACT_FIELDS))
+            and all(row.get(field) == expected[field] for field in CONTRACT_FIELDS)
+            and all((row.get(kind) or {}).get(field) == expected[kind][field]
+                    for kind in ("field_types", "field_descriptions") for field in required_fields))

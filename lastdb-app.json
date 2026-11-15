@@ -99,6 +99,28 @@
       "owner_app_id": "social-graph"
     },
     {
+      "name": "CircleDirectory",
+      "descriptive_name": "Circle directory",
+      "purpose_statement": "Private reusable circles and their unfinished database updates.",
+      "schema_type": "Hash",
+      "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+      "fields": ["directory"],
+      "field_types": {"directory": "String"},
+      "field_descriptions": {"directory": "Circle identities, members, linked database scopes and pending updates."},
+      "owner_app_id": "social-graph"
+    },
+    {
+      "name": "CirclePolicy",
+      "descriptive_name": "Circle policy",
+      "purpose_statement": "Social circles granting access to one named database.",
+      "schema_type": "Hash",
+      "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+      "fields": ["circles"],
+      "field_types": {"circles": "String"},
+      "field_descriptions": {"circles": "The circle names, member identities and schema write scopes."},
+      "owner_app_id": "social-graph"
+    },
+    {
       "name": "DatabaseSetup",
       "descriptive_name": "Database setup",
       "purpose_statement": "Progress for a database provisioned from a named Social setup.",

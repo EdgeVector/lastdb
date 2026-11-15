@@ -56,20 +56,30 @@ cloud access and downloaded record readiness are shown separately. Use
 `open --database ID` to go directly to a database's sharing settings.
 
 Choose **Whole database with circle write access** when creating a database
-for circles. Install the database's schemas through LastDB, then open **Circle
-settings** to assign remembered contacts and select the schemas each circle
-can change. A member can read records from every schema in the database.
-An empty write selection grants whole-database reads and no schema changes. Multiple circles combine
-their write grants. An explicit selection covers the installed definition IDs.
-The **All schemas** choice also covers future definitions. Use **Seal
-invitation** on an active member to get the receipt to hand to them.
+for circles. Install the database's schemas through LastDB, then open
+**Circles** to create one membership list with links to several databases.
+Set the write scope on each link and preview the changes before applying them.
+A member can read each whole database. Write access combines across overlapping
+circles, and an explicit revoke on a database stays in effect across later circle
+edits. If one database update fails, review the unfinished changes and retry it.
+Existing local circles remain editable under the database. Use **Seal invitation**
+on each database to hand its new recipients their sealed receipts.
+
+Write grants use the installed schema's canonical name, for example
+`social/Comment`. Compatible upgrades keep the grant in place. The publisher
+still checks the specific current definition and the record rules for each write.
+The **All schemas** choice also covers future schemas. An older exact-ID circle
+grant can be converted by reviewing and saving its circle settings.
 
 Choose **Shared albums (version 1)** to create a whole-database share with
 the catalog definitions for Album, AlbumItem, Photo, and Comment already
 installed. Social records the newly created database ID before installing
 schemas and can resume setup by the same provisioning name. To reopen a
 compatible owned or received share, select its stable ID. Reopening verifies
-the installed definitions and reports their IDs without changing the database.
+that the required fields and keys are present and reports the current definition
+IDs. Additive schema updates can introduce more fields under the same name.
+When replacing a record, read it first, retain the fields and keys you aren't
+editing, and send the replacement against the record's current revision.
 
 ```sh
 social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --name family

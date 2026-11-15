@@ -50,9 +50,11 @@ function accessOf(row) {
 async function refresh() {
   const ticket = ++state.request;
   $('notice').hidden = true;
-  const home = await api('home');
+  const [home, directory] = await Promise.all([api('home'),
+    state.tab === 'circles' ? api('reusable-circles') : null]);
   if (ticket !== state.request) return;
   state.home = home;
+  state.directory = directory;
   renderList();
   await renderSelection();
 }
@@ -60,15 +62,16 @@ async function refresh() {
 function setTab(tab, selected = null) {
   state.tab = tab;
   state.selected = selected;
-  if (!state.home) return refresh();
+  if (!state.home || tab === 'circles') return refresh();
   renderList();
   return renderSelection();
 }
 
 function renderList() {
+  if (state.tab === 'circles') return renderReusableList();
   const people = state.tab === 'people';
   $('heading').textContent = people ? 'People' : 'Databases';
-  for (const tab of ['people', 'databases']) {
+  for (const tab of ['people', 'circles', 'databases']) {
     if (tab === state.tab) $(tab).setAttribute('aria-current', 'page');
     else $(tab).removeAttribute('aria-current');
   }
@@ -94,6 +97,7 @@ async function renderSelection() {
   const {tab, selected} = state;
   const panel = $('detail');
   panel.replaceChildren();
+  if (tab === 'circles') return renderReusableCircle(panel, selected);
   if (!selected) return;
   panel.append(element('p', 'Loading…', 'muted'));
   const people = tab === 'people';
@@ -134,7 +138,8 @@ function showDatabase(panel, result) {
     if (database.sharingMode === 'whole_database' && database.selfAccess?.state === 'active') {
       const scope = database.selfAccess.writeSchemas;
       panel.append(element('p', scope === 'all' ? 'Can read the whole database and write all schemas.'
-        : scope?.length ? 'Can read the whole database and write selected schemas.'
+        : scope?.names?.length ? `Can read the whole database and write ${scope.names.join(', ')}.`
+          : scope?.length ? 'Can read the whole database and write selected schemas.'
           : 'Can read the whole database. The publisher granted no schema writes.', 'status'));
     }
     return;
@@ -153,16 +158,20 @@ function showDatabase(panel, result) {
         element('span', circle.writeSchemas === 'all' ? 'All schemas' : circle.writeSchemas.join(', ') || 'Read only'));
       return row;
     }), 'No circles share this database.');
-    if (!pendingEdit) panel.append(button('Edit circles', () => editCircles(database, sharing, circles, schemas), 'quiet'));
+    if (!pendingEdit) panel.append(button('Edit local circles',
+      () => editCircles(database, sharing, circles.filter((circle) => !circle.id), schemas), 'quiet'));
+    panel.append(button('Manage reusable circles', () => setTab('circles'), 'quiet'));
   }
   if (!sharing.status && !circles) panel.append(button('Invite reader', () => invite(database), 'quiet'));
   const members = (sharing.members || []).map((member) => {
     const row = element('div', null, 'row');
     const label = element('div', member.name || member.nodeKey, 'identity');
     const writes = member.writeSchemas;
-    const names = writes === 'all' ? 'All schemas' : writes?.map((id) =>
-      Object.keys(schemas || {}).find((name) => schemas[name] === id) || id).join(', ');
+    const names = writes === 'all' ? 'All schemas' : (writes?.names || writes?.map((id) =>
+      Object.keys(schemas || {}).find((name) => schemas[name] === id) || id))?.join(', ');
     label.append(element('span', `${names || (member.role === 'read' ? 'Read only' : 'Contributor')} · ${member.state}`, 'muted'));
+    const sources = circles?.filter((circle) => circle.members.includes(member.nodeKey)).map((circle) => circle.name);
+    if (member.state === 'active' && sources?.length) label.append(element('span', sources.join(', '), 'muted'));
     row.append(label);
     const actions = element('div', null, 'row-actions');
     if (circles && member.state === 'active' && member.name) {
@@ -213,7 +222,7 @@ function dialog(title, label, fields, submit) {
       const value = await submit(input);
       dialog.close();
       if (typeof value === 'function') {
-        value();
+        await value();
         return;
       }
       try { await refresh(); } catch (error) { report(error); }
@@ -344,7 +353,7 @@ async function showPicker() {
 }
 
 function showSocial(databaseId) {
-  for (const tab of ['people', 'databases']) $(tab).addEventListener('click', () => setTab(tab).catch(report));
+  for (const tab of ['people', 'circles', 'databases']) $(tab).addEventListener('click', () => setTab(tab).catch(report));
   $('cancel').addEventListener('click', () => $('form-dialog').close());
   $('brand').addEventListener('click', (event) => { event.preventDefault(); setTab('people').catch(report); });
   if (databaseId) { state.tab = 'databases'; state.selected = databaseId; }

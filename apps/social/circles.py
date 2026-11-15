@@ -1,5 +1,7 @@
 """Resolve private circle membership into one whole-database sharing spec."""
 
+from contextlib import contextmanager
+import fcntl
 import json
 import re
 
@@ -27,40 +29,73 @@ class Circles:
     def schemas(self, database):
         rows = self.node.call("GET", f"/api/databases/{database}/schemas?include_definition_ids=1")
         return {row["name"]: row["definition_id"] for row in rows["schemas"]
-                if row.get("definition_id")}
+                if row.get("definition_id") and row.get("state") == "Available"}
 
     def load(self, database):
-        definition = self.node.declare_private(DEFINITION)
+        self.node.declare_private(DEFINITION)
         previous = self.node.get_record(SCHEMA, database)
-        circles = json.loads(previous["fields"]["circles"]) if previous else []
-        return definition, previous, circles
+        saved = json.loads(previous["fields"]["circles"]) if previous else []
+        return {"circles": saved, "direct": {}} if isinstance(saved, list) else saved
 
     def describe(self, database):
-        _, _, circles = self.load(database)
-        return circles
+        return self.load(database)["circles"]
 
     def set(self, database, revision, requests, restore):
+        if not isinstance(revision, str):
+            raise SocialError("select the sharing revision you reviewed")
+        if not isinstance(restore, list):
+            raise SocialError("choose circle members to restore")
+        definitions = self.schemas(database)
+        circles = normalize(requests, definitions)
+        plan = self.plan(database, definitions, circles, restore, revision=revision)
+        return self.apply(database, plan)
+
+    def plan(self, database, definitions, circles, restore=(), *, revision=None):
         if self.sharing.pending_edit(database):
             raise SocialError("finish the pending sharing change first")
-        _, _, prior_circles = self.load(database)
+        policy = self.load(database)
+        prior_circles = policy["circles"]
+        # Edits from the database view affect only its original local circles.
+        linked = [circle for circle in prior_circles if "id" in circle]
+        local = [circle for circle in prior_circles if "id" not in circle]
+        circles = (circles + linked) if revision is not None else (local + circles)
         current = self.sharing.configuration(database)
-        if revision != current["revision"]:
+        if revision is not None and revision != current["revision"]:
             raise SocialError("sharing changed while you edited it; review the current roster")
-        circles = normalize(requests, self.schemas(database))
         before = resolve(prior_circles)
         desired = resolve(circles)
         keys = set(desired)
         if self.people.by_keys(sorted(keys)).keys() != keys:
             raise SocialError("save verified contacts before sharing with them")
-        if not isinstance(restore, list) or any(key not in keys for key in restore):
+        if any(key not in keys for key in restore):
             raise SocialError("choose circle members to restore")
         members = current["members"]
-        replacement = merge(members, before, desired, set(restore))
-        if replacement != members:
-            revision = self.sharing.apply_members(database, revision, replacement, circles)
+        direct = dict(policy["direct"])
+        for member in members:
+            key = member["nodeKey"]
+            if key in desired and key not in before and member["state"] == "active":
+                direct[key] = member.get("writeSchemas") or []
+        replacement = merge(members, before, desired, set(restore), direct, definitions)
+        next_policy = {"circles": circles, "direct": {key: direct[key] for key in desired if key in direct}}
+        return {"revision": current["revision"], "previous": members, "members": replacement,
+                "policy": next_policy}
+
+    def apply(self, database, plan):
+        revision, policy = plan["revision"], plan["policy"]
+        if plan["members"] != plan["previous"]:
+            revision = self.sharing.apply_members(database, revision, plan["members"], policy)
         else:
-            store_policy(self.node, database, circles)
-        return {"revision": revision, "circles": circles}
+            store_policy(self.node, database, policy)
+        return {"revision": revision, "circles": policy["circles"]}
+
+    @contextmanager
+    def lock(self):
+        with (self.node.home / "social-circle-edit.lock").open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise SocialError("another circle edit is in progress; retry when it finishes") from error
+            yield
 
 
 def store_policy(node, database, circles):
@@ -86,33 +121,54 @@ def normalize(requests, definitions):
                 raise SocialError("select writable schemas installed in this database")
             scope = sorted(set(scope))
         name = name.strip()
-        result[name] = {"name": name, "members": sorted(set(keys)), "writeSchemas": scope,
-                        "definitions": FULL if scope == FULL else sorted({definitions[item] for item in scope})}
+        result[name] = {"name": name, "members": sorted(set(keys)), "writeSchemas": scope}
     return list(result.values())
 
 
 def resolve(circles):
     result = {}
     for circle in circles:
-        scope = circle["definitions"]
+        scope = circle["writeSchemas"]
         for key in circle["members"]:
             previous = result.get(key, [])
             result[key] = FULL if FULL in (scope, previous) else sorted(set(previous) | set(scope))
     return result
 
 
-def merge(current, before, desired, restore):
+def merge(current, before, desired, restore, direct, definitions):
     members = {row["nodeKey"]: row for row in current}
     for key in before.keys() - desired.keys():
         previous = members.get(key)
         if previous and previous["state"] == "active":
-            members[key] = {"nodeKey": key, "state": "revoked", "role": previous["role"], "writeSchemas": []}
+            if key in direct:
+                scope = direct[key]
+                members[key] = {"nodeKey": key, "state": "active", "role": "submit" if scope else "read",
+                                "writeSchemas": scope}
+            else:
+                members[key] = {"nodeKey": key, "state": "revoked", "role": previous["role"], "writeSchemas": []}
     for key, scope in desired.items():
         previous = members.get(key)
         if previous and previous["state"] == "revoked" and key not in restore:
             continue
+        scope = combine_scope(scope, direct.get(key), definitions)
         row = {"nodeKey": key, "state": "active", "role": "submit" if scope else "read", "writeSchemas": scope}
         if previous and previous["state"] == "revoked":
             row["regrant"] = True
         members[key] = row
     return [members[key] for key in sorted(members)]
+
+
+def combine_scope(circle, direct, definitions):
+    if FULL in (circle, direct):
+        return FULL
+    if isinstance(direct, dict):
+        direct = direct["names"]
+    elif direct:
+        registered = {definition: name for name, definition in definitions.items()}
+        if not circle:
+            return direct
+        if any(registered.get(item) not in circle for item in direct):
+            raise SocialError("review the direct grant before combining it with a circle")
+        direct = []
+    names = sorted(set(circle) | set(direct or []))
+    return {"names": names} if names else []

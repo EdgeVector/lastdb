@@ -6,6 +6,7 @@ import re
 from lastdb import SocialError
 from circles import Circles
 from people import People
+from reusable_circles import ReusableCircles
 from setups import Setups
 from sharing import Sharing, can_manage_sharing
 
@@ -30,6 +31,7 @@ class SocialApp:
         self.people = People(node)
         self.sharing = Sharing(node, self.people)
         self.circles = Circles(node, self.people, self.sharing)
+        self.reusable_circles = ReusableCircles(node, self.sharing, self.circles)
         self.setups = Setups(node, self.sharing)
 
     def remember(self, args):
@@ -98,8 +100,9 @@ class SocialApp:
         database = self.selected(args["databaseId"])
         if database.get("sharingMode") != "whole_database" or not can_manage_sharing(database):
             raise SocialError("circles require an owned whole-database share")
-        return self.circles.set(database["id"], args["expectedRevision"], args["circles"],
-                                args.get("restore", []))
+        with self.circles.lock():
+            return self.circles.set(database["id"], args["expectedRevision"], args["circles"],
+                                    args.get("restore", []))
 
     def circle_invitation(self, args):
         database = self.selected(args["databaseId"])
@@ -165,7 +168,8 @@ class SocialApp:
 
     def retry(self, database_id):
         self.sharing.owned(self.selected(database_id)["id"])
-        self.sharing.resume_pending(database_id)
+        with self.circles.lock():
+            self.sharing.resume_pending(database_id)
         return self.database(database_id)
 
 
