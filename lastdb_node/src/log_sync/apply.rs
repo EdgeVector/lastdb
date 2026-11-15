@@ -65,6 +65,19 @@ pub(crate) async fn apply_page(
     let mut consumed = None;
     let whole = crate::host::owned::find_shareable(&host.home, log.database_id())
         .is_ok_and(|entry| entry.whole_database());
+    if whole
+        && entries.iter().any(|stored| {
+            &stored.entry.writer.key == log.principal()
+                && &stored.entry.writer.device != log.device()
+        })
+    {
+        let reason = format!(
+            "Shared database {} has a published write from another publisher device. This device cannot continue shared sync.",
+            log.database_id()
+        );
+        host.cloud_sync.record_error(reason.clone());
+        return Err(reason);
+    }
     for stored in entries {
         let entry = &stored.entry;
         if whole && &entry.writer.key != log.principal() {
