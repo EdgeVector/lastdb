@@ -1,5 +1,7 @@
 """Serve Social's owner interface on a private loopback browser session."""
 
+from __future__ import annotations
+
 from concurrent.futures import Future, TimeoutError as FutureTimeout
 from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +20,6 @@ from lastdb import SocialError
 ASSETS = Path(__file__).resolve().parent / "web"
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
           "/circles.js": ("circles.js", "text/javascript"),
-          "/requests.js": ("requests.js", "text/javascript"),
           "/styles.css": ("styles.css", "text/css")}
 MAX_BODY = 16_384
 

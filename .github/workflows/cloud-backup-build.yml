@@ -113,38 +113,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CLIENT: ${{ inputs.client }}
+          CANDIDATE_SHA: ${{ github.sha }}
           ARTIFACT_ID: ${{ steps.client-artifact.outputs.artifact-id }}
           ARTIFACT_URL: ${{ steps.client-artifact.outputs.artifact-url }}
-          ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
+          ARTIFACT_SHA256: ${{ steps.client-artifact.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          metadata=
-          for delay in 1 2 4 8 16; do
-            if metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
-              --jq '[.id, .workflow_run.head_sha, .digest, .expired, .expires_at] | @tsv')"; then
-              break
-            fi
-            sleep "$delay"
-          done
-          IFS=$'\t' read -r artifact_id artifact_source artifact_digest expired expiration <<< "$metadata"
-          test "$artifact_id" = "$ARTIFACT_ID"
-          test "$artifact_source" = "$SOURCE_COMMIT"
-          test "${artifact_digest#sha256:}" = "${ARTIFACT_DIGEST#sha256:}"
-          test "$expired" = false
-          test -n "$expiration"
+          python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/cloud-backup-client-receipt"
           {
-            if [ "$CLIENT" = "nightly" ]; then
-              printf '\nPublished nightly client: %s\n\n' "$CLIENT_VERSION"
-            else
-              printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
-            fi
-            printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
-            printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            printf '\nClient (%s): `%s`\n\n' "$CLIENT" "$CLIENT_VERSION"
             sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
-            printf 'Artifact expires: %s\n' "$expiration"
-            if [ "$CLIENT" = "nightly" ]; then
-              printf '\nThe download uses no cloud credentials and makes no PROD or primary change.\n'
-            else
-              printf '\nThe build uses no cloud credentials and makes no PROD or primary change.\n'
-            fi
+            printf '\nUses no cloud credentials and makes no PROD or primary change.\n'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -71,7 +71,7 @@ jobs:
 
       - name: Remove all local-package outputs before Rust extraction
         if: matrix.language == 'rust'
-        run: python3 scripts/ci/codeql_dependencies.py
+        run: python3 scripts/harness.py clean-local-packages
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4

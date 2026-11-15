@@ -274,7 +274,7 @@ jobs:
           path: ${{ runner.temp }}/stable-bundles
       - name: Prove app compatibility and the uninterrupted one-hour qualification
         run: >-
-          python3 scripts/release/stable_qualify.py --plan "$RUNNER_TEMP/stable-plan.json"
+          python3 scripts/release/stable_plan.py qualify --plan "$RUNNER_TEMP/stable-plan.json"
           --bundles "$RUNNER_TEMP/stable-bundles" --output "$RUNNER_TEMP/stable-qualification"
       - uses: actions/upload-artifact@v7
         if: always()

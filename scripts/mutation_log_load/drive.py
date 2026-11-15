@@ -1,5 +1,7 @@
 """Concurrent load against an injected transport. This module does no I/O."""
 
+from __future__ import annotations
+
 import random
 import threading
 import time
@@ -10,11 +12,11 @@ from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
-from finish import audit_log, finding_text, request_for, tier_report, verify_after_cap
-from plan import APPENDS
+from finish import _device, audit_log, finding_text, request_for, tier_report, verify_after_cap
 from routes import READS, RouteError, check_success, path_for
 
 
+APPENDS = 10
 ERROR_RATE = 0.01
 DISABLED_FIELD = "mutation_log.disabled"
 DISABLED = "mutation log is disabled"
@@ -22,22 +24,6 @@ DISABLED = "mutation log is disabled"
 
 class LoadError(Exception):
     """A failed or ambiguous response. The run stops."""
-
-
-class Flight:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.current = 0
-        self.max = 0
-
-    def enter(self):
-        with self._lock:
-            self.current += 1
-            self.max = max(self.max, self.current)
-
-    def leave(self):
-        with self._lock:
-            self.current -= 1
 
 
 def _prefer_failure(failures):
@@ -56,21 +42,16 @@ def _prefer_failure(failures):
     return ranked[0][1]
 
 
-def run_writers(count, worker, flight=None):
+def run_writers(count, worker):
     """Run ``count`` workers at once. Exit priority stays 1, then 3, then 2."""
     failures = []
 
     def wrapped(index):
-        if flight is not None:
-            flight.enter()
         try:
             return worker(index)
         except Exception as exc:
             failures.append(exc)
             return None
-        finally:
-            if flight is not None:
-                flight.leave()
 
     with ThreadPoolExecutor(max_workers=count) as pool:
         list(pool.map(wrapped, range(count)))
@@ -80,16 +61,14 @@ def run_writers(count, worker, flight=None):
 
 
 class Session:
-    def __init__(self, database_id, account_id, writer_key, transport, ledger, clock,
-                 sleeper=None, rng=None):
+    def __init__(self, database_id, account_id, writer_key, transport, ledger, clock):
         self.database_id = database_id
         self.account_id = account_id
         self.writer_key = writer_key
         self.transport = transport
         self.ledger = ledger
         self.clock = clock
-        self.sleeper = sleeper or time.sleep
-        self.rng = rng or random.Random()
+        self.rng = random.Random()
         self.samples = []
         self.errors = 0
         self.calls = 0
@@ -212,7 +191,7 @@ class Session:
         with self._lock:
             schedule = quiet_backoff_seconds if self.quiet else backoff_seconds
             delay = schedule(tries, self.rng.randrange)
-        self.sleeper(delay)
+        time.sleep(delay)
 
     def _finish(self, operation, status, payload, required, fields):
         if already_created(operation, status, payload):
@@ -349,10 +328,6 @@ def _steady(spec, session, started):
             return
 
     run_writers(spec.writers, worker)
-
-
-def _device(prefix, index):
-    return "{0}-d{1}".format(prefix, index)
 
 
 def _disabled(payload):

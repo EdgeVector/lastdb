@@ -1,5 +1,7 @@
 """Change one member while preserving the rest of the applied configuration."""
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
@@ -13,13 +15,6 @@ SPEC = {"name": "social", "version": 1}
 TRANSPORT_ERRORS = (OSError, http.client.HTTPException)
 PENDING_SCHEMA = "social-graph/SharingUpdate"
 UNREAD = object()
-PENDING = {
-    "name": "SharingUpdate", "descriptive_name": "Sharing Update",
-    "purpose_statement": "The last pending Social sharing update for one database.",
-    "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["request"], "field_types": {"request": "String"},
-    "field_descriptions": {"request": "The exact pending revision and member configuration."},
-}
 
 
 def can_manage_sharing(database):
@@ -79,7 +74,7 @@ class Sharing:
         return f"/api/databases/{database_id}/share/config"
 
     def update_member(self, database_id, node_key, active):
-        definition = self.node.declare_private(PENDING)
+        definition = self.node.declare_private("SharingUpdate")
         starting_member = UNREAD
         for _ in range(3):
             previous_request = self.node.get_record(PENDING_SCHEMA, database_id)
@@ -120,7 +115,7 @@ class Sharing:
         raise SocialError("the sharing configuration changed concurrently; retry the operation")
 
     def apply_members(self, database_id, expected_revision, members, circles):
-        definition = self.node.declare_private(PENDING)
+        definition = self.node.declare_private("SharingUpdate")
         previous = self.node.get_record(PENDING_SCHEMA, database_id)
         if previous and previous["fields"]["request"]:
             raise SocialError("finish the pending sharing change first")
@@ -139,13 +134,13 @@ class Sharing:
         return self.finish_update(database_id, definition, saved)
 
     def resume_pending(self, database_id):
-        definition = self.node.declare_private(PENDING)
+        definition = self.node.declare_private("SharingUpdate")
         saved = self.node.get_record(PENDING_SCHEMA, database_id)
         if saved and saved["fields"]["request"]:
             self.finish_update(database_id, definition, saved)
 
     def pending_edit(self, database_id):
-        self.node.declare_private(PENDING)
+        self.node.declare_private("SharingUpdate")
         saved = self.node.get_record(PENDING_SCHEMA, database_id)
         if not saved or not saved["fields"]["request"]:
             return None

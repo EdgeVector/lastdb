@@ -1,5 +1,7 @@
 """Private Social contacts stored as keyed Person records."""
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
@@ -11,38 +13,6 @@ from lastdb import LastDBError, SocialError
 PERSON_SCHEMA = "social-graph/Person"
 ADDRESS_BOOK = "social-graph/AddressBookEntry"
 BOOK_HASH = "contacts"
-BOOK = {
-    "name": "AddressBookEntry", "descriptive_name": "Address Book Entry",
-    "purpose_statement": "A keyed reference to a verified Social contact.",
-    "schema_type": "HashRange",
-    "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
-    "fields": ["person_id"], "field_types": {"person_id": "String"},
-    "field_descriptions": {"person_id": "Primary key of the private Social Person record."},
-}
-PERSON = {
-    "name": "Person",
-    "descriptive_name": "Person",
-    "purpose_statement": "One person the owner has added. The hash coordinate person_id is the hash of node_key.",
-    "schema_type": "Hash",
-    "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["person_id", "node_key", "contact_code", "display_name", "avatar", "added_at"],
-    "field_types": {
-        "person_id": "String",
-        "node_key": "String",
-        "contact_code": "String",
-        "display_name": "String",
-        "avatar": "String",
-        "added_at": "DateTime",
-    },
-    "field_descriptions": {
-        "person_id": "Stable id of this person: the hash of node_key.",
-        "node_key": "Node key of this person. person_id is its hash.",
-        "contact_code": "Code another person uses to add this contact.",
-        "display_name": "Name shown for this person.",
-        "avatar": "Inline thumbnail.",
-        "added_at": "When this person was added, RFC 3339.",
-    },
-}
 
 
 def query_for(person_id):
@@ -54,7 +24,7 @@ class People:
         self.node = node
 
     def declare(self):
-        return self.node.declare_private(PERSON)
+        return self.node.declare_private("Person")
 
     def import_contact(self, node_key, display_name, contact_code):
         if not isinstance(display_name, str) or not (1 <= len(display_name.strip()) <= 100):
@@ -132,7 +102,7 @@ class People:
 
     def index(self, person_id, definition=None):
         if definition is None:
-            definition = self.node.declare_private(BOOK)
+            definition = self.node.declare_private("AddressBookEntry")
         target = {"hash": BOOK_HASH, "range": person_id}
         try:
             self.node.call("POST", "/api/mutation", {
@@ -146,7 +116,7 @@ class People:
 
     def address_book(self):
         self.declare()
-        self.node.declare_private(BOOK)
+        self.node.declare_private("AddressBookEntry")
         result = []
         cursor = None
         while True:

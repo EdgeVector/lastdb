@@ -1,5 +1,7 @@
 """Store reusable circles and apply approved per-database sharing changes."""
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from http.client import HTTPException
@@ -13,13 +15,6 @@ from sharing import can_manage_sharing
 
 SCHEMA = "social-graph/CircleDirectory"
 KEY = "directory"
-DEFINITION = {
-    "name": "CircleDirectory", "descriptive_name": "Circle directory",
-    "purpose_statement": "Private reusable circles and their unfinished database updates.",
-    "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["directory"], "field_types": {"directory": "String"},
-    "field_descriptions": {"directory": "Circle identities, members, linked database scopes and pending updates."},
-}
 
 
 def encoded(value):
@@ -31,7 +26,7 @@ class ReusableCircles:
         self.node, self.sharing, self.circles = node, sharing, circles
 
     def load(self):
-        definition = self.node.declare_private(DEFINITION)
+        definition = self.node.declare_private("CircleDirectory")
         record = self.node.get_record(SCHEMA, KEY)
         data = json.loads(record["fields"]["directory"]) if record else {"circles": [], "pending": []}
         return definition, record, data

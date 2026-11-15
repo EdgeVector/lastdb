@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Read restored and shared records through one explicitly owned Mini daemon."""
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
@@ -14,8 +16,15 @@ _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from harness.daemon import poll_until, stop_process, verify_shutdown_receipt  # noqa: E402
-from harness.uds import SOCKET_OPERATIONS, SOCKET_REFUSALS, UnixConnection as Connection, classify_socket_refusal  # noqa: E402,F401
+from harness import (  # noqa: E402,F401
+    SOCKET_OPERATIONS,
+    SOCKET_REFUSALS,
+    UnixConnection as Connection,
+    classify_socket_refusal,
+    poll_until,
+    stop_process,
+    verify_shutdown_receipt,
+)
 from support import ACCOUNT, CHUNK, CREDENTIALS_FILE, OperationError, decode_json, read_json, require  # noqa: E402
 
 
@@ -163,17 +172,3 @@ class OwnedNode:
         self.forced = stop_process(self.process, timeout=210, kill_timeout=10) or self.forced
         self.process = None
         self.disconnect()
-
-    def exit_report(self):
-        state = "stopped" if self.process is None else self.process.poll()
-        try:
-            reports = sorted((self.home / "crash-reports").glob("*.txt"))[:4]
-            locations = [
-                line.partition(":")[2].strip()
-                for report in reports
-                for line in report.read_text(errors="replace").splitlines()[:16]
-                if line.startswith("location:")
-            ]
-        except OSError:
-            locations = ["unreadable"]
-        return {"home": self.home.name, "exit": state, "crash_locations": locations}

@@ -80,25 +80,14 @@ def _workspace_members(manifest: Path) -> list[Path]:
     return members
 
 
-def _resolve_src_dirs(repo: Path, scopes: list[str]) -> list[Path]:
-    if not scopes:
-        members = _workspace_members(repo / "Cargo.toml")
-        if not members:
-            raise SystemExit("ERROR: no workspace members found in Cargo.toml")
-        for m in members:
-            if not (m / "src").is_dir():
-                raise SystemExit(f"ERROR: workspace crate src missing: {m.relative_to(repo)}/src")
-        return [m / "src" for m in members]
-    src_dirs: list[Path] = []
-    for raw in scopes:
-        d = repo / raw
-        if not d.is_dir():
-            raise SystemExit(f"source-lints: scope directory not found: {raw}")
-        nested = [d / "src"] if (d / "src").is_dir() else [p for p in sorted(d.glob("*/src")) if p.is_dir()]
-        if not nested:
-            raise SystemExit(f"source-lints: no {raw}/src or {raw}/*/src directories found")
-        src_dirs.extend(nested)
-    return src_dirs
+def _resolve_src_dirs(repo: Path) -> list[Path]:
+    members = _workspace_members(repo / "Cargo.toml")
+    if not members:
+        raise SystemExit("ERROR: no workspace members found in Cargo.toml")
+    for m in members:
+        if not (m / "src").is_dir():
+            raise SystemExit(f"ERROR: workspace crate src missing: {m.relative_to(repo)}/src")
+    return [m / "src" for m in members]
 
 
 def _iter_src_files(src_dirs: list[Path], repo: Path) -> list[tuple[str, list[str]]]:
@@ -292,21 +281,14 @@ def _check_schema_core_statics(repo: Path) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scope", action="append", default=[], help="limit src/ checks to <dir>")
-    parser.add_argument("--strict", action="store_true", help="compat flag (strict is always on)")
-    parser.add_argument("--schema-core-statics", action="store_true", help="run only schema_core statics gate")
-    args = parser.parse_args()
+    argparse.ArgumentParser(description=__doc__).parse_args()
     repo = Path(__file__).resolve().parents[2]
-    if args.schema_core_statics:
-        return 0 if _check_schema_core_statics(repo) else 1
-    src_dirs = _resolve_src_dirs(repo, args.scope)
+    src_dirs = _resolve_src_dirs(repo)
     ok = _check_src_trees(_iter_src_files(src_dirs, repo), len(src_dirs))
-    if not args.scope:
-        tracked = _tracked_files(repo)
-        ok = _check_no_hardcoded_urls(repo, tracked) and ok
-        ok = _check_edition_inheritance(repo, tracked) and ok
-        ok = _check_schema_core_statics(repo) and ok
+    tracked = _tracked_files(repo)
+    ok = _check_no_hardcoded_urls(repo, tracked) and ok
+    ok = _check_edition_inheritance(repo, tracked) and ok
+    ok = _check_schema_core_statics(repo) and ok
     if not ok:
         print("ERROR: one or more source lints failed", file=sys.stderr)
         return 1

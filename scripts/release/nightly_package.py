@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Package the exact, matched nightly CLI and daemon without host installation."""
 
+from __future__ import annotations
+
 import argparse
 import gzip
-import hashlib
 import json
 import os
 from pathlib import Path
 import platform
 import re
 import subprocess
+import sys
 import tarfile
 
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+from harness import file_sha256  # noqa: E402
 
 TARGETS = {
     "aarch64-apple-darwin": ("darwin", "arm64"),
@@ -21,11 +28,7 @@ MAX_BINARY_BYTES = 512 * 1024 * 1024
 
 
 def digest(path):
-    value = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            value.update(chunk)
-    return value.hexdigest()
+    return file_sha256(path)
 
 
 def binary_version(path):

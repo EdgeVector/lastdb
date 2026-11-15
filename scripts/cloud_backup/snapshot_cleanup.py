@@ -4,6 +4,8 @@ No cache is shared across these unique database IDs. Keep metadata and owner
 admission until the service confirms both provider prefixes are empty.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import hashlib
 import http.client
@@ -13,8 +15,7 @@ import re
 import time
 import urllib.error
 
-import baseline_data
-from support import OperationError, dev_endpoint, require
+from support import BaselineDataError, OperationError, dev_endpoint, require, seed
 
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
@@ -75,8 +76,8 @@ def load_owner():
             "snapshot_baseline")
     generation = baseline.get("account_generation")
     try:
-        key = NodeKey.from_seed(baseline_data.seed(phrase))
-    except baseline_data.BaselineDataError:
+        key = NodeKey.from_seed(seed(phrase))
+    except BaselineDataError:
         raise OperationError("snapshot_phrase") from None
     require(baseline.get("account") == account_id(key.public) == SNAPSHOT_DEV_ACCOUNT
             and isinstance(generation, str) and DECIMAL.fullmatch(generation)

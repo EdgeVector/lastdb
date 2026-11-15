@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Freeze a nightly source and require its exact GitHub Actions checks."""
 
+from __future__ import annotations
+
 import argparse
 from datetime import datetime, timezone
 import json
@@ -11,7 +13,6 @@ import selectors
 import subprocess
 import tempfile
 import time
-import tomllib
 
 
 REPOSITORY = "EdgeVector/lastdb"
@@ -178,7 +179,11 @@ def make_plan(output):
     output = Path(output).resolve()
     if output.is_relative_to(root) or output.exists():
         raise ValueError("The nightly plan needs a fresh path outside the source checkout")
-    core = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    match = re.search(
+        r'(?ms)^\[workspace\.package\]\s*\n(?:(?!\[)[^\n]*\n)*?version\s*=\s*"([^"\n]+)"',
+        (root / "Cargo.toml").read_text(),
+    )
+    core = match.group(1) if match else None
     if not isinstance(core, str) or not re.fullmatch(CORE_VERSION, core):
         raise ValueError("The workspace version is not a numeric release core")
     date = datetime.now(timezone.utc).strftime("%Y%m%d")

@@ -35,7 +35,7 @@ log_file="$state_dir/step.log"
 
 # Silent native compiles (aws-lc-sys) have killed this lane at ~80-90s of no
 # stdout — duration_mode mystery-90s, job timeout-minutes is 20. Emit a
-# heartbeat so the docker runner sees activity. 0 disables (tests).
+# heartbeat so the docker runner sees activity. 0 disables.
 heartbeat_secs="${MINI_GATE_HEARTBEAT_SECS:-20}"
 heartbeat_pid=""
 if [[ "$heartbeat_secs" =~ ^[1-9][0-9]*$ ]]; then
@@ -69,14 +69,9 @@ trap - EXIT
 if [[ "$rc" -ne 0 ]]; then
   tail -n 200 "$log_file" >"$state_dir/fail_excerpt.txt" || true
 
-  # Keep the most actionable identifier in a tiny, status-safe sidecar. Rust
-  # unit-test output names a failing test as `test ... FAILED`; serialized
-  # integration-test loops announce each test binary with an Actions group.
-  failed_test="$({ sed -n 's/^test \(.*\) \.\.\. FAILED$/\1/p' "$log_file" || true; } | head -n 1)"
+  # Keep the most actionable identifier in a tiny, status-safe sidecar.
   failed_group="$({ sed -n 's/^::group:://p' "$log_file" || true; } | tail -n 1)"
-  if [[ -n "$failed_test" ]]; then
-    printf 'test=%s\n' "$failed_test" >"$state_dir/fail_summary.txt"
-  elif [[ -n "$failed_group" ]]; then
+  if [[ -n "$failed_group" ]]; then
     printf 'target=%s\n' "$failed_group" >"$state_dir/fail_summary.txt"
   else
     printf 'step=%s\n' "$step_name" >"$state_dir/fail_summary.txt"
