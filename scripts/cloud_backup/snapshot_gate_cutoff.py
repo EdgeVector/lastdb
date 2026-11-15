@@ -1,5 +1,6 @@
 """Native snapshot cutover, lagging-peer offline tail, reopen, and fresh restore."""
 
+from functools import partial
 import http.client
 import json
 import os
@@ -14,14 +15,13 @@ if _SCRIPTS not in sys.path:
 
 from harness import create, key as record_key, replace_row as replace  # noqa: E402
 from node import OwnedNode  # noqa: E402
-from snapshot_cleanup import SNAPSHOT_DEV_ACCOUNT, current_attempt, start_tracking  # noqa: E402
+from snapshot_attempt_account import inspect as inspect_attempt  # noqa: E402
+from snapshot_cleanup import current_attempt, start_tracking  # noqa: E402
 from snapshot_gate_aws import (  # noqa: E402
     CUTOFF_DIGEST,
     SNAPSHOT_THROUGH,
     entry_key,
-    reclaimed_storage,
     summary,
-    verify_cloud_target,
 )
 from snapshot_gate_reclaim import (  # noqa: E402
     NEWER_THAN_SNAPSHOT,
@@ -30,7 +30,7 @@ from snapshot_gate_reclaim import (  # noqa: E402
     automatic_supported,
     check_auto_reclaim,
     index_status,
-    reclaim_compatibility_prefix,
+    reclaim_signed_prefix,
 )
 from snapshot_gate_roundtrip import cli, prefixed  # noqa: E402
 from support import (  # noqa: E402
@@ -198,7 +198,7 @@ def check_tail(private, call, source, peer, *, automatic):
         require(call("head", {"device_id": device}) == {"last_writer_seq": seq}, "private_native_writer_head")
 
 
-def catch_up(private, programs, call, database, api_key, source, peer, records, *, history_supported, automatic):
+def catch_up(private, programs, call, database, read_storage, api_key, source, peer, records, *, history_supported, automatic):
     require(peer.process is None and peer.clean_stops > 0, "private_native_peer_stopped")
     require(not os.path.lexists(peer.home / CREDENTIALS_FILE), "private_native_peer_no_credentials")
     receipt = peer.home / "log-sync" / database / "native-recovery.json"
@@ -211,13 +211,14 @@ def catch_up(private, programs, call, database, api_key, source, peer, records, 
         prepare_native_snapshot(private, call, source, database)
         if automatic:
             automatic_supported(call, eligible=True)
-            preimage = auto_reclaim_preimage(private, call, database, peer)
+            preimage = auto_reclaim_preimage(private, call, database, read_storage, peer)
         snapshot_id = publish_native_snapshot(private, programs, call, source, database)
         if automatic:
-            first_tail = check_auto_reclaim(private, call, source, database, snapshot_id, preimage)
+            first_tail = check_auto_reclaim(private, call, source, read_storage, snapshot_id, preimage)
             expected_records.append(NEWER_THAN_SNAPSHOT)
         else:
-            reclaim_compatibility_prefix(private, call, database, snapshot_id, history_supported)
+            summary("automatic_reclaim=unavailable")
+            reclaim_signed_prefix(private, call, database, read_storage, snapshot_id, history_supported=history_supported)
         expect_cut(private, call, snapshot_id)
         current_head = SNAPSHOT_THROUGH + int(automatic)
         final_head = FINAL_HEAD + int(automatic)
@@ -241,7 +242,7 @@ def catch_up(private, programs, call, database, api_key, source, peer, records, 
                 automatic_floor(private, state, snapshot_id) == SNAPSHOT_THROUGH,
                 "native_automatic_reclaim_final_floor",
             )
-            entries, _ = reclaimed_storage(database, through=final_head)
+            entries, _ = read_storage(through=final_head)
             require(
                 set(entries) == {entry_key(seq) for seq in range(current_head, final_head + 1)}
                 and entries[entry_key(current_head)] == first_tail,
@@ -260,8 +261,8 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
     import private_recovery as private
     from run import post
 
-    verify_cloud_target(guard)
     attempt = current_attempt()
+    read_storage = partial(inspect_attempt, attempt, through=SNAPSHOT_THROUGH)
     database = guard.allow_stream(attempt.database)
     summary(f"database_id={database}")
     endpoint = dev_endpoint()
@@ -304,12 +305,12 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
     history_supported = index_status(call, database, None, allow_older_service=True)
     if not history_supported:
         summary("history_index=unsupported signed_bulk_reclaim=not_exercised")
-    credentials = OwnedNode(root / "connection", programs, account=SNAPSHOT_DEV_ACCOUNT)
+    credentials = OwnedNode(root / "connection", programs, account=owner.account)
     credentials.home.mkdir(mode=0o700)
     write_private(credentials.home / "identity.key", owner.key.private.private_bytes_raw())
     private.connect(programs, credentials, owner.api_key)
     source, peer = (
-        OwnedNode(root / name, programs, account=SNAPSHOT_DEV_ACCOUNT, isolated_copy=True, keep_saved_credentials=True)
+        OwnedNode(root / name, programs, account=owner.account, isolated_copy=True, keep_saved_credentials=True)
         for name in ("source", "peer")
     )
     private.prepare_source(source, database, owner.key)
@@ -323,6 +324,7 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
         programs,
         call,
         database,
+        read_storage,
         owner.api_key,
         source,
         peer,
@@ -331,7 +333,7 @@ def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
         automatic=automatic,
     )
 
-    restored = OwnedNode(root / "restored", programs, account=SNAPSHOT_DEV_ACCOUNT)
+    restored = OwnedNode(root / "restored", programs, account=owner.account)
     try:
         receipt = programs.command(
             credentials.home,

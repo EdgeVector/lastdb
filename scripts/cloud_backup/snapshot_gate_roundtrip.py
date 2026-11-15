@@ -9,7 +9,7 @@ import time
 
 from node import OwnedNode
 from programs import execute
-from snapshot_cleanup import SNAPSHOT_DEV_ACCOUNT, current_attempt, register_and_track
+from snapshot_cleanup import current_attempt, register_and_track
 from snapshot_gate_aws import gate_id, note, summary
 from support import CREDENTIALS_FILE, OperationError, private_file, read_json, require, stable, write_private
 
@@ -303,9 +303,9 @@ def restore(programs, source, destination, database_id, phrase, numbers):
     note(numbers, "replayed", replayed)
 
 
-def check_restored(programs, destination, database_id, digest, numbers):
+def check_restored(programs, destination, database_id, digest, numbers, account):
     started = time.monotonic()
-    restored = OwnedNode(destination, programs, account=SNAPSHOT_DEV_ACCOUNT)
+    restored = OwnedNode(destination, programs, account=account)
     try:
         restored.start(sign_in=False)
         count = verify_records(restored, database_id, digest)
@@ -328,7 +328,7 @@ def run_gate(programs, root, guard, owner):
     note(numbers, "database_id", database_id)
     home = root / "source"
     home.mkdir(mode=0o700)
-    node = OwnedNode(home, programs, account=SNAPSHOT_DEV_ACCOUNT, isolated_copy=True, keep_saved_credentials=True)
+    node = OwnedNode(home, programs, account=owner.account, isolated_copy=True, keep_saved_credentials=True)
     write_private(home / "identity.key", owner.key.private.private_bytes_raw())
     install_registry(home, database_id)
     opt_into_first_snapshot(home, database_id)
@@ -340,14 +340,14 @@ def run_gate(programs, root, guard, owner):
         connected = programs.command(
             home,
             ["backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-             "--expected-user-hash", SNAPSHOT_DEV_ACCOUNT, "--json"],
+             "--expected-user-hash", owner.account, "--json"],
             input_bytes=owner.api_key.encode(),
             timeout=60,
         )
         require(
             connected.get("ok") is True
             and connected.get("credentials_saved") is True
-            and connected.get("account_id") == SNAPSHOT_DEV_ACCOUNT,
+            and connected.get("account_id") == owner.account,
             "dev_connection",
         )
         register_and_track(guard, attempt, owner)
@@ -363,7 +363,7 @@ def run_gate(programs, root, guard, owner):
         (home / CREDENTIALS_FILE).rename(connection / CREDENTIALS_FILE)
         shutil.rmtree(home)
         restore(programs, connection, destination, database_id, owner.phrase, numbers)
-        check_restored(programs, destination, database_id, digest, numbers)
+        check_restored(programs, destination, database_id, digest, numbers, owner.account)
     finally:
         node.cleanup_stop()
     summary("snapshot gate passed")

@@ -6,8 +6,6 @@ from snapshot_gate_aws import (
     SNAPSHOT_THROUGH,
     entry_digest,
     entry_key,
-    prune_verified_prefix,
-    reclaimed_storage,
     summary,
     verify_facts,
 )
@@ -78,7 +76,7 @@ def index_status(call, database, first, *, allow_older_service=False):
     return True
 
 
-def check_indexed_history(call, database, entries, facts):
+def check_indexed_history(call, database, read_storage, entries, facts):
     require(index_status(call, database, "1"), "native_history_index_available")
     request = {"action": "index-history", "expected_first_indexed_delivery": "1"}
     result = call("snapshot/bytes", request)
@@ -92,7 +90,7 @@ def check_indexed_history(call, database, entries, facts):
         "native_history_index_stale_retry",
     )
     require(
-        index_status(call, database, "1") and reclaimed_storage(database) == (entries, facts),
+        index_status(call, database, "1") and read_storage() == (entries, facts),
         "native_history_index_preserved_storage",
     )
     summary("history_index=verified_already_indexed_no_op legacy_backfill=not_exercised")
@@ -121,8 +119,8 @@ def reclaim_step(private, call, request, before, after):
     raise OperationError("native_reclaim_deadline")
 
 
-def auto_reclaim_preimage(private, call, database, peer):
-    entries, facts = reclaimed_storage(database)
+def auto_reclaim_preimage(private, call, database, read_storage, peer):
+    entries, facts = read_storage()
     require(
         set(entries) == {entry_key(seq) for seq in range(1, SNAPSHOT_THROUGH + 1)},
         "native_automatic_reclaim_initial_bodies",
@@ -143,12 +141,12 @@ def auto_reclaim_preimage(private, call, database, peer):
     return facts, entry["entry"]
 
 
-def check_auto_reclaim(private, call, source, database, snapshot_id, preimage):
+def check_auto_reclaim(private, call, source, read_storage, snapshot_id, preimage):
     initial_facts, old_entry = preimage
     tail = SNAPSHOT_THROUGH + 1
     private.write(source, database, NEWER_THAN_SNAPSHOT)
     private.wait_prefix(source, database, tail, "native_automatic_reclaim_tail")
-    previous, facts_with_tail = reclaimed_storage(database, through=tail)
+    previous, facts_with_tail = read_storage(through=tail)
     tail_key = entry_key(tail)
     require(
         tail_key in previous and all(facts_with_tail.get(key) == value for key, value in initial_facts.items()),
@@ -171,7 +169,7 @@ def check_auto_reclaim(private, call, source, database, snapshot_id, preimage):
         lambda state: automatic_floor(private, state, snapshot_id) == SNAPSHOT_THROUGH,
     )
     require(
-        reclaimed_storage(database, through=tail) == ({tail_key: previous[tail_key]}, facts_with_tail),
+        read_storage(through=tail) == ({tail_key: previous[tail_key]}, facts_with_tail),
         "native_automatic_reclaim_storage",
     )
     legacy = call("list", {"after": "10", "limit": "2"}, expected_error=400)
@@ -183,7 +181,7 @@ def check_auto_reclaim(private, call, source, database, snapshot_id, preimage):
     return previous[tail_key]
 
 
-def check_bulk_reclaim(private, call, database, request, entries, facts):
+def check_bulk_reclaim(private, call, read_storage, request, entries, facts):
     target = SNAPSHOT_THROUGH - 1
     window = {**request, "target_through": str(target), "max_steps": 2}
     receipt = reclaim_receipt(request["snapshot_id"], target)
@@ -202,22 +200,22 @@ def check_bulk_reclaim(private, call, database, request, entries, facts):
     )
     last = entry_key(SNAPSHOT_THROUGH)
     require(
-        reclaimed_storage(database) == ({last: entries[last]}, facts),
+        read_storage() == ({last: entries[last]}, facts),
         "native_bulk_reclaim_preserved_suffix",
     )
     summary(f"signed_bulk_reclaim=verified max_steps=2 floor={target} retained_delivery={SNAPSHOT_THROUGH}")
     reclaim_step(private, call, {**window, "target_through": str(SNAPSHOT_THROUGH)}, target, SNAPSHOT_THROUGH)
 
 
-def reclaim_signed_prefix(private, call, database, snapshot_id, *, history_supported):
-    entries, facts = reclaimed_storage(database)
+def reclaim_signed_prefix(private, call, database, read_storage, snapshot_id, *, history_supported):
+    entries, facts = read_storage()
     require(
         set(entries) == {entry_key(position) for position in range(1, SNAPSHOT_THROUGH + 1)},
         "native_reclaim_initial_bodies",
     )
     verify_facts(database, SNAPSHOT_THROUGH, entries, facts)
     if history_supported:
-        check_indexed_history(call, database, entries, facts)
+        check_indexed_history(call, database, read_storage, entries, facts)
     legacy_list = {"after": "10", "limit": "2"}
     before = call("list", legacy_list)
     require(
@@ -239,7 +237,7 @@ def reclaim_signed_prefix(private, call, database, snapshot_id, *, history_suppo
     )
 
     if history_supported:
-        check_bulk_reclaim(private, call, database, request, entries, facts)
+        check_bulk_reclaim(private, call, read_storage, request, entries, facts)
     else:
         reclaim_step(private, call, request, 0, 8)
         stale = call("snapshot/bytes", {**request, "expected_floor": "0"}, expected_error=409)
@@ -262,19 +260,6 @@ def reclaim_signed_prefix(private, call, database, snapshot_id, *, history_suppo
         legacy == {"code": "unsupported_capability", "field": "snapshot.native_reset_required"},
         "native_reclaim_legacy_refused",
     )
-    require(reclaimed_storage(database) == ({}, facts), "native_reclaim_physical_prefix")
+    require(read_storage() == ({}, facts), "native_reclaim_physical_prefix")
     private.check_entry_retry(call, old_entry, SNAPSHOT_THROUGH)
     summary(f"signed_reclaim=verified floor={SNAPSHOT_THROUGH} physical_prefix=absent accepted_facts=unchanged")
-
-
-def reclaim_compatibility_prefix(private, call, database, snapshot_id, history_supported):
-    summary("automatic_reclaim=unavailable")
-    state = retention(private, call, snapshot_id, allow_older_service=True)
-    require(state is None or state[1] == 0, "native_reclaim_initial_floor")
-    require(not history_supported or state == (True, 0), "native_bulk_reclaim_unavailable")
-    if state == (True, 0):
-        reclaim_signed_prefix(private, call, database, snapshot_id, history_supported=history_supported)
-    else:
-        prune_verified_prefix(database, snapshot_id, SNAPSHOT_THROUGH)
-        reason = "unsupported" if state is None else "disabled"
-        summary(f"signed_reclaim={reason} used=run_owned_DEV_prefix_removal")

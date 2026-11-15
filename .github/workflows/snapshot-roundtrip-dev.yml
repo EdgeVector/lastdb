@@ -3,8 +3,8 @@ name: Snapshot round trip
 # Owner signed-database snapshot backup and restore on DEV, with generated
 # records only. A pull request checks this recipe's syntax and receives no
 # cloud credentials. The gate itself runs only for a push to main, the daily
-# schedule, or a manual dispatch of main. Both modes and provider cleanup
-# use the same dedicated DEV snapshot account.
+# schedule, or a manual dispatch of main. Each proof attempt uses its own
+# DEV account. The release check also requires account retirement.
 #
 # exemem-infra deploy.yml can start a build of this commit with no inputs:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
@@ -103,8 +103,8 @@ jobs:
             test "$SNAPSHOT_MODE" = native-cutoff
           fi
           if [ "$SNAPSHOT_MODE" = resume-cleanup ]; then
-            test -n "$ORIGINAL_RUN_ID"
-            test -n "$ORIGINAL_RUN_ATTEMPT"
+            [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]]
+            [[ "$ORIGINAL_RUN_ATTEMPT" =~ ^[1-9][0-9]{0,4}$ ]]
           else
             test -z "$ORIGINAL_RUN_ID"
             test -z "$ORIGINAL_RUN_ATTEMPT"
@@ -125,24 +125,25 @@ jobs:
     with:
       client: ${{ github.event.inputs.client || 'build' }}
 
-  snapshot-roundtrip-dev:
-    # Release gates accept the newest snapshot-roundtrip-dev check on a source
-    # commit. Nightly, native cutoff and cleanup-only use other check names.
-    # github.event.inputs is empty on push and schedule.
-    name: ${{ github.event.inputs.mode == 'resume-cleanup' && 'snapshot-roundtrip-not-requested' || github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
+  snapshot-operation:
+    name: ${{ github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-operation-dev' || github.event.inputs.client == 'nightly' && 'snapshot-import-published-nightly' || 'snapshot-import-dev' }}
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
-    # Builds can overlap. Hold one slot from protected proof through retirement.
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     concurrency:
-      group: snapshot-roundtrip-dev
+      group: snapshot-attempt-${{ github.run_id }}-${{ github.run_attempt }}
       queue: max
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
+    outputs:
+      attempt: ${{ steps.origin.outputs.attempt }}
     steps:
+      - id: origin
+        name: Record the operation attempt
+        run: printf 'attempt=%s\n' "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
@@ -166,27 +167,14 @@ jobs:
         if: github.event.inputs.mode != 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
         run: |
           python3 scripts/cloud_backup/snapshot_gate.py run \
             --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
-      - name: Assume the DEV mutation-log cleanup role
-        if: always()
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
-          aws-region: us-west-2
-          role-session-name: snapshot-gate-${{ github.run_id }}
       - name: Recover a lagging device across the native snapshot cutoff
         id: native-cutoff
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
           REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
         run: |
           args=()
@@ -195,27 +183,89 @@ jobs:
           fi
           python3 scripts/cloud_backup/snapshot_gate.py native-cutoff \
             --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION" "${args[@]}"
-      - name: Retire run-owned provider objects and quota before deleting metadata
-        if: always()
+
+  snapshot-retirement:
+    name: Retire the DEV snapshot account
+    needs: snapshot-operation
+    if: always() && needs.snapshot-operation.result != 'skipped' && github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
+    concurrency:
+      group: snapshot-attempt-${{ github.run_id }}-${{ github.run_attempt }}
+      queue: max
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retire provider bytes, metadata, and the exact account
         env:
-          SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
-          REQUIRE_RELEASED_SNAPSHOT_BYTES: ${{ steps.snapshot-roundtrip.outcome == 'success' || steps.native-cutoff.outcome == 'success' }}
-          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
-          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
-          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
+          SNAPSHOT_PROOF_ATTEMPT: ${{ needs.snapshot-operation.outputs.attempt }}
+          REQUIRE_RELEASED_SNAPSHOT_BYTES: ${{ needs.snapshot-operation.result == 'success' }}
+        run: python3 scripts/cloud_backup/snapshot_gate.py retire
+
+  snapshot-roundtrip-dev:
+    # Releases continue to require this exact check name on the frozen source.
+    # Other selections cannot publish a newer skipped check under that name.
+    name: ${{ (github.event_name == 'pull_request' || github.event.inputs.mode == 'resume-cleanup') && 'snapshot-roundtrip-not-requested' || github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
+    needs: [snapshot-operation, snapshot-retirement]
+    if: always() && github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Require a successful import and retirement for this attempt
+        env:
+          PROOF: ${{ needs.snapshot-operation.result }}
+          RETIREMENT: ${{ needs.snapshot-retirement.result }}
+          PROOF_ATTEMPT: ${{ needs.snapshot-operation.outputs.attempt }}
         run: |
-          if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
-            python3 scripts/cloud_backup/snapshot_gate.py cleanup-native-cutoff
-          else
-            python3 scripts/cloud_backup/snapshot_gate.py cleanup
+          set -euo pipefail
+          printf 'Snapshot operation: %s\nAccount retirement: %s\n' "$PROOF" "$RETIREMENT"
+          test "$PROOF" = success
+          test "$RETIREMENT" = success
+          if [ "$PROOF_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
+            echo 'Rerun all jobs to create a fresh snapshot account proof for this attempt.' >&2
+            exit 1
           fi
+
+  snapshot-resume-origin:
+    name: Verify the earlier snapshot attempt
+    needs: recipe-syntax
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'resume-cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      legacy: ${{ steps.origin.outputs.legacy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: origin
+        name: Verify exact provenance and select its cleanup queue
+        env:
+          SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
+          ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
+        run: |
+          python3 scripts/cloud_backup/snapshot_gate.py resolve-resume \
+            "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
 
   snapshot-resume-cleanup-dev:
     name: Resume an earlier snapshot cleanup in DEV
-    needs: recipe-syntax
-    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'resume-cleanup'
+    needs: snapshot-resume-origin
+    if: needs.snapshot-resume-origin.outputs.legacy == 'true' || needs.snapshot-resume-origin.outputs.legacy == 'false'
     concurrency:
-      group: snapshot-roundtrip-dev
+      # Historical attempts still share one account, including in-flight jobs
+      # from before the cutover. New accounts only serialize an exact attempt.
+      group: ${{ needs.snapshot-resume-origin.outputs.legacy == 'true' && 'snapshot-roundtrip-dev' || format('snapshot-attempt-{0}-{1}', github.event.inputs.original_run_id, github.event.inputs.original_run_attempt) }}
       queue: max
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
@@ -229,15 +279,27 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Install the signed recipe dependency
+      - name: Verify the original attempt and resume disposable account cleanup
+        if: needs.snapshot-resume-origin.outputs.legacy == 'false'
+        env:
+          SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
+          ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
+        run: |
+          python3 scripts/cloud_backup/snapshot_gate.py resume-cleanup \
+            "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
+      - name: Install the historical signed cleanup dependency
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         run: python3 -m pip install --quiet cryptography==41.0.7
-      - name: Assume the DEV mutation-log cleanup role
+      - name: Assume the DEV mutation-log cleanup role for a historical attempt
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
           role-session-name: snapshot-resume-${{ github.run_id }}
-      - name: Verify the original attempt and resume only its signed cleanup
+      - name: Resume the historical fixed-owner signed cleanup
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         env:
           SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
           ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
@@ -246,5 +308,5 @@ jobs:
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
         run: |
-          python3 scripts/cloud_backup/snapshot_gate.py resume-cleanup \
+          python3 scripts/cloud_backup/snapshot_gate.py resume-legacy-cleanup \
             "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
