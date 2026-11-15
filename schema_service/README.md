@@ -1,6 +1,7 @@
 # schema_service
 
-Advisory Schema Service for LastDB's curated canonical field vocabulary.
+Advisory Schema Service for LastDB's curated field vocabulary and schemas
+from apps in the public LastDB App Registry.
 
 Canonical field names use full concept and property names. New fields cannot
 use the audited app abbreviations such as `bge_*` and `rle_*`. The direct
@@ -26,7 +27,20 @@ no user-installable binary, Homebrew formula, or local HTTP dev server.
 | ------ | ----------------------- | ---------------------------------------------------------------- |
 | GET    | `/health`, `/v1/health` | Liveness probe                                                   |
 | GET    | `/v1/fields/vocabulary` | Read the curated canonical field vocabulary                      |
-| POST   | `/v1/advice/schema`     | Deterministic advice for a draft schema declaration (read-only)  |
+| POST   | `/v1/advice/schema`     | Field advice and similar published schemas for a draft           |
+
+## Public app catalog
+
+An EventBridge invocation refreshes a private catalog object every five
+minutes. The reader verifies registry lists and publisher statements, fetches
+public GitHub manifests by exact commit, and uses LastDB's owned schema
+normalization. Active listings supply advice examples. The stored manifest
+definitions retain their commit identity when a listing disappears.
+
+Advice reports the catalog as `current`, `stale`, or `unavailable`. Field
+advice uses the bundled vocabulary in all three states. A `similar_schema`
+finding includes the schema identity and its app, commit, channel and API
+version.
 
 ## Verify vocabulary locally in CI
 

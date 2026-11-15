@@ -12,6 +12,9 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 
 mod findings;
+mod similar;
+
+pub use similar::CatalogSchema;
 
 /// Maximum fields one draft may name before advice refuses it.
 pub const MAX_ADVICE_FIELDS: usize = 512;
@@ -33,6 +36,19 @@ pub enum AdviceKind {
     Abbreviation,
     MissingType,
     SuggestedClassification,
+    SimilarSchema,
+}
+
+/// Signed registry listing behind a catalog suggestion.
+#[derive(Debug, Serialize)]
+pub struct SchemaProvenance {
+    pub app_id: String,
+    pub schema_name: String,
+    pub identity_hash: String,
+    pub source: String,
+    pub sha: String,
+    pub channel: String,
+    pub api_version: u32,
 }
 
 /// Catalog facts behind a finding. Every member is optional.
@@ -46,6 +62,8 @@ pub struct AdviceEvidence {
     pub suggested_type: Option<FieldValueType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_classification: Option<DataClassification>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<SchemaProvenance>,
 }
 
 /// One suggestion. No finding blocks anything.
