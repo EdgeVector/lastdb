@@ -103,7 +103,7 @@ pub(in crate::exec) async fn execute_apps_declare_schema_route(
     render(res, ctx)
 }
 
-pub(crate) async fn declare_schema_slice(body: &[u8], host: &Host) -> Result<Value, HostError> {
+async fn declare_schema_slice(body: &[u8], host: &Host) -> Result<Value, HostError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Req {

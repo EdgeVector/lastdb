@@ -48,24 +48,15 @@ mod list_keys;
 mod mutation;
 mod query;
 mod reply;
-mod saved_queries;
 mod schema_declare;
 mod schema_routes;
 mod uds_server;
 mod wire;
 
-use reply::{content_free, envelope, error_response, json_ok, render};
+use reply::{content_free, envelope, error_response, json_ok, render, HostError};
 
-pub(crate) use database_routes::list_database_rows;
-pub(crate) use file_blob::{delete_blob_slice, put_blob_inner};
-pub(crate) use mutation::commit_parsed_mutation;
-pub(crate) use query::execute_query;
-pub(crate) use reply::HostError;
-pub(crate) use schema_declare::declare_schema_slice;
 pub use schema_declare::normalize_app_manifest_schema;
-pub(crate) use schema_routes::{get_schema_value, resolve_schema_name};
 pub use uds_server::UdsServer;
-pub(crate) use wire::parse_query_body;
 pub use wire::{parse_mutation_body, ParsedMutation, Reject};
 
 pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsResponse>>(
@@ -180,10 +171,6 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                 heap_route!(backup_routes::backup_snapshot, req, ctx, host)
             }
             DataRoute::CloudWake => return backup_routes::cloud_wake(req, ctx, host),
-            DataRoute::SavedQuerySave => heap_route!(saved_queries::save_route, req, ctx, host),
-            DataRoute::SavedQueryReconcile => {
-                heap_route!(saved_queries::reconcile_route, req, ctx, host)
-            }
         };
         fut.await
     })
@@ -199,9 +186,7 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::AppsDeclareSchema
         | DataRoute::DropSchema
         | DataRoute::BackupSnapshot
-        | DataRoute::CloudWake
-        | DataRoute::SavedQuerySave
-        | DataRoute::SavedQueryReconcile => admin_handler_timeout(),
+        | DataRoute::CloudWake => admin_handler_timeout(),
         DataRoute::Status => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),

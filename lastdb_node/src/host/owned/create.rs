@@ -89,9 +89,6 @@ impl Tables {
             }
             return Err(error.kind);
         }
-        self.changed.send_modify(|generation| {
-            *generation = generation.saturating_add(1);
-        });
         Ok(entry)
     }
 }

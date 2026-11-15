@@ -80,7 +80,7 @@ pub(in crate::exec) fn list_schemas(
     ))
 }
 
-pub(crate) fn get_schema_value(host: &Host, name: &str) -> Result<Value, HostError> {
+fn get_schema_value(host: &Host, name: &str) -> Result<Value, HostError> {
     let mgr = host.records().schema_manager();
     let nf = || HostError::new(404, format!("Schema not found: {name}"));
     let c = resolve_schema_name(host, name)?.ok_or_else(nf)?;
@@ -196,7 +196,10 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
     blocked.next().is_none().then(|| first.schema.name.clone())
 }
 
-pub(crate) fn resolve_schema_name(host: &Host, name: &str) -> Result<Option<String>, HostError> {
+pub(in crate::exec) fn resolve_schema_name(
+    host: &Host,
+    name: &str,
+) -> Result<Option<String>, HostError> {
     let mgr = host.records().schema_manager();
     let has = |n: &str| {
         mgr.get_schema_metadata(n)

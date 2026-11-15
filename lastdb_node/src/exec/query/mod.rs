@@ -49,7 +49,10 @@ pub(in crate::exec) async fn query_route(
     }
 }
 
-pub(crate) async fn execute_query(host: &Host, req: QueryRequest) -> Result<Value, HostError> {
+pub(in crate::exec) async fn execute_query(
+    host: &Host,
+    req: QueryRequest,
+) -> Result<Value, HostError> {
     host.records()
         .db_ops()
         .read_scope()

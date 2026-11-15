@@ -151,8 +151,6 @@ pub enum DataRoute {
     DbDeleteBlob,
     BackupSnapshot,
     CloudWake,
-    SavedQuerySave,
-    SavedQueryReconcile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,8 +211,6 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/db/put-blob" => Some(("POST", DbPutBlob)),
         "/api/db/fetch-blob" => Some(("POST", DbFetchBlob)),
         "/api/db/delete-blob" => Some(("POST", DbDeleteBlob)),
-        "/api/saved-queries/save" => Some(("POST", SavedQuerySave)),
-        "/api/saved-queries/reconcile" => Some(("POST", SavedQueryReconcile)),
         "/api/query" => Some(("POST", Query)),
         "/api/mutation" => Some(("POST", Mutation)),
         "/api/mutations/batch" => Some(("POST", MutationBatch)),

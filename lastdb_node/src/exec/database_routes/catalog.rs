@@ -17,7 +17,7 @@ use crate::share_invitation::MAX_SEALED_INVITATION_BYTES;
 
 pub(super) const ACCEPT_PATH: &str = "/api/databases/accept";
 
-pub(crate) fn list_rows(host: &Host) -> Result<Vec<Value>, HostError> {
+fn list_rows(host: &Host) -> Result<Vec<Value>, HostError> {
     let map_owned = |error: crate::host::owned::OwnedError| {
         let (status, msg) = error.status();
         HostError::new(status, msg)

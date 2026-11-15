@@ -75,7 +75,7 @@ async fn stamp_and_validate(
     Ok(())
 }
 
-pub(crate) async fn commit_parsed_mutation(
+pub(in crate::exec) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {

@@ -12,8 +12,6 @@ use std::time::Duration;
 mod contributors;
 #[path = "share_cmds/named.rs"]
 mod named;
-#[path = "share_cmds/queries/mod.rs"]
-mod queries;
 
 pub(super) fn run(
     data_dir: Option<PathBuf>,
@@ -42,7 +40,6 @@ pub(super) fn run(
             regrant,
         }),
         ShareCommand::Contributors(action) => contributors::run(data_dir, db, action),
-        ShareCommand::Queries(action) => queries::run(data_dir, action),
         action => run_offline(data_dir, action),
     }
 }
