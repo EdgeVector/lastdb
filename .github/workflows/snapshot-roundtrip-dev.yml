@@ -227,7 +227,10 @@ jobs:
           printf 'Snapshot operation: %s\nAccount retirement: %s\n' "$PROOF" "$RETIREMENT"
           test "$PROOF" = success
           test "$RETIREMENT" = success
-          test "$PROOF_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+          if [ "$PROOF_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
+            echo 'Rerun all jobs to create a fresh snapshot account proof for this attempt.' >&2
+            exit 1
+          fi
 
   snapshot-resume-cleanup-dev:
     name: Resume an earlier snapshot cleanup in DEV

@@ -9,7 +9,8 @@ from urllib.parse import parse_qsl, urlsplit
 import uuid
 
 from snapshot_cleanup import CLEANUP_BUDGET, GRANT_TTL_MS, SnapshotOwner, released_bytes
-from support import CREDENTIALS_FILE, OperationError, decode_json, dev_endpoint, private_file, read_json, require, write_private
+from support import (CREDENTIALS_FILE, OperationError, decode_json, dev_endpoint, private_file,
+                     read_json, require, stable, write_private)
 
 
 ROOT = "/api/cloud/backups/v2/dev-snapshot-proof"
@@ -87,7 +88,7 @@ def _private_value(path, cap):
     with stream:
         require(0 < info.st_size <= cap, "snapshot_attempt_local_file")
         value = stream.read(cap + 1)
-    require(len(value) == info.st_size, "snapshot_attempt_local_file")
+        require(len(value) == info.st_size and stable(info, os.fstat(stream.fileno())), "snapshot_attempt_local_file")
     return value
 
 
@@ -113,15 +114,16 @@ def provision(programs, root, attempt):
         if status != 503:
             break
         time.sleep(2)
-    require(status == 200 and set(reply or {}) == {"account_id", "account_generation", "database_id"}
+    require(status == 200 and isinstance(reply, dict) and set(reply) == {"account_id", "account_generation", "database_id"}
             and _binding(reply, attempt) == account, "snapshot_attempt_provision")
     connected = programs.command(home, ["backup", "connect", "--env", "dev", "--json"], timeout=60)
     require(connected.get("ok") is True and connected.get("account_id") == account
             and connected.get("registration_attempted") is True and connected.get("credentials_saved") is True,
             "snapshot_attempt_enrollment")
     saved = read_json(home / CREDENTIALS_FILE, 16384)
+    require(isinstance(saved, dict) and isinstance(saved.get("connection"), dict), "snapshot_attempt_enrollment_scope")
     api_key = saved.get("api_key")
-    require(saved.get("api_url") == dev_endpoint() and saved.get("connection", {}).get("account_id") == account
+    require(saved.get("api_url") == dev_endpoint() and saved["connection"].get("account_id") == account
             and isinstance(api_key, str) and re.fullmatch(r"[!-~]{1,4096}", api_key), "snapshot_attempt_enrollment_scope")
     return SnapshotOwner(key, reply["account_generation"], phrase, api_key)
 
