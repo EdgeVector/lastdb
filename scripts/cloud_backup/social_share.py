@@ -8,10 +8,9 @@ import subprocess
 import time
 import uuid
 
-from signed_files import retry, run_operation, summary
 from social_app import (call as app_call, command as social_command, install, observe_access,
                         open_content_apps, read_album, report_content_flow, sdk, window)
-from support import OperationError, decode_json, require
+from support import OperationError, decode_json, require, retry, run_operation, summary
 
 
 ROOT = Path(__file__).resolve().parents[2]

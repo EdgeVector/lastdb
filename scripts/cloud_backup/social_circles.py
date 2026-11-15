@@ -9,10 +9,9 @@ import sys
 import uuid
 
 from node import Connection
-from signed_files import retry, run_operation, summary
 from social_app import call, install, observe_access, sdk, window
 from social_log_views import inbox, pending_positions, published_views, scope_for
-from support import OperationError, decode_json, require
+from support import OperationError, decode_json, require, retry, run_operation, summary
 
 SCOPE = {"name": "whole-database", "version": 1}
 ALBUM = "dev-albums/Album"

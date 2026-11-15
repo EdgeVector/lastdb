@@ -20,7 +20,6 @@ import record_runs  # noqa: E402
 from record_requests import mutation as native_mutation, conditioned  # noqa: E402
 import record_drop_tracking  # noqa: E402
 import record_inline_files  # noqa: E402
-import record_share_files  # noqa: E402
 import record_named_databases  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
@@ -389,7 +388,6 @@ def main():
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
         record_named_databases.check(node, args.cli.resolve(strict=True), output)
-        record_share_files.exercise(args.cli.resolve(strict=True), node)
     finally:
         node.close()
 

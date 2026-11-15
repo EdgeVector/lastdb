@@ -9,17 +9,17 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cloud_backup"))
+_SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_SCRIPTS), str(_SCRIPTS / "cloud_backup")]
 
-from drive import LoadError
-from native_records import create, key as record_key, replace
-from node import OwnedNode
-from node_auth import NodeKey, account_id
-from programs import Programs
-from routes import ROOT, decimal
-from signed_files import retry, running, summary
-from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure,
-                     read_json, require, save_json, write_private)
+from drive import LoadError  # noqa: E402
+from harness import create, key as record_key, replace_row as replace  # noqa: E402
+from node import OwnedNode  # noqa: E402
+from node_auth import NodeKey, account_id  # noqa: E402
+from programs import Programs  # noqa: E402
+from routes import ROOT, decimal  # noqa: E402
+from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure, read_json,  # noqa: E402
+                     require, retry, running, save_json, summary, write_private)
 
 SCHEMA = "PrivateRecovery"
 FIELDS = {"id": "signed-recovery", "note": "owner-only DEV record"}

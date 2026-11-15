@@ -24,8 +24,7 @@ PENDING = {
 
 def can_manage_sharing(database):
     return database.get("kind") == "shareable" and (
-        database.get("sharingMode") == "whole_database"
-        or database.get("spec") in (SPEC, {"name": "lastdb-files", "version": 1}))
+        database.get("sharingMode") == "whole_database" or database.get("spec") == SPEC)
 
 
 class Sharing:

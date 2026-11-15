@@ -10,8 +10,7 @@ import subprocess
 from urllib.parse import parse_qs, urlsplit
 
 from node import Connection
-from signed_files import retry, summary
-from support import decode_json, require
+from support import decode_json, require, retry, summary
 
 
 ROOT = Path(__file__).resolve().parents[2]

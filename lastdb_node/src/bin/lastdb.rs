@@ -18,8 +18,6 @@ mod mutate_cmds;
 mod record_get_cmds;
 #[path = "lastdb/share_cmds.rs"]
 mod share_cmds;
-#[path = "lastdb/share_file/mod.rs"]
-mod share_file;
 #[path = "lastdb/status_ops_cmds.rs"]
 mod status_ops_cmds;
 #[path = "lastdb/uds_client.rs"]
@@ -75,7 +73,6 @@ fn run(cli: Cli) -> Result<(), String> {
                         ShareContributorCommand::Grant { .. }
                             | ShareContributorCommand::Revoke { .. }
                     )
-                    | ShareCommand::Files(_)
             )
     );
     if cli.db.is_some() && !db_scoped {

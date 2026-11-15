@@ -28,10 +28,6 @@ impl DatabaseTarget {
             .expect("database path starts with /api");
         Cow::Owned(format!("{DATABASE_SCOPE_PREFIX}{sel}{suffix}"))
     }
-
-    pub(crate) fn selector(&self) -> Option<&str> {
-        self.selector.as_deref()
-    }
 }
 
 fn fetch_databases(socket: &Path) -> Result<Value, String> {
