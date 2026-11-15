@@ -390,6 +390,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: read
     uses: ./.github/workflows/notify-scheduled-failure.yml
     with:
       workflow_file: nightly-release.yml
