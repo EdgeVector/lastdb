@@ -164,23 +164,11 @@ pub(super) fn replace_record(
         Some(InlineWrite::Clear) => None,
         None => before.and_then(|r| r.inline_file.clone()),
     };
-    let metadata =
-        (mutation.source_file_name.is_some() || mutation.metadata.is_some()).then(|| {
-            RecordMetadata {
-                source_file_name: mutation.source_file_name.clone(),
-                metadata: mutation
-                    .metadata
-                    .clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect(),
-            }
-        });
     let replacement = RecordReplacement {
         target: mutation.target(),
         expected: mutation.expected.clone(),
         fields,
-        metadata,
+        metadata: replacement_metadata(mutation, before),
         file,
         inline_file,
     };
@@ -188,4 +176,28 @@ pub(super) fn replace_record(
         .validate(schema.require_record_keys()?)
         .map_err(SchemaError::InvalidData)?;
     Ok(StoredRecord::replacement(replacement, stamp, before))
+}
+
+fn replacement_metadata(
+    mutation: &Mutation,
+    before: Option<&StoredRecord>,
+) -> Option<RecordMetadata> {
+    if mutation.mutation_type == MutationType::Replace
+        && mutation
+            .contribution
+            .as_ref()
+            .is_some_and(|admission| admission.schema_scope)
+    {
+        // The same preimage supplies the revision check and the publisher's metadata.
+        return before.and_then(|record| record.meta.clone());
+    }
+    (mutation.source_file_name.is_some() || mutation.metadata.is_some()).then(|| RecordMetadata {
+        source_file_name: mutation.source_file_name.clone(),
+        metadata: mutation
+            .metadata
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+    })
 }
