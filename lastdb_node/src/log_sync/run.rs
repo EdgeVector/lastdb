@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicBool;
 use mutation_log::{DatabaseId, DatabaseKind, DeviceId, ListPage, LogError, PrincipalId};
 use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
 
-use crate::host::Host;
+use crate::host::{BlockedDelivery, Host};
 
 use super::accepted;
 use super::apply::{self, PagePlan};
@@ -36,15 +36,21 @@ impl Ready {
                 .is_ok_and(|private| private)
     }
 
-    fn record_download(&self, host: &Host, through: u64, error: Option<String>) {
+    fn record_download(
+        &self,
+        host: &Host,
+        through: u64,
+        error: Option<String>,
+        blocked: Option<BlockedDelivery>,
+    ) {
         if self.reports_personal(host) {
             host.cloud_sync
-                .record_download(&self.database_id, through, error);
+                .record_download(&self.database_id, through, error, blocked);
         }
     }
 
     fn download_failed(&self, host: &Host, error: impl Into<String>) -> Pause {
-        self.record_download(host, self.state.cursor(), Some(error.into()));
+        self.record_download(host, self.state.cursor(), Some(error.into()), None);
         Pause::Retry
     }
 }
@@ -160,8 +166,14 @@ async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &Outcome) -> 
     {
         Ok(plan) => plan,
         Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", error = %error, "pulled page was not applied");
-            return ready.download_failed(host, error);
+            tracing::warn!(target: "lastdbd::log_sync", error = %error.message, "pulled page was not applied");
+            ready.record_download(
+                host,
+                ready.state.cursor(),
+                Some(error.message),
+                error.blocked,
+            );
+            return Pause::Retry;
         }
     };
     match plan {
@@ -177,10 +189,10 @@ fn checkpoint_download(host: &Host, ready: &Ready, seq: u64) -> Pause {
     }
     if let Err(error) = session::mark_prefix(&host.home, &ready.database_id, seq) {
         tracing::warn!(target: "lastdbd::log_sync", error = %error, "durable prefix was not stored");
-        ready.record_download(host, seq, Some(error));
+        ready.record_download(host, seq, Some(error), None);
         return Pause::Retry;
     }
-    ready.record_download(host, seq, None);
+    ready.record_download(host, seq, None, None);
     Pause::Idle
 }
 
