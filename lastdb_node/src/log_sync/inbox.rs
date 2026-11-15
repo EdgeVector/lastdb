@@ -21,6 +21,9 @@ pub(super) async fn drain(host: &Host, log: &CloudLog) -> Result<(), String> {
     if page.entries.is_empty() {
         return Ok(());
     }
+    // Schema and record validation must see the published database before this
+    // device can classify a proposal as invalid and settle it.
+    require_current_prefix(host, log).await?;
     for stored in &page.entries {
         if &stored.entry.writer.key == log.principal() {
             return Err("publisher entry was returned by the inbox".into());
@@ -37,6 +40,17 @@ pub(super) async fn drain(host: &Host, log: &CloudLog) -> Result<(), String> {
         .await
         .map_err(|error| format!("inbox settlement failed: {error}"))?;
     Ok(())
+}
+
+async fn require_current_prefix(host: &Host, log: &CloudLog) -> Result<(), String> {
+    let database = log.database_id();
+    let through = super::owner_recovery::head(log).await?;
+    if super::session::load_cursor(&host.home, database)? == through
+        && crate::database_replay::prefix_durable(&host.home, database)
+    {
+        return Ok(());
+    }
+    Err("publisher must finish syncing published changes before processing proposals".into())
 }
 
 async fn list(log: &CloudLog) -> Result<Option<ListPage>, String> {
