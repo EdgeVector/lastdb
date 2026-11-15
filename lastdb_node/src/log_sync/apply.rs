@@ -81,14 +81,14 @@ pub(crate) async fn apply_page(
             || !mark_local(host, log.database_id(), entry)?
         {
             if let Some(through) = consumed {
-                super::contributions::settle(log, through).await?;
+                super::contributions::settle_legacy(host, log, through).await?;
             }
             return Ok(PagePlan::Hold(handled));
         }
         handled = Some(stored.delivery_seq);
     }
     if let Some(through) = consumed {
-        super::contributions::settle(log, through).await?;
+        super::contributions::settle_legacy(host, log, through).await?;
     }
     Ok(PagePlan::Ack(*cursor))
 }

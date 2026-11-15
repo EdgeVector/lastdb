@@ -12,8 +12,10 @@ use fold_db::schema::types::{Mutation, MutationType, Schema};
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, Namespace};
 use serde::{Deserialize, Serialize};
 
+use crate::accepted_writes;
 use crate::host::owned::{Entry as OwnedEntry, Resolved};
 use crate::host::Host;
+use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::{ConfigError, ConfigUpdate};
 use crate::registered_share::{self, RegisteredShare};
 use crate::share_invitation::inbox;
@@ -35,7 +37,24 @@ const BODY_LIMIT: usize = 96 * 1024;
 const DEVICE_PREFIX: &str = "member-";
 const INBOX_NAMESPACE: &str = "lastdb-member-submission";
 
-pub(super) async fn settle(log: &CloudLog, through: u64) -> Result<(), String> {
+pub(super) async fn publish_before_settlement(host: &Host, log: &CloudLog) -> Result<(), String> {
+    let (store, _) = DatabaseContentKey::local_store(host, log.database_id())
+        .map_err(|_| "inbox write store is unavailable")?
+        .ok_or("inbox write store is unavailable")?;
+    let runtime = store.db_ops().native_runtime();
+    let through = accepted_writes::status(&runtime).head;
+    if accepted_writes::status(&runtime).acked < through {
+        super::accepted::publish_owned(host, log).await?;
+    }
+    if accepted_writes::status(&runtime).acked < through {
+        return Err("accepted inbox writes still await publication".into());
+    }
+    Ok(())
+}
+
+pub(super) async fn settle_legacy(host: &Host, log: &CloudLog, through: u64) -> Result<(), String> {
+    // A retry can repeat intake safely using the durable contribution receipts.
+    publish_before_settlement(host, log).await?;
     let request = serde_json::json!({
         "database_id": log.database_id(),
         "through": cloud_backup_protocol::DecimalU64::new(through),
