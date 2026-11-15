@@ -129,6 +129,7 @@ def matches(row, request):
     expected = request["schema"]
     keys = row.get("record_keys") or {}
     return (isinstance(definition, str) and bool(DEFINITION_ID.fullmatch(definition))
+            and row.get("file_required", False) == expected.get("file_required", False)
             and sorted(row.get("fields") or []) == sorted(expected["fields"])
             and keys.get("primary") == expected["record_keys"]["primary"]
             and keys.get("alternates", {}) == expected["record_keys"]["alternates"]
