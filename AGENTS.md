@@ -38,6 +38,31 @@ Before designing or planning anything against LastDB, read the brain records:
 The docs folders were removed on 2026-11-02. `docs/` keeps only designs for
 work in progress. Read a removed page with `git show 13a2cf188:<path>`.
 
+## Preserve whole-database sharing (Tom, 2026-11-14)
+
+Keep these requirements in every LastDB, Social, SDK, and ExeMem change that
+touches whole-database sharing. Change them only at Tom's explicit direction.
+
+- Keep the published log and the pending mutation log as separate stored logs
+  with independent positions under one database ID. Do not delete either log
+  or combine them behind a read filter. Keep older mixed history private and
+  recoverable through migrations.
+- Every active receiver can read the whole published database and append an
+  encrypted proposal, even with an empty write grant. Only the publisher can
+  read or settle pending entries. Receivers cannot read even their own
+  pending entries. Only publisher-authored changes reach the published log.
+- Keep the publisher-signed, revisioned configuration per database. ExeMem
+  uses the active roster for transport access. The publisher's LastDB uses the
+  confirmed configuration on the publisher's machine to check the sender's
+  current schema grant and the record rules after downloading and decrypting
+  each proposal. An app's displayed permissions grant no write authority.
+- Commit allowed changes locally and publish them under the publisher's key
+  before marking their pending entries processed. Discard denied or invalid
+  changes. A queue receipt confirms delivery to the pending log.
+
+Read the [sharing design](docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
+before changing this path.
+
 ## Code size limits (CI fails a PR that breaks them)
 
 Source file: 400 lines. Function: 100 lines. CI checks
