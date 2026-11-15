@@ -10,10 +10,12 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
 # The same gate with the latest published nightly client:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
-# Native cutoff recovery from the exact accepted client, with provider bytes retained:
+# Native cutoff recovery from the exact accepted client:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff
 # Require automatic log removal on the deployed DEV service:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff -f require_automatic=true
+# Resume cleanup for one completed attempt without building or uploading:
+#   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=resume-cleanup -f original_run_id=RUN -f original_run_attempt=ATTEMPT
 #
 # After checking out lastdb, that client and this round trip are:
 #   python3 scripts/release/published_client.py --out-dir DIR
@@ -34,16 +36,25 @@ on:
           - build
           - nightly
       mode:
-        description: "Round trip, or native cutoff recovery with provider bytes retained"
+        description: "Round trip, native cutoff recovery, or cleanup of an earlier run"
         type: choice
         default: round-trip
         options:
           - round-trip
           - native-cutoff
+          - resume-cleanup
       require_automatic:
         description: "Require automatic log removal in native cutoff mode"
         type: boolean
         default: false
+      original_run_id:
+        description: "Original GitHub Actions run ID for resume-cleanup"
+        type: string
+        required: false
+      original_run_attempt:
+        description: "Original GitHub Actions attempt number for resume-cleanup"
+        type: string
+        required: false
   pull_request:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
@@ -80,6 +91,8 @@ jobs:
           SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
           CLIENT: ${{ github.event.inputs.client || 'build' }}
           REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
+          ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
+          ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
         run: |
           test "$SELECTED_REF" = refs/heads/main
           if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
@@ -87,6 +100,13 @@ jobs:
           fi
           if [ "$REQUIRE_AUTOMATIC" = true ]; then
             test "$SNAPSHOT_MODE" = native-cutoff
+          fi
+          if [ "$SNAPSHOT_MODE" = resume-cleanup ]; then
+            test -n "$ORIGINAL_RUN_ID"
+            test -n "$ORIGINAL_RUN_ATTEMPT"
+          else
+            test -z "$ORIGINAL_RUN_ID"
+            test -z "$ORIGINAL_RUN_ATTEMPT"
           fi
       - name: Check the operational recipe syntax
         run: |
@@ -96,7 +116,7 @@ jobs:
   build-client:
     name: Build
     needs: recipe-syntax
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     permissions:
       contents: read
       actions: read
@@ -106,12 +126,11 @@ jobs:
 
   snapshot-roundtrip-dev:
     # Release gates accept the newest snapshot-roundtrip-dev check on a source
-    # commit. A published nightly client is not that commit's build, so this
-    # run must not emit that check name. github.event.inputs is empty on push
-    # and schedule; the inputs context is not available for those events.
-    name: ${{ github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
+    # commit. Nightly, native cutoff and cleanup-only use other check names.
+    # github.event.inputs is empty on push and schedule.
+    name: ${{ github.event.inputs.mode == 'resume-cleanup' && 'snapshot-roundtrip-not-requested' || github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     # Builds can overlap. Hold one slot from protected proof through retirement.
     concurrency:
       group: snapshot-roundtrip-dev
@@ -189,3 +208,42 @@ jobs:
           else
             python3 scripts/cloud_backup/snapshot_gate.py cleanup
           fi
+
+  snapshot-resume-cleanup-dev:
+    name: Resume an earlier snapshot cleanup in DEV
+    needs: recipe-syntax
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'resume-cleanup'
+    concurrency:
+      group: snapshot-roundtrip-dev
+      queue: max
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install the signed recipe dependency
+        run: python3 -m pip install --quiet cryptography==41.0.7
+      - name: Assume the DEV mutation-log cleanup role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
+          aws-region: us-west-2
+          role-session-name: snapshot-resume-${{ github.run_id }}
+      - name: Verify the original attempt and resume only its signed cleanup
+        env:
+          SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
+          ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_SNAPSHOT_DEV_BASELINE }}
+        run: |
+          python3 scripts/cloud_backup/snapshot_gate.py resume-cleanup \
+            "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
