@@ -85,7 +85,7 @@ jobs:
           python3 -m py_compile
           scripts/lints/*.py
           scripts/lints/protocol_pin/*.py
-          scripts/harness/*.py
+          scripts/harness.py
           scripts/operations/*.py
           scripts/benchmarks/*.py
           scripts/cloud_backup/*.py

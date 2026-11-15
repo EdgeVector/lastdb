@@ -134,7 +134,7 @@ jobs:
 
       - name: Publish the paired writer comparison
         if: always() && matrix.lane == 'writers'
-        run: python3 driver/scripts/benchmarks/write_gate_report.py --output "$BENCH_OUTPUT/writers"
+        run: python3 driver/scripts/benchmarks/write_gate.py report --output "$BENCH_OUTPUT/writers"
 
       - name: Measure alternating baseline and candidate pairs
         if: matrix.lane == 'speed'
@@ -162,7 +162,7 @@ jobs:
         id: speed-confirmation
         run: |
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
-            python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT"
+            python3 driver/scripts/benchmarks/run.py --confirm speed --output "$BENCH_OUTPUT"
 
       - name: Measure disk and memory growth in fresh generated homes
         if: matrix.lane == 'growth'
@@ -188,7 +188,7 @@ jobs:
         id: growth-confirmation
         run: |
           timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
+            python3 driver/scripts/benchmarks/run.py --confirm growth --output "$BENCH_OUTPUT/resource-growth"
 
       - name: Measure v2 disk size against record bytes
         if: matrix.lane == 'disk'
@@ -250,7 +250,7 @@ jobs:
 
       - name: Publish separate native diagnostic summary
         if: always() && matrix.lane == 'speed' && inputs.investigation
-        run: python3 driver/scripts/benchmarks/native_report.py --output "$BENCH_OUTPUT/native-diagnostics"
+        run: python3 driver/scripts/benchmarks/report.py --mode native --output "$BENCH_OUTPUT/native-diagnostics"
 
       - name: Publish advisory disk and memory growth summary
         if: always() && matrix.lane == 'growth'
@@ -267,7 +267,7 @@ jobs:
         env:
           GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}
         run: |
-          python3 driver/scripts/benchmarks/disk_budget_report.py \
+          python3 driver/scripts/benchmarks/growth_report.py --mode disk-budget \
             --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME"
 
       - name: Upload measurements and build receipts

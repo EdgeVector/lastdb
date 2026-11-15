@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Measure two exact LastDB revisions on generated homes, without local builds."""
+"""Measure two exact LastDB revisions on generated homes, or repeat suspect suites once."""
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -9,13 +11,14 @@ import platform
 import re
 import signal
 import subprocess
+import sys
 import time
 
-from node import Node, file_hash, save
-from native_phases import collect_native_phases
-from workload import PROFILES, Workload
-from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 from disk_budget import DiskBudgetWorkload, require_search_off
+from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
+from node import Node, file_hash, save
+from phases import collect_native_phases
+from workload import PROFILES, Workload
 
 
 def measure(binary, revision, recipe, output, workers):
@@ -27,13 +30,11 @@ def measure(binary, revision, recipe, output, workers):
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=workers,
                     environment=environment, record_protocol=True)
         node.start()
-        # Every program creates a record home; the report shows the format of each label.
         save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
             require_search_off(node, output, "before")
             DiskBudgetWorkload(node, recipe, output).run()
-            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-            save(output / "disk-format.json", {"marker": marker})
+            save(output / "disk-format.json", {"marker": (node.home / "data" / "laststore-pack-node-v1").read_text()})
             require_search_off(node, output, "after")
         elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
@@ -72,8 +73,7 @@ def interrupted(_signum, _frame):
 
 def recipe_for(args):
     recipe = {**PROFILES[args.profile], "body_bytes": 1024, "fields": 4,
-              "native_timing": args.native_timing,
-              "read_batches": [1, 32], "write_batches": [1, 128],
+              "native_timing": args.native_timing, "read_batches": [1, 32], "write_batches": [1, 128],
               "clients": [1] if PROFILES[args.profile].get("insert_only") else [1, 4, 16, 32],
               "writes": "durable acknowledgements; product default storage and maintenance",
               "reads": "known exact hash/range keys; storage receipts on every measured read",
@@ -94,37 +94,66 @@ def recipe_for(args):
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
-            recipe["growth"] = {**recipe["growth"],
-                                "delete_target_bytes": 10 * 2**20}
+            recipe["growth"] = {**recipe["growth"], "delete_target_bytes": 10 * 2**20}
             recipe.update(disk_budget=True, search_enabled=False, pairs=1,
                           writes="durable batches; flush at each checkpoint; default automatic run merges",
                           disk="database data/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
-                          logical="GET /api/db/schemas total_logical_bytes; the stored record values "
-                                  "of the home")
+                          logical="GET /api/db/schemas total_logical_bytes; the stored record values of the home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
     recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
     return recipe
 
 
+def confirm_suite(parser, kind, output):
+    from growth_report import compare as growth_compare
+    from report import compare as speed_compare, load_comparison as load, suspects
+    if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
+        parser.error("Automatic benchmark confirmation requires a GitHub-hosted Actions runner")
+    manifest, comparison = load(output, {"growth": growth_compare, "speed": speed_compare}[kind])
+    initial = sorted(suspects(comparison, kind))
+    save(output / "repeat-plan.json", {"kind": kind, "suspects": initial, "max_repeats": 1})
+    if not initial:
+        print("No suspect measures; skip the confirmation run.", flush=True)
+        return 0
+    print(f"Repeat {kind} once for {len(initial)} suspect case/measure combinations.", flush=True)
+    command = [sys.executable, str(Path(__file__).resolve()),
+               "--profile", manifest["profile"], "--pairs", str(manifest["recipe"]["pairs"]),
+               "--driver-revision", manifest["driver_revision"], "--output", str(output / "confirmation")]
+    for label, binary in manifest["binaries"].items():
+        command.extend([f"--{label}", binary["path"], f"--{label}-revision", binary["revision"],
+                        f"--{label}-workers", str(manifest["recipe"]["uds_workers"][label])])
+    if kind == "growth":
+        command.append("--growth-only")
+    if manifest["recipe"]["native_timing"]:
+        command.append("--native-timing")
+    subprocess.run(command, check=True)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--confirm", choices=("speed", "growth"))
     for label in ("baseline", "candidate"):
-        parser.add_argument(f"--{label}", type=Path, required=True)
-        parser.add_argument(f"--{label}-revision", required=True)
+        parser.add_argument(f"--{label}", type=Path)
+        parser.add_argument(f"--{label}-revision")
         parser.add_argument(f"--{label}-workers", type=int, choices=(0, 4, 8, 16, 32), default=0)
     parser.add_argument("--profile", choices=PROFILES, default="standard")
     parser.add_argument("--pairs", type=int, choices=range(1, 7))
     parser.add_argument("--native-timing", action="store_true")
     parser.add_argument("--growth-only", action="store_true")
     parser.add_argument("--disk-budget-only", action="store_true")
-    parser.add_argument("--driver-revision", required=True)
+    parser.add_argument("--driver-revision")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.confirm:
+        return confirm_suite(parser, args.confirm, args.output)
+    if any(getattr(args, name) is None for name in (
+            "baseline", "baseline_revision", "candidate", "candidate_revision", "driver_revision")):
+        parser.error("--baseline, --baseline-revision, --candidate, --candidate-revision, and --driver-revision are required")
     if (args.native_timing or args.growth_only or args.disk_budget_only
             or args.baseline_workers or args.candidate_workers) and (
-            os.environ.get("GITHUB_ACTIONS") != "true"
-            or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
+            os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
         parser.error("Diagnostic, growth, and worker measurements require a GitHub-hosted Actions runner")
     if args.disk_budget_only and (args.growth_only or args.native_timing):
         parser.error("Disk budget requires its own generated v2 workload")
@@ -149,23 +178,18 @@ def main():
         version = subprocess.check_output([str(binary), "--version"], text=True, timeout=10).strip()
         if f"bench-{revision}" not in version:
             parser.error(f"The {label} executable version differs from the selected revision")
-        binaries[label] = {"path": str(binary), "sha256": file_hash(binary),
-                           "revision": revision, "version": version}
+        binaries[label] = {"path": str(binary), "sha256": file_hash(binary), "revision": revision, "version": version}
     recipe = recipe_for(args)
     manifest = {"format_version": 1, "profile": args.profile, "recipe": recipe,
-                "driver_revision": args.driver_revision,
-                "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
+                "driver_revision": args.driver_revision, "host": host_details(),
+                "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
-                            for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
-                                         "native_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py", "disk_usage.py", "disk_budget.py", "disk_budget_report.py", "disk_deletes.py",
-                                         "tail_report.py", "mixed_report.py",
-                                         "advisories.py", "confirm.py",
-                                         "range_continuation/process_counters.py")}}
+                            for name in ("run.py", "node.py", "workload.py", "phases.py", "report.py",
+                                         "artifact.py", "build.py", "growth.py", "growth_report.py",
+                                         "disk_budget.py", "range_continuation/process_counters.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
-        order = ("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")
-        for label in order:
+        for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
             print(json.dumps({"pair": pair, "version": label, "profile": args.profile}), flush=True)

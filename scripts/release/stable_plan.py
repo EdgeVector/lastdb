@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Freeze a stable build and its app sources; never consult a developer home."""
+"""Freeze, gate, package, and compatibility-prove a stable LastDB release."""
+
+from __future__ import annotations
 
 import argparse
 import base64
@@ -7,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 from urllib.error import HTTPError
 
 from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
@@ -36,9 +39,6 @@ def app_sources():
         entries = [row for row in listing["apps"] if row.get("app_id") == app and row.get("status") == "listed"
                    and row.get("source") == f"https://github.com/EdgeVector/{app}.git"
                    and row.get("outbox_format_version") in (None, int(outbox[1]))]
-        # Re-prove the published compatible commit, instead of requiring a
-        # publisher to follow every unrelated app main update. Missing API or
-        # outbox compatibility selects app main for fresh CI proof instead.
         result[app] = (max(entries, key=lambda row: row["published_at"])["sha"] if entries
                        else api(f"repos/EdgeVector/{app}/commits/main")["sha"])
     return result
@@ -99,15 +99,75 @@ def make(output):
     return plan
 
 
+def package_bundle(plan_path, target, bin_dir, output):
+    from nightly_package import MAX_BINARY_BYTES, archive_pair, digest, validate_architecture, validate_pair, write_json
+    plan = load(plan_path)
+    output.mkdir(parents=True)
+    binaries = validate_pair(bin_dir, plan["version"])
+    validate_architecture(bin_dir, target)
+    bundle = output / f"lastdb-{target}.tar.gz"
+    archive_pair(bundle, bin_dir, binaries, plan["epoch"])
+    if bundle.stat().st_size > MAX_BINARY_BYTES:
+        raise ValueError("Release archive exceeds the package bound")
+    write_json(output / f"lastdb-{target}.manifest.json", {
+        "schema": "lastdb.mini.bundle.v1", "target": target,
+        "source_git_oid": plan["source"], "version": plan["version"], "binaries": binaries,
+        "artifact": {"file": bundle.name, "size": bundle.stat().st_size, "sha256": digest(bundle)}})
+
+
+def prove_compatibility(plan_path, bundles, output):
+    from nightly_assets import digest, document, validate_bundle
+    from nightly_package import write_json
+    from nightly_probe import OwnedNode, operations, unpack
+    from stable_apps import prove
+    plan = load(plan_path)
+    output.mkdir(parents=True)
+    target = "x86_64-unknown-linux-gnu"
+    validate_bundle(bundles, target, plan)
+    bundle = bundles / f"lastdb-{target}.tar.gz"
+    manifest = document(bundles / f"lastdb-{target}.manifest.json")
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output,
+                     plan["version"], enable_search=True)
+    try:
+        unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
+        observed = operations(node)
+        apps = prove(node, plan, output)
+    finally:
+        node.close()
+    write_json(output / "app-compatibility.json", {
+        "schema": "lastdb.app.compatibility.proof.v1", "source": plan["source"],
+        "run_url": plan["run_url"], "lastdb_source": plan["source"], "lastdb_build": plan["version"],
+        "api_version": observed["api_version"], "outbox_format_version": observed["current_outbox_format_version"],
+        "bundle_sha256": digest(bundle), "apps": apps, "complete": True,
+        "daemon_stopped": True, "home_removed": True})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "gates"))
-    parser.add_argument("--plan", type=Path, required=True)
-    parser.add_argument("--wait-seconds", type=int, default=RELEASE_GATE_WAIT_SECONDS)
+    sub = parser.add_subparsers(dest="command", required=True)
+    plan_cmd = sub.add_parser("plan")
+    plan_cmd.add_argument("--plan", type=Path, required=True)
+    gates_cmd = sub.add_parser("gates")
+    gates_cmd.add_argument("--plan", type=Path, required=True)
+    gates_cmd.add_argument("--wait-seconds", type=int, default=RELEASE_GATE_WAIT_SECONDS)
+    pkg_cmd = sub.add_parser("package")
+    pkg_cmd.add_argument("--plan", type=Path, required=True)
+    pkg_cmd.add_argument("--target", choices=("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"), required=True)
+    pkg_cmd.add_argument("--bin-dir", type=Path, required=True)
+    pkg_cmd.add_argument("--output", type=Path, required=True)
+    compat_cmd = sub.add_parser("compatibility")
+    compat_cmd.add_argument("--plan", type=Path, required=True)
+    compat_cmd.add_argument("--bundles", type=Path, required=True)
+    compat_cmd.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = (make(args.plan) if args.command == "plan"
-              else wait_gates(load(args.plan), args.wait_seconds))
-    print(json.dumps(result, sort_keys=True))
+    if args.command == "plan":
+        print(json.dumps(make(args.plan), sort_keys=True))
+    elif args.command == "gates":
+        print(json.dumps(wait_gates(load(args.plan), args.wait_seconds), sort_keys=True))
+    elif args.command == "package":
+        package_bundle(args.plan, args.target, args.bin_dir, args.output)
+    else:
+        prove_compatibility(args.plan, args.bundles, args.output)
 
 
 if __name__ == "__main__":

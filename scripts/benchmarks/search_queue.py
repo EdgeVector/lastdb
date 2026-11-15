@@ -11,7 +11,7 @@ import time
 
 from disk_budget import DiskBudgetWorkload
 from growth import PROFILES
-from node import Node, file_hash, save
+from node import Node, file_hash, publish_summary, save
 from run import host_details, interrupted
 
 
@@ -144,7 +144,7 @@ def main():
                 "candidate_sha256": file_hash(args.candidate), "driver_revision": args.driver_revision,
                 "profile": args.profile, "host": host_details(), "runs": [],
                 "drivers": {name: file_hash(Path(__file__).with_name(name)) for name in
-                            ("search_queue.py", "node.py", "disk_usage.py", "disk_budget.py", "disk_deletes.py", "growth.py", "workload.py")}}
+                            ("search_queue.py", "node.py", "disk_budget.py", "growth.py", "workload.py")}}
     try:
         for pair in range(3 if args.profile == "nightly" else 2):
             modes = ("default-off", "enabled") if pair % 2 == 0 else ("enabled", "default-off")
@@ -156,11 +156,7 @@ def main():
         manifest["complete"] = True
     finally:
         save(args.output / "queue-growth.json", manifest)
-    report = render(manifest)
-    (args.output / "summary.md").write_text(report)
-    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-        stream.write(report)
-    print(report)
+    publish_summary(args.output, render(manifest))
     for mode in ("default-off", "enabled"):
         runs = [row["result"] for row in manifest["runs"] if row["mode"] == mode]
         for finding in set(runs[0]["advisories"]) & set(runs[1]["advisories"]):

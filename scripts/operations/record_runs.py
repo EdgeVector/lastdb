@@ -1,27 +1,19 @@
 """Reads past a run of deleted records in a home, and a schema drop.
 
-One hash has a long run of deleted keys between two live records. Draining
-range and walk cursors returns both live keys in order, regardless of when
-native compaction removes the deleted keys. A count is exact when it finishes
-and otherwise reports the read limit with next_cursor. A partial sample names
-a cursor that reaches the rest of the live records. A Hash schema with no
-hash key field walks and samples with opaque keys.
-
-The TTL sweep lists the expired keys of a hash with the same range read: it
-reads past a run of deleted records to the expired records after the run. It
-keeps a floor for each hash after the run; a write below the floor removes the
-floor, so the next passes erase the key, not a full pass 64 passes later. A
-schema drop releases the records and alternate key
-entries of the schema, so the same schema installed again holds none of them,
-and the records of other schemas stay. An installed schema refuses a change of
-its alternate keys, so its current alternate revision is its only one. A drop
-blocks the schema first: a write during the drop is refused, and no record of
-it stays. record_home.py runs this module on its CI daemon.
+Draining range and walk cursors across a long deleted run returns live keys in order;
+counts report exact totals or read-limit cursors; Hash schemas without key fields keep
+opaque keys. TTL sweep reads past deleted runs and clears per-hash floors on writes
+below the floor. Schema drop blocks concurrent writes and releases records and alternate
+entries without affecting other schemas.
 """
+from pathlib import Path
+import sys
 import threading
 import time
 import urllib.parse
-from record_requests import mutation as native_mutation, conditioned
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from harness import conditioned, mutation as native_mutation  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 # More deleted records under one hash than one request may examine.
@@ -68,17 +60,13 @@ def refused(call, words):
 
 
 def definition(name, schema_type, fields, alternates=None):
-    schema = {
-        "source": "system_seed", "name": name, "descriptive_name": name,
-        "schema_type": schema_type,
+    return {
+        "source": "system_seed", "name": name, "descriptive_name": name, "schema_type": schema_type,
         "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if schema_type == "HashRange" else {"kind": "hash"},
                         "alternates": alternates or {}},
-        "fields": fields,
-        "field_types": {field: "String" for field in fields},
-        "field_descriptions": {field: "Record home example " + field for field in fields},
-        "field_versions": {field: 1 for field in fields},
+        "fields": fields, "field_types": {f: "String" for f in fields},
+        "field_descriptions": {f: "Record home example " + f for f in fields}, "field_versions": {f: 1 for f in fields},
     }
-    return schema
 
 
 RANGED = {"kind": "hash_range", "range_type": "String"}
@@ -91,19 +79,15 @@ def seed(node, schema):
 
 
 def install(node):
-    # A Hash schema with no hash key field declares exactly one field.
-    for schema in [definition("RecordRun", "HashRange", FIELDS),
-                   definition("RecordNoKey", "Hash", ["value"]),
-                   definition("RecordAged", "HashRange", FIELDS),
-                   DROPPED, RACED]:
+    for schema in [definition("RecordRun", "HashRange", FIELDS), definition("RecordNoKey", "Hash", ["value"]),
+                   definition("RecordAged", "HashRange", FIELDS), DROPPED, RACED]:
         seed(node, schema)
 
 
 def mutation(schema, key, values, operation):
     alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
                   if schema in ("RecordDrop", "RecordRace") and operation not in ("delete", "purge") else {})
-    return native_mutation(schema, key, values, operation,
-                           alternates=alternates)
+    return native_mutation(schema, key, values, operation, alternates=alternates)
 
 
 def write(node, mutations):
@@ -231,25 +215,15 @@ def ttl_resume(node):
 
 
 def ttl_below_floor(node):
-    """A write below the floor of a hash is erased by the next passes of the TTL sweep.
-
-    After ttl_resume the floor of the hash "aged" is in the run of deleted records. A key
-    older than the run sorts below it. Each round writes one such key and waits less than the
-    64 passes after which a pass reads the hash from its start without the write note.
-    """
+    """A write below the floor of a hash is erased by the next passes of the TTL sweep."""
     older = int(time.time()) - 3 * TTL_SECONDS
     for number in range(FLOOR_ROUNDS):
-        # The passes after the last erase read the erased key as a deleted record and set the
-        # floor of the hash again.
         time.sleep(FLOOR_SETTLE_SECONDS)
         key = f"{older:020d}-a{number}"
-        write(node, [mutation("RecordAged", {"hash": "aged", "range": key},
-                              {"id": key, "bucket": "aged", "value": key}, "create")])
+        write(node, [mutation("RecordAged", {"hash": "aged", "range": key}, {"id": key, "bucket": "aged", "value": key}, "create")])
         started = time.time()
-        wait_gone(node, [key], f"the TTL sweep did not erase the expired record {key} below the "
-                  f"floor of its hash within {FLOOR_SECONDS} s", FLOOR_SECONDS)
-        print(f"TTL floor: round {number + 1} erased a write below the floor in "
-              f"{time.time() - started:.1f} s", flush=True)
+        wait_gone(node, [key], f"the TTL sweep did not erase the expired record {key} below the floor of its hash within {FLOOR_SECONDS} s", FLOOR_SECONDS)
+        print(f"TTL floor: round {number + 1} erased a write below the floor in {time.time() - started:.1f} s", flush=True)
 
 
 def ledger(node):

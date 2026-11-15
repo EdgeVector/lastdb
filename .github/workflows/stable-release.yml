@@ -15,7 +15,7 @@ on:
       - '.github/workflows/stable-release.yml'
       - 'scripts/release/stable_*.py'
       - '.github/workflows/app-compatibility-publish.yml'
-      - 'scripts/harness/**'
+      - 'scripts/harness.py'
       - 'scripts/release/nightly_*.py'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs.rs'
@@ -154,7 +154,7 @@ jobs:
           done
       - name: Package exact executable versions, source, and hashes
         run: >-
-          python3 scripts/release/stable_package.py --plan "$RUNNER_TEMP/stable-plan.json"
+          python3 scripts/release/stable_plan.py package --plan "$RUNNER_TEMP/stable-plan.json"
           --target "$TARGET" --bin-dir "$CARGO_TARGET_DIR/$TARGET/release"
           --output "$RUNNER_TEMP/stable-bundles"
       - name: Exercise each native package's durable operations and recovery
@@ -212,7 +212,7 @@ jobs:
           path: ${{ runner.temp }}/stable-bundles
       - name: Run frozen apps and validate declarations against the packaged candidate
         run: >-
-          python3 scripts/release/stable_compatibility.py --plan "$RUNNER_TEMP/stable-plan.json"
+          python3 scripts/release/stable_plan.py compatibility --plan "$RUNNER_TEMP/stable-plan.json"
           --bundles "$RUNNER_TEMP/stable-bundles" --output "$RUNNER_TEMP/app-compatibility"
       - uses: actions/attest-build-provenance@v4
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

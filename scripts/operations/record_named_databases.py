@@ -7,10 +7,13 @@ the socket and the lastdb CLI.
 """
 import json
 import os
+from pathlib import Path
 import subprocess
+import sys
 import uuid
 
-from record_requests import conditioned, mutation
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from harness import conditioned, mutation  # noqa: E402
 
 
 def require(value, message):
