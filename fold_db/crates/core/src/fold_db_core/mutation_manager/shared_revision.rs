@@ -76,7 +76,9 @@ impl MutationManager {
             meta.stage_shared_comment_creators(records.iter().zip(changes).map(|(row, change)| {
                 let mutation = &change.mutation;
                 let creator = mutation.contribution.as_ref().filter(|admission| {
-                    mutation.mutation_type == MutationType::Create && admission.schema_scope
+                    mutation.mutation_type == MutationType::Create
+                        && admission.schema_scope
+                        && admission.creates_record
                 });
                 SharedCommentWrite {
                     address: row.key.as_str(),

@@ -23,6 +23,8 @@ pub struct ContributionAdmission {
     pub intent_digest: [u8; 32],
     pub writer: String,
     pub schema_scope: bool,
+    /// True when the authenticated operation originally created the record.
+    pub creates_record: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
 use fold_db::canonical::CanonicalWriter;
-use fold_db::schema::types::{mutation::ContributionAdmission, Mutation};
+use fold_db::schema::types::{mutation::ContributionAdmission, Mutation, MutationType};
 use mutation_log::Entry;
 use sha2::{Digest as _, Sha256};
 
@@ -134,10 +134,8 @@ fn prepare(
     .into_uuid()
     .to_string();
     mutation.pub_key = writer.to_owned();
-    if matches!(
-        mutation.mutation_type,
-        fold_db::schema::types::MutationType::Create
-    ) {
+    let creates_record = mutation.mutation_type == MutationType::Create;
+    if creates_record {
         mutation
             .metadata
             .get_or_insert_with(std::collections::HashMap::new)
@@ -149,6 +147,7 @@ fn prepare(
         intent_digest: Sha256::digest(body).into(),
         writer: writer.to_owned(),
         schema_scope: true,
+        creates_record,
     });
     mutation.synchronous = Some(true);
 }
