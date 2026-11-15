@@ -10,7 +10,7 @@ use lastdb_node::profile::endpoints::{
 };
 use serde_json::Value;
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{self, Read};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::time::Duration;
@@ -18,7 +18,10 @@ use zeroize::Zeroizing;
 
 const MAX_DEV_KEY_BYTES: u64 = 256;
 
-pub(super) fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
+fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
+    if path == Path::new("-") {
+        return read_dev_key(io::stdin().lock());
+    }
     if path
         .to_str()
         .is_some_and(|v| v.starts_with("lastsecrets://"))
@@ -45,12 +48,17 @@ pub(super) fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     if meta.len() > MAX_DEV_KEY_BYTES {
         return Err(format!("dev key {} exceeds size limit", path.display()));
     }
+    read_dev_key(file)
+}
+
+fn read_dev_key(reader: impl Read) -> Result<SigningKey, String> {
     let mut raw = Zeroizing::new(Vec::new());
-    file.take(MAX_DEV_KEY_BYTES + 1)
+    reader
+        .take(MAX_DEV_KEY_BYTES + 1)
         .read_to_end(&mut raw)
-        .map_err(|e| format!("failed to read dev key {}: {e}", path.display()))?;
+        .map_err(|_| "failed to read the publisher signing key")?;
     if raw.len() as u64 > MAX_DEV_KEY_BYTES {
-        return Err(format!("dev key {} exceeds size limit", path.display()));
+        return Err("publisher signing key exceeds size limit".into());
     }
     let text = Zeroizing::new(
         String::from_utf8(raw.to_vec())
@@ -67,6 +75,26 @@ pub(super) fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
         .map(Zeroizing::new)
         .map_err(|_| format!("dev key {} is not a 32-byte Ed25519 secret", path.display()))?;
     Ok(SigningKey::from_bytes(&secret))
+}
+
+pub(super) fn publisher_signing_key(
+    home: &Path,
+    input: &PublishArgs,
+    native_registry: bool,
+) -> Result<SigningKey, String> {
+    if let Some(path) = &input.key_file {
+        return load_dev_key(path);
+    }
+    let default = home.join("dev-signing.key");
+    if native_registry
+        && !has_explicit_api_key(input)
+        && default
+            .symlink_metadata()
+            .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+    {
+        return lastdb_node::cloud::app_publisher_signing_key(home);
+    }
+    load_dev_key(&default)
 }
 
 pub(super) fn home_cloud_environment(home: &Path) -> Result<Option<Environment>, String> {
@@ -147,22 +175,26 @@ pub(super) fn resolve_publish_api_key(
     home_env: Option<Environment>,
     target_env: Environment,
     registry_url: &str,
-) -> Result<(Zeroizing<String>, String), String> {
+    native_registry: bool,
+) -> Result<Option<(Zeroizing<String>, String)>, String> {
     if let Some(explicit) = input
         .api_key
         .as_deref()
         .map(str::trim)
         .filter(|k| !k.is_empty())
     {
-        return Ok((Zeroizing::new(explicit.to_owned()), "--api-key".to_owned()));
+        return Ok(Some((
+            Zeroizing::new(explicit.to_owned()),
+            "--api-key".to_owned(),
+        )));
     }
     if let Ok(env_key) = std::env::var("EXEMEM_DEV_API_KEY") {
         let trimmed = env_key.trim();
         if !trimmed.is_empty() {
-            return Ok((
+            return Ok(Some((
                 Zeroizing::new(trimmed.to_owned()),
                 "EXEMEM_DEV_API_KEY".to_owned(),
-            ));
+            )));
         }
     }
     if let Some(saved_env) = home_env {
@@ -183,7 +215,7 @@ pub(super) fn resolve_publish_api_key(
     }
     if let Some(dev_key) = lastdb_node::cloud::load_saved_developer_key(home)? {
         let path = home.join(lastdb_node::cloud::DEVELOPER_API_KEY_FILE);
-        return Ok((dev_key, path.display().to_string()));
+        return Ok(Some((dev_key, path.display().to_string())));
     }
     if target_env == Environment::Dev
         && home_env == Some(Environment::Dev)
@@ -192,14 +224,14 @@ pub(super) fn resolve_publish_api_key(
         if let Some(creds) = lastdb_node::cloud::load_saved_credentials(home)? {
             if !creds.api_key.trim().is_empty() {
                 let path = home.join(lastdb_node::cloud::CLOUD_CREDENTIALS_FILE);
-                return Ok((creds.api_key, path.display().to_string()));
+                return Ok(Some((creds.api_key, path.display().to_string())));
             }
         }
     }
-    Err(
-        "no developer API key — pass --api-key, set EXEMEM_DEV_API_KEY, or run 'lastdb cloud developer-key create --save'"
-            .into(),
-    )
+    if native_registry {
+        return Ok(None);
+    }
+    Err("connect the LastDB home to ExeMem, pass --api-key, or set EXEMEM_DEV_API_KEY".into())
 }
 
 pub(super) async fn post_publish(

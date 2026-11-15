@@ -6,7 +6,7 @@ use app_identity_crypto::{canonicalize, sign};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
-use lastdb_node::profile::endpoints::Environment;
+use lastdb_node::profile::endpoints::{registry_api_url_for, Environment};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::Command;
@@ -222,8 +222,13 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }
-    let default_key = home.join("dev-signing.key");
-    let key = publish_credentials::load_dev_key(input.key_file.as_deref().unwrap_or(&default_key))?;
+    let home_env = publish_credentials::home_cloud_environment(home)?;
+    let target_env =
+        publish_credentials::resolve_target_environment(home, input, flag_env, home_env)?;
+    let url = publish_credentials::resolve_registry_url(input, target_env)?;
+    let native_registry = home_env == Some(target_env)
+        && url.trim_end_matches('/') == registry_api_url_for(target_env).trim_end_matches('/');
+    let key = publish_credentials::publisher_signing_key(home, input, native_registry)?;
     let mut stmt = payload
         .as_object()
         .ok_or("invalid publish payload")?
@@ -235,18 +240,24 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     );
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
-    let home_env = publish_credentials::home_cloud_environment(home)?;
-    let target_env =
-        publish_credentials::resolve_target_environment(home, input, flag_env, home_env)?;
-    let url = publish_credentials::resolve_registry_url(input, target_env)?;
-    let (api_key, key_source) =
-        publish_credentials::resolve_publish_api_key(home, input, home_env, target_env, &url)?;
-    let response = block_on_app(publish_credentials::post_publish(
+    let post = |api_key: &str, source: &str| {
+        block_on_app(publish_credentials::post_publish(
+            &url, api_key, source, &payload,
+        ))
+    };
+    let response = match publish_credentials::resolve_publish_api_key(
+        home,
+        input,
+        home_env,
+        target_env,
         &url,
-        api_key.as_str(),
-        &key_source,
-        &payload,
-    ))?;
+        native_registry,
+    )? {
+        Some((api_key, source)) => post(api_key.as_str(), &source),
+        None => crate::cloud_cmds::with_publishing_credential(home, target_env, |api_key| {
+            post(api_key, "connected ExeMem account")
+        }),
+    }?;
     print_pretty_json(&response);
     (response["status"].as_str() == Some("listed"))
         .then_some(())

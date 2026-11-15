@@ -39,7 +39,7 @@ pub(crate) fn cloud_account_command(
     }
 }
 
-fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
+pub(super) fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
     let creds = load_saved_credentials(home)?.ok_or(
         "no saved cloud credentials — run 'lastdb --data-dir <home> backup connect --env prod' first",
     )?;

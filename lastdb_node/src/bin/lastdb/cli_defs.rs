@@ -51,6 +51,7 @@ pub(crate) struct PublishArgs {
     pub manifest: PathBuf,
     #[arg(long)]
     pub env: Option<String>,
+    /// Existing publisher signing key. Use - to read it from stdin.
     #[arg(long)]
     pub key_file: Option<PathBuf>,
     #[arg(long)]
