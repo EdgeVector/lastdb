@@ -7,6 +7,7 @@
 mod accepted;
 mod apply;
 mod automatic_retention;
+mod blob_retention;
 mod cloud;
 mod contributions;
 mod disk;

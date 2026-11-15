@@ -9,6 +9,7 @@ use cloud_backup_protocol::{CloudScope, Digest};
 use serde::{Deserialize, Serialize};
 
 use super::{
+    blob_retention,
     cloud::CloudLog,
     disk, retention, session,
     snapshot::{transport, Manifest},
@@ -307,7 +308,8 @@ async fn run(
     let path = path(home, log);
     let mut work = Work::read(&path)?.filter(|work| work.matches(log));
     let mut provider = ProviderWork::read(&path, log)?;
-    if !check_existing && work.is_none() && provider.is_none() {
+    let has_blobs = blob_retention::has_any(home, log)?;
+    if !check_existing && work.is_none() && provider.is_none() && !has_blobs {
         return Ok(None);
     }
     let status = retention::automatic_status(log).await?;
@@ -320,8 +322,9 @@ async fn run(
     {
         ProviderWork::queue(&path, log, &mut provider, floor)?;
     }
-    if work.is_none() && provider.is_none() {
-        return Ok(None);
+    let blobs_pending = blob_retention::has_covered(home, log, floor)?;
+    if work.is_none() && provider.is_none() && !blobs_pending {
+        return Ok(has_blobs.then_some(PAUSED));
     }
     let work = work.get_or_insert_with(|| Work::new(log));
     work.finish_through(&path, log, &mut provider, floor)?;
@@ -343,19 +346,26 @@ async fn run(
         work.finish_through(&path, log, &mut provider, floor)?;
         return Ok(Some(Duration::ZERO));
     }
-    if provider.is_none_or(|pending| floor < pending.through) {
+    if provider
+        .as_ref()
+        .is_some_and(|pending| floor >= pending.through)
+    {
+        match retention::cleanup_retired(log, &cloud.snapshot_id, floor, cloud.through).await? {
+            Some(retention::ProviderCleanup::Complete) => {
+                save_record::<ProviderWork>(&ProviderWork::path(&path), None)?;
+                tracing::info!(target: "lastdbd::log_sync", through = floor, "retired snapshot provider cleanup completed");
+                return Ok(Some(Duration::ZERO));
+            }
+            Some(retention::ProviderCleanup::Progress) => return Ok(Some(Duration::ZERO)),
+            Some(retention::ProviderCleanup::Waiting) if !blobs_pending => return Ok(Some(RETRY)),
+            None if !blobs_pending => return Ok(Some(PAUSED)),
+            Some(retention::ProviderCleanup::Waiting) | None => {}
+        }
+    }
+    if !blobs_pending {
         return Ok(Some(PAUSED));
     }
-    match retention::cleanup_retired(log, &cloud.snapshot_id, floor, cloud.through).await? {
-        Some(retention::ProviderCleanup::Complete) => {
-            save_record::<ProviderWork>(&ProviderWork::path(&path), None)?;
-            tracing::info!(target: "lastdbd::log_sync", through = floor, "retired snapshot provider cleanup completed");
-            Ok(Some(Duration::ZERO))
-        }
-        Some(retention::ProviderCleanup::Progress) => Ok(Some(Duration::ZERO)),
-        Some(retention::ProviderCleanup::Waiting) => Ok(Some(RETRY)),
-        None => Ok(Some(PAUSED)),
-    }
+    blob_retention::pace_step(home, log, &cloud.snapshot_id, floor).await
 }
 
 async fn reclaim_pending_log(
