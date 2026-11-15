@@ -39,7 +39,10 @@ pub enum ShareWriteScope {
     /// Sorted exact definition IDs. Empty permits no schema changes.
     Selected(Vec<Digest>),
     /// Sorted canonical names. The publisher checks the current definition separately.
-    Named { names: Vec<String> },
+    Named {
+        /// Canonical schema names as registered in the shared database.
+        names: Vec<String>,
+    },
     /// All installed record schemas, including future definitions.
     All(AllShareSchemas),
 }
