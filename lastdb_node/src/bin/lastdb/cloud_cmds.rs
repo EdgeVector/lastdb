@@ -33,6 +33,7 @@ mod setup;
 mod snapshot_wait;
 
 pub(super) use account::cloud_account_command;
+pub(crate) use dev_keys::with_publishing_credential;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let CloudCommand::BackupV2 { action } = action else {

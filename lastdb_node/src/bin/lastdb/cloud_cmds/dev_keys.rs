@@ -1,10 +1,13 @@
 //! Developer API key management (`lastdb cloud developer-key {create,list,revoke}`).
-use super::account::{bool_field, ensure_ok, exchange_json, str_field, CloudSession};
+use super::account::{
+    bool_field, ensure_ok, exchange_json, load_cloud_session, str_field, CloudSession,
+};
 use super::{block_on_cloud, print_pretty_json, CloudDeveloperKeyCommand};
 use lastdb_node::cloud::{
     developer_key_prefix, is_valid_developer_key, is_valid_key_prefix,
     remove_saved_developer_key_if_prefix, save_developer_key,
 };
+use lastdb_node::profile::endpoints::Environment;
 use reqwest::Method;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -26,12 +29,13 @@ pub(super) fn run_developer_key(
     }
 }
 
-fn dev_key_create(
-    home: &Path,
-    session: &CloudSession,
-    save: bool,
-    json: bool,
-) -> Result<(), String> {
+struct DeveloperKey {
+    raw: Zeroizing<String>,
+    prefix: String,
+    created_at: i64,
+}
+
+fn issue_developer_key(session: &CloudSession) -> Result<DeveloperKey, String> {
     let empty = json!({});
     let (status, body) = block_on_cloud(
         "developer key create",
@@ -59,6 +63,44 @@ fn dev_key_create(
     {
         return Err("developer key create returned an invalid API key or mismatched prefix".into());
     }
+    Ok(DeveloperKey {
+        raw: raw_key,
+        prefix,
+        created_at,
+    })
+}
+
+pub(crate) fn with_publishing_credential<T>(
+    home: &Path,
+    target_env: Environment,
+    publish: impl FnOnce(&str) -> Result<T, String>,
+) -> Result<T, String> {
+    let session = load_cloud_session(home)?;
+    if session.env != target_env {
+        return Err("the connected ExeMem account does not match the publish environment".into());
+    }
+    let credential = issue_developer_key(&session)?;
+    let result = publish(credential.raw.as_str());
+    if let Err(error) = revoke_developer_key(&session, &credential.prefix) {
+        eprintln!(
+            "warning: could not revoke the temporary publishing key {}: {error}; run 'lastdb cloud developer-key revoke {}'",
+            credential.prefix, credential.prefix
+        );
+    }
+    result
+}
+
+fn dev_key_create(
+    home: &Path,
+    session: &CloudSession,
+    save: bool,
+    json: bool,
+) -> Result<(), String> {
+    let DeveloperKey {
+        raw: raw_key,
+        prefix,
+        created_at,
+    } = issue_developer_key(session)?;
     if save {
         let key_file = save_developer_key(home, &raw_key)?;
         if json {
@@ -161,17 +203,7 @@ fn dev_key_revoke(
     if developer_key_prefix(&session.api_key).as_deref() == Some(prefix) {
         return Err("refusing to revoke this home's active cloud backup credential".into());
     }
-    let payload = json!({ "prefix": prefix });
-    let (status, body) = block_on_cloud(
-        "developer key revoke",
-        exchange_json(
-            session,
-            Method::DELETE,
-            "/api/developer/api-keys",
-            Some(&payload),
-        ),
-    )?;
-    ensure_ok(status, &body, "developer key revoke")?;
+    revoke_developer_key(session, prefix)?;
     let removed_saved_key = match remove_saved_developer_key_if_prefix(home, prefix) {
         Ok(removed) => removed,
         Err(warn_msg) => {
@@ -190,4 +222,18 @@ fn dev_key_revoke(
         println!("Revoked developer API key {prefix}.");
     }
     Ok(())
+}
+
+fn revoke_developer_key(session: &CloudSession, prefix: &str) -> Result<(), String> {
+    let payload = json!({ "prefix": prefix });
+    let (status, body) = block_on_cloud(
+        "developer key revoke",
+        exchange_json(
+            session,
+            Method::DELETE,
+            "/api/developer/api-keys",
+            Some(&payload),
+        ),
+    )?;
+    ensure_ok(status, &body, "developer key revoke")
 }

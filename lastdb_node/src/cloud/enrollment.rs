@@ -4,8 +4,11 @@ use crate::cloud_backup_client::storage_transfer::StorageTransferClient;
 use crate::cloud_backup_client::{bounded, build_shared_http_client, https, AuthClient};
 use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
+use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::AccountId;
 use fold_db::security::Ed25519KeyPair;
+use hkdf::Hkdf;
+use sha2::Sha256;
 use std::path::Path;
 use std::time::Duration;
 use zeroize::Zeroizing;
@@ -14,6 +17,24 @@ pub fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
     load_home_keypair(home)?
         .map(|pair| user_hash_from_pubkey(&pair.public_key_base64()))
         .transpose()
+}
+
+/// Recover the stable, domain-separated publisher signing key for a LastDB account.
+///
+/// This keeps the app registry signing key separate from the account key used
+/// for cloud registration and backup. The same account can publish after restore.
+///
+/// # Errors
+/// Returns an error when the private native identity cannot be read or derived.
+pub fn app_publisher_signing_key(home: &Path) -> Result<SigningKey, String> {
+    let pair =
+        load_home_keypair(home)?.ok_or("connect a native LastDB home before publishing an app")?;
+    let account_seed = Zeroizing::new(pair.secret_key_bytes());
+    let mut seed = Zeroizing::new([0; 32]);
+    Hkdf::<Sha256>::new(None, account_seed.as_ref())
+        .expand(b"lastdb:app-registry:publisher-key:v1", seed.as_mut())
+        .map_err(|_| "cannot derive the app publisher signing key")?;
+    Ok(SigningKey::from_bytes(&seed))
 }
 
 pub(crate) fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {

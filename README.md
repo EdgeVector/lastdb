@@ -138,6 +138,17 @@ stdin. A record with a required file cannot be written without its file. A
 bare record replacement keeps the existing file. A replacement with
 `file: null` in the same envelope removes an optional file.
 
+### Publish an app
+
+From a clean app checkout, run `lastdb app publish --manifest lastdb-app.json`
+with the node running on the paid ExeMem account's connected LastDB home.
+The publisher identity comes from that account. LastDB obtains a publishing
+credential for the request when needed and revokes it when the request ends.
+
+Existing publishers can use their original signing key with `--key-file`.
+Pass `--key-file -` to read that key from standard input. CI can supply a
+developer API key using `EXEMEM_DEV_API_KEY`.
+
 ### Share a database
 
 Use [Social](apps/social/README.md) to share a named database with verified
