@@ -58,6 +58,7 @@ cloud access and downloaded record readiness are shown separately. Use
 Choose **Whole database with circle write access** when creating a database
 for circles. Install the database's schemas through LastDB, then open
 **Circles** to create one membership list with links to several databases.
+Use a LastDB build with named schema grants for this screen.
 Set the write scope on each link and preview the changes before applying them.
 A member can read each whole database. Write access combines across overlapping
 circles, and an explicit revoke on a database stays in effect across later circle

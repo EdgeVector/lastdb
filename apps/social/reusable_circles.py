@@ -61,6 +61,8 @@ class ReusableCircles:
             return None
 
     def edit(self, args, *, apply=False):
+        if not self.node.has_named_grants():
+            raise SocialError("reusable circles need a LastDB build with grants by schema name")
         with self.circles.lock():
             definition, record, data = self.load()
             prior = data["circles"]

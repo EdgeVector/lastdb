@@ -47,10 +47,11 @@ class Circles:
             raise SocialError("choose circle members to restore")
         definitions = self.schemas(database)
         circles = normalize(requests, definitions)
-        plan = self.plan(database, definitions, circles, restore, revision=revision)
+        plan = self.plan(database, definitions, circles, restore, revision=revision,
+                         named=self.node.has_named_grants())
         return self.apply(database, plan)
 
-    def plan(self, database, definitions, circles, restore=(), *, revision=None):
+    def plan(self, database, definitions, circles, restore=(), *, revision=None, named=True):
         if self.sharing.pending_edit(database):
             raise SocialError("finish the pending sharing change first")
         policy = self.load(database)
@@ -75,7 +76,7 @@ class Circles:
             key = member["nodeKey"]
             if key in desired and key not in before and member["state"] == "active":
                 direct[key] = member.get("writeSchemas") or []
-        replacement = merge(members, before, desired, set(restore), direct, definitions)
+        replacement = merge(members, before, desired, set(restore), direct, definitions, named)
         next_policy = {"circles": circles, "direct": {key: direct[key] for key in desired if key in direct}}
         return {"revision": current["revision"], "previous": members, "members": replacement,
                 "policy": next_policy}
@@ -135,7 +136,7 @@ def resolve(circles):
     return result
 
 
-def merge(current, before, desired, restore, direct, definitions):
+def merge(current, before, desired, restore, direct, definitions, named):
     members = {row["nodeKey"]: row for row in current}
     for key in before.keys() - desired.keys():
         previous = members.get(key)
@@ -150,7 +151,7 @@ def merge(current, before, desired, restore, direct, definitions):
         previous = members.get(key)
         if previous and previous["state"] == "revoked" and key not in restore:
             continue
-        scope = combine_scope(scope, direct.get(key), definitions)
+        scope = combine_scope(scope, direct.get(key), definitions, named)
         row = {"nodeKey": key, "state": "active", "role": "submit" if scope else "read", "writeSchemas": scope}
         if previous and previous["state"] == "revoked":
             row["regrant"] = True
@@ -158,17 +159,24 @@ def merge(current, before, desired, restore, direct, definitions):
     return [members[key] for key in sorted(members)]
 
 
-def combine_scope(circle, direct, definitions):
+def combine_scope(circle, direct, definitions, named):
     if FULL in (circle, direct):
         return FULL
     if isinstance(direct, dict):
-        direct = direct["names"]
+        return named_scope(circle, direct["names"], definitions, named)
     elif direct:
+        if not named:
+            return sorted(set(direct) | set(named_scope(circle, [], definitions, False)))
         registered = {definition: name for name, definition in definitions.items()}
         if not circle:
             return direct
         if any(registered.get(item) not in circle for item in direct):
             raise SocialError("review the direct grant before combining it with a circle")
-        direct = []
-    names = sorted(set(circle) | set(direct or []))
+    return named_scope(circle, [], definitions, named)
+
+
+def named_scope(circle, direct, definitions, named):
+    names = sorted(set(circle) | set(direct))
+    if not named:
+        return sorted(definitions[name] for name in names)
     return {"names": names} if names else []
