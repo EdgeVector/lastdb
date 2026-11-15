@@ -39,6 +39,11 @@ The pending log has fixed access rules, including for a receiver's own entries. 
 
 ## From invitation to shared data
 
+Apps can use the bundled [Social helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
+in `@lastdb/app-sdk` for setup and invitations. The helper calls the Social
+app for the selected LastDB home. After accepting an invitation, the app
+opens the returned stable database ID in the ordinary LastDB data client.
+
 1. The publisher sets sharing in Social. Once LastDB confirms the roster in ExeMem, it returns a sealed invitation for the caller to deliver. The recipient accepts it with the verified publisher key. The recipient's LastDB obtains the database identity and keys, confirms current access, and syncs published records and schema definitions.
 2. A publisher write commits to its LastDB and is captured for upload into the publisher's log. Every active receiver can sync the resulting data across all schemas.
 3. Any active receiver's LastDB can send a signed, encrypted mutation through the existing append API. ExeMem checks that the signed node identity is on the active roster and routes it to the private inbox. HTTP 202 means queued. The receiver's published download cursor stays at the same position.

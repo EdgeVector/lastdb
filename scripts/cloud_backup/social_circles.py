@@ -10,7 +10,7 @@ import uuid
 
 from node import Connection
 from signed_files import retry, run_operation, summary
-from social_app import call, observe_access, window
+from social_app import call, observe_access, sdk, window
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require
 
@@ -82,7 +82,10 @@ def submit(node, database, session, update):
 def transfer(programs, root, publisher, recipient, api_key):
     name = f"ci-circles-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     with window(publisher) as owner:
-        database = create_database(owner, name)
+        created = sdk(publisher, "create-shared", name=name)
+        require(created["sharingMode"] == "whole_database" and created["name"] == name, "circle_sdk_create")
+        database = created["id"]
+        report(f"Owned DEV mutation log {database} for {name} through the packaged SDK.")
         second = create_database(owner, f"{name}-second")
         definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
         definition = Path(__file__).resolve().parents[2] / "spec/social/Comment.json"
@@ -115,8 +118,9 @@ def transfer(programs, root, publisher, recipient, api_key):
                   "links": {database: COMMENT_GRANT["names"], second: []}}
         try:
             require(edit_circle(owner, circle) == {database: "1", second: "1"}, "circle_grant_revisions")
-            receipt = call(owner, "/api/circle-invitation", {"databaseId": database, "nodeKey": reader})
-            require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
+            receipt = sdk(publisher, "seal", database=database, nodeKey=reader)
+            require(receipt["publisher"] == sender and receipt["databaseId"] == database
+                    and receipt["revision"] == "1", "circle_sdk_sealed_invitation")
             with window(recipient) as remote:
                 exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader)
                 exercise_comment_ownership(publisher, recipient, remote, database,
@@ -193,10 +197,13 @@ def connect(programs, publisher, api_key):
 
 
 def exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader):
-    accepted = call(remote, "/api/accept", {"receipt": receipt, "publisher": receipt["publisher"], "name": "family"})
+    accepted = sdk(recipient, "accept", receipt=receipt, publisher=receipt["publisher"], name="family")
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
+    album = sdk(recipient, "read", database=database, schema=ALBUM, key="seed")
+    require(album["fields"]["text"] == f"Initial {ALBUM}", "circle_sdk_read_shared_content")
+    report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(remote, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
     created = mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana")

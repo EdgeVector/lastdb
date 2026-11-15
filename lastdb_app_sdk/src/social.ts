@@ -67,9 +67,18 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   }
 
   return {
-    /** Create a named database using Social's built-in sharing format. */
+    /** Create a named database using Social's original filtered sharing format. */
     async createDatabase(name: string): Promise<ListedDatabase> {
       return parseListedDatabase(await run('create-db', ['--', name]));
+    },
+
+    /** Create an empty named whole-database share for an app's own schemas. */
+    async createSharedDatabase(name: string): Promise<ListedDatabase> {
+      const database = parseListedDatabase(await run('create-db', ['--whole-database', '--', name]));
+      if (database.sharingMode !== 'whole_database') {
+        throw new UnexpectedResponseError('Social did not create a whole-database share', 0, null);
+      }
+      return database;
     },
 
     /** Open a versioned database setup using Social's catalog. */
@@ -89,6 +98,17 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
       const args = [`--database=${database}`, `--user=${recipient.name}`, `--node-key=${recipient.nodeKey}`];
       if (recipient.contactPath !== undefined) args.push(`--contact=${recipient.contactPath}`);
       return parseInvitation(await run('add', args));
+    },
+
+    /** Seal an invitation for a verified contact with an existing whole-database grant. */
+    async sealInvitation(databaseId: string, nodeKey: string): Promise<SocialInvitation> {
+      const result = parseInvitation(await run(
+        'seal-invitation', [`--database=${databaseId}`, `--node-key=${nodeKey}`],
+      ));
+      if (result.databaseId !== databaseId) {
+        throw new UnexpectedResponseError('Social returned an invitation for a different database', 0, null);
+      }
+      return result;
     },
 
     /** Accept using the independently verified publisher key. */

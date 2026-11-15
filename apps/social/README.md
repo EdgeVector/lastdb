@@ -5,6 +5,23 @@ access to owned named LastDB databases set up for sharing. It uses the
 LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
+## Whole-database sharing
+
+Use `social create-db --whole-database NAME` to create an empty share for
+your app's own schemas. For the standard album schemas, use the shared-albums
+setup below. After confirming a circle grant, use
+`social seal-invitation --database ID --node-key VERIFIED_KEY` to get the
+sealed receipt for the caller to deliver. This uses the same operation as
+**Seal invitation** in the app.
+
+The TypeScript [LastDB app SDK](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
+exposes `socialClient` for creation, setup, invitations, acceptance, and
+revocation. It calls the installed Social app. Use the returned stable
+database ID with the regular LastDB client for schemas, records, and files.
+Use the Circles screen to set reusable people and schema grants.
+
+## Existing filtered shares
+
 Create an owned database with `social create-db NAME`. This uses the existing
 Social format for albums and photos. You can also share an existing named
 database set up with LastDB's Social or Files format. Use the database name
@@ -103,9 +120,6 @@ and can read the resulting record after it syncs.
 Social changes must preserve the two logs, the signed per-database roster and
 schema grants, and the publisher's authority to approve each mutation.
 [Requirements to preserve](../../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
-
-TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
-for database creation, invitation, acceptance and revocation.
 
 The picker filters by spec and intent. For example, run
 `social --data-dir "$isolated_home" pick-database --spec social --version 1 --intent read`

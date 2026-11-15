@@ -37,7 +37,7 @@ deleted the desktop node on **2026-07-12**.
 ├── lastdb_host/                # owner-socket host primitives
 ├── lastdb_uds/                 # Unix-domain-socket transport
 ├── lastdb_identity/            # node identity helpers
-├── lastdb_app_sdk/             # app SDK (separate docs card may refine this)
+├── lastdb_app_sdk/             # TypeScript app SDK, including Social helpers
 ├── schema_service/             # advisory schema vocabulary + Lambda
 │   └── crates/{schema_types,core,server_lambda}
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
@@ -139,6 +139,12 @@ bare record replacement keeps the existing file. A replacement with
 `file: null` in the same envelope removes an optional file.
 
 ### Share a database
+
+Use [Social](apps/social/README.md) to share a named database with verified
+contacts and circles. TypeScript apps use `socialClient` from `@lastdb/app-sdk`
+to create a share, seal or accept an invitation, and get its stable database
+ID. Use the same package's regular data client to work with the records.
+[App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-social)
 
 The publisher sets read access and schema write permissions in Social. Apps
 use those settings to show available actions. In a whole-database share, any

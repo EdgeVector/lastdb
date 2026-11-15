@@ -34,6 +34,7 @@ export interface ListedDatabase {
   spec: DatabaseSpec | null;
   access: string;
   state: string;
+  sharingMode?: 'whole_database';
   publisher?: string;
   snapshot?: string | null;
   expires_ms?: number;
@@ -202,6 +203,9 @@ export function parseListedDatabase(value: unknown): ListedDatabase {
   };
   if (typeof value['publisher'] === 'string') {
     listed.publisher = value['publisher'];
+  }
+  if (value['sharingMode'] === 'whole_database') {
+    listed.sharingMode = value['sharingMode'];
   }
   if (value['snapshot'] === null || typeof value['snapshot'] === 'string') {
     listed.snapshot = value['snapshot'];
