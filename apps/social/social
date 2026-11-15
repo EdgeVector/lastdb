@@ -80,6 +80,12 @@ def parser():
     selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
     create = actions.add_parser("create-db", help="Create a shareable Social v1 database")
     create.add_argument("name")
+    setup = actions.add_parser("setup-database", help="Create or verify a named Social setup")
+    setup.add_argument("--setup", required=True)
+    setup.add_argument("--version", type=int, default=1)
+    target = setup.add_mutually_exclusive_group(required=True)
+    target.add_argument("--name", help="Name for a database provisioned by Social")
+    target.add_argument("--database", help="Verify a database by its exact ID")
     add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
     add.add_argument("--user", required=True)
     add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
@@ -111,6 +117,10 @@ def run(args, node):
     sharing = Sharing(node, people)
     if args.action == "create-db":
         return sharing.create(args.name)
+    if args.action == "setup-database":
+        target = {"localName": args.name} if args.name is not None else {"databaseId": args.database}
+        return SocialApp(node).setup_database(
+            {"setupName": args.setup, "requiredVersion": args.version, **target})
     if args.action == "remember":
         return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
     if args.action == "pick-database":

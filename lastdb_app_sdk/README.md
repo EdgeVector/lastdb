@@ -188,6 +188,30 @@ can call `social.revokeAccess('family', anaVerifiedKey)`. Social remembers
 verified contacts across databases, so later invitations can omit `contactPath`.
 Keep sealed receipts out of logs.
 
+### Use a named database setup
+
+Social can provision **shared-albums** version 1 with the standard
+`social/Album`, `social/AlbumItem`, `social/Photo`, and `social/Comment`
+schemas. The owner chooses a local name for provisioning. Other apps open
+the selected database by its stable ID and get the verified definitions
+before using the ordinary record APIs.
+
+```ts
+const created = await social.setupDatabase({
+  setupName: 'shared-albums', requiredVersion: 1, localName: 'family',
+});
+const verified = await social.setupDatabase({
+  setupName: 'shared-albums', requiredVersion: 1, databaseId: created.databaseId,
+});
+const albums = root.select(verified.databaseId);
+albums.rememberDefinition('social/Album', verified.definitions['social/Album']!);
+```
+
+Verification by ID also works on a received share once it has synced its
+schemas. Existing sharing settings continue to apply. Setup version 1
+requires the catalog's schema shapes and leaves schema upgrades to an
+explicit owner operation.
+
 ## Registered Shares
 
 For whole-database shares, use the receiver's current schema permissions to
