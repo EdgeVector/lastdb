@@ -163,7 +163,17 @@ def verify_shared_albums_setup(node, name):
         require(all(selection["databaseId"] == database for _, selection in selections)
                 and read_album(node, selections, database, "album-0", ALBUMS[0]),
                 "social_named_setup_two_apps")
-    message = "Social provisioned shared-albums v1, reused its stable ID, and two scoped apps read the same album."
+        schema = json.loads((ROOT / "spec/social/Album.json").read_text())
+        schema["schema"]["fields"].append("event_label")
+        schema["schema"]["field_types"]["event_label"] = "String"
+        schema["schema"]["field_descriptions"]["event_label"] = "Optional label for the occasion."
+        upgraded = node.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
+        reopened = sdk(node, "setup", **setup, databaseId=database)
+        require(reopened["databaseId"] == database and reopened["definitions"][SCHEMA] == upgraded
+                and definitions[SCHEMA] != upgraded, "social_named_setup_compatible_expansion")
+        require(read_album(node, selections, database, "album-0", ALBUMS[0]),
+                "social_named_setup_upgrade_kept_record")
+    message = "Two scoped apps read the same album, and shared-albums v1 reopened after an additive schema upgrade."
     print(message, flush=True)
     summary(message)
 

@@ -67,6 +67,10 @@ class LastDB:
         if self.call("GET", "/api/version").get("capabilities", {}).get("database_sessions_v1") is not True:
             raise SocialError("Social needs a LastDB build with database sessions")
 
+    def has_named_grants(self):
+        return (self.call("GET", "/api/version").get("capabilities", {})
+                .get("named_schema_write_grants_v1") is True)
+
     def verify_contact(self, path, expected_key):
         return self.command("share", "verify-contact", str(path), "--recipient-key", expected_key)
 

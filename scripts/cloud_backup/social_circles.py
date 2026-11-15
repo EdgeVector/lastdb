@@ -30,13 +30,16 @@ REFUSALS = (
 )
 
 
-def declare(node, database, schema):
+def declare(node, database, schema, *, expanded=False):
     namespace, name = schema.split("/")
+    fields = {"text": "Sample text."}
+    if expanded:
+        fields["caption"] = "Optional caption on the same record."
     return node.call(f"/api/databases/{database}/schemas/declare", {
         "namespace": namespace, "schema": {
             "name": name, "descriptive_name": name, "purpose_statement": f"Disposable DEV {name} record.",
             "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-            "fields": ["text"], "field_types": {"text": "String"}, "field_descriptions": {"text": "Sample text."},
+            "fields": list(fields), "field_types": dict.fromkeys(fields, "String"), "field_descriptions": fields,
         },
     })["definition_id"]
 
@@ -75,13 +78,14 @@ def submit(node, database, session, update):
 def transfer(programs, root, publisher, recipient, api_key):
     name = f"ci-circles-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     with window(publisher) as owner:
-        database = call(owner, "/api/create", {"name": name, "sharingMode": "whole_database"})["id"]
-        summary(f"Owned DEV mutation log `{database}` for `{name}`.")
-        print(f"Owned DEV mutation log {database} for {name}.", flush=True)
+        database = create_database(owner, name)
+        second = create_database(owner, f"{name}-second")
         definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
         for schema in (ALBUM, COMMENT):
             publisher.call(f"/api/databases/{database}/mutation",
                            mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
+        definition = declare(publisher, second, COMMENT)
+        publisher.call(f"/api/databases/{second}/mutation", mutation(COMMENT, definition, "seed", "Second database"))
         # Enroll the stopped publisher, then record its connected boot identity.
         # Enrolling a running node can re-exec it to enable local capture.
         publisher.stop()
@@ -97,28 +101,60 @@ def transfer(programs, root, publisher, recipient, api_key):
         ready = retry("circle_cloud_ready", lambda: call(owner, f"/api/database?databaseId={database}"),
                       lambda row: row["sharing"].get("revision") == "0")
         require(set(definitions).issubset(ready["schemas"]), "circle_schema_catalog_missing")
-        circle = {"name": "Family", "members": [reader], "writeSchemas": [COMMENT]}
+        retry("circle_second_cloud_ready", lambda: call(owner, f"/api/database?databaseId={second}"),
+              lambda row: row["sharing"].get("revision") == "0")
+        circle = {"id": str(uuid.uuid4()), "name": "Family", "members": [reader],
+                  "links": {database: [COMMENT], second: []}}
         try:
-            granted = call(owner, "/api/circles", {"databaseId": database, "expectedRevision": "0", "circles": [circle]},
-                           refusals=REFUSALS)
-            require(granted["revision"] == "1", "circle_grant_revision")
+            require(edit_circle(owner, circle) == {database: "1", second: "1"}, "circle_grant_revisions")
             receipt = call(owner, "/api/circle-invitation", {"databaseId": database, "nodeKey": reader})
             require(receipt["publisher"] == sender and receipt["databaseId"] == database, "circle_sealed_invitation")
             with window(recipient) as remote:
                 exercise(publisher, recipient, remote, database, receipt, definitions, scope)
-                read_scope = {"name": "Family", "members": [reader], "writeSchemas": []}
-                changed = call(owner, "/api/circles", {"databaseId": database, "expectedRevision": "1",
-                                                       "circles": [read_scope]}, refusals=REFUSALS)
-                require(changed["revision"] == "2", "circle_reader_revision")
+                second_receipt = call(owner, "/api/circle-invitation", {"databaseId": second, "nodeKey": reader})
+                call(remote, "/api/accept", {"receipt": second_receipt, "publisher": sender, "name": "second"})
+                wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
+                observe_access(remote, second, "active", 1, write_schemas=[])
+                definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database, definitions[COMMENT])
+                read_circle = {**circle, "links": {database: [], second: [COMMENT]}}
+                preview = call(owner, "/api/circles/preview", {"circle": read_circle})
+                call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
+                call(owner, "/api/circles/apply", {"circle": read_circle, "token": preview["token"]}, status=400)
+                require(edit_circle(owner, read_circle) == {database: "2", second: "2"}, "circle_reader_revision")
+                observe_access(remote, second, "revoked", 2)
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
+                report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
             failed = sys.exc_info()[0] is not None
-            try:
-                cleanup(owner, database, reader)
-            except OperationError:
-                summary("The final DEV recipient revocation could not be confirmed.")
-                if not failed:
-                    raise
+            cleanup_error = None
+            for target in (database, second):
+                try:
+                    cleanup(owner, target, reader)
+                except OperationError as error:
+                    summary(f"The final DEV recipient revocation for {target} could not be confirmed.")
+                    cleanup_error = cleanup_error or error
+            if cleanup_error and not failed:
+                raise cleanup_error
+
+
+def create_database(owner, name):
+    database = call(owner, "/api/create", {"name": name, "sharingMode": "whole_database"})["id"]
+    report(f"Owned DEV mutation log {database} for {name}.")
+    return database
+
+
+def report(message):
+    print(message, flush=True)
+    summary(message)
+
+
+def edit_circle(owner, circle):
+    edit = {"circle": circle}
+    preview = call(owner, "/api/circles/preview", edit, refusals=REFUSALS)
+    require(all("error" not in row for row in preview["databases"]), "circle_reusable_preview")
+    response = call(owner, "/api/circles/apply", {**edit, "token": preview["token"]}, refusals=REFUSALS)
+    require(not response["pending"], "circle_reusable_apply")
+    return {row["databaseId"]: row["revision"] for row in response["databases"]}
 
 
 def cleanup(owner, database, reader):
@@ -151,7 +187,7 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     summary("Ana read the seeded records in both Album and Comment.")
-    observe_access(remote, database, "active", 1, role="submit", write_schemas=[definitions[COMMENT]])
+    observe_access(remote, database, "active", 1, role="submit", write_schemas={"names": [COMMENT]})
     updates = [
         mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"),
         mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"),
@@ -165,6 +201,29 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     message = "The publisher published the valid Comment and discarded the Album and invalid Comment mutations."
     print(message, flush=True)
     summary(message)
+
+
+def exercise_upgrade(publisher, recipient, remote, database, previous):
+    new = declare(publisher, database, COMMENT, expanded=True)
+    require(new != previous, "circle_schema_upgrade_new_definition")
+    seeded = mutation(COMMENT, new, "upgrade", "Before edit")
+    seeded["record"]["caption"] = "Keep the optional field"
+    publisher.call(f"/api/databases/{database}/mutation", seeded)
+    wait_text(recipient, database, COMMENT, "upgrade", "Before edit", "circle_upgraded_record_received")
+    observe_access(remote, database, "active", 1, role="submit", write_schemas={"names": [COMMENT]})
+    current = query(recipient, database, COMMENT, "upgrade")[0]
+    update = mutation(COMMENT, new, "upgrade", "After edit")
+    update.update(mutation_type="replace", expected={"type": "revision", "revision": current["revision"]},
+                  record={**current["fields"], "text": "After edit"})
+    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
+    submit(recipient, database, session, update)
+    for node in (publisher, recipient):
+        wait_text(node, database, COMMENT, "upgrade", "After edit", "circle_upgraded_record_edited")
+        require(query(node, database, COMMENT, "upgrade")[0]["fields"] == update["record"],
+                "circle_upgraded_fields_preserved")
+        wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_old_records_preserved")
+    report("Ana edited the upgraded Comment at the same sharing revision and kept its added field and the older record.")
+    return new
 
 
 def exercise_reader(publisher, recipient, remote, database, definitions, scope):

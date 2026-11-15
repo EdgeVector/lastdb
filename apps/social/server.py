@@ -17,6 +17,7 @@ from lastdb import SocialError
 
 ASSETS = Path(__file__).resolve().parent / "web"
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
+          "/circles.js": ("circles.js", "text/javascript"),
           "/styles.css": ("styles.css", "text/css")}
 MAX_BODY = 16_384
 
@@ -116,6 +117,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.person(query["nodeKey"][0])
         if target.path == "/api/database":
             return app.database(query["databaseId"][0])
+        if target.path == "/api/reusable-circles":
+            return app.reusable_circles.overview()
         raise SocialError("unknown Social operation")
 
     def body(self):
@@ -140,6 +143,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.setup_database(args)
         if target.path == "/api/circles":
             return app.set_circles(args)
+        if target.path in ("/api/circles/preview", "/api/circles/apply"):
+            return app.reusable_circles.edit(args, apply=target.path.endswith("/apply"))
         if target.path == "/api/circle-invitation":
             return app.circle_invitation(args)
         if target.path == "/api/invite":
