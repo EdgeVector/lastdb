@@ -18,6 +18,9 @@ AUDIENCE = "lastdb-dev-snapshot"
 MAX_REPLY = 2_000_000
 ATTEMPT_MISSING = {"error": "snapshot_proof_attempt_missing"}
 ATTEMPT_ACTIVE = {"error": "snapshot_proof_attempt_active"}
+BROKER_REFUSALS = {"snapshot_proof_scope", "snapshot_proof_attempt", "snapshot_proof_body",
+                   "snapshot_proof_identity", "snapshot_proof_conflict", "snapshot_proof_integrity",
+                   "snapshot_proof_inspect_through"}
 
 
 def _request(host, method, path, token, value=None):
@@ -38,7 +41,12 @@ def _request(host, method, path, token, value=None):
     require(len(payload) <= MAX_REPLY, "snapshot_attempt_response_size")
     if response.status in (429, 502, 503, 504):
         return 503, None
-    return response.status, decode_json(payload)
+    try:
+        return response.status, decode_json(payload)
+    except OperationError:
+        if response.status == 200:
+            raise
+        return response.status, None
 
 
 def _oidc():
@@ -71,8 +79,13 @@ def _broker(action, value):
     return _request(urlsplit(dev_endpoint()).hostname, "POST", f"{ROOT}/{action}", token, value)
 
 
-def _target(attempt):
-    return {"run_id": attempt.run_id, "run_attempt": attempt.attempt}
+def _require_success(status, response, operation):
+    if status != 200:
+        code = response.get("error") if isinstance(response, dict) else None
+        detail = f"HTTP {status}"
+        if isinstance(code, str) and code in BROKER_REFUSALS:
+            detail += f" {code}"
+        raise OperationError(f"snapshot_attempt_{operation}", service_field=detail)
 
 
 def _binding(reply, attempt):
@@ -114,7 +127,8 @@ def provision(programs, root, attempt):
         if status != 503:
             break
         time.sleep(2)
-    require(status == 200 and isinstance(reply, dict) and set(reply) == {"account_id", "account_generation", "database_id"}
+    _require_success(status, reply, "provision")
+    require(isinstance(reply, dict) and set(reply) == {"account_id", "account_generation", "database_id"}
             and _binding(reply, attempt) == account, "snapshot_attempt_provision")
     connected = programs.command(home, ["backup", "connect", "--env", "dev", "--json"], timeout=60)
     require(connected.get("ok") is True and connected.get("account_id") == account
@@ -144,10 +158,11 @@ def _progress(reply, attempt):
 def retire(attempt, summary, *, expect_charge):
     deadline = time.monotonic() + CLEANUP_BUDGET
     account = None
+    target = {"run_id": attempt.run_id, "run_attempt": attempt.attempt}
     for _ in range(128):
         if time.monotonic() >= deadline:
             break
-        status, reply = _broker("retire", _target(attempt))
+        status, reply = _broker("retire", target)
         if status == 503:
             time.sleep(2)
             continue
@@ -157,7 +172,7 @@ def retire(attempt, summary, *, expect_charge):
             return
         if status == 409 and reply == ATTEMPT_ACTIVE:
             raise OperationError("snapshot_attempt_original_active")
-        require(status == 200, "snapshot_attempt_retirement")
+        _require_success(status, reply, "retirement")
         current, phase, wait, released = _progress(reply, attempt)
         require(account is None or account == current, "snapshot_attempt_retirement_scope")
         account = current
@@ -173,7 +188,8 @@ def retire(attempt, summary, *, expect_charge):
 def inspect(attempt, *, through):
     require(type(through) is int and 1 <= through <= 32, "snapshot_attempt_inspect_through")
     status, reply = _broker("inspect", {"through": through})
-    require(status == 200 and isinstance(reply, dict) and set(reply) == {"database_id", "entries", "facts"}
+    _require_success(status, reply, "inspect")
+    require(isinstance(reply, dict) and set(reply) == {"database_id", "entries", "facts"}
             and reply["database_id"] == attempt.database, "snapshot_attempt_inspect_scope")
     entries, facts = reply["entries"], reply["facts"]
     require(isinstance(entries, dict) and len(entries) <= through

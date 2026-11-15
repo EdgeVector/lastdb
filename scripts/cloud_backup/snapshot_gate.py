@@ -169,19 +169,19 @@ def main():
         for name in ("os-home", "tmp"):
             (root / name).mkdir(mode=0o700)
         programs = Programs(Path(parser_args[1]).resolve(strict=True), parser_args[3], child_environment(root))
-        try:
-            guard = load_guard()
-            attempt = current_attempt()
-            owner = provision(programs, root, attempt)
-            summary(f"snapshot_account=provisioned account_id={owner.account} database_id={attempt.database}")
-            if native:
-                run_native_cutoff(programs, root, guard, owner, require_automatic=require_automatic)
-            else:
-                run_gate(programs, root, guard, owner)
-        except OperationError as error:
-            summary("snapshot gate failed: " + json.dumps(failure(error), sort_keys=True))
-            raise
+        guard = load_guard()
+        attempt = current_attempt()
+        owner = provision(programs, root, attempt)
+        summary(f"snapshot_account=provisioned account_id={owner.account} database_id={attempt.database}")
+        if native:
+            run_native_cutoff(programs, root, guard, owner, require_automatic=require_automatic)
+        else:
+            run_gate(programs, root, guard, owner)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except OperationError as error:
+        summary("snapshot gate failed: " + json.dumps(failure(error), sort_keys=True))
+        sys.exit(1)
