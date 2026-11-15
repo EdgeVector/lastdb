@@ -110,7 +110,7 @@ def provision(programs, root, attempt):
 
     home = root / "enrollment"
     phrase_path = home / "recovery-phrase.txt"
-    initialized = programs.command(None, ["backup", "init", "--env", "dev", "--into", str(home),
+    initialized = programs.command(None, ["admin", "backup", "init", "--env", "dev", "--into", str(home),
                                           "--recovery-phrase-out", str(phrase_path), "--json"])
     key = NodeKey.from_seed(_private_value(home / "identity.key", 32))
     account = account_id(key.public)
