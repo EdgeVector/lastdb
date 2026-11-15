@@ -7,9 +7,7 @@ use crate::storage::disk_pack::{self, transaction, PackRuntime};
 use crate::storage::error::{StorageError, StorageResult};
 use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::{FileMarker, InlineWrite};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -204,32 +202,14 @@ async fn confirm_local(
 
 /// Hash the admitted file in a fixed buffer. The bytes stay in local-file custody.
 fn confirm_file(path: &Path, size: u64, hash: &str) -> StorageResult<()> {
-    let info =
-        std::fs::metadata(path).map_err(|_| invalid("accepted local file is not available"))?;
-    if !info.is_file() || info.len() != size {
-        return Err(invalid("accepted local file does not match its marker"));
-    }
-    let mut file =
-        std::fs::File::open(path).map_err(|_| invalid("accepted local file is not available"))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut seen = 0u64;
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| invalid("accepted local file is not available"))?;
-        if count == 0 {
-            break;
-        }
-        seen = seen
-            .checked_add(count as u64)
-            .ok_or_else(|| invalid("accepted local file does not match its marker"))?;
-        hasher.update(&buffer[..count]);
-    }
-    if seen != size || hex_lower(hasher.finalize()) != hash {
-        return Err(invalid("accepted local file does not match its marker"));
-    }
-    Ok(())
+    let (seen, digest) = crate::storage::local_file_ref::sha256_regular_file(path, Some(size))
+        .map_err(|err| match err {
+            StorageError::IoError(_) => invalid("accepted local file is not available"),
+            _ => invalid("accepted local file does not match its marker"),
+        })?;
+    (seen == size && digest == hash)
+        .then_some(())
+        .ok_or_else(|| invalid("accepted local file does not match its marker"))
 }
 
 fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResult<&'a FileMarker> {

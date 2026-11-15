@@ -84,7 +84,7 @@ fn count_merged_keys(
         let allow = ((56 << 20) - retained) / count as u64;
         let mut sources: Vec<_> = runs
             .iter()
-            .map(|p| Ok(Arc::new(RunReader::open_bounded(p, key, allow, 0)?).iter()))
+            .map(|p| Ok(Arc::new(RunReader::open_with_limit(p, key, Some(allow))?).iter()))
             .collect::<Result<_>>()?;
         if !base.is_empty() {
             sources.push(RunRange::sequence(

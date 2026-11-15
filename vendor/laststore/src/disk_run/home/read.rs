@@ -1,22 +1,23 @@
-//! One read call against one held CURRENT, stopped-home readers, and point reads.
+//! Published roots, file-handle snapshots, stopped-home readers, and point reads.
 
 use super::manifest::{Manifest, RunFile};
 use super::{
-    invalid, open_nofollow, read_descriptor, require_path, run_key, LOCK, RUN_HOME_MARKER,
+    invalid, open_nofollow, read_descriptor, require_path, run_key, RunHome, CURRENT, LOCK, RUNS,
+    RUN_HOME_MARKER,
 };
 use crate::disk_run::{Found, MetadataMemo, RunReader};
 use crate::{Error, Result};
 use rustix::fs::FlockOperation;
 use std::fs::File;
 use std::mem::size_of;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use uuid::Uuid;
 
 const MAX_BATCH_KEYS: usize = 10_000;
 pub(super) type ReadSlot = (Arc<RunFile>, Option<Arc<RunReader>>);
 
-fn slots(manifest: &Manifest, maximum: u64) -> Result<Vec<ReadSlot>> {
+fn slots(manifest: &Manifest) -> Result<Vec<ReadSlot>> {
+    let maximum = u64::MAX - manifest.retained_bytes();
     let (count, sz) = (manifest.newest_first().count(), size_of::<ReadSlot>());
     if count.checked_mul(sz).is_none_or(|b| b as u64 > maximum) {
         return Err(Error::ReadBudgetExceeded);
@@ -29,6 +30,101 @@ fn slots(manifest: &Manifest, maximum: u64) -> Result<Vec<ReadSlot>> {
     }
     runs.extend(manifest.newest_first().map(|r| (Arc::clone(r), None)));
     Ok(runs)
+}
+
+/// One published state of a home: a handle to the CURRENT that a commit or a merge installed.
+#[derive(Debug, Clone)]
+pub struct RunRoot(pub(super) Arc<Manifest>);
+
+impl RunRoot {
+    /// CURRENT generation of this state.
+    pub fn generation(&self) -> u64 {
+        self.0.generation
+    }
+
+    /// Complete commits in this state.
+    pub fn frontier(&self) -> u64 {
+        self.0.frontier
+    }
+}
+
+/// A held run directory publication and the exact files it references.
+pub struct RunSnapshot {
+    root: RunRoot,
+    descriptor: File,
+    current: File,
+}
+
+impl RunHome {
+    /// The state that the latest publish installed.
+    pub fn current_root(&self) -> RunRoot {
+        RunRoot(self.held())
+    }
+
+    /// One read call against exactly `root`, even when newer states exist.
+    pub fn read_root(&self, root: &RunRoot, budget: ReadBudget) -> RunRead {
+        RunRead::build(
+            Arc::clone(&root.0),
+            self.key,
+            Arc::clone(&self.lock),
+            budget,
+        )
+        .expect("unbounded read root")
+    }
+
+    /// Hold the current publication across subsequent writes and compactions.
+    pub fn snapshot(&self) -> Result<RunSnapshot> {
+        let _publish = self.publish_lock()?;
+        self.refuse_if_poisoned()?;
+        let descriptor = open_nofollow(&self.path().join(RUN_HOME_MARKER))?;
+        let current = open_nofollow(&self.path().join(CURRENT))?;
+        Ok(RunSnapshot {
+            root: self.current_root(),
+            descriptor,
+            current,
+        })
+    }
+}
+
+impl RunSnapshot {
+    /// List relative paths and byte lengths in the held publication.
+    pub fn files(&self) -> Result<Vec<(PathBuf, u64)>> {
+        let mut out = vec![
+            (RUN_HOME_MARKER.into(), self.descriptor.metadata()?.len()),
+            (CURRENT.into(), self.current.metadata()?.len()),
+        ];
+        for run in self.root.0.newest_first() {
+            let name = run
+                .path
+                .file_name()
+                .ok_or_else(|| invalid("snapshot run name"))?;
+            out.push((PathBuf::from(RUNS).join(name), run.meta.file_bytes));
+        }
+        Ok(out)
+    }
+
+    /// Open a file belonging to the held publication.
+    pub fn open_file(&self, path: &Path) -> Result<File> {
+        if path == Path::new(RUN_HOME_MARKER) {
+            return Ok(self.descriptor.try_clone()?);
+        }
+        if path == Path::new(CURRENT) {
+            return Ok(self.current.try_clone()?);
+        }
+        let name = path
+            .strip_prefix(RUNS)
+            .ok()
+            .filter(|p| p.components().count() == 1)
+            .and_then(Path::file_name)
+            .ok_or_else(|| invalid("snapshot run name"))?;
+        let run = self
+            .root
+            .0
+            .newest_first()
+            .find(|r| r.path.file_name() == Some(name))
+            .ok_or_else(|| invalid("snapshot run absent"))?;
+        Ok(open_nofollow(&run.path)?)
+    }
 }
 
 /// Finite limits shared by all work in one read call. Zero is never unlimited.
@@ -58,11 +154,9 @@ pub struct RunReadCosts {
 
 /// One read call holding one CURRENT from start to end.
 pub struct RunRead {
-    pub(super) streamed: bool,
-    pub(super) reserved_metadata_bytes: u64,
     pub(super) manifest: Arc<Manifest>,
     pub(super) key: [u8; 32],
-    lock: Arc<File>,
+    _lock: Arc<File>,
     pub(super) runs: Vec<ReadSlot>,
     pub(super) budget: ReadBudget,
     pub(super) costs: RunReadCosts,
@@ -75,86 +169,27 @@ impl RunRead {
         key: [u8; 32],
         lock: Arc<File>,
         budget: ReadBudget,
-        bounded: Option<(u64, Option<u64>)>,
     ) -> Result<Self> {
-        let limit = bounded.map_or_else(|| u64::MAX - manifest.retained_bytes(), |(a, _)| a);
-        let runs = slots(&manifest, limit)?;
-        let slot_mem = (runs.capacity() * size_of::<ReadSlot>()) as u64;
-        let streamed = bounded.is_some();
-        let reserved_metadata_bytes = bounded.and_then(|(_, b)| b).map_or(0, |v| v + slot_mem);
-        let metadata = MetadataMemo::new(if streamed { 0 } else { budget.bytes });
+        let runs = slots(&manifest)?;
         Ok(Self {
-            streamed,
-            reserved_metadata_bytes,
             manifest,
             key,
-            lock,
+            _lock: lock,
             runs,
             budget,
             costs: RunReadCosts::default(),
-            metadata,
+            metadata: MetadataMemo::new(budget.bytes),
         })
-    }
-
-    /// Fork the exact held root with preallocation-bounded backup reads enabled.
-    pub fn fork_bounded(&self, budget: ReadBudget) -> Result<Self> {
-        let ret = self.reserved_metadata_bytes.max(self.retained_bytes());
-        let avail = lastdb_model::storage_policy::BACKUP_RESOURCES
-            .working_memory_bytes
-            .checked_sub(ret)
-            .ok_or(Error::ReadBudgetExceeded)?;
-        Self::build(
-            Arc::clone(&self.manifest),
-            self.key,
-            Arc::clone(&self.lock),
-            budget,
-            Some((avail, Some(ret))),
-        )
     }
 
     /// Open one existing CURRENT without the cleanup performed by `RunHome::open`.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
-        Self::open_inner(root, key, budget, None, false)
-    }
-
-    /// Open an inactive root with explicit combined metadata-memory admission.
-    pub fn open_existing_bounded(
-        root: &Path,
-        key: &[u8; 32],
-        budget: ReadBudget,
-        max_bytes: u64,
-    ) -> Result<Self> {
-        Self::open_inner(root, key, budget, Some(max_bytes), false)
-    }
-
-    /// Open an existing root alongside other readers while excluding writers.
-    pub fn open_existing_shared_bounded(
-        root: &Path,
-        key: &[u8; 32],
-        budget: ReadBudget,
-        max_bytes: u64,
-    ) -> Result<Self> {
-        Self::open_inner(root, key, budget, Some(max_bytes), true)
-    }
-
-    fn open_inner(
-        root: &Path,
-        key: &[u8; 32],
-        budget: ReadBudget,
-        max: Option<u64>,
-        shared: bool,
-    ) -> Result<Self> {
         let root = root.canonicalize()?;
         let lock = open_nofollow(&root.join(LOCK))?;
         if !lock.metadata()?.is_file() {
             return Err(invalid("disk run snapshot: LOCK is not a file"));
         }
-        let op = if shared {
-            FlockOperation::NonBlockingLockShared
-        } else {
-            FlockOperation::NonBlockingLockExclusive
-        };
-        match rustix::fs::flock(&lock, op) {
+        match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => require_path(&root, &lock)?,
             Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
                 return Err(Error::HomeBusy(
@@ -164,15 +199,8 @@ impl RunRead {
             Err(e) => return Err(std::io::Error::from(e).into()),
         }
         let id = read_descriptor(&root.join(RUN_HOME_MARKER))?;
-        let manifest = Arc::new(Manifest::load(&root, key, id, max)?);
-        let bounded = max
-            .map(|lim| {
-                lim.checked_sub(manifest.retained_bytes())
-                    .map(|r| (r, None))
-                    .ok_or(Error::ReadBudgetExceeded)
-            })
-            .transpose()?;
-        Self::build(manifest, *key, Arc::new(lock), budget, bounded)
+        let manifest = Arc::new(Manifest::load(&root, key, id)?);
+        Self::build(manifest, *key, Arc::new(lock), budget)
     }
 
     /// Bytes retained by this call's manifest, reader slots and opened metadata.
@@ -180,20 +208,6 @@ impl RunRead {
         self.manifest.retained_bytes()
             + self.metadata.retained_bytes
             + (self.runs.capacity() * size_of::<ReadSlot>()) as u64
-    }
-
-    /// Admit the paired capture metadata shared by subsequent bounded calls.
-    pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
-        let max = lastdb_model::storage_policy::BACKUP_RESOURCES.working_memory_bytes;
-        (self.retained_bytes()..=max)
-            .contains(&bytes)
-            .then(|| self.reserved_metadata_bytes = bytes)
-            .ok_or(Error::ReadBudgetExceeded)
-    }
-
-    /// Identity authenticated by this call's selected CURRENT.
-    pub fn home_id(&self) -> Uuid {
-        self.manifest.home_id
     }
 
     /// Generation of the held CURRENT.
@@ -214,13 +228,6 @@ impl RunRead {
     /// Work so far, including work before an error.
     pub fn costs(&self) -> RunReadCosts {
         self.costs
-    }
-
-    /// Every immutable run named by this exact CURRENT, newest first.
-    pub fn referenced_runs(&self) -> impl Iterator<Item = (Uuid, u64)> + '_ {
-        self.manifest
-            .newest_first()
-            .map(|r| (r.meta.id, r.meta.file_bytes))
     }
 
     /// Charge a memory or pending-write result to this call's budget.
@@ -259,13 +266,6 @@ impl RunRead {
         Ok(self.runs[slot].1.as_ref().unwrap())
     }
 
-    /// The value of one key; a body over `maximum` fails the call's budget.
-    pub fn get_bounded(&mut self, col: &str, key: &str, maximum: u64) -> Result<Option<Vec<u8>>> {
-        self.get_many_bounded(&[(col.into(), key.into())], maximum)?
-            .pop()
-            .unwrap()
-    }
-
     /// Batch read with one body limit for every slot.
     pub fn get_many_bounded(
         &mut self,
@@ -274,12 +274,6 @@ impl RunRead {
     ) -> Result<Vec<Result<Option<Vec<u8>>>>> {
         if coords.len() > MAX_BATCH_KEYS {
             return Err(Error::ReadBudgetExceeded);
-        }
-        if self.streamed {
-            return Ok(coords
-                .iter()
-                .map(|(c, k)| self.streamed_value(c, k, max))
-                .collect());
         }
         self.examine(coords.len() as u64)?;
         let mut wanted = Vec::with_capacity(coords.len());

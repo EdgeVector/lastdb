@@ -6,10 +6,7 @@ use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{Metadata, ReplayTarget};
 use crate::storage::format::read::ReadStore;
-use crate::storage::format::schemas::keys::*;
-use crate::storage::format::schemas::{
-    schema_input, SchemaFormat, StateChange, StateDelete, StateKey, Tracking,
-};
+use crate::storage::format::schemas::*;
 use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
 use serde::de::DeserializeOwned;
@@ -51,16 +48,17 @@ impl SchemaStore {
     }
 
     pub async fn flush(&self) -> Result<(), SchemaError> {
-        Ok(self.format.flush_schemas().await?)
+        Ok(self.format.flush().await?)
     }
 
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         let Some(bytes) = self.schemas_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };
-        let schema = decode_catalog_schema(&bytes).map_err(|e| SchemaError::StorageRead {
-            detail: format!("schema catalog row {schema_name} is unreadable: {e}"),
-        })?;
+        let schema =
+            decode_catalog_json::<Schema>(&bytes).map_err(|e| SchemaError::StorageRead {
+                detail: format!("schema catalog row {schema_name} is unreadable: {e}"),
+            })?;
         schema.validate()?;
         Ok(Some(schema))
     }
@@ -158,7 +156,7 @@ impl SchemaStore {
                             "changing the file requirement needs a new schema identity".into(),
                         ));
                     }
-                    if durable_schema_eq(&existing, schema) {
+                    if existing == *schema {
                         return Ok(());
                     }
                 }

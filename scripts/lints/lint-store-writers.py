@@ -39,16 +39,18 @@ FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 CORE_SOURCE = "fold_db/crates/core/src/"
 TRUSTED_PREFIXES = tuple(CORE_SOURCE + part for part in (
     "storage/format/", "storage/disk_pack/", "storage/disk_backup/",
-    "storage/disk_cleanup/", "storage/traits/", "fold_db_core/factory/local/",
+    "storage/disk_cleanup/",
 ))
 TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
-    "mod.rs", "traits.rs", "format.rs", "disk_backup.rs", "disk_cleanup.rs",
-    "content_key_proof.rs",
+    "mod.rs", "format.rs",
 )}
-BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/mod.rs"
-BOOTSTRAP_FUNCTIONS = {
-    "from_namespaced_store_with_content_and_field_keys",
-    "from_stopped_native_data",
+BOOTSTRAP_FILES = {
+    CORE_SOURCE + "db_operations/mod.rs": {
+        "from_namespaced_store_with_content_and_field_keys",
+    },
+    CORE_SOURCE + "fold_db_core/mod.rs": {
+        "create_fold_db_with_options",
+    },
 }
 RAW_CAPABILITY = re.compile(
     r"\b(?:PackKvStore|KvMutation|PackNamespacedStore|RunHome|HomeMutation)\b|"
@@ -65,13 +67,14 @@ def raw_capabilities(path, source, spans):
     """
     if path in TRUSTED_FILES or path.startswith(TRUSTED_PREFIXES):
         return []
-    imports = list(re.finditer(r"\buse\b[^;]*;", source)) if path == BOOTSTRAP_FILE else []
+    allowed_fns = BOOTSTRAP_FILES.get(path)
+    imports = list(re.finditer(r"\buse\b[^;]*;", source)) if allowed_fns else []
     failures = []
     for token in RAW_CAPABILITY.finditer(source):
         owners = [name for name, start, end in spans if start <= token.start() <= end]
         if not owners and any(item.start() <= token.start() < item.end() for item in imports):
             continue
-        if path == BOOTSTRAP_FILE and owners and all(name in BOOTSTRAP_FUNCTIONS for name in owners):
+        if allowed_fns and owners and all(name in allowed_fns for name in owners):
             continue
         line = source.count("\n", 0, token.start()) + 1
         failures.append(f"{path}:{line}: raw storage capability outside trusted bootstrap/format: {token.group(0)}")

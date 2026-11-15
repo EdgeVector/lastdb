@@ -94,7 +94,7 @@ impl RunHome {
                     let r = readers[slot].as_ref().unwrap();
                     let mut hits = r
                         .get_many_with(&lookups, |rd, n, sc| {
-                            rd.read_index(n, Some(sc), None).map(Arc::new)
+                            rd.read_index(n, Some(sc)).map(Arc::new)
                         })?
                         .into_iter();
                     open.retain(|&at| {

@@ -3,15 +3,16 @@
 use super::retention::{invalid, latest_keys};
 use super::SchemaStore;
 use crate::db_operations::record_store::RangeWalk;
+use crate::platform::unpoison;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::schemas::keys::*;
+use crate::storage::format::schemas::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use schema_types::field_range_profile::{FieldRangeProfile, RangeStorageProfile};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 const FULL_PASS_EVERY: u32 = 64;
 
@@ -97,7 +98,7 @@ impl RetentionFloors {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, HashMap<String, Floor>>> {
-        self.schemas.lock().unwrap_or_else(PoisonError::into_inner)
+        unpoison(&self.schemas)
     }
 }
 

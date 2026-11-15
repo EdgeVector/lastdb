@@ -91,7 +91,7 @@ pub(crate) struct Metadata {
 }
 
 impl Metadata {
-    pub(in crate::storage::format) fn new(store: PackKvStore, runtime: Arc<PackRuntime>) -> Self {
+    pub(in crate::storage) fn new(store: PackKvStore, runtime: Arc<PackRuntime>) -> Self {
         Self { store, runtime }
     }
 

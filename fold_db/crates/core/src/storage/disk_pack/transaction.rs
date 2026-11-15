@@ -1,16 +1,15 @@
-//! Pending batch staging and memory accounting for native write scopes.
+//! Pending batch staging, accepted-note slot, and memory accounting for native write scopes.
 
 use super::*;
+use crate::storage::disk_backup::accepted::Note;
 use lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES;
 use laststore::disk_run::{MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::{future::Future, pin::Pin, sync::MutexGuard};
 
-mod accepted_slot;
 mod scope;
 
 pub(crate) use super::{publication, record_warm};
-pub(in crate::storage) use accepted_slot::{has_accepted, stage_accepted, take_accepted_notes};
 pub use scope::PackReadScope;
 pub(crate) use scope::{after_commit, blocked, scope, scope as request_scope, traits};
 
@@ -31,7 +30,7 @@ pub(in crate::storage) struct PendingBatch {
     mutation_limit: Mutex<Option<String>>,
     mutations: Mutex<PendingMutations>,
     pub(in crate::storage::disk_pack) publications: publication::PendingPublications,
-    accepted: Mutex<Vec<crate::storage::disk_backup::accepted::Note>>,
+    accepted: Mutex<Vec<Note>>,
     frozen: AtomicBool,
     pub(in crate::storage::disk_pack) operation_limit: usize,
     pub(in crate::storage::disk_pack) warm_records: Mutex<record_warm::StagedWarmRecords>,
@@ -67,6 +66,24 @@ impl PendingBatch {
             .try_with(Arc::clone)
             .ok()
             .filter(|batch| batch.home_id == rt.physical.home.identity())
+    }
+
+    pub(in crate::storage) fn stage_accepted_notes(&self, notes: Vec<Note>) -> StorageResult<()> {
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(StorageError::InvalidOperation(
+                "accepted notes require an open write batch".into(),
+            ));
+        }
+        self.accepted.lock().expect("accepted notes").extend(notes);
+        Ok(())
+    }
+
+    pub(in crate::storage) fn has_accepted_notes(&self) -> bool {
+        !self.accepted.lock().expect("accepted notes").is_empty()
+    }
+
+    pub(in crate::storage) fn take_accepted_notes(&self) -> Vec<Note> {
+        std::mem::take(&mut *self.accepted.lock().expect("accepted notes"))
     }
 
     fn is_empty(&self) -> StorageResult<bool> {
@@ -172,6 +189,31 @@ impl PendingBatch {
         }
         Ok(())
     }
+}
+
+pub(in crate::storage) fn stage_accepted(
+    runtime: &PackRuntime,
+    notes: Vec<Note>,
+) -> StorageResult<()> {
+    if notes.is_empty() {
+        return Ok(());
+    }
+    let batch = PendingBatch::current(runtime).ok_or_else(|| {
+        StorageError::InvalidOperation("accepted notes require an open write batch".into())
+    })?;
+    batch.stage_accepted_notes(notes)
+}
+
+pub(in crate::storage) fn take_accepted_notes(requests: &[Arc<PendingBatch>]) -> Vec<Note> {
+    let mut notes = Vec::new();
+    for request in requests {
+        notes.extend(request.take_accepted_notes());
+    }
+    notes
+}
+
+pub(in crate::storage) fn has_accepted(requests: &[Arc<PendingBatch>]) -> bool {
+    requests.iter().any(|request| request.has_accepted_notes())
 }
 
 fn account_ops(

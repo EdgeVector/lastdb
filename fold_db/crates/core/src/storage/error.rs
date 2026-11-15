@@ -33,8 +33,6 @@ pub enum StorageError {
     RecordTooLarge { size: usize, limit: usize },
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
-    #[error("share publication supports inline files only")]
-    PublicationFile,
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("no space left on device — the filesystem holding the database is full, so the write did not land. Free disk space and retry; nothing already stored was lost. Underlying error: {detail}")]

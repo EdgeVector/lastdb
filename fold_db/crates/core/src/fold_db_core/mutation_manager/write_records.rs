@@ -83,7 +83,7 @@ impl MutationManager {
         mutations: Vec<AuthoredMutation>,
         stages: &mut ResidentCommitStages,
         runtime: &Arc<PackRuntime>,
-    ) -> Result<usize, SchemaError> {
+    ) -> Result<(), SchemaError> {
         let mut grouped: Vec<(String, Vec<AuthoredMutation>)> = Vec::new();
         let mut seen: HashMap<String, (usize, HashSet<KeyValue>)> = HashMap::new();
         for authored in mutations {
@@ -100,7 +100,6 @@ impl MutationManager {
             }
             grouped[*idx].1.push(authored);
         }
-        let group_count = grouped.len();
         let mut elapsed = std::time::Duration::ZERO;
         for (schema_name, group) in grouped {
             let started = std::time::Instant::now();
@@ -109,7 +108,7 @@ impl MutationManager {
             elapsed += started.elapsed();
         }
         stages.prepare_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
-        Ok(group_count)
+        Ok(())
     }
 
     async fn load_schema_for_delta(&self, schema_name: &str) -> Result<Schema, SchemaError> {
@@ -199,7 +198,6 @@ impl MutationManager {
         }
         self.stage_records_with_effects(&schema, &changed, changes)
             .await?;
-        runtime.record_read_stage("record-stores-done", keys.len());
         if schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops
                 .schemas()

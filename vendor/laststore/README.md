@@ -18,16 +18,6 @@ An ordinary open reads at most 512 tail bytes first.
 When those bytes contain the complete top frame, the footer and top need one file read.
 Larger top frames use a separate bounded read.
 The footer, frame authentication, run identity, counter, and size checks still execute.
-Bounded backup readers keep their exact footer read and existing memory admission.
-
-Ordinary encrypted payloads of at least 4096 bytes use the existing OpenSSL AES-256-GCM backend.
-Smaller payloads and bounded readers retain the prepared Rust cipher path.
-The native context ends after each frame. Plaintext stays private until the full tag check succeeds.
-The native path clears its plaintext on failure. The derived key clears when its reader ends.
-This changes no key derivation, nonce, authenticated header, frame format, or compression policy.
-Authentication time includes native context setup. Counter receipts also report native frame bytes and metadata read bytes.
-Read contexts share one immutable parent list. A timer does not allocate or copy that list for each frame.
-Each scope still contributes its measurements to every distinct parent once.
 
 A home (`disk_run::home::RunHome`) is a directory:
 
@@ -40,7 +30,7 @@ A home (`disk_run::home::RunHome`) is a directory:
 
 - A commit writes one new run, makes it durable, then publishes a new CURRENT by rename.
 - A read holds one CURRENT for its full call, so it sees complete commits only.
-- `merge_step` merges eight runs of one level into one run, and moves old runs into the base.
+- `merge_step_with_space` merges eight runs of one level into one run, and moves old runs into the base.
 - `plan.rs` states the size bound of the home.
 - Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the existing 1/8 stale-byte share.
 - At open, the owner deletes temporary files and runs that CURRENT does not name. Nothing replays.

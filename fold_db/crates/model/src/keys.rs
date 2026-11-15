@@ -1,7 +1,46 @@
-//! Key coordinates, prefix partition bounds, resume cursors, and sort order.
+//! Key coordinates, prefix partition bounds, resume cursors, sort order, and resource bounds.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize, Serializer};
+
+pub mod content_limit {
+    pub const DEFAULT_MAX_FIELD_VALUE_BYTES: usize = 256 * 1024;
+    pub const ABSOLUTE_MAX_FIELD_VALUE_BYTES: usize = 1024 * 1024;
+    pub const MIN_MAX_FIELD_VALUE_BYTES: usize = 1024;
+    pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
+    pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
+        encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
+        (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \
+        (hash = partition, range = entry key).";
+}
+
+pub mod storage_policy {
+    #[derive(Clone, Copy, Debug)]
+    pub struct BackupResources {
+        pub concurrent_streams: usize,
+        pub durable_spool_bytes: u64,
+    }
+
+    pub const BACKUP_RESOURCES: BackupResources = BackupResources {
+        concurrent_streams: 4,
+        durable_spool_bytes: 1024 * 1024 * 1024,
+    };
+
+    pub mod native_read {
+        pub const EAGER_WORK_BYTES: u64 = 4 * super::native_write::PENDING_MEMORY_BYTES;
+    }
+
+    pub mod native_write {
+        pub const PENDING_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
+        pub const LOCAL_FILE_INPUT_MEMORY_BYTES: u64 = PENDING_MEMORY_BYTES;
+    }
+
+    const _: () = assert!(BACKUP_RESOURCES.concurrent_streams > 0);
+}
+
+pub mod limits {
+    pub use super::{content_limit, storage_policy};
+}
 
 pub mod kind_partition {
     #[must_use]
@@ -97,17 +136,6 @@ impl QueryCursor {
             range: key.range,
             comparison,
             record: None,
-            alternate_primary: None,
-        }
-    }
-
-    #[must_use]
-    pub fn at_record(suffix: &str, comparison: Option<String>) -> Self {
-        Self {
-            hash: None,
-            range: None,
-            comparison,
-            record: Some(URL_SAFE_NO_PAD.encode(suffix)),
             alternate_primary: None,
         }
     }

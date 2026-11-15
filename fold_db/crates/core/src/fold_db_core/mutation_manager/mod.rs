@@ -152,7 +152,6 @@ impl MutationManager {
         let mut stages = ResidentCommitStages::default();
         let (mutation_ids, record_revisions, operations, revision) =
             transaction::request_scope(Arc::clone(&runtime), async {
-                runtime.record_read_stage("request-start", mutations.len());
                 if let Some(adm) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
                     if mutations.len() != 1 {
                         return Err(SchemaError::InvalidData(
@@ -197,10 +196,8 @@ impl MutationManager {
                         stamp,
                     })
                     .collect();
-                let groups = self
-                    .stage_record_groups(authored, &mut stages, &runtime)
+                self.stage_record_groups(authored, &mut stages, &runtime)
                     .await?;
-                runtime.record_read_stage("stored-stages-done", groups);
                 Ok::<_, SchemaError>((ids, revs, ops, Some(revision)))
             })
             .await?;

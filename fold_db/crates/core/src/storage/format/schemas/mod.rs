@@ -59,10 +59,6 @@ pub(crate) const CATALOG_PAGE_ROWS: usize = 256;
 pub(crate) const CATALOG_SCAN_END: &[u8] = &[0xff];
 pub(crate) const CATALOG_STATE_SCAN_START: &[u8] = &[0x01];
 
-pub(crate) mod keys {
-    pub(crate) use super::*;
-}
-
 #[derive(Clone, Copy)]
 pub(crate) enum ReleaseKind {
     Records,
@@ -114,16 +110,8 @@ pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, Sc
     Ok(out)
 }
 
-pub(crate) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
-    a == b
-}
-
 pub(crate) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     serde_json::from_slice::<T>(bytes).map_err(|e| e.to_string())
-}
-
-pub(crate) fn decode_catalog_schema(bytes: &[u8]) -> Result<Schema, String> {
-    decode_catalog_json(bytes)
 }
 
 pub(crate) struct SchemaInput<'a> {
@@ -168,7 +156,7 @@ pub(crate) struct SchemaFormat {
 }
 
 impl SchemaFormat {
-    pub(in crate::storage::format) fn new(
+    pub(in crate::storage) fn new(
         schemas: PackKvStore,
         states: PackKvStore,
         runtime: Arc<PackRuntime>,
@@ -188,11 +176,7 @@ impl SchemaFormat {
         Arc::clone(&self.runtime)
     }
 
-    pub(crate) async fn flush_schemas(&self) -> StorageResult<()> {
-        self.runtime.flush().await
-    }
-
-    pub(crate) async fn flush_states(&self) -> StorageResult<()> {
+    pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.runtime.flush().await
     }
 

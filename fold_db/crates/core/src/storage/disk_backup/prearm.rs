@@ -7,9 +7,9 @@ use crate::storage::disk_pack::{
 };
 use crate::storage::error::{StorageError, StorageResult};
 use laststore::disk_run::home::{RunHome, LOCK, RUNS};
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, ErrorKind};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::fs::{self, File};
+use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const READY: &str = ".signed-initial-snapshot";
@@ -122,7 +122,7 @@ fn stage(data: &Path, ready: &Path, cut: &DatabaseSnapshot) -> StorageResult<()>
     if private_directory(&staging)? {
         fs::remove_dir_all(&staging)?;
     }
-    mkdir(&staging)?;
+    admit::create_private_dir(&staging)?;
     let result = stage_files(data, &staging, cut, files)
         .and_then(|()| fs::rename(&staging, ready).map_err(Into::into));
     if result.is_err() {
@@ -141,9 +141,9 @@ fn stage_files(
 ) -> StorageResult<()> {
     for root in [RUN_DIR, CAS_DIR] {
         let root = staging.join(root);
-        mkdir(&root)?;
-        mkdir(&root.join(RUNS))?;
-        private_file(&root.join(LOCK))?.sync_all()?;
+        admit::create_private_dir(&root)?;
+        admit::create_private_dir(&root.join(RUNS))?;
+        admit::open_private_write(&root.join(LOCK), true)?.sync_all()?;
     }
     for (relative, len) in files {
         let target = staging.join(&relative);
@@ -163,7 +163,7 @@ fn stage_files(
                 return Err(unavailable());
             }
         } else {
-            let mut destination = private_file(&target)?;
+            let mut destination = admit::open_private_write(&target, true)?;
             if io::copy(&mut source, &mut destination)? != len {
                 return Err(unavailable());
             }
@@ -199,30 +199,11 @@ fn checkpoint_parent(physical: &V2Home) -> StorageResult<&Path> {
 }
 
 fn private_directory(path: &Path) -> StorageResult<bool> {
-    match fs::symlink_metadata(path) {
-        Ok(info)
-            if info.is_dir()
-                && info.uid() == unsafe { libc::geteuid() }
-                && info.mode() & 0o077 == 0 =>
-        {
-            Ok(true)
-        }
-        Ok(_) => Err(unavailable()),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
+    match admit::private_dir_status(path)? {
+        Some(true) => Ok(true),
+        Some(false) => Err(unavailable()),
+        None => Ok(false),
     }
-}
-
-fn mkdir(path: &Path) -> io::Result<()> {
-    fs::DirBuilder::new().mode(0o700).create(path)
-}
-
-fn private_file(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)
 }
 
 fn unavailable() -> StorageError {

@@ -20,12 +20,12 @@ pub mod alternate_keys {
 
 use crate::platform::env_flag;
 use crate::schema::types::{KeyValue, SchemaError};
+use crate::storage::bind::{self, BoundFormat};
 use crate::storage::disk_pack::{
     transaction::{self, blocked::write_scopes},
     PackNamespacedStore, PackReadScope, PackRuntime,
 };
 use crate::storage::error::{StorageError, StorageResult};
-use crate::storage::format::bind::{self, BoundFormat};
 use crate::storage::format::metadata::Metadata;
 use chrono::Utc;
 use sha2::{Digest, Sha256};

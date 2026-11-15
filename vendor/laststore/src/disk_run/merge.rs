@@ -1,114 +1,12 @@
-//! Streaming blocks, ordered run ranges, and k-way merge over run files.
+//! Ordered run ranges and k-way merge over run files.
 
-use super::codec::corrupt;
-use super::reader::{read_vec, RunReader};
+use super::reader::RunReader;
 use super::writer::RunWriter;
-use super::{Found, IndexBlock, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
-use crate::frame::VerifiedFrameReader;
-use crate::{Error, Result};
-use std::io::{self, Read};
+use super::{Found, IndexBlock};
+use crate::Result;
 use std::ops::Bound;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-pub(crate) struct Block {
-    pub(super) reader: VerifiedFrameReader,
-    pub(crate) key: Vec<u8>,
-    started: bool,
-    pub(crate) pending_value_bytes: u64,
-    key_budget_bytes: u64,
-    pub(crate) avail_bytes: u64,
-}
-
-impl Block {
-    pub(super) fn new(
-        reader: VerifiedFrameReader,
-        key_budget_bytes: u64,
-        avail_bytes: u64,
-    ) -> Self {
-        Self {
-            reader,
-            key: Vec::new(),
-            started: false,
-            pending_value_bytes: 0,
-            key_budget_bytes,
-            avail_bytes,
-        }
-    }
-
-    fn varint(&mut self) -> Result<Option<u64>> {
-        let mut val = 0u64;
-        for shift in (0..64).step_by(7) {
-            let mut byte = [0u8; 1];
-            if self.reader.read(&mut byte)? == 0 {
-                return (shift == 0)
-                    .then_some(None)
-                    .ok_or_else(|| corrupt("stream varint eof"));
-            }
-            if shift == 63 && byte[0] > 1 {
-                break;
-            }
-            val |= u64::from(byte[0] & 0x7f) << shift;
-            if byte[0] & 0x80 == 0 {
-                return Ok(Some(val));
-            }
-        }
-        Err(corrupt("stream varint overflow"))
-    }
-
-    fn length(&mut self, max: usize) -> Result<usize> {
-        self.varint()?
-            .and_then(|n| usize::try_from(n).ok())
-            .filter(|&n| n <= max)
-            .ok_or_else(|| corrupt("stream len"))
-    }
-
-    pub(crate) fn next(&mut self, first_key: Option<&[u8]>) -> Result<Option<bool>> {
-        let skip = std::mem::take(&mut self.pending_value_bytes);
-        if io::copy(&mut (&mut self.reader).take(skip), &mut io::sink())? != skip {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
-        }
-        let (first, bad) = (!self.started, || {
-            corrupt("data block does not start at its index entry")
-        });
-        let Some(sh) = self.varint()? else {
-            return (!(first && first_key.is_some()))
-                .then_some(None)
-                .ok_or_else(bad);
-        };
-        let shared = usize::try_from(sh)
-            .ok()
-            .filter(|&n| n <= self.key.len())
-            .ok_or_else(|| corrupt("key prefix"))?;
-        let suffix = self.length(MAX_RUN_KEY_BYTES - shared)?;
-        let len = shared + suffix;
-        if (len.max(self.key.capacity()) as u64).saturating_mul(2) > self.key_budget_bytes {
-            return Err(Error::ReadBudgetExceeded);
-        }
-        let tail = read_vec(&mut self.reader, suffix)?;
-        if len == 0 || (!first && tail.as_slice() <= &self.key[shared..]) {
-            return Err(corrupt("stream block key order"));
-        }
-        self.key.truncate(shared);
-        self.key
-            .try_reserve_exact(len.saturating_sub(self.key.len()))
-            .map_err(|_| Error::ReadBudgetExceeded)?;
-        self.key.extend_from_slice(&tail);
-        drop(tail);
-        self.started = true;
-        if first && first_key.is_some_and(|exp| self.key != exp) {
-            return Err(bad());
-        }
-        let tag = self.length(MAX_RUN_VALUE_BYTES + 1)?;
-        self.pending_value_bytes = tag.saturating_sub(1) as u64;
-        Ok(Some(tag != 0))
-    }
-
-    pub(super) fn finish(mut self) -> Result<()> {
-        while self.next(None)?.is_some() {}
-        Ok(())
-    }
-}
 
 pub(crate) struct RunRange {
     reader: Option<Arc<RunReader>>,
@@ -183,7 +81,7 @@ impl RunRange {
                     self.reader = None;
                     continue;
                 }
-                let idx = reader.read_index(self.next_index, None, None)?;
+                let idx = reader.read_index(self.next_index, None)?;
                 self.next_index += 1;
                 let first = !std::mem::replace(&mut self.positioned, true);
                 self.next_block = match (&self.lower, first) {

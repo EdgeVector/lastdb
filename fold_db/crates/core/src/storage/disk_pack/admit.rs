@@ -11,16 +11,48 @@ use crate::storage::format::{
 };
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
-use std::fs::{File, OpenOptions};
-use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs::{DirBuilder, File, Metadata, OpenOptions};
+use std::io::{ErrorKind, Read};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
+
+pub(in crate::storage) fn is_private_meta(meta: &Metadata) -> bool {
+    meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0
+}
+
+pub(in crate::storage) fn private_dir_status(path: &Path) -> std::io::Result<Option<bool>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(info) => Ok(Some(info.is_dir() && is_private_meta(&info))),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+pub(in crate::storage) fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    DirBuilder::new().mode(0o700).create(path)
+}
 
 pub(in crate::storage) fn open_nofollow_read(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
+}
+
+pub(in crate::storage) fn open_private_write(
+    path: &Path,
+    create_new: bool,
+) -> std::io::Result<File> {
+    let mut opts = OpenOptions::new();
+    opts.write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    if create_new {
+        opts.create_new(true);
+    } else {
+        opts.create(true).truncate(true);
+    }
+    opts.open(path)
 }
 
 fn bad_admission(text: &str) -> StorageError {

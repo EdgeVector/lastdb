@@ -54,15 +54,10 @@ fn trim_levels(levels: &mut Vec<Vec<Arc<RunFile>>>) {
 }
 
 impl RunHome {
-    /// True when [`RunHome::merge_step`] has work.
+    /// True when [`RunHome::merge_step_with_space`] has work.
     pub fn needs_merge(&self) -> bool {
         let held = self.held();
         held.tiered().any(|r| r.hidden().is_none()) || plan(&held).is_some()
-    }
-
-    /// Run a tiered or base merge step, first counting new hidden records.
-    pub fn merge_step(&self) -> Result<bool> {
-        self.merge_step_with_space(&SpacePolicy::default())
     }
 
     /// Merge with this home's disk cap and the shared filesystem write quota.

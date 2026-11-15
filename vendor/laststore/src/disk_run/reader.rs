@@ -1,11 +1,7 @@
-//! Opens run files, verifies footers/indexes, and reads records from data blocks.
-
-mod stream;
-
-pub(in crate::disk_run) use stream::read_vec;
+//! Opens run files, memoizes index blocks, and reads records from data blocks.
 
 use super::codec::{corrupt, decode_block, BlockRecords};
-use super::footer::{refs_footprint, BlockRef, Footer, Span, Top, FOOTER_BYTES};
+use super::footer::{BlockRef, Footer, Span, Top, FOOTER_BYTES};
 use super::{
     Found, IndexBlock, RunRange, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
 };
@@ -13,6 +9,7 @@ use crate::frame::{decode_frame, new_cipher, DecodeScratch, MIN_ENCODED_LEN};
 use crate::{Error, Result};
 use aes_gcm::Aes256Gcm;
 use std::fs::File;
+use std::mem::size_of;
 use std::ops::Bound;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
@@ -20,32 +17,90 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const TAIL_BYTES: usize = 512;
+const MAX_MEMO_ENTRIES: usize = 64;
+const MAX_MEMO_BYTES: u64 = 256 * 1024;
 type Scratch<'a> = Option<&'a mut DecodeScratch>;
 
+struct MemoEntry {
+    run_id: Uuid,
+    index_num: usize,
+    block: Arc<IndexBlock>,
+    bytes: u64,
+}
+
+pub(crate) struct MetadataMemo {
+    entries: Vec<MemoEntry>,
+    pub(crate) retained_bytes: u64,
+    max_bytes: u64,
+}
+
+impl MetadataMemo {
+    pub(crate) fn new(budget: u64) -> Self {
+        Self {
+            entries: Vec::new(),
+            retained_bytes: 0,
+            max_bytes: MAX_MEMO_BYTES.min(budget / 16),
+        }
+    }
+
+    pub(crate) fn read(
+        &mut self,
+        reader: &RunReader,
+        index_num: usize,
+        scratch: &mut DecodeScratch,
+    ) -> Result<Arc<IndexBlock>> {
+        let run_id = reader.footer.run_id;
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|e| e.run_id == run_id && e.index_num == index_num)
+        {
+            return Ok(Arc::clone(&entry.block));
+        }
+        let block = Arc::new(reader.read_index(index_num, Some(scratch))?);
+        let item_sz = size_of::<MemoEntry>();
+        let bytes = (size_of::<IndexBlock>() + 2 * size_of::<usize>()) as u64 + block.footprint();
+        let cap_ok =
+            self.entries.capacity() > 0 || self.entries.try_reserve_exact(MAX_MEMO_ENTRIES).is_ok();
+        if bytes.saturating_add((MAX_MEMO_ENTRIES * item_sz) as u64) <= self.max_bytes && cap_ok {
+            if self.retained_bytes == 0 {
+                self.retained_bytes = (self.entries.capacity() * item_sz) as u64;
+            }
+            while self.entries.len() >= MAX_MEMO_ENTRIES
+                || self.retained_bytes.saturating_add(bytes) > self.max_bytes
+            {
+                self.retained_bytes -= self.entries.remove(0).bytes;
+            }
+            self.entries.push(MemoEntry {
+                run_id,
+                index_num,
+                block: Arc::clone(&block),
+                bytes,
+            });
+            self.retained_bytes += bytes;
+        }
+        Ok(block)
+    }
+}
+
 pub(crate) struct RunReader {
-    reserved_bytes: u64,
     file: File,
     data_key: [u8; 32],
-    cipher: Option<Aes256Gcm>,
+    cipher: Aes256Gcm,
     pub(crate) footer: Footer,
     pub(crate) top: Top,
 }
 
 impl RunReader {
     pub(crate) fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
-        Self::open_inner(path, data_key, None, 0)
+        Self::open_with_limit(path, data_key, None)
     }
 
-    pub(crate) fn open_bounded(
+    pub(crate) fn open_with_limit(
         path: &Path,
-        data_key: &[u8; 32],
-        bytes: u64,
-        reserved: u64,
+        key: &[u8; 32],
+        top_limit: Option<u64>,
     ) -> Result<Self> {
-        Self::open_inner(path, data_key, Some(bytes), reserved)
-    }
-
-    fn open_inner(path: &Path, key: &[u8; 32], bytes: Option<u64>, reserved: u64) -> Result<Self> {
         let named = path
             .file_name()
             .and_then(|n| n.to_str()?.strip_suffix(RUN_SUFFIX))
@@ -56,11 +111,11 @@ impl RunReader {
         if len < FOOTER_BYTES as u64 {
             return Err(corrupt("file shorter than a footer"));
         }
-        let tail_len = bytes.map_or(len.min(TAIL_BYTES as u64) as usize, |_| FOOTER_BYTES);
+        let tail_len = top_limit.map_or(len.min(TAIL_BYTES as u64) as usize, |_| FOOTER_BYTES);
         let (mut tail, base) = (vec![0u8; tail_len], len - tail_len as u64);
         file.read_exact_at(&mut tail, base)?;
         let footer = Footer::decode(tail[tail_len - FOOTER_BYTES..].try_into().unwrap())?;
-        if bytes.is_some_and(|n| u64::from(footer.top_len).saturating_mul(4) > n) {
+        if top_limit.is_some_and(|allow| u64::from(footer.top_len) > allow) {
             return Err(Error::ReadBudgetExceeded);
         }
         if footer.run_id != named
@@ -71,12 +126,8 @@ impl RunReader {
         {
             return Err(corrupt("run footer identity or top offset"));
         }
-        let cipher = bytes
-            .is_none()
-            .then(|| new_cipher(key, footer.run_id))
-            .transpose()?;
+        let cipher = new_cipher(key, footer.run_id)?;
         let mut reader = Self {
-            reserved_bytes: reserved,
             file,
             data_key: *key,
             cipher,
@@ -91,15 +142,14 @@ impl RunReader {
             .top_offset
             .checked_sub(base)
             .and_then(|o| usize::try_from(o).ok())
-            .filter(|&i| bytes.is_none() && i + top_len <= tail_len);
-        let raw = match (bytes, in_tail) {
-            (Some(adm), _) => reader.read_meta(span, MAX_TOP_BYTES, adm)?,
-            (None, Some(i)) => {
+            .filter(|&i| top_limit.is_none() && i + top_len <= tail_len);
+        let raw = match in_tail {
+            Some(i) => {
                 reader.decode_checked(&tail[i..i + top_len], TOP_COUNTER, MAX_TOP_BYTES, None)?
             }
-            (None, None) => reader.read_frame(span, MAX_TOP_BYTES, None)?,
+            None => reader.read_frame(span, MAX_TOP_BYTES, None)?,
         };
-        reader.top = Top::decode_bounded(&raw, bytes.unwrap_or(u64::MAX))?;
+        reader.top = Top::decode_bounded(&raw, top_limit.unwrap_or(u64::MAX))?;
         let top_matches = (
             reader.top.records,
             reader.top.data_blocks,
@@ -134,38 +184,20 @@ impl RunReader {
         max: usize,
         scratch: Scratch<'_>,
     ) -> Result<Vec<u8>> {
-        let prepared = self.cipher.as_ref().map(|c| (self.footer.run_id, c));
+        let prepared = Some((self.footer.run_id, &self.cipher));
         let (chunk, cnt, payload) = decode_frame(&self.data_key, frame, max, (prepared, scratch))?;
         ((chunk, cnt) == (self.footer.run_id, counter))
             .then_some(payload)
             .ok_or_else(|| corrupt("block belongs to another place"))
     }
 
-    fn meta_bytes(&self) -> u64 {
-        (refs_footprint(&self.top.indexes, self.top.indexes.capacity())
-            + self.top.last_key.capacity()) as u64
-    }
-
-    pub(crate) fn read_index(
-        &self,
-        index_num: usize,
-        scratch: Scratch<'_>,
-        admitted: Option<u64>,
-    ) -> Result<IndexBlock> {
+    pub(crate) fn read_index(&self, index_num: usize, scratch: Scratch<'_>) -> Result<IndexBlock> {
         let (entry, max) = (
             &self.top.indexes[index_num],
             self.footer.max_payload_bytes as usize,
         );
         let span = (entry.offset, entry.len, INDEX_COUNTER_BASE + entry.number);
-        let (raw, avail) = if let Some(adm) = admitted {
-            let av = adm
-                .checked_sub(self.meta_bytes())
-                .ok_or(Error::ReadBudgetExceeded)?;
-            (self.read_meta(span, max, av)?, Some(av))
-        } else {
-            (self.read_frame(span, max, scratch)?, None)
-        };
-        IndexBlock::parse(raw, &entry.first_key, avail)
+        IndexBlock::parse(self.read_frame(span, max, scratch)?, &entry.first_key)
     }
 
     pub(crate) fn read_data(&self, block: &BlockRef, scratch: Scratch<'_>) -> Result<BlockRecords> {

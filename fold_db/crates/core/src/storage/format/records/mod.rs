@@ -54,11 +54,11 @@ pub(crate) struct RecordChange {
 }
 
 pub(crate) struct RecordFormat {
-    pub(in crate::storage::format) main: PackKvStore,
-    pub(in crate::storage::format) runtime: Arc<PackRuntime>,
-    pub(in crate::storage::format) content_key: [u8; 32],
-    pub(in crate::storage::format) issuer: FileWriteIssuer,
-    pub(in crate::storage::format) metadata: Metadata,
+    pub(in crate::storage) main: PackKvStore,
+    pub(in crate::storage) runtime: Arc<PackRuntime>,
+    pub(in crate::storage) content_key: [u8; 32],
+    pub(in crate::storage) issuer: FileWriteIssuer,
+    pub(in crate::storage) metadata: Metadata,
 }
 
 impl RecordFormat {

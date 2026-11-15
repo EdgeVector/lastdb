@@ -6,7 +6,7 @@ use super::{open_nofollow, write_private_file};
 use crate::disk_run::codec::corrupt;
 use crate::disk_run::{MergeSpace, RunMeta, RUN_SUFFIX};
 use crate::durability::sync_directory;
-use crate::frame::{decode_frame, encode_frame, VerifiedFrameReader, MIN_ENCODED_LEN};
+use crate::frame::{decode_frame, encode_frame, MIN_ENCODED_LEN};
 use crate::{Error, Result};
 use codec::{check_shape, Admission};
 use std::fs;
@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
-use zeroize::Zeroizing;
 
 /// File name of the sealed list of runs and the frontier.
 pub const CURRENT: &str = "CURRENT";
@@ -92,53 +91,16 @@ impl Manifest {
         self.levels.iter().flatten()
     }
 
-    pub(in crate::disk_run::home) fn load(
-        root: &Path,
-        key: &[u8; 32],
-        id: Uuid,
-        max: Option<u64>,
-    ) -> Result<Self> {
+    pub(in crate::disk_run::home) fn load(root: &Path, key: &[u8; 32], id: Uuid) -> Result<Self> {
         let mut file = open_nofollow(&root.join(CURRENT))?;
         let len = file.metadata()?.len();
         if !(MIN_ENCODED_LEN as u64..=MAX_CURRENT_BYTES as u64).contains(&len) {
             return Err(corrupt("CURRENT length"));
         }
-        let runs = root.join(RUNS);
-        let decoded = if let Some(max) = max {
-            let pol = &lastdb_model::storage_policy::BACKUP_RESOURCES;
-            let max = max.min(pol.working_memory_bytes);
-            if max < 2 * pol.stream_buffer_bytes + 16 {
-                return Err(Error::ReadBudgetExceeded);
-            }
-            let mut reader = VerifiedFrameReader::open(&file, 0, len, key)?;
-            let plain_len = usize::try_from(reader.plain_len)
-                .ok()
-                .filter(|_| {
-                    reader
-                        .plain_len
-                        .saturating_add(reader.reserved_memory_bytes)
-                        <= max
-                })
-                .ok_or(Error::ReadBudgetExceeded)?;
-            let mut buf = Zeroizing::new(Vec::new());
-            buf.try_reserve_exact(plain_len)
-                .map_err(|_| Error::ReadBudgetExceeded)?;
-            if (buf.capacity() as u64).saturating_add(reader.reserved_memory_bytes) > max {
-                return Err(Error::ReadBudgetExceeded);
-            }
-            buf.resize(plain_len, 0);
-            reader.read_exact(&mut buf)?;
-            if reader.read(&mut [0])? != 0 {
-                return Err(corrupt("CURRENT length"));
-            }
-            drop(reader);
-            Self::decode_bounded(&buf, buf.capacity(), &runs, max)?
-        } else {
-            let mut frame = Vec::with_capacity(len as usize);
-            file.read_to_end(&mut frame)?;
-            let raw = decode_frame(key, &frame, MAX_CURRENT_BYTES, (None, None))?.2;
-            Self::decode_bounded(&raw, 0, &runs, u64::MAX)?
-        };
+        let mut frame = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut frame)?;
+        let raw = decode_frame(key, &frame, MAX_CURRENT_BYTES, (None, None))?.2;
+        let decoded = Self::decode_bounded(&raw, 0, &root.join(RUNS), u64::MAX)?;
         (decoded.home_id == id)
             .then_some(decoded)
             .ok_or_else(|| corrupt("CURRENT names another home"))
