@@ -106,7 +106,7 @@ impl SignedBlobClient {
         request: &ContextReadRequest,
     ) -> TransportResult<ContextReadResponse> {
         request.validate()?;
-        let derived = crate::identity::user_hash_from_pubkey(&self.keypair.public_key_base64())
+        let derived = crate::service_home::user_hash_from_pubkey(&self.keypair.public_key_base64())
             .map_err(|_| E::Configuration("identity"))?;
         if derived != request.account_id.as_str() {
             return Err(E::Configuration("account identity"));

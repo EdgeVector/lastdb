@@ -36,6 +36,7 @@ pub use types::{
 };
 pub use wire::{manifest_from_json, part_from_json};
 
+pub(crate) use decode::binding as snapshot_binding;
 pub(crate) use owned::replay_owned;
 pub(crate) use page::DeliveredEntry;
 

@@ -43,7 +43,7 @@ pub type Result<T> = std::result::Result<T, ShareInvitationError>;
 pub struct OpenedShareInvitation {
     pub permission: GuestReadPermission,
     pub publication_key: Zeroizing<[u8; 32]>,
-    pub spec: Option<crate::share_spec::PublicationSpec>,
+    pub spec: Option<crate::profile::PublicationSpec>,
     pub(crate) inbox_key: Option<PublicKey>,
 }
 
@@ -51,7 +51,7 @@ pub struct OpenedShareInvitation {
 pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, String> {
     let directory = crate::offline_home::Directory::open(home).map_err(|e| e.to_string())?;
     let bytes = directory
-        .read(crate::identity::IDENTITY_KEY_FILE)
+        .read(crate::service_home::IDENTITY_KEY_FILE)
         .map_err(|e| e.to_string())?
         .ok_or("share requires an initialized LastDB identity")?;
     let seed = Zeroizing::new(
@@ -66,7 +66,7 @@ pub(crate) fn seal(
     permission: &GuestReadPermission,
     publication_key: &[u8; 32],
     publisher: &Ed25519KeyPair,
-    spec: Option<&crate::share_spec::PublicationSpec>,
+    spec: Option<&crate::profile::PublicationSpec>,
 ) -> Result<Vec<u8>> {
     if fold_db::hex::hex_lower(publisher.public_key_bytes())
         != permission.publisher_public_key().as_str()
@@ -77,8 +77,7 @@ pub(crate) fn seal(
     let ephemeral = EphemeralSecret::random_from_rng(OsRng);
     let ephemeral_public = PublicKey::from(&ephemeral);
     let shared = ephemeral.diffie_hellman(&contact.encryption);
-    let aes_key =
-        crate::seal::sealed_box_key(&shared, INVITATION_KEY).map_err(ShareInvitationError)?;
+    let aes_key = inbox::sealed_box_key(&shared, INVITATION_KEY).map_err(ShareInvitationError)?;
     let cipher = Aes256Gcm::new_from_slice(&*aes_key)
         .map_err(|_| ShareInvitationError("invalid share invitation key"))?;
     let authorization = permission.authorization().as_bytes();
@@ -159,7 +158,7 @@ impl ShareRecipient {
         let ephemeral = PublicKey::from(*ephemeral);
         let shared = self.secret.diffie_hellman(&ephemeral);
         let aes_key =
-            crate::seal::sealed_box_key(&shared, INVITATION_KEY).map_err(ShareInvitationError)?;
+            inbox::sealed_box_key(&shared, INVITATION_KEY).map_err(ShareInvitationError)?;
         let cipher = Aes256Gcm::new_from_slice(&*aes_key)
             .map_err(|_| ShareInvitationError("invalid share invitation key"))?;
         let mut plaintext = Zeroizing::new(ciphertext.to_vec());
@@ -272,7 +271,7 @@ const INVALID_SPEC: ShareInvitationError = ShareInvitationError("invalid share i
 
 fn encode_spec(
     body: &mut Vec<u8>,
-    spec: &crate::share_spec::PublicationSpec,
+    spec: &crate::profile::PublicationSpec,
     permission: &[u8],
 ) -> Result<()> {
     database_policy::SpecBinding::new(&spec.name, spec.version).map_err(|_| INVALID_SPEC)?;
@@ -284,7 +283,7 @@ fn encode_spec(
     Ok(())
 }
 
-fn decode_spec(payload: &[u8]) -> Result<(crate::share_spec::PublicationSpec, &[u8])> {
+fn decode_spec(payload: &[u8]) -> Result<(crate::profile::PublicationSpec, &[u8])> {
     let (&length, payload) = payload.split_first().ok_or(INVALID_SPEC)?;
     let (name, payload) = payload
         .split_at_checked(usize::from(length))
@@ -294,7 +293,7 @@ fn decode_spec(payload: &[u8]) -> Result<(crate::share_spec::PublicationSpec, &[
     let version = u32::from_be_bytes(*version);
     database_policy::SpecBinding::new(name, version).map_err(|_| INVALID_SPEC)?;
     Ok((
-        crate::share_spec::PublicationSpec {
+        crate::profile::PublicationSpec {
             name: name.to_owned(),
             version,
         },

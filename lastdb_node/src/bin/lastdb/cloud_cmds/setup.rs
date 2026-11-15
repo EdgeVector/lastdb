@@ -1,7 +1,7 @@
 //! Native backup home initialization, self-serve cloud enrollment, and existing connections.
 use super::enrollment_home::{resolve_existing_home_path, PreparedHome, PENDING_FILE};
-use super::snapshot_wait::print_backup;
-use super::{block_on_cloud, read_stdin_no_control, BackupConnectArgs, BackupInitArgs, FreshHome};
+use super::log_ops::print_backup;
+use super::{read_stdin_no_control, BackupConnectArgs, BackupInitArgs, FreshHome};
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{
@@ -195,7 +195,7 @@ fn connect(
     }
     let device_id = dir.device_id()?;
     let fut = register_native_device(env, &pair, &device_id);
-    let (api_key, user_hash) = block_on_cloud("native enrollment", fut).map_err(|e| {
+    let (api_key, user_hash) = crate::block_on("native enrollment", fut).map_err(|e| {
         format!("{e}; registration may have committed; retry only by an explicit request")
     })?;
     if user_hash != account_id.as_str()
@@ -302,7 +302,7 @@ fn attach_prod_payment_guidance(
             api_key,
             expected_account_id: Some(account_id.as_str().to_owned()),
         };
-        let (code, body) = block_on_cloud(
+        let (code, body) = crate::block_on(
             "payment status",
             super::account::exchange_json(
                 &session,

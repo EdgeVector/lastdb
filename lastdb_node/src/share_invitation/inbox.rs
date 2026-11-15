@@ -9,13 +9,27 @@ use fold_db::security::Ed25519KeyPair;
 use hkdf::Hkdf;
 use rand::rngs::OsRng;
 use sha2::Sha256;
-use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret, StaticSecret};
 use zeroize::Zeroizing;
 
 use super::{Result, ShareInvitationError};
 
 const DOMAIN: &[u8] = b"lastdb:whole-database:contribution:v1";
 const INVALID: ShareInvitationError = ShareInvitationError("invalid contribution envelope");
+
+pub(super) fn sealed_box_key(
+    shared: &SharedSecret,
+    context: &[u8],
+) -> std::result::Result<Zeroizing<[u8; 32]>, &'static str> {
+    if !shared.was_contributory() {
+        return Err("non-contributory X25519 key");
+    }
+    let hk = Hkdf::<Sha256>::new(None, shared.as_bytes());
+    let mut key = Zeroizing::new([0u8; 32]);
+    hk.expand(context, &mut *key)
+        .map_err(|_| "sealed box key derivation failed")?;
+    Ok(key)
+}
 
 fn secret(publisher: &Ed25519KeyPair, database: &str) -> Result<StaticSecret> {
     let seed = Zeroizing::new(publisher.secret_key_bytes());
@@ -34,7 +48,7 @@ pub(crate) fn seal(recipient: &PublicKey, aad: &[u8], body: &[u8]) -> Result<Vec
     let ephemeral = EphemeralSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&ephemeral);
     let shared = ephemeral.diffie_hellman(recipient);
-    let key = crate::seal::sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
+    let key = sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
     let cipher = Aes256Gcm::new_from_slice(&*key).map_err(|_| INVALID)?;
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher
@@ -56,7 +70,7 @@ pub(crate) fn open(
     let (public, rest) = sealed.split_first_chunk::<32>().ok_or(INVALID)?;
     let (nonce, ciphertext) = rest.split_first_chunk::<12>().ok_or(INVALID)?;
     let shared = secret(publisher, database)?.diffie_hellman(&PublicKey::from(*public));
-    let key = crate::seal::sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
+    let key = sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
     let cipher = Aes256Gcm::new_from_slice(&*key).map_err(|_| INVALID)?;
     cipher
         .decrypt(

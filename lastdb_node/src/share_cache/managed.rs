@@ -18,7 +18,7 @@ const MAX_REGISTERED: usize = 32;
 pub(super) struct ManagedRegistration {
     name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    spec: Option<crate::share_spec::PublicationSpec>,
+    spec: Option<crate::profile::PublicationSpec>,
     expires_ms: u64,
     /// Named-database signed log. Publication shares omit this.
     #[serde(default, skip_serializing_if = "is_false")]

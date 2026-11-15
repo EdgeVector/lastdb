@@ -104,12 +104,7 @@ fn accept(row: &EntryRow, native: bool) -> Option<Database> {
 }
 
 fn valid_spec(spec: &SpecRow) -> bool {
-    spec.version >= 1
-        && (1..=64).contains(&spec.name.len())
-        && spec
-            .name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    spec.version >= 1 && crate::profile::valid_label_64(&spec.name)
 }
 
 fn valid_kind(kind: &str) -> bool {

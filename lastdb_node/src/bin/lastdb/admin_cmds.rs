@@ -17,30 +17,7 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
             require_reachable(&socket)?;
             db_cleanup(&socket, status, wait, timeout, json)
         }
-        AdminCommand::Backup(AdminBackupCommand::Init(a)) => cloud_command(
-            data_dir,
-            CloudCommand::BackupV2 {
-                action: ByteBackupCommand::Init(a),
-            },
-        ),
-        AdminCommand::Backup(AdminBackupCommand::PrepareRecoveryHome(a)) => {
-            cloud_command(data_dir, CloudCommand::PrepareRecoveryHome(a))
-        }
-        AdminCommand::Backup(AdminBackupCommand::RecoverCredentialsHome { args, existing_dev }) => {
-            if !existing_dev {
-                return cloud_command(data_dir, CloudCommand::RecoverCredentialsHome(args));
-            }
-            if args.env != "dev" {
-                return Err("--existing-dev requires --env dev".into());
-            }
-            let cmd = CloudCommand::RecoverDevCredentialsHome {
-                into: args.into,
-                expected_user_hash: args.expected_user_hash,
-                identity_seed_stdin: args.identity_seed_stdin,
-                json: args.json,
-            };
-            cloud_command(data_dir, cmd)
-        }
+        AdminCommand::Backup(b) => admin_backup_command(data_dir, b),
     }
 }
 

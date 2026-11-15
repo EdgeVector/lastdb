@@ -236,24 +236,8 @@ fn mutation_from(
 }
 
 fn hex_32(text: &str) -> Result<[u8; 32], RestoreError> {
-    if text.len() != 64 {
-        return Err(RestoreError::Entry("snapshot entry"));
-    }
-    let bytes = text.as_bytes();
-    let mut out = [0u8; 32];
-    for (index, slot) in out.iter_mut().enumerate() {
-        let high = hex_nibble(bytes[index * 2])?;
-        let low = hex_nibble(bytes[index * 2 + 1])?;
-        *slot = (high << 4) | low;
-    }
-    Ok(out)
-}
-
-fn hex_nibble(byte: u8) -> Result<u8, RestoreError> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        _ => Err(RestoreError::Entry("snapshot entry")),
-    }
+    hex::decode(text)
+        .ok()
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or(RestoreError::Entry("snapshot entry"))
 }

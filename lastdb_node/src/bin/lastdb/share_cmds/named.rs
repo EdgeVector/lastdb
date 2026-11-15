@@ -24,6 +24,33 @@ struct MemberAck {
     unchanged: bool,
 }
 
+pub(super) fn contributors(
+    data_dir: Option<PathBuf>,
+    db: Option<&str>,
+    action: crate::ShareContributorCommand,
+) -> Result<(), String> {
+    match action {
+        crate::ShareContributorCommand::Grant {
+            recipient,
+            recipient_key,
+            out,
+            regrant,
+            expires_in_hours,
+        } => grant(InviteOptions {
+            data_dir,
+            db,
+            recipient: &recipient,
+            recipient_key,
+            out: &out,
+            regrant,
+            expires_in_hours: expires_in_hours.unwrap_or(24),
+        }),
+        crate::ShareContributorCommand::Revoke { recipient_key } => {
+            revoke(data_dir, db, recipient_key)
+        }
+    }
+}
+
 pub(super) fn invite(args: InviteOptions<'_>) -> Result<(), String> {
     let selector = args.db.ok_or("share invite requires --db")?;
     let contact = read_contact(args.recipient, args.recipient_key)?;
@@ -111,12 +138,7 @@ fn post_member(socket: &Path, selector: &str, body: &Value) -> Result<Value, Str
     }
     let path = format!("/api/databases/{selector}/share/members");
     let raw = crate::post_json_with_timeout(socket, &path, body, handler_timeout())?;
-    crate::parse_json_response(&raw, "share member update").map_err(|fallback| {
-        raw.split_once("\r\n\r\n")
-            .and_then(|(_, b)| serde_json::from_str::<Value>(b.trim()).ok())
-            .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
-            .unwrap_or(fallback)
-    })
+    crate::parse_json_or_error(&raw, "share member update")
 }
 
 fn parse_ack(reply: &Value) -> Result<MemberAck, String> {

@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::host::Host;
-use crate::node_read::CanonicalPost;
-use serde::Serialize;
+use cloud_backup_protocol::v2::Version;
+use serde::{Deserialize, Serialize};
 
 use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
@@ -14,11 +14,47 @@ use super::http::Proof;
 use super::paths;
 use super::registry::{Database, Spec};
 use super::session;
-use super::status::NativeView;
 use super::turn::{self, Pause};
 
 const PAYMENT_HOLD: Duration = Duration::from_secs(300);
 const REFUSAL_HOLD: Duration = Duration::from_secs(60);
+const BODY_LIMIT: usize = 65_536;
+
+/// What the latest signed create or access body said about one database.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NativeView {
+    /// The TLS body is `NativeDatabase` for this id and realm.
+    Live,
+    /// Transport, server error, or any other body.
+    Unavailable,
+}
+
+/// `NativeDatabase` for this id and realm. Any other body is not live.
+pub(super) fn native_body(body: &[u8], database_id: &str, environment: &str) -> NativeView {
+    if body.is_empty() || body.len() > BODY_LIMIT {
+        return NativeView::Unavailable;
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct BoundWire {
+        state: String,
+        version: Version,
+        environment: String,
+        database_id: String,
+    }
+    let Ok(wire) = serde_json::from_slice::<BoundWire>(body) else {
+        return NativeView::Unavailable;
+    };
+    if wire.state == "native"
+        && wire.version == Version::V2
+        && wire.environment == environment
+        && wire.database_id == database_id
+    {
+        NativeView::Live
+    } else {
+        NativeView::Unavailable
+    }
+}
 
 struct Hold {
     until: Instant,
@@ -152,14 +188,7 @@ async fn register(log: &CloudLog, database: &Database) -> CreateOutcome {
 }
 
 async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> CreateOutcome {
-    let Ok((status, bytes)) = log
-        .post_status(
-            paths::CREATE,
-            body,
-            Proof::Canonical(CanonicalPost::CreateDatabase),
-        )
-        .await
-    else {
+    let Ok((status, bytes)) = log.post_status(paths::CREATE, body, Proof::Data).await else {
         return CreateOutcome::Refused("cloud database registration did not complete".into());
     };
     if !(200..300).contains(&status) {
@@ -179,7 +208,7 @@ async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> Create
             );
         return CreateOutcome::Refused(detail);
     }
-    if super::status::native_body(&bytes, database_id, log.environment()) == NativeView::Live {
+    if native_body(&bytes, database_id, log.environment()) == NativeView::Live {
         CreateOutcome::Live
     } else {
         CreateOutcome::Refused("cloud database registration returned an invalid reply".into())

@@ -6,14 +6,11 @@ use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{
     CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query, SchemaError,
 };
-use sha2::{Digest, Sha256};
 
 use super::decode;
 use super::payload::{self, FileFetch, RecordFile, SchemaChange};
 use super::types::{SnapshotEntry, SnapshotFileRequest};
 use super::RestoreError;
-
-const HEX: &[u8; 16] = b"0123456789abcdef";
 
 pub(super) async fn stage_file(
     store: &FoldDB,
@@ -81,17 +78,8 @@ fn attach_put(mutation: &mut Mutation, write: FileWrite) -> Result<(), RestoreEr
 }
 
 fn plain_matches(bytes: &[u8], marker: &FileMarker) -> bool {
-    marker.size_bytes == bytes.len() as u64 && sha256_hex(bytes) == marker.sha256
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut hex = String::with_capacity(64);
-    for byte in digest {
-        hex.push(HEX[(byte >> 4) as usize] as char);
-        hex.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    hex
+    marker.size_bytes == bytes.len() as u64
+        && cloud_backup_protocol::bytes_sha256(bytes).as_str() == marker.sha256
 }
 
 pub(super) async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result<(), RestoreError> {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
 
-use super::{blob_retention, cloud::CloudLog, maintenance, snapshot::transport};
+use super::{blob_retention, cloud::CloudLog, index_history::personal_log, snapshot::transport};
 
 const MAX_BATCHES: u8 = 128;
 const RECLAIM_BATCH: u64 = 8;
@@ -102,7 +102,7 @@ pub async fn reclaim(
             "reclaim steps per request require a pinned snapshot and explicit write mode".into(),
         );
     }
-    let (database_id, log) = maintenance::personal_log(home, database).await?;
+    let (database_id, log) = personal_log(home, database).await?;
     let status = status(&log, "retention").await?;
     if expected_snapshot.is_some_and(|id| status.snapshot_id.as_ref() != Some(id)) {
         return Err("the cloud recovery snapshot differs from --expect-snapshot".into());

@@ -1,12 +1,12 @@
 //! Preserve the first personal snapshot intent and resume its signed publication.
 
-use super::{registry, CloudLog, Manifest};
+use super::{install_base, registry, transport, CloudLog, Manifest, RestoredBase};
 use crate::host::Host;
-use crate::log_sync::{disk, signals};
-use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, Digest};
+use crate::log_sync::{disk, signals, wire::NativeCut};
+use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, Digest, Id};
 use fold_db::storage::disk_pack::PackRuntime;
+use mutation_log::LogError;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -58,11 +58,7 @@ pub(super) fn start(
     };
     let bytes = canonical_bytes(&saved).map_err(|error| error.to_string())?;
     let path = signals::snapshot_bootstrap_path(home, log.database_id());
-    let parent = path
-        .parent()
-        .ok_or("cannot locate the initial snapshot record")?;
     disk::write_private(&path, &bytes)
-        .and_then(|()| File::open(parent)?.sync_all())
         .map_err(|_| "cannot record the initial snapshot before publishing".into())
 }
 
@@ -131,4 +127,34 @@ fn release(runtime: &PackRuntime, home: &Path) -> Result<(), String> {
         .release_initial_snapshot()
         .map_err(|error| error.to_string())?;
     signals::clear_first_backup_intent(home)
+}
+
+pub(super) async fn newer_cut(
+    log: &CloudLog,
+    manifest: Option<&Manifest>,
+) -> Result<Option<NativeCut>, String> {
+    if manifest.is_some_and(|saved| saved.name.is_some()) {
+        return Ok(None);
+    }
+    let after = manifest.map_or(0, |saved| saved.through.get());
+    match log.list_with_native_reset(after).await {
+        Ok(Err(cut)) => Ok(Some(cut)),
+        Ok(Ok(_)) | Err(LogError::CursorExpired { .. } | LogError::Unauthorized) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(in crate::log_sync) async fn restore_cut(
+    home: &Path,
+    log: &CloudLog,
+    cut: &NativeCut,
+) -> Result<RestoredBase, String> {
+    let database = Id::try_from(log.database_id().to_owned()).map_err(|error| error.to_string())?;
+    let (_, manifest) = transport::for_restore(log, Some(&cut.native_snapshot_id))
+        .await?
+        .ok_or("the requested signed snapshot is unavailable")?;
+    if manifest.through != cut.snapshot_through || manifest.name.is_some() {
+        return Err("snapshot does not cover the requested personal database cutoff".into());
+    }
+    install_base(home, &database, log, &cut.native_snapshot_id, &manifest).await
 }

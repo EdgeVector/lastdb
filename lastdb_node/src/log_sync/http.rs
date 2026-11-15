@@ -13,16 +13,15 @@ use fold_db::security::Ed25519KeyPair;
 use mutation_log::LogError;
 use reqwest::Url;
 
-use crate::node_read::{self, CanonicalPost, SignedPostTarget};
+use crate::node_read::{self, PathPostTarget};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::wire;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Proof {
-    Canonical(CanonicalPost),
-    SelfAccess(CanonicalPost),
     Data,
+    SelfAccess,
 }
 
 pub(super) const JSON_LIMIT: u64 = 8 * 1024 * 1024;
@@ -163,7 +162,7 @@ impl Endpoint {
             .post(url)
             .header(reqwest::header::AUTHORIZATION, header)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        if matches!(request.proof, Proof::SelfAccess(_)) {
+        if matches!(request.proof, Proof::SelfAccess) {
             http_request = http_request.header("X-LastDB-Self-Access", "1");
         }
         if request.path == super::paths::CREATE {
@@ -183,40 +182,20 @@ impl Endpoint {
     }
 
     fn authorize(&self, request: &LogRequest<'_>, now_ms: u64) -> Result<String, String> {
-        match request.proof {
-            Proof::Canonical(route) | Proof::SelfAccess(route) => {
-                let environment = ShareEnvironment::parse(self.environment)
-                    .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
-                node_read::authorization(
-                    request.keypair,
-                    SignedPostTarget {
-                        scope: request.scope,
-                        database_id: request.database_id,
-                        environment,
-                        route,
-                    },
-                    request.body,
-                    request.member_revision,
-                    now_ms,
-                )
-            }
-            Proof::Data => {
-                let environment = ShareEnvironment::parse(self.environment)
-                    .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
-                node_read::authorization_post(
-                    request.keypair,
-                    node_read::PathPostTarget {
-                        scope: request.scope,
-                        database_id: request.database_id,
-                        environment,
-                        path: request.path,
-                    },
-                    request.body,
-                    request.member_revision,
-                    now_ms,
-                )
-            }
-        }
+        let environment = ShareEnvironment::parse(self.environment)
+            .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
+        node_read::authorization_post(
+            request.keypair,
+            PathPostTarget {
+                scope: request.scope,
+                database_id: request.database_id,
+                environment,
+                path: request.path,
+            },
+            request.body,
+            request.member_revision,
+            now_ms,
+        )
     }
 }
 

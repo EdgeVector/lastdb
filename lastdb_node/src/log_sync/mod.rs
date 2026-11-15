@@ -10,11 +10,9 @@ mod automatic_retention;
 mod blob_retention;
 mod cloud;
 mod contributions;
-mod disk;
 mod http;
 mod inbox;
 mod index_history;
-mod maintenance;
 mod members;
 mod native;
 mod native_reset;
@@ -29,10 +27,11 @@ mod run;
 mod session;
 mod signals;
 mod snapshot;
-mod status;
 mod turn;
 mod upload;
 mod wire;
+
+use crate::profile::private_fs as disk;
 
 pub(crate) use contributions::{
     schema_id, status as share_write_status, submit as submit_share_write, validate_write_scopes,
@@ -84,7 +83,7 @@ mod account {
     }
 
     fn account_of(host: &Host) -> Result<AccountId, String> {
-        let derived = crate::identity::user_hash_from_pubkey(&host.public_key())?;
+        let derived = crate::service_home::user_hash_from_pubkey(&host.public_key())?;
         if derived != host.user_hash {
             return Err("node account id does not match the node key".into());
         }

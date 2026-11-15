@@ -2,7 +2,7 @@
 use super::account::{
     bool_field, ensure_ok, exchange_json, load_cloud_session, str_field, CloudSession,
 };
-use super::{block_on_cloud, print_pretty_json, CloudDeveloperKeyCommand};
+use super::{print_pretty_json, CloudDeveloperKeyCommand};
 use lastdb_node::cloud::{
     developer_key_prefix, is_valid_developer_key, is_valid_key_prefix,
     remove_saved_developer_key_if_prefix, save_developer_key,
@@ -37,7 +37,7 @@ struct DeveloperKey {
 
 fn issue_developer_key(session: &CloudSession) -> Result<DeveloperKey, String> {
     let empty = json!({});
-    let (status, body) = block_on_cloud(
+    let (status, body) = crate::block_on(
         "developer key create",
         exchange_json(
             session,
@@ -130,7 +130,7 @@ fn dev_key_create(
 }
 
 fn dev_key_list(session: &CloudSession, json: bool) -> Result<(), String> {
-    let (status, body) = block_on_cloud(
+    let (status, body) = crate::block_on(
         "developer key list",
         exchange_json(session, Method::GET, "/api/developer/api-keys", None),
     )?;
@@ -226,7 +226,7 @@ fn dev_key_revoke(
 
 fn revoke_developer_key(session: &CloudSession, prefix: &str) -> Result<(), String> {
     let payload = json!({ "prefix": prefix });
-    let (status, body) = block_on_cloud(
+    let (status, body) = crate::block_on(
         "developer key revoke",
         exchange_json(
             session,

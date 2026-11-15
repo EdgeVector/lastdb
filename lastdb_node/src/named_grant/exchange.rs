@@ -1,10 +1,9 @@
 //! Member routes. The API key is not attached. Success is the ack JSON.
 
 use super::pending;
-use super::proof;
 use super::session::PublisherSession;
 use super::successor::SignedUpdate;
-use super::MemberAck;
+use super::{authorization, read_body, MemberAck};
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
     MemberListReadResponse, MemberListRevision, SHARE_MEMBER_LIST_READ_PATH,
@@ -66,8 +65,8 @@ async fn read_at(
     database_id: &str,
     revision: u64,
 ) -> Result<ReadBody, String> {
-    let body = proof::read_body(session, database_id)?;
-    let authorization = proof::authorization(session, &body, database_id, revision)?;
+    let body = read_body(session, database_id)?;
+    let authorization = authorization(session, &body, database_id, revision)?;
     let reply = post(
         session,
         SHARE_MEMBER_LIST_READ_PATH,

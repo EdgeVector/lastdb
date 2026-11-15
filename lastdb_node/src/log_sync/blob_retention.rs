@@ -15,9 +15,9 @@ use serde_json::json;
 
 use crate::database_replay::AcceptedBody;
 use crate::host::Host;
-use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
+use crate::log_envelope::{self, DatabaseContentKey};
 
-use super::{cloud::CloudLog, disk, retention::ProviderCleanup, snapshot::transport};
+use super::{apply, cloud::CloudLog, disk, retention::ProviderCleanup, snapshot::transport};
 
 const MAX_BLOBS_PER_REQUEST: usize = 16;
 const MAX_SEGMENT_ENTRIES: usize = 512;
@@ -93,11 +93,12 @@ fn list_segment_ids(home: &Path, db: &str) -> Result<Vec<u64>, String> {
     };
     let mut ids = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|_| "cannot inspect blob retention dir")?;
-        let fname = entry.file_name();
-        if let Some(d) = fname.to_str().and_then(|s| s.strip_suffix(".json")) {
-            if d.len() == 16 && d.bytes().all(|b| b.is_ascii_digit()) {
-                ids.extend(d.parse::<u64>());
+        let name = entry
+            .map_err(|_| "cannot inspect blob retention dir")?
+            .file_name();
+        if let Some(s) = name.to_str().and_then(|s| s.strip_suffix(".json")) {
+            if s.len() == 16 && s.bytes().all(|b| b.is_ascii_digit()) {
+                ids.extend(s.parse::<u64>());
             }
         }
     }
@@ -106,16 +107,6 @@ fn list_segment_ids(home: &Path, db: &str) -> Result<Vec<u64>, String> {
 }
 
 impl Segment {
-    fn new(log: &CloudLog, entries: Vec<TrackedBlob>) -> Self {
-        Self {
-            version: 1,
-            scope: log.scope.clone(),
-            environment: log.environment().to_owned(),
-            database_id: log.database_id().to_owned(),
-            entries,
-        }
-    }
-
     fn matches(&self, log: &CloudLog) -> bool {
         self.scope == log.scope
             && self.environment == log.environment()
@@ -154,94 +145,23 @@ impl Segment {
 }
 
 pub(super) fn record_personal(home: &Path, log: &CloudLog, items: &[(u64, BlobPath)]) -> UnitOut {
-    if items.is_empty() {
-        return Ok(());
-    }
-    append_items(home, log, items)
-}
-
-pub(super) fn record_pulled_personal(host: &Host, log: &CloudLog, s: &[StoredEntry]) -> UnitOut {
-    if s.is_empty() {
-        return Ok(());
-    }
-    let (_, key) = DatabaseContentKey::local_store(host, log.database_id())
-        .map_err(|_| "local database or content key unavailable".to_owned())?
-        .ok_or_else(|| "local database or content key unavailable".to_owned())?;
-    let items: Vec<_> = s.iter().filter_map(|e| extract(log, &key, e)).collect();
-    record_personal(&host.home, log, &items)
-}
-
-fn extract(log: &CloudLog, key: &DatabaseContentKey, s: &StoredEntry) -> Option<(u64, BlobPath)> {
-    let e = &s.entry;
-    if s.delivery_seq == 0
-        || e.database_id.as_str() != log.database_id()
-        || e.incorporated_from.is_some()
-    {
-        return None;
-    }
-    let b = LogBinding {
-        database_id: log.database_id(),
-        writer_key: e.writer.key.as_str(),
-        writer_device: e.writer.device.as_str(),
-        writer_seq: e.writer_seq,
-        authored_at_ms: e.authored_at_ms,
-        namespace: e.namespace.as_str(),
-        incorporated_from: None,
-    };
-    let plain = log_envelope::open(key, &b, &e.payload).ok()?;
-    let body: AcceptedBody = serde_json::from_slice(&plain).ok()?;
-    let obj = body.file?.object?;
-    (obj.scope == log.scope
-        && obj.path.database.as_str() == log.database_id()
-        && obj.path.validate().is_ok())
-    .then_some((s.delivery_seq, obj.path))
-}
-
-fn is_stale(home: &Path, log: &CloudLog, id: u64) -> FlagOut {
-    Ok(Segment::load(home, log.database_id(), id)?.is_some_and(|s| !s.matches(log)))
-}
-
-fn prune_stale(home: &Path, log: &CloudLog, ids: &mut Vec<u64>) -> UnitOut {
-    let Some((&first, &last)) = ids.first().zip(ids.last()) else {
-        return Ok(());
-    };
-    if is_stale(home, log, first)? || is_stale(home, log, last)? {
-        let dir = ledger_dir(home, log.database_id());
-        let mut removed = false;
-        for id in ids.drain(..) {
-            if is_stale(home, log, id)? {
-                removed |= remove_file(&dir.join(format!("{id:016}.json")))?;
-            }
-        }
-        if removed {
-            sync_dir(&dir)?;
-        }
-        *ids = list_segment_ids(home, log.database_id())?;
-    }
-    Ok(())
-}
-
-fn collect_pending(db: &str, items: &[(u64, BlobPath)]) -> BTreeMap<String, TrackedBlob> {
-    let mut pending: BTreeMap<String, TrackedBlob> = BTreeMap::new();
-    for (seq, path) in items {
-        if *seq > 0 && path.database.as_str() == db {
-            if let Ok(key) = path.key_tail() {
-                pending
-                    .entry(key)
-                    .and_modify(|e| e.seq = e.seq.max(*seq))
-                    .or_insert_with(|| TrackedBlob {
-                        seq: *seq,
-                        path: path.clone(),
-                    });
-            }
-        }
-    }
-    pending
-}
-
-fn append_items(home: &Path, log: &CloudLog, items: &[(u64, BlobPath)]) -> UnitOut {
     let db = log.database_id();
-    let mut pending = collect_pending(db, items);
+    let mut pending = BTreeMap::<String, TrackedBlob>::new();
+    for (seq, path) in items
+        .iter()
+        .filter(|(s, p)| *s > 0 && p.database.as_str() == db)
+    {
+        if let Ok(key) = path.key_tail() {
+            let blob = TrackedBlob {
+                seq: *seq,
+                path: path.clone(),
+            };
+            pending
+                .entry(key)
+                .and_modify(|e| e.seq = e.seq.max(*seq))
+                .or_insert(blob);
+        }
+    }
     if pending.is_empty() {
         return Ok(());
     }
@@ -255,12 +175,10 @@ fn append_items(home: &Path, log: &CloudLog, items: &[(u64, BlobPath)]) -> UnitO
         };
         let mut dirty = false;
         for entry in &mut seg.entries {
-            if let Ok(key) = entry.path.key_tail() {
-                if let Some(inc) = pending.remove(&key) {
-                    if inc.seq > entry.seq {
-                        entry.seq = inc.seq;
-                        dirty = true;
-                    }
+            if let Some(inc) = entry.path.key_tail().ok().and_then(|k| pending.remove(&k)) {
+                if inc.seq > entry.seq {
+                    entry.seq = inc.seq;
+                    dirty = true;
                 }
             }
         }
@@ -280,9 +198,7 @@ fn append_items(home: &Path, log: &CloudLog, items: &[(u64, BlobPath)]) -> UnitO
         let take = MAX_SEGMENT_ENTRIES
             .saturating_sub(seg.entries.len())
             .min(fresh.len());
-        if take > 0 {
-            seg.entries.extend(fresh.drain(..take));
-        }
+        seg.entries.extend(fresh.drain(..take));
         if dirty || take > 0 {
             seg.entries.sort();
             seg.save(home, tail_id)?;
@@ -290,7 +206,72 @@ fn append_items(home: &Path, log: &CloudLog, items: &[(u64, BlobPath)]) -> UnitO
     }
     for (idx, chunk) in fresh.chunks(MAX_SEGMENT_ENTRIES).enumerate() {
         let id = start_id.checked_add(idx as u64).ok_or("id overflow")?;
-        Segment::new(log, chunk.to_vec()).save(home, id)?;
+        let seg = Segment {
+            version: 1,
+            scope: log.scope.clone(),
+            environment: log.environment().to_owned(),
+            database_id: db.to_owned(),
+            entries: chunk.to_vec(),
+        };
+        seg.save(home, id)?;
+    }
+    Ok(())
+}
+
+pub(super) fn record_pulled_personal(host: &Host, log: &CloudLog, s: &[StoredEntry]) -> UnitOut {
+    if s.is_empty() {
+        return Ok(());
+    }
+    let (_, key) = DatabaseContentKey::local_store(host, log.database_id())
+        .ok()
+        .flatten()
+        .ok_or_else(|| "local database or content key unavailable".to_owned())?;
+    let items: Vec<_> = s.iter().filter_map(|e| extract(log, &key, e)).collect();
+    record_personal(&host.home, log, &items)
+}
+
+fn extract(log: &CloudLog, key: &DatabaseContentKey, s: &StoredEntry) -> Option<(u64, BlobPath)> {
+    let e = &s.entry;
+    if s.delivery_seq == 0
+        || e.database_id.as_str() != log.database_id()
+        || e.incorporated_from.is_some()
+    {
+        return None;
+    }
+    let plain = log_envelope::open(
+        key,
+        &apply::stored_binding(log.database_id(), s),
+        &e.payload,
+    )
+    .ok()?;
+    let obj = serde_json::from_slice::<AcceptedBody>(&plain)
+        .ok()?
+        .file?
+        .object?;
+    (obj.scope == log.scope
+        && obj.path.database.as_str() == log.database_id()
+        && obj.path.validate().is_ok())
+    .then_some((s.delivery_seq, obj.path))
+}
+
+fn prune_stale(home: &Path, log: &CloudLog, ids: &mut Vec<u64>) -> UnitOut {
+    let db = log.database_id();
+    let stale = |id| Ok::<_, String>(Segment::load(home, db, id)?.is_some_and(|s| !s.matches(log)));
+    let Some((&first, &last)) = ids.first().zip(ids.last()) else {
+        return Ok(());
+    };
+    if stale(first)? || stale(last)? {
+        let dir = ledger_dir(home, db);
+        let mut removed = false;
+        for id in ids.drain(..) {
+            if stale(id)? {
+                removed |= remove_file(&dir.join(format!("{id:016}.json")))?;
+            }
+        }
+        if removed {
+            sync_dir(&dir)?;
+        }
+        *ids = list_segment_ids(home, db)?;
     }
     Ok(())
 }

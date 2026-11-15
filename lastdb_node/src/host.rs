@@ -3,19 +3,22 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
+use cloud_backup_protocol::Id;
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
+use rand::{rngs::OsRng, RngCore};
+use sha2::{Digest, Sha256};
 
-pub use crate::identity::{
+pub use crate::service_home::{
     load_or_generate_seed_with_meta, user_hash_from_pubkey, IDENTITY_KEY_FILE,
 };
 
 pub(crate) mod cloud_sync;
-pub(crate) mod database_sessions;
 mod logging;
 pub(crate) mod owned;
 mod recovery;
@@ -26,6 +29,51 @@ pub use cloud_sync::{
 pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
+pub(crate) const SESSION_LIFETIME: Duration = Duration::from_secs(3600);
+const MAX_SESSIONS: usize = 1024;
+
+#[derive(Default)]
+pub(crate) struct DatabaseSessions(Mutex<HashMap<[u8; 32], SessionGrant>>);
+
+struct SessionGrant {
+    id: Id,
+    write: bool,
+    expires: Instant,
+}
+
+impl DatabaseSessions {
+    pub(crate) fn issue(&self, id: Id, write: bool) -> Option<String> {
+        let mut sessions = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        sessions.retain(|_, grant| grant.expires > now);
+        if sessions.len() >= MAX_SESSIONS {
+            return None;
+        }
+        let mut random = [0u8; 32];
+        OsRng.fill_bytes(&mut random);
+        let token = hex::encode(random);
+        let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        sessions.insert(
+            key,
+            SessionGrant {
+                id,
+                write,
+                expires: now + SESSION_LIFETIME,
+            },
+        );
+        Some(token)
+    }
+
+    pub(crate) fn get(&self, token: &str) -> Option<(Id, bool)> {
+        if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let sessions = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let grant = sessions.get(&key)?;
+        (grant.expires > Instant::now()).then(|| (grant.id.clone(), grant.write))
+    }
+}
 
 pub fn write_shutdown_flush_receipt(home: &Path, pid: u32, start_ts: u64) -> std::io::Result<()> {
     if pid == 0 || start_ts == 0 {
@@ -62,7 +110,7 @@ pub struct Host {
     pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
-    pub(crate) database_sessions: database_sessions::DatabaseSessions,
+    pub(crate) database_sessions: DatabaseSessions,
 }
 
 impl Host {
@@ -158,7 +206,7 @@ impl Host {
             cloud_sync,
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
-            database_sessions: database_sessions::DatabaseSessions::default(),
+            database_sessions: DatabaseSessions::default(),
         })
     }
 

@@ -20,10 +20,7 @@ struct PrefixFile<'a> {
 }
 
 pub(super) fn label_ok(value: &str) -> bool {
-    (1..=64).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    crate::profile::valid_label_64(value)
 }
 
 pub(crate) fn device_id(home: &Path) -> Result<String, String> {

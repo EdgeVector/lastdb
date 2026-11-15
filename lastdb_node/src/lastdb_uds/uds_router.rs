@@ -109,11 +109,7 @@ pub(super) fn record_fd_exhaustion(
 }
 
 pub fn valid_selector(selector: &str) -> bool {
-    !selector.is_empty()
-        && selector.len() <= 64
-        && selector
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    crate::profile::valid_label_64(selector)
 }
 
 pub fn split_database_path(target: &str) -> Option<(&str, &str)> {

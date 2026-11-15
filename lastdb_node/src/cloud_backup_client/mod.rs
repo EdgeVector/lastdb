@@ -4,9 +4,13 @@ use futures::StreamExt;
 use reqwest::{Client, Url};
 use std::{fmt, sync::Arc, sync::Mutex, time::Duration};
 
+mod guest_permission;
 mod signed_blob;
-pub mod storage_transfer;
 mod transport;
+
+pub mod storage_transfer {
+    pub use super::guest_permission::{GuestReadPermission, ShareEnvironment};
+}
 
 pub use signed_blob::{canonical_backup_endpoint, BlobUploadTarget, SignedBlobClient};
 pub(crate) use transport::{cached_runtime_client, BackupTransport, PresignedPut};

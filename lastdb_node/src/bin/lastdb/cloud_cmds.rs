@@ -2,7 +2,7 @@
 
 use super::*;
 use lastdb_node::offline_home::{
-    dir_entry_names, entry_present, open_directory_excluding, open_private_at, require_absolute,
+    dir_entry_names, entry_present, open_directory, open_private_at, require_absolute,
     require_mode_0700_directory, require_owned_directory, same_inode, DIR_FLAGS,
 };
 use rustix::fs::{self, AtFlags, Mode, OFlags};
@@ -19,33 +19,26 @@ mod account;
 mod dev_keys;
 #[path = "cloud_cmds/enrollment_home.rs"]
 mod enrollment_home;
-#[path = "cloud_cmds/index_history.rs"]
-mod index_history;
-#[path = "cloud_cmds/reclaim.rs"]
-mod reclaim;
+#[path = "cloud_cmds/log_ops.rs"]
+mod log_ops;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 #[path = "cloud_cmds/restore.rs"]
 mod restore;
 #[path = "cloud_cmds/setup.rs"]
 mod setup;
-#[path = "cloud_cmds/snapshot_wait.rs"]
-mod snapshot_wait;
 
 pub(super) use account::cloud_account_command;
 pub(crate) use dev_keys::with_publishing_credential;
 
-pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
-    let CloudCommand::BackupV2 { action } = action else {
-        let expanded = data_dir
-            .map(lastdb_node::profile::paths::expand_tilde_path)
-            .transpose()?;
-        return recovery_home::command(expanded.as_deref(), action);
-    };
+pub(super) fn backup_command(
+    data_dir: Option<PathBuf>,
+    db: Option<String>,
+    action: BackupCommand,
+) -> Result<(), String> {
     match action {
-        ByteBackupCommand::Init(a) => setup::run_init(data_dir.as_deref(), &a),
-        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
-        ByteBackupCommand::Restore(args) => {
+        BackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
+        BackupCommand::Restore(args) => {
             let expanded = data_dir
                 .map(lastdb_node::profile::paths::expand_tilde_path)
                 .transpose()?;
@@ -56,13 +49,31 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             }
             restore::run(&lastdb_node::host::resolve_home(expanded)?, args)
         }
-        ByteBackupCommand::Reclaim(args) => {
-            reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
+        BackupCommand::Reclaim(args) => {
+            log_ops::run_reclaim(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
-        ByteBackupCommand::IndexLogHistory(args) => {
-            index_history::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
+        BackupCommand::IndexLogHistory(args) => {
+            log_ops::run_index_history(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
-        ByteBackupCommand::Snapshot { database, wait } => queue_snapshot(data_dir, &database, wait),
+        BackupCommand::Snapshot { database, wait } => {
+            let db = database.or(db).unwrap_or_else(|| "personal".to_owned());
+            queue_snapshot(data_dir, &db, wait)
+        }
+    }
+}
+
+pub(super) fn admin_backup_command(
+    data_dir: Option<PathBuf>,
+    action: AdminBackupCommand,
+) -> Result<(), String> {
+    match action {
+        AdminBackupCommand::Init(a) => setup::run_init(data_dir.as_deref(), &a),
+        AdminBackupCommand::RecoverCredentialsHome(args) => {
+            let expanded = data_dir
+                .map(lastdb_node::profile::paths::expand_tilde_path)
+                .transpose()?;
+            recovery_home::recover_credentials_home(expanded.as_deref(), args)
+        }
     }
 }
 
@@ -74,7 +85,7 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
         "/api/backup/snapshot",
         &serde_json::json!({ "database": database }),
     )?;
-    let reply = snapshot_wait::parse_reply(&raw, "backup snapshot")?;
+    let reply = parse_json_or_error(&raw, "backup snapshot")?;
     let id = reply["database_id"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -84,7 +95,7 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
         .filter(|s| !s.is_empty())
         .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return snapshot_wait::until_head(&socket, id, nonce);
+        return log_ops::wait_until_head(&socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())
@@ -99,10 +110,6 @@ struct FreshHome {
 }
 
 impl FreshHome {
-    fn preflight_empty(destination: &Path) -> Result<Self, String> {
-        Self::preflight(destination, None)
-    }
-
     fn preflight_empty_parent(destination: &Path) -> Result<Self, String> {
         let target = Self::preflight_empty(destination)?;
         require_mode_0700_directory(
@@ -115,33 +122,12 @@ impl FreshHome {
         Ok(target)
     }
 
-    fn preflight_source_free_dev(destination: &Path) -> Result<Self, String> {
-        let tmp = if cfg!(target_os = "macos") {
-            "/private/tmp"
-        } else {
-            "/tmp"
-        };
-        let parent = destination.parent().ok_or("missing DEV recovery parent")?;
-        if parent.parent() != Some(Path::new(tmp))
-            || parent
-                .file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .is_none_or(|n| !n.starts_with("lastdb-dev-recovery."))
-        {
-            return Err("DEV recovery requires a fresh private temporary parent".into());
-        }
-        Self::preflight_empty_parent(destination)
-    }
-
-    fn preflight(destination: &Path, source: Option<&File>) -> Result<Self, String> {
+    fn preflight_empty(destination: &Path) -> Result<Self, String> {
         require_absolute(destination)?;
         let name = destination
             .file_name()
             .ok_or("destination requires a home name")?;
-        let parent = open_directory_excluding(
-            destination.parent().ok_or("missing destination parent")?,
-            source,
-        )?;
+        let parent = open_directory(destination.parent().ok_or("missing destination parent")?)?;
         let mode = parent
             .metadata()
             .map_err(|_| "cannot inspect destination parent")?
@@ -230,17 +216,6 @@ impl Drop for FreshHome {
             let _ = fs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR);
         }
     }
-}
-
-fn block_on_cloud<T>(
-    label: &str,
-    future: impl std::future::Future<Output = Result<T, String>>,
-) -> Result<T, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| format!("cannot construct {label} runtime"))?
-        .block_on(future)
 }
 
 fn read_stdin_no_control(limit: usize, label: &str) -> Result<Zeroizing<String>, String> {

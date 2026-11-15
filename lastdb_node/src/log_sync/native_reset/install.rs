@@ -16,10 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::host::{owned, Host};
 
 use super::super::{cloud::CloudLog, disk, session, wire::NativeCut};
-#[path = "install_fs.rs"]
-mod files;
-
-use files::{
+use super::{
     checked_child, directory, durable_file, exchange, file_inode, inode, io_error, lock_home,
     open_stopped, seed, storage_error, sync_dir, valid_stage_name, Inode, Stage,
 };
@@ -75,7 +72,7 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         || log.scope.account_id.as_str() != host.user_hash
         || log.environment() != environment
         || cursor != session::load_cursor(&host.home, log.database_id())?
-        || search_enabled()
+        || fold_db::db_operations::search_index::queue_policy::enabled()
     {
         return Err(
             "native recovery needs the active personal database and local download position".into(),
@@ -89,19 +86,17 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         writer_key: log.principal().as_str().to_owned(),
     };
     let runtime = host.db.db_ops().native_runtime();
-    let status = runtime.accepted_status();
-    if status.head == 0
+    if runtime.accepted_status().head == 0
         && runtime
             .accepted_upload_position(&upload)
             .map_err(|_| "could not read the local upload position")?
             .is_none()
     {
-        let log = log.clone();
-        let writer =
-            tokio::task::spawn_blocking(move || log.writer_tip(log.principal(), &log.reader()))
-                .await
-                .map_err(|_| "native recovery writer check stopped")?
-                .map_err(|_| "could not verify the native recovery writer's accepted entries")?;
+        let c = log.clone();
+        let writer = tokio::task::spawn_blocking(move || c.writer_tip(c.principal(), &c.reader()))
+            .await
+            .map_err(|_| "native recovery writer check stopped")?
+            .map_err(|_| "could not verify the native recovery writer's accepted entries")?;
         if writer != 0 {
             return Err(
                 "native recovery cannot resume an unbound writer that already uploaded".into(),
@@ -110,7 +105,7 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         runtime
             .bind_empty_sync_writer(&upload)
             .await
-            .map_err(|error| storage_error(&error))?;
+            .map_err(|e| storage_error(&e))?;
     }
     let origin = Origin {
         database_id,
@@ -119,35 +114,27 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         device_id: log.device().as_str().to_owned(),
         principal: log.principal().as_str().to_owned(),
         cursor,
-        data: inode(&host.home.join("data")).map_err(|error| io_error(&error))?,
+        data: inode(&host.home.join("data")).map_err(|e| io_error(&e))?,
         boundary: runtime
             .sync_boundary(&upload)
             .await
-            .map_err(|error| storage_error(&error))?,
+            .map_err(|e| storage_error(&e))?,
     };
-    identity_matches(&host.home, &origin)?;
-    Ok(origin)
-}
-
-pub(super) fn stage_home(host: &Host) -> Result<Stage, String> {
-    Stage::create(host)
+    identity_matches(&host.home, &origin).map(|()| origin)
 }
 
 pub(super) fn bind_stage_upload(staged: &Host, origin: &Origin) -> Result<(), String> {
     let runtime = staged.db.db_ops().native_runtime();
-    let status = runtime.accepted_status();
-    if status.head != 0 || status.acked != 0 || status.gap || status.snapshot_required {
+    let s = runtime.accepted_status();
+    if s.head != 0 || s.acked != 0 || s.gap || s.snapshot_required {
         return Err("the native recovery stage has unexpected local writes".into());
     }
+    let pos = UploadPosition {
+        writer_seq: origin.boundary.writer_sequence(),
+        spool_through: 0,
+    };
     runtime
-        .confirm_accepted_upload(
-            &origin.upload(),
-            0,
-            UploadPosition {
-                writer_seq: origin.boundary.writer_sequence(),
-                spool_through: 0,
-            },
-        )
+        .confirm_accepted_upload(&origin.upload(), 0, pos)
         .map_err(|_| "could not bind the staged upload position".to_owned())
 }
 
@@ -258,16 +245,15 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     if order != prior || !prior.0.same_device(prior.1) {
         return Err("native recovery cannot identify both data directories".into());
     }
+    let bail = || stale(home, &stage_home).map(|()| false);
     if identity_matches(home, &journal.origin).is_err()
-        || search_enabled()
+        || fold_db::db_operations::search_index::queue_policy::enabled()
         || session::load_cursor(home, journal.origin.database_id.as_str())? != journal.origin.cursor
     {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     }
     let Ok(client) = crate::cloud::client_from_home(home) else {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     };
     let Ok(current) = client
         .context(&ContextReadRequest {
@@ -277,27 +263,22 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
         })
         .await
     else {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     };
     if current.scope != journal.origin.scope || identity_matches(home, &journal.origin).is_err() {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     }
     let seed = seed(home)?;
     let (Ok(source), Ok(candidate)) = (
         open_stopped(&data, &seed, &journal.origin.upload()),
         open_stopped(&staged, &seed, &journal.origin.upload()),
     ) else {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     };
     if source.boundary != journal.origin.boundary || candidate.boundary != journal.stage_boundary {
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     }
-    let home_fd = directory(home)?;
-    let stage_fd = directory(&stage_home)?;
+    let (home_fd, stage_fd) = (directory(home)?, directory(&stage_home)?);
     if file_inode(&stage_fd)? != journal.stage_home
         || checked_child(&home_fd, "data")? != prior.0
         || checked_child(&stage_fd, "data")? != prior.1
@@ -311,8 +292,7 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
             return Err(error);
         }
         tracing::warn!(target: "lastdbd::log_sync", %error, "the filesystem refused native recovery exchange");
-        stale(home, &stage_home)?;
-        return Ok(false);
+        return bail();
     }
     complete(home, &stage_home, &journal)?;
     drop((source, candidate));
@@ -324,23 +304,31 @@ fn complete(home: &Path, stage: &Path, journal: &Journal) -> Result<(), String> 
     sync_dir(home)?;
     let database = journal.origin.database_id.as_str();
     let scope = home.join("log-sync").join(database);
-    let cursor = serde_json::json!({ "cursor": journal.through });
-    let cursor =
-        serde_json::to_vec(&cursor).map_err(|_| "could not encode native recovery cursor")?;
-    durable_file(&scope.join("session.json"), &cursor)?;
-    let prefix = serde_json::json!({ "database_id": database, "through": journal.through });
-    let prefix =
-        serde_json::to_vec(&prefix).map_err(|_| "could not encode native recovery prefix")?;
-    durable_file(&scope.join("prefix.json"), &prefix)?;
-    let receipt = serde_json::json!({
-        "version": 1, "database_id": journal.origin.database_id,
-        "device_id": journal.origin.device_id, "snapshot_id": journal.snapshot_id,
-        "snapshot_through": journal.snapshot_through, "through": journal.through,
-    });
-    let bytes =
-        serde_json::to_vec(&receipt).map_err(|_| "could not encode native recovery receipt")?;
-    durable_file(&scope.join("native-recovery.json"), &bytes)?;
-    // The retained stage now holds the old native files and the original bound journal.
+    let write_json = |name: &str, val: serde_json::Value, msg: &'static str| {
+        durable_file(
+            &scope.join(name),
+            &serde_json::to_vec(&val).map_err(|_| msg.to_owned())?,
+        )
+    };
+    write_json(
+        "session.json",
+        serde_json::json!({ "cursor": journal.through }),
+        "could not encode native recovery cursor",
+    )?;
+    write_json(
+        "prefix.json",
+        serde_json::json!({ "database_id": database, "through": journal.through }),
+        "could not encode native recovery prefix",
+    )?;
+    write_json(
+        "native-recovery.json",
+        serde_json::json!({
+            "version": 1, "database_id": journal.origin.database_id,
+            "device_id": journal.origin.device_id, "snapshot_id": journal.snapshot_id,
+            "snapshot_through": journal.snapshot_through, "through": journal.through,
+        }),
+        "could not encode native recovery receipt",
+    )?;
     retire(home, stage, "installed.json")
 }
 
@@ -386,8 +374,4 @@ fn saved_environment(home: &Path, scope: &CloudScope) -> Result<String, String> 
         return Err("native recovery needs the selected cloud account".into());
     }
     Ok(connection.environment)
-}
-
-fn search_enabled() -> bool {
-    fold_db::db_operations::search_index::queue_policy::enabled()
 }

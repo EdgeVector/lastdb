@@ -11,8 +11,6 @@ use super::{Entry, Kind, OwnedError, SpecBinding};
 pub(super) const FORMAT: u32 = 1;
 const REGISTRY_DIR: &str = "databases";
 const REGISTRY_FILE: &str = "registry.json";
-/// Same file name as the publication marker. The host layer does not call the backup module.
-const PUBLICATION_MARKER: &str = "share-publication.json";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,10 +21,9 @@ pub(super) struct RegistryFile {
 }
 
 pub(super) fn load(home: &Path) -> Result<RegistryFile, String> {
-    let publication = publication_id(home)?;
     match read(home)? {
-        Some(file) => check(file, publication.as_deref()),
-        None => fresh(publication),
+        Some(file) => check(file),
+        None => fresh(),
     }
 }
 
@@ -144,7 +141,7 @@ pub(super) fn fresh_id(used: &HashSet<String>) -> Result<String, OwnedError> {
 }
 
 pub(crate) fn validate_create(name: &str, spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
-    if !valid_database_name(name) {
+    if !crate::profile::valid_database_name(name) {
         return Err(OwnedError::InvalidName);
     }
     validate_binding(spec)
@@ -152,28 +149,19 @@ pub(crate) fn validate_create(name: &str, spec: Option<&SpecBinding>) -> Result<
 
 pub(super) fn validate_binding(spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
     if let Some(spec) = spec {
-        if !valid_label(&spec.name) || spec.version == 0 {
+        if !crate::profile::valid_label_64(&spec.name) || spec.version == 0 {
             return Err(OwnedError::InvalidSpec);
         }
     }
     Ok(())
 }
 
-fn fresh(publication: Option<String>) -> Result<RegistryFile, String> {
-    let owner = if let Some(id) = publication {
-        Entry {
-            id,
-            name: None,
-            kind: Kind::Shareable,
-            spec: None,
-        }
-    } else {
-        Entry {
-            id: fresh_id(&HashSet::new()).map_err(|_| "could not allocate a database id")?,
-            name: Some("personal".to_owned()),
-            kind: Kind::Personal,
-            spec: None,
-        }
+fn fresh() -> Result<RegistryFile, String> {
+    let owner = Entry {
+        id: fresh_id(&HashSet::new()).map_err(|_| "could not allocate a database id")?,
+        name: Some("personal".to_owned()),
+        kind: Kind::Personal,
+        spec: None,
     };
     Ok(RegistryFile {
         format: FORMAT,
@@ -182,41 +170,23 @@ fn fresh(publication: Option<String>) -> Result<RegistryFile, String> {
     })
 }
 
-fn check(file: RegistryFile, publication: Option<&str>) -> Result<RegistryFile, String> {
+fn check(file: RegistryFile) -> Result<RegistryFile, String> {
     if file.format != FORMAT {
         return Err("unsupported database registry format".into());
     }
     require_id(&file.owner.id)?;
-    owner_matches(&file.owner, publication)?;
-    let mut names = HashSet::new();
-    let mut ids = HashSet::from([file.owner.id.clone()]);
-    if let Some(name) = file.owner.name.clone() {
-        names.insert(name);
+    if file.owner.kind != Kind::Personal
+        || file.owner.name.as_deref() != Some("personal")
+        || file.owner.spec.is_some()
+    {
+        return Err("database registry owner is not the personal database".into());
     }
+    let mut names = HashSet::from(["personal".to_owned()]);
+    let mut ids = HashSet::from([file.owner.id.clone()]);
     for entry in &file.owned {
         accept_sibling(entry, &mut ids, &mut names)?;
     }
     Ok(file)
-}
-
-fn owner_matches(owner: &Entry, publication: Option<&str>) -> Result<(), String> {
-    match publication {
-        Some(id)
-            if owner.id != id
-                || owner.name.is_some()
-                || owner.kind != Kind::Shareable
-                || owner.spec.is_some() =>
-        {
-            Err("database registry does not match the publication id".into())
-        }
-        None if owner.kind != Kind::Personal
-            || owner.name.as_deref() != Some("personal")
-            || owner.spec.is_some() =>
-        {
-            Err("database registry owner is not the personal database".into())
-        }
-        _ => Ok(()),
-    }
 }
 
 fn accept_sibling(
@@ -243,44 +213,10 @@ fn accept_sibling(
     Ok(())
 }
 
-fn valid_database_name(name: &str) -> bool {
-    valid_label(name)
-        && !name.eq_ignore_ascii_case("personal")
-        && uuid::Uuid::parse_str(name).is_err()
-}
-
-fn valid_label(name: &str) -> bool {
-    (1..=64).contains(&name.len())
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-}
-
 fn require_id(id: &str) -> Result<(), String> {
     cloud_backup_protocol::Id::try_from(id.to_owned())
         .map(|_| ())
         .map_err(|_| format!("database id {id} is not a UUID"))
-}
-
-fn publication_id(home: &Path) -> Result<Option<String>, String> {
-    let path = home.join(PUBLICATION_MARKER);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    #[derive(Deserialize)]
-    struct Marker {
-        version: u8,
-        id: String,
-    }
-    let marker: Marker = serde_json::from_slice(
-        &std::fs::read(&path).map_err(|error| format!("read publication marker: {error}"))?,
-    )
-    .map_err(|_| "invalid share publication marker".to_owned())?;
-    if marker.version != 1 {
-        return Err("unsupported share publication marker version".into());
-    }
-    require_id(&marker.id)?;
-    Ok(Some(marker.id))
 }
 
 fn registry_path(home: &Path) -> PathBuf {

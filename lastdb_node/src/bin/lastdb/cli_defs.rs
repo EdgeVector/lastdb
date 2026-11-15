@@ -5,11 +5,8 @@ use std::path::PathBuf;
 
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
-#[path = "cli_defs/share.rs"]
-mod share;
 
 pub(super) use cloud::*;
-pub(super) use share::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminCommand {
@@ -36,13 +33,7 @@ pub(crate) enum AdminStorageCommand {
 #[derive(Subcommand, Debug)]
 pub(crate) enum AdminBackupCommand {
     Init(BackupInitArgs),
-    RecoverCredentialsHome {
-        #[command(flatten)]
-        args: RecoverCredentialsArgs,
-        #[arg(long)]
-        existing_dev: bool,
-    },
-    PrepareRecoveryHome(PrepareRecoveryArgs),
+    RecoverCredentialsHome(RecoverCredentialsArgs),
 }
 
 #[derive(Args, Debug)]
@@ -150,21 +141,12 @@ pub(super) enum Command {
 pub(super) enum DatabaseCommand {
     Create {
         name: String,
-        #[arg(long, conflicts_with_all = ["spec_name", "spec_version"])]
+        #[arg(long)]
         private: bool,
-        #[arg(long, requires = "spec_version")]
-        spec_name: Option<String>,
-        #[arg(long, requires = "spec_name")]
-        spec_version: Option<u32>,
         #[arg(long)]
         json: bool,
     },
     List {
-        #[arg(long)]
-        json: bool,
-    },
-    Select {
-        selector: String,
         #[arg(long)]
         json: bool,
     },
@@ -176,13 +158,9 @@ pub(crate) enum AppCommand {
         app_id: Option<String>,
         #[arg(long)]
         check: bool,
-        #[arg(long)]
-        json: bool,
     },
     Rollback {
         app_id: String,
-        #[arg(long)]
-        json: bool,
     },
     Publish(PublishArgs),
     List {
@@ -204,8 +182,6 @@ pub(crate) enum AppCommand {
         accept_install: bool,
         #[arg(long)]
         inactive: bool,
-        #[arg(long)]
-        json: bool,
     },
     Upgrade {
         #[arg(required_unless_present = "all")]
@@ -216,8 +192,6 @@ pub(crate) enum AppCommand {
         accept_install: bool,
         #[command(flatten)]
         source: CatalogSource,
-        #[arg(long)]
-        json: bool,
     },
 }
 
@@ -236,5 +210,81 @@ pub(crate) enum BackupCommand {
         /// Return after the signed snapshot read shows through equal to the log head.
         #[arg(long)]
         wait: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ShareCommand {
+    /// Export this LastDB identity's public contact code.
+    Contact {
+        /// New path for the public contact file.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Verify a contact file against an independently trusted node key.
+    VerifyContact {
+        contact: PathBuf,
+        #[arg(long)]
+        recipient_key: String,
+    },
+    /// Create a recipient-encrypted invitation for the named database selected by --db.
+    Invite {
+        /// Contact file obtained from the intended recipient.
+        #[arg(long)]
+        recipient: PathBuf,
+        /// Recipient's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long)]
+        recipient_key: String,
+        /// New path for the encrypted invitation file.
+        #[arg(long)]
+        out: PathBuf,
+        /// Lifetime of the read permission in hours. The member row does not expire.
+        #[arg(long, default_value_t = 24, value_parser = clap::value_parser!(u32).range(1..=168))]
+        expires_in_hours: u32,
+        /// Restore a revoked named-database member.
+        #[arg(long)]
+        regrant: bool,
+    },
+    /// Register an invitation as a database on this node and start recovery.
+    Accept {
+        /// Encrypted invitation file.
+        invitation: PathBuf,
+        /// Publisher's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long)]
+        publisher: String,
+        /// Optional local database name.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Manage contributor grants for ordinary database mutations.
+    #[command(subcommand)]
+    Contributors(ShareContributorCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ShareContributorCommand {
+    /// Authorize a recipient and write their sealed contributor grant.
+    Grant {
+        /// Contact file obtained from the intended recipient.
+        #[arg(long)]
+        recipient: PathBuf,
+        /// Recipient's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long)]
+        recipient_key: String,
+        /// New path for the sealed contributor grant.
+        #[arg(long)]
+        out: PathBuf,
+        /// Restore a revoked named-database member.
+        #[arg(long)]
+        regrant: bool,
+        /// Bearer lifetime in hours for a named database. The member row does not expire.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=168))]
+        expires_in_hours: Option<u32>,
+    },
+    /// Revoke the recipient's write grant without changing their read invitation.
+    Revoke {
+        /// Contributor's Ed25519 public key in lowercase hex.
+        #[arg(long)]
+        recipient_key: String,
     },
 }

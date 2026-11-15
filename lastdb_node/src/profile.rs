@@ -1,4 +1,131 @@
-//! Cross-environment endpoint registry and default home path helpers.
+//! Cross-environment endpoint registry, home path helpers, private-file I/O, and share specs.
+
+use serde::{Deserialize, Serialize};
+
+/// Registry `spec` object stored on a publication marker that named one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicationSpec {
+    /// Spec name. This is not a database name.
+    pub name: String,
+    /// Registry version. Catalog label `1.0` is `1`.
+    pub version: u32,
+}
+
+impl PublicationSpec {
+    pub(crate) fn whole_database(&self) -> bool {
+        database_policy::SpecBinding::new(&self.name, self.version)
+            .is_ok_and(|binding| binding.is_whole_database())
+    }
+}
+
+pub fn valid_label_64(value: &str) -> bool {
+    (1..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+pub fn valid_database_name(name: &str) -> bool {
+    valid_label_64(name)
+        && !name.eq_ignore_ascii_case("personal")
+        && uuid::Uuid::parse_str(name).is_err()
+}
+
+pub mod private_fs {
+    use std::fs::{self, File, OpenOptions};
+    use std::io::{self, Read, Write};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::path::Path;
+
+    pub fn read_file_limited(
+        path: &Path,
+        limit: usize,
+        require_private_mode: bool,
+    ) -> io::Result<Option<Vec<u8>>> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        if !metadata.is_file()
+            || (require_private_mode && metadata.permissions().mode() & 0o022 != 0)
+            || metadata.len() > limit as u64
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "private file must be a bounded regular file",
+            ));
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)?;
+        let mut bytes = Vec::new();
+        file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "private file exceeds its size limit",
+            ));
+        }
+        Ok(Some(bytes))
+    }
+
+    pub fn read_limited(path: &Path, limit: usize) -> io::Result<Option<Vec<u8>>> {
+        read_file_limited(path, limit, true)
+    }
+
+    pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        fs::create_dir_all(parent)?;
+        let temporary = parent.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+        let write = (|| -> io::Result<()> {
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&temporary)?;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            file.write_all(bytes)?;
+            file.sync_all()
+        })();
+        if let Err(error) = write {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        if let Err(error) = fs::rename(&temporary, path) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        File::open(parent).and_then(|directory| directory.sync_all())
+    }
+
+    pub fn remove_private(path: &Path) -> io::Result<()> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                fs::remove_file(path)?;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "private file must be a regular file",
+                ));
+            }
+        }
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        File::open(parent).and_then(|directory| directory.sync_all())
+    }
+}
 
 pub mod endpoints {
     use std::sync::OnceLock;
