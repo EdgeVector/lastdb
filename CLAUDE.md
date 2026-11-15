@@ -80,7 +80,7 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 
 The sharing checks use the fresh-home Share/Files product operation and the
 accepted-main DEV integration. The required gate (`ci-required`) runs fmt, clippy, lints, a
-tracked-text secret scan (`scripts/lints/lint-secrets.py`), builds and the
+tracked-text secret scan (`EdgeVector/.github/secret-scan` pinned by SHA), builds and the
 mandatory record/Share operation.
 
 Open or update a PR after the source changes. Read the required checks and
@@ -150,12 +150,11 @@ is not checked until you touch it.
   context struct and pass that, or pick a split point with fewer inputs. The
   workspace already carries dozens of these allows from earlier splits; do not
   add to them, and remove the ones in code you touch.
-- Check before you push: `python3 scripts/lints/lint-diff-file-size.py --base origin/main`
-  and `python3 scripts/lints/lint-diff-fn-size.py --base origin/main` (the second
-  needs `pip install tree-sitter==0.23.2 tree-sitter-rust==0.23.2`).
-  CI also runs `python3 scripts/lints/lint-diff-new-allows.py --base origin/main`:
-  a PR may not add more `too_many_arguments` allows than it removes (override one
-  line with `lint:allow-ok <reason>`).
+- CI job `diff_file_size` runs the SHA-pinned `EdgeVector/.github/source-diff-policy`
+  action on `.rs` and `.py` files: newly added or newly crossed files stay `<= 400`
+  lines, touched Rust functions stay `<= 100` lines, and a PR may not add more
+  `too_many_arguments` allows than it removes (override one line with
+  `lint:allow-ok <reason>`).
 - Brain: `preference-fold-code-size-limits`.
 
 ## Current memory and disk boundary

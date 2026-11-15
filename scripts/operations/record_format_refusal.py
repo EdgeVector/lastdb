@@ -9,12 +9,19 @@ root. A successful open fails the job.
 """
 import http.client
 import os
+from pathlib import Path
 import shutil
 import subprocess
+import sys
 import time
 
-from home_format import FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, source_constant
-from node import UnixConnection
+_SCRIPTS = Path(__file__).resolve().parents[1]
+for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
+    if _entry not in sys.path:
+        sys.path.insert(0, _entry)
+
+from harness.uds import UnixConnection  # noqa: E402
+from home_format import FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, source_constant  # noqa: E402
 
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")
 BOOT_ERROR = source_constant("lastdb_node/src/host/recovery.rs", "LAST_BOOT_ERROR_FILE")

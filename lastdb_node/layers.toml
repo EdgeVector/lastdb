@@ -1,6 +1,6 @@
 # Layer order of the lastdb_node library crate, bottom first.
 #
-# scripts/ci/layer-check.py reads this file. Each source file goes to the
+# EdgeVector/.github/layer-check reads this file. Each source file goes to the
 # layer that lists the longest prefix of its module path. A file may use its
 # own layer and the layers below it. A reference to a higher layer fails CI.
 # Cycles inside one layer are allowed.

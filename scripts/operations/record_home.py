@@ -1,26 +1,6 @@
 #!/usr/bin/env python3
-"""Exercise a record model home through a fresh CI daemon.
-
-Every new home uses the record model. The script writes and reads records with the
-selectors that the brain and LastSecrets apps use, checks that repeated reads
-by key come from the record warm set, lets the TTL sweep
-delete an expired record, reads the delete audit, then restarts the daemon and
-reads again. Before that restart it copies the stopped home and requires a
-second daemon to refuse both a wrong node marker and a marker that claims an
-older format. It also drains a schema of more than 10,000 records with
-unfiltered cursor pages and records the time of each page, reads past a run
-of more deleted records than one request examines, lets the TTL sweep read
-past such a run, and drops a schema and installs it again (`record_runs.py`). Schema-owned
-expiry tracking spans more than one native batch (`record_drop_tracking.py`). Blob and
-inline files survive a restart (`record_inline_files.py`). Owned named
-databases keep stable ids and isolated keys across that restart
-(`record_named_databases.py`). LastDB Files imports
-a file into a separate local publication home using the built CLI.
-It runs no test runner or benchmark. The home contains generated data only and
-never reads or copies a primary.
-"""
+"""Exercise a fresh CI record-model home across warm reads, TTL sweep, restarts, and refusals."""
 import argparse
-import json
 import os
 from pathlib import Path
 import sys
@@ -28,9 +8,13 @@ import time
 import urllib.parse
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+_SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_SCRIPTS / "benchmarks"))
+sys.path.insert(0, str(_SCRIPTS))
+from harness.daemon import marker_format, poll_until  # noqa: E402
+from harness.uds import send_unix_request  # noqa: E402
 from home_format import HOME_FORMAT  # noqa: E402
-from node import Node, marker_format, UnixConnection  # noqa: E402
+from node import Node  # noqa: E402
 import record_format_refusal  # noqa: E402
 import record_runs  # noqa: E402
 from record_requests import mutation as native_mutation, conditioned  # noqa: E402
@@ -309,14 +293,11 @@ def retention(node):
     mutate(node, "RecordTtl", {"hash": "kept"}, {"id": "kept", "bucket": "bt", "value": "kept again"})
     mutate(node, "RecordTtl", {"hash": "fresh"}, {"id": "fresh", "bucket": "bt", "value": "fresh"}, "create")
     kept_until = time.time() + TTL_SECONDS
-    deadline = time.time() + TTL_SECONDS + 60
-    while query(node, "RecordTtl", {"HashKey": "old"}):
-        require(time.time() < deadline, "the TTL sweep did not delete the expired record")
-        time.sleep(0.5)
+    poll_until(TTL_SECONDS + 60, lambda: not query(node, "RecordTtl", {"HashKey": "old"}),
+               interval=0.5, timeout_error="the TTL sweep did not delete the expired record")
     live = sorted(ids(query(node, "RecordTtl", {"HashRangeKeys": [["kept", ""], ["fresh", ""]]})))
     require(time.time() < kept_until, "the sweep was too slow to tell an old record from a rewritten one")
     require(live == ["fresh", "kept"], "the sweep deleted a record younger than the policy: " + repr(live))
-    # The sweep erases through the schema that holds the policy.
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordTtl", reply["anchor"]}]
     require(len(rows) == 1 and rows[0]["caller"] == "ttl-sweep-purge" and rows[0]["verb"] == "purge"
             and rows[0]["records_erased"] == 1,
@@ -338,50 +319,36 @@ def query_refusals(node):
             "full_schema_scan_not_allowed")
     headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark",
                "X-LastDB-Allow-Full-Scan": "true"}
-    connection = UnixConnection(node.socket)
-    try:
-        connection.request("POST", "/api/query",
-                           json.dumps({"schema_name": "RecordById", "filter": None}).encode(),
-                           headers)
-        response = connection.getresponse()
-        raw = response.read()
-    finally:
-        connection.close()
-    require(response.status == 400 and b"full_schema_scan_not_allowed" in raw,
-            f"X-LastDB-Allow-Full-Scan header was not refused: {response.status} {raw[:300]!r}")
+    status, raw, _, _, _ = send_unix_request(
+        node.socket, "POST", "/api/query", {"schema_name": "RecordById", "filter": None}, headers)
+    require(status == 400 and b"full_schema_scan_not_allowed" in raw,
+            f"X-LastDB-Allow-Full-Scan header was not refused: {status} {raw[:300]!r}")
     for bad_body in [
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"},
-         "where": [{"eq": {"field": "bucket", "value": "b2"}}]},
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"},
-         "value_filters": [{"Equals": {"field": "id", "value": 1.0}}]},
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"},
-         "order_by": {"field": "id"}},
+        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "where": [{"eq": {"field": "bucket", "value": "b2"}}]},
+        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "value_filters": [{"Equals": {"field": "id", "value": 1.0}}]},
+        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "order_by": {"field": "id"}},
         {"schema_name": "RecordById", "filter": {"SampleN": 3}},
     ]:
         refused(lambda body=bad_body: node.call("/api/query", body), "HTTP 400")
     refused(lambda: node.call("/api/schemas?include_counts=true"), "HTTP 400")
     print("Query refusals: unfiltered scan, X-LastDB-Allow-Full-Scan, where, value_filters, "
-          "order_by, SampleN, and schemas?include_counts=true all refused with HTTP 400",
-          flush=True)
+          "order_by, SampleN, and schemas?include_counts=true all refused with HTTP 400", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--daemon", type=Path, required=True)
-    parser.add_argument("--cli", type=Path, required=True)
+    for flag in ("--daemon", "--cli", "--output"):
+        parser.add_argument(flag, type=Path, required=True)
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
     output = args.output.resolve()
     require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
     output.mkdir(mode=0o700)
-    node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root,
-                environment={"LASTDB_TTL_SWEEP": "1",
-                             "LASTDB_TTL_SWEEP_INTERVAL_SECS": "1",
-                             "EXEMEM_API_URL": "http://127.0.0.1:9",
-                             "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
+    env = {"LASTDB_TTL_SWEEP": "1", "LASTDB_TTL_SWEEP_INTERVAL_SECS": "1",
+           "EXEMEM_API_URL": "http://127.0.0.1:9", "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"}
+    node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root, environment=env)
     try:
         node.start()
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()

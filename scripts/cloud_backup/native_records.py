@@ -1,28 +1,12 @@
-"""Explicit native record requests for the owned cloud-recovery homes."""
+"""Explicit native record requests for owned cloud-recovery homes."""
 
-import copy
+from pathlib import Path
+import sys
 
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
-def key(value, range_value=None):
-    return {"hash": value, "range": range_value}
+from harness.records import create, key, replace_row as replace  # noqa: E402
 
-
-def create(schema, target, record):
-    return {"type": "mutation", "schema": schema, "key_value": target,
-            "record": copy.deepcopy(record), "alternates": {}, "mutation_type": "create",
-            "expected": {"type": "absent"}, "durability": "durable"}
-
-
-def replace(schema, row, record, definition_id=None):
-    request = {"type": "mutation", "schema": schema, "key_value": copy.deepcopy(row["key"]),
-               "record": copy.deepcopy(record), "alternates": copy.deepcopy(row["alternates"]),
-               "mutation_type": "replace", "durability": "durable",
-               "expected": {"type": "revision", "revision": row["revision"]}}
-    if definition_id is not None:
-        request["definition_id"] = definition_id
-    # These are complete-record columns. Omission would remove a retained file.
-    metadata = row.get("metadata") or {}
-    for name in ("source_file_name", "metadata", "file"):
-        if metadata.get(name) is not None:
-            request[name] = copy.deepcopy(metadata[name])
-    return request
+__all__ = ["create", "key", "replace"]

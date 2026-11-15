@@ -8,32 +8,25 @@ import os
 from pathlib import Path
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
-import time
 
 from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architecture, validate_pair, write_json
 
-sys.path.append(str(Path(__file__).resolve().parents[1] / "benchmarks"))
+_SCRIPTS = Path(__file__).resolve().parents[1]
+for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
+    if _entry not in sys.path:
+        sys.path.append(_entry)
+
+from harness.daemon import poll_until, read_shutdown_receipt, verify_shutdown_receipt  # noqa: E402
+from harness.uds import UnixConnection, send_unix_request  # noqa: E402,F401
 from home_format import NODE_MARKER  # noqa: E402
 
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-
-
-class UnixConnection(http.client.HTTPConnection):
-    def __init__(self, path):
-        super().__init__("localhost", timeout=30)
-        self.path = path
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.settimeout(self.timeout)
-        self.sock.connect(str(self.path))
 
 
 class OwnedNode:
@@ -51,44 +44,52 @@ class OwnedNode:
         except BaseException:
             self.close()
             raise
-        # No developer credentials, service-home config, or host profile enters the node.
-        # The setup route below is local. Unexpected catalog requests cannot reach a service.
-        self.environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
-                            "HOME": str(self.root / "os-home"), "TMPDIR": str(self.root / "tmp"),
-                            "LASTDB_HOME": str(self.home),
-                            "LASTDB_ISOLATED_COPY": "1", "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
-                            "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev", "RUST_MIN_STACK": "16777216",
-                            "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
-                            "EXEMEM_API_URL": "http://127.0.0.1:9"}
+        self.environment = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LANG": "C",
+            "HOME": str(self.root / "os-home"),
+            "TMPDIR": str(self.root / "tmp"),
+            "LASTDB_HOME": str(self.home),
+            "LASTDB_ISOLATED_COPY": "1",
+            "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
+            "ENVIRONMENT": "dev",
+            "EXEMEM_ENV": "dev",
+            "RUST_MIN_STACK": "16777216",
+            "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
+            "EXEMEM_API_URL": "http://127.0.0.1:9",
+        }
 
     def call(self, path, body=None):
-        connection = UnixConnection(self.socket)
-        try:
-            content = None if body is None else json.dumps(body, separators=(",", ":"))
-            connection.request("GET" if body is None else "POST", path, content,
-                               {"Content-Type": "application/json", "X-LastDB-Client": "nightly-release"})
-            response = connection.getresponse()
-            raw = response.read(1024 * 1024 + 1)
-            if response.status != 200 or len(raw) > 1024 * 1024:
-                raise RuntimeError(
-                    f"Release operation {path} failed: HTTP {response.status}: {raw[:600]!r}")
-            value = json.loads(raw)
-            if not isinstance(value, dict) or value.get("ok") is False:
-                raise RuntimeError(f"Release operation {path} returned an error: {raw[:600]!r}")
-            return value.get("data", value)
-        finally:
-            connection.close()
+        status, raw, _, _, _ = send_unix_request(
+            self.socket,
+            "GET" if body is None else "POST",
+            path,
+            body,
+            {"Content-Type": "application/json", "X-LastDB-Client": "nightly-release"},
+            timeout=30,
+            max_bytes=1024 * 1024,
+        )
+        if status != 200 or len(raw) > 1024 * 1024:
+            raise RuntimeError(f"Release operation {path} failed: HTTP {status}: {raw[:600]!r}")
+        value = json.loads(raw)
+        if not isinstance(value, dict) or value.get("ok") is False:
+            raise RuntimeError(f"Release operation {path} returned an error: {raw[:600]!r}")
+        return value.get("data", value)
 
     def start(self):
         if self.process is not None:
             raise RuntimeError("The owned daemon is already active")
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
-            [str(self.binaries / "lastdbd"), "--data-dir", str(self.home),
-             "--socket-path", str(self.socket)] + (["--enable-search"] if self.enable_search else []),
-            env=self.environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
+            [str(self.binaries / "lastdbd"), "--data-dir", str(self.home), "--socket-path", str(self.socket)]
+            + (["--enable-search"] if self.enable_search else []),
+            env=self.environment,
+            stdin=subprocess.DEVNULL,
+            stdout=self.log,
+            stderr=self.log,
+        )
+
+        def check_boot():
             if self.process.poll() is not None:
                 raise RuntimeError("The packaged daemon exited before health")
             try:
@@ -99,8 +100,9 @@ class OwnedNode:
                     return version
             except (OSError, http.client.HTTPException):
                 pass
-            time.sleep(0.05)
-        raise RuntimeError("The packaged daemon missed its health deadline")
+            return None
+
+        return poll_until(90, check_boot, interval=0.05, timeout_error="The packaged daemon missed its health deadline")
 
     def stop(self, crash=False):
         if self.process is None:
@@ -123,11 +125,8 @@ class OwnedNode:
                 self.log = None
         if crash and process.returncode != -signal.SIGKILL:
             raise RuntimeError("The owned daemon did not exit from the deliberate SIGKILL")
-        if not crash:
-            receipt = self.home / ".shutdown_flush_ready"
-            value = json.loads(receipt.read_text()) if receipt.is_file() else {}
-            if process.returncode != 0 or value.get("pid") != process.pid or value.get("flush_ok") is not True:
-                raise RuntimeError("The packaged daemon lacks a successful shutdown receipt")
+        if not crash and (process.returncode != 0 or not verify_shutdown_receipt(read_shutdown_receipt(self.home), process.pid)):
+            raise RuntimeError("The packaged daemon lacks a successful shutdown receipt")
 
     def close(self):
         try:
@@ -138,27 +137,42 @@ class OwnedNode:
             if self.log is not None:
                 self.log.close()
                 self.log = None
-            if (self.root.is_symlink() or self.root.stat().st_uid != self.uid
-                    or self.root.stat().st_ino != self.inode or self.root.parent != Path("/tmp").resolve()
-                    or not self.root.name.startswith("ldb-rel-")):
+            if (
+                self.root.is_symlink()
+                or self.root.stat().st_uid != self.uid
+                or self.root.stat().st_ino != self.inode
+                or self.root.parent != Path("/tmp").resolve()
+                or not self.root.name.startswith("ldb-rel-")
+            ):
                 raise RuntimeError("The generated home identity changed; refuse cleanup")
             shutil.rmtree(self.root)
 
 
 def unpack(bundle, manifest, directory, expected_version, source):
-    if (manifest.get("schema") != "lastdb.mini.bundle.v1" or manifest.get("source_git_oid") != source
-            or manifest.get("version") != expected_version or manifest.get("target") not in TARGETS):
+    if (
+        manifest.get("schema") != "lastdb.mini.bundle.v1"
+        or manifest.get("source_git_oid") != source
+        or manifest.get("version") != expected_version
+        or manifest.get("target") not in TARGETS
+    ):
         raise ValueError("The package manifest has a different source, version, or target")
     artifact = manifest["artifact"]
-    if (not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES
-            or artifact["file"] != bundle.name or artifact["sha256"] != digest(bundle)
-            or artifact["size"] != bundle.stat().st_size):
+    if (
+        not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES
+        or artifact["file"] != bundle.name
+        or artifact["sha256"] != digest(bundle)
+        or artifact["size"] != bundle.stat().st_size
+    ):
         raise ValueError("The package bytes differ from the bundle manifest")
     with tarfile.open(bundle, "r:gz") as archive:
         members = []
         for member in archive:
-            if (len(members) == 2 or member.name not in {"lastdb", "lastdbd"}
-                    or not member.isfile() or not 0 < member.size <= MAX_BINARY_BYTES):
+            if (
+                len(members) == 2
+                or member.name not in {"lastdb", "lastdbd"}
+                or not member.isfile()
+                or not 0 < member.size <= MAX_BINARY_BYTES
+            ):
                 raise ValueError("The archive exceeds the bounded executable pair")
             members.append(member)
         if len(members) != 2 or {member.name for member in members} != {"lastdb", "lastdbd"}:
@@ -176,23 +190,30 @@ def unpack(bundle, manifest, directory, expected_version, source):
 
 def record(number, updated):
     key = f"record-{number:02d}"
-    return key, {"bucket": HASH, "id": key,
-                 "body": f"nightly-record-{number}-{'updated' if updated else 'created'}"}
+    return key, {"bucket": HASH, "id": key, "body": f"nightly-record-{number}-{'updated' if updated else 'created'}"}
 
 
 def mutation(number, updated, create, revision=None):
     key, fields = record(number, updated)
-    return {"type": "mutation", "schema": SCHEMA,
-            "key_value": {"hash": HASH, "range": key}, "record": fields, "alternates": {},
-            "mutation_type": "create" if create else "replace",
-            "expected": {"type": "absent"} if create else {"type": "revision", "revision": revision},
-            "durability": "durable", "convergence": "sync"}
+    return {
+        "type": "mutation",
+        "schema": SCHEMA,
+        "key_value": {"hash": HASH, "range": key},
+        "record": fields,
+        "alternates": {},
+        "mutation_type": "create" if create else "replace",
+        "expected": {"type": "absent"} if create else {"type": "revision", "revision": revision},
+        "durability": "durable",
+        "convergence": "sync",
+    }
 
 
 def revisions_for(node, numbers):
     keys = [f"record-{number:02d}" for number in numbers]
-    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": len(keys),
-                                      "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}})
+    result = node.call(
+        "/api/query",
+        {"schema_name": SCHEMA, "limit": len(keys), "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}},
+    )
     found = {}
     for row in result.get("results", []):
         key = row.get("key", {})
@@ -207,30 +228,47 @@ def revisions_for(node, numbers):
 def write(node, numbers, create=False):
     numbers = list(numbers)
     revisions = {} if create else revisions_for(node, numbers)
-    result = node.call("/api/mutations/batch", {"mutations": [
-        mutation(number, not create, create, None if create else revisions[f"record-{number:02d}"])
-        for number in numbers]})
+    result = node.call(
+        "/api/mutations/batch",
+        {
+            "mutations": [
+                mutation(number, not create, create, None if create else revisions[f"record-{number:02d}"])
+                for number in numbers
+            ]
+        },
+    )
     identities = result.get("mutation_ids")
-    if (result.get("count") != len(numbers) or result.get("durability") != "durable" or result.get("errors")
-            or not isinstance(identities, list) or len(identities) != len(numbers)
-            or any(not isinstance(value, str) or not value for value in identities)):
+    if (
+        result.get("count") != len(numbers)
+        or result.get("durability") != "durable"
+        or result.get("errors")
+        or not isinstance(identities, list)
+        or len(identities) != len(numbers)
+        or any(not isinstance(value, str) or not value for value in identities)
+    ):
         raise RuntimeError("The packaged daemon did not acknowledge the full durable batch")
 
 
 def read(node, updated, ranged=False):
-    condition = ({"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
-                 if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
+    condition = (
+        {"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
+        if ranged
+        else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]}
+    )
     result = node.call("/api/query", {"schema_name": SCHEMA, "limit": 8, "filter": condition})
     records = result.get("results", [])
     if result.get("returned_count") != 8 or len(records) != 8:
         raise RuntimeError("The packaged daemon returned an incomplete query")
     found = []
-    for record in records:
-        key = record.get("key", {})
+    for item in records:
+        key = item.get("key", {})
         number = int(key.get("range", "").removeprefix("record-"))
-        expected = {"bucket": HASH, "id": f"record-{number:02d}",
-                    "body": f"nightly-record-{number}-{'updated' if number in updated else 'created'}"}
-        if key != {"hash": HASH, "range": expected["id"]} or record.get("fields") != expected:
+        expected = {
+            "bucket": HASH,
+            "id": f"record-{number:02d}",
+            "body": f"nightly-record-{number}-{'updated' if number in updated else 'created'}",
+        }
+        if key != {"hash": HASH, "range": expected["id"]} or item.get("fields") != expected:
             raise RuntimeError("The packaged daemon returned different keys or values")
         found.append(number)
     if sorted(found) != list(range(8)) or (ranged and found != list(range(8))):
@@ -239,18 +277,35 @@ def read(node, updated, ranged=False):
 
 def operations(node):
     version = node.start()
-    status = subprocess.run([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "status", "--json"],
-                            env=node.environment, capture_output=True, text=True, check=True, timeout=35)
+    status = subprocess.run(
+        [str(node.binaries / "lastdb"), "--data-dir", str(node.home), "status", "--json"],
+        env=node.environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=35,
+    )
     if not isinstance(json.loads(status.stdout), dict):
         raise RuntimeError("The packaged CLI returned an invalid status response")
     marker = node.home / "data" / "laststore-pack-node-v1"
     if marker.read_bytes() != NODE_MARKER:
         raise RuntimeError("The packaged daemon did not initialize a home in the current format")
-    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
-        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
-        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
-        "fields": FIELDS, "field_types": {"bucket": "String", "id": "String"},
-        "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS}}})
+    node.call(
+        "/api/schemas/seed-system",
+        {
+            "isolated_copy": True,
+            "schema": {
+                "source": "system_seed",
+                "name": SCHEMA,
+                "descriptive_name": SCHEMA,
+                "schema_type": "HashRange",
+                "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
+                "fields": FIELDS,
+                "field_types": {"bucket": "String", "id": "String"},
+                "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS},
+            },
+        },
+    )
     write(node, range(8), create=True)
     read(node, set())
     read(node, set(), ranged=True)
@@ -286,15 +341,28 @@ def main():
         node.close()
     if type(version.get("api_version")) is not int or not isinstance(version.get("capabilities"), dict):
         raise ValueError("The packaged daemon lacks its compatibility contract")
-    write_json(args.output / "probe.json", {
-        "schema": "lastdb.nightly.probe.v1", "complete": True, "target": manifest["target"],
-        "source_git_oid": args.source, "version": args.version, "bundle_sha256": digest(args.bundle),
-        "api_version": version["api_version"], "capabilities": version["capabilities"],
-        "min_supported_api_version": version.get("min_supported_api_version"),
-        "current_outbox_format_version": version.get("current_outbox_format_version"),
-        "records": 8, "daemon_stopped": True, "home_removed": True,
-        "checks": {name: True for name in ("keyed_read", "range_read", "update", "reopen",
-                                          "cli_status", "crash_recovery")}})
+    write_json(
+        args.output / "probe.json",
+        {
+            "schema": "lastdb.nightly.probe.v1",
+            "complete": True,
+            "target": manifest["target"],
+            "source_git_oid": args.source,
+            "version": args.version,
+            "bundle_sha256": digest(args.bundle),
+            "api_version": version["api_version"],
+            "capabilities": version["capabilities"],
+            "min_supported_api_version": version.get("min_supported_api_version"),
+            "current_outbox_format_version": version.get("current_outbox_format_version"),
+            "records": 8,
+            "daemon_stopped": True,
+            "home_removed": True,
+            "checks": {
+                name: True
+                for name in ("keyed_read", "range_read", "update", "reopen", "cli_status", "crash_recovery")
+            },
+        },
+    )
     print("Packaged CLI, durable writes, keyed reads, ranges, reopen, and crash recovery passed")
 
 
