@@ -30,7 +30,7 @@ from native_records import create, key as record_key, replace
 from programs import Programs, execute
 from signed_files import retry, running
 from support import (CREDENTIALS_FILE, OperationError, child_environment, dev_endpoint, failure,
-                     read_json, require, write_private)
+                     private_file, read_json, require, stable, write_private)
 
 
 RECORDS = 300_000
@@ -275,12 +275,52 @@ def upload(programs, node, database_id, numbers):
     except OperationError as error:
         if str(error) == "cli_deadline":
             raise OperationError("upload_budget") from None
+        if str(error) == "product_cli_refused":
+            diagnostic = snapshot_http_failure(node.home, database_id)
+            if diagnostic:
+                refusal = {**(error.cli_refusal or {}), **diagnostic}
+                raise OperationError("product_cli_refused", cli_refusal=refusal) from None
         raise
     require(elapsed < BUDGET_SECONDS, "upload_budget")
     through, entries = parse_wait(output)
     note(numbers, "upload_seconds", round(elapsed, 3))
     note(numbers, "snapshot_through", through)
     note(numbers, "log_entries", entries)
+
+
+SNAPSHOT_PROTOCOL_ERRORS = frozenset(b"""
+    InvalidInput UnsupportedCapability Unauthorized NotFound GenerationConflict
+    StreamAuthorityConflict JobClosed IdentityConflict PredecessorConflict ResourceLimit
+    QuotaExceeded MissingDependency IntegrityMismatch RecoveryKeyMismatch SourceUnavailable
+    ProviderPending OutcomeUnknown RetryLater
+""".split())
+
+
+def snapshot_http_failure(home, database_id):
+    """Return only an allowlisted diagnostic from the generated daemon's failure file."""
+    if database_id != gate_id():
+        return {}
+    try:
+        stream, before = private_file(home / "log-sync" / database_id / "snapshot-error")
+        with stream:
+            if before.st_size > 512:
+                return {}
+            line = stream.read(513).strip()
+            if not stable(before, os.fstat(stream.fileno())):
+                return {}
+    except (OSError, OperationError):
+        return {}
+    direct = re.fullmatch(rb"snapshot file upload returned HTTP ([345][0-9]{2})(?: [A-Za-z -]{1,64})?", line)
+    if direct:
+        return {"http_status": int(direct[1]), "snapshot_source": "provider_upload"}
+    signed = re.fullmatch(rb"signed snapshot request returned HTTP ([345][0-9]{2})"
+                          rb"(?: (unknown failure|[A-Za-z]{1,40})(?: \([A-Za-z0-9_.-]{1,96}\))?)?", line)
+    if not signed:
+        return {}
+    detail = {"http_status": int(signed[1]), "snapshot_source": "signed_snapshot"}
+    if signed[2] in SNAPSHOT_PROTOCOL_ERRORS:
+        detail["protocol_error"] = signed[2].decode("ascii")
+    return detail
 
 
 def restore(programs, source, destination, database_id, phrase, numbers):
