@@ -37,6 +37,14 @@ def reconcile_context(api, context, outcome, workflow_file):
         for run in runs:
             if (run.get("head_branch") == "main"
                     and run.get("event") in {"push", "schedule", "workflow_dispatch"}
+                    and order(run) > order(current)
+                    and run.get("status") != "completed"):
+                # A newer notifier may have just succeeded without any issue to
+                # hold a watermark. Never mutate behind its unfinished/API-lagged
+                # workflow; that newer run owns the eventual reconciliation.
+                return None
+            if (run.get("head_branch") == "main"
+                    and run.get("event") in {"push", "schedule", "workflow_dispatch"}
                     and run.get("status") == "completed"
                     and run.get("conclusion") in {"success", "failure"}
                     and order(run) > selected_order):
