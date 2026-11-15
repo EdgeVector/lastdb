@@ -8,9 +8,13 @@ DescribeTable belongs in a separate IAM statement on the table ARN only.
 This module does not change IAM.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
+import os
 import re
+import subprocess
 
 
 DEV_TABLE = "ExememMutationLog-dev"
@@ -113,21 +117,6 @@ def writes_partition(database_id):
     return allow_stream(database_id) + "#writes"
 
 
-def _record_label(value):
-    if not isinstance(value, str) or not value or "#" in value:
-        raise GuardError("record")
-    return value
-
-
-def submission_key(node, device, writer_seq):
-    """Sort key on ``{id}#sub``: ``sub#{node}#{device}#{writer_seq:020}``."""
-    _record_label(node)
-    _record_label(device)
-    if isinstance(writer_seq, bool) or not isinstance(writer_seq, int) or writer_seq < 0:
-        raise GuardError("record")
-    return "sub#{0}#{1}#{2:020d}".format(node, device, writer_seq)
-
-
 def load_partitions(database_id):
     """The exact partitions owned by this one DEV load."""
     base = allow_stream(database_id)
@@ -211,3 +200,70 @@ def record_ids_from_query(response, database_id):
             raise GuardError("record")
         ids.append(record_id)
     return ids
+
+
+def aws_dynamodb(operation, payload):
+    environment = dict(
+        os.environ,
+        AWS_IGNORE_CONFIGURED_ENDPOINT_URLS="true",
+        AWS_EC2_METADATA_DISABLED="true",
+        AWS_PAGER="",
+        AWS_REGION=DEV_REGION,
+        AWS_DEFAULT_REGION=DEV_REGION,
+    )
+    command = [
+        "aws", "dynamodb", operation, "--region", DEV_REGION, "--output", "json",
+        "--no-cli-pager", "--cli-input-json", json.dumps(payload, separators=(",", ":")),
+    ]
+    result = subprocess.run(command, capture_output=True, env=environment, timeout=40, check=False)
+    if result.returncode:
+        raise GuardError("aws")
+    if not result.stdout.strip():
+        return {}
+    return json.loads(result.stdout)
+
+
+def iter_partition_keys(table, partition, *, call=aws_dynamodb, on_page=None):
+    start = None
+    while True:
+        request = query_request(table, partition)
+        request["ProjectionExpression"] = "database_id, record_id"
+        if start is not None:
+            if start.get("database_id", {}).get("S") != partition:
+                raise GuardError("database")
+            request["ExclusiveStartKey"] = start
+        found = call("query", request)
+        if on_page is not None:
+            on_page()
+        yield from record_ids_from_query(found, partition)
+        nxt = found.get("LastEvaluatedKey")
+        if not continue_page(nxt, start):
+            break
+        cursor = record_ids_from_query({"Items": [nxt]}, partition)[0]
+        if len(cursor.encode("utf-8")) > 1024 or (start is not None and cursor <= start["record_id"]["S"]):
+            raise GuardError("page")
+        start = nxt
+
+
+def batch_delete_keys(table, partition, pending, *, call=aws_dynamodb, on_batch=None, on_stall=None):
+    pending = list(pending)
+    deleted = 0
+    misses = 0
+    while pending:
+        chunk = pending[:BATCH_LIMIT]
+        response = call("batch-write-item", delete_batch(table, partition, chunk))
+        if on_batch is not None:
+            on_batch(len(chunk))
+        left = unprocessed_ids(response, table, partition)
+        if len(left) != len(set(left)) or not set(left) <= set(chunk):
+            raise GuardError("batch")
+        if left == chunk:
+            misses += 1
+            if on_stall is None:
+                raise GuardError("batch")
+            on_stall(misses)
+        else:
+            misses = 0
+        pending = left + pending[len(chunk):]
+        deleted += len(chunk) - len(left)
+    return deleted

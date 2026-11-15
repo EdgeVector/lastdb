@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Private, bounded I/O for the DEV restore operation."""
+"""Private, bounded I/O and BIP39 seed decoding for DEV cloud backup operations."""
+
+from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
@@ -12,7 +14,6 @@ import stat
 import sys
 import tempfile
 import time
-import traceback
 import uuid
 
 _SCRIPTS = Path(__file__).resolve().parents[1]
@@ -20,12 +21,48 @@ for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
     if _entry not in sys.path:
         sys.path.append(_entry)
 
-from harness.ci import summary_line, write_private  # noqa: E402,F401
-from home_format import BACKUP_DIR, CREDENTIALS_FILE  # noqa: E402,F401
+from harness import summary_line, write_private  # noqa: E402,F401
+from home_format import CREDENTIALS_FILE  # noqa: E402,F401
 
 
 ACCOUNT = "2a81c95623f2445854a794b5b48471d6"
+WORDS_SHA256 = "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
 CHUNK = 1024 * 1024
+
+
+class BaselineDataError(Exception):
+    """A fixed failure code. It never carries a secret value."""
+
+
+def _check_baseline(condition, code):
+    if not condition:
+        raise BaselineDataError(code)
+
+
+def words():
+    path = Path(__file__).resolve().with_name("bip39_english.txt")
+    raw = path.read_bytes()
+    _check_baseline(hashlib.sha256(raw).hexdigest() == WORDS_SHA256, "baseline_word_list_digest")
+    values = raw.decode("ascii").split("\n")[:-1]
+    _check_baseline(len(values) == 2048 and len(set(values)) == 2048, "baseline_word_list_shape")
+    return {word: index for index, word in enumerate(values)}
+
+
+def seed(phrase):
+    """Return the 32-byte Ed25519 seed of a 24-word phrase."""
+    _check_baseline(isinstance(phrase, bytes) and 0 < len(phrase) <= 4096, "baseline_phrase_size")
+    try:
+        items = phrase.decode("ascii").split()
+    except UnicodeDecodeError:
+        raise BaselineDataError("baseline_phrase_text") from None
+    index = words()
+    _check_baseline(len(items) == 24 and all(item in index for item in items), "baseline_phrase_words")
+    bits = 0
+    for item in items:
+        bits = (bits << 11) | index[item]
+    entropy = (bits >> 8).to_bytes(32, "big")
+    _check_baseline(bits & 0xFF == hashlib.sha256(entropy).digest()[0], "baseline_phrase_checksum")
+    return entropy
 
 
 class OperationError(Exception):
@@ -36,16 +73,6 @@ class OperationError(Exception):
         self.service_field = service_field
         self.cli_refusal = cli_refusal
         self.socket_refusal = socket_refusal
-
-
-def unexpected(error, nodes):
-    """Where an unclassified error left the recipe: its class, frames, and daemon state."""
-    frames = traceback.extract_tb(error.__traceback__)[-8:]
-    return {
-        "unexpected_error": type(error).__name__,
-        "unexpected_frames": [f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames],
-        "daemons": [node.exit_report() for node in nodes],
-    }
 
 
 def failure(error):
@@ -89,15 +116,6 @@ def stable(before, after):
     )
 
 
-def private_directory(path):
-    metadata = path.lstat()
-    require(
-        stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.getuid() and metadata.st_mode & 0o077 == 0,
-        "private_directory",
-    )
-    return metadata
-
-
 def private_file(path, hardlinks=False):
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
@@ -122,17 +140,6 @@ def read_json(path, max_bytes=262144):
         raw = stream.read(max_bytes + 1)
         require(len(raw) <= max_bytes and stable(before, os.fstat(stream.fileno())), "json_changed")
     return decode_json(raw)
-
-
-def hash_file(path, expected_bytes=None):
-    stream, before = private_file(Path(path), hardlinks=True)
-    value = hashlib.sha256()
-    with stream:
-        require(expected_bytes is None or before.st_size == expected_bytes, "file_size")
-        for block in iter(lambda: stream.read(CHUNK), b""):
-            value.update(block)
-        require(stable(before, os.fstat(stream.fileno())), "file_changed")
-    return value.hexdigest()
 
 
 def save_json(path, value):
@@ -217,7 +224,6 @@ def summary(message):
 
 
 def _run_two_node_operation(operation):
-    import baseline_data
     from node import OwnedNode
     from programs import Programs
 
@@ -239,7 +245,7 @@ def _run_two_node_operation(operation):
         root = Path(temporary).resolve()
         publisher = OwnedNode(root / "publisher", programs)
         publisher.home.mkdir(mode=0o700)
-        write_private(publisher.home / "identity.key", baseline_data.seed(phrase))
+        write_private(publisher.home / "identity.key", seed(phrase))
         del phrase
         recipient_home = root / "recipient"
         initialized = programs.command(

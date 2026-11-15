@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Promote qualified bytes through the Homebrew repository's ordinary PR gates."""
 
+from __future__ import annotations
+
 import argparse
 import base64
 from datetime import datetime
@@ -12,8 +14,8 @@ import time
 
 from nightly_assets import TARGETS, digest, document, validate_bundle
 from nightly_plan import _capture, wait_gates
+from stable_app_publish import require_apps
 from stable_plan import APPS, TAP, api, load
-from stable_registry import require_apps
 
 
 def qualification(folder, plan):

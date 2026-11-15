@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Publish only attested, exact-API app declarations with a dedicated KMS key."""
 
+from __future__ import annotations
+
 import argparse
 import base64
 from datetime import datetime, timezone
@@ -14,18 +16,67 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-import boto3
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
 from nightly_assets import document
 from nightly_plan import _capture
 from stable_plan import APPS, api
-from stable_registry import catalog
 
+PROFILE = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
+KEY = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw="
 SIGNED = ("app_id", "channel", "app_version", "api_version", "lastdb_build",
           "outbox_format_version", "source", "sha", "audience")
+
+
+def download(url):
+    with urllib.request.urlopen(url, timeout=30) as response:
+        raw = response.read(2 * 1024 ** 2 + 1)
+    if len(raw) > 2 * 1024 ** 2:
+        raise ValueError("Registry response exceeds the signed-list bound")
+    return raw
+
+
+def catalog(api_version, channel="stable"):
+    if channel not in ("stable", "next"):
+        raise ValueError("Invalid app channel")
+    base = json.loads(PROFILE.read_text())["environments"]["prod"]["registry_index"]
+    raw = download(f"{base}/{channel}/api/{api_version}.json")
+    envelope = json.loads(download(f"{base}/{channel}/api/{api_version}.json.sig"))
+    digest = hashlib.sha256(raw).hexdigest()
+    key = base64.b64decode(KEY, validate=True)
+    if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
+            or envelope.get("key_id") != hashlib.sha256(key).hexdigest()):
+        raise ValueError("Invalid registry list signature envelope")
+    Ed25519PublicKey.from_public_bytes(key).verify(
+        base64.b64decode(envelope["sig"], validate=True), digest.encode())
+    listing = json.loads(raw)
+    if (listing.get("api_version") != api_version or listing.get("channel") != channel
+            or listing.get("list_version") != 1):
+        raise ValueError("Registry list belongs to another interface")
+    return listing
+
+
+def require_apps(qualification):
+    api_version = qualification["api_version"]
+    listing = catalog(api_version)
+    for app, app_proof in qualification["apps"].items():
+        declared_outbox = app_proof["declaration"].get("outbox_format_version")
+        matches = [row for row in listing["apps"] if row.get("app_id") == app
+                   and row.get("sha") == app_proof["sha"] and row.get("api_version") == api_version
+                   and row.get("channel") == "stable" and row.get("status") == "listed"
+                   and row.get("app_version") == app_proof["declaration"]["app_version"]
+                   and (declared_outbox is None or row.get("outbox_format_version") == declared_outbox)
+                   and row.get("outbox_format_version") in (None, app_proof["outbox_format_version"])
+                   and row.get("source") == f"https://github.com/EdgeVector/{app}.git"]
+        if not matches:
+            raise RuntimeError(f"Missing published {app} compatibility for API {api_version}; publication stays blocked")
+        for row in matches:
+            signed = {name: row[name] for name in SIGNED if name in row}
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(row["publisher_key"], validate=True)).verify(
+                base64.b64decode(row["publisher_sig"], validate=True), rfc8785.dumps(signed))
+    print(f'Authenticated API {api_version} stable list sequence {listing["seq"]}', flush=True)
+    return {"api_version": api_version, "apps": {app: app_proof["sha"] for app, app_proof in qualification["apps"].items()}}
 
 
 def request(url, payload=None, bearer=None):
@@ -119,6 +170,9 @@ def missing_declarations(proved):
 
 
 def signed_records(declarations):
+    import boto3
+    from cryptography.hazmat.primitives import serialization
+
     kms = boto3.client("kms", region_name="us-east-1")
     arn = os.environ["REGISTRY_CI_PROD_KEY_ARN"]
     key = kms.get_public_key(KeyId=arn)
@@ -127,7 +181,7 @@ def signed_records(declarations):
     raw = serialization.load_der_public_key(key["PublicKey"]).public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     public = base64.b64encode(raw).decode()
-    profile = json.loads((Path(__file__).resolve().parents[2] / "lastdb_node/environments.json").read_text())
+    profile = json.loads(PROFILE.read_text())
     if (public != os.environ["REGISTRY_CI_PROD_PUBLIC_KEY"]
             or public != profile["environments"]["prod"]["registry_ci_publisher_key"]):
         raise ValueError("The CI publisher identity differs from its public configuration")
@@ -142,7 +196,7 @@ def signed_records(declarations):
 
 def publish(proved):
     missing = missing_declarations(proved)
-    profile = json.loads((Path(__file__).resolve().parents[2] / "lastdb_node/environments.json").read_text())
+    profile = json.loads(PROFILE.read_text())
     base = profile["environments"]["prod"]["registry_api"].rstrip("/")
     body = {key: proved[key] for key in ("source", "run_url", "lastdb_source", "lastdb_build", "api_version", "outbox_format_version")}
     declarations = missing or [{**proved["apps"][app]["declaration"], "channel": channel}

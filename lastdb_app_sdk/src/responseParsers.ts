@@ -5,6 +5,8 @@ import type {
   FileMarker,
   JsonValue,
   KeyValue,
+  ListRecordKey,
+  ListResult,
   QueryCursor,
   QueryPage,
   QueryResult,
@@ -12,17 +14,6 @@ import type {
   RecordMetadata,
   RowFields,
 } from './types.js';
-
-export { parseListResponse } from './listResponse.js';
-export {
-  parseAutoIdentityResponse,
-  parseGetSchemaResponse,
-  parseLoadedSchema,
-  parseNodeVersion,
-  parseSchemaListResponse,
-  resolveLoadedSchema,
-  sameFieldSet,
-} from './schemaParsers.js';
 
 /** Whether a value is a non-array JSON object. */
 export function isObject(v: unknown): v is Record<string, JsonValue> {
@@ -33,14 +24,67 @@ export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-export function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((field): field is string => typeof field === 'string')
-    : [];
+function parseListKeys(values: unknown, body: unknown): ListRecordKey[] {
+  if (!Array.isArray(values)) {
+    throw new UnexpectedResponseError('list returned no key array', 200, body);
+  }
+  return values.map((value): ListRecordKey => {
+    if (!isObject(value) || typeof value['hash'] !== 'string') {
+      throw new UnexpectedResponseError('list returned an invalid record key', 200, value);
+    }
+    const range = value['range'];
+    if (range !== undefined && typeof range !== 'string') {
+      throw new UnexpectedResponseError('list returned an invalid range', 200, value);
+    }
+    return range === undefined || range.length === 0
+      ? { hash: value['hash'] }
+      : { hash: value['hash'], range };
+  });
 }
 
-export function stringOrNull(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
+export function parseListResponse(body: unknown, expectedKeyName?: string): ListResult {
+  if (!isObject(body) || !isObject(body['list'])) {
+    throw new UnexpectedResponseError('list returned an invalid envelope', 200, body);
+  }
+  const page = body['list'];
+  if (expectedKeyName !== undefined && page['key_name'] !== expectedKeyName) {
+    throw new UnexpectedResponseError(
+      'node did not honor the requested alternate key; upgrade LastDB',
+      200,
+      body,
+    );
+  }
+  const schema = page['schema'];
+  const nextCursor = page['next_cursor'];
+  const hasMore = page['has_more'];
+  const truncated = page['truncated'];
+  if (
+    typeof schema !== 'string' ||
+    typeof hasMore !== 'boolean' ||
+    typeof truncated !== 'boolean' ||
+    (nextCursor !== undefined && nextCursor !== null && typeof nextCursor !== 'string')
+  ) {
+    throw new UnexpectedResponseError('list returned an invalid keys page', 200, body);
+  }
+  const selected = parseListKeys(page['keys'], body);
+  const result: ListResult = {
+    schema,
+    keys: selected,
+    has_more: hasMore,
+    truncated,
+    next_cursor: typeof nextCursor === 'string' ? nextCursor : null,
+  };
+  if (page['key_name'] !== undefined) {
+    if (typeof page['key_name'] !== 'string') {
+      throw new UnexpectedResponseError('list returned an invalid key name', 200, body);
+    }
+    result.key_name = page['key_name'];
+    result.primary_keys = parseListKeys(page['primary_keys'], body);
+    if (result.primary_keys.length !== selected.length) {
+      throw new UnexpectedResponseError('alternate list lost its primary mutation keys', 200, body);
+    }
+  }
+  return result;
 }
 
 /** Parse a `200` `/api/query` body into a {@link QueryResult}. */

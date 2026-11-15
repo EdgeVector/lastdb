@@ -1,5 +1,7 @@
 """Resolve private circle membership into one whole-database sharing spec."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 import fcntl
 import json
@@ -9,13 +11,6 @@ from lastdb import SocialError
 
 
 SCHEMA = "social-graph/CirclePolicy"
-DEFINITION = {
-    "name": "CirclePolicy", "descriptive_name": "Circle policy",
-    "purpose_statement": "Social circles granting access to one named database.",
-    "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["circles"], "field_types": {"circles": "String"},
-    "field_descriptions": {"circles": "The circle names, member identities and schema write scopes."},
-}
 FULL = "all"
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -42,7 +37,7 @@ class Circles:
                 if row.get("definition_id") and row.get("state") == "Available"}
 
     def load(self, database):
-        self.node.declare_private(DEFINITION)
+        self.node.declare_private("CirclePolicy")
         previous = self.node.get_record(SCHEMA, database)
         saved = json.loads(previous["fields"]["circles"]) if previous else []
         return {"circles": saved, "direct": {}} if isinstance(saved, list) else saved
@@ -141,7 +136,7 @@ class Circles:
 
 
 def store_policy(node, database, circles):
-    definition = node.declare_private(DEFINITION)
+    definition = node.declare_private("CirclePolicy")
     previous = node.get_record(SCHEMA, database)
     encoded = json.dumps(circles, separators=(",", ":"))
     if not previous or previous["fields"]["circles"] != encoded:

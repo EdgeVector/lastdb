@@ -1,5 +1,7 @@
 """Set up databases from the versioned schemas shipped with Social."""
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
@@ -14,17 +16,6 @@ VERSION = 1
 ALBUM_SCHEMAS = ("Album", "AlbumItem", "Photo", "Comment")
 CATALOG = Path(__file__).resolve().parents[2] / "spec" / "social"
 SCHEMA = "social-graph/DatabaseSetup"
-RECORD = {
-    "name": "DatabaseSetup", "descriptive_name": "Database setup",
-    "purpose_statement": "Progress for a database provisioned from a named Social setup.",
-    "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["database_id", "ready"],
-    "field_types": {"database_id": "String", "ready": "Boolean"},
-    "field_descriptions": {
-        "database_id": "Stable ID of the database chosen for this setup.",
-        "ready": "Whether Social confirmed the complete schema setup.",
-    },
-}
 LABEL = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DEFINITION_ID = re.compile(r"[0-9a-f]{64}\Z")
 CONTRACT_FIELDS = ("descriptive_name", "purpose_statement", "schema_type")
@@ -75,7 +66,7 @@ class Setups:
     def provision(self, name, definitions, *, existing=None):
         # Reserve the ID before issuing the create request so a lost reply is retryable.
         key = f"{SHARED_ALBUMS}:{VERSION}:{name}"
-        record_definition = self.node.declare_private(RECORD)
+        record_definition = self.node.declare_private("DatabaseSetup")
         saved = self.node.get_record(SCHEMA, key)
         if saved is None:
             saved = self.reserve(name, key, record_definition, existing)

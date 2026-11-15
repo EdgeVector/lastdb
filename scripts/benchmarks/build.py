@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Reuse exact baselines and dependency artifacts; always compile candidate source."""
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -13,7 +15,7 @@ import subprocess
 import time
 
 from node import file_hash, save
-from dependencies import prepare_target
+from harness import clean_local_cargo_packages
 
 
 COMMAND = ["cargo", "build", "--locked", "--profile", "dev-release",
@@ -48,7 +50,7 @@ def context(output):
         "profiles": {name: value for name, value in os.environ.items()
                      if name.startswith("CARGO_PROFILE_")},
         "recipe_files": {name: file_hash(driver / name)
-                         for name in ("scripts/benchmarks/build.py", "scripts/benchmarks/dependencies.py",
+                         for name in ("scripts/benchmarks/build.py", "scripts/harness.py",
                                       ".github/workflows/bench-build.yml",
                                       ".github/workflows/bench-run.yml")},
     }
@@ -82,7 +84,13 @@ def compile_binary(args, directory, fingerprint):
     environment = os.environ.copy()
     target = Path(os.environ["RUNNER_TEMP"]) / f"bench-target-{args.label}"
     environment.update(CARGO_TARGET_DIR=str(target), FOLDDB_BUILD_VERSION_OVERRIDE=f"bench-{args.revision}")
-    dependencies = prepare_target(args.source, target, environment)
+    dependencies = clean_local_cargo_packages(
+        target,
+        profile="dev-release",
+        source=args.source,
+        environment=environment,
+        verify_binaries=("lastdb", "lastdbd"),
+    )
     log_path = args.output / f"build-{args.label}.log"
     with log_path.open("w") as log:
         process = subprocess.Popen(COMMAND, cwd=args.source, env=environment,

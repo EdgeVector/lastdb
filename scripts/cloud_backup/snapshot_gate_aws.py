@@ -1,11 +1,13 @@
 """AWS DEV guard, DynamoDB metadata verification, and cleanup for snapshot gates."""
 
+from __future__ import annotations
+
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import time
 
@@ -13,7 +15,7 @@ _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from harness.ci import summary_line  # noqa: E402
+from harness import summary_line  # noqa: E402
 from snapshot_cleanup import cleanup_objects, current_attempt  # noqa: E402
 from support import OperationError, require  # noqa: E402
 
@@ -56,65 +58,28 @@ def load_guard():
 
 
 def aws(guard, operation, payload):
-    environment = dict(
-        os.environ,
-        AWS_IGNORE_CONFIGURED_ENDPOINT_URLS="true",
-        AWS_EC2_METADATA_DISABLED="true",
-        AWS_PAGER="",
-        AWS_REGION=guard.DEV_REGION,
-        AWS_DEFAULT_REGION=guard.DEV_REGION,
-    )
-    command = [
-        "aws",
-        "dynamodb",
-        operation,
-        "--region",
-        guard.DEV_REGION,
-        "--output",
-        "json",
-        "--no-cli-pager",
-        "--cli-input-json",
-        json.dumps(payload, separators=(",", ":")),
-    ]
-    result = subprocess.run(command, capture_output=True, env=environment, timeout=40, check=False)
-    if result.returncode:
-        raise OperationError("cleanup_aws")
-    if not result.stdout.strip():
-        return {}
-    return json.loads(result.stdout)
+    try:
+        return guard.aws_dynamodb(operation, payload)
+    except guard.GuardError as error:
+        raise OperationError("cleanup_aws") from error
 
 
 def partition_keys(guard, partition):
-    keys, start = [], None
-    while True:
-        request = guard.query_request(guard.DEV_TABLE, partition)
-        request["ProjectionExpression"] = "database_id, record_id"
-        if start is not None:
-            request["ExclusiveStartKey"] = start
-        found = aws(guard, "query", request)
-        keys.extend(guard.record_ids_from_query(found, partition))
-        nxt = found.get("LastEvaluatedKey")
-        if not guard.continue_page(nxt, start):
-            return keys
-        cursor = guard.record_ids_from_query({"Items": [nxt]}, partition)[0]
-        require(
-            len(cursor.encode("utf-8")) <= 1024 and (start is None or cursor > start["record_id"]["S"]),
-            "snapshot_metadata_page",
+    try:
+        return list(
+            guard.iter_partition_keys(guard.DEV_TABLE, partition, call=lambda op, req: aws(guard, op, req))
         )
-        start = nxt
+    except guard.GuardError as error:
+        raise OperationError("snapshot_metadata_page" if str(error) == "page" else str(error)) from error
 
 
 def delete_keys(guard, partition, pending):
-    deleted = 0
-    while pending:
-        chunk = pending[:25]
-        response = aws(guard, "batch-write-item", guard.delete_batch(guard.DEV_TABLE, partition, chunk))
-        left = guard.unprocessed_ids(response, guard.DEV_TABLE, partition)
-        if left == chunk:
-            raise OperationError("cleanup_aws")
-        pending = left + pending[len(chunk) :]
-        deleted += len(chunk) - len(left)
-    return deleted
+    try:
+        return guard.batch_delete_keys(
+            guard.DEV_TABLE, partition, pending, call=lambda op, req: aws(guard, op, req)
+        )
+    except guard.GuardError as error:
+        raise OperationError("cleanup_aws") from error
 
 
 def delete_without_head(guard, database, partition, keys):

@@ -6,6 +6,8 @@
  * focused domain modules.
  */
 
+import { existsSync } from 'node:fs';
+
 import { databaseScope, LASTDB_SDK_API_VERSION, resolveSessionHeaders } from './apiRoutes.js';
 import { executeDeleteBlob, executeFetchBlob, executePutBlob } from './blobOps.js';
 import type { ClientContext } from './clientHelpers.js';
@@ -18,6 +20,7 @@ import {
   type DatabaseSpec,
   type ListedDatabase,
 } from './databases.js';
+import { TransportError } from './errors.js';
 import { executeMutate, executeMutateBatch, executeShareSubmissionStatus } from './mutationOps.js';
 import { executeGet, executeList, executeQuery, executeQueryAll, executeQueryBatch } from './readOps.js';
 import {
@@ -254,4 +257,44 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       databaseSession: options.databaseSession,
     });
   }
+}
+
+/** Options for {@link ownerClient}. */
+export interface OwnerClientOptions<DatabaseId extends string | undefined = undefined> {
+  /** Canonical app id this client acts as. */
+  appId: string;
+  /** Database ID or local alias. Omit for the personal default. */
+  databaseId?: DatabaseId;
+  /**
+   * Short-lived owner-approved database session token (`X-LastDB-Database-Session`).
+   * Requires `databaseId`. Keep session tokens out of logs.
+   */
+  databaseSession?: string;
+  /** Best-effort client label (`X-LastDB-Client`). Defaults to `appId`. */
+  clientId?: string;
+  /** Control-socket path. The file must exist. */
+  socketPath: string;
+  /** Headers attached to every request this client sends (per-call headers win). */
+  defaultHeaders?: Record<string, string>;
+  /** Per-request transport timeout in milliseconds (defaults to 30_000). */
+  timeoutMs?: number;
+}
+
+/** Build a {@link LastDbClient} synchronously against an existing Unix-domain socket. */
+export function ownerClient<DatabaseId extends string | undefined = undefined>(
+  options: OwnerClientOptions<DatabaseId>,
+): LastDbClient<DatabaseId> {
+  const { socketPath, timeoutMs } = options;
+  if (socketPath.length === 0 || !existsSync(socketPath)) {
+    throw new TransportError(
+      `ownerClient requires a socketPath whose file exists, got '${socketPath}'`,
+      'connect',
+    );
+  }
+  const headers = buildClientHeaders(options.appId, options.clientId, options.defaultHeaders);
+  const transport = udsTransport(socketPath, headers, { timeoutMs });
+  return new LastDbClient(options.appId, transport, {
+    databaseId: options.databaseId,
+    databaseSession: options.databaseSession,
+  });
 }

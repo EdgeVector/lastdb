@@ -12,11 +12,6 @@ on:
       - lastdb_node/src/bin/lastdb/app_cmds/**
       - lastdb_node/src/app_registry_index/**
   workflow_dispatch:
-    inputs:
-      apps:
-        description: 'Apps to test (comma-separated: brain,lastsecrets,lastseek,search or "all")'
-        required: false
-        default: 'all'
   schedule:
     # Daily at 09:00 UTC - catch app/lastdb compatibility breakage
     - cron: '0 9 * * *'
@@ -95,7 +90,6 @@ jobs:
           echo "PROOF_DIR=$TEST_HOME/proof" >> "$GITHUB_ENV"
 
       - name: Start LastDB daemon
-        if: always()
         run: |
           cd "$TEST_HOME"
           
@@ -146,7 +140,6 @@ jobs:
           lastdb --version | tee "$PROOF_DIR/lastdb-version.txt"
 
       - name: Query static registry
-        if: always()
         run: |
           cd "$TEST_HOME"
           
@@ -400,121 +393,6 @@ jobs:
           # Check LastDB status after all operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-final.txt"
 
-      - name: Validate health checks ran
-        if: always()
-        run: |
-          # Verify that health checks actually executed for this app (unless intentionally skipped)
-          if [ "$SKIP_APP" = "true" ]; then
-            echo "✓ Optional app skipped because no compatible signed registry entry was resolved"
-            echo "HEALTH_CHECKS_STATUS=skipped-intentional" >> "$GITHUB_ENV"
-          else
-            # Check that app-specific health check files exist
-            HEALTH_CHECK_PASSED=false
-
-            case "${{ matrix.app }}" in
-              brain)
-                if [ -f "$PROOF_DIR/brain-get-test.txt" ] && grep -q "Test concept from app-install-smoke" "$PROOF_DIR/brain-get-test.txt"; then
-                  HEALTH_CHECK_PASSED=true
-                fi
-                ;;
-              lastsecrets)
-                if [ -f "$PROOF_DIR/lastsecrets-get-test.txt" ] && grep -q "test-value-" "$PROOF_DIR/lastsecrets-get-test.txt"; then
-                  HEALTH_CHECK_PASSED=true
-                fi
-                ;;
-              lastseek)
-                if [ -f "$PROOF_DIR/lastseek-ingest-test.txt" ]; then
-                  HEALTH_CHECK_PASSED=true
-                fi
-                ;;
-              search)
-                if [ -f "$PROOF_DIR/search-drain-test.txt" ]; then
-                  HEALTH_CHECK_PASSED=true
-                fi
-                ;;
-            esac
-
-            if [ "$HEALTH_CHECK_PASSED" = "true" ]; then
-              echo "✓ Health checks executed and passed for ${{ matrix.app }}"
-              echo "HEALTH_CHECKS_STATUS=passed" >> "$GITHUB_ENV"
-            else
-              echo "❌ FATAL: Health checks did not execute for ${{ matrix.app }}"
-              echo "Inspect the earlier registry, install, and setup steps for the prerequisite failure"
-              echo "HEALTH_CHECKS_STATUS=failed" >> "$GITHUB_ENV"
-              exit 1
-            fi
-          fi
-
-      - name: Collect proof summary
-        if: always()
-        run: |
-          cd "$PROOF_DIR"
-          
-          # Get LastDB build info
-          LASTDB_VERSION=$(cat lastdb-version.txt 2>/dev/null || echo "unknown")
-          
-          # Get app resolution
-          APP_SHA=$(jq -r '.sha // "unknown"' '${{ matrix.app }}-resolve.json' 2>/dev/null || echo "unknown")
-          APP_VERSION=$(jq -r '.app_version // "unknown"' '${{ matrix.app }}-resolve.json' 2>/dev/null || echo "unknown")
-          
-          # Create summary
-          cat > smoke-summary.txt <<EOF
-          LastDB App Install Smoke Test
-          ==============================
-          Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          App: ${{ matrix.app }}
-          Runner: macos-15 (Apple Silicon)
-          CI Run: ${{ github.run_number }}
-          
-          LastDB Build:
-          $LASTDB_VERSION
-
-          Registry channel:
-          ${REGISTRY_CHANNEL:-unavailable}
-          
-          App Resolution:
-          - Version: $APP_VERSION
-          - SHA: $APP_SHA
-          
-          Install Receipt:
-          $(cat ${{ matrix.app }}-install-receipt.json 2>/dev/null | head -20 || echo "N/A")
-          
-          Health Check Results:
-          EOF
-          
-          
-          if [ "$SKIP_APP" = "true" ]; then
-            cat >> smoke-summary.txt <<EOF
-          - Optional app skipped because no compatible signed registry entry was resolved
-          EOF
-          elif [ "${{ matrix.app }}" = "brain" ]; then
-            cat >> smoke-summary.txt <<EOF
-          - Brain version: $(cat brain-version.txt 2>/dev/null || echo "FAILED")
-          - Brain list: $(test -f brain-list-empty.txt && echo "OK" || echo "FAILED")
-          - Write test: $(grep -q "test-concept" brain-put-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          - Read test: $(grep -q "Test concept from app-install-smoke" brain-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          EOF
-          elif [ "${{ matrix.app }}" = "lastsecrets" ]; then
-            cat >> smoke-summary.txt <<EOF
-          - LastSecrets init: $(test -f lastsecrets-init.log && echo "OK" || echo "FAILED")
-          - Write test: $(test -f lastsecrets-put-test.txt && echo "OK" || echo "FAILED")
-          - Read test: $(grep -q "test-value-${{ github.run_number }}" lastsecrets-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          EOF
-          elif [ "${{ matrix.app }}" = "lastseek" ]; then
-            cat >> smoke-summary.txt <<EOF
-          - lastseek build: $(test -f lastseek-build.log && echo "OK" || echo "FAILED")
-          - Ingest test: $(grep -qE "(processed|consumed)" lastseek-ingest-test.txt 2>/dev/null && echo "OK" || echo "UNKNOWN")
-          EOF
-          elif [ "${{ matrix.app }}" = "search" ]; then
-            cat >> smoke-summary.txt <<EOF
-          - Search init: $(test -f search-init.log && echo "OK" || echo "FAILED")
-          - Drain test: $(test -f search-drain-test.txt && echo "OK" || echo "FAILED")
-          EOF
-          fi
-          
-          echo "" >> smoke-summary.txt
-          cat smoke-summary.txt
-
       - name: Verify the registry poll continues past one unavailable index
         if: matrix.app == 'brain' && env.INSTALLED == 'true'
         shell: bash
@@ -554,6 +432,61 @@ jobs:
           test -s "$root/apps/brain/last-checked"
           echo "The registry poll reported the missing Brain index, processed LastSecrets, and resumed Brain when its signed index returned." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Validate and summarize smoke results
+        if: always()
+        run: |
+          mkdir -p "${PROOF_DIR:=${RUNNER_TEMP}/proof}"
+          cd "$PROOF_DIR"
+          APP="${{ matrix.app }}"
+          PASSED=false
+          DETAILS=""
+          if [ "${SKIP_APP:-false}" = "true" ]; then
+            STATUS_HEADING="⚠️ **SKIPPED** — no compatible signed registry entry was resolved for $APP"
+            DETAILS="- Optional app skipped because no compatible signed registry entry was resolved"
+          else
+            case "$APP" in
+              brain)
+                grep -q "Test concept from app-install-smoke" brain-get-test.txt 2>/dev/null && PASSED=true
+                DETAILS="- Brain version: $(cat brain-version.txt 2>/dev/null || echo FAILED); list: $(test -f brain-list-empty.txt && echo OK || echo FAILED); read/write: $($PASSED && echo OK || echo FAILED)"
+                ;;
+              lastsecrets)
+                grep -q "test-value-${{ github.run_number }}" lastsecrets-get-test.txt 2>/dev/null && PASSED=true
+                DETAILS="- LastSecrets init: $(test -f lastsecrets-init.log && echo OK || echo FAILED); read/write: $($PASSED && echo OK || echo FAILED)"
+                ;;
+              lastseek)
+                test -f lastseek-ingest-test.txt && PASSED=true
+                DETAILS="- lastseek build: $(test -f lastseek-build.log && echo OK || echo FAILED); ingest: $($PASSED && echo OK || echo FAILED)"
+                ;;
+              search)
+                test -f search-drain-test.txt && PASSED=true
+                DETAILS="- Search init: $(test -f search-init.log && echo OK || echo FAILED); drain: $($PASSED && echo OK || echo FAILED)"
+                ;;
+            esac
+            if [ "$PASSED" = "true" ]; then
+              STATUS_HEADING="✅ **HEALTH CHECKS PASSED**"
+            else
+              STATUS_HEADING="❌ **HEALTH CHECKS FAILED**"
+            fi
+          fi
+
+          cat > smoke-summary.txt <<EOF
+          LastDB App Install Smoke ($APP) — Run ${{ github.run_number }} ($(date -u +"%Y-%m-%d %H:%M:%S UTC"))
+          LastDB Build: $(cat lastdb-version.txt 2>/dev/null || echo "unknown")
+          Registry Channel: ${REGISTRY_CHANNEL:-unavailable}
+          App Resolution: $(jq -r '"\(.app_version // "unknown") @ \(.sha // "unknown")"' "${APP}-resolve.json" 2>/dev/null || echo "unknown")
+          $DETAILS
+          EOF
+          cat smoke-summary.txt
+          {
+            printf '## App Install Smoke: %s\n\n%s\n\n```\n' "$APP" "$STATUS_HEADING"
+            cat smoke-summary.txt
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${SKIP_APP:-false}" != "true" ] && [ "$PASSED" != "true" ]; then
+            echo "FATAL: Health checks did not pass for $APP"
+            exit 1
+          fi
+
       - name: Upload proof artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -561,32 +494,6 @@ jobs:
           name: app-install-smoke-${{ matrix.app }}-${{ github.run_number }}
           path: ${{ env.PROOF_DIR }}
           if-no-files-found: error
-
-      - name: Add summary to job output
-        if: always()
-        run: |
-          {
-            echo "## App Install Smoke: ${{ matrix.app }}"
-            echo ""
-
-            # Show health check status prominently
-            if [ "${SKIP_REGISTRY:-false}" = "true" ]; then
-              echo "⚠️  **SKIPPED** - ${{ matrix.app }} is not yet published in registry"
-              echo ""
-              echo "This app will be tested automatically once it is published to the next or stable registry."
-              echo ""
-            elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
-              echo "⚠️  **INTENTIONALLY SKIPPED** - No compatible signed registry entry was resolved"
-              echo ""
-            elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
-              echo "✅ **HEALTH CHECKS PASSED**"
-              echo ""
-            fi
-
-            echo '```'
-            cat "$PROOF_DIR/smoke-summary.txt" 2>/dev/null || echo "Summary not available"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always()

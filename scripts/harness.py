@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections import defaultdict
 import copy
 import hashlib
@@ -12,7 +13,6 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
-import sys
 import time
 
 CHUNK_BYTES = 1024 * 1024
@@ -233,16 +233,83 @@ def write_private(path, payload):
         os.fsync(stream.fileno())
 
 
-__path__: list[str] = []
-_SELF = sys.modules[__name__]
-for _sub in ("ci", "daemon", "records", "uds"):
-    setattr(_SELF, _sub, _SELF)
-    sys.modules[f"{__name__}.{_sub}"] = _SELF
+def clean_local_cargo_packages(
+    target,
+    *,
+    profile,
+    source=None,
+    environment=None,
+    exact_target=None,
+    verify_binaries=(),
+):
+    """Remove local workspace and vendored path-package outputs from a CI Cargo target."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise ValueError("CI Cargo dependency preparation runs only in CI")
+    target = Path(target)
+    runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
+    if exact_target is not None:
+        if target.is_symlink() or target.resolve() != Path(exact_target).resolve():
+            raise ValueError("CodeQL Cargo output must use its isolated runner directory")
+    elif target.is_symlink() or target.resolve().parent != runner_temp:
+        raise ValueError("The dependency target must stay in this runner's temporary directory")
+    if not target.exists():
+        return {"target_preexisted": False, "cleaned_path_packages": [], "clean_seconds": 0}
+    started = time.monotonic()
+    metadata = json.loads(
+        subprocess.check_output(
+            ["cargo", "metadata", "--locked", "--format-version", "1"],
+            cwd=source,
+            env=environment,
+            text=True,
+            timeout=120,
+        )
+    )
+    packages = [pkg for pkg in metadata["packages"] if pkg["source"] is None]
+    if not any(pkg["name"] == "lastdb_node" for pkg in packages):
+        raise ValueError("The dependency target has no identified LastDB package to rebuild")
+    # Include vendored path dependencies, even when they are not workspace members.
+    # cargo clean ignores a package-id url and version. The package name is the clean key.
+    command = ["cargo", "clean", "--profile", profile, "--locked"]
+    seen = set()
+    for pkg in packages:
+        name = pkg["name"]
+        if name not in seen:
+            seen.add(name)
+            command.extend(("--package", name))
+    subprocess.run(command, cwd=source, env=environment, check=True, timeout=120)
+    for name in verify_binaries:
+        binary = target / profile / name
+        if binary.exists() or binary.is_symlink():
+            raise ValueError("A previous workspace executable survived dependency preparation")
+    return {
+        "target_preexisted": True,
+        "cleaned_path_packages": sorted(pkg["name"] for pkg in packages),
+        "clean_seconds": round(time.monotonic() - started, 3),
+    }
+
+
+def _main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("clean-local-packages", help="Clean local Cargo package outputs for CodeQL")
+    parser.parse_args()
+    target = Path(os.environ["CARGO_TARGET_DIR"])
+    exact = Path(os.environ["RUNNER_TEMP"]).resolve() / "codeql-rust-target"
+    result = clean_local_cargo_packages(target, profile="dev", exact_target=exact)
+    if not result["target_preexisted"]:
+        print("No previous CodeQL Cargo target; extraction prepares fresh dependencies")
+    else:
+        print(f"Removed outputs for {len(set(result['cleaned_path_packages']))} local packages; external dependencies remain")
+
 
 __all__ = [
     "SOCKET_OPERATIONS", "SOCKET_REFUSALS", "UnixConnection", "append_step_summary",
-    "classify_socket_refusal", "conditioned", "coordinate", "create", "file_sha256",
-    "key", "marker_format", "mutation", "poll_until", "read_records",
-    "read_shutdown_receipt", "replace_row", "save_json", "send_unix_request",
-    "stop_process", "summary_line", "verify_shutdown_receipt", "write_private",
+    "classify_socket_refusal", "clean_local_cargo_packages", "conditioned", "coordinate",
+    "create", "file_sha256", "key", "marker_format", "mutation", "poll_until",
+    "read_records", "read_shutdown_receipt", "replace_row", "save_json",
+    "send_unix_request", "stop_process", "summary_line", "verify_shutdown_receipt",
+    "write_private",
 ]
+
+if __name__ == "__main__":
+    _main()

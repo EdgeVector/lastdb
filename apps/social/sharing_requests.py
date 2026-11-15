@@ -1,22 +1,18 @@
 """Accept app sharing declarations and hand approval to the Social owner UI."""
 
+from __future__ import annotations
+
 import json
 import re
 from uuid import UUID
 
-from lastdb import LastDBError, SocialError
+from lastdb import LastDBError, SCHEMAS, SocialError
 from circles import DIGEST
 from reusable_circles import encoded
 
 
 SCHEMA = "social-graph/SharingRequest"
-DEFINITION = {
-    "name": "SharingRequest", "descriptive_name": "Sharing request",
-    "purpose_statement": "One app proposal and its owner-approved sharing outcome.",
-    "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-    "fields": ["request"], "field_types": {"request": "String"},
-    "field_descriptions": {"request": "The exact app declaration and its sharing outcome."},
-}
+DEFINITION = SCHEMAS["SharingRequest"]
 APP_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}\Z")
 PRESETS = {
     "viewer": [],

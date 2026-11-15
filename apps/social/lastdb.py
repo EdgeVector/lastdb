@@ -1,5 +1,7 @@
 """Social's connection to the local LastDB owner socket."""
 
+from __future__ import annotations
+
 from contextlib import closing
 import http.client
 import json
@@ -7,6 +9,14 @@ from pathlib import Path
 import socket
 import subprocess
 import tempfile
+
+
+SCHEMAS = {
+    row["name"]: {key: value for key, value in row.items() if key != "owner_app_id"}
+    for row in json.loads(
+        (Path(__file__).resolve().parents[2] / "lastdb-app.json").read_text(encoding="utf-8")
+    )["schemas"]
+}
 
 
 class SocialError(Exception):
@@ -87,8 +97,9 @@ class LastDB:
             return self.verify_contact(path, expected_key)
 
     def declare_private(self, schema):
+        definition = SCHEMAS[schema] if isinstance(schema, str) else schema
         return self.call("POST", "/api/schemas/declare", {
-            "namespace": "social-graph", "schema": schema,
+            "namespace": "social-graph", "schema": definition,
         })["definition_id"]
 
     def get_record(self, schema, key):

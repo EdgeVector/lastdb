@@ -97,7 +97,7 @@ jobs:
         uses: EdgeVector/.github/no-build-artifacts@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:
           tree: HEAD
-      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition)
+      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition, statics)
         run: bash scripts/ci/mini-gate-step.sh "Source lints" -- python3 scripts/lints/source_lints.py
       - name: cargo fmt --check
         run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
@@ -130,8 +130,6 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "2"
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log_sync)" -- cargo clippy --locked -p mutation_log_sync --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
-      - name: Schema core statics gate
-        run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- python3 scripts/lints/source_lints.py --schema-core-statics
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build

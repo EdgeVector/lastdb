@@ -7,12 +7,13 @@ database, drives the writers, and leaves cleanup to a later step so a
 cleanup failure cannot replace the load's status.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
-import random
 from pathlib import Path
-import subprocess
+import random
 import sys
 import time
 import urllib.error
@@ -24,17 +25,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cost import Ledger, format_estimate
 from drive import LoadError, Session, drive
 from faults import MAX_CONTENTION_TRIES, backoff_seconds, is_contention, is_throttle, worst_exit
-from guard import (DEV_REGION, DEV_TABLE, GuardError, allow_endpoint,
-                   allow_region_environment, allow_role, allow_stream,
-                   allow_table, allow_table_arn, continue_page, database_id_for_run,
-                   delete_batch, load_endpoints, query_request, record_ids_from_query,
-                   load_partitions, refuse_prod_environment, unprocessed_ids, writes_partition)
-from plan import LEVELS, PRELIMINARY_LABEL, SCALE_LABEL, phases
+from guard import (DEV_TABLE, GuardError, allow_endpoint, allow_region_environment,
+                   allow_role, allow_stream, allow_table, allow_table_arn, aws_dynamodb,
+                   batch_delete_keys, database_id_for_run, iter_partition_keys,
+                   load_endpoints, load_partitions, refuse_prod_environment, writes_partition)
 from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
 
 REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
+STEADY_MS = 3 * 60 * 1000
+WRITER_LEVELS = ("5", "20", "100")
+LEVELS = (*WRITER_LEVELS, "all", "private")
+PRELIMINARY_LABEL = "finished 10-append run"
+SCALE_LABEL = "3-minute scale run"
+
+
+class Scenario:
+    def __init__(self, kind, writers, steady_ms=None):
+        self.kind = kind
+        self.writers = writers
+        self.steady_ms = steady_ms
+
+
+def scenario(level, scale=False):
+    if level not in WRITER_LEVELS:
+        raise ValueError("level")
+    if level == "100" and scale:
+        return Scenario("steady", 100, STEADY_MS)
+    return Scenario("full", int(level))
+
+
+def phases(level, scale=False):
+    levels = WRITER_LEVELS if level == "all" else (level,)
+    return [scenario(name, scale) for name in levels]
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -92,9 +116,10 @@ def load_ci_key():
     raw = os.environ.get("LASTDB_CLOUD_DEV_BASELINE", "")
     if not phrase or not isinstance(api_key, str) or not api_key or not raw:
         raise TokenError("account")
-    cloud = Path(__file__).resolve().parents[1] / "cloud_backup"
-    sys.path.insert(0, str(cloud))
-    import baseline_data
+    cloud = str(Path(__file__).resolve().parents[1] / "cloud_backup")
+    if cloud not in sys.path:
+        sys.path.insert(0, cloud)
+    from support import ACCOUNT, BaselineDataError, seed as derive_seed
     try:
         baseline = json.loads(raw)
     except json.JSONDecodeError:
@@ -102,35 +127,19 @@ def load_ci_key():
     if not isinstance(baseline, dict):
         raise TokenError("account")
     generation = baseline.get("account_generation")
-    if baseline.get("account") != baseline_data.ACCOUNT:
+    if baseline.get("account") != ACCOUNT:
         raise TokenError("account")
     if (not isinstance(generation, str) or not generation.isdigit()
             or (generation.startswith("0") and generation != "0")):
         raise TokenError("account")
     try:
-        seed = baseline_data.seed(phrase.encode("ascii"))
-    except baseline_data.BaselineDataError as error:
+        key_seed = derive_seed(phrase.encode("ascii"))
+    except BaselineDataError as error:
         raise TokenError(str(error)) from None
-    key = NodeKey.from_seed(seed)
-    if account_id(key.public) != baseline_data.ACCOUNT:
+    key = NodeKey.from_seed(key_seed)
+    if account_id(key.public) != ACCOUNT:
         raise TokenError("account")
     return key, api_key, generation
-
-
-def aws(service, operation, payload):
-    environment = dict(os.environ, AWS_IGNORE_CONFIGURED_ENDPOINT_URLS="true",
-                       AWS_EC2_METADATA_DISABLED="true", AWS_PAGER="",
-                       AWS_REGION=DEV_REGION, AWS_DEFAULT_REGION=DEV_REGION)
-    command = ["aws", service, operation, "--region", DEV_REGION, "--output", "json",
-               "--no-cli-pager", "--cli-input-json",
-               json.dumps(payload, separators=(",", ":"))]
-    result = subprocess.run(command, capture_output=True, env=environment,
-                            timeout=40, check=False)
-    if result.returncode:
-        raise GuardError("aws")
-    if not result.stdout.strip():
-        return {}
-    return json.loads(result.stdout)
 
 
 def cleanup(table, database_id, ledger):
@@ -143,31 +152,8 @@ def keep_going(stopped):
     return stopped not in ("error", "cap")
 
 
-def batch_retry(misses, pause, draw):
-    """Backoff while BatchWriteItem returns the same unprocessed chunk."""
-    misses += 1
-    if misses > MAX_CONTENTION_TRIES:
-        raise GuardError("batch")
-    pause(backoff_seconds(misses, draw))
-    return misses
-
-
 def partition_records(table, partition, ledger):
-    start = None
-    while True:
-        request = query_request(table, partition)
-        request["ProjectionExpression"] = "database_id, record_id"
-        if start is not None:
-            if start.get("database_id", {}).get("S") != partition:
-                raise GuardError("database")
-            request["ExclusiveStartKey"] = start
-        found = aws("dynamodb", "query", request)
-        ledger.record("read")
-        yield from record_ids_from_query(found, partition)
-        nxt = found.get("LastEvaluatedKey")
-        if not continue_page(nxt, start):
-            break
-        start = nxt
+    return iter_partition_keys(table, partition, on_page=lambda: ledger.record("read"))
 
 
 def verify_private_storage(table, database_id, ledger):
@@ -183,21 +169,19 @@ def verify_private_storage(table, database_id, ledger):
                       "The cloud retained immutable accepted-entry facts.\n")
 
 
-def purge(table, partition, ledger, pause=None):
-    pause = pause or time.sleep
-    pending = list(partition_records(table, partition, ledger))
-    misses = 0
-    while pending:
-        chunk = pending[:25]
-        response = aws("dynamodb", "batch-write-item",
-                       delete_batch(table, partition, chunk))
-        ledger.record("write", 64 * len(chunk))
-        left = unprocessed_ids(response, table, partition)
-        if left == chunk:
-            misses = batch_retry(misses, pause, random.randrange)
-        else:
-            misses = 0
-        pending = left + pending[len(chunk):]
+def purge(table, partition, ledger):
+    def stall(misses):
+        if misses > MAX_CONTENTION_TRIES:
+            raise GuardError("batch")
+        time.sleep(backoff_seconds(misses, random.randrange))
+
+    batch_delete_keys(
+        table,
+        partition,
+        partition_records(table, partition, ledger),
+        on_batch=lambda count: ledger.record("write", 64 * count),
+        on_stall=stall,
+    )
 
 
 def target():
@@ -209,7 +193,7 @@ def target():
     allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"])
     database_id = database_id_for_run(os.environ["GITHUB_RUN_ID"])
     allow_stream(database_id)
-    described = aws("dynamodb", "describe-table", {"TableName": table})
+    described = aws_dynamodb("describe-table", {"TableName": table})
     allow_table_arn(described.get("Table", {}).get("TableArn", ""), table)
     return endpoint, table, database_id
 

@@ -1,11 +1,19 @@
 """Validate the matched native bundles and the release-only asset set."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 import tarfile
 
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+from harness import file_sha256  # noqa: E402
 
 TARGETS = ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu")
 INDEX = "nightly.json"
@@ -18,8 +26,7 @@ def digest(path):
     path = Path(path)
     if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= MAX_FILE:
         raise ValueError(f"Invalid release asset: {path.name}")
-    with path.open("rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
+    return file_sha256(path)
 
 
 def document(path):
@@ -66,7 +73,10 @@ def validate_bundle(folder, target, plan):
                     or member.mode != 0o755):
                 raise ValueError("An executable's type, version, or size is invalid")
             with archive.extractfile(member) as source:
-                if hashlib.file_digest(source, "sha256").hexdigest() != item["sha256"]:
+                stream_hash = hashlib.sha256()
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    stream_hash.update(chunk)
+                if stream_hash.hexdigest() != item["sha256"]:
                     raise ValueError("An executable differs from its manifest hash")
     proof = document(folder / f"{prefix}.proof.json")
     checks = ("keyed_read", "range_read", "update", "reopen", "cli_status", "crash_recovery")
