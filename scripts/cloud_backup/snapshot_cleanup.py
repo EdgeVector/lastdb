@@ -44,7 +44,10 @@ def load_owner():
     phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
     api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
     raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
-    require(0 < len(api_key.encode()) <= 4096, "dev_api_key")
+    require(len(api_key.encode(errors="surrogatepass")) <= 4096, "dev_api_key")
+    api_key = api_key.strip()
+    # Use the same normalized value for CLI stdin and the signed HTTP header.
+    require(api_key and api_key.isascii() and api_key.isprintable(), "dev_api_key")
     require(0 < len(raw) <= 65_536, "snapshot_baseline")
     try:
         baseline = json.loads(raw)

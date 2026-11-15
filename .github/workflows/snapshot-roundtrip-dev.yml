@@ -61,13 +61,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: snapshot-roundtrip-${{ github.event.pull_request.number || 'dev' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   recipe-syntax:
     name: Snapshot gate recipe syntax
+    concurrency:
+      group: snapshot-roundtrip-syntax-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -113,6 +112,10 @@ jobs:
     name: ${{ github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Builds can overlap. Hold one slot from protected proof through retirement.
+    concurrency:
+      group: snapshot-roundtrip-dev
+      queue: max
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 90
