@@ -28,11 +28,11 @@ def reconcile_context(api, context, outcome, workflow_file):
     workflow_id = current.get("workflow_id")
     if type(workflow_id) is not int or workflow_id < 1:
         raise SystemExit("notify_workflow_identity")
-    for page in range(1, 4):
+    for page in range(1, 11):
         result = api.call("GET", f"/actions/workflows/{workflow_id}/runs"
-                          f"?branch=main&per_page=100&page={page}")
+                          f"?branch=main&per_page=10&page={page}")
         runs = result.get("workflow_runs")
-        if not isinstance(runs, list) or len(runs) > 100:
+        if not isinstance(runs, list) or len(runs) > 10:
             raise SystemExit("notify_run_page")
         for run in runs:
             if (run.get("head_branch") == "main"
@@ -44,11 +44,11 @@ def reconcile_context(api, context, outcome, workflow_file):
                 outcome = run["conclusion"]
         # Run listing is newest-created first. Once the current run is reached,
         # all later pages are older; attempts are compared within the run number.
-        if any(run.get("id") == current["id"] for run in runs) or len(runs) < 100:
+        if any(run.get("id") == current["id"] for run in runs) or len(runs) < 10:
             break
     else:
         raise SystemExit("notify_run_page_bound")
-    return ({"url": selected["html_url"], "sha": selected["head_sha"],
+    return ({"url": selected["html_url"] + f"/attempts/{selected_order[1]}", "sha": selected["head_sha"],
              "event": selected["event"], "order": selected_order}, outcome)
 
 
