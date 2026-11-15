@@ -72,6 +72,10 @@ still checks the specific current definition and the record rules for each write
 The **All schemas** choice also covers future schemas. An older exact-ID circle
 grant can be converted by reviewing and saving its circle settings.
 
+On a whole-database share, LastDB lets a receiver with a `social/Comment`
+write grant create comments and edit comments they created. The publisher can
+edit or delete any comment. These rules apply under every circle and every app.
+
 Choose **Shared albums (version 1)** to create a whole-database share with
 the catalog definitions for Album, AlbumItem, Photo, and Comment already
 installed. Social records the newly created database ID before installing

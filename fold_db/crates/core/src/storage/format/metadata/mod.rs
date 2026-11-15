@@ -9,6 +9,7 @@ pub(crate) use files::{decrypt_file_row, require_row, seal_row};
 pub(in crate::storage) use files::{FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY};
 pub use replay::ReplayStamp;
 pub(crate) use replay::{ReplayTarget, SchemaReplayDrop};
+pub(crate) use shared_revision::SharedCommentWrite;
 
 use super::METADATA_NAMESPACE;
 use crate::schema::types::{MutationAuthorClockState, SchemaError};

@@ -16,6 +16,7 @@ pub use range_profile::{
 };
 
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
+pub const STANDARD_COMMENT_SCHEMA: &str = "social/Comment";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedDeclaration {

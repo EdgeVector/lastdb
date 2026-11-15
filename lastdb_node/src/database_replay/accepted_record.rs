@@ -36,7 +36,7 @@ pub(super) fn record_change(
     let mutation_type = record_action(&body.action)?;
     let file = record_file(body, database_id)?;
     let inline = record_inline(body, &file)?;
-    let contribution = record_contribution(body)?;
+    let contribution = record_contribution(body, mutation_type)?;
     if matches!(mutation_type, MutationType::Delete | MutationType::Purge)
         && (!fields.is_empty() || !matches!(file, RecordFile::Keep) || inline.is_some())
     {
@@ -169,7 +169,10 @@ fn record_inline(
     Ok(Some(InlineWrite::Put(inline)))
 }
 
-fn record_contribution(body: &AcceptedBody) -> Result<Option<ContributionAdmission>, RestoreError> {
+fn record_contribution(
+    body: &AcceptedBody,
+    mutation_type: MutationType,
+) -> Result<Option<ContributionAdmission>, RestoreError> {
     let Some(section) = &body.contribution else {
         return if body.kind == "contribution" {
             Err(RestoreError::Entry("snapshot entry"))
@@ -189,6 +192,7 @@ fn record_contribution(body: &AcceptedBody) -> Result<Option<ContributionAdmissi
         intent_digest: hex_32(&section.intent_sha256)?,
         writer: section.writer.clone(),
         schema_scope: section.schema_scope,
+        creates_record: mutation_type == MutationType::Create,
     }))
 }
 

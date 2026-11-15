@@ -1,6 +1,6 @@
 use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
 use fold_db::canonical::CanonicalWriter;
-use fold_db::schema::types::{mutation::ContributionAdmission, Mutation};
+use fold_db::schema::types::{mutation::ContributionAdmission, Mutation, MutationType};
 use mutation_log::Entry;
 use sha2::{Digest as _, Sha256};
 
@@ -78,8 +78,8 @@ pub(in crate::log_sync) async fn apply(
     let (store, _) = DatabaseContentKey::local_store(host, database)
         .map_err(|_| "member write store is unavailable")?
         .ok_or("member write store is unavailable")?;
-    let definition = match resolve_schema(&store, &mutation) {
-        Ok((name, definition)) if scope.permits(&name, &definition) => definition,
+    let (name, definition) = match resolve_schema(&store, &mutation) {
+        Ok((name, definition)) if scope.permits(&name, &definition) => (name, definition),
         Err(ContributionError::Unavailable) => {
             return Err("member write schema is unavailable".into())
         }
@@ -87,7 +87,7 @@ pub(in crate::log_sync) async fn apply(
     };
     let base = submission.base_mutation.as_deref();
     if mutation.definition_id.as_deref() != Some(definition.as_str())
-        || !revision::bind_publisher_revision(&store, &mut mutation, base).await?
+        || !revision::check_record_write(&store, &mut mutation, base, &name, writer).await?
     {
         return Ok(());
     }
@@ -134,10 +134,8 @@ fn prepare(
     .into_uuid()
     .to_string();
     mutation.pub_key = writer.to_owned();
-    if matches!(
-        mutation.mutation_type,
-        fold_db::schema::types::MutationType::Create
-    ) {
+    let creates_record = mutation.mutation_type == MutationType::Create;
+    if creates_record {
         mutation
             .metadata
             .get_or_insert_with(std::collections::HashMap::new)
@@ -149,6 +147,7 @@ fn prepare(
         intent_digest: Sha256::digest(body).into(),
         writer: writer.to_owned(),
         schema_scope: true,
+        creates_record,
     });
     mutation.synchronous = Some(true);
 }
