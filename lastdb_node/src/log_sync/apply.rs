@@ -102,7 +102,7 @@ pub(super) async fn apply_page(
             log.database_id()
         );
         host.cloud_sync.record_error(reason.clone());
-        return Err(reason);
+        return Err(reason.into());
     }
     for stored in entries {
         let entry = &stored.entry;

@@ -10,6 +10,8 @@ import subprocess
 
 
 DOCUMENT_FILES = {".gitignore", ".gitattributes", ".github/CODEOWNERS", ".last-stack/pr-venue"}
+UNBUILDABLE_REPLAY_MERGE = "84fc27b29c1d9036948ca3c28a30997f72d590de"
+LAST_BUILDABLE_REPLAY_BASE = "b175c9e6aa88ab19d0ff7d9a8764c2ffa6917806"
 
 
 def git(*args):
@@ -40,7 +42,8 @@ def main():
         base = git("rev-parse", candidate + "^").decode().strip()
     baseline = revision(base)
     requested_baseline = baseline
-    if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+    event = os.environ.get("GITHUB_EVENT_NAME")
+    if event == "pull_request":
         parents = git("rev-list", "--parents", "-n", "1", candidate).decode().split()
         if len(parents) != 3:
             raise ValueError("A PR comparison requires its exact two-parent candidate merge commit")
@@ -55,11 +58,20 @@ def main():
     product = [path for path in paths
                if path not in DOCUMENT_FILES and Path(path).suffix.lower() not in {".md", ".rst"}]
     required = args.always or bool(product) or not paths
+    reason = ("product or benchmark configuration change" if product else
+              "scheduled, main, manual, or empty change" if required else "documentation-only change")
+    if event in {"pull_request", "merge_group", "push"} and baseline == UNBUILDABLE_REPLAY_MERGE:
+        # Accepted main failed E0308 in run 43676517607. Its direct parent
+        # built and passed the benchmark gate in run 43676243636.
+        repaired_base = revision(LAST_BUILDABLE_REPLAY_BASE)
+        if git("rev-parse", baseline + "^").decode().strip() != repaired_base:
+            raise ValueError("The replay repair benchmark base is not the direct accepted parent")
+        reason += f". Measuring against accepted {repaired_base} because {baseline} fails to build"
+        baseline = repaired_base
     result = {"required": str(required).lower(), "baseline": baseline, "candidate": candidate,
               "requested_baseline": requested_baseline,
               "driver": git("rev-parse", "HEAD").decode().strip(),
-              "reason": "product or benchmark configuration change" if product else
-                        "scheduled, main, manual, or empty change" if required else "documentation-only change"}
+              "reason": reason}
     args.output.write_text(json.dumps({**result, "changed_paths": paths}, indent=2) + "\n")
     if args.github_output:
         with args.github_output.open("a") as stream:
