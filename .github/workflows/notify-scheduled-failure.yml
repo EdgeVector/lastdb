@@ -17,12 +17,16 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: read
 
 jobs:
   issue:
     name: Open, update, or close the workflow issue
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    concurrency:
+      group: lastdb-notification-${{ inputs.workflow_file }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
