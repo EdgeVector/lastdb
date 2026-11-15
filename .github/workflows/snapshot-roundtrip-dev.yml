@@ -126,12 +126,11 @@ jobs:
 
   snapshot-roundtrip-dev:
     # Release gates accept the newest snapshot-roundtrip-dev check on a source
-    # commit. A published nightly client is not that commit's build, so this
-    # run must not emit that check name. github.event.inputs is empty on push
-    # and schedule; the inputs context is not available for those events.
-    name: ${{ github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
+    # commit. Nightly, native cutoff and cleanup-only use other check names.
+    # github.event.inputs is empty on push and schedule.
+    name: ${{ github.event.inputs.mode == 'resume-cleanup' && 'snapshot-roundtrip-not-requested' || github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
     needs: [recipe-syntax, build-client]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     # Builds can overlap. Hold one slot from protected proof through retirement.
     concurrency:
       group: snapshot-roundtrip-dev

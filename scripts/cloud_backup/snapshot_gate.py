@@ -436,6 +436,10 @@ def partition_keys(guard, partition):
         nxt = found.get("LastEvaluatedKey")
         if not guard.continue_page(nxt, start):
             return keys
+        cursor = guard.record_ids_from_query({"Items": [nxt]}, partition)[0]
+        require(len(cursor.encode("utf-8")) <= 1024
+                and (start is None or cursor > start["record_id"]["S"]),
+                "snapshot_metadata_page")
         start = nxt
 
 
@@ -450,6 +454,21 @@ def delete_keys(guard, partition, pending):
         pending = left + pending[len(chunk):]
         deleted += len(chunk) - len(left)
     return deleted
+
+
+def delete_without_head(guard, database, partition, keys):
+    table = guard.DEV_TABLE
+    head = guard.delete_batch(table, database, [ADMISSION_HEAD])["RequestItems"][table][0]
+    # A conditional delete on a missing row is a no-op. It blocks the entire
+    # transaction if another owner has recreated admission since receipt lookup.
+    absent = {"Delete": {"TableName": table, "Key": head["DeleteRequest"]["Key"],
+                         "ConditionExpression": "attribute_not_exists(record_id)"}}
+    for offset in range(0, len(keys), 8):
+        batch = guard.delete_batch(table, partition, keys[offset:offset + 8])
+        deletes = [{"Delete": {"TableName": table, "Key": item["DeleteRequest"]["Key"]}}
+                   for item in batch["RequestItems"][table]]
+        aws(guard, "transact-write-items", {"TransactItems": [absent, *deletes]})
+    return len(keys)
 
 
 def verify_cloud_target(guard):
@@ -480,8 +499,12 @@ def cleanup(guard, attempt, owner, *, expect_charge, resume=False, proof_skipped
     # every other metadata key is gone. The receipt also survives head removal.
     for partition in partitions:
         keep = [ADMISSION_HEAD] if partition == database and head_present else []
-        deleted += delete_keys(guard, partition,
-                               [key for key in partition_keys(guard, partition) if key not in keep])
+        keys = partition_keys(guard, partition)
+        if head_present:
+            deleted += delete_keys(guard, partition, [key for key in keys if key not in keep])
+        else:
+            require(partition != database or ADMISSION_HEAD not in keys, "snapshot_resume_head_present")
+            deleted += delete_without_head(guard, database, partition, keys)
         require(partition_keys(guard, partition) == keep, "snapshot_metadata_cleanup_incomplete")
     if head_present:
         deleted += delete_keys(guard, database, [ADMISSION_HEAD])
