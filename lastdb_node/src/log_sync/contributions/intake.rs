@@ -5,7 +5,7 @@ use mutation_log::Entry;
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    inbox, parse, resolve_schema, CloudLog, ContributionError, Submission, DEVICE_PREFIX,
+    inbox, parse, resolve_schema, revision, CloudLog, ContributionError, Submission, DEVICE_PREFIX,
     INBOX_NAMESPACE,
 };
 use crate::host::Host;
@@ -85,7 +85,10 @@ pub(in crate::log_sync) async fn apply(
         }
         _ => return Ok(()),
     };
-    if mutation.definition_id.as_deref() != Some(definition.as_str()) {
+    let base = submission.base_mutation.as_deref();
+    if mutation.definition_id.as_deref() != Some(definition.as_str())
+        || !revision::bind_publisher_revision(&store, &mut mutation, base).await?
+    {
         return Ok(());
     }
     prepare(
@@ -94,7 +97,7 @@ pub(in crate::log_sync) async fn apply(
         writer,
         id.as_str(),
         definition.as_str(),
-        &body,
+        if base.is_some() { &bytes } else { &body },
     );
     let result = store
         .mutation_manager()

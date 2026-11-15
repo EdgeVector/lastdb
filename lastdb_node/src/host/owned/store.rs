@@ -30,7 +30,7 @@ pub(super) async fn open_all(
 ) -> Result<HashMap<String, Arc<FoldDB>>, String> {
     let mut stores = HashMap::new();
     for entry in owned {
-        let store = open(home, &entry.id, Arc::clone(signer), false).await?;
+        let store = open(home, entry, Arc::clone(signer), false).await?;
         stores.insert(entry.id.clone(), store);
     }
     Ok(stores)
@@ -38,10 +38,11 @@ pub(super) async fn open_all(
 
 pub(super) async fn open(
     home: &Path,
-    id: &str,
+    entry: &Entry,
     signer: Arc<Ed25519KeyPair>,
     create: bool,
 ) -> Result<Arc<FoldDB>, String> {
+    let id = &entry.id;
     let root = home.join("databases").join(id);
     let data = root.join("data");
     if !create && !data.join(NODE_MARKER).is_file() {
@@ -66,6 +67,7 @@ pub(super) async fn open(
             // Owned siblings are shareable. Capture starts here, before cloud enrollment.
             capture_accepted: true,
             capture_initial_snapshot: false,
+            track_shared_record_revisions: entry.whole_database(),
         },
     )
     .await

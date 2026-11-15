@@ -193,6 +193,19 @@ impl MutationManager {
             });
             changed.push(ChangedRecord { mutation, key });
         }
+        if self.track_shared_record_revisions {
+            self.db_ops
+                .metadata()
+                .stage_shared_record_mutations(changes.iter().zip(&changed).map(|(row, change)| {
+                    (
+                        row.key.as_str(),
+                        row.after
+                            .is_live()
+                            .then_some((&row.after.stamp, change.mutation.uuid.as_str())),
+                    )
+                }))
+                .await?;
+        }
         self.stage_records_with_effects(&schema, &changed, changes)
             .await?;
         runtime.record_read_stage("record-stores-done", keys.len());

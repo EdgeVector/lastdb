@@ -64,7 +64,7 @@ impl Tables {
         entry: Entry,
     ) -> Result<Entry, OwnedError> {
         let id = &entry.id;
-        let store = store::open(home, id, signer, true)
+        let store = store::open(home, &entry, signer, true)
             .await
             .map_err(|_| OwnedError::Unavailable)?;
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {

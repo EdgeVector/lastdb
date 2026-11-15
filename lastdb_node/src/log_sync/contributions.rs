@@ -4,6 +4,7 @@
 //! checks those grants against the actual mutation before any shared write.
 
 mod intake;
+mod revision;
 
 use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
@@ -72,6 +73,8 @@ pub(super) async fn settle_legacy(host: &Host, log: &CloudLog, through: u64) -> 
 struct Submission {
     grant_revision: u64,
     operation: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base_mutation: Option<String>,
 }
 
 pub(crate) fn validate_write_scopes(
@@ -152,6 +155,7 @@ pub(crate) async fn submit(
     let submission = Submission {
         grant_revision: revision,
         operation,
+        base_mutation: revision::receiver_base(&store, &mutation).await?,
     };
     let invitation =
         registered_share::verified_invitation(&host.home, &share.id).map_err(|_| Unavailable)?;

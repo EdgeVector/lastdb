@@ -23,6 +23,8 @@ Social owns contacts and circles on the publisher's LastDB. For a database, it r
 
 A named scope such as `"writeSchemas": {"names": ["social/Comment"]}` matches the exact canonical name in that database. A compatible schema update leaves the grant in force. The submitted operation still has to match the installed definition and pass the normal record checks. A different name needs its own grant. Existing signed arrays of exact definition IDs retain their original meaning. An empty array grants reads only, and `"all"` covers every schema in that database. ExeMem carries the signed scope and leaves schema checks to the publisher.
 
+For a conditional replacement or delete, the receiver passes the identity of the published record version in the encrypted proposal. LastDB stores this identity with each whole-database share record it writes or downloads. The publisher checks the identity against its current record and uses its own record revision when committing. An intervening write causes the proposal to be discarded. A record already present before both clients track this identity needs an updated publication before a receiver can edit it this way.
+
 | Identity on this database | Read published log | Append to published log | Append to pending log | Read and mark pending entries processed |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |

@@ -115,13 +115,14 @@ def transfer(programs, root, publisher, recipient, api_key):
                 call(remote, "/api/accept", {"receipt": second_receipt, "publisher": sender, "name": "second"})
                 wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
                 observe_access(remote, second, "active", 1, write_schemas=[])
-                definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database, definitions[COMMENT])
+                definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database,
+                                                        definitions[COMMENT], scope)
                 read_circle = {**circle, "links": {database: [], second: [COMMENT]}}
                 preview = call(owner, "/api/circles/preview", {"circle": read_circle})
                 call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
                 call(owner, "/api/circles/apply", {"circle": read_circle, "token": preview["token"]}, status=400)
                 require(edit_circle(owner, read_circle) == {database: "2", second: "2"}, "circle_reader_revision")
-                observe_access(remote, second, "revoked", 2)
+                observe_access(remote, second, "revoked")
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
                 report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
@@ -203,7 +204,7 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     summary(message)
 
 
-def exercise_upgrade(publisher, recipient, remote, database, previous):
+def exercise_upgrade(publisher, recipient, remote, database, previous, scope):
     new = declare(publisher, database, COMMENT, expanded=True)
     require(new != previous, "circle_schema_upgrade_new_definition")
     seeded = mutation(COMMENT, new, "upgrade", "Before edit")
@@ -215,14 +216,14 @@ def exercise_upgrade(publisher, recipient, remote, database, previous):
     update = mutation(COMMENT, new, "upgrade", "After edit")
     update.update(mutation_type="replace", expected={"type": "revision", "revision": current["revision"]},
                   record={**current["fields"], "text": "After edit"})
-    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
-    submit(recipient, database, session, update)
+    stale = {**update, "record": {**update["record"], "text": "Stale edit"}}
+    queue_and_restart(publisher, recipient, remote, database, scope, 1, [update, stale])
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "upgrade", "After edit", "circle_upgraded_record_edited")
         require(query(node, database, COMMENT, "upgrade")[0]["fields"] == update["record"],
                 "circle_upgraded_fields_preserved")
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_old_records_preserved")
-    report("Ana edited the upgraded Comment at the same sharing revision and kept its added field and the older record.")
+    report("Ana edited the upgraded Comment at the same sharing revision. The added field and older record remained, and the publisher discarded the stale edit.")
     return new
 
 
