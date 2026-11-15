@@ -10,7 +10,7 @@ use mutation_log::{DatabaseId, DatabaseKind, DeviceId, PrincipalId};
 use mutation_log_sync::{SyncRole, SyncState};
 use serde::{Deserialize, Serialize};
 
-use crate::cloud_backup_client::byte_backup::ShareEnvironment;
+use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
 use crate::host::Host;
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use crate::registered_share::{self, RegisteredShare};
@@ -113,7 +113,7 @@ fn connect_received(
     })
 }
 
-fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str) {
+pub(super) fn profile_service(environment: ShareEnvironment) -> (&'static str, &'static str) {
     let profile = match environment {
         ShareEnvironment::Dev => Environment::Dev,
         ShareEnvironment::Prod => Environment::Prod,

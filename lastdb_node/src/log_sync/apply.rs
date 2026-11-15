@@ -62,8 +62,17 @@ pub(crate) async fn apply_page(
         return Ok(PagePlan::Ack(*cursor));
     }
     let mut handled = None;
+    let mut consumed = None;
+    let whole = crate::host::owned::find_shareable(&host.home, log.database_id())
+        .is_ok_and(|entry| entry.whole_database());
     for stored in entries {
         let entry = &stored.entry;
+        if whole && &entry.writer.key != log.principal() {
+            super::contributions::apply(host, log, entry).await?;
+            consumed = Some(stored.delivery_seq);
+            handled = Some(stored.delivery_seq);
+            continue;
+        }
         // An owned store may have independent local writes beyond its delivery
         // cursor. Only acknowledge writes this device already applied here.
         if entry.database_id.as_str() != log.database_id()
@@ -71,9 +80,15 @@ pub(crate) async fn apply_page(
             || &entry.writer.device != log.device()
             || !mark_local(host, log.database_id(), entry)?
         {
+            if let Some(through) = consumed {
+                super::contributions::settle(log, through).await?;
+            }
             return Ok(PagePlan::Hold(handled));
         }
         handled = Some(stored.delivery_seq);
+    }
+    if let Some(through) = consumed {
+        super::contributions::settle(log, through).await?;
     }
     Ok(PagePlan::Ack(*cursor))
 }
@@ -100,7 +115,11 @@ async fn received_page(
     entries: &[StoredEntry],
     cursor: u64,
 ) -> Result<PagePlan, String> {
-    let delivered: Vec<DeliveredEntry> = entries.iter().map(delivered_entry).collect();
+    let delivered: Vec<DeliveredEntry> = entries
+        .iter()
+        .filter(|stored| stored.entry.writer.key.as_str() == publisher)
+        .map(delivered_entry)
+        .collect();
     let mut files = super::restore::file_source(log.clone());
     crate::database_replay::replay_delivered(
         host,

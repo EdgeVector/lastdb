@@ -4,7 +4,7 @@
 //! It holds the AES content key, not the node seed and not the personal
 //! content key. There is no second prefix and no raw key file.
 
-use crate::cloud_backup_client::byte_backup::GuestReadPermission;
+use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
 use crate::host::owned;
 use crate::share_invitation::{self, ShareContact};
 use crate::share_spec::PublicationSpec;
@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 use super::config::{self, ConfigError};
 
 /// Seal this database's AES key to `contact`. Opens a fresh publisher session.
-pub async fn seal_named_invitation(
+pub(crate) async fn seal_named_invitation(
     home: &Path,
     database_id: &str,
     contact: &ShareContact,
@@ -53,7 +53,7 @@ pub(crate) async fn issue_invitation(
     }
     let session = super::session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| config::unconfirmed_or_payment(&e))?;
     let document = config::read(&session, database_id).await?;
     if !document.update.as_ref().is_some_and(|update| {
         update.members.iter().any(|member| {
@@ -102,7 +102,7 @@ fn read_permission(
             scope: session.scope.clone(),
             stream_id: id,
         },
-        session.guest_environment,
+        session.environment,
         &expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         session.signer.public_key_bytes(),
         |bytes| session.signer.sign(bytes).to_bytes(),

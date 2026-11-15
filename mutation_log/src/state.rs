@@ -7,8 +7,9 @@ use crate::{
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
-/// One log per database. Writer tips and device read positions are keyed by
-/// writer (node key, device). There is no separate log or storage per device.
+/// This models the personal log or the share's published log, including any
+/// legacy mixed history. ExeMem stores new pending whole-database mutations
+/// separately. Writer tips and read positions are keyed by node key and device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.
@@ -33,6 +34,8 @@ pub struct LogState {
     pub snapshot: Option<Snapshot>,
     /// Highest delivery sequence already dropped.
     pub trimmed_through: u64,
+    /// Publisher-confirmed delivery prefix of consumed whole-database submissions.
+    pub submissions_consumed_through: u64,
     /// Submissions already copied by the publisher key.
     ///
     /// The key is `(submission writer, writer_seq)`, once in total. A persistent
@@ -69,6 +72,7 @@ impl LogState {
             inflight: BTreeSet::new(),
             snapshot: None,
             trimmed_through: 0,
+            submissions_consumed_through: 0,
             incorporated: BTreeSet::new(),
             rejected: BTreeSet::new(),
             submission_records: BTreeMap::new(),

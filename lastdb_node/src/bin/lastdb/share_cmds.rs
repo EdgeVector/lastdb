@@ -1,6 +1,5 @@
 use super::{
-    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand,
-    ShareContributorCommand, ShareFilesCommand,
+    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand, ShareFilesCommand,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
@@ -36,16 +35,25 @@ pub(super) fn run(
             publisher,
             name,
         }) => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
+        ShareCommand::Invite {
+            recipient,
+            recipient_key,
+            out,
+            expires_in_hours,
+            regrant,
+        } => named::invite(named::InviteOptions {
+            data_dir,
+            db,
+            recipient: &recipient,
+            recipient_key,
+            out: &out,
+            expires_in_hours,
+            regrant,
+        }),
+        ShareCommand::Contributors(action) => contributors::run(data_dir, db, action),
         ShareCommand::Files(action) => files::run(data_dir, db, action),
-        ShareCommand::Contributors(ShareContributorCommand::Accept { db, grant }) => {
-            let sealed = read_file(&grant, 64 * 1024)?;
-            let body = serde_json::json!({
-                "grant": base64::engine::general_purpose::STANDARD.encode(sealed),
-            });
-            database_request(data_dir, Some(&db), "/api/contributors", &body)
-        }
         ShareCommand::Queries(action) => queries::run(data_dir, action),
-        action => run_offline(data_dir, db, action),
+        action => run_offline(data_dir, action),
     }
 }
 
@@ -65,37 +73,27 @@ fn accept(
     if let Some(database_id) = database_id {
         body["database_id"] = serde_json::json!(database_id);
     }
-    database_request(data_dir, None, "/api/databases/accept", &body)
-}
-
-fn database_request(
-    data_dir: Option<PathBuf>,
-    selector: Option<&str>,
-    path: &str,
-    body: &serde_json::Value,
-) -> Result<(), String> {
-    let target = DatabaseTarget::open(data_dir, selector)?;
+    let target = DatabaseTarget::open(data_dir, None)?;
     let raw = post_json_with_timeout(
         &target.socket,
-        &target.path(path),
-        body,
+        &target.path("/api/databases/accept"),
+        &body,
         Duration::from_secs(10),
     )?;
     println!("{}", parse_json_response(&raw, "database registration")?);
     Ok(())
 }
 
-fn run_offline(
-    data_dir: Option<PathBuf>,
-    db: Option<&str>,
-    action: ShareCommand,
-) -> Result<(), String> {
-    let identity_home = data_dir
-        .filter(|p| p.is_absolute())
-        .ok_or("share requires an explicit absolute --data-dir identity home")?;
-    let identity_home = identity_home
-        .canonicalize()
-        .map_err(|_| "share identity home must exist")?;
+fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
+    let data_dir = data_dir
+        .map(lastdb_node::profile::paths::expand_tilde_path)
+        .transpose()?;
+    let identity_home = match data_dir {
+        Some(dir) if dir.is_absolute() => dir
+            .canonicalize()
+            .map_err(|_| "share identity home must exist".to_owned())?,
+        _ => return Err("share requires an explicit absolute --data-dir identity home".into()),
+    };
     match action {
         ShareCommand::Contact { out } => contact(&identity_home, &out),
         ShareCommand::VerifyContact {
@@ -109,25 +107,7 @@ fn run_offline(
             );
             Ok(())
         }
-        ShareCommand::Invite {
-            recipient,
-            recipient_key,
-            out,
-            expires_in_hours,
-            regrant,
-        } => named::invite(named::InviteOptions {
-            db,
-            identity_home: &identity_home,
-            recipient: &recipient,
-            recipient_key,
-            out: &out,
-            expires_in_hours,
-            regrant,
-        }),
-        ShareCommand::Accept { .. } => unreachable!("accept is routed to the node"),
-        ShareCommand::Contributors(action) => contributors::run(&identity_home, db, action),
-        ShareCommand::Files(_) => unreachable!("Files commands are routed to the node"),
-        ShareCommand::Queries(_) => unreachable!("queries are routed to the node"),
+        _ => unreachable!("online share commands are routed to the node"),
     }
 }
 
@@ -150,13 +130,6 @@ fn contact(home: &Path, out: &Path) -> Result<(), String> {
         serde_json::json!({"contact": out, "recipient_public_key": recipient.identity_public_key()})
     );
     Ok(())
-}
-
-fn runtime() -> Result<tokio::runtime::Runtime, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "cannot construct share runtime".into())
 }
 
 fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {

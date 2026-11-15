@@ -1,9 +1,11 @@
 # @lastdb/app-sdk
 
 The runtime SDK for LastDB apps. A dependency-free TypeScript client over a
-node's Unix-socket `/api/*` surface: connect, verify API compatibility, and run
-keyed queries, conditional record mutations, membership lists, and change-feed
-reads.
+node's Unix-socket `/api/*` surface: connect, verify protocol `API_VERSION`
+compatibility (`LASTDB_SDK_API_VERSION = 34`, minimum supported node protocol
+`LASTDB_MIN_SUPPORTED_API_VERSION = 29`), and run keyed reads, single and batch
+conditional mutations, record file/blob operations, membership lists, named
+databases, and short-lived scoped database sessions.
 
 ## Install a build of the SDK
 
@@ -31,6 +33,9 @@ await db.mutate('my-app/Concept', {
   key: { hash: 'c1', range: null },
 });
 
+const single = await db.get('my-app/Concept', 'c1');
+console.log(single?.key, single?.fields, single?.metadata);
+
 const { rows } = await db.query('my-app/Concept', {
   filter: { HashKey: 'c1' },
 });
@@ -52,13 +57,14 @@ const db = ownerClient({
 await db.requireApiVersion(LASTDB_SDK_API_VERSION);
 ```
 
-## Named databases
+## Named Databases & Scoped Sessions
 
 `listDatabases` reads `GET /api/databases`. The personal database and received
-shares stay in that list. `createDatabase` calls `POST /api/databases` and
-creates an owned shareable database. `select` returns a new client for one id
-or name. The original client stays on its current database, and a client with
-no `databaseId` remains the personal default.
+shares stay in that list. `createDatabase` calls `POST /api/databases` to create
+an owned shareable or personal database, and `bindDatabaseSpec` calls
+`POST /api/databases/spec` to bind or clear an owned database's spec. `select`
+returns a new client bound to one database ID or alias without mutating the
+existing client.
 
 ```ts
 const root = await connect({ appId: 'photos' });
@@ -70,7 +76,89 @@ const family = root.select(created.id);
 const same = await connect({ appId: 'photos', databaseId: created.name ?? created.id });
 ```
 
-`ownerClient({ appId, socketPath, databaseId })` selects the same way.
+To mint an owner-approved short-lived capability session (`POST /api/databases/session`)
+and attach `X-LastDB-Database-Session` to every scoped request, call
+`issueDatabaseSession` or `openDatabaseSession`:
+
+```ts
+const { session, client: familyReader } = await root.openDatabaseSession(created.id, 'read');
+const rows = await familyReader.query('photos/Album', { filter: { HashKey: 'vacation' } });
+
+// Or hand `session.session` to an isolated client process:
+const delegated = await connect({
+  appId: 'photos-viewer',
+  databaseId: session.databaseId,
+  databaseSession: session.session,
+});
+```
+
+Keep `session.session` tokens out of logs. Every scoped client method (`get`,
+`list`, `query`, `queryBatch`, `queryAll`, `mutate`, `mutateBatch`, `putBlob`,
+`fetchBlob`, `deleteBlob`, `listSchemas`, `getSchema`, `declareSchema`) routes
+uniformly through `/api/databases/<selector>/...`.
+
+## Record Files & Blobs
+
+Attach, read, or clear a record's external `blob` or `inline` file over the
+Unix-socket binary fast path:
+
+```ts
+const uploaded = await family.putBlob('photos/Photo', {
+  op: {
+    mutationType: 'create',
+    expected: { type: 'absent' },
+    alternates: {},
+    key: { hash: 'photo-7', range: null },
+    record: { caption: 'Sunset' },
+  },
+  bytes: jpegBytes,
+  name: 'sunset.jpg',
+  mediaType: 'image/jpeg',
+  thumbnail: { bytes: thumbBytes, name: 'sunset-thumb.jpg', mediaType: 'image/jpeg' },
+});
+
+const blob = await family.fetchBlob('photos/Photo', 'photo-7');
+const thumb = await family.fetchBlob('photos/Photo', 'photo-7', { placement: 'inline' });
+
+await family.deleteBlob('photos/Photo', {
+  mutationType: 'replace',
+  expected: { type: 'revision', revision: uploaded.recordRevision },
+  alternates: {},
+  key: { hash: 'photo-7', range: null },
+  record: { caption: 'Sunset' },
+});
+```
+
+## Atomic Batch Mutations
+
+Commit multiple complete conditional record mutations atomically via
+`POST /api/mutations/batch`:
+
+```ts
+const batch = await db.mutateBatch([
+  {
+    schemaName: 'my-app/Concept',
+    op: {
+      mutationType: 'create',
+      expected: { type: 'absent' },
+      alternates: {},
+      key: { hash: 'c2', range: null },
+      record: { id: 'c2', title: 'first' },
+    },
+  },
+  {
+    schemaName: 'my-app/Concept',
+    op: {
+      mutationType: 'create',
+      expected: { type: 'absent' },
+      alternates: {},
+      key: { hash: 'c3', range: null },
+      record: { id: 'c3', title: 'second' },
+    },
+  },
+]);
+console.log(batch.count, batch.operations, batch.recordRevisions);
+```
 
 ## Set up sharing with Social
 
@@ -85,14 +173,12 @@ const social = socialClient({ dataDir });
 const root = await connect({ appId: 'photo-journal', socketPath });
 const database = await social.createDatabase('family');
 const family = root.select(database.id);
-// Use the regular LastDB client to declare schemas and write records.
 
 const receipt = await social.inviteReader('family', {
   name: 'Ana',
   nodeKey: anaVerifiedKey,
   contactPath: anaContactFile,
 });
-// Hand the sealed receipt to Ana through your chosen channel.
 ```
 
 On Ana's device, call `social.acceptInvitation(receipt, verifiedPublisherKey)`.
@@ -102,16 +188,43 @@ can call `social.revokeAccess('family', anaVerifiedKey)`. Social remembers
 verified contacts across databases, so later invitations can omit `contactPath`.
 Keep sealed receipts out of logs.
 
-For an existing named database set up with LastDB's Social or Files format,
-pass its name directly to `inviteReader`. The sealed invitation carries its
-stable ID. Social manages people and sharing through the existing owner
-connection. Content apps use LastDB's regular database APIs.
+### Use a named database setup
+
+Social can provision **shared-albums** version 1 with the standard
+`social/Album`, `social/AlbumItem`, `social/Photo`, and `social/Comment`
+schemas. The owner chooses a local name for provisioning. Other apps open
+the selected database by its stable ID and get the verified definitions
+before using the ordinary record APIs.
+
+```ts
+const created = await social.setupDatabase({
+  setupName: 'shared-albums', requiredVersion: 1, localName: 'family',
+});
+const verified = await social.setupDatabase({
+  setupName: 'shared-albums', requiredVersion: 1, databaseId: created.databaseId,
+});
+const albums = root.select(verified.databaseId);
+albums.rememberDefinition('social/Album', verified.definitions['social/Album']!);
+```
+
+Verification by ID also works on a received share once it has synced its
+schemas. Existing sharing settings continue to apply. Setup version 1
+requires the catalog's schema shapes and leaves schema upgrades to an
+explicit owner operation.
 
 ## Registered Shares
 
+For whole-database shares, use the receiver's current schema permissions to
+show available edit actions. Any active receiver can submit an encrypted
+mutation. A `submitted` receipt confirms delivery to the publisher's pending
+mutation log. The publisher's LastDB checks the current sharing settings and
+record rules, then publishes accepted changes under the publisher's key.
+Use the normal query API to read the result after sync. The receiver's LastDB
+follows the published log. Access to the pending log belongs to the publisher.
+[Sharing and write approval](../docs/designs/shared-database-mutation-logs.md)
+
 Pass the database ID or alias from `lastdb db list` to `connect` or `select`
-on the recipient's socket. `list`, `query`, `queryAll`, `queryBatch`,
-`listSchemas`, and `mutate` target `/api/databases/<id>/...`:
+on the recipient's socket:
 
 ```ts
 import { randomUUID } from 'node:crypto';
@@ -130,7 +243,7 @@ const receipt = await share.mutate('photos/Comment', {
   record: { text: 'Great photo' },
 }, { mutationId });
 if ('status' in receipt && receipt.status === 'submitted') {
-  console.log(`Submitted ${receipt.mutationId} at ${receipt.submissionSequence}`);
+  console.log(`Queued ${receipt.mutationId}`);
 }
 ```
 
@@ -138,19 +251,14 @@ When a Share submission outcome is uncertain, `mutate` throws
 `ShareSubmissionUncertainError` with `.mutationId` so the caller can retry with
 the same body and UUID.
 
-## Interop Rule
-
-Schemas use runtime names `{app_id}/{local}`. Read another app's schema by its
-full name and write only schemas in your own namespace. Each schema owns its
-record values independently.
-
-## Access Model & Queries
+## Access Model & Operations
 
 LastDB is a keyed store: every `query`, `queryAll`, and `queryBatch` item names
 a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
 `HashRangeBetween`, `HashRangeKeys`, etc.). Unfiltered scans and server-side
 `where` field filters are not supported.
 
+- `get(schemaName, key)` — single-record point lookup by `HashKey` or `HashRangeKey`.
 - `list(schemaName, { keyName?, hash?, limit?, cursor? })` — keys-only cursor
   pages over `GET /api/list`.
 - `query(schemaName, { keyName?, filter?, limit?, offset?, cursor? })` — one
@@ -161,11 +269,19 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
   `POST /api/queries/batch`.
 - `mutate(schemaName, op, options?)` — complete conditional record `create` /
   `replace` / `delete` / `purge` over `POST /api/mutation`.
+- `mutateBatch(items, options?)` — atomic batch of conditional mutations over
+  `POST /api/mutations/batch`.
+- `putBlob(schemaName, request)`, `fetchBlob(schemaName, key, options?)`,
+  `deleteBlob(schemaName, op, options?)` — record file and blob operations over
+  `POST /api/db/{put-blob,fetch-blob,delete-blob}`.
 - `declareSchema(request)` / `rememberDefinition(schemaName, definitionId)` —
   declare a schema on `POST /api/schemas/declare` and attach `definition_id` on
   subsequent mutations.
-- `autoIdentity()`, `listSchemas()`, `resolveSchema(descriptor)` — owner/host
-  helpers over `GET /api/system/auto-identity` and `GET /api/schemas`.
+- `listSchemas()`, `getSchema(schemaName)`, `resolveSchema(descriptor)`,
+  `autoIdentity()` — schema lookup and owner identity helpers.
+- `listDatabases()`, `createDatabase(req)`, `bindDatabaseSpec(id, spec)`,
+  `issueDatabaseSession(id, intent)`, `openDatabaseSession(id, intent)`,
+  `select(id, { databaseSession? })` — named database and scoped session helpers.
 
 ## Typed Errors
 
@@ -174,8 +290,10 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
   `RequestRejectedError`).
 - `CasConflictError` — `409 {error: "cas_conflict"}` with `.schema`, `.key`,
   `.expected`, `.actual`, and `.body`.
-- `RequestRejectedError` — `400` request/schema rejection with `.kind` and `.body`.
-- `PermissionDeniedError` — `403` posture/namespace denial with `.category`.
+- `RequestRejectedError` — `400` / `404` / non-CAS `409` / `413` request or
+  target rejection with `.kind`, `.status`, and `.body`.
+- `PermissionDeniedError` — `403` posture/namespace/session denial with
+  `.category` (`'namespace_denied' | 'unverified_identity' | 'write_denied' | 'session_denied' | 'unknown'`).
 - `AuthenticationRequiredError` — `401` credential failure.
 - `QueryPaginationError` — `queryAll` detected stalled pagination or a count
   mismatch.

@@ -2,7 +2,13 @@
 
 The enforced catalog is `database_policy`. This directory is the same list. Registry version `1` is catalog label `1.0`. The stored spec object is `{ "name", "version" }` with an integer version.
 
-A database name is a label. It does not select a spec, and no database name is reserved. The stored spec object selects the record types. A database uses the social schemas only when its stored spec is `{ "name": "social", "version": 1 }`. Those schemas are in `spec/social/`.
+A database name is a label. It does not select a spec, and no database name
+is reserved. The stored spec determines the publication mode. The
+`{ "name": "social", "version": 1 }` spec uses the existing filtered Social
+publication. Social's `shared-albums` version 1 setup installs Album,
+AlbumItem, Photo, and Comment from `spec/social/` in a whole-database share.
+The setup version describes the installed schemas. Whole-database sharing
+uses its own publication mode and the database's signed roster.
 
 `social-graph` is personal-only. It is not a database name, and it never appears in a shareable database.
 

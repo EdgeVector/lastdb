@@ -68,6 +68,8 @@ pub(super) struct ContributionSection<'a> {
     writer: &'a str,
     receipt_sha256: &'a str,
     intent_sha256: &'a str,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    schema_scope: bool,
 }
 
 pub(super) fn mutation_id_ok(id: &str) -> bool {
@@ -238,6 +240,7 @@ fn contribution_ref<'a>(section: &'a ContributionSection<'a>) -> ContributionSec
         writer: section.writer,
         receipt_sha256: section.receipt_sha256,
         intent_sha256: section.intent_sha256,
+        schema_scope: section.schema_scope,
     }
 }
 
@@ -269,11 +272,13 @@ pub(super) fn contribution<'a>(
     writer: &'a str,
     receipt_sha256: &'a str,
     intent_sha256: &'a str,
+    schema_scope: bool,
 ) -> ContributionSection<'a> {
     ContributionSection {
         definition_id,
         writer,
         receipt_sha256,
         intent_sha256,
+        schema_scope,
     }
 }

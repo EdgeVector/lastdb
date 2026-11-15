@@ -9,21 +9,15 @@ use serde::{Deserialize, Serialize};
 ///
 /// `Read` is the reader capability. `Submit` is the contributor capability:
 /// reader rights plus pending submissions. The log core maps `Read` to
-/// `Receive`, and `Submit` to both `Receive` and `Submit`.
+/// `Receive`, and `Submit` to both capabilities for legacy log history.
+/// Either active role may append to the whole-database pending log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareMemberRole {
     /// Read published entries, snapshots, and files.
     Read,
-    /// Read published data and submit a pending contribution.
+    /// Read published data and carry the publisher's schema write grant.
     Submit,
-}
-
-impl ShareMemberRole {
-    /// Reader capability. Wire value `read`.
-    pub const READER: Self = Self::Read;
-    /// Contributor capability. Wire value `submit`.
-    pub const CONTRIBUTOR: Self = Self::Submit;
 }
 
 /// Whether a member row still grants access.
@@ -35,6 +29,64 @@ pub enum ShareMemberState {
     Active,
     /// The key stays on the record and is refused until an explicit regrant.
     Revoked,
+}
+
+/// Selected schema names or every schema in the database. Older signed
+/// configurations can still select exact definitions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum ShareWriteScope {
+    /// Sorted exact definition IDs. Empty permits no schema changes.
+    Selected(Vec<Digest>),
+    /// Sorted canonical names. The publisher checks the current definition separately.
+    Named {
+        /// Canonical schema names as registered in the shared database.
+        names: Vec<String>,
+    },
+    /// All installed record schemas, including future definitions.
+    All(AllShareSchemas),
+}
+
+/// The wire value for the all-schema scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AllShareSchemas {
+    /// Encodes as the string `all`.
+    All,
+}
+
+impl ShareWriteScope {
+    /// Check the publisher-resolved canonical schema and its installed definition.
+    pub fn permits(&self, name: &str, definition_id: &Digest) -> bool {
+        match self {
+            Self::Selected(ids) => ids.binary_search(definition_id).is_ok(),
+            Self::Named { names } => names
+                .binary_search_by(|value| value.as_str().cmp(name))
+                .is_ok(),
+            Self::All(_) => true,
+        }
+    }
+
+    fn validate(&self) -> Result<bool, ProtocolError> {
+        match self {
+            Self::Selected(ids) if ids.windows(2).any(|pair| pair[0] >= pair[1]) => {
+                Err(ProtocolError::invalid("share.members.write_schemas.order"))
+            }
+            Self::Selected(ids) => Ok(!ids.is_empty()),
+            Self::Named { names } => {
+                if names.iter().any(|name| {
+                    name.is_empty() || name.trim() != name || name.chars().any(char::is_control)
+                }) {
+                    return Err(ProtocolError::invalid("share.members.write_schemas.name"));
+                }
+                if names.windows(2).any(|pair| pair[0] >= pair[1]) {
+                    return Err(ProtocolError::invalid("share.members.write_schemas.order"));
+                }
+                Ok(!names.is_empty())
+            }
+            Self::All(_) => Ok(true),
+        }
+    }
 }
 
 /// One node named by a member-list revision.
@@ -54,6 +106,9 @@ pub struct ShareMember {
     /// True only on the revision that restores a revoked key. Omitted when false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub regrant: bool,
+    /// Missing on legacy grants. An empty selection gives a member read access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_schemas: Option<ShareWriteScope>,
 }
 
 fn state_is_active(state: &ShareMemberState) -> bool {
@@ -228,6 +283,15 @@ fn validate_member_order(members: &[ShareMember]) -> Result<(), ProtocolError> {
         .any(|pair| pair[0].node_public_key >= pair[1].node_public_key)
     {
         return Err(ProtocolError::invalid("share.members.order"));
+    }
+    for member in members {
+        if let Some(scope) = &member.write_schemas {
+            let can_submit =
+                member.state == ShareMemberState::Active && member.role == ShareMemberRole::Submit;
+            if scope.validate()? != can_submit {
+                return Err(ProtocolError::invalid("share.members.write_schemas.role"));
+            }
+        }
     }
     Ok(())
 }

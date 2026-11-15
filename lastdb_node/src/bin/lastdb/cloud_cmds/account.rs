@@ -28,10 +28,11 @@ pub(crate) fn cloud_account_command(
     data_dir: Option<PathBuf>,
     action: CloudAccountCommand,
 ) -> Result<(), String> {
+    let data_dir_explicit = data_dir.is_some();
     let home = lastdb_node::host::resolve_home(data_dir)?;
     let session = load_cloud_session(&home)?;
     match action {
-        CloudAccountCommand::Payment(cmd) => run_payment(&session, &cmd),
+        CloudAccountCommand::Payment(cmd) => run_payment(&home, data_dir_explicit, &session, &cmd),
         CloudAccountCommand::DeveloperKey(cmd) => {
             dev_keys::run_developer_key(&home, &session, &cmd)
         }
@@ -44,6 +45,14 @@ fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
     )?;
     let env = environment_for_exemem_api_url(&creds.api_url)
         .ok_or("saved cloud credentials do not match a compiled Exemem environment")?;
+    if let Some(explicit) = Environment::explicit_from_env().filter(|e| *e != env) {
+        return Err(format!(
+            "LASTDB_ENV={} conflicts with saved {} cloud credentials in {}",
+            explicit.as_str(),
+            env.as_str(),
+            home.display()
+        ));
+    }
     let expected_account_id = load_home_account_id(home)?;
     if let Some(conn) = &creds.connection {
         if conn.environment != env.as_str() {
@@ -65,9 +74,16 @@ fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
     })
 }
 
-fn run_payment(session: &CloudSession, action: &CloudPaymentCommand) -> Result<(), String> {
+fn run_payment(
+    home: &Path,
+    data_dir_explicit: bool,
+    session: &CloudSession,
+    action: &CloudPaymentCommand,
+) -> Result<(), String> {
     match *action {
-        CloudPaymentCommand::Status { json } => payment_status(session, json),
+        CloudPaymentCommand::Status { json } => {
+            payment_status(home, data_dir_explicit, session, json)
+        }
         CloudPaymentCommand::Checkout { json } => payment_hosted_url(
             session,
             "/api/auth/payments/checkout",
@@ -85,7 +101,12 @@ fn run_payment(session: &CloudSession, action: &CloudPaymentCommand) -> Result<(
     }
 }
 
-fn payment_status(session: &CloudSession, json: bool) -> Result<(), String> {
+fn payment_status(
+    home: &Path,
+    data_dir_explicit: bool,
+    session: &CloudSession,
+    json: bool,
+) -> Result<(), String> {
     let (status, body) = block_on_cloud(
         "payment status",
         exchange_json(session, Method::GET, "/api/auth/payments/status", None),
@@ -106,6 +127,10 @@ fn payment_status(session: &CloudSession, json: bool) -> Result<(), String> {
     let can_checkout = bool_field(&body, "can_checkout", "payment status")?;
     let can_manage = bool_field(&body, "can_manage", "payment status")?;
     let review_required = bool_field(&body, "review_required", "payment status")?;
+    if !configured || sub_status == "active" {
+        lastdb_node::log_sync::request_wake(home);
+        super::setup::poke_running_daemon(data_dir_explicit, home);
+    }
     if json {
         print_pretty_json(&json!({
             "ok": true, "account_id": user_hash, "environment": session.env.as_str(),

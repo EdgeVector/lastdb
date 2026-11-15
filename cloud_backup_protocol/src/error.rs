@@ -77,6 +77,12 @@ impl ProtocolError {
             field: field.into(),
         }
     }
+
+    /// True when the service refused a paid cloud operation for an inactive subscription.
+    #[must_use]
+    pub fn is_payment_subscription(&self) -> bool {
+        self.code == ErrorCode::Unauthorized && self.field == "payment.subscription"
+    }
 }
 
 impl std::fmt::Display for ProtocolError {

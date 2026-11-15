@@ -1,5 +1,6 @@
 use super::*;
 use crate::app_registry_index::{self as registry, managed as host};
+use lastdb_node::profile::endpoints::Environment;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,14 +25,28 @@ type Catalog = (
     (String, &'static str),
 );
 
+fn parse_catalog_env(raw: Option<&str>) -> Result<Option<Environment>, String> {
+    raw.map(|v| Environment::try_from_str(v).map_err(|_| "--env must be dev or prod".to_owned()))
+        .transpose()
+}
+
+fn pin_app_env(home: &Path, env_flag: Option<&str>) -> Result<(), String> {
+    if let Some(env) = parse_catalog_env(env_flag)? {
+        lastdb_node::profile::endpoints::set_home_environment(env);
+    }
+    lastdb_node::cloud::pin_schema_service_environment_from_home(home);
+    Ok(())
+}
+
 fn load_catalog(
     home: &Path,
     ch: Option<&str>,
     index: Option<&str>,
+    env_override: Option<Environment>,
     trust_key: Option<&str>,
 ) -> Result<Catalog, String> {
     let ch = ch.unwrap_or(registry::DEFAULT_CHANNEL);
-    let loc = registry::IndexLocation::resolve(index)?;
+    let loc = registry::IndexLocation::resolve(index, env_override)?;
     let (vk, trust) = registry::resolve_list_trust_key(trust_key)?;
     let (build, node_src, api, outbox) = registry::running_node(home);
     let mut list = block_on_app(registry::fetch_list(&loc, ch, api, &vk))?;
@@ -48,28 +63,40 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             print_pretty_json(&host::rollback(&app_id, &home)?);
             Ok(())
         }
-        AppCommand::Status { app_id, check, .. } => status_apps(&home, app_id.as_deref(), check),
+        AppCommand::Status { app_id, check, .. } => {
+            lastdb_node::cloud::pin_schema_service_environment_from_home(&home);
+            status_apps(&home, app_id.as_deref(), check)
+        }
         AppCommand::Publish(args) => interface_publish::publish_interface(&home, &args),
         AppCommand::List {
             app_id,
             catalog_entry,
             source,
             json,
-        } => list_apps(&home, app_id.as_deref(), catalog_entry, json, &source),
+        } => {
+            pin_app_env(&home, source.env.as_deref())?;
+            list_apps(&home, app_id.as_deref(), catalog_entry, json, &source)
+        }
         AppCommand::Install {
             app_ids,
             source,
             accept_install,
             inactive,
             ..
-        } => install_apps(&home, accept_install, inactive, &app_ids, &source),
+        } => {
+            pin_app_env(&home, source.env.as_deref())?;
+            install_apps(&home, accept_install, inactive, &app_ids, &source)
+        }
         AppCommand::Upgrade {
             app_ids,
             all,
             accept_install,
             source,
             ..
-        } => upgrade_apps(&home, all, accept_install, &app_ids, &source),
+        } => {
+            pin_app_env(&home, source.env.as_deref())?;
+            upgrade_apps(&home, all, accept_install, &app_ids, &source)
+        }
     }
 }
 
@@ -80,10 +107,12 @@ fn list_apps(
     json: bool,
     src: &CatalogSource,
 ) -> Result<(), String> {
+    let env_override = parse_catalog_env(src.env.as_deref())?;
     let (list, index, trust, (nb, ns)) = load_catalog(
         home,
         src.channel.as_deref(),
         src.index.as_deref(),
+        env_override,
         src.trust_key.as_deref(),
     )?;
     let Some(app_id) = app_id else {
@@ -138,12 +167,13 @@ fn resolutions(
     home: &Path,
     channel: &str,
     index: Option<&str>,
+    env_override: Option<Environment>,
     trust_key: Option<&str>,
 ) -> Result<Vec<registry::Resolution>, String> {
     if trust_key.is_some() || std::env::var_os(registry::TRUST_KEY_ENV).is_some() {
         return Err("managed installs require the pinned registry key".into());
     }
-    let (list, index, trust, _) = load_catalog(home, Some(channel), index, None)?;
+    let (list, index, trust, _) = load_catalog(home, Some(channel), index, env_override, None)?;
     Ok(list
         .apps
         .into_iter()
@@ -162,8 +192,15 @@ fn install_apps(
     app_ids: &[String],
     src: &CatalogSource,
 ) -> Result<(), String> {
+    let env_override = parse_catalog_env(src.env.as_deref())?;
     let ch = src.channel.as_deref().unwrap_or(registry::DEFAULT_CHANNEL);
-    let rows = resolutions(home, ch, src.index.as_deref(), src.trust_key.as_deref())?;
+    let rows = resolutions(
+        home,
+        ch,
+        src.index.as_deref(),
+        env_override,
+        src.trust_key.as_deref(),
+    )?;
     let mut results = Vec::with_capacity(app_ids.len());
     for app in app_ids {
         let row = rows
@@ -266,10 +303,15 @@ fn upgrade_one(
         host::verify_or_restore(&root, home, &host::receipt(&root.join("current"))?)?;
         return Ok(None);
     }
-    let eff = src.index.as_deref().unwrap_or(&cur.index);
+    let env_override = parse_catalog_env(src.env.as_deref())?;
+    let eff = src
+        .index
+        .as_deref()
+        .or_else(|| env_override.is_none().then_some(cur.index.as_str()));
+    let key = eff.unwrap_or_else(|| env_override.map_or("", Environment::as_str));
     let rows = lists
-        .entry((eff.to_owned(), ch.to_owned()))
-        .or_insert_with(|| resolutions(home, ch, Some(eff), src.trust_key.as_deref()))
+        .entry((key.to_owned(), ch.to_owned()))
+        .or_insert_with(|| resolutions(home, ch, eff, env_override, src.trust_key.as_deref()))
         .as_ref()
         .map_err(Clone::clone)?;
     std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;

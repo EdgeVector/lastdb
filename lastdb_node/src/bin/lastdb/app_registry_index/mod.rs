@@ -22,7 +22,7 @@ pub use app_identity_crypto::{
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 pub const DEFAULT_CHANNEL: &str = "stable";
 pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
-const DEFAULT_INDEX_BASE_URL: &str = lastdb_node::profile::endpoints::registry_index_url_for(
+const PROD_INDEX_BASE_URL: &str = lastdb_node::profile::endpoints::registry_index_url_for(
     lastdb_node::profile::endpoints::Environment::Prod,
 );
 
@@ -75,13 +75,19 @@ impl IndexLocation {
         ))
     }
 
-    pub fn resolve(flag: Option<&str>) -> Result<Self, String> {
+    pub fn resolve(
+        flag: Option<&str>,
+        env_override: Option<lastdb_node::profile::endpoints::Environment>,
+    ) -> Result<Self, String> {
         let env = std::env::var("LASTDB_REGISTRY_INDEX").ok();
         let raw = flag
             .or(env.as_deref())
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let raw = raw.unwrap_or(DEFAULT_INDEX_BASE_URL).trim_end_matches('/');
+        let target_env = env_override
+            .unwrap_or_else(lastdb_node::profile::endpoints::Environment::from_env_or_prod);
+        let default_url = lastdb_node::profile::endpoints::registry_index_url_for(target_env);
+        let raw = raw.unwrap_or(default_url).trim_end_matches('/');
         if raw.starts_with("lastsecrets://") {
             return Err("registry index location does not accept a lastsecrets locator".into());
         }
@@ -163,7 +169,7 @@ fn cache_file(location: &IndexLocation, channel: &str, api: u32) -> Result<PathB
     let mut root = state
         .ok_or("HOME or XDG_STATE_HOME is required for the registry cache")?
         .join("lastdb-app-registry");
-    if !matches!(location, IndexLocation::Url(base) if base == DEFAULT_INDEX_BASE_URL) {
+    if !matches!(location, IndexLocation::Url(base) if base == PROD_INDEX_BASE_URL) {
         let key = fold_db::hex::sha256_hex(location.describe_interface(channel, api).as_bytes());
         root = root.join("sources").join(key);
     }

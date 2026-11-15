@@ -1,10 +1,10 @@
-//! Upload one caller-supplied blob through the ordinary byte-backup methods.
+//! Upload one caller-supplied sealed blob through the cloud storage transfer RPCs.
 //!
 //! The caller keeps the begin value, transfer input, and sealed bytes, and
 //! stores a verified receipt before it closes the job. This module does not
 //! choose a stream id, read a stream head, or close the job.
 
-use super::{BackupTransportError, ByteBackupClient, Result};
+use super::{BackupTransportError, Result, StorageTransferClient};
 use cloud_backup_protocol::v2::jobs::{JobBeginRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::transfer::{
     ObjectReceipt, TransferBatchResponse, TransferInput, TransferItemResult,
@@ -12,7 +12,6 @@ use cloud_backup_protocol::v2::transfer::{
 };
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{bytes_sha256, ErrorCode, ProtocolError};
-use std::io::Cursor;
 
 /// Outcome of one exact upload attempt.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +27,7 @@ enum Step {
     Continue,
 }
 
-impl ByteBackupClient {
+impl StorageTransferClient {
     /// Send one saved begin, transfer input, and sealed object.
     ///
     /// A verified receipt names `input.object`. A retryable result uses the
@@ -65,10 +64,11 @@ impl ByteBackupClient {
                     return Err(invalid("exact_upload.transfer_mode"));
                 }
                 // The service verifies the stored bytes. The provider reply is not a receipt.
-                drop(
-                    self.upload(input, &response, Box::new(Cursor::new(sealed)))
-                        .await,
-                );
+                if let Err(error) = self.put_presigned(input, &response, sealed).await {
+                    if !retryable(&error) {
+                        return Err(error);
+                    }
+                }
             }
             Ok(TransferResumeResult::State { transfer }) => {
                 return match read_state(input, transfer.state)? {

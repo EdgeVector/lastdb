@@ -33,7 +33,6 @@ tracing = { workspace = true }
 # `rt` is required by `tokio::task::spawn_blocking` (CPU-bound work off the reactor).
 tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt"] }
 futures = { workspace = true }
-async-trait = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -45,8 +44,6 @@ thiserror = { workspace = true }
 schema_types = { workspace = true }
 # Pure LastDB models: records, field keys, schemas, keys, mutations (no behavior).
 lastdb_model = { workspace = true }
-
-ed25519-compact = "2.2.0"
 
 # Unix-socket peer-credential read. Unix-only and unconditional: reading a
 # socket's kernel peer credential is a generic primitive consumed by the dev

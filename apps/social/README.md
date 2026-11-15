@@ -1,7 +1,7 @@
 # Social
 
 Social remembers verified contacts in the local personal database and manages
-reader access to owned named LastDB databases set up for sharing. It uses the
+access to owned named LastDB databases set up for sharing. It uses the
 LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
 and daemon from the same build. The publisher needs a connected ExeMem account.
 
@@ -51,9 +51,54 @@ until LastDB confirms the result or definitively rejects it. A later `add` or
 Run `social --data-dir "$lastdb_home" open` on a running LastDB node. The
 launcher opens a browser window for the local Social session. Add verified
 contacts under People. Use Databases to create a share, see the applied roster,
-revoke a reader, copy the sealed invitation, or accept one. The recipient's
+revoke access, copy the sealed invitation, or accept one. The recipient's
 cloud access and downloaded record readiness are shown separately. Use
 `open --database ID` to go directly to a database's sharing settings.
+
+Choose **Whole database with circle write access** when creating a database
+for circles. Install the database's schemas through LastDB, then open
+**Circles** to create one membership list with links to several databases.
+Use a LastDB build with named schema grants for this screen.
+Set the write scope on each link and preview the changes before applying them.
+A member can read each whole database. Write access combines across overlapping
+circles, and an explicit revoke on a database stays in effect across later circle
+edits. If one database update fails, review the unfinished changes and retry it.
+Existing local circles remain editable under the database. Use **Seal invitation**
+on each database to hand its new recipients their sealed receipts.
+
+Write grants use the installed schema's canonical name, for example
+`social/Comment`. Compatible upgrades keep the grant in place. The publisher
+still checks the specific current definition and the record rules for each write.
+The **All schemas** choice also covers future schemas. An older exact-ID circle
+grant can be converted by reviewing and saving its circle settings.
+
+Choose **Shared albums (version 1)** to create a whole-database share with
+the catalog definitions for Album, AlbumItem, Photo, and Comment already
+installed. Social records the newly created database ID before installing
+schemas and can resume setup by the same provisioning name. To reopen a
+compatible owned or received share, select its stable ID. Reopening verifies
+that the required fields and keys are present and reports the current definition
+IDs. Additive schema updates can introduce more fields under the same name.
+When replacing a record, read it first, retain the fields and keys you aren't
+editing, and send the replacement against the record's current revision.
+
+```sh
+social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --name family
+social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --database DATABASE_ID
+```
+
+Apps use the sharing settings to show which changes the publisher allows.
+Every active receiver can send an encrypted change to the pending mutation
+log. A successful submission confirms that ExeMem queued it. Only the
+publisher's LastDB can read pending changes. It checks each one against the
+current schema permissions and record rules, discards refusals, and uploads
+accepted changes to the separate published log. Receivers follow that log
+and can read the resulting record after it syncs.
+[How sharing works](../../docs/designs/shared-database-mutation-logs.md)
+
+Social changes must preserve the two logs, the signed per-database roster and
+schema grants, and the publisher's authority to approve each mutation.
+[Requirements to preserve](../../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 
 TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
 for database creation, invitation, acceptance and revocation.

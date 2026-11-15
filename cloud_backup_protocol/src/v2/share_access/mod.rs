@@ -1,7 +1,10 @@
 //! Share access v2 wire types.
 //!
-//! A member list names the Ed25519 node keys that may read or submit one
-//! shared database. The publisher signs each new revision. A revoked key stays
+//! A member list names the Ed25519 node keys that may read one shared database.
+//! On a whole-database share, any active receiver may submit encrypted mutations.
+//! Only the publisher may read or settle the pending log. Receivers follow the
+//! published log, and the publisher's LastDB checks schema write permissions.
+//! The publisher signs each new revision. A revoked key stays
 //! on that revision until a later revision sets `regrant`. v1 does not rotate
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.
@@ -18,29 +21,23 @@
 //! that signs with that key. The body-less proof remains only while that
 //! database is still open.
 
-mod cursor;
 mod grant;
 mod members;
 mod proof;
 mod receipt;
 
-pub use cursor::{DeliveryCursor, DeviceCursor, SnapshotReference, SnapshotReset};
 pub use grant::{
     authorize, authorize_request, bind_request_scope, member_list_read_view, member_list_revision,
     MemberListReadView, ShareAccess,
 };
 pub use members::{
-    MemberListReadRequest, MemberListReadResponse, MemberListRevision, MemberListUpdate,
-    ShareMember, ShareMemberRole, ShareMemberState,
+    AllShareSchemas, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
+    MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
-pub use proof::{
-    LegacyNodeReadProof, NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod,
-};
+pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
 pub use receipt::{
-    accepted_proof, authorize_access_read, authorize_legacy_cutover, authorize_legacy_status,
-    authorize_native_create, AcceptedProof, AccessBody, CommittedMark, CutoverReceipt,
-    LegacyCutover, NativeDatabase, NativeMark, OpenDatabase, OpenMark, SignedDatabase,
-    SignedRequestTarget, SHARE_CUTOVER_RECEIPT_DOMAIN,
+    authorize_access_read, authorize_native_create, NativeDatabase, NativeMark, OpenDatabase,
+    OpenMark, SignedDatabase, SignedRequestTarget,
 };
 
 use crate::{AccountId, Digest, ProtocolError};
@@ -67,70 +64,24 @@ pub const SHARE_MEMBER_LIST_UPDATE_PATH: &str = "/api/cloud/backups/v2/share/mem
 /// `cloud/backups/v2/share/members/read`.
 pub const SHARE_MEMBER_LIST_READ_PATH: &str = "/api/cloud/backups/v2/share/members/read";
 
-/// Prefix for the one mutation-log route family. DEV and PROD use these paths.
-pub const MUTATION_LOG_PREFIX: &str = "/api/cloud/backups/v2/mutation-log/";
-/// Append published entries or a pending contribution.
-pub const MUTATION_LOG_APPEND_PATH: &str = "/api/cloud/backups/v2/mutation-log/append";
-/// Read the log head.
-pub const MUTATION_LOG_HEAD_PATH: &str = "/api/cloud/backups/v2/mutation-log/head";
-/// Read a delivery page.
-pub const MUTATION_LOG_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/list";
-/// Ack a delivery cursor.
-pub const MUTATION_LOG_ACK_PATH: &str = "/api/cloud/backups/v2/mutation-log/ack";
-/// Cut a published snapshot.
-pub const MUTATION_LOG_SNAPSHOT_PATH: &str = "/api/cloud/backups/v2/mutation-log/snapshot";
 /// Read or publish the reference to a client-uploaded encrypted snapshot.
 pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
-/// Read a signed delivery page.
-pub const MUTATION_LOG_DELIVERY_LOG_PATH: &str = "/api/cloud/backups/v2/mutation-log/delivery/log";
 /// Read a signed snapshot manifest or part.
 pub const MUTATION_LOG_DELIVERY_SNAPSHOT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/snapshot";
 /// Read one signed ciphertext range of a record file.
 pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/object";
-/// Advance the trim floor.
-pub const MUTATION_LOG_TRIM_PATH: &str = "/api/cloud/backups/v2/mutation-log/trim";
 /// Create one fresh signed database. The success body is [`NativeDatabase`].
 pub const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/create-database";
-/// Commit one legacy database. The success body is [`CutoverReceipt`].
-pub const MUTATION_LOG_CUTOVER_PATH: &str = "/api/cloud/backups/v2/mutation-log/cutover";
 /// Read whether the database is open, native, or committed.
 pub const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
-
-/// True for the mutation-log data paths above.
-///
-/// Create, cutover, and access are not in this set. Grant and revoke are not
-/// in this set.
-#[must_use]
-pub fn is_mutation_log_path(path: &str) -> bool {
-    matches!(
-        path,
-        MUTATION_LOG_APPEND_PATH
-            | MUTATION_LOG_HEAD_PATH
-            | MUTATION_LOG_LIST_PATH
-            | MUTATION_LOG_ACK_PATH
-            | MUTATION_LOG_SNAPSHOT_PATH
-            | MUTATION_LOG_SNAPSHOT_BYTES_PATH
-            | MUTATION_LOG_DELIVERY_LOG_PATH
-            | MUTATION_LOG_DELIVERY_SNAPSHOT_PATH
-            | MUTATION_LOG_DELIVERY_OBJECT_PATH
-            | MUTATION_LOG_TRIM_PATH
-    )
-}
-
-/// Reader node public key, 64 lowercase hex characters.
-pub const SHARE_NODE_HEADER: &str = "x-lastdb-share-node";
-/// Ed25519 signature over the node-read digest's lowercase hex bytes.
-pub const SHARE_NODE_SIGNATURE_HEADER: &str = "x-lastdb-share-node-signature";
-/// Decimal Unix milliseconds bound into the node-read proof.
-pub const SHARE_NODE_ISSUED_AT_HEADER: &str = "x-lastdb-share-node-issued-at-ms";
-/// 32-byte nonce, 64 lowercase hex characters.
-pub const SHARE_NODE_NONCE_HEADER: &str = "x-lastdb-share-node-nonce";
-/// Member-list revision bound into the node-read proof, decimal.
-pub const SHARE_MEMBER_LIST_REVISION_HEADER: &str = "x-lastdb-share-member-list-revision";
+/// Read a pending page from the publisher-only contribution inbox.
+pub const MUTATION_LOG_INBOX_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/list";
+/// Settle a durable page in the publisher-only contribution inbox.
+pub const MUTATION_LOG_INBOX_SETTLE_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/settle";
 
 const SIGNATURE_HEX_LEN: usize = 128;
 const PUBLIC_KEY_HEX_LEN: usize = 64;

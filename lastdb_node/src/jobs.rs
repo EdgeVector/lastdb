@@ -4,24 +4,22 @@ mod erase;
 
 pub mod saved_query {
     use std::collections::{BTreeMap, BTreeSet};
-    use std::os::unix::net::UnixStream;
-    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
     use fold_db::fold_db_core::FoldDB;
-    use tokio::task::{spawn_blocking, JoinHandle};
+    use tokio::task::JoinHandle;
     use tracing::Instrument;
 
     use crate::host::Host;
 
-    pub fn spawn(host: Arc<Host>, socket: PathBuf, shutdown: Arc<AtomicBool>) -> JoinHandle<()> {
+    pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> JoinHandle<()> {
         tokio::spawn(
             async move {
                 let (mut reg, mut running) = (host.owned.subscribe_stores(), BTreeMap::new());
                 while !shutdown.load(Ordering::Acquire) {
-                    if let Err(e) = sync_sources(&host, &socket, &shutdown, &mut running) {
+                    if let Err(e) = sync_sources(&host, &shutdown, &mut running) {
                         tracing::warn!(target: "lastdbd::saved_query", error = %e, "saved query sources were not updated");
                     }
                     tokio::select! {
@@ -38,8 +36,7 @@ pub mod saved_query {
     }
 
     fn sync_sources(
-        host: &Host,
-        socket: &Path,
+        host: &Arc<Host>,
         shutdown: &Arc<AtomicBool>,
         running: &mut BTreeMap<String, JoinHandle<()>>,
     ) -> Result<(), String> {
@@ -53,7 +50,7 @@ pub mod saved_query {
             want.insert(sel.clone());
             running.entry(sel.clone()).or_insert_with(|| {
                 tokio::spawn(
-                    follow(socket.to_path_buf(), sel, db, Arc::clone(shutdown)).in_current_span(),
+                    follow(Arc::clone(host), sel, db, Arc::clone(shutdown)).in_current_span(),
                 )
             });
         }
@@ -67,30 +64,11 @@ pub mod saved_query {
         Ok(())
     }
 
-    async fn follow(socket: PathBuf, selector: String, db: Arc<FoldDB>, shutdown: Arc<AtomicBool>) {
+    async fn follow(host: Arc<Host>, selector: String, db: Arc<FoldDB>, shutdown: Arc<AtomicBool>) {
         let mut writes = db.db_ops().native_runtime().subscribe_durable_writes();
         while !shutdown.load(Ordering::Acquire) {
-            let p = socket.clone();
-            if spawn_blocking(move || UnixStream::connect(p).is_ok())
-                .await
-                .unwrap_or(false)
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        while !shutdown.load(Ordering::Acquire) {
-            let (sock, sel) = (socket.clone(), selector.clone());
-            match spawn_blocking(move || crate::saved_query_run::reconcile_catalog(&sock, &sel))
-                .await
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    tracing::warn!(target: "lastdbd::saved_query", error = %e, "saved query reconcile failed");
-                }
-                Err(_) => {
-                    tracing::warn!(target: "lastdbd::saved_query", "saved query reconcile stopped");
-                }
+            if let Err(e) = crate::saved_query_run::reconcile_catalog(&host, &selector).await {
+                tracing::warn!(target: "lastdbd::saved_query", error = %e, "saved query reconcile failed");
             }
             loop {
                 match tokio::time::timeout(Duration::from_millis(250), writes.changed()).await {
@@ -112,8 +90,9 @@ pub mod ttl_sweep {
     use fold_db::clock::unix_secs;
     use fold_db::db_operations::{with_query_page_tally, PageResume};
     use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+    use fold_db::schema::types::key_comparison::KeyComparisonContext;
     use fold_db::schema::types::schema::DeclarativeSchemaType;
-    use fold_db::schema::types::{KeyValue, KeyValuePageOrder, Query};
+    use fold_db::schema::types::{KeyValue, Query};
     use fold_db::schema::SchemaRetentionPolicy;
     use tokio::task::JoinHandle;
     use tracing::Instrument;
@@ -350,12 +329,12 @@ pub mod ttl_sweep {
                 if let Some(next) = page
                     .iter()
                     .chain(&resume)
-                    .max_by(|a, b| a.cmp_page_order(b))
+                    .max_by(|a, b| KeyComparisonContext::cmp_page_order(a, b))
                     .cloned()
                 {
                     if after
                         .as_ref()
-                        .is_some_and(|p| !next.cmp_page_order(p).is_gt())
+                        .is_some_and(|p| !KeyComparisonContext::cmp_page_order(&next, p).is_gt())
                     {
                         return Err("TTL discovery cursor did not advance".into());
                     }

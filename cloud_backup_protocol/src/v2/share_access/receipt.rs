@@ -1,35 +1,14 @@
 //! Signed database state. Exemem's stored row is the authority.
 //! A client may use it only as the live authenticated TLS body.
 
-use super::grant::{authorize, bind_request_scope, ShareAccess};
-use super::proof::{LegacyNodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
-use super::{
-    MemberListReadResponse, MUTATION_LOG_ACCESS_PATH, MUTATION_LOG_CREATE_DATABASE_PATH,
-    MUTATION_LOG_CUTOVER_PATH,
-};
+use super::grant::{authorize, bind_request_scope};
+use super::proof::{NodeReadToken, ShareEnvironment, ShareHttpMethod};
+use super::{MemberListReadResponse, MUTATION_LOG_ACCESS_PATH, MUTATION_LOG_CREATE_DATABASE_PATH};
 use crate::v2::Version;
-use crate::{input_digest, DecimalU64, Digest, Id, ProtocolError};
+use crate::{Id, ProtocolError};
 use serde::{Deserialize, Serialize};
 
-/// Domain for [`CutoverReceipt::digest`].
-///
-/// The digest names the binding. It is not a service signature.
-pub const SHARE_CUTOVER_RECEIPT_DOMAIN: &str = "lastdb:share:cutover-receipt:v1";
-
-/// Which node-read digest a database accepts on data routes.
-///
-/// The stored state decides. The service realm does not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AcceptedProof {
-    /// No native database and no cutover row. The body-less proof is the only
-    /// data proof. Data routes still refuse it.
-    Legacy,
-    /// Native create or a stored cutover row. The raw-body proof is the only
-    /// data proof.
-    SignedBody,
-}
-
-/// `native`. Not `open` or `committed`.
+/// `native`. Not `open`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeMark {
@@ -37,19 +16,11 @@ pub enum NativeMark {
     Native,
 }
 
-/// `committed`. Not `native`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CommittedMark {
-    /// Legacy migration row.
-    Committed,
-}
-
 /// `open`. This tag does not select a signed digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenMark {
-    /// No native row and no cutover row.
+    /// No native row.
     Open,
 }
 
@@ -80,61 +51,13 @@ impl NativeDatabase {
     }
 }
 
-/// Legacy migration row. No service signature. The node proof signs the body.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CutoverReceipt {
-    /// Always `committed`. A native database does not use this object.
-    pub state: CommittedMark,
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Realm of this commit. A DEV receipt is not a PROD commit.
-    pub environment: ShareEnvironment,
-    /// Database this commit switches.
-    pub database_id: Id,
-    /// SHA-256 of the cutover evidence. Not a timestamp and not a signature.
-    pub evidence_sha256: Digest,
-    /// Member-list revision named by that evidence. Zero is rejected.
-    pub grant_revision: DecimalU64,
-}
-
-impl CutoverReceipt {
-    /// Reject a zero grant revision.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.grant_revision.get() == 0 {
-            return Err(ProtocolError::invalid("share.cutover.grant_revision"));
-        }
-        Ok(())
-    }
-
-    /// Domain-separated SHA-256 of the binding fields.
-    ///
-    /// The array is `version`, `environment`, `database_id`, `evidence_sha256`,
-    /// `grant_revision`. `state` is not in the array. Nothing signs this digest.
-    pub fn digest(&self) -> Result<Digest, ProtocolError> {
-        self.validate()?;
-        input_digest(
-            SHARE_CUTOVER_RECEIPT_DOMAIN,
-            &(
-                &self.version,
-                self.environment,
-                &self.database_id,
-                &self.evidence_sha256,
-                self.grant_revision,
-            ),
-        )
-    }
-}
-
 /// Signed state of one database. Open is the absence of this value.
 ///
-/// This enum is not the TLS body. Send [`NativeDatabase`] or [`CutoverReceipt`].
+/// This enum is not the TLS body. Send [`NativeDatabase`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignedDatabase {
     /// Spec stored at create. No evidence digest.
     Native(NativeDatabase),
-    /// Migration row stored. Legacy data reads are closed only after this is visible.
-    Committed(CutoverReceipt),
 }
 
 impl SignedDatabase {
@@ -143,7 +66,6 @@ impl SignedDatabase {
     pub fn database_id(&self) -> &Id {
         match self {
             Self::Native(native) => &native.database_id,
-            Self::Committed(receipt) => &receipt.database_id,
         }
     }
 
@@ -152,7 +74,6 @@ impl SignedDatabase {
     pub fn environment(&self) -> ShareEnvironment {
         match self {
             Self::Native(native) => native.environment,
-            Self::Committed(receipt) => receipt.environment,
         }
     }
 
@@ -164,9 +85,6 @@ impl SignedDatabase {
     ) -> Result<(), ProtocolError> {
         if self.database_id() != &token.database_id || self.environment() != service {
             return Err(ProtocolError::unauthorized("share.cutover.identity"));
-        }
-        if let Self::Committed(receipt) = self {
-            receipt.validate()?;
         }
         Ok(())
     }
@@ -202,29 +120,6 @@ impl OpenDatabase {
     }
 }
 
-/// Select the only data-route digest this database accepts.
-///
-/// `None` is the pre-migration proof. `Some` is the raw-body proof for both a
-/// native database and a committed migration. The caller still checks the
-/// realm against the service it is running.
-#[must_use]
-pub fn accepted_proof(state: Option<&SignedDatabase>) -> AcceptedProof {
-    if state.is_some() {
-        AcceptedProof::SignedBody
-    } else {
-        AcceptedProof::Legacy
-    }
-}
-
-/// Body the status route may return. It is not permission to return log bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AccessBody {
-    /// Serialize [`OpenDatabase`]. Do not start signed sync.
-    Open,
-    /// Serialize the stored [`NativeDatabase`] or [`CutoverReceipt`].
-    Signed,
-}
-
 /// HTTP target of one signed request, plus the stored signed state if any.
 ///
 /// `path` is the raw request path. The body octets are not here. The caller
@@ -239,15 +134,6 @@ pub struct SignedRequestTarget<'a> {
     pub path: &'a str,
     /// Stored native database or cutover row. Absent while the database is open.
     pub access: Option<&'a SignedDatabase>,
-}
-
-/// What a publisher cutover may do to the stored row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LegacyCutover {
-    /// Write the row only if the service's own head and member revision still match.
-    Store,
-    /// The same receipt is already stored. Do not write again.
-    AlreadyStored,
 }
 
 /// Authorize the first signed create, or an equal native retry.
@@ -281,42 +167,6 @@ pub fn authorize_native_create(
             }
             Ok(())
         }
-        Some(SignedDatabase::Committed(_)) => Err(ProtocolError::invalid("share.create.migrated")),
-    }
-}
-
-/// Authorize a publisher cutover. The body signature and the grant stay separate.
-///
-/// `Store` still needs the service's conditional write. A saved copy is not that write.
-pub fn authorize_legacy_cutover(
-    current: &MemberListReadResponse,
-    token: &NodeReadToken,
-    target: SignedRequestTarget<'_>,
-    receipt: &CutoverReceipt,
-) -> Result<LegacyCutover, ProtocolError> {
-    require_post(target.method, target.path, MUTATION_LOG_CUTOVER_PATH)?;
-    token.require_target(target.environment, target.method, target.path)?;
-    bind_request_scope(token, current)?;
-    if token.member_list_revision != current.revision {
-        return Err(ProtocolError::unauthorized("share.node_read.revision"));
-    }
-    if authorize(current, &token.node_public_key)? != ShareAccess::Publisher {
-        return Err(ProtocolError::unauthorized("share.cutover.publisher"));
-    }
-    receipt.validate()?;
-    if receipt.database_id != token.database_id || receipt.environment != target.environment {
-        return Err(ProtocolError::unauthorized("share.cutover.identity"));
-    }
-    if receipt.grant_revision != current.revision {
-        return Err(ProtocolError::unauthorized("share.cutover.revision"));
-    }
-    match target.access {
-        None => Ok(LegacyCutover::Store),
-        Some(SignedDatabase::Native(_)) => Err(ProtocolError::invalid("share.cutover.native")),
-        Some(SignedDatabase::Committed(stored)) if stored == receipt => {
-            Ok(LegacyCutover::AlreadyStored)
-        }
-        Some(SignedDatabase::Committed(_)) => Err(ProtocolError::invalid("share.cutover.conflict")),
     }
 }
 
@@ -327,49 +177,15 @@ pub fn authorize_access_read(
     current: &MemberListReadResponse,
     token: &NodeReadToken,
     target: SignedRequestTarget<'_>,
-) -> Result<AccessBody, ProtocolError> {
+) -> Result<(), ProtocolError> {
     require_post(target.method, target.path, MUTATION_LOG_ACCESS_PATH)?;
     token.require_target(target.environment, target.method, target.path)?;
     bind_request_scope(token, current)?;
     authorize(current, &token.node_public_key)?;
-    match target.access {
-        None => Ok(AccessBody::Open),
-        Some(state) => {
-            state.bind(token, target.environment)?;
-            Ok(AccessBody::Signed)
-        }
+    if let Some(state) = target.access {
+        state.bind(token, target.environment)?;
     }
-}
-
-/// Status read for [`LegacyNodeReadProof`]. The path must be the access path.
-///
-/// This is the only route that still accepts that proof. Success is not log access.
-pub fn authorize_legacy_status(
-    current: &MemberListReadResponse,
-    proof: &LegacyNodeReadProof,
-    service: ShareEnvironment,
-    access: Option<&SignedDatabase>,
-) -> Result<AccessBody, ProtocolError> {
-    if proof.method != ShareHttpMethod::Post || proof.path.as_str() != MUTATION_LOG_ACCESS_PATH {
-        return Err(ProtocolError::invalid("share.node_read.route"));
-    }
-    proof.validate()?;
-    if proof.stream != current.stream {
-        return Err(ProtocolError::unauthorized("share.node_read.scope"));
-    }
-    authorize(current, &proof.node_public_key)?;
-    match access {
-        None => Ok(AccessBody::Open),
-        Some(state) => {
-            if state.database_id() != &proof.stream.stream_id || state.environment() != service {
-                return Err(ProtocolError::unauthorized("share.cutover.identity"));
-            }
-            if let SignedDatabase::Committed(receipt) = state {
-                receipt.validate()?;
-            }
-            Ok(AccessBody::Signed)
-        }
-    }
+    Ok(())
 }
 
 fn require_publisher_key(token: &NodeReadToken) -> Result<(), ProtocolError> {

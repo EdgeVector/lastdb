@@ -2,7 +2,7 @@
 
 use cloud_backup_protocol::canonical_bytes;
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, MemberListReadResponse, ShareMemberRole,
+    MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareWriteScope,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
@@ -24,6 +24,7 @@ pub(super) enum ObservedAccess {
     Active {
         revision: u64,
         role: Option<ShareMemberRole>,
+        write_schemas: Option<ShareWriteScope>,
     },
     Revoked,
     Absent,
@@ -67,6 +68,7 @@ struct AccessRevision {
     database_id: Id,
     revision: DecimalU64,
     role: Option<ShareMemberRole>,
+    write_schemas: Option<ShareWriteScope>,
 }
 
 fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
@@ -77,6 +79,7 @@ fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
         return Some(ObservedAccess::Active {
             revision: view.revision.get(),
             role: view.role,
+            write_schemas: view.write_schemas,
         });
     }
     let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;
@@ -86,5 +89,6 @@ fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
     Some(ObservedAccess::Active {
         revision: view.revision.get(),
         role: None,
+        write_schemas: None,
     })
 }

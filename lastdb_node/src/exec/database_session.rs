@@ -34,8 +34,8 @@ pub(super) fn issue(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRe
     let result = (|| {
         let body = decode(req)?;
         let write = matches!(body.intent, Intent::Write);
-        let owned = is_owned(host, &body.database_id)?;
-        if write && !owned {
+        let write_allowed = allows_write_session(host, &body.database_id)?;
+        if write && !write_allowed {
             return Err(HostError::new(
                 403,
                 "this database permits local read sessions only",
@@ -58,7 +58,7 @@ fn decode(req: &UdsRequest) -> Result<Request, HostError> {
         .map_err(|_| HostError::new(400, "invalid database session request"))
 }
 
-fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
+fn allows_write_session(host: &Host, id: &Id) -> Result<bool, HostError> {
     use crate::host::owned::Resolved;
 
     let (resolved, _) = host.owned.resolve(id.as_str()).map_err(|error| {
@@ -69,7 +69,8 @@ fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
         Resolved::Owned => Ok(true),
         Resolved::Owner => Err(HostError::new(404, "a session requires a shared database")),
         Resolved::Absent => match crate::registered_share::resolve(&host.home, id.as_str()) {
-            Ok(Some(_)) => Ok(false),
+            Ok(Some(share)) => Ok(share.whole_database()
+                && crate::log_sync::received_access::view(&host.home, id.as_str()).can_submit()),
             Ok(None) => Err(HostError::new(404, "the database is not registered")),
             Err(_) => Err(HostError::new(503, "database registry is unavailable")),
         },
@@ -78,7 +79,7 @@ fn is_owned(host: &Host, id: &Id) -> Result<bool, HostError> {
 
 /// The owner socket remains an owner boundary. A request carrying a session
 /// header can only reach the selected database and its allowlisted routes.
-pub fn admit(req: &UdsRequest, host: &Host) -> bool {
+pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
     let Some(token) = req.header(HEADER) else {
         return true;
     };

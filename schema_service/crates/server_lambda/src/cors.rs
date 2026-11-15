@@ -4,4 +4,4 @@
 //! The Lambda adds only the method and header lists.
 
 pub(crate) const ACCESS_CONTROL_ALLOW_METHODS: &str = "GET, POST, OPTIONS";
-pub(crate) const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type, Authorization";
+pub(crate) const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type";

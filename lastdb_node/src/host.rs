@@ -14,10 +14,12 @@ pub use crate::identity::{
     load_or_generate_seed_with_meta, user_hash_from_pubkey, IDENTITY_KEY_FILE,
 };
 
+pub(crate) mod cloud_sync;
 pub(crate) mod database_sessions;
 mod logging;
 pub(crate) mod owned;
 mod recovery;
+pub use cloud_sync::{CloudSyncStatus, DatabaseSyncStatus, DownloadSyncStatus, UploadSyncStatus};
 pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
@@ -53,6 +55,8 @@ pub struct Host {
     pub keypair: Arc<Ed25519KeyPair>,
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
+    pub(crate) booted_with_credentials: bool,
+    pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) database_sessions: database_sessions::DatabaseSessions,
@@ -113,8 +117,8 @@ impl Host {
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
         let wants_initial = !signed_restore && crate::cloud::first_backup_intent(home);
-        let connected =
-            !signed_restore && (!has_spool || wants_initial) && has_cloud_credentials(home);
+        let creds_at_boot = has_cloud_credentials(home);
+        let connected = !signed_restore && (!has_spool || wants_initial) && creds_at_boot;
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             search_outbox_inbox: Some(inbox.clone()),
@@ -133,6 +137,10 @@ impl Host {
             .map_err(|e| format!("Search queue preparation failed: {e}"))?;
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
+        let cloud_sync = cloud_sync::CloudSyncTracker::from_boot(
+            home,
+            db.db_ops().native_runtime().captures_accepted(),
+        );
         let _ = std::fs::remove_file(home.join(recovery::LAST_BOOT_ERROR_FILE));
         tracing::info!(target: "lastdbd::boot", "minimal host booted");
         Ok(Self {
@@ -142,6 +150,8 @@ impl Host {
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
+            booted_with_credentials: creds_at_boot,
+            cloud_sync,
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
             database_sessions: database_sessions::DatabaseSessions::default(),
@@ -153,7 +163,7 @@ impl Host {
     }
 }
 
-fn has_cloud_credentials(home: &Path) -> bool {
+pub(crate) fn has_cloud_credentials(home: &Path) -> bool {
     match crate::cloud::load_saved_credentials(home) {
         Ok(saved) => saved.is_some(),
         Err(error) => {

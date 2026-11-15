@@ -172,7 +172,13 @@ fn dev_key_revoke(
         ),
     )?;
     ensure_ok(status, &body, "developer key revoke")?;
-    let removed_saved_key = remove_saved_developer_key_if_prefix(home, prefix)?;
+    let removed_saved_key = match remove_saved_developer_key_if_prefix(home, prefix) {
+        Ok(removed) => removed,
+        Err(warn_msg) => {
+            eprintln!("warning: {warn_msg}");
+            false
+        }
+    };
     if json {
         print_pretty_json(&json!({
             "ok": true, "prefix": prefix, "revoked": true,

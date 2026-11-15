@@ -10,11 +10,9 @@ use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENT
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::{
     entry_present, open_directory, read_private_file, require_absolute, require_owned_directory,
-    require_private_file,
 };
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use zeroize::Zeroizing;
 
@@ -154,11 +152,6 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     let account =
         AccountId::try_from(args.expected_user_hash).map_err(|_| "invalid expected account")?;
     let (seed, pair) = verified_seed_pair(account.as_str())?;
-    let invite = args
-        .invite_code_file
-        .as_deref()
-        .map(read_invite_file)
-        .transpose()?;
     let mut target = FreshHome::preflight_empty_parent(&args.into)?.create()?;
     let device = uuid::Uuid::new_v4().to_string();
     let intent = serde_json::to_vec(&serde_json::json!({
@@ -169,15 +162,8 @@ fn recover_credentials_home(args: RecoverCredentialsArgs) -> Result<(), String> 
     target.write(IDENTITY_KEY_FILE, seed.as_ref())?;
     target.write(INTENT, &intent)?;
     target.commit()?;
-    register_into(
-        env,
-        &pair,
-        &device,
-        invite.as_deref().map(String::as_str),
-        account.as_str(),
-        &mut target,
-    )
-    .map_err(|i| RECOVERY_ERRS[i])?;
+    register_into(env, &pair, &device, account.as_str(), &mut target)
+        .map_err(|i| RECOVERY_ERRS[i])?;
     emit_receipt(
         args.json,
         &serde_json::json!({
@@ -195,13 +181,12 @@ fn register_into(
     env: Environment,
     pair: &Ed25519KeyPair,
     device: &str,
-    invite: Option<&str>,
     expected: &str,
     target: &mut FreshHome,
 ) -> Result<(), usize> {
     let (api_key, user_hash) = block_on_cloud(
         "account registration",
-        register_native_device(env, pair, device, invite),
+        register_native_device(env, pair, device),
     )
     .map_err(|_| 0usize)?;
     if user_hash != expected {
@@ -244,36 +229,6 @@ fn verified_seed_pair(
         .ok_or("identity_account_mismatch")
 }
 
-fn read_invite_file(path: &Path) -> Result<Zeroizing<String>, String> {
-    if !path.is_absolute() {
-        return Err("invite file must be absolute".into());
-    }
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .map_err(|_| "cannot open protected invite file")?;
-    require_private_file(
-        &file,
-        Some(1024),
-        "invite must be a bounded private owner file",
-    )?;
-    let mut bytes = Zeroizing::new(Vec::new());
-    (&file)
-        .take(1025)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot read invite file")?;
-    if bytes.len() > 1024 {
-        return Err("invite file changed or exceeds its limit".into());
-    }
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|_| "invalid invite encoding")?
-        .trim();
-    (!text.is_empty() && text.is_ascii() && !text.as_bytes().iter().any(u8::is_ascii_control))
-        .then(|| Zeroizing::new(text.to_owned()))
-        .ok_or_else(|| "invalid invite text".into())
-}
-
 fn recover_dev_seed(
     source: Option<&Path>,
     destination: &Path,
@@ -294,7 +249,7 @@ fn recover_dev_seed(
         .write(IDENTITY_KEY_FILE, seed.as_ref())
         .map_err(|_| fail("cannot_write_protected_identity"))?;
     let id = uuid::Uuid::new_v4().to_string();
-    match register_into(Environment::Dev, &pair, &id, None, expected, &mut target) {
+    match register_into(Environment::Dev, &pair, &id, expected, &mut target) {
         Ok(()) => Ok(id),
         Err(i) => Err((DEV_ERRS[i], true, Some(id))),
     }

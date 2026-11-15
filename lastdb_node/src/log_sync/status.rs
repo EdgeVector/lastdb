@@ -1,4 +1,4 @@
-//! Live create and access bodies. Dev and prod use the same objects.
+//! Live create and access bodies.
 //!
 //! `NativeDatabase` is `state`, `version`, `environment`, and `database_id`.
 //! Nothing signs this object. A saved file is not one.

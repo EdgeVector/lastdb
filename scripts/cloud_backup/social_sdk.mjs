@@ -12,6 +12,9 @@ try {
     case 'create':
       result = await social.createDatabase(input.name);
       break;
+    case 'setup':
+      result = await social.setupDatabase(input);
+      break;
     case 'invite':
       result = await social.inviteReader(input.database, input.recipient);
       break;

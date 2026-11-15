@@ -5,90 +5,134 @@
  */
 
 export { connect, LastDbClient } from './client.js';
+export type { LastDbClientOptions } from './client.js';
+
 export {
   parseAutoIdentityResponse,
-  parseNodeVersion,
-  parseSchemaListResponse,
+  parseFileMarker,
+  parseGetSchemaResponse,
   parseListResponse,
+  parseNodeVersion,
   parseQueryResponse,
+  parseSchemaListResponse,
   resolveLoadedSchema,
 } from './responseParsers.js';
-export type { LastDbClientOptions } from './client.js';
+export { parseMutationBatchResult } from './mutationOps.js';
+
 export type {
   CreateDatabaseRequest,
   DatabaseSpec,
   ListedDatabase,
 } from './databases.js';
+
 export { socialClient } from './social.js';
-export type { SocialClientOptions, SocialInvitation } from './social.js';
+export type { SocialClientOptions, SocialDatabaseSetup, SocialInvitation, SocialSetupRequest } from './social.js';
 
 export {
+  DATABASE_SESSION_HEADER,
+  databaseScope,
+  FILE_BLOB_METADATA_LENGTH_HEADER,
+  FILE_SHA256_HEADER,
+  FILE_SIZE_HEADER,
+  isValidDatabaseSelector,
   LASTDB_API_ROUTES,
+  LASTDB_MIN_SUPPORTED_API_VERSION,
   LASTDB_SDK_API_VERSION,
+  schemaRoute,
+  scopedApiPath,
+  validateDatabaseSelector,
 } from './apiRoutes.js';
 
 export { ownerClient } from './ownerClient.js';
 export type { OwnerClientOptions } from './ownerClient.js';
 
 export {
-  udsTransport,
   REQUEST_ID_HEADER,
+  udsTransport,
+  withDefaultHeaders,
 } from './transport.js';
-export type { Transport, RawResponse } from './transport.js';
+export type {
+  BinaryResponse,
+  RawResponse,
+  Transport,
+  TransportOptions,
+  TransportSendOptions,
+} from './transport.js';
 
 export type {
-  ConnectOptions,
   AutoIdentityResult,
+  BlobThumbnailInput,
+  CasExpectation,
+  ConnectOptions,
+  CreateMutationOp,
+  DatabaseSession,
+  DatabaseSessionIntent,
+  DeclareSchemaRequest,
+  DeclareSchemaResult,
+  DeleteBlobOptions,
+  DeleteMutationOp,
+  FetchBlobOptions,
+  FetchedBlob,
+  FileMarker,
+  FilePlacement,
+  JsonValue,
   KeyValue,
-  QueryCursor,
   ListOptions,
   ListRecordKey,
   ListResult,
   LoadedSchema,
-  NodeVersion,
-  QueryAllOptions,
-  QueryBatchItem,
-  QueryBatchOutcome,
-  QueryFilter,
-  QueryPage,
-  QueryResult,
-  QueryRow,
-  RecordMetadata,
-  FileMarker,
-  SchemaDescriptor,
-  CasExpectation,
+  MutationBatchItem,
+  MutationBatchOperations,
+  MutationBatchOptions,
+  MutationBatchResult,
   MutationConvergence,
   MutationDurability,
   MutationOp,
   MutationOptions,
   MutationResult,
-  ShareSubmissionResult,
-  DeclareSchemaRequest,
-  DeclareSchemaResult,
+  NodeVersion,
+  PutBlobBytesRequest,
+  PutBlobLocalPathRequest,
+  PutBlobMutationOp,
+  PutBlobRequest,
+  PutBlobResult,
+  QueryAllOptions,
+  QueryBatchItem,
+  QueryBatchOutcome,
+  QueryCursor,
+  QueryFilter,
+  QueryPage,
+  QueryResult,
+  QueryRow,
+  RecordKeyInput,
+  RecordMetadata,
+  ReplaceMutationOp,
   Row,
   RowFields,
-  JsonValue,
+  SchemaDescriptor,
+  SelectDatabaseOptions,
+  ShareSubmissionResult,
 } from './types.js';
 
 export {
-  LastDbError,
   AuthenticationRequiredError,
-  TransportError,
-  UnexpectedResponseError,
-  ShareSubmissionUncertainError,
-  PermissionDeniedError,
-  QueryPaginationError,
   CasConflictError,
-  RequestRejectedError,
+  classifyPermissionReason,
+  LastDbError,
   NodeTooOldError,
   nodeTooOldMessage,
-  classifyPermissionReason,
+  PermissionDeniedError,
+  QueryPaginationError,
+  RequestRejectedError,
+  ShareSubmissionUncertainError,
+  TransportError,
+  UnexpectedResponseError,
 } from './errors.js';
 export type {
   AuthenticationRequiredReason,
-  PermissionCategory,
   CasConflictDetail,
   NodeTooOldDetail,
   NodeTooOldReason,
+  PermissionCategory,
   TransportErrorKind,
 } from './errors.js';

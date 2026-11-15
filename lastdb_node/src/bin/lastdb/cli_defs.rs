@@ -39,7 +39,7 @@ pub(crate) enum AdminBackupCommand {
     RecoverCredentialsHome {
         #[command(flatten)]
         args: RecoverCredentialsArgs,
-        #[arg(long, conflicts_with = "invite_code_file")]
+        #[arg(long)]
         existing_dev: bool,
     },
     PrepareRecoveryHome(PrepareRecoveryArgs),
@@ -65,6 +65,8 @@ pub(crate) struct PublishArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct CatalogSource {
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub env: Option<String>,
     #[arg(long)]
     pub channel: Option<String>,
     #[arg(long)]
@@ -222,6 +224,8 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    /// Record acceptance for older edits without removing them from the cloud log.
+    IndexLogHistory(BackupIndexLogHistoryArgs),
     /// Inspect or reclaim cloud log entries covered by a personal recovery snapshot.
     Reclaim(BackupReclaimArgs),
     /// Queue a direct encrypted snapshot of the selected database.

@@ -2,33 +2,20 @@
 
 use super::*;
 use crate::app_registry_index as registry;
-use app_identity_crypto::{canonicalize, sign, SigningKey};
+use app_identity_crypto::{canonicalize, sign};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
+use lastdb_node::profile::endpoints::Environment;
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::Command;
 use std::time::Duration;
 
-type SchemaIdentity = (String, Option<String>, Option<String>);
+#[path = "publish_credentials.rs"]
+mod publish_credentials;
 
-fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
-    if path
-        .to_str()
-        .is_some_and(|v| v.starts_with("lastsecrets://"))
-    {
-        return Err("dev key path does not accept a lastsecrets locator".into());
-    }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| format!("failed to read dev key {}: {e}", path.display()))?;
-    let secret: [u8; 32] = BASE64
-        .decode(raw.trim())
-        .map_err(|e| format!("dev key {} is not valid base64: {e}", path.display()))?
-        .try_into()
-        .map_err(|_| format!("dev key {} is not a 32-byte Ed25519 secret", path.display()))?;
-    Ok(SigningKey::from_bytes(&secret))
-}
+type SchemaIdentity = (String, Option<String>, Option<String>);
 
 fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>, String> {
     let schemas = manifest
@@ -218,6 +205,12 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
 }
 
 pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), String> {
+    let flag_env = match input.env.as_deref() {
+        None => None,
+        Some("dev") => Some(Environment::Dev),
+        Some("prod") => Some(Environment::Prod),
+        Some(_) => return Err("--env must be dev or prod".into()),
+    };
     let mut payload = publish_payload(home, input)?;
     if let Some(path) = &input.prepare {
         std::fs::OpenOptions::new()
@@ -230,7 +223,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
         return Ok(());
     }
     let default_key = home.join("dev-signing.key");
-    let key = load_dev_key(input.key_file.as_deref().unwrap_or(&default_key))?;
+    let key = publish_credentials::load_dev_key(input.key_file.as_deref().unwrap_or(&default_key))?;
     let mut stmt = payload
         .as_object()
         .ok_or("invalid publish payload")?
@@ -242,66 +235,20 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     );
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
-    let url = input
-        .registry_url
-        .clone()
-        .or_else(|| std::env::var("LASTDB_APP_REGISTRY_URL").ok())
-        .ok_or("publish requires --registry-url or LASTDB_APP_REGISTRY_URL")?;
-    if !url.starts_with("https://") {
-        return Err("registry URL must use HTTPS".into());
-    }
-    if input
-        .env
-        .as_deref()
-        .is_some_and(|e| e != "dev" && e != "prod")
-    {
-        return Err("--env must be dev or prod".into());
-    }
-    let api_key = resolve_publish_api_key(home, input)?;
-    let response = block_on_app(async {
-        // trace-egress: propagate (explicit registry publish; bearer never logged)
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| e.to_string())?
-            .post(format!("{}/v1/apps", url.trim_end_matches('/')))
-            .bearer_auth(api_key.as_str())
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .json::<Value>()
-            .await
-            .map_err(|e| e.to_string())
-    })?;
+    let home_env = publish_credentials::home_cloud_environment(home)?;
+    let target_env =
+        publish_credentials::resolve_target_environment(home, input, flag_env, home_env)?;
+    let url = publish_credentials::resolve_registry_url(input, target_env)?;
+    let (api_key, key_source) =
+        publish_credentials::resolve_publish_api_key(home, input, home_env, target_env, &url)?;
+    let response = block_on_app(publish_credentials::post_publish(
+        &url,
+        api_key.as_str(),
+        &key_source,
+        &payload,
+    ))?;
     print_pretty_json(&response);
     (response["status"].as_str() == Some("listed"))
         .then_some(())
         .ok_or_else(|| "registry did not list the app".into())
-}
-
-fn resolve_publish_api_key(
-    home: &Path,
-    input: &PublishArgs,
-) -> Result<zeroize::Zeroizing<String>, String> {
-    if let Some(explicit) = input
-        .api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|k| !k.is_empty())
-    {
-        return Ok(zeroize::Zeroizing::new(explicit.to_owned()));
-    }
-    if let Ok(env_key) = std::env::var("EXEMEM_DEV_API_KEY") {
-        let trimmed = env_key.trim();
-        if !trimmed.is_empty() {
-            return Ok(zeroize::Zeroizing::new(trimmed.to_owned()));
-        }
-    }
-    lastdb_node::cloud::load_saved_developer_key(home)?.ok_or_else(|| {
-        "no developer API key — pass --api-key, set EXEMEM_DEV_API_KEY, or run 'lastdb cloud developer-key create --save'"
-            .into()
-    })
 }

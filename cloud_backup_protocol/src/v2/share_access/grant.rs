@@ -5,9 +5,11 @@
 
 use super::receipt::SignedRequestTarget;
 use super::{
-    account_key_matches, is_mutation_log_path, MemberListReadResponse, MemberListRevision,
-    MemberListUpdate, NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole,
-    ShareMemberState, SHARE_MEMBER_LIST_READ_PATH,
+    account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
+    NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole, ShareMemberState,
+    MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_DELIVERY_SNAPSHOT_PATH,
+    MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH,
+    SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
 use std::cmp::Ordering;
@@ -17,9 +19,10 @@ use std::cmp::Ordering;
 pub enum ShareAccess {
     /// Account key for this database. It is not a member row.
     Publisher,
-    /// Active `read` member.
+    /// Active member with no schema writes granted.
     Reader,
-    /// Active `submit` member. Reader rights plus pending submissions.
+    /// Active member with a contributor grant. Whole-database inbox append
+    /// access depends on active membership for both roles.
     Contributor,
 }
 
@@ -123,7 +126,15 @@ pub fn authorize_request(
     if token.member_list_revision != current.revision {
         return Err(ProtocolError::unauthorized("share.node_read.revision"));
     }
-    authorize(current, &token.node_public_key)
+    let access = authorize(current, &token.node_public_key)?;
+    if matches!(
+        target.path,
+        MUTATION_LOG_INBOX_LIST_PATH | MUTATION_LOG_INBOX_SETTLE_PATH
+    ) && access != ShareAccess::Publisher
+    {
+        return Err(ProtocolError::unauthorized("share.inbox.publisher"));
+    }
+    Ok(access)
 }
 
 /// Choose the member-list read body.
@@ -158,6 +169,21 @@ fn require_signed(
         return Err(ProtocolError::unauthorized("share.cutover.required"));
     };
     state.bind(token, target.environment)
+}
+
+fn is_mutation_log_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/cloud/backups/v2/mutation-log/append"
+            | "/api/cloud/backups/v2/mutation-log/head"
+            | "/api/cloud/backups/v2/mutation-log/list"
+            | "/api/cloud/backups/v2/mutation-log/settle-submissions"
+            | MUTATION_LOG_INBOX_LIST_PATH
+            | MUTATION_LOG_INBOX_SETTLE_PATH
+            | MUTATION_LOG_SNAPSHOT_BYTES_PATH
+            | MUTATION_LOG_DELIVERY_SNAPSHOT_PATH
+            | MUTATION_LOG_DELIVERY_OBJECT_PATH
+    )
 }
 
 /// Revision object for [`MemberListReadView::RevisionOnly`]. It names no members.

@@ -17,7 +17,6 @@ from home_format import BACKUP_DIR, CREDENTIALS_FILE  # noqa: E402,F401
 
 ACCOUNT = "2a81c95623f2445854a794b5b48471d6"
 CHUNK = 1024 * 1024
-FILE_BYTES = 8 * CHUNK
 
 
 class OperationError(Exception):
@@ -70,11 +69,6 @@ def pairs(items):
 def decode_json(raw):
     def reject(_value):
         raise OperationError("nonfinite_json")
-    # Restore prints one machine-readable line before its JSON object.
-    if isinstance(raw, bytes) and raw.startswith(b"snapshot_through="):
-        line, separator, raw = raw.partition(b"\n")
-        if not separator or not re.fullmatch(rb"snapshot_through=[0-9]+ replayed=[0-9]+", line):
-            raise OperationError("invalid_json")
     try:
         return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject)
     except (ValueError, UnicodeError, RecursionError) as error:
@@ -153,55 +147,6 @@ def canonical_uuid(value):
     return value
 
 
-def baseline_scope_from_environment():
-    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE_SCOPE", "")
-    require(0 < len(raw.encode()) <= 2048, "baseline_scope_missing_or_large")
-    value = decode_json(raw)
-    require(isinstance(value, dict) and set(value) == {"account", "account_generation", "stream_id"}
-            and value["account"] == ACCOUNT, "baseline_scope_fields")
-    canonical_uuid(value["stream_id"])
-    generation = str(value["account_generation"])
-    require(re.fullmatch(r"0|[1-9][0-9]{0,19}", generation) is not None
-            and int(generation) <= 2**64 - 1, "baseline_scope_generation")
-    value["account_generation"] = generation
-    return value
-
-
-def baseline_from_environment():
-    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
-    require(0 < len(raw.encode()) <= 65536, "baseline_missing_or_large")
-    value = decode_json(raw)
-    expected = {"account", "stream_id", "account_generation", "commit_id", "commit_sha256",
-                "schema", "records", "file_bytes", "file_sha256"}
-    require(isinstance(value, dict) and set(value) == expected, "baseline_fields")
-    require(value["account"] == ACCOUNT, "baseline_dev_account")
-    canonical_uuid(value["stream_id"])
-    canonical_uuid(value["commit_id"])
-    generation = str(value["account_generation"])
-    require(re.fullmatch(r"0|[1-9][0-9]{0,19}", generation) is not None
-            and int(generation) <= 2**64 - 1, "baseline_generation")
-    value["account_generation"] = generation
-    require(all(isinstance(value[key], str) and re.fullmatch(r"[0-9a-f]{64}", value[key])
-                for key in ("commit_sha256", "file_sha256")), "baseline_digest")
-    require(isinstance(value["schema"], str) and 0 < len(value["schema"]) <= 512,
-            "baseline_schema")
-    records = value["records"]
-    require(isinstance(records, list) and len(records) == 16, "baseline_record_count")
-    ids = set()
-    for record in records:
-        require(isinstance(record, dict) and set(record) == {"id", "note"}, "baseline_record")
-        require(all(isinstance(record[key], str) and 0 < len(record[key].encode()) <= limit
-                    for key, limit in (("id", 256), ("note", 2048))), "baseline_record_value")
-        require(record["id"] not in ids, "baseline_duplicate_key")
-        ids.add(record["id"])
-    require(type(value["file_bytes"]) is int and value["file_bytes"] == FILE_BYTES,
-            "baseline_file_size")
-    scope = baseline_scope_from_environment()
-    require(all(value[name] == selected for name, selected in scope.items()),
-            "protected_baseline_matches_public_scope")
-    return value
-
-
 def write_private(path, payload):
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "wb") as stream:
@@ -231,5 +176,4 @@ def child_environment(root):
         "LASTDB_SELF_METRICS_TO_DB": "false",
         "RUST_LOG": "warn", "OBS_SENTRY_DSN": "", "POSTHOG_API_KEY": "",
         "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
-        "EXEMEM_API_URL": "http://127.0.0.1:9",
     }

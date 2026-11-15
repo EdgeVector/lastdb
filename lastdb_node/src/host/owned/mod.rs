@@ -76,6 +76,15 @@ pub(crate) struct Entry {
     pub spec: Option<SpecBinding>,
 }
 
+impl Entry {
+    pub(crate) fn whole_database(&self) -> bool {
+        self.spec.as_ref().is_some_and(|spec| {
+            database_policy::SpecBinding::new(&spec.name, spec.version)
+                .is_ok_and(|binding| binding.is_whole_database())
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Resolved {
     Owner,
@@ -230,6 +239,11 @@ impl Tables {
             .position(|entry| entry.id == id)
             .ok_or(OwnedError::NotOwned)?;
         if state.owned[index].kind == Kind::Personal && spec.is_some() {
+            return Err(OwnedError::InvalidSpec);
+        }
+        if state.owned[index].spec.as_ref().is_some_and(|binding| {
+            database_policy::SpecBinding::is_whole_database_name(&binding.name)
+        }) {
             return Err(OwnedError::InvalidSpec);
         }
         registry::validate_binding(spec.as_ref())?;

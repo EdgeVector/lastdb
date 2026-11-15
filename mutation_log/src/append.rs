@@ -22,6 +22,21 @@ pub enum AppendOutcome {
 }
 
 impl LogState {
+    /// Check a previously admitted entry against a loaded writer history.
+    /// The caller authorizes the writer before reading that history. The
+    /// separate pending log uses this to recognize retries of legacy appends.
+    pub fn is_append_retry(&self, entry: &Entry) -> Result<bool, LogError> {
+        if entry.database_id != self.database_id {
+            return Err(LogError::WrongDatabase);
+        }
+        let last = self.tips.get(&entry.writer).copied().unwrap_or(0);
+        if entry.writer_seq > last {
+            return Ok(false);
+        }
+        confirm_repeat(self, entry)?;
+        Ok(true)
+    }
+
     /// Apply one batch. A gap or an app-private namespace stores nothing.
     ///
     /// Dedupe is per writer (node key, device). A sequence at or below that
@@ -144,19 +159,23 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
         if entry.writer_seq > last {
             continue;
         }
-        if submission_rejected(state, &entry.writer, entry.writer_seq) {
-            return Err(marked_rejected(&entry.writer, entry.writer_seq));
-        }
-        if submission_expired(state, &entry.writer, entry.writer_seq) {
-            return Err(marked_expired(&entry.writer, entry.writer_seq));
-        }
-        match stored_entry(state, &entry.writer, entry.writer_seq) {
-            Some(stored) if same_content(&stored.entry, entry) => {}
-            None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => {}
-            Some(_) | None => return Err(LogError::Conflict),
-        }
+        confirm_repeat(state, entry)?;
     }
     Ok(())
+}
+
+fn confirm_repeat(state: &LogState, entry: &Entry) -> Result<(), LogError> {
+    if submission_rejected(state, &entry.writer, entry.writer_seq) {
+        return Err(marked_rejected(&entry.writer, entry.writer_seq));
+    }
+    if submission_expired(state, &entry.writer, entry.writer_seq) {
+        return Err(marked_expired(&entry.writer, entry.writer_seq));
+    }
+    match stored_entry(state, &entry.writer, entry.writer_seq) {
+        Some(stored) if same_content(&stored.entry, entry) => Ok(()),
+        None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => Ok(()),
+        Some(_) | None => Err(LogError::Conflict),
+    }
 }
 
 fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'a StoredEntry> {

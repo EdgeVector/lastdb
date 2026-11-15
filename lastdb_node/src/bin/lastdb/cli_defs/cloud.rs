@@ -78,8 +78,6 @@ pub(crate) struct RecoverCredentialsArgs {
     #[arg(long, required = true)]
     pub(crate) identity_seed_stdin: bool,
     #[arg(long)]
-    pub(crate) invite_code_file: Option<PathBuf>,
-    #[arg(long)]
     pub(crate) json: bool,
 }
 
@@ -99,8 +97,24 @@ pub(crate) enum ByteBackupCommand {
     Init(BackupInitArgs),
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    IndexLogHistory(BackupIndexLogHistoryArgs),
     Reclaim(BackupReclaimArgs),
     Snapshot { database: String, wait: bool },
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct BackupIndexLogHistoryArgs {
+    /// `personal` or its exact database id in this home.
+    #[arg(long)]
+    pub(crate) database: String,
+    /// Read the cloud acceptance index without changing it.
+    #[arg(long, required_unless_present = "batches", conflicts_with = "batches")]
+    pub(crate) status: bool,
+    /// Index this many signed batches, without deleting any entries (1–256).
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+    pub(crate) batches: Option<u16>,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -114,9 +128,15 @@ pub(crate) struct BackupReclaimArgs {
     /// Reclaim covered entries after the cloud enables it. Devices behind the snapshot must upgrade.
     #[arg(long, conflicts_with = "status")]
     pub(crate) allow_required_client_upgrade: bool,
-    /// Maximum batches of up to eight entries each (1–128, default 16).
+    /// Maximum signed requests (1–128, default 16, with one batch per request by default).
     #[arg(long, requires = "allow_required_client_upgrade", value_parser = clap::value_parser!(u8).range(1..=128))]
     pub(crate) batches: Option<u8>,
+    /// Require this exact recovery snapshot digest, including when resuming a reclaim.
+    #[arg(long, value_name = "DIGEST")]
+    pub(crate) expect_snapshot: Option<String>,
+    /// Allow up to this many eight-entry transactions per request (1–8) when the cloud supports it.
+    #[arg(long, requires_all = ["allow_required_client_upgrade", "expect_snapshot"], value_parser = clap::value_parser!(u8).range(1..=8))]
+    pub(crate) steps_per_request: Option<u8>,
     #[arg(long)]
     pub(crate) json: bool,
 }
@@ -136,27 +156,16 @@ pub(crate) struct BackupInitArgs {
 #[derive(Args, Debug)]
 pub(crate) struct BackupConnectArgs {
     /// Shorthand for `--env dev`.
-    #[arg(
-        long,
-        required_unless_present = "env",
-        conflicts_with_all = ["env", "existing"]
-    )]
+    #[arg(long, conflicts_with_all = ["env", "existing"])]
     pub(crate) dev: bool,
-    #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin"], requires_all = ["env", "api_key_stdin"])]
+    #[arg(long, conflicts_with = "dev", requires = "api_key_stdin")]
     pub(crate) existing: bool,
-    #[arg(
-        long,
-        value_parser = ["dev", "prod"],
-        required_unless_present = "dev",
-        conflicts_with = "dev"
-    )]
+    #[arg(long, value_parser = ["dev", "prod"], conflicts_with = "dev")]
     pub(crate) env: Option<String>,
     #[arg(long, requires = "existing")]
     pub(crate) api_key_stdin: bool,
     #[arg(long, requires = "existing")]
     pub(crate) expected_user_hash: Option<String>,
-    #[arg(long)]
-    pub(crate) invite_code_stdin: bool,
     #[arg(long)]
     pub(crate) json: bool,
 }

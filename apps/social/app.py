@@ -4,7 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 import re
 
 from lastdb import SocialError
+from circles import Circles
 from people import People
+from reusable_circles import ReusableCircles
+from setups import Setups
 from sharing import Sharing, can_manage_sharing
 
 
@@ -16,11 +19,20 @@ def public_person(person):
     return {"nodeKey": person["node_key"], "name": person["display_name"]}
 
 
+def can_submit_received(row):
+    access = row.get("selfAccess") or {}
+    return (row.get("sharingMode") == "whole_database" and access.get("state") == "active"
+            and access.get("stale") is False)
+
+
 class SocialApp:
     def __init__(self, node):
         self.node = node
         self.people = People(node)
         self.sharing = Sharing(node, self.people)
+        self.circles = Circles(node, self.people, self.sharing)
+        self.reusable_circles = ReusableCircles(node, self.sharing, self.circles)
+        self.setups = Setups(node, self.sharing)
 
     def remember(self, args):
         require_node_key(args["nodeKey"])
@@ -32,8 +44,11 @@ class SocialApp:
         verified = self.node.verify_contact(path, node_key)
         return public_person(self.people.remember(node_key, name, verified["contactCode"]))
 
-    def create(self, name):
-        return self.sharing.create(checked_name(name))
+    def create(self, name, whole=False):
+        return self.sharing.create(checked_name(name), whole=whole)
+
+    def setup_database(self, args):
+        return self.setups.open(args)
 
     def accept(self, receipt, publisher, name):
         require_node_key(publisher)
@@ -76,7 +91,30 @@ class SocialApp:
             person = contacts.get(member["nodeKey"])
             member["name"] = person["display_name"] if person else None
         pending = self.sharing.pending_edit(row["id"])
-        return {"database": row, "sharing": config, "pendingEdit": pending}
+        result = {"database": row, "sharing": config, "pendingEdit": pending}
+        if row.get("sharingMode") == "whole_database":
+            result.update(circles=self.circles.describe(database_id), schemas=self.circles.schemas(database_id))
+        return result
+
+    def set_circles(self, args):
+        database = self.selected(args["databaseId"])
+        if database.get("sharingMode") != "whole_database" or not can_manage_sharing(database):
+            raise SocialError("circles require an owned whole-database share")
+        with self.circles.lock():
+            return self.circles.set(database["id"], args["expectedRevision"], args["circles"],
+                                    args.get("restore", []))
+
+    def circle_invitation(self, args):
+        database = self.selected(args["databaseId"])
+        if database.get("sharingMode") != "whole_database" or not can_manage_sharing(database):
+            raise SocialError("select an owned whole-database share")
+        key = require_node_key(args["nodeKey"])
+        person = self.people.by_keys([key]).get(key)
+        if person is None:
+            raise SocialError("save this person's verified contact first")
+        config = self.sharing.configuration(database["id"])
+        return self.sharing.seal(database["id"], key, person["contact_code"], config["revision"],
+                                 self.node.own_key())
 
     def selected(self, database_id):
         if not isinstance(database_id, str) or not SELECTOR.fullmatch(database_id):
@@ -94,8 +132,8 @@ class SocialApp:
         return [{"databaseId": row["id"], "name": row["name"], "spec": row["spec"],
                  "kind": row["kind"], "state": row["state"], "selfAccess": row.get("selfAccess")}
                 for row in self.sharing.databases() if row.get("spec") == spec
-                and (row["kind"] == "shareable" or (intent == "read" and row["kind"] == "received"
-                     and row["state"] == "ready"))]
+                and (row["kind"] == "shareable" or (row["kind"] == "received"
+                     and row["state"] == "ready" and (intent == "read" or can_submit_received(row))))]
 
     def pick(self, spec, intent, database_id):
         if database_id is None:
@@ -130,7 +168,8 @@ class SocialApp:
 
     def retry(self, database_id):
         self.sharing.owned(self.selected(database_id)["id"])
-        self.sharing.resume_pending(database_id)
+        with self.circles.lock():
+            self.sharing.resume_pending(database_id)
         return self.database(database_id)
 
 

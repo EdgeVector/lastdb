@@ -104,6 +104,7 @@ async fn finish(
             clear_pending(home, database_id)?;
             Err(field)
         }
+        UpdateClass::Retryable(detail) => Err(detail),
         UpdateClass::Unknown => Err("member update was not acknowledged".into()),
     }
 }
@@ -177,8 +178,13 @@ fn parse_read(reply: &Reply) -> Result<ReadBody, String> {
         }
         return Err("member list read was not acknowledged".into());
     }
-    Err(failure_field(&reply.bytes)
-        .unwrap_or_else(|| "member list read was not acknowledged".into()))
+    if crate::cloud::is_payment_subscription_error(reply.status, &reply.bytes) {
+        return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
+    }
+    Err(failure(&reply.bytes).map_or_else(
+        || "member list read was not acknowledged".into(),
+        |error| format_protocol_error(&error),
+    ))
 }
 
 fn classify_update(reply: &Reply, expected: u64) -> UpdateClass {
@@ -190,14 +196,34 @@ fn classify_update(reply: &Reply, expected: u64) -> UpdateClass {
             _ => UpdateClass::Unknown,
         };
     }
+    if crate::cloud::is_payment_subscription_error(reply.status, &reply.bytes) {
+        return UpdateClass::Refused(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
+    }
     match failure(&reply.bytes) {
-        Some(error) if definitive(error.code) => UpdateClass::Refused(error.field),
-        _ => UpdateClass::Unknown,
+        Some(error) if definitive(error.code) => {
+            UpdateClass::Refused(format_protocol_error(&error))
+        }
+        Some(error) => UpdateClass::Retryable(format_code_and_field(&error)),
+        None => UpdateClass::Unknown,
     }
 }
 
-fn failure_field(bytes: &[u8]) -> Option<String> {
-    failure(bytes).map(|error| error.field)
+fn format_protocol_error(error: &ProtocolError) -> String {
+    match error.field.as_str() {
+        "share.grant.revision"
+        | "share.grant.identity"
+        | "share.grant.personal"
+        | "mutation_log.transaction" => error.field.clone(),
+        _ => format_code_and_field(error),
+    }
+}
+
+fn format_code_and_field(error: &ProtocolError) -> String {
+    if error.field.is_empty() {
+        format!("{:?}", error.code)
+    } else {
+        format!("{:?} ({})", error.code, error.field)
+    }
 }
 
 fn failure(bytes: &[u8]) -> Option<ProtocolError> {
@@ -229,6 +255,7 @@ enum ReadBody {
 enum UpdateClass {
     Ack(u64),
     Refused(String),
+    Retryable(String),
     Unknown,
 }
 

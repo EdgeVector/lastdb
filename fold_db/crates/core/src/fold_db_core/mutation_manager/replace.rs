@@ -106,6 +106,9 @@ pub(super) fn check_expectation(
         MutationType::Replace | MutationType::Delete
     ) {
         if let (Some(adm), Some(live)) = (&mutation.contribution, record.filter(|r| r.is_live())) {
+            if adm.schema_scope {
+                return Ok(());
+            }
             let author = live
                 .meta
                 .as_ref()

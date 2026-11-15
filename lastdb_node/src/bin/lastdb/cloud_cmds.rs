@@ -19,6 +19,8 @@ mod account;
 mod dev_keys;
 #[path = "cloud_cmds/enrollment_home.rs"]
 mod enrollment_home;
+#[path = "cloud_cmds/index_history.rs"]
+mod index_history;
 #[path = "cloud_cmds/reclaim.rs"]
 mod reclaim;
 #[path = "cloud_cmds/recovery_home.rs"]
@@ -34,30 +36,54 @@ pub(super) use account::cloud_account_command;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let CloudCommand::BackupV2 { action } = action else {
-        return recovery_home::command(data_dir.as_deref(), action);
+        let expanded = data_dir
+            .map(lastdb_node::profile::paths::expand_tilde_path)
+            .transpose()?;
+        return recovery_home::command(expanded.as_deref(), action);
     };
     match action {
         ByteBackupCommand::Init(a) => setup::run_init(data_dir.as_deref(), &a),
-        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir.as_deref(), &a),
+        ByteBackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         ByteBackupCommand::Restore(args) => {
-            if data_dir.as_deref().is_none_or(|h| !h.is_absolute()) {
-                return Err("V2 backup requires an explicit absolute --data-dir home".into());
+            let expanded = data_dir
+                .map(lastdb_node::profile::paths::expand_tilde_path)
+                .transpose()?;
+            if expanded.as_deref().is_none_or(|h| !h.is_absolute()) {
+                return Err(
+                    "signed backup restore requires an explicit absolute --data-dir home".into(),
+                );
             }
-            restore::run(&lastdb_node::host::resolve_home(data_dir)?, args)
+            restore::run(&lastdb_node::host::resolve_home(expanded)?, args)
         }
         ByteBackupCommand::Reclaim(args) => {
             reclaim::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
+        }
+        ByteBackupCommand::IndexLogHistory(args) => {
+            index_history::run(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
         ByteBackupCommand::Snapshot { database, wait } => queue_snapshot(data_dir, &database, wait),
     }
 }
 
 fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Result<(), String> {
-    let (home, socket) = resolve_client_home_and_socket(data_dir)?;
+    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
-    let (id, nonce) = lastdb_node::log_sync::request_snapshot(&home, database)?;
+    let raw = post_json_admin(
+        &socket,
+        "/api/backup/snapshot",
+        &serde_json::json!({ "database": database }),
+    )?;
+    let reply = snapshot_wait::parse_reply(&raw, "backup snapshot")?;
+    let id = reply["database_id"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("backup snapshot response missing database_id")?;
+    let nonce = reply["nonce"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return snapshot_wait::until_head(&home, &id, &nonce);
+        return snapshot_wait::until_head(&socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())

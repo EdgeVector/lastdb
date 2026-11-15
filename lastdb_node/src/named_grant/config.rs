@@ -2,7 +2,7 @@
 
 use super::{exchange, pending, session, successor};
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadResponse, ShareMember, ShareMemberRole, ShareMemberState,
+    MemberListReadResponse, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,22 @@ pub(crate) struct ConfigUpdate {
     members: Vec<ConfigMember>,
 }
 
+impl ConfigUpdate {
+    pub(crate) fn scoped_members(&self) -> impl Iterator<Item = &ShareWriteScope> {
+        self.members
+            .iter()
+            .filter_map(|member| member.write_schemas.as_ref())
+    }
+
+    pub(crate) fn has_legacy_writer(&self) -> bool {
+        self.members.iter().any(|member| {
+            member.role == ShareMemberRole::Submit
+                && member.state == ShareMemberState::Active
+                && member.write_schemas.is_none()
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConfigMember {
@@ -24,6 +40,8 @@ struct ConfigMember {
     pub state: ShareMemberState,
     #[serde(default, skip_serializing_if = "is_false")]
     pub regrant: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_schemas: Option<ShareWriteScope>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -37,6 +55,7 @@ impl From<ConfigMember> for ShareMember {
             role: member.role,
             state: member.state,
             regrant: member.regrant,
+            write_schemas: member.write_schemas,
         }
     }
 }
@@ -48,6 +67,7 @@ impl From<ShareMember> for ConfigMember {
             role: member.role,
             state: member.state,
             regrant: member.regrant,
+            write_schemas: member.write_schemas,
         }
     }
 }
@@ -64,7 +84,16 @@ pub(crate) enum ConfigError {
     Invalid(String),
     Conflict(Option<DecimalU64>),
     Pending,
+    PaymentRequired,
     Unconfirmed,
+}
+
+pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
+    if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+        ConfigError::PaymentRequired
+    } else {
+        ConfigError::Unconfirmed
+    }
 }
 
 pub(crate) async fn read_config(
@@ -80,7 +109,7 @@ pub(crate) async fn read_config(
     }
     let session = session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     let document = read(&session, database_id).await?;
     Ok(Configuration {
         database_id: database_id.to_owned(),
@@ -99,10 +128,23 @@ pub(crate) async fn set_config(
 ) -> Result<DecimalU64, ConfigError> {
     let mut members: Vec<ShareMember> = request.members.into_iter().map(Into::into).collect();
     members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
+    for member in &mut members {
+        match &mut member.write_schemas {
+            Some(ShareWriteScope::Selected(ids)) => {
+                ids.sort_unstable();
+                ids.dedup();
+            }
+            Some(ShareWriteScope::Named { names }) => {
+                names.sort_unstable();
+                names.dedup();
+            }
+            _ => {}
+        }
+    }
     let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
     let session = session::open(home)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     let expected = request.expected_revision.get();
     if let Some(saved) = pending::load(home, database_id).map_err(|_| ConfigError::Unconfirmed)? {
         if !saved.matches_config(&request.request_id, expected, &members) {
@@ -142,14 +184,33 @@ pub(super) async fn read(
 ) -> Result<MemberListReadResponse, ConfigError> {
     let document = exchange::read_document(session, database_id)
         .await
-        .map_err(|_| ConfigError::Unconfirmed)?;
+        .map_err(|e| unconfirmed_or_payment(&e))?;
     successor::require_stream(&document, session, database_id)
         .map_err(|_| ConfigError::Unconfirmed)?;
     Ok(document)
 }
 
+/// Hold the same revision lock used by publisher updates through a member commit.
+pub(crate) async fn lock_applied(
+    home: &Path,
+    database_id: &str,
+) -> Result<(std::fs::File, MemberListReadResponse), ConfigError> {
+    let lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
+    if pending::load(home, database_id)
+        .map_err(|_| ConfigError::Unconfirmed)?
+        .is_some()
+    {
+        return Err(ConfigError::Pending);
+    }
+    let session = session::open(home)
+        .await
+        .map_err(|e| unconfirmed_or_payment(&e))?;
+    Ok((lock, read(&session, database_id).await?))
+}
+
 fn update_error(error: String) -> ConfigError {
     match error.as_str() {
+        msg if msg == crate::cloud::PAYMENT_REQUIRED_MESSAGE => ConfigError::PaymentRequired,
         "share.grant.revision" => ConfigError::Conflict(None),
         "share.grant.identity" | "share.grant.personal" | "mutation_log.transaction" => {
             ConfigError::Invalid(error)

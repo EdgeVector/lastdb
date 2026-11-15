@@ -125,6 +125,8 @@ pub struct ContributionSection {
     pub receipt_sha256: String,
     /// SHA-256 of the contribution intent.
     pub intent_sha256: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub schema_scope: bool,
 }
 
 pub(super) enum Change {

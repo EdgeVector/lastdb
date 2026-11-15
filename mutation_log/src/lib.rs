@@ -1,27 +1,19 @@
 //! Pure functional core of the unified cloud mutation log.
 //!
-//! One ordered log per `database_id`, for a personal database and for a
-//! shareable database. Entries are tagged by writer (node key, device). This
-//! crate holds the types, the read rule, and the apply step. It reads no
-//! clock, opens no file or socket, and stores nothing. The shell passes time,
-//! ids, and a [`NamespacePolicy`]. [`MutationLog`] is the port. The in-memory
-//! adapter lives in `mutation_log_mem`. There is no flag. This crate still
-//! stores nothing. After Exemem confirms that database is signed-only, the daemon calls
-//! this port through `mutation_log_sync`.
-//!
-//! The crate is a workspace leaf, next to `cloud_backup_plan`, because the
-//! log is not the local record model (`lastdb_model`) and not the current
-//! backup wire contract (`cloud_backup_protocol`). Those stay on their
-//! current paths until a later change adopts this step.
+//! The core models one ordered log value. Entries are tagged by writer
+//! (node key, device). The caller supplies time, IDs, and a [`NamespacePolicy`].
+//! [`MutationLog`] is the persistence port. The in-memory adapter lives in
+//! `mutation_log_mem`. The daemon uses `mutation_log_sync` for the signed log.
 //!
 //! # Sharing
 //!
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! A receiver reads entries whose writer key is the publisher key. A
-//! contributor's pending entry stays hidden from receivers until the publisher
-//! key re-appends it.
+//! ExeMem gives receivers only entries written by the publisher, including
+//! when filtering legacy mixed history. Whole-database shares also have a
+//! separate pending log that only the publisher reads. The publisher's LastDB
+//! validates those mutations and publishes accepted changes under its own key.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 

@@ -8,9 +8,8 @@ use fold_db::access::AccessContext;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::owned_response;
 use crate::exec::database_owned;
-use crate::exec::reply::{envelope, error_response, json_ok};
+use crate::exec::reply::{envelope, error_response, json_ok, render, HostError};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::registered_share::{self, RegisteredShare};
@@ -18,22 +17,26 @@ use crate::share_invitation::MAX_SEALED_INVITATION_BYTES;
 
 pub(super) const ACCEPT_PATH: &str = "/api/databases/accept";
 
-pub(super) fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
-    let owner = match host.owned.owner() {
-        Ok(entry) => entry,
-        Err(error) => return owned_response(error, ctx),
+pub(crate) fn list_rows(host: &Host) -> Result<Vec<Value>, HostError> {
+    let map_owned = |error: crate::host::owned::OwnedError| {
+        let (status, msg) = error.status();
+        HostError::new(status, msg)
     };
-    let owned = match host.owned.owned_entries() {
-        Ok(entries) => entries,
-        Err(error) => return owned_response(error, ctx),
-    };
-    let Ok(shares) = registered_share::list(&host.home) else {
-        return error_response(503, "database registry is unavailable", ctx);
-    };
+    let owner = host.owned.owner().map_err(map_owned)?;
+    let owned = host.owned.owned_entries().map_err(map_owned)?;
+    let shares = registered_share::list(&host.home)
+        .map_err(|_| HostError::new(503, "database registry is unavailable"))?;
     let mut databases = vec![database_owned::row(&owner)];
     databases.extend(owned.iter().map(database_owned::row));
     databases.extend(shares.iter().map(|share| database(&host.home, share)));
-    json_ok(&envelope(&json!({ "databases": databases }), &ctx.user_id))
+    Ok(databases)
+}
+
+pub(super) fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
+    render(
+        list_rows(host).map(|databases| json!({ "databases": databases })),
+        ctx,
+    )
 }
 
 fn database(home: &Path, share: &RegisteredShare) -> Value {
@@ -48,6 +51,9 @@ fn database(home: &Path, share: &RegisteredShare) -> Value {
         ));
     }
     value["kind"] = json!("received");
+    if share.whole_database() {
+        value["sharingMode"] = json!("whole_database");
+    }
     value
 }
 

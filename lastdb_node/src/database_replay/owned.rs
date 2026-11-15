@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use super::decode::{EntryDecoder, Prepared};
 use super::payload::{Change, RecordChange, RecordFile, SchemaChange};
-use super::{apply, DeliveredEntry, RestoreError, SnapshotEntry, SnapshotFileSource};
+use super::{apply, DeliveredEntry, RestoreError, SnapshotEntry};
 use crate::Host;
 
 mod record;
@@ -21,7 +21,7 @@ pub(crate) async fn replay_owned(
     database_id: &str,
     local_device: Option<&str>,
     delivered: &[DeliveredEntry],
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     let target = super::resolve_target(host, database_id)?;
     if !target.private || !matches!(&target.place, super::Place::Owned(_)) {
@@ -48,7 +48,7 @@ pub(super) struct OwnerReplay<'a> {
     pub decoder: EntryDecoder<'a>,
     pub owner: &'a str,
     pub local_device: Option<&'a str>,
-    pub files: &'a mut (dyn SnapshotFileSource + Send),
+    pub files: &'a mut crate::log_sync::SnapshotFiles,
 }
 
 impl OwnerReplay<'_> {

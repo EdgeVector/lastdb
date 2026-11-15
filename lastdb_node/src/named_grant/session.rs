@@ -1,9 +1,8 @@
 //! Saved publisher session. The API key is used for context, then dropped.
 
 use crate::cloud::load_saved_credentials;
-use crate::cloud_backup_client::byte_backup::ByteBackupClient;
-use crate::cloud_backup_client::byte_backup::ShareEnvironment as GuestEnvironment;
-use crate::cloud_backup_client::{build_shared_http_client, AuthClient};
+use crate::cloud_backup_client::storage_transfer::StorageTransferClient;
+use crate::cloud_backup_client::{build_shared_http_client, AuthClient, BackupTransportError};
 use crate::identity::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use cloud_backup_protocol::v2::context::ContextReadRequest;
@@ -22,7 +21,6 @@ pub(super) struct PublisherSession {
     pub http: reqwest::Client,
     pub origin: Url,
     pub environment: ShareEnvironment,
-    pub guest_environment: GuestEnvironment,
     pub signer: Ed25519KeyPair,
     pub publisher: Digest,
     pub scope: CloudScope,
@@ -36,12 +34,12 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
         .connection
         .as_ref()
         .ok_or("share publisher has no saved account connection")?;
-    let (environment, guest_environment, profile) = realms(&connection.environment)?;
+    let (environment, profile) = realms(&connection.environment)?;
     let endpoint = exemem_api_url_for(profile);
     if saved.api_url != endpoint {
         return Err("saved credentials do not match the share publisher and environment".into());
     }
-    let backup = ByteBackupClient::from_auth(AuthClient::new(
+    let backup = StorageTransferClient::from_auth(AuthClient::new(
         endpoint.to_owned(),
         saved.api_key.as_str().to_owned(),
     ))
@@ -67,7 +65,6 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
         http: build_shared_http_client().map_err(|_| "cannot construct member service client")?,
         origin: origin(endpoint)?,
         environment,
-        guest_environment,
         signer,
         publisher,
         scope,
@@ -75,18 +72,10 @@ pub(super) async fn open(home: &Path) -> Result<PublisherSession, String> {
     })
 }
 
-fn realms(value: &str) -> Result<(ShareEnvironment, GuestEnvironment, Environment), String> {
+fn realms(value: &str) -> Result<(ShareEnvironment, Environment), String> {
     match value {
-        "dev" => Ok((
-            ShareEnvironment::Dev,
-            GuestEnvironment::Dev,
-            Environment::Dev,
-        )),
-        "prod" => Ok((
-            ShareEnvironment::Prod,
-            GuestEnvironment::Prod,
-            Environment::Prod,
-        )),
+        "dev" => Ok((ShareEnvironment::Dev, Environment::Dev)),
+        "prod" => Ok((ShareEnvironment::Prod, Environment::Prod)),
         _ => Err("saved credentials do not match the share publisher and environment".into()),
     }
 }
@@ -97,7 +86,10 @@ fn account_id(signer: &Ed25519KeyPair) -> Result<AccountId, String> {
     AccountId::try_from(hash).map_err(|_| "invalid share publisher account".into())
 }
 
-async fn read_scope(backup: &ByteBackupClient, account: &AccountId) -> Result<CloudScope, String> {
+async fn read_scope(
+    backup: &StorageTransferClient,
+    account: &AccountId,
+) -> Result<CloudScope, String> {
     let response = backup
         .context(&ContextReadRequest {
             version: Version::V2,
@@ -105,7 +97,13 @@ async fn read_scope(backup: &ByteBackupClient, account: &AccountId) -> Result<Cl
             required_destinations: Vec::new(),
         })
         .await
-        .map_err(|_| "share publisher account context was refused")?;
+        .map_err(|error| {
+            if matches!(&error, BackupTransportError::Protocol(p) if p.is_payment_subscription()) {
+                crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned()
+            } else {
+                "share publisher account context was refused".to_owned()
+            }
+        })?;
     Ok(response.scope)
 }
 

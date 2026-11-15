@@ -24,6 +24,14 @@ pub const fn registry_index_url_for(env: Environment) -> &'static str {
 }
 
 #[must_use]
+pub const fn registry_api_url_for(env: Environment) -> &'static str {
+    match env {
+        Environment::Dev => gen::DEV_REGISTRY_API,
+        Environment::Prod => gen::PROD_REGISTRY_API,
+    }
+}
+
+#[must_use]
 pub const fn registry_ci_publisher_keys_for(env: Environment) -> (&'static str, &'static str) {
     match env {
         Environment::Dev => (
@@ -41,6 +49,7 @@ pub fn set_home_environment(env: Environment) -> bool {
     *HOME_ENV.get_or_init(|| env) == env
 }
 
+#[must_use]
 pub fn environment_for_exemem_api_url(api_url: &str) -> Option<Environment> {
     let url = api_url.trim().trim_end_matches('/');
     [Environment::Dev, Environment::Prod]
@@ -48,27 +57,50 @@ pub fn environment_for_exemem_api_url(api_url: &str) -> Option<Environment> {
         .find(|e| exemem_api_url_for(*e).trim_end_matches('/') == url)
 }
 
+#[must_use]
+pub fn environment_for_registry_api_url(api_url: &str) -> Option<Environment> {
+    let url = api_url.trim().trim_end_matches('/');
+    [Environment::Dev, Environment::Prod]
+        .into_iter()
+        .find(|e| registry_api_url_for(*e).trim_end_matches('/') == url)
+}
+
 impl Environment {
-    pub fn from_env() -> Self {
-        let explicit = EXPLICIT_ENV.get_or_init(|| {
-            let raw = std::env::var("ENVIRONMENT").ok().filter(|v| !v.is_empty());
-            let Some(raw) = raw.or_else(|| std::env::var("EXEMEM_ENV").ok()) else {
+    #[must_use]
+    pub fn explicit_from_env() -> Option<Self> {
+        *EXPLICIT_ENV.get_or_init(|| {
+            let non_empty = |name| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+            let Some(raw) = non_empty("LASTDB_ENV")
+                .or_else(|| non_empty("ENVIRONMENT"))
+                .or_else(|| non_empty("EXEMEM_ENV"))
+            else {
                 tracing::info!(
-                    "ENVIRONMENT/EXEMEM_ENV not set; using pinned home env or build default ({})",
+                    "LASTDB_ENV/ENVIRONMENT/EXEMEM_ENV not set; using pinned home env or build default ({})",
                     Self::build_default()
                 );
                 return None;
             };
-            Some(Self::try_from_str(&raw).unwrap_or_else(|_| {
+            Some(Self::try_from_str(raw.trim()).unwrap_or_else(|_| {
                 tracing::error!(
-                    "ENVIRONMENT/EXEMEM_ENV has unknown value '{raw}', defaulting to dev"
+                    "LASTDB_ENV/ENVIRONMENT/EXEMEM_ENV has unknown value '{raw}', defaulting to dev"
                 );
                 Self::Dev
             }))
-        });
-        explicit
+        })
+    }
+
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::explicit_from_env()
             .or_else(|| HOME_ENV.get().copied())
             .unwrap_or_else(Self::build_default)
+    }
+
+    #[must_use]
+    pub fn from_env_or_prod() -> Self {
+        Self::explicit_from_env()
+            .or_else(|| HOME_ENV.get().copied())
+            .unwrap_or(Self::Prod)
     }
 
     const fn build_default() -> Self {

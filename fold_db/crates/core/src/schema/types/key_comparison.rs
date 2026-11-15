@@ -172,6 +172,11 @@ impl KeyComparisonContext {
             .unwrap_or_else(|_| l.cmp(r))
     }
 
+    #[must_use]
+    pub fn cmp_page_order(left: &KeyValue, right: &KeyValue) -> Ordering {
+        left.cmp_page_order_with(right, Self::compare_current_ranges)
+    }
+
     pub fn canonical_key(&self, mut key: KeyValue) -> Result<KeyValue, SchemaError> {
         canonical_key(self.profile, &mut key)?;
         Ok(key)
@@ -214,16 +219,6 @@ impl KeyComparisonContext {
             }
             other => Ok(other),
         }
-    }
-}
-
-pub trait KeyValuePageOrder {
-    fn cmp_page_order(&self, other: &Self) -> Ordering;
-}
-
-impl KeyValuePageOrder for KeyValue {
-    fn cmp_page_order(&self, other: &Self) -> Ordering {
-        self.cmp_page_order_with(other, KeyComparisonContext::compare_current_ranges)
     }
 }
 

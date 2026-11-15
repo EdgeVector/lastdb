@@ -37,6 +37,7 @@ macro_rules! heap_route {
 }
 
 mod admin_routes;
+mod backup_routes;
 mod database_owned;
 mod database_routes;
 mod database_session;
@@ -47,18 +48,24 @@ mod list_keys;
 mod mutation;
 mod query;
 mod reply;
+mod saved_queries;
 mod schema_declare;
 mod schema_routes;
+mod uds_server;
 mod wire;
 
-use reply::{content_free, envelope, error_response, json_ok, render, HostError};
+use reply::{content_free, envelope, error_response, json_ok, render};
 
-pub use database_routes::{
-    execute_database_request, execute_deferred_database_request, is_deferred_database_request,
-};
-pub use database_session::admit as admit_database_session;
-pub use mutation::execute_deferred_mutation;
-pub use schema_declare::{execute_apps_declare_schema_route, normalize_app_manifest_schema};
+pub(crate) use database_routes::list_database_rows;
+pub(crate) use file_blob::{delete_blob_slice, put_blob_inner};
+pub(crate) use mutation::commit_parsed_mutation;
+pub(crate) use query::execute_query;
+pub(crate) use reply::HostError;
+pub(crate) use schema_declare::declare_schema_slice;
+pub use schema_declare::normalize_app_manifest_schema;
+pub(crate) use schema_routes::{get_schema_value, resolve_schema_name};
+pub use uds_server::UdsServer;
+pub(crate) use wire::parse_query_body;
 pub use wire::{parse_mutation_body, ParsedMutation, Reject};
 
 pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsResponse>>(
@@ -79,7 +86,7 @@ pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsR
     })
 }
 
-pub fn block_on_route<Fut: Future<Output = UdsResponse>>(
+pub(in crate::exec) fn block_on_route<Fut: Future<Output = UdsResponse>>(
     handle: &tokio::runtime::Handle,
     ctx: &AccessContext,
     admin: bool,
@@ -93,7 +100,7 @@ pub fn block_on_route<Fut: Future<Output = UdsResponse>>(
     handle.block_on(with_handler_timeout_budget(ctx, budget, fut))
 }
 
-pub fn block_on_data_route(
+pub(in crate::exec) fn block_on_data_route(
     handle: &tokio::runtime::Handle,
     route: DataRoute,
     req: &UdsRequest,
@@ -123,6 +130,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                     "build": { "version": crate::version::build_version() },
                     "process_start_ts": host.process_start_ts, "uptime_secs": up,
                     "uds": uds, "search": admin_routes::search_queue_status(host),
+                    "cloud_sync": host.cloud_sync.snapshot(),
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
             }
@@ -144,6 +152,14 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::QueryBatch => heap_route!(query::query_batch_route, req, ctx, host),
             DataRoute::ListRecordKeys => heap_route!(list_keys::list_keys, req, ctx, host),
             DataRoute::DeclareSchema => heap_route!(schema_declare::declare_schema, req, ctx, host),
+            DataRoute::AppsDeclareSchema => {
+                heap_route!(
+                    schema_declare::execute_apps_declare_schema_route,
+                    req,
+                    ctx,
+                    host
+                )
+            }
             DataRoute::SeedSystemSchema => heap_route!(admin_routes::seed_system, req, ctx, host),
             DataRoute::DropSchema => heap_route!(schema_routes::drop_schema, req, ctx, host),
             DataRoute::AdminShed => heap_route!(admin_routes::admin_shed, ctx, host),
@@ -160,6 +176,14 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::DbPutBlob => heap_route!(file_blob::db_put_blob, req, ctx, host),
             DataRoute::DbFetchBlob => heap_route!(file_blob::db_fetch_blob, req, ctx, host),
             DataRoute::DbDeleteBlob => heap_route!(file_blob::db_delete_blob, req, ctx, host),
+            DataRoute::BackupSnapshot => {
+                heap_route!(backup_routes::backup_snapshot, req, ctx, host)
+            }
+            DataRoute::CloudWake => return backup_routes::cloud_wake(req, ctx, host),
+            DataRoute::SavedQuerySave => heap_route!(saved_queries::save_route, req, ctx, host),
+            DataRoute::SavedQueryReconcile => {
+                heap_route!(saved_queries::reconcile_route, req, ctx, host)
+            }
         };
         fut.await
     })
@@ -172,7 +196,12 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::DbSchemas
         | DataRoute::DbDeleteLedger
         | DataRoute::DeclareSchema
-        | DataRoute::DropSchema => admin_handler_timeout(),
+        | DataRoute::AppsDeclareSchema
+        | DataRoute::DropSchema
+        | DataRoute::BackupSnapshot
+        | DataRoute::CloudWake
+        | DataRoute::SavedQuerySave
+        | DataRoute::SavedQueryReconcile => admin_handler_timeout(),
         DataRoute::Status => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),

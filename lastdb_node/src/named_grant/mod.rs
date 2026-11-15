@@ -15,13 +15,12 @@ mod successor;
 use cloud_backup_protocol::Digest;
 use std::path::Path;
 
-pub(crate) use config::{read_config, set_config, ConfigError, ConfigUpdate};
-pub(crate) use invite::issue_invitation;
-pub use invite::seal_named_invitation;
+pub(crate) use config::{lock_applied, read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use invite::{issue_invitation, seal_named_invitation};
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemberIntent {
+pub(crate) enum MemberIntent {
     /// Active reader. `regrant` restores a revoked key.
     Read { regrant: bool },
     /// Active contributor. `regrant` restores a revoked key.
@@ -32,23 +31,26 @@ pub enum MemberIntent {
 
 /// Service acknowledgement of one member row.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MemberAck {
+pub(crate) struct MemberAck {
     /// Stable database id.
-    pub database_id: String,
+    pub(crate) database_id: String,
     /// Stored member-list revision.
-    pub revision: u64,
+    pub(crate) revision: u64,
     /// True when the read already showed this row, so nothing was signed.
-    pub unchanged: bool,
+    pub(crate) unchanged: bool,
 }
 
 /// Grant or revoke one node key. `Ok` means the service has the desired row.
-pub async fn update_member(
+pub(crate) async fn update_member(
     home: &Path,
     selector: &str,
     node: &Digest,
     intent: MemberIntent,
 ) -> Result<MemberAck, String> {
     let entry = crate::host::owned::find_shareable(home, selector)?;
+    if entry.whole_database() && matches!(intent, MemberIntent::Submit { .. }) {
+        return Err("whole-database writers require a configured schema scope".into());
+    }
     let _lock = pending::lock(home, &entry.id)?;
     let session = session::open(home).await?;
     if &session.publisher == node {

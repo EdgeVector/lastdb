@@ -7,23 +7,21 @@ use crate::saved_query::{FileMark, LiveRow, RecordKey, Remove, Step, Write};
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
 
-use super::http::{DatabaseTarget, Store};
+use super::store::TargetStore;
 
-pub(super) fn apply(
-    store: &Store,
-    source: &DatabaseTarget,
-    destination: &DatabaseTarget,
+pub(super) async fn apply(
+    source: &TargetStore<'_>,
+    destination: &TargetStore<'_>,
     step: &Step,
 ) -> Result<(), String> {
     match step {
-        Step::Write(write) => apply_write(store, source, destination, write),
-        Step::Remove(remove) => apply_remove(store, destination, remove),
+        Step::Write(write) => apply_write(source, destination, write).await,
+        Step::Remove(remove) => apply_remove(destination, remove).await,
     }
 }
 
-pub(super) fn read_live(
-    store: &Store,
-    destination: &DatabaseTarget,
+pub(super) async fn read_live(
+    destination: &TargetStore<'_>,
     keys: &[RecordKey],
 ) -> Result<BTreeMap<RecordKey, LiveRow>, String> {
     let mut grouped: BTreeMap<(String, String), Vec<&RecordKey>> = BTreeMap::new();
@@ -36,15 +34,14 @@ pub(super) fn read_live(
     let mut live = BTreeMap::new();
     for ((namespace, schema), keys) in grouped {
         for chunk in keys.chunks(crate::saved_query::MAX_RECORDS) {
-            read_chunk(store, destination, &namespace, &schema, chunk, &mut live)?;
+            read_chunk(destination, &namespace, &schema, chunk, &mut live).await?;
         }
     }
     Ok(live)
 }
 
-fn read_chunk(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn read_chunk(
+    destination: &TargetStore<'_>,
     namespace: &str,
     schema: &str,
     keys: &[&RecordKey],
@@ -55,7 +52,9 @@ fn read_chunk(
         .map(|key| (key.hash.as_str(), key.range.as_deref().unwrap_or("")))
         .collect();
     let qualified = format!("{namespace}/{schema}");
-    let rows = store.query(destination, &qualified, &json!({"HashRangeKeys": pairs}))?;
+    let rows = destination
+        .query(&qualified, &json!({"HashRangeKeys": pairs}))
+        .await?;
     for row in rows {
         let parsed = LiveRow::from_query(namespace, schema, &row)
             .map_err(|error| error.as_str().to_owned())?;
@@ -64,130 +63,95 @@ fn read_chunk(
     Ok(())
 }
 
-fn apply_write(
-    store: &Store,
-    source: &DatabaseTarget,
-    destination: &DatabaseTarget,
+async fn apply_write(
+    source: &TargetStore<'_>,
+    destination: &TargetStore<'_>,
     write: &Write,
 ) -> Result<(), String> {
     let mut revision = write.revision.clone();
     let carries = write.copy_blob.is_some() || write.copy_inline.is_some();
     if (write.creating || write.fields_changed) && !carries {
         let operation = if write.creating { "create" } else { "replace" };
-        revision = Some(mutate(
-            store,
-            destination,
-            &write.key,
-            &write.fields,
-            &json!({}),
-            revision.as_deref(),
-            operation,
-        )?);
+        revision = Some(
+            mutate(
+                destination,
+                &write.key,
+                &write.fields,
+                &json!({}),
+                revision.as_deref(),
+                operation,
+            )
+            .await?,
+        );
     }
     if let Some(mark) = &write.copy_blob {
         let inline = match &write.copy_inline {
-            Some(inline) => Some(fetched(store, source, &write.key, inline, "inline")?),
+            Some(inline) => Some(fetched(source, &write.key, inline, "inline").await?),
             None => None,
         };
-        let blob = fetched(store, source, &write.key, mark, "blob")?;
-        revision = Some(put_files(
-            store,
-            destination,
-            write,
-            revision.as_deref(),
-            &blob,
-            inline.as_deref(),
-        )?);
+        let blob = fetched(source, &write.key, mark, "blob").await?;
+        revision = Some(
+            put_files(
+                destination,
+                write,
+                revision.as_deref(),
+                &blob,
+                inline.as_deref(),
+            )
+            .await?,
+        );
     } else if let Some(mark) = &write.copy_inline {
-        let bytes = fetched(store, source, &write.key, mark, "inline")?;
-        revision = Some(put_inline(
-            store,
-            destination,
-            write,
-            revision.as_deref(),
-            mark,
-            &bytes,
-        )?);
+        let bytes = fetched(source, &write.key, mark, "inline").await?;
+        revision = Some(put_inline(destination, write, revision.as_deref(), mark, &bytes).await?);
     }
     if write.clear_blob {
-        revision = Some(clear(
-            store,
-            destination,
-            write,
-            revision.as_deref(),
-            "blob",
-        )?);
+        revision = Some(clear(destination, write, revision.as_deref(), "blob").await?);
     }
     if write.clear_inline {
-        revision = Some(clear(
-            store,
-            destination,
-            write,
-            revision.as_deref(),
-            "inline",
-        )?);
+        revision = Some(clear(destination, write, revision.as_deref(), "inline").await?);
     }
     let _latest = revision;
     Ok(())
 }
 
-fn apply_remove(
-    store: &Store,
-    destination: &DatabaseTarget,
-    remove: &Remove,
-) -> Result<(), String> {
+async fn apply_remove(destination: &TargetStore<'_>, remove: &Remove) -> Result<(), String> {
     let mut revision = remove.revision.clone();
     if remove.clear_blob {
-        revision = clear_row(store, destination, remove, &revision, "blob")?;
+        revision = clear_row(destination, remove, &revision, "blob").await?;
     }
     if remove.clear_inline {
-        revision = clear_row(store, destination, remove, &revision, "inline")?;
+        revision = clear_row(destination, remove, &revision, "inline").await?;
     }
     mutate(
-        store,
         destination,
         &remove.key,
         &BTreeMap::new(),
         &remove.alternates,
         Some(&revision),
         "delete",
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
-fn fetched(
-    store: &Store,
-    source: &DatabaseTarget,
+async fn fetched(
+    source: &TargetStore<'_>,
     key: &RecordKey,
     mark: &FileMark,
     placement: &str,
 ) -> Result<Vec<u8>, String> {
-    let body = json!({
-        "schema": key.qualified_schema(),
-        "key": {"hash": key.hash, "range": key.range},
-        "placement": placement,
-    });
-    let response = store.post(source, "/api/db/fetch-blob", &body)?;
-    let file = response.get("file").ok_or("file bytes are missing")?;
-    let sha = file
-        .get("sha256")
-        .and_then(Value::as_str)
-        .ok_or("file bytes are missing")?;
+    let schema = key.qualified_schema();
+    let (sha, bytes) = source
+        .fetch_file(&schema, &key.hash, key.range.as_deref(), placement)
+        .await?;
     if sha != mark.sha256 {
         return Err("file bytes do not match the record".into());
     }
-    let encoded = file
-        .get("bytes_b64")
-        .and_then(Value::as_str)
-        .ok_or("file bytes are missing")?;
-    base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .map_err(|_| "file bytes are missing".to_owned())
+    Ok(bytes)
 }
 
-fn put_files(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn put_files(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     blob: &[u8],
@@ -209,12 +173,11 @@ fn put_files(
             "media_type": inline_mark.media_type,
         });
     }
-    record_revision(&store.post(destination, "/api/db/put-blob", &body)?)
+    record_revision(&destination.put_file(&body).await?)
 }
 
-fn put_inline(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn put_inline(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     mark: &FileMark,
@@ -228,12 +191,11 @@ fn put_inline(
         "media_type": mark.media_type,
         "placement": "inline",
     });
-    record_revision(&store.post(destination, "/api/db/put-blob", &body)?)
+    record_revision(&destination.put_file(&body).await?)
 }
 
-fn clear(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn clear(
+    destination: &TargetStore<'_>,
     write: &Write,
     revision: Option<&str>,
     placement: &str,
@@ -249,12 +211,11 @@ fn clear(
         )?,
         "placement": placement,
     });
-    record_revision(&store.post(destination, "/api/db/delete-blob", &body)?)
+    record_revision(&destination.delete_file(&body).await?)
 }
 
-fn clear_row(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn clear_row(
+    destination: &TargetStore<'_>,
     remove: &Remove,
     revision: &str,
     placement: &str,
@@ -263,12 +224,11 @@ fn clear_row(
         "mutation": row_mutation(&remove.key, &remove.fields, &remove.alternates, false, Some(revision), "replace")?,
         "placement": placement,
     });
-    record_revision(&store.post(destination, "/api/db/delete-blob", &body)?)
+    record_revision(&destination.delete_file(&body).await?)
 }
 
-fn mutate(
-    store: &Store,
-    destination: &DatabaseTarget,
+async fn mutate(
+    destination: &TargetStore<'_>,
     key: &RecordKey,
     fields: &BTreeMap<String, Value>,
     alternates: &Value,
@@ -283,7 +243,7 @@ fn mutate(
         revision,
         operation,
     )?;
-    record_revision(&store.post(destination, "/api/mutation", &body)?)
+    record_revision(&destination.mutate(&body).await?)
 }
 
 fn mutation_body(write: &Write, revision: Option<&str>, operation: &str) -> Result<Value, String> {

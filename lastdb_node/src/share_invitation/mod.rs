@@ -1,5 +1,5 @@
 //! Recipient-encrypted invitations for ordinary Backup V2 share streams.
-use crate::cloud_backup_client::byte_backup::GuestReadPermission;
+use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use cloud_backup_protocol::Digest;
@@ -12,11 +12,13 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 use zeroize::Zeroizing;
 
 mod contact;
+pub(crate) mod inbox;
 mod metadata;
 pub use contact::{ShareContact, ShareRecipient};
 
 const INVITATION_V1: &[u8] = b"lastdb-share-invite-v1\0";
 const INVITATION_V2: &[u8] = b"lastdb-share-invite-v2\0";
+const INVITATION_V3: &[u8] = b"lastdb-share-invite-v3\0";
 const INVITATION_SIGNATURE: &[u8] = b"lastdb:share-invitation-signature:v1";
 const INVITATION_KEY: &[u8] = b"lastdb:share-invitation-aes:v1";
 const SIGNATURE_BYTES: usize = 64;
@@ -43,6 +45,7 @@ pub struct OpenedShareInvitation {
     pub permission: GuestReadPermission,
     pub publication_key: Zeroizing<[u8; 32]>,
     pub spec: Option<crate::share_spec::PublicationSpec>,
+    pub(crate) inbox_key: Option<PublicKey>,
 }
 
 /// Load the recipient decryption and contact authority from a LastDB identity home.
@@ -57,18 +60,6 @@ pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, 
             .map_err(|_| "invalid LastDB identity size".to_owned())?,
     );
     ShareRecipient::from_identity_seed(&seed).map_err(|e| e.to_string())
-}
-
-/// Seal a signed stream permission and publication key to a verified contact.
-///
-/// The caller checks the contact identity before selecting it for this share.
-pub fn seal_invitation(
-    contact: &ShareContact,
-    permission: &GuestReadPermission,
-    publication_key: &[u8; 32],
-    publisher: &Ed25519KeyPair,
-) -> Result<Vec<u8>> {
-    seal(contact, permission, publication_key, publisher, None)
 }
 
 pub(crate) fn seal(
@@ -99,8 +90,16 @@ pub(crate) fn seal(
     body.extend_from_slice(contact.encryption.as_bytes());
     body.extend_from_slice(publication_key);
     let version = if let Some(spec) = spec {
-        metadata::encode(&mut body, spec, authorization)?;
-        INVITATION_V2
+        if spec.whole_database() {
+            body.extend_from_slice(
+                inbox::public_key(publisher, permission.stream().stream_id.as_str())?.as_bytes(),
+            );
+            metadata::encode(&mut body, spec, authorization)?;
+            INVITATION_V3
+        } else {
+            metadata::encode(&mut body, spec, authorization)?;
+            INVITATION_V2
+        }
     } else {
         body.extend_from_slice(authorization);
         INVITATION_V1
@@ -150,7 +149,7 @@ impl ShareRecipient {
         check_expiry: bool,
     ) -> Result<OpenedShareInvitation> {
         let invalid = || ShareInvitationError("invalid sealed share invitation");
-        let version = [INVITATION_V1, INVITATION_V2]
+        let version = [INVITATION_V1, INVITATION_V2, INVITATION_V3]
             .into_iter()
             .find(|prefix| sealed.starts_with(prefix))
             .filter(|_| sealed.len() <= MAX_SEALED_INVITATION_BYTES)
@@ -190,11 +189,22 @@ impl ShareRecipient {
         if identity != &self.contact.identity || encryption != self.contact.encryption.as_bytes() {
             return Err(ShareInvitationError("share invitation recipient differs"));
         }
-        let (spec, authorization) = if version == INVITATION_V2 {
-            let (spec, authorization) = metadata::decode(authorization)?;
-            (Some(spec), authorization)
+        let (inbox_key, authorization) = if version == INVITATION_V3 {
+            let (key, rest) = authorization
+                .split_first_chunk::<32>()
+                .ok_or_else(invalid)?;
+            (Some(PublicKey::from(*key)), rest)
         } else {
             (None, authorization)
+        };
+        let (spec, authorization) = if version == INVITATION_V1 {
+            (None, authorization)
+        } else {
+            let (spec, authorization) = metadata::decode(authorization)?;
+            if spec.whole_database() != inbox_key.is_some() {
+                return Err(invalid());
+            }
+            (Some(spec), authorization)
         };
         let authorization = std::str::from_utf8(authorization).map_err(|_| invalid())?;
         let permission = GuestReadPermission::parse(authorization)
@@ -214,12 +224,15 @@ impl ShareRecipient {
             permission,
             publication_key: Zeroizing::new(*publication_key),
             spec,
+            inbox_key,
         })
     }
 }
 
 fn signing_bytes(version: &[u8], body: &[u8]) -> Vec<u8> {
-    let domain = if version == INVITATION_V2 {
+    let domain = if version == INVITATION_V3 {
+        &b"lastdb:share-invitation-signature:v3"[..]
+    } else if version == INVITATION_V2 {
         &b"lastdb:share-invitation-signature:v2"[..]
     } else {
         INVITATION_SIGNATURE

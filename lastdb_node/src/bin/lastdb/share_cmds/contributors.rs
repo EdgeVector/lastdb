@@ -1,9 +1,9 @@
 use super::named;
 use crate::ShareContributorCommand;
-use std::path::Path;
+use std::path::PathBuf;
 
 pub(super) fn run(
-    identity_home: &Path,
+    data_dir: Option<PathBuf>,
     db: Option<&str>,
     action: ShareContributorCommand,
 ) -> Result<(), String> {
@@ -15,7 +15,7 @@ pub(super) fn run(
             regrant,
             expires_in_hours,
         } => named::grant(named::InviteOptions {
-            identity_home,
+            data_dir,
             db,
             recipient: &recipient,
             recipient_key,
@@ -24,10 +24,7 @@ pub(super) fn run(
             expires_in_hours: expires_in_hours.unwrap_or(24),
         }),
         ShareContributorCommand::Revoke { recipient_key } => {
-            named::revoke(identity_home, db, recipient_key)
-        }
-        ShareContributorCommand::Accept { .. } => {
-            unreachable!("grant attachment is routed to the node")
+            named::revoke(data_dir, db, recipient_key)
         }
     }
 }

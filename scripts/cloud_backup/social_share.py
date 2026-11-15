@@ -94,9 +94,10 @@ def revoke(publisher, database, reader_key, revision):
 
 
 def transfer(programs, root, publisher, recipient, api_key):
+    name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+    verify_shared_albums_setup(recipient, name + "-albums")
     if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
         install(publisher, root, revision)
-    name = f"ci-social-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     created = sdk(publisher, "create", name=name)
     database = str(uuid.UUID(created["id"]))
     require(database == created["id"] and created["spec"] == SPEC, "social_created_database")
@@ -105,12 +106,17 @@ def transfer(programs, root, publisher, recipient, api_key):
     schema = json.loads((ROOT / "spec/social/Album.json").read_text())
     definition = publisher.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
     write_album(publisher, database, definition, 0)
+    # Enroll the stopped publisher and verify the next boot, as in social_circles.
+    # Live enrollment can re-exec the daemon with the same PID and a new start time.
+    publisher.stop()
     connected = programs.command(publisher.home, [
         "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
         "--expected-user-hash", publisher.account, "--json",
     ], input_bytes=api_key, timeout=20)
     require(connected["environment"] == "dev" and connected["account_id"] == publisher.account
             and connected["credentials_saved"] is True, "social_dev_connection")
+    publisher.keep_saved_credentials = True
+    publisher.start()
     contact = root / "reader.contact"
     reader_key = programs.command(recipient.home, [
         "share", "contact", "--out", str(contact),
@@ -131,6 +137,45 @@ def transfer(programs, root, publisher, recipient, api_key):
         with window(recipient) as recipient_app:
             share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app)
     check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
+
+
+def verify_shared_albums_setup(node, name):
+    setup = {"setupName": "shared-albums", "requiredVersion": 1}
+    with window(node) as browser:
+        created = app_call(browser, "/api/setup-database", {**setup, "localName": name})
+        database = created["databaseId"]
+        require(str(uuid.UUID(database)) == database and created["name"] == name
+                and created["setupName"] == setup["setupName"] and created["version"] == 1,
+                "social_named_setup_database")
+        definitions = created["definitions"]
+        require(set(definitions) == {"social/Album", "social/AlbumItem", "social/Photo", "social/Comment"},
+                "social_named_setup_definitions")
+        reopened = sdk(node, "setup", **setup, databaseId=database)
+        repeated = sdk(node, "setup", **setup, localName=name)
+        require(reopened == repeated == created, "social_named_setup_stable_id")
+        app_call(browser, "/api/setup-database", {**setup, "databaseId": database,
+                                                  "requiredVersion": 2}, status=400)
+        write_album(node, database, definitions[SCHEMA], 0)
+        choose = {"spec": {"name": "whole-database", "version": 1},
+                  "intent": "read", "databaseId": database}
+        selections = [(app, app_call(browser, "/api/pick", choose))
+                      for app in ("album-viewer", "photo-journal")]
+        require(all(selection["databaseId"] == database for _, selection in selections)
+                and read_album(node, selections, database, "album-0", ALBUMS[0]),
+                "social_named_setup_two_apps")
+        schema = json.loads((ROOT / "spec/social/Album.json").read_text())
+        schema["schema"]["fields"].append("event_label")
+        schema["schema"]["field_types"]["event_label"] = "String"
+        schema["schema"]["field_descriptions"]["event_label"] = "Optional label for the occasion."
+        upgraded = node.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
+        reopened = sdk(node, "setup", **setup, databaseId=database)
+        require(reopened["databaseId"] == database and reopened["definitions"][SCHEMA] == upgraded
+                and definitions[SCHEMA] != upgraded, "social_named_setup_compatible_expansion")
+        require(read_album(node, selections, database, "album-0", ALBUMS[0]),
+                "social_named_setup_upgrade_kept_record")
+    message = "Two scoped apps read the same album, and shared-albums v1 reopened after an additive schema upgrade."
+    print(message, flush=True)
+    summary(message)
 
 
 def share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app):

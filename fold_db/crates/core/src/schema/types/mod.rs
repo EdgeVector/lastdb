@@ -2,7 +2,6 @@
 
 pub mod key_comparison;
 
-pub use key_comparison::KeyValuePageOrder;
 pub use lastdb_model::schema::types::*;
 
 pub mod catalog_types {

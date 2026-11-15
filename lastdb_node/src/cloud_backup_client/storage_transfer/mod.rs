@@ -1,30 +1,29 @@
-//! Separately versioned opaque byte transport for LastDB cloud backup V2.
-use super::{AuthClient, BackupTransport};
+//! Authenticated cloud storage context, job lifecycle, presigned blob transfer, and guest permissions.
+use super::{AuthClient, BackupTransport, PresignedPut};
 use cloud_backup_protocol::v2::{
     context::{ContextReadRequest, ContextReadResponse},
     jobs::{JobBeginRequest, JobCloseRequest, JobResult},
     limits::CONTROL_JSON_MAX_BYTES,
     transfer::{
         TransferBatchResponse, TransferIdentityRequest, TransferInput, TransferItemResult,
-        TransferMode, TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
+        TransferPrepareRequest, TransferResumeResponse, TransferResumeResult,
     },
     Version,
 };
 use reqwest::header::HeaderMap;
 use serde::{de::DeserializeOwned, Serialize};
-use std::io::Read;
 
 mod exact_upload;
 mod guest_permission;
 
-pub use super::{BackupTransportError, UploadObservation};
+pub use super::BackupTransportError;
 pub use exact_upload::ExactUpload;
 pub use guest_permission::{GuestReadPermission, ShareEnvironment};
 pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
 macro_rules! validated_rpc {
-    ($fn:ident($req:ty) -> $resp:ty : $path:literal, $check:ident) => {
-        pub async fn $fn(&self, request: &$req) -> Result<$resp> {
+    ($vis:vis $fn:ident($req:ty) -> $resp:ty : $path:literal, $check:ident) => {
+        $vis async fn $fn(&self, request: &$req) -> Result<$resp> {
             request.validate()?;
             let response: $resp = self.post($path, request).await?;
             response.$check(request)?;
@@ -35,7 +34,7 @@ macro_rules! validated_rpc {
 
 macro_rules! identity_rpc {
     ($fn:ident -> $resp:ty : $path:literal) => {
-        pub async fn $fn(&self, input: &TransferInput) -> Result<$resp> {
+        async fn $fn(&self, input: &TransferInput) -> Result<$resp> {
             let response: $resp = self.post($path, &identity(input)?).await?;
             response.validate_for(input)?;
             Ok(response)
@@ -44,11 +43,11 @@ macro_rules! identity_rpc {
 }
 
 #[derive(Clone)]
-pub struct ByteBackupClient {
+pub struct StorageTransferClient {
     transport: BackupTransport,
 }
 
-impl ByteBackupClient {
+impl StorageTransferClient {
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         Ok(Self {
             transport: BackupTransport::from_auth(auth)?,
@@ -68,38 +67,34 @@ impl ByteBackupClient {
             .await
     }
 
-    validated_rpc!(context(ContextReadRequest) -> ContextReadResponse : "context/read", validate_for);
+    validated_rpc!(pub context(ContextReadRequest) -> ContextReadResponse : "context/read", validate_for);
     validated_rpc!(begin(JobBeginRequest) -> JobResult : "jobs/begin", validate_for_begin);
-    validated_rpc!(close(JobCloseRequest) -> JobResult : "jobs/close", validate_for_close);
+    validated_rpc!(pub close(JobCloseRequest) -> JobResult : "jobs/close", validate_for_close);
     identity_rpc!(resume -> TransferResumeResult : "transfers/resume");
     identity_rpc!(complete -> TransferItemResult : "transfers/complete");
 
-    pub async fn prepare(&self, request: &TransferPrepareRequest) -> Result<TransferBatchResponse> {
+    async fn prepare(&self, request: &TransferPrepareRequest) -> Result<TransferBatchResponse> {
         request.validate()?;
         let response: TransferBatchResponse = self.post("transfers/prepare", request).await?;
         response.validate_for(&request.items)?;
         Ok(response)
     }
 
-    pub async fn upload(
+    async fn put_presigned(
         &self,
         input: &TransferInput,
         response: &TransferResumeResponse,
-        source: Box<dyn Read + Send>,
-    ) -> Result<UploadObservation> {
+        data: Vec<u8>,
+    ) -> Result<()> {
         response.validate_for(input)?;
-        let g = &response.grant;
-        let mp = g.transfer_mode == Some(TransferMode::MultipartPart);
-        self.transport
-            .upload(
-                &input.object.sha256,
-                input.object.bytes.get(),
-                g.url.as_str(),
-                g.expires_ms.get(),
-                source,
-                mp,
-            )
-            .await
+        let grant = &response.grant;
+        let put = PresignedPut {
+            sha256: &input.object.sha256,
+            bytes: input.object.bytes.get(),
+            grant_url: grant.url.as_str(),
+            expires_ms: grant.expires_ms.get(),
+        };
+        self.transport.put_presigned(&put, data).await
     }
 }
 

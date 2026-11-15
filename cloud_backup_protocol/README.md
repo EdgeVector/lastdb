@@ -23,6 +23,13 @@ The member-list read uses `member_list_read_view`.
 A node-key revoke covers every device of that key. The body-less proof remains only while that database is open.
 Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.
 
+Whole-database sharing depends on separate published and pending logs and
+the current publisher-signed configuration for each database. The pending
+log admits proposals from every active receiver and allows only the
+publisher to read or settle entries. The publisher's LastDB checks schema
+write grants after decryption and publishes only committed changes.
+[Requirements to preserve](../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
+
 The crate root holds the scalar, recovery and limit types that `src/v2` uses.
 Keep completion checks, retained bytes, and unresolved provider obligations until their exact saved state proves release is safe.
 

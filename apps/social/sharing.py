@@ -23,9 +23,9 @@ PENDING = {
 
 
 def can_manage_sharing(database):
-    return database.get("kind") == "shareable" and database.get("spec") in (
-        SPEC, {"name": "lastdb-files", "version": 1},
-    )
+    return database.get("kind") == "shareable" and (
+        database.get("sharingMode") == "whole_database"
+        or database.get("spec") in (SPEC, {"name": "lastdb-files", "version": 1}))
 
 
 class Sharing:
@@ -33,9 +33,10 @@ class Sharing:
         self.node = node
         self.people = people
 
-    def create(self, name):
+    def create(self, name, whole=False):
+        policy = {"sharingMode": "whole_database"} if whole else {"spec": SPEC}
         return self.node.call("POST", "/api/databases", {
-            "name": name, "kind": "shareable", "spec": SPEC,
+            "name": name, "kind": "shareable", **policy,
         })["database"]
 
     def databases(self):
@@ -99,26 +100,44 @@ class Sharing:
             starting_member = previous
             if previous is None and not active:
                 raise SocialError("the recipient has never been granted access to this database")
+            scoped = previous is not None and "writeSchemas" in previous
             member = {"nodeKey": node_key, "role": "read" if active else previous["role"],
                       "state": desired}
+            if scoped:
+                member["writeSchemas"] = []
             if previous and active:
                 member["regrant"] = True
             members[node_key] = member
             update = {"expectedRevision": current["revision"], "requestId": str(uuid.uuid4()),
                       "members": list(members.values())}
-            encoded = json.dumps(update, separators=(",", ":"))
             try:
-                written = self.node.write_record(PENDING_SCHEMA, definition, database_id,
-                                                {"request": encoded}, previous_request)
+                revision = self.save_update(database_id, definition, previous_request, update)
             except LastDBError as error:
                 if error.status != 409:
                     raise
                 continue
-            saved = {"revision": written["record_revision"], "fields": {"request": encoded}}
-            revision = self.finish_update(database_id, definition, saved)
             if revision is not None:
                 return revision
         raise SocialError("the sharing configuration changed concurrently; retry the operation")
+
+    def apply_members(self, database_id, expected_revision, members, circles):
+        definition = self.node.declare_private(PENDING)
+        previous = self.node.get_record(PENDING_SCHEMA, database_id)
+        if previous and previous["fields"]["request"]:
+            raise SocialError("finish the pending sharing change first")
+        request = {"expectedRevision": expected_revision, "requestId": str(uuid.uuid4()),
+                   "members": members, "circles": circles}
+        revision = self.save_update(database_id, definition, previous, request)
+        if revision is None:
+            raise SocialError("sharing changed while you edited it; review the current roster")
+        return revision
+
+    def save_update(self, database_id, definition, previous, request):
+        encoded = json.dumps(request, separators=(",", ":"))
+        written = self.node.write_record(PENDING_SCHEMA, definition, database_id,
+                                         {"request": encoded}, previous)
+        saved = {"revision": written["record_revision"], "fields": {"request": encoded}}
+        return self.finish_update(database_id, definition, saved)
 
     def resume_pending(self, database_id):
         definition = self.node.declare_private(PENDING)
@@ -136,7 +155,8 @@ class Sharing:
 
     def finish_update(self, database_id, definition, saved):
         request = json.loads(saved["fields"]["request"])
-        if any(member.get("regrant") and member["role"] == "submit" for member in request["members"]):
+        if any(member.get("regrant") and member["role"] == "submit" and "writeSchemas" not in member
+               for member in request["members"]):
             raise SocialError("a pending contributor regrant requires owner review")
         try:
             revision = self.apply(database_id, request)
@@ -147,6 +167,9 @@ class Sharing:
             if error.code != "share_revision_conflict":
                 raise
             return None
+        if "circles" in request:
+            from circles import store_policy
+            store_policy(self.node, database_id, request["circles"])
         self.clear_update(database_id, definition, saved)
         return revision
 
@@ -159,9 +182,10 @@ class Sharing:
 
     def apply(self, database_id, update):
         path = self.config_path(database_id)
+        wire = {key: update[key] for key in ("expectedRevision", "requestId", "members")}
         for attempt in range(3):
             try:
-                ack = self.node.call("PUT", path, update)
+                ack = self.node.call("PUT", path, wire)
             except (LastDBError, *TRANSPORT_ERRORS) as error:
                 if isinstance(error, LastDBError) and error.status != 503:
                     raise
@@ -190,6 +214,9 @@ class Sharing:
         contact_code = verified["contactCode"]
         self.people.remember(node_key, display_name, contact_code)
         revision = self.update_member(database_id, node_key, True)
+        return self.seal(database_id, node_key, contact_code, revision, publisher)
+
+    def seal(self, database_id, node_key, contact_code, revision, publisher):
         response = self.node.call("POST", f"/api/databases/{database_id}/invitations", {
             "contactCode": contact_code, "expectedNodeKey": node_key,
         })

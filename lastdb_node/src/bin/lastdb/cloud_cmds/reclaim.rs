@@ -1,6 +1,7 @@
 //! Inspect or advance the reclaimed cloud log position from an existing owner home.
 
 use super::{block_on_cloud, BackupReclaimArgs};
+use cloud_backup_protocol::Digest;
 use std::path::Path;
 
 pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
@@ -10,9 +11,21 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
     let batches = args
         .allow_required_client_upgrade
         .then(|| args.batches.unwrap_or(16));
+    let expected = args
+        .expect_snapshot
+        .clone()
+        .map(Digest::try_from)
+        .transpose()
+        .map_err(|_| "--expect-snapshot requires a lowercase SHA-256 digest")?;
     let report = block_on_cloud(
         "backup reclaim",
-        lastdb_node::log_sync::reclaim_snapshot_log(home, &args.database, batches),
+        lastdb_node::log_sync::reclaim_snapshot_log(
+            home,
+            &args.database,
+            batches,
+            expected.as_ref(),
+            args.steps_per_request,
+        ),
     )?;
     if args.json {
         println!(
@@ -36,7 +49,7 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
         report.reclaimed_through.get()
     );
     if args.allow_required_client_upgrade {
-        println!("Batches reclaimed: {}", report.batches);
+        println!("Reclaim requests confirmed: {}", report.batches);
     }
     Ok(())
 }

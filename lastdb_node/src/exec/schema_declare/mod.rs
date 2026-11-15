@@ -57,7 +57,7 @@ fn normalize_proposal(
     })
 }
 
-pub async fn execute_apps_declare_schema_route(
+pub(in crate::exec) async fn execute_apps_declare_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -97,17 +97,13 @@ pub async fn execute_apps_declare_schema_route(
         let SchemaSyncIntent::CatalogSync = b.intent;
         let d = normalize_proposal("app_id", &b.app_id, b.schema, b.retention)
             .map_err(|e| HostError::new(400, e))?;
-        dispatch_declare(host, &d).await
+        dispatch_declare(host, &d, false).await
     }
     .await;
     render(res, ctx)
 }
 
-pub(in crate::exec) async fn declare_schema(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
+pub(crate) async fn declare_schema_slice(body: &[u8], host: &Host) -> Result<Value, HostError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Req {
@@ -115,26 +111,36 @@ pub(in crate::exec) async fn declare_schema(
         schema: DeclarativeSchemaDefinition,
         #[serde(default)]
         intent: SchemaSyncIntent,
+        #[serde(default)]
+        install_if_missing: bool,
     }
-    let res = async {
-        let b: Req = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid /api/schemas/declare body: {e}")))?;
-        let SchemaSyncIntent::CatalogSync = b.intent;
-        let d = normalize_proposal("namespace", &b.namespace, b.schema, None)
-            .map_err(|e| HostError::new(400, e))?;
-        dispatch_declare(host, &d).await
-    }
-    .await;
-    render(res, ctx)
+    let b: Req = serde_json::from_slice(body)
+        .map_err(|e| HostError::new(400, format!("invalid /api/schemas/declare body: {e}")))?;
+    let SchemaSyncIntent::CatalogSync = b.intent;
+    let d = normalize_proposal("namespace", &b.namespace, b.schema, None)
+        .map_err(|e| HostError::new(400, e))?;
+    dispatch_declare(host, &d, b.install_if_missing).await
 }
 
-async fn dispatch_declare(host: &Host, d: &Proposal) -> Result<Value, HostError> {
+pub(in crate::exec) async fn declare_schema(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    render(declare_schema_slice(&req.body, host).await, ctx)
+}
+
+async fn dispatch_declare(
+    host: &Host,
+    d: &Proposal,
+    install_if_missing: bool,
+) -> Result<Value, HostError> {
     fold_db::schema::require_logical_layout(&d.catalog_schema.schema_type)
         .map_err(|e| HostError::new(400, e.to_string()))?;
     let conflict = |e| HostError::new(409, e);
     let layout = validate_manifest_retention(d.retention, &d.catalog_schema).map_err(conflict)?;
     let _guard = DECLARE_LOCK.lock().await;
-    let (runtime, reused, checked) = load_owned(host, d, layout.as_ref())
+    let (runtime, reused, checked) = load_owned(host, d, layout.as_ref(), install_if_missing)
         .await
         .map_err(conflict)?;
     let cat_id = d
@@ -176,8 +182,12 @@ async fn load_owned(
     host: &Host,
     d: &Proposal,
     layout: Option<&ManifestRetentionLayout>,
+    install_if_missing: bool,
 ) -> Result<(String, bool, Option<(ManifestRetentionPlan, bool)>), String> {
     let installed = check_owned_local(host, &d.local_schema_id, &d.catalog_schema)?;
+    if install_if_missing && installed.is_some() {
+        return Err("schema is already installed".into());
+    }
     let inst = installed.as_ref().map(|(s, _)| s);
     let runtime = inst.map_or(d.local_schema_id.as_str(), |s| s.name.as_str());
     let checked = match layout {

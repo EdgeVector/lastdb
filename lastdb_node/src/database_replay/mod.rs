@@ -31,8 +31,8 @@ mod wire;
 
 pub use payload::{AcceptedBody, FileObject, FileSection};
 pub use types::{
-    IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest, SnapshotFileSource,
-    SnapshotInstall, SnapshotManifest, SnapshotObject, SnapshotPart,
+    IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest, SnapshotInstall,
+    SnapshotManifest, SnapshotObject, SnapshotPart,
 };
 pub use wire::{manifest_from_json, part_from_json};
 
@@ -58,7 +58,7 @@ use journal::Resume;
 pub(crate) async fn install(
     host: &Host,
     request: &SnapshotInstall,
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
     local_device: Option<&str>,
 ) -> Result<u64, RestoreError> {
     let target = resolve_target(host, &request.database_id)?;
@@ -124,7 +124,7 @@ pub(crate) async fn replay_delivered(
     database_id: &str,
     publisher: &str,
     delivered: &[DeliveredEntry],
-    files: &mut (dyn SnapshotFileSource + Send),
+    files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     page::replay(host, database_id, publisher, delivered, files).await
 }

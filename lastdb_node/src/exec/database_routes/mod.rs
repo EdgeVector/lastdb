@@ -2,6 +2,8 @@
 
 mod catalog;
 
+pub(crate) use catalog::list_rows as list_database_rows;
+
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
@@ -20,7 +22,7 @@ enum Selection {
 
 /// Dispatch a database registry operation or route an ordinary record request
 /// to the explicitly selected database on the owner socket.
-pub async fn execute_database_request(
+pub(in crate::exec) async fn execute_database_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -46,13 +48,6 @@ pub async fn execute_database_request(
     }
     let selector = selector.to_owned();
     req.target = format!("/api/{path}");
-    if req.method == "POST" && req.target == "/api/contributors" {
-        return error_response(
-            400,
-            "contributor grants are managed on the signed database",
-            ctx,
-        );
-    }
     let route = match uds_router::route(req) {
         ControlRoute::Data(route) if is_scoped_operation(route) => route,
         ControlRoute::MethodNotAllowed { allow } => {
@@ -87,7 +82,7 @@ async fn dispatch(
             .await
         }
         Selection::Signed(share) => match route {
-            DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
+            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
             DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
@@ -97,51 +92,50 @@ async fn dispatch(
 }
 
 /// Bounded mutation and sharing requests can leave the socket worker.
-pub fn is_deferred_database_request(req: &UdsRequest) -> bool {
+pub(in crate::exec) fn is_deferred_database_request(req: &UdsRequest) -> bool {
     scoped_mutation(req).is_some()
         || split_database_path(&req.target)
             .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
 
-pub fn execute_deferred_database_request<'a>(
-    req: &'a mut UdsRequest,
-    ctx: &'a AccessContext,
-    host: &'a Host,
-) -> ErasedRoute<'a> {
-    Box::pin(async move {
-        if !ctx.is_owner {
-            return content_free(404, "Not Found");
-        }
-        if let Some((selector, route)) =
-            split_database_path(&req.target).and_then(|(selector, path)| {
-                Some((selector, super::database_share::Route::parse(path)?))
-            })
-        {
-            return with_handler_timeout_budget(
-                ctx,
-                handler_timeout(),
-                super::database_share::execute(route, req, ctx, host, selector),
+pub(in crate::exec) async fn execute_deferred_database_request(
+    req: &mut UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    if !ctx.is_owner {
+        return content_free(404, "Not Found");
+    }
+    if let Some((selector, route)) = split_database_path(&req.target)
+        .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
+    {
+        return with_handler_timeout_budget(
+            ctx,
+            handler_timeout(),
+            super::database_share::execute(route, req, ctx, host, selector),
+        )
+        .await;
+    }
+    let Some((selector, path, route)) = scoped_mutation(req) else {
+        return content_free(404, "Not Found");
+    };
+    let selector = selector.to_owned();
+    req.target = format!("/api/{path}");
+    match resolve_database(&selector, ctx, host) {
+        Ok(Selection::Owner) => mutation::execute_deferred_mutation(route, req, ctx, host).await,
+        Ok(Selection::Owned(store)) => {
+            host.with_records(
+                store,
+                mutation::execute_deferred_mutation(route, req, ctx, host),
             )
-            .await;
+            .await
         }
-        let Some((selector, path, route)) = scoped_mutation(req) else {
-            return content_free(404, "Not Found");
-        };
-        let selector = selector.to_owned();
-        req.target = format!("/api/{path}");
-        match resolve_database(&selector, ctx, host) {
-            Ok(Selection::Owner) => execute_deferred_mutation(route, req, ctx, host).await,
-            Ok(Selection::Owned(store)) => {
-                host.with_records(store, execute_deferred_mutation(route, req, ctx, host))
-                    .await
-            }
-            Ok(Selection::Signed(_)) => match route {
-                DataRoute::Mutation => error_response(403, "this share is read-only", ctx),
-                _ => error_response(403, "operation is unavailable on a received database", ctx),
-            },
-            Err(response) => response,
-        }
-    })
+        Ok(Selection::Signed(share)) => match route {
+            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
+            _ => error_response(403, "operation is unavailable on a received database", ctx),
+        },
+        Err(response) => response,
+    }
 }
 
 fn scoped_mutation(req: &UdsRequest) -> Option<(&str, &str, DataRoute)> {
@@ -192,7 +186,7 @@ fn resolve_share(
     }
 }
 
-pub(super) fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
+fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
     let (status, message) = error.status();
     error_response(status, message, ctx)
 }

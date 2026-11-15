@@ -50,6 +50,24 @@ pub(in crate::exec) fn list_schemas(
     let Some(rows) = rows else {
         return content_free(500, "Internal Server Error");
     };
+    let rows = if query_flag(&req.target, "include_definition_ids") {
+        let Ok(schemas) = mgr.get_schemas() else {
+            return content_free(500, "Internal Server Error");
+        };
+        rows.into_iter()
+            .map(|mut row| {
+                let id = row
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .and_then(|name| schemas.get(name))
+                    .and_then(|schema| crate::log_sync::schema_id(schema).ok());
+                row["definition_id"] = json!(id);
+                row
+            })
+            .collect()
+    } else {
+        rows
+    };
     let newer = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
     json_ok(&envelope(
         &json!({
@@ -62,6 +80,23 @@ pub(in crate::exec) fn list_schemas(
     ))
 }
 
+pub(crate) fn get_schema_value(host: &Host, name: &str) -> Result<Value, HostError> {
+    let mgr = host.records().schema_manager();
+    let nf = || HostError::new(404, format!("Schema not found: {name}"));
+    let c = resolve_schema_name(host, name)?.ok_or_else(nf)?;
+    let s = mgr
+        .get_schema_metadata(&c)
+        .map_err(|e| HostError::internal(e.to_string()))?
+        .ok_or_else(nf)?;
+    let st = mgr
+        .get_schema_states()
+        .ok()
+        .and_then(|m| m.get(&c).copied())
+        .unwrap_or_default();
+    serde_json::to_value(SchemaWithState::new(s, st))
+        .map_err(|e| HostError::internal(e.to_string()))
+}
+
 pub(in crate::exec) fn get_schema(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -70,22 +105,8 @@ pub(in crate::exec) fn get_schema(
     let Some(name) = schema_name_from_target(&req.target) else {
         return content_free(400, "Bad Request");
     };
-    let mgr = host.records().schema_manager();
     render(
-        resolve_schema_name(host, &name).and_then(|opt| {
-            let nf = || HostError::new(404, format!("Schema not found: {name}"));
-            let c = opt.ok_or_else(nf)?;
-            let s = mgr
-                .get_schema_metadata(&c)
-                .map_err(|e| HostError::internal(e.to_string()))?
-                .ok_or_else(nf)?;
-            let st = mgr
-                .get_schema_states()
-                .ok()
-                .and_then(|m| m.get(&c).copied())
-                .unwrap_or_default();
-            Ok(json!({ "schema": SchemaWithState::new(s, st) }))
-        }),
+        get_schema_value(host, &name).map(|schema| json!({ "schema": schema })),
         ctx,
     )
 }
@@ -175,10 +196,7 @@ fn blocked_drop_target(host: &Host, requested: &str, error: &HostError) -> Optio
     blocked.next().is_none().then(|| first.schema.name.clone())
 }
 
-pub(in crate::exec) fn resolve_schema_name(
-    host: &Host,
-    name: &str,
-) -> Result<Option<String>, HostError> {
+pub(crate) fn resolve_schema_name(host: &Host, name: &str) -> Result<Option<String>, HostError> {
     let mgr = host.records().schema_manager();
     let has = |n: &str| {
         mgr.get_schema_metadata(n)

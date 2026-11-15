@@ -8,17 +8,16 @@ use crate::saved_query::{
 };
 use serde_json::{json, Value};
 
-use super::http::{DatabaseTarget, Store};
+use super::store::TargetStore;
 
-pub(super) fn select(
-    store: &Store,
-    source: &DatabaseTarget,
+pub(super) async fn select(
+    source: &TargetStore<'_>,
     definition: &Definition,
     declared: &[DeclareSchema],
 ) -> Result<Vec<Projected>, String> {
     let mut rows = BTreeMap::new();
     for read in &definition.reads {
-        for row in read_one(store, source, read)? {
+        for row in read_one(source, read).await? {
             let key = row_key(&read.namespace, &read.schema, &row)?;
             expect_read_key(read, &key)?;
             rows.insert(key, row);
@@ -26,7 +25,7 @@ pub(super) fn select(
     }
     let reads = rows.clone();
     for link in &definition.links {
-        expand_link(store, source, link, &reads, &mut rows)?;
+        expand_link(source, link, &reads, &mut rows).await?;
     }
     if rows.len() > MAX_RECORDS {
         return Err("saved query selects more than 256 records".into());
@@ -45,13 +44,13 @@ pub(super) fn select(
     Ok(projected)
 }
 
-fn read_one(store: &Store, source: &DatabaseTarget, read: &Read) -> Result<Vec<Value>, String> {
+async fn read_one(source: &TargetStore<'_>, read: &Read) -> Result<Vec<Value>, String> {
     let schema = format!("{}/{}", read.namespace, read.schema);
     let filter = match &read.range {
         RangeSelect::Point | RangeSelect::All => json!({"HashKey": read.hash}),
         RangeSelect::Exact(range) => json!({"HashRangeKey": {"hash": read.hash, "range": range}}),
     };
-    let rows = store.query(source, &schema, &filter)?;
+    let rows = source.query(&schema, &filter).await?;
     let exact = !matches!(read.range, RangeSelect::All);
     if exact && rows.len() > 1 {
         return Err("saved query read returned more than one record".into());
@@ -71,9 +70,8 @@ fn expect_read_key(read: &Read, key: &RecordKey) -> Result<(), String> {
     Ok(())
 }
 
-fn expand_link(
-    store: &Store,
-    source: &DatabaseTarget,
+async fn expand_link(
+    source: &TargetStore<'_>,
     link: &Link,
     reads: &BTreeMap<RecordKey, Value>,
     rows: &mut BTreeMap<RecordKey, Value>,
@@ -86,7 +84,7 @@ fn expand_link(
             continue;
         };
         let schema = format!("{}/{}", link.namespace, link.schema);
-        let found = store.query(source, &schema, &json!({ "HashKey": hash }))?;
+        let found = source.query(&schema, &json!({ "HashKey": hash })).await?;
         if found.len() > 1 {
             return Err("saved query link returned more than one record".into());
         }
