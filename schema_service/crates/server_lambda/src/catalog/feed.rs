@@ -63,13 +63,14 @@ impl Catalog {
             .max(INITIAL_API);
         let first = LIST_FLOOR;
         let last = highest.saturating_add(LOOK_AHEAD).min(MAX_DISCOVERY_API);
-        let keys = (first..=last).flat_map(|api| LIST_CHANNELS.map(move |channel| (channel, api)));
+        let keys = (first..=last)
+            .flat_map(|api| LIST_CHANNELS.map(move |channel| (channel.to_owned(), api)));
         let prior = &image.lists;
         let observed: Vec<_> = stream::iter(keys)
             .map(|(channel, api)| {
-                let key = interface_list_path(channel, api);
+                let key = interface_list_path(&channel, api);
                 let previous = prior.get(&key);
-                async move { (key, self.read_list(channel, api, previous, trust).await) }
+                async move { (key, self.read_list(&channel, api, previous, trust).await) }
             })
             .buffer_unordered(8)
             .collect()
