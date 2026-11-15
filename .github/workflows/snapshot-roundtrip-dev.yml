@@ -11,6 +11,8 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
 # Native cutoff recovery from the exact accepted client, with provider bytes retained:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff
+# Require automatic log removal on the deployed DEV service:
+#   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff -f require_automatic=true
 #
 # After checking out lastdb, that client and this round trip are:
 #   python3 scripts/release/published_client.py --out-dir DIR
@@ -37,6 +39,10 @@ on:
         options:
           - round-trip
           - native-cutoff
+      require_automatic:
+        description: "Require automatic log removal in native cutoff mode"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/snapshot-roundtrip-dev.yml'
@@ -73,10 +79,14 @@ jobs:
           SELECTED_REF: ${{ github.ref }}
           SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
           CLIENT: ${{ github.event.inputs.client || 'build' }}
+          REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
         run: |
           test "$SELECTED_REF" = refs/heads/main
           if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
             test "$CLIENT" = build
+          fi
+          if [ "$REQUIRE_AUTOMATIC" = true ]; then
+            test "$SNAPSHOT_MODE" = native-cutoff
           fi
       - name: Check the operational recipe syntax
         run: |
@@ -148,10 +158,15 @@ jobs:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
         run: |
           python3 -m pip install --quiet cryptography==41.0.7
+          args=()
+          if [ "$REQUIRE_AUTOMATIC" = true ]; then
+            args+=(--require-automatic)
+          fi
           python3 scripts/cloud_backup/snapshot_gate.py native-cutoff \
-            --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
+            --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION" "${args[@]}"
       - name: Delete the signed log and snapshot inventory
         if: always()
         env:
