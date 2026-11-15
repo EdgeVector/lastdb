@@ -9,7 +9,7 @@ mod revision;
 use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{Mutation, MutationType, Schema};
+use fold_db::schema::types::{Mutation, MutationType, Schema, SchemaError};
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, Namespace};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,17 @@ pub(crate) enum ContributionError {
     Invalid,
     Forbidden,
     Unavailable,
+}
+
+fn terminal_record_error(error: &SchemaError) -> bool {
+    matches!(
+        error,
+        SchemaError::CasConflict { .. }
+            | SchemaError::InvalidData(_)
+            | SchemaError::InvalidField(_)
+            | SchemaError::NotFound(_)
+            | SchemaError::RecordTooLarge { .. }
+    )
 }
 
 // The normal control request cap bounds both the encrypted envelope and JSON.
