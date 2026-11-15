@@ -1,4 +1,4 @@
-//! Resume deletion of only the delivery prefix covered by a personal snapshot.
+//! Resume covered personal delivery and provider retirement work.
 
 use std::fs::{self, File};
 use std::io::ErrorKind;
@@ -34,6 +34,8 @@ struct Work {
     device: String,
     active: Option<Covered>,
     planned: Option<Covered>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_through: Option<u64>,
 }
 
 impl Work {
@@ -46,6 +48,7 @@ impl Work {
             device: log.device().as_str().to_owned(),
             active: None,
             planned: None,
+            provider_through: None,
         }
     }
 
@@ -58,6 +61,7 @@ impl Work {
         let work: Self = serde_json::from_slice(&bytes)
             .map_err(|_| "local snapshot cleanup state is invalid")?;
         if work.version != 1
+            || work.provider_through == Some(0)
             || work
                 .active
                 .iter()
@@ -80,7 +84,7 @@ impl Work {
         let parent = path
             .parent()
             .ok_or("snapshot cleanup state has no directory")?;
-        if self.active.is_none() && self.planned.is_none() {
+        if self.active.is_none() && self.planned.is_none() && self.provider_through.is_none() {
             match fs::remove_file(path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
@@ -109,6 +113,7 @@ impl Work {
             self.planned = None;
         }
         if remove_active || remove_planned {
+            self.provider_through = Some(self.provider_through.unwrap_or(0).max(floor));
             self.save(path)?;
         }
         if remove_active {
@@ -195,8 +200,8 @@ fn store_plan(
     work.save(&path)
 }
 
-/// Pace cleanup independently of upload and download. One successful turn
-/// makes at most one signed reclaim request.
+/// Pace cleanup independently of upload and download. One turn requests at most
+/// one bounded delivery or provider cleanup step.
 #[derive(Default)]
 pub(super) struct Pacing(Option<Instant>);
 
@@ -228,7 +233,7 @@ async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
     let status = retention::automatic_status(log).await?;
     let floor = status.reclaimed_through.get();
     work.finish_through(&path, floor)?;
-    if work.active.is_none() && work.planned.is_none() {
+    if work.active.is_none() && work.planned.is_none() && work.provider_through.is_none() {
         return Ok(None);
     }
     let Some(snapshot_id) = status
@@ -244,14 +249,42 @@ async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
     if work.promote(log, &cloud).await {
         work.save(&path)?;
     }
-    let Some(active) = work.active.as_ref() else {
+    if let Some(floor) = reclaim_pending_log(home, log, work.active.as_ref(), &cloud, floor).await?
+    {
+        work.finish_through(&path, floor)?;
+        return Ok(Some(Duration::ZERO));
+    }
+    if work.provider_through.is_none_or(|through| floor < through) {
         return Ok(Some(PAUSED));
+    }
+    match retention::cleanup_retired(log, &cloud.snapshot_id, floor, cloud.through).await? {
+        Some(retention::ProviderCleanup::Complete) => {
+            work.provider_through = None;
+            work.save(&path)?;
+            tracing::info!(target: "lastdbd::log_sync", through = floor, "retired snapshot provider cleanup completed");
+            Ok(Some(Duration::ZERO))
+        }
+        Some(retention::ProviderCleanup::Progress) => Ok(Some(Duration::ZERO)),
+        Some(retention::ProviderCleanup::Waiting) => Ok(Some(RETRY)),
+        None => Ok(Some(PAUSED)),
+    }
+}
+
+async fn reclaim_pending_log(
+    home: &Path,
+    log: &CloudLog,
+    active: Option<&Covered>,
+    cloud: &Covered,
+    floor: u64,
+) -> Result<Option<u64>, String> {
+    let Some(active) = active else {
+        return Ok(None);
     };
     let target = active.through.min(cloud.through);
     if floor >= target || session::load_cursor(home, log.database_id())? < active.through {
-        return Ok(Some(PAUSED));
+        return Ok(None);
     }
-    if active != &cloud
+    if active != cloud
         && !covers(
             &transport::exact(log, &cloud.snapshot_id).await?,
             cloud.through,
@@ -261,8 +294,7 @@ async fn run(home: &Path, log: &CloudLog) -> Result<Option<Duration>, String> {
     }
     // The signed recovery cut can differ from the local snapshot. Bound each
     // step by both positions and keep the original local target on disk.
-    let floor =
-        retention::reclaim_covered(log, &cloud.snapshot_id, floor, cloud.through, target).await?;
-    work.finish_through(&path, floor)?;
-    Ok(Some(Duration::ZERO))
+    retention::reclaim_covered(log, &cloud.snapshot_id, floor, cloud.through, target)
+        .await
+        .map(Some)
 }

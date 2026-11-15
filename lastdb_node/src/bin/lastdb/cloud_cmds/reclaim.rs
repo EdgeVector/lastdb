@@ -50,6 +50,9 @@ pub(super) fn run(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
     );
     if args.allow_required_client_upgrade {
         println!("Reclaim requests confirmed: {}", report.batches);
+        if let Some(state) = report.provider_cleanup {
+            println!("Retired snapshot cleanup: {state}");
+        }
     }
     Ok(())
 }

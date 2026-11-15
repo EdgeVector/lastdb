@@ -29,6 +29,33 @@ struct Reclaimed {
     snapshot_through: DecimalU64,
 }
 
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ProviderCleanup {
+    Progress,
+    Waiting,
+    Complete,
+}
+
+impl ProviderCleanup {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Progress => "progress",
+            Self::Waiting => "waiting",
+            Self::Complete => "complete",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Cleaned {
+    snapshot_id: Digest,
+    reclaimed_through: DecimalU64,
+    snapshot_through: DecimalU64,
+    state: ProviderCleanup,
+}
+
 /// Signed snapshot and retention positions for the selected cloud database.
 #[derive(Serialize)]
 pub struct ReclaimReport {
@@ -46,8 +73,11 @@ pub struct ReclaimReport {
     pub snapshot_through: DecimalU64,
     /// Last delivery sequence whose original log entry has been reclaimed.
     pub reclaimed_through: DecimalU64,
-    /// Confirmed signed requests in this invocation. Zero for a status query.
+    /// Confirmed delivery reclamation requests in this invocation.
     pub batches: u8,
+    /// Provider cleanup state confirmed by this invocation, when supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_cleanup: Option<&'static str>,
 }
 
 /// Read retention status, or explicitly reclaim a bounded prefix for one snapshot.
@@ -86,6 +116,7 @@ pub async fn reclaim(
         snapshot_through: status.snapshot_through,
         reclaimed_through: status.reclaimed_through,
         batches: 0,
+        provider_cleanup: None,
     };
     if let Some(batches) = reclaim_batches {
         reclaim_batches_for_snapshot(&log, &mut report, batches, steps_per_request).await?;
@@ -131,7 +162,7 @@ async fn reclaim_batches_for_snapshot(
         .ok_or("cloud log reclamation requires a verified native recovery snapshot")?;
     let through = report.snapshot_through.get();
     let mut floor = report.reclaimed_through.get();
-    if floor == through {
+    if through == 0 {
         return Ok(());
     }
     let manifest = transport::exact(log, id).await?;
@@ -139,17 +170,56 @@ async fn reclaim_batches_for_snapshot(
         return Err("the cloud could not verify the selected native recovery snapshot".into());
     }
     for _ in 0..batches {
+        if floor == through {
+            let Some(cleaned) = cleanup_retired(log, id, floor, through).await? else {
+                break;
+            };
+            report.provider_cleanup = Some(cleaned.name());
+            if cleaned == ProviderCleanup::Progress {
+                continue;
+            }
+            break;
+        }
         let window = Window::Explicit(steps_per_request);
         floor = reclaim_batch(log, id, floor, through, window).await.map_err(|error| {
             format!("{error}. Last confirmed reclamation was through {floor}. Use backup reclaim --status to read the latest position before retrying")
         })?;
         report.reclaimed_through = DecimalU64::new(floor);
         report.batches += 1;
-        if floor == through {
-            break;
-        }
     }
     Ok(())
+}
+
+pub(super) async fn cleanup_retired(
+    log: &CloudLog,
+    id: &Digest,
+    floor: u64,
+    through: u64,
+) -> Result<Option<ProviderCleanup>, String> {
+    let response = transport::call_if_supported(
+        log,
+        json!({
+            "action": "cleanup-retired",
+            "database_id": log.database_id(),
+            "snapshot_id": id,
+            "expected_floor": DecimalU64::new(floor),
+        }),
+    )
+    .await?;
+    let Some(response) = response else {
+        return Ok(None);
+    };
+    let response: Cleaned =
+        serde_json::from_value(response).map_err(|_| "invalid signed provider cleanup response")?;
+    if &response.snapshot_id != id
+        || response.snapshot_through.get() != through
+        || response.reclaimed_through.get() != floor
+    {
+        return Err(
+            "cloud provider cleanup did not confirm the requested snapshot and floor".into(),
+        );
+    }
+    Ok(Some(response.state))
 }
 
 enum Window {
