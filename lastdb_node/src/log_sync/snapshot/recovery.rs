@@ -29,7 +29,9 @@ pub(in crate::log_sync) async fn restore_cut(
     cut: &NativeCut,
 ) -> Result<RestoredBase, String> {
     let database = Id::try_from(log.database_id().to_owned()).map_err(|error| error.to_string())?;
-    let manifest = transport::exact(log, &cut.native_snapshot_id).await?;
+    let (_, manifest) = transport::for_restore(log, Some(&cut.native_snapshot_id))
+        .await?
+        .ok_or("the requested signed snapshot is unavailable")?;
     if manifest.through != cut.snapshot_through || manifest.name.is_some() {
         return Err("snapshot does not cover the requested personal database cutoff".into());
     }

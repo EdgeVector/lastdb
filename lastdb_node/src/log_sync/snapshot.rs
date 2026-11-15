@@ -338,7 +338,7 @@ pub async fn restore_base(
     if let Some(revision) = super::members::revision(&log).await {
         log.member_revision = revision;
     }
-    let saved = transport::current(&log).await?;
+    let saved = transport::for_restore(&log, None).await?;
     if let Some(cut) =
         recovery::newer_cut(&log, saved.as_ref().map(|(_, manifest)| manifest)).await?
     {
