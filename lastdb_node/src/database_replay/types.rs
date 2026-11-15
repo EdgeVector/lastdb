@@ -6,6 +6,8 @@
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::CloudScope;
 
+use crate::host::{BlockedDelivery, ReplayBlockReason};
+
 /// One snapshot chain for one database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotInstall {
@@ -116,6 +118,36 @@ pub enum RestoreError {
     Durable(&'static str),
     /// The open store refused the record, schema, or file seal.
     Apply(&'static str),
+    /// A local rule holds this replay entry and all later deliveries.
+    ReplayBlocked {
+        reason: ReplayBlockReason,
+        delivery_sequence: Option<u64>,
+    },
+}
+
+impl RestoreError {
+    pub(super) fn at_delivery(self, sequence: u64) -> Self {
+        match self {
+            Self::ReplayBlocked { reason, .. } => Self::ReplayBlocked {
+                reason,
+                delivery_sequence: Some(sequence),
+            },
+            _ => self,
+        }
+    }
+
+    pub(crate) fn blocked_delivery(&self) -> Option<BlockedDelivery> {
+        match *self {
+            Self::ReplayBlocked {
+                reason,
+                delivery_sequence: Some(delivery_sequence),
+            } => Some(BlockedDelivery {
+                delivery_sequence,
+                reason,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RestoreError {
@@ -128,6 +160,20 @@ impl std::fmt::Display for RestoreError {
             Self::Conflict(detail) => ("conflict", *detail),
             Self::Durable(detail) => ("durable", *detail),
             Self::Apply(detail) => ("apply", *detail),
+            Self::ReplayBlocked {
+                reason,
+                delivery_sequence: Some(sequence),
+            } => {
+                return write!(
+                    formatter,
+                    "cloud replay blocked at delivery {sequence}: {}",
+                    reason.message()
+                );
+            }
+            Self::ReplayBlocked {
+                reason,
+                delivery_sequence: None,
+            } => ("blocked", reason.message()),
         };
         write!(formatter, "snapshot restore {kind}: {detail}")
     }

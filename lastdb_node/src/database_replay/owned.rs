@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use super::decode::{EntryDecoder, Prepared};
 use super::payload::{Change, RecordChange, RecordFile, SchemaChange};
 use super::{apply, DeliveredEntry, RestoreError, SnapshotEntry};
+use crate::host::ReplayBlockReason;
 use crate::Host;
 
 mod record;
@@ -38,7 +39,10 @@ pub(crate) async fn replay_owned(
         files,
     };
     for item in delivered {
-        replay.one(&item.entry).await?;
+        replay
+            .one(&item.entry)
+            .await
+            .map_err(|error| error.at_delivery(item.delivery_seq))?;
     }
     Ok(())
 }
@@ -88,6 +92,7 @@ impl OwnerReplay<'_> {
                 || change.inline.is_some(),
             incoming_ready: !matches!(change.file, RecordFile::Fetch(_)),
             prior: None,
+            blocked: None,
         };
         if replay.incoming_ready {
             self.stage(entry, &mut change).await?;
@@ -116,7 +121,17 @@ impl OwnerReplay<'_> {
                         .ok_or(RestoreError::Conflict(DETAIL))?;
                     replay.prior = Some((saved, change.mutation));
                 }
-                None => return result.map(|_| ()).map_err(|error| replay_error(&error)),
+                None => {
+                    return result.map(|_| ()).map_err(|error| {
+                        replay.blocked.map_or_else(
+                            || replay_error(&error),
+                            |reason| RestoreError::ReplayBlocked {
+                                reason,
+                                delivery_sequence: None,
+                            },
+                        )
+                    });
+                }
             }
         }
     }
@@ -205,7 +220,7 @@ impl OwnerReplay<'_> {
                 }
             })
             .await
-            .map_err(|error| replay_error(&error))?;
+            .map_err(|error| schema_replay_error(&error))?;
         Ok(())
     }
 
@@ -218,7 +233,7 @@ impl OwnerReplay<'_> {
             .schema_manager()
             .drop_replay_schema(&change.name, &identity.id, &identity.digest)
             .await
-            .map_err(|error| replay_error(&error))
+            .map_err(|error| schema_replay_error(&error))
     }
 }
 
@@ -261,6 +276,16 @@ impl Receipt {
 fn replay_error(error: &SchemaError) -> RestoreError {
     tracing::warn!(target: "lastdbd::log_sync", error = error_class(error), "could not replay an owned change");
     RestoreError::Apply(DETAIL)
+}
+
+fn schema_replay_error(error: &SchemaError) -> RestoreError {
+    if matches!(error, SchemaError::Blocked(_)) {
+        return RestoreError::ReplayBlocked {
+            reason: ReplayBlockReason::SchemaConflict,
+            delivery_sequence: None,
+        };
+    }
+    replay_error(error)
 }
 
 fn error_class(error: &SchemaError) -> &'static str {

@@ -19,7 +19,10 @@ pub(crate) mod database_sessions;
 mod logging;
 pub(crate) mod owned;
 mod recovery;
-pub use cloud_sync::{CloudSyncStatus, DatabaseSyncStatus, DownloadSyncStatus, UploadSyncStatus};
+pub use cloud_sync::{
+    BlockedDelivery, CloudSyncStatus, DatabaseSyncStatus, DownloadSyncStatus, ReplayBlockReason,
+    UploadSyncStatus,
+};
 pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
