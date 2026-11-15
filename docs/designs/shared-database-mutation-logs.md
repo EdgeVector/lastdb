@@ -6,6 +6,17 @@ Each whole-database share has two logs in ExeMem. Any active receiver can submit
 
 The publisher's LastDB downloads and decrypts the pending changes. It checks each sender against the current sharing settings on the publisher's machine and checks that the change is valid for the database. It discards requests that fail either check. It saves the accepted changes locally and uploads them to the published log under the publisher's key. Everyone with active access, including the person who suggested the change, gets the result when they sync.
 
+## Requirements to preserve
+
+These requirements apply as Social adds features and as LastDB and ExeMem change their storage and transport.
+
+- Keep both stored logs under the same database ID. The published log and pending mutation log have independent positions. Do not replace the split with a mixed log and a read filter. Keep older mixed history private and recoverable through migrations.
+- Every active receiver can read the whole published database and send an encrypted proposal, even with an empty write grant. Receivers follow only the published log. Only the publisher can read or settle the pending log, including entries submitted by a receiver who asks for their own.
+- Keep the current publisher-signed configuration for each database, including its revision, receiver identities, active or revoked state, and schema write grants. ExeMem checks active membership. The publisher's LastDB uses the confirmed configuration on its machine to check every downloaded and decrypted proposal. Apps display the grant.
+- Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher uploads the committed change under its own key before marking the pending entry processed. LastDB decides when stored entries and retry records are safe to retire.
+
+Tom's explicit direction is required to change these requirements. [Agent instructions](../../AGENTS.md#preserve-whole-database-sharing-tom-2026-11-14)
+
 ## Sharing configuration
 
 Social owns contacts and circles on the publisher's LastDB. For a database, it resolves the circles into a sharing specification keyed by recipient node identity. Each active entry grants whole-database read access and can also grant permission to write selected schema definitions or all schemas. Social reads or updates the roster through `GET` or `PUT /api/databases/{id}/share/config`. The update includes the expected revision and the effective entries with their node keys, states, roles, and write scopes. LastDB signs and sends the effective roster under the database ID. ExeMem stores the current revision, binds it to the publisher's key, and uses it to authorize the database's transport. The publisher's LastDB evaluates individual writes against the effective schema grants.

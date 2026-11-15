@@ -73,6 +73,10 @@ accepted changes to the separate published log. Receivers follow that log
 and can read the resulting record after it syncs.
 [How sharing works](../../docs/designs/shared-database-mutation-logs.md)
 
+Social changes must preserve the two logs, the signed per-database roster and
+schema grants, and the publisher's authority to approve each mutation.
+[Requirements to preserve](../../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
+
 TypeScript apps can use the [Social SDK helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
 for database creation, invitation, acceptance and revocation.
 

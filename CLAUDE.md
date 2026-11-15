@@ -15,6 +15,9 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
+For work on sharing, follow
+[Preserve whole-database sharing](AGENTS.md#preserve-whole-database-sharing-tom-2026-11-14).
+
 ## Owned values and named alternate keys
 
 Use one schema with named alternate keys for the same records.
