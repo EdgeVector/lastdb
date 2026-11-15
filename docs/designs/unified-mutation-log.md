@@ -169,6 +169,18 @@ established through explicit owner reclamation. A device behind that floor
 needs a recovery-capable client. A Search-enabled device that cannot apply an
 automatic snapshot reset needs an explicit restore.
 
+When the covered log cleanup reaches its floor, LastDB keeps a local record
+until the service confirms that retired snapshot cleanup is complete. The
+client requests one bounded cleanup step at a time, even if there are no more
+log entries to delete. A daemon also checks for existing covered cleanup once
+per connected scope, so it can resume work left by older clients. The service
+preserves the current snapshot, the recovery snapshot, named archives, and
+snapshots with active restore holds.
+With a positive floor at the cutoff, explicit `backup reclaim` uses its
+remaining request budget for provider cleanup and can be repeated with the
+same pinned snapshot. Its provider status is `progress`, `waiting`, or
+`complete`. Older service versions omit this status.
+
 `lastdb backup index-log-history --database personal --status` reads the first
 delivery covered by the acceptance index. When the service enables indexing
 for that personal database, `--batches N` indexes older entries in at most

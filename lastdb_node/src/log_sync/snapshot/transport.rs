@@ -341,6 +341,17 @@ pub(in crate::log_sync) async fn call(
     decode_reply(status, &response)
 }
 
+pub(in crate::log_sync) async fn call_if_supported(
+    log: &CloudLog,
+    body: serde_json::Value,
+) -> Result<Option<serde_json::Value>, String> {
+    let (status, response) = raw_call(log, &body).await?;
+    if status == 400 && super::super::wire::unsupported_reset(&response) {
+        return Ok(None);
+    }
+    decode_reply(status, &response).map(Some)
+}
+
 async fn raw_call(log: &CloudLog, body: &serde_json::Value) -> Result<(u16, Vec<u8>), String> {
     let body = canonical_bytes(body).map_err(|error| error.to_string())?;
     log.post_status_limit(ROUTE, body, Proof::Data, 512 * 1024)
