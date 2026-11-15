@@ -1,7 +1,10 @@
 //! Share access v2 wire types.
 //!
-//! A member list names the Ed25519 node keys that may read or submit one
-//! shared database. The publisher signs each new revision. A revoked key stays
+//! A member list names the Ed25519 node keys that may read one shared database.
+//! On a whole-database share, any active receiver may submit encrypted mutations.
+//! Only the publisher may read or settle the pending log. Receivers follow the
+//! published log, and the publisher's LastDB checks schema write permissions.
+//! The publisher signs each new revision. A revoked key stays
 //! on that revision until a later revision sets `regrant`. v1 does not rotate
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.

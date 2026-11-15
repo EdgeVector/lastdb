@@ -1,4 +1,8 @@
-//! Read pending contributions without advancing the published download position.
+//! The publisher's download and settlement of the separate pending mutation log.
+//!
+//! Intake checks each encrypted submission using the publisher's own settings.
+//! The publisher uploads accepted changes to the published log before marking
+//! the pending entries processed. Receivers sync on the published position.
 
 use cloud_backup_protocol::v2::share_access::{
     MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH,

@@ -1,18 +1,22 @@
 # Shared database mutation logs
 
-Each shared database has one publisher, one stable database ID, and two logs in ExeMem. The publisher's log carries the accepted changes used to sync and restore the database. A private inbox carries encrypted write submissions from all contributing receivers. Each log has its own sequence and progress.
+The publisher sets the sharing rules in Social. Those rules say who can read the whole database and which schemas each person can change. Apps use the rules to show what people can do. The publisher's LastDB checks each write independently, so the rules still hold when a receiver's app offers the wrong action or sends a write outside that person's permissions.
+
+Each whole-database share has two logs in ExeMem. Any active receiver can submit a proposed change to the **pending mutation log**. The receiver's LastDB encrypts the change for the publisher before sending it. ExeMem checks that the sender is an active receiver and stores the encrypted request. Only the publisher can read the pending log. Receivers read the **published log**, and every receiver sees the same published changes.
+
+The publisher's LastDB downloads and decrypts the pending changes. It checks each sender against the current sharing settings on the publisher's machine and checks that the change is valid for the database. It discards requests that fail either check. It saves the accepted changes locally and uploads them to the published log under the publisher's key. Everyone with active access, including the person who suggested the change, gets the result when they sync.
 
 ## Sharing configuration
 
 Social owns contacts and circles on the publisher's LastDB. For a database, it resolves the circles into a sharing specification keyed by recipient node identity. Each active entry grants whole-database read access and can also grant permission to write selected schema definitions or all schemas. Social reads or updates the roster through `GET` or `PUT /api/databases/{id}/share/config`. The update includes the expected revision and the effective entries with their node keys, states, roles, and write scopes. LastDB signs and sends the effective roster under the database ID. ExeMem stores the current revision, binds it to the publisher's key, and uses it to authorize the database's transport. The publisher's LastDB evaluates individual writes against the effective schema grants.
 
-| Identity on this database | Read publisher log | Append to publisher log | Append to inbox | Read and settle inbox |
+| Identity on this database | Read published log | Append to published log | Append to pending log | Read and mark pending entries processed |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |
 | Active receiver | Yes | | Yes | |
 | Outside the active roster | | | | |
 
-The inbox rules are fixed. Every receiver is unable to read any raw receiver entry, including their own. The sharing specification has no setting that changes this rule. Receivers see their own grant and the published data. The publisher sees the roster.
+The pending log has fixed access rules, including for a receiver's own entries. Receivers see their own grant and the published data. The publisher sees the roster.
 
 ## From invitation to shared data
 

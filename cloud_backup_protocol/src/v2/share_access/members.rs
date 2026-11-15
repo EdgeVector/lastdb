@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 ///
 /// `Read` is the reader capability. `Submit` is the contributor capability:
 /// reader rights plus pending submissions. The log core maps `Read` to
-/// `Receive`, and `Submit` to both `Receive` and `Submit`.
+/// `Receive`, and `Submit` to both capabilities for legacy log history.
+/// Either active role may append to the whole-database pending log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareMemberRole {
     /// Read published entries, snapshots, and files.
     Read,
-    /// Read published data and submit a pending contribution.
+    /// Read published data and carry the publisher's schema write grant.
     Submit,
 }
 
@@ -34,7 +35,7 @@ pub enum ShareMemberState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ShareWriteScope {
-    /// Sorted exact definition IDs. Empty means read only.
+    /// Sorted exact definition IDs. Empty permits no schema changes.
     Selected(Vec<Digest>),
     /// All installed record schemas, including future definitions.
     All(AllShareSchemas),
