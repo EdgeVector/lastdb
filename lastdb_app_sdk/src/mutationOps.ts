@@ -24,6 +24,7 @@ import type {
   MutationOptions,
   MutationResult,
   ShareSubmissionResult,
+  ShareSubmissionStatus,
 } from './types.js';
 
 const REVISION_HEX = /^[0-9a-f]{64}$/;
@@ -32,6 +33,30 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 function isMutationId(id: string): boolean {
   return id.length === 36 && UUID_LOWERCASE.test(id) && id !== NIL_UUID;
+}
+
+/** Look up this receiver's proposal by the UUID used for submission. */
+export async function executeShareSubmissionStatus(
+  ctx: ClientContext,
+  mutationId: string,
+): Promise<ShareSubmissionStatus> {
+  if (ctx.databasePath === null || !isMutationId(mutationId)) {
+    throw new RequestRejectedError('invalid_request', 'submission status needs a received database and mutation UUID');
+  }
+  const reply = await ctx.transport.send(
+    'POST', scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.shareSubmissionStatus),
+    { body: { mutationId } },
+  );
+  if (reply.status !== 200) {
+    throw mapDataError('submission status', reply.status, reply.body, ctx.appId);
+  }
+  if (isObject(reply.body) && reply.body['mutation_id'] === mutationId) {
+    const status = reply.body['status'];
+    if (status === 'submitted' || status === 'published' || status === 'discarded' || status === 'unknown') {
+      return { mutationId, status };
+    }
+  }
+  throw new UnexpectedResponseError('received an invalid share submission status', 200, null);
 }
 
 /** Serialize one {@link MutationOp} into the daemon's `Operation::Mutation` wire object. */

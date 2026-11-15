@@ -98,7 +98,7 @@ pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
 
 fn allowed(method: &str, path: &str, write: bool) -> bool {
     match (method, path) {
-        ("POST", "query" | "queries/batch" | "db/fetch-blob")
+        ("POST", "query" | "queries/batch" | "db/fetch-blob" | "submissions/status")
         | ("GET", "schemas" | "schema" | "list") => true,
         ("GET", path) if path.starts_with("schema/") => true,
         ("POST", "mutation" | "mutations/batch" | "db/put-blob" | "db/delete-blob") => write,

@@ -151,6 +151,16 @@ impl Metadata {
             .await
     }
 
+    pub(crate) async fn contribution_committed(&self, id: &[u8; 32]) -> Result<bool, SchemaError> {
+        let key = format!("share-contribution-receipt:{}", hex_lower(id));
+        Ok(self
+            .store
+            .get(key.as_bytes())
+            .await
+            .map_err(read_err)?
+            .is_some())
+    }
+
     async fn stage_receipt(
         &self,
         key: String,

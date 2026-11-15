@@ -18,6 +18,15 @@ pub struct SharedRecordRevision {
 }
 
 impl MutationManager {
+    /// Look up the durable receipt before re-evaluating a proposal on inbox retry.
+    pub async fn shared_contribution_committed(&self, id: &[u8; 32]) -> Result<bool, SchemaError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(self.db_ops.metadata().contribution_committed(id))
+            .await
+    }
+
     /// Read the native record and its publisher mutation ID from one committed view.
     pub async fn shared_record_revision(
         &self,

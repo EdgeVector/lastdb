@@ -42,6 +42,12 @@ try {
       result = await root.listDatabases();
       break;
     }
+    case 'submission-status': {
+      const root = await connect({ appId: 'social-dev-sdk', socketPath: join(dataDir, 'data', 'folddb.sock') });
+      const { client } = await root.openDatabaseSession(input.database, 'read');
+      result = await Promise.all(input.ids.map(id => client.getShareSubmissionStatus(id)));
+      break;
+    }
     default:
       throw new Error('Unknown SDK operation');
   }

@@ -18,7 +18,7 @@ import {
   type DatabaseSpec,
   type ListedDatabase,
 } from './databases.js';
-import { executeMutate, executeMutateBatch } from './mutationOps.js';
+import { executeMutate, executeMutateBatch, executeShareSubmissionStatus } from './mutationOps.js';
 import { executeGet, executeList, executeQuery, executeQueryAll, executeQueryBatch } from './readOps.js';
 import {
   executeAutoIdentity,
@@ -163,6 +163,11 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     options: Types.MutationBatchOptions = {},
   ): Promise<Types.MutationBatchResult> {
     return executeMutateBatch(this.context, items, options);
+  }
+
+  /** Read the outcome of one submission made by this receiving LastDB node. */
+  getShareSubmissionStatus(mutationId: string): Promise<Types.ShareSubmissionStatus> {
+    return executeShareSubmissionStatus(this.context, mutationId);
   }
 
   /** `POST /api/db/put-blob` — attach or replace a record's blob, inline, or local-path file. */

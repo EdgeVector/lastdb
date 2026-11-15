@@ -113,6 +113,7 @@ export type {
   SchemaDescriptor,
   SelectDatabaseOptions,
   ShareSubmissionResult,
+  ShareSubmissionStatus,
 } from './types.js';
 
 export {

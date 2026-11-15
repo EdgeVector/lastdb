@@ -37,7 +37,8 @@ mod upload;
 mod wire;
 
 pub(crate) use contributions::{
-    schema_id, submit as submit_share_write, validate_write_scopes, ContributionError,
+    schema_id, status as share_write_status, submit as submit_share_write, validate_write_scopes,
+    ContributionError,
 };
 pub use index_history::{index_history, IndexHistoryReport};
 pub use native_reset::install_prepared_native_recovery;

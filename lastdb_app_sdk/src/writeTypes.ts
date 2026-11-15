@@ -125,7 +125,13 @@ export interface MutationOptions {
 export interface ShareSubmissionResult {
   status: 'submitted';
   mutationId: string;
+  /** Writer sequence within this submission. Correlate by mutationId. */
   submissionSequence: number;
+}
+
+export interface ShareSubmissionStatus {
+  mutationId: string;
+  status: 'submitted' | 'published' | 'discarded' | 'unknown';
 }
 
 /** One item in an atomic `POST /api/mutations/batch` request. */

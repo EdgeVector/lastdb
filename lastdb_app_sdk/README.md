@@ -307,6 +307,12 @@ the same body and UUID.
 `submissionSequence` is the writer sequence within this submission. Use
 `mutationId` to correlate it with an app action.
 
+Call `share.getShareSubmissionStatus(mutationId)` on the receiving database.
+It reports `submitted`, `published`, `discarded`, or `unknown`. Published
+means the publisher has uploaded the change. The receiver may still need to
+sync before a query returns it. Unknown also covers older settlements without
+a recorded outcome. Keep using normal record queries to render shared data.
+
 ## Access Model & Operations
 
 LastDB is a keyed store: every `query`, `queryAll`, and `queryBatch` item names
