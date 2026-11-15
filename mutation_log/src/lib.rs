@@ -2,8 +2,8 @@
 //!
 //! The core models one ordered log value. Entries are tagged by writer
 //! (node key, device). The caller supplies time, IDs, and a [`NamespacePolicy`].
-//! [`MutationLog`] is the persistence port. The in-memory adapter lives in
-//! `mutation_log_mem`. The daemon uses `mutation_log_sync` for the signed log.
+//! [`MutationLog`] is the persistence port. The daemon uses
+//! `mutation_log_sync` for the signed log.
 //!
 //! # Sharing
 //!

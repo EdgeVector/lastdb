@@ -13,7 +13,6 @@ use zeroize::Zeroizing;
 
 mod contact;
 pub(crate) mod inbox;
-mod metadata;
 pub use contact::{ShareContact, ShareRecipient};
 
 const INVITATION_V1: &[u8] = b"lastdb-share-invite-v1\0";
@@ -94,10 +93,10 @@ pub(crate) fn seal(
             body.extend_from_slice(
                 inbox::public_key(publisher, permission.stream().stream_id.as_str())?.as_bytes(),
             );
-            metadata::encode(&mut body, spec, authorization)?;
+            encode_spec(&mut body, spec, authorization)?;
             INVITATION_V3
         } else {
-            metadata::encode(&mut body, spec, authorization)?;
+            encode_spec(&mut body, spec, authorization)?;
             INVITATION_V2
         }
     } else {
@@ -200,7 +199,7 @@ impl ShareRecipient {
         let (spec, authorization) = if version == INVITATION_V1 {
             (None, authorization)
         } else {
-            let (spec, authorization) = metadata::decode(authorization)?;
+            let (spec, authorization) = decode_spec(authorization)?;
             if spec.whole_database() != inbox_key.is_some() {
                 return Err(invalid());
             }
@@ -267,4 +266,38 @@ fn verify_signature(key: &[u8; 32], signature: &[u8; 64], message: &[u8]) -> Res
     let invalid = || ShareInvitationError("invalid share invitation signature");
     let key = app_identity_crypto::VerifyingKey::from_bytes(key).map_err(|_| invalid())?;
     app_identity_crypto::verify(&key, signature, message).map_err(|_| invalid())
+}
+
+const INVALID_SPEC: ShareInvitationError = ShareInvitationError("invalid share invitation spec");
+
+fn encode_spec(
+    body: &mut Vec<u8>,
+    spec: &crate::share_spec::PublicationSpec,
+    permission: &[u8],
+) -> Result<()> {
+    database_policy::SpecBinding::new(&spec.name, spec.version).map_err(|_| INVALID_SPEC)?;
+    let length = u8::try_from(spec.name.len()).map_err(|_| INVALID_SPEC)?;
+    body.push(length);
+    body.extend_from_slice(spec.name.as_bytes());
+    body.extend_from_slice(&spec.version.to_be_bytes());
+    body.extend_from_slice(permission);
+    Ok(())
+}
+
+fn decode_spec(payload: &[u8]) -> Result<(crate::share_spec::PublicationSpec, &[u8])> {
+    let (&length, payload) = payload.split_first().ok_or(INVALID_SPEC)?;
+    let (name, payload) = payload
+        .split_at_checked(usize::from(length))
+        .ok_or(INVALID_SPEC)?;
+    let (version, permission) = payload.split_first_chunk::<4>().ok_or(INVALID_SPEC)?;
+    let name = std::str::from_utf8(name).map_err(|_| INVALID_SPEC)?;
+    let version = u32::from_be_bytes(*version);
+    database_policy::SpecBinding::new(name, version).map_err(|_| INVALID_SPEC)?;
+    Ok((
+        crate::share_spec::PublicationSpec {
+            name: name.to_owned(),
+            version,
+        },
+        permission,
+    ))
 }

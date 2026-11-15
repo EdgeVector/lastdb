@@ -45,7 +45,7 @@ TRUSTED_FILES = {CORE_SOURCE + "storage/" + part for part in (
     "mod.rs", "traits.rs", "format.rs", "disk_backup.rs", "disk_cleanup.rs",
     "content_key_proof.rs",
 )}
-BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/core/open.rs"
+BOOTSTRAP_FILE = CORE_SOURCE + "db_operations/mod.rs"
 BOOTSTRAP_FUNCTIONS = {
     "from_namespaced_store_with_content_and_field_keys",
     "from_stopped_native_data",

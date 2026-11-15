@@ -30,7 +30,14 @@
     {
       "namespace": "social-graph",
       "visibility": "personal-only",
-      "schemas": ["Person", "Circle", "Membership", "Binding"]
+      "schemas": [
+        "Person",
+        "AddressBookEntry",
+        "SharingUpdate",
+        "CircleDirectory",
+        "CirclePolicy",
+        "DatabaseSetup"
+      ]
     },
     {
       "namespace": "social",

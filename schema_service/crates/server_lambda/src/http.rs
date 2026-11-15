@@ -1,6 +1,6 @@
 //! Request parsing and JSON response helpers for the advisory Lambda.
 
-use crate::cors;
+use crate::{ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS};
 use lambda_http::{Body, Error, Request, Response};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -11,14 +11,8 @@ pub(crate) fn cors_builder(status: u16, content_type: &str) -> http::response::B
     Response::builder()
         .status(status)
         .header("Content-Type", content_type)
-        .header(
-            "Access-Control-Allow-Methods",
-            cors::ACCESS_CONTROL_ALLOW_METHODS,
-        )
-        .header(
-            "Access-Control-Allow-Headers",
-            cors::ACCESS_CONTROL_ALLOW_HEADERS,
-        )
+        .header("Access-Control-Allow-Methods", ACCESS_CONTROL_ALLOW_METHODS)
+        .header("Access-Control-Allow-Headers", ACCESS_CONTROL_ALLOW_HEADERS)
 }
 
 pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>, Error> {

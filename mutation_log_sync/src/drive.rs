@@ -1,6 +1,6 @@
-use crate::error::SyncError;
 use crate::model::{Outcome, SyncEvent, SyncState};
 use crate::step::{propose, Effect};
+use crate::SyncError;
 use mutation_log::{AppendOutcome, LogError, MutationLog, LIST_PAGE_LIMIT};
 
 /// Apply one participant event through `log`.

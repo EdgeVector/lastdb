@@ -2,11 +2,12 @@
 
 use super::{map, native_routing, run_node, StorageError, StorageResult, CAS_DIR, RUN_DIR};
 use crate::storage::content_key_proof;
+use crate::storage::current_keys::{JOURNAL_RETIRED, META_PFX};
 use crate::storage::format::control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY};
 use crate::storage::format::metadata::{validate_local_author, LOCAL_AUTHOR_KEY};
 use crate::storage::format::{
-    CURRENT_KEY_FORMAT_KEY, METADATA_NAMESPACE, NODE_MARKER, RECORDS_COLLECTION, RECORD_NODE_BYTES,
-    RECORD_PROFILE,
+    CURRENT_KEY_FORMAT_KEY, MAIN_NAMESPACE, METADATA_NAMESPACE, NODE_MARKER, RECORDS_COLLECTION,
+    RECORD_NODE_BYTES, RECORD_PROFILE, RETIRED_SHARED_DIR, RETIRED_SHARED_NODE_BYTES,
 };
 use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
@@ -26,6 +27,35 @@ fn bad_admission(text: &str) -> StorageError {
     StorageError::invalid(format!("node range admission: {text}"))
 }
 
+fn refuse_shared_home(root: &Path, marker: &[u8]) -> StorageResult<()> {
+    let has_shared_dir =
+        std::fs::symlink_metadata(root.join(RETIRED_SHARED_DIR)).is_ok_and(|meta| meta.is_dir());
+    if marker == RETIRED_SHARED_NODE_BYTES || has_shared_dir {
+        return Err(StorageError::RetiredFormat(
+            "the dedicated shared home format is retired",
+        ));
+    }
+    Ok(())
+}
+
+fn refuse_journal(main: &mut RunRead) -> StorageResult<()> {
+    let prefixes = META_PFX.iter().map(|&prefix| (METADATA_NAMESPACE, prefix));
+    for (namespace, prefix) in prefixes.chain([(MAIN_NAMESPACE, "ade:")]) {
+        let mut end = prefix.as_bytes().to_vec();
+        if let Some(last) = end.last_mut() {
+            *last += 1;
+        }
+        let collection = native_routing::collection_for_namespace(namespace);
+        let mut range = main
+            .administrative_range(collection, prefix.as_bytes(), &end)
+            .map_err(map)?;
+        if !range.next_page(1).map_err(map)?.records.is_empty() {
+            return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
+        }
+    }
+    Ok(())
+}
+
 fn read_stopped_node_profile(root: &Path) -> StorageResult<u16> {
     let marker = open_nofollow_read(&root.join(NODE_MARKER))?;
     if !marker.metadata()?.is_file() {
@@ -33,7 +63,7 @@ fn read_stopped_node_profile(root: &Path) -> StorageResult<u16> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
-    crate::storage::retired::refuse_shared_home(root, &bytes)?;
+    refuse_shared_home(root, &bytes)?;
     (bytes.as_slice() == RECORD_NODE_BYTES)
         .then_some(RECORD_PROFILE)
         .ok_or_else(|| bad_admission("the node range format is unsupported"))
@@ -75,5 +105,5 @@ pub(in crate::storage) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> Sto
         .as_deref()
         .ok_or_else(|| bad_admission("the account proof is absent"))?;
     content_key_proof::verify(key, stored_proof)?;
-    crate::storage::retired::refuse_journal(&mut main).map(|()| version)
+    refuse_journal(&mut main).map(|()| version)
 }

@@ -5,9 +5,12 @@
 
 #![allow(clippy::result_large_err)]
 
-mod cors;
 mod dispatch;
 mod http;
+
+// API Gateway sets Access-Control-Allow-Origin; the Lambda adds methods and headers.
+pub(crate) const ACCESS_CONTROL_ALLOW_METHODS: &str = "GET, POST, OPTIONS";
+pub(crate) const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type";
 
 use std::sync::Arc;
 

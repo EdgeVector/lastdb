@@ -4,10 +4,9 @@ Status: accepted. Tom Tang, 10 November 2026. The
 [two-log sharing design](shared-database-mutation-logs.md) describes current
 whole-database shares. This document also covers legacy mixed-log history.
 
-`mutation_log` is the pure core. `mutation_log_mem` is the `MutationLog`
-port and the in-memory adapter. `mutation_log_sync::drive` is the only
-shared-sync step. There is no flag. `lastdbd` calls the log through
-`log_sync::spawn`.
+`mutation_log` is the pure core and defines the `MutationLog` port.
+`mutation_log_sync::drive` is the only shared-sync step. There is no flag.
+`lastdbd` calls the log through `log_sync::spawn`.
 
 ## Decision
 
@@ -248,7 +247,7 @@ Older spec-bound shares retain the namespace rules of their selected spec.
 
 `social` is lastdb-std 1.0 and shareable (`spec/index.json`,
 `spec/README.md`, `spec/social/`). `social-graph` is the lastdb-std 1.0
-graph namespace (`spec/index.json`, `spec/social-graph/`). `spec/README.md`
+graph namespace (`spec/index.json`, `lastdb-app.json`). `spec/README.md`
 keeps it personal-only, so a shareable database rejects it.
 
 `lastdb-files` is the namespace the share files command publishes, for
@@ -338,12 +337,10 @@ snapshot workflow proves original-file backup and restore. The last DEV run
 before the old trim write route retired proved recovery from an expired
 cursor with pending local edits ([run 43533113979](https://github.com/EdgeVector/lastdb/actions/runs/43533113979)).
 
-`mutation_log_mem` is the in-memory adapter. Construct it with
-`InMemoryMutationLog::new`. `mutation_log_sync` applies one effect through
-`drive`. The in-memory adapter can use its transient writer and reader state.
-The device daemon keeps separate durable positions and uses the signed cloud
-adapter for append, list and snapshot recovery. Neither core crate reads the
-process environment, opens a socket, or calls ExeMem.
+`mutation_log_sync` applies one effect through `drive` over the `MutationLog`
+port. The device daemon keeps separate durable positions and uses the signed
+cloud adapter for append, list and snapshot recovery. Neither core crate reads
+the process environment, opens a socket, or calls ExeMem.
 
 Exemem's read path enforces `can_read` for stored bytes. One node registers
 an owned shareable database beside `personal`. The SDK already selects it
