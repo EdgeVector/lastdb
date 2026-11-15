@@ -101,11 +101,10 @@ The commands below are CI audit commands. Do not run build or clippy commands
 on Tom's machine.
 
 The required PR gate (`.github/workflows/ci-required.yml`) runs the source
-lints on every PR and main push. One script holds the lint list and the crate
-list; add a new workspace crate there:
+lints on every PR and main push, discovering workspace crates from `Cargo.toml`:
 
 ```bash
-bash scripts/lints/source-lints.sh
+python3 scripts/lints/source_lints.py
 ```
 
 PR / merge: this repo is canonical on GitHub since 2026-09-29 (brain

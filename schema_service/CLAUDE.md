@@ -21,12 +21,10 @@ cargo clippy --workspace --lib --bins -- -D warnings
 cargo fmt --all
 ```
 
-CI lints (canonical scripts in the monorepo root; run against just this crate):
+CI lints (canonical script in the monorepo root; run against just this crate):
 
 ```bash
-bash ../scripts/lints/lint-redaction.sh        --scope=schema_service/crates
-bash ../scripts/lints/lint-spawn-instrument.sh --scope=schema_service/crates
-bash ../scripts/lints/lint-tracing-egress.sh   --scope=schema_service/crates --strict
+python3 ../scripts/lints/source_lints.py --scope=schema_service/crates
 ```
 
 PR / merge: `gh pr create -R EdgeVector/lastdb --base main --head <branch>`.
