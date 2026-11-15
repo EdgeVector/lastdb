@@ -20,6 +20,16 @@ FULL = "all"
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 
 
+class GrantReview(SocialError):
+    def __init__(self, changes):
+        super().__init__("Review grants changed outside Social before updating this database.")
+        self.changes = changes
+
+
+class SavedSharingUpdate(SocialError):
+    pass
+
+
 class Circles:
     def __init__(self, node, people, sharing):
         self.node = node
@@ -51,9 +61,10 @@ class Circles:
                          named=self.node.has_named_grants())
         return self.apply(database, plan)
 
-    def plan(self, database, definitions, circles, restore=(), *, revision=None, named=True):
+    def plan(self, database, definitions, circles, restore=(), *, revision=None, named=True, review=None,
+             direct_change=None):
         if self.sharing.pending_edit(database):
-            raise SocialError("finish the pending sharing change first")
+            raise SavedSharingUpdate("A sharing request is waiting for confirmation.")
         policy = self.load(database)
         prior_circles = policy["circles"]
         # Edits from the database view affect only its original local circles.
@@ -65,6 +76,7 @@ class Circles:
             raise SocialError("sharing changed while you edited it; review the current roster")
         before = resolve(prior_circles)
         desired = resolve(circles)
+        before.update({key: before.get(key, []) for key in policy["direct"]})
         keys = set(desired)
         if self.people.by_keys(sorted(keys)).keys() != keys:
             raise SocialError("save verified contacts before sharing with them")
@@ -72,12 +84,41 @@ class Circles:
             raise SocialError("choose circle members to restore")
         members = current["members"]
         direct = dict(policy["direct"])
+        member_by_key = {row["nodeKey"]: row for row in members}
+        if direct_change:
+            direct_key = direct_change["nodeKey"]
+            if direct_key not in self.people.by_keys([direct_key]):
+                raise SocialError("save this person's verified contact before sharing")
+            target = member_by_key.get(direct_key)
+            restore = apply_direct_intent(direct, direct_change, target, definitions, restore)
+        conflicts = outside_changes(members, before, policy, definitions, named)
+        if conflicts:
+            choices = review or {}
+            if set(choices) != {row["nodeKey"] for row in conflicts}:
+                raise GrantReview(conflicts)
+            for row in conflicts:
+                key = row["nodeKey"]
+                if choices[key] == "keepDirect":
+                    scope = row["current"].get("writeSchemas")
+                    if scope is None and row["current"]["role"] == "submit":
+                        raise SocialError("Replace the old contributor grant with explicit schema names.")
+                    direct[key] = scope or []
+                elif choices[key] != "useSocial":
+                    raise SocialError("Choose how to resolve each outside grant.")
         for member in members:
             key = member["nodeKey"]
             if key in desired and key not in before and member["state"] == "active":
                 direct[key] = member.get("writeSchemas") or []
+        for key in direct:
+            desired.setdefault(key, [])
         replacement = merge(members, before, desired, set(restore), direct, definitions, named)
-        next_policy = {"circles": circles, "direct": {key: direct[key] for key in desired if key in direct}}
+        if direct_change and direct_change["operation"] == "revokePerson":
+            replacement = [revoke_row(target) if row["nodeKey"] == direct_key else row for row in replacement]
+        if len(replacement) > 98:
+            raise SocialError("This database allows 98 roster entries, including revoked people.")
+        next_policy = {"circles": circles, "direct": direct,
+                       "confirmed": {row["nodeKey"]: grant_value(row)
+                                     for row in replacement if row["nodeKey"] in desired}}
         return {"revision": current["revision"], "previous": members, "members": replacement,
                 "policy": next_policy}
 
@@ -136,6 +177,54 @@ def resolve(circles):
     return result
 
 
+def revoke_row(row):
+    return {"nodeKey": row["nodeKey"], "role": row["role"], "state": "revoked", "writeSchemas": []}
+
+
+def apply_direct_intent(direct, change, target, definitions, restore):
+    key, operation = change["nodeKey"], change["operation"]
+    if operation == "revokePerson":
+        if target is None:
+            raise SocialError("this person has no grant on the database")
+        direct.pop(key, None)
+        return restore
+    scope = change["writeSchemas"]
+    scope = normalize([{"name": "Direct grant", "members": [key], "writeSchemas": scope}],
+                      definitions)[0]["writeSchemas"]
+    scope = scope if scope == FULL else named_scope(scope, [], definitions, True)
+    if operation == "restorePerson":
+        if target and target["state"] == "revoked":
+            restore = [*restore, key]
+        elif not target or direct.get(key) != scope:
+            raise SocialError("choose a person whose access is revoked")
+    elif target and target["state"] == "revoked":
+        raise SocialError("explicitly restore this person's access")
+    direct[key] = scope
+    return restore
+
+
+def grant_value(member):
+    scope = member.get("writeSchemas", [] if member["role"] == "read" else None)
+    return {"state": member["state"], "role": member["role"], "writeSchemas": scope}
+
+
+def outside_changes(members, before, policy, definitions, named):
+    confirmed = policy.get("confirmed", {})
+    changes = []
+    for row in members:
+        key = row["nodeKey"]
+        if key not in before or row["state"] == "revoked":
+            continue
+        previous = confirmed.get(key)
+        if previous is None:
+            scope = combine_scope(before[key], policy["direct"].get(key), definitions, named)
+            previous = {"state": "active", "role": "submit" if scope else "read", "writeSchemas": scope}
+        current = grant_value(row)
+        if previous != current:
+            changes.append({"nodeKey": key, "confirmed": previous, "current": current})
+    return changes
+
+
 def merge(current, before, desired, restore, direct, definitions, named):
     members = {row["nodeKey"]: row for row in current}
     for key in before.keys() - desired.keys():
@@ -146,7 +235,7 @@ def merge(current, before, desired, restore, direct, definitions, named):
                 members[key] = {"nodeKey": key, "state": "active", "role": "submit" if scope else "read",
                                 "writeSchemas": scope}
             else:
-                members[key] = {"nodeKey": key, "state": "revoked", "role": previous["role"], "writeSchemas": []}
+                members[key] = revoke_row(previous)
     for key, scope in desired.items():
         previous = members.get(key)
         if previous and previous["state"] == "revoked" and key not in restore:

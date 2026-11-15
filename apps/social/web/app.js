@@ -130,6 +130,9 @@ function showPerson(panel, result) {
 function showDatabase(panel, result) {
   const {database, sharing, pendingEdit, circles, schemas} = result;
   panel.append(element('h2', nameOf(database)), element('p', `${specOf(database)} · ${accessOf(database)}`, 'muted'));
+  if (state.sharingRequest && database.id === view.get('databaseId')) {
+    showSharingRequest(panel, state.sharingRequest).catch(report);
+  }
   if (!sharing) {
     panel.append(element('p', database.state === 'ready' ? 'Downloaded records available' : 'Waiting for initial sync', 'status'));
     if (database.publisher) panel.append(element('p', `Publisher ${database.publisher}`, 'identity muted'));
@@ -361,4 +364,5 @@ function showSocial(databaseId) {
 }
 
 const view = new URLSearchParams(location.search);
+state.sharingRequest = view.get('sharingRequest');
 (view.has('choose') ? showPicker() : showSocial(view.get('databaseId'))).catch(report);

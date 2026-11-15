@@ -1,6 +1,6 @@
 {
   "app_id": "social-graph",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "source": "https://github.com/EdgeVector/lastdb.git",
   "audience": "public",
   "metadata": {
@@ -118,6 +118,17 @@
       "fields": ["circles"],
       "field_types": {"circles": "String"},
       "field_descriptions": {"circles": "The circle names, member identities and schema write scopes."},
+      "owner_app_id": "social-graph"
+    },
+    {
+      "name": "SharingRequest",
+      "descriptive_name": "Sharing request",
+      "purpose_statement": "One app proposal and its owner-approved sharing outcome.",
+      "schema_type": "Hash",
+      "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
+      "fields": ["request"],
+      "field_types": {"request": "String"},
+      "field_descriptions": {"request": "The exact app declaration and its sharing outcome."},
       "owner_app_id": "social-graph"
     },
     {

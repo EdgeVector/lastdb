@@ -77,29 +77,59 @@ function describeGrant(grant) {
 
 async function previewReusable(edit) {
   const {token, databases} = await api('circles/preview', edit);
-  const needsReview = databases.some((row) => row.error);
-  dialog('Review circle changes', 'Apply changes', [], async () => {
+  const review = grantReviewFields(databases);
+  dialog('Review circle changes', review.fields.length ? 'Preview resolutions' : 'Apply changes', review.fields, async (data) => {
+    if (review.fields.length) return () => previewReusable({...edit, review: review.choices(data, edit.review)});
     const result = await api('circles/apply', {...edit, token});
     return async () => {
       await refresh();
       if (result.pending.length) report(new Error('Some database changes need review. Open the unfinished changes to continue.'));
     };
   });
+  renderGrantImpact(databases);
+  if (databases.some((row) => row.error && !row.conflicts) && edit.circle && !review.fields.length) {
+    $('submit').disabled = true;
+  }
+}
+
+function contactName(key) {
+  return state.home.people.find((person) => person.nodeKey === key)?.name ?? key;
+}
+
+function grantReviewFields(databases) {
+  const conflicts = databases.flatMap((row) => (row.conflicts ?? []).map((conflict) => ({
+    ...conflict, databaseId: row.databaseId, name: row.name,
+    field: `${row.databaseId}:${conflict.nodeKey}`,
+  })));
+  return {
+    fields: conflicts.map((row) => ({
+      name: row.field,
+      label: `${row.name} · ${contactName(row.nodeKey)} · current grant ${describeGrant(row.current)}`,
+      options: [{nodeKey: '', name: 'Choose a resolution'},
+        {nodeKey: 'keepDirect', name: 'Keep the outside grant as a direct grant'},
+        {nodeKey: 'useSocial', name: 'Apply the Social grants'}],
+    })),
+    choices(values, existing = {}) {
+      const result = {...existing};
+      for (const row of conflicts) {
+        result[row.databaseId] = {...result[row.databaseId], [row.nodeKey]: values[row.field]};
+      }
+      return result;
+    },
+  };
+}
+
+function renderGrantImpact(databases) {
   const fields = $('fields');
   for (const row of databases) {
     fields.append(element('h3', row.name));
     if (row.error) {
-      fields.append(element('p', row.error), button('Open database', () => {
-        $('form-dialog').close();
-        return setTab('databases', row.databaseId);
-      }, 'quiet'));
+      fields.append(element('p', row.error));
       continue;
     }
     if (!row.changes.length) fields.append(element('p', 'Access stays the same.', 'muted'));
     for (const {nodeKey, before, after} of row.changes) {
-      const name = state.home.people.find((person) => person.nodeKey === nodeKey)?.name ?? nodeKey;
-      fields.append(element('p', `${name} · ${describeGrant(before)} → ${describeGrant(after)}`));
+      fields.append(element('p', `${contactName(nodeKey)} · ${describeGrant(before)} → ${describeGrant(after)}`));
     }
   }
-  if (needsReview && edit.circle) $('submit').disabled = true;
 }

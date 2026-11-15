@@ -7,6 +7,7 @@ from lastdb import SocialError
 from circles import Circles
 from people import People
 from reusable_circles import ReusableCircles
+from sharing_requests import SharingRequests
 from setups import Setups
 from sharing import Sharing, can_manage_sharing
 
@@ -32,6 +33,7 @@ class SocialApp:
         self.sharing = Sharing(node, self.people)
         self.circles = Circles(node, self.people, self.sharing)
         self.reusable_circles = ReusableCircles(node, self.sharing, self.circles)
+        self.sharing_requests = SharingRequests(node, self.reusable_circles)
         self.setups = Setups(node, self.sharing)
 
     def remember(self, args):

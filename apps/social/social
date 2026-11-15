@@ -64,7 +64,13 @@ def parser():
     actions.add_parser("check", help="Check the running LastDB for Social compatibility")
     launch = actions.add_parser("open", help="Open Social's local browser interface")
     launch.add_argument("--no-browser", action="store_true")
-    launch.add_argument("--database")
+    launch_target = launch.add_mutually_exclusive_group()
+    launch_target.add_argument("--database")
+    launch_target.add_argument("--sharing-request", help="Review a saved app sharing request")
+    actions.add_parser("list-circles", help="List reusable circle IDs and names")
+    actions.add_parser("request-sharing", help="Save a JSON declaration from stdin for owner review")
+    status = actions.add_parser("sharing-status", help="Read the status of a saved app request")
+    status.add_argument("request_id")
     remember = actions.add_parser("remember", help="Save a verified contact without sharing a database")
     remember.add_argument("--user", required=True)
     remember.add_argument("--node-key", required=True)
@@ -124,6 +130,19 @@ def run(args, node):
     sharing = Sharing(node, people)
     if args.action == "create-db":
         return sharing.create(args.name, whole=args.whole_database)
+    if args.action in ("list-circles", "request-sharing", "sharing-status"):
+        requests = SocialApp(node).sharing_requests
+        if args.action == "list-circles":
+            return requests.circles()
+        if args.action == "sharing-status":
+            return requests.status(args.request_id)
+        raw = sys.stdin.buffer.read(16385)
+        if not 0 < len(raw) <= 16384:
+            raise SocialError("provide a sharing declaration within 16 KiB")
+        request = json.loads(raw)
+        if not isinstance(request, dict):
+            raise SocialError("provide a sharing declaration")
+        return requests.submit(request)
     if args.action == "setup-database":
         target = {"localName": args.name} if args.name is not None else {"databaseId": args.database}
         return SocialApp(node).setup_database(
@@ -170,7 +189,7 @@ def main():
         args = parser().parse_args()
         node = resolve_node(args)
         if args.action == "open":
-            run_server(node, not args.no_browser, args.database)
+            run_server(node, not args.no_browser, args.database, args.sharing_request)
             return 0
         result = run(args, node)
         print(json.dumps(result, sort_keys=True))

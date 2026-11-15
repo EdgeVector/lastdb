@@ -10,6 +10,7 @@ import uuid
 
 from node import Connection
 from social_app import call, install, observe_access, sdk, window
+from social_declarations import configure_bindings, external_changes, revoke_roster
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require, retry, run_operation, summary
 
@@ -115,9 +116,11 @@ def transfer(programs, root, publisher, recipient, api_key):
         require(set(definitions).issubset(ready["schemas"]), "circle_schema_catalog_missing")
         retry("circle_second_cloud_ready", lambda: call(owner, f"/api/database?databaseId={second}"),
               lambda row: row["sharing"].get("revision") == "0")
-        circle = {"id": str(uuid.uuid4()), "name": "Family", "members": [reader],
-                  "links": {database: COMMENT_GRANT["names"], second: []}}
+        circle = {"id": str(uuid.uuid4()), "name": "Family", "members": [], "links": {}}
         try:
+            require(edit_circle(owner, circle) == {}, "circle_starts_as_private_membership")
+            links = configure_bindings(publisher, owner, circle, database, second, COMMENT_GRANT["names"])
+            circle = {**circle, "links": links, "members": [reader]}
             require(edit_circle(owner, circle) == {database: "1", second: "1"}, "circle_grant_revisions")
             receipt = sdk(publisher, "seal", database=database, nodeKey=reader)
             require(receipt["publisher"] == sender and receipt["databaseId"] == database
@@ -139,13 +142,14 @@ def transfer(programs, root, publisher, recipient, api_key):
                 require(edit_circle(owner, read_circle) == {database: "2", second: "2"}, "circle_reader_revision")
                 observe_access(remote, second, "revoked")
                 exercise_reader(publisher, recipient, remote, database, definitions, scope)
+                external_changes(publisher, owner, circle, database, reader, COMMENT)
                 report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
         finally:
             failed = sys.exc_info()[0] is not None
             cleanup_error = None
             for target in (database, second):
                 try:
-                    cleanup(owner, target, reader)
+                    cleanup(owner, publisher, target)
                 except OperationError as error:
                     summary(f"The final DEV recipient revocation for {target} could not be confirmed.")
                     cleanup_error = cleanup_error or error
@@ -173,19 +177,14 @@ def edit_circle(owner, circle):
     return {row["databaseId"]: row["revision"] for row in response["databases"]}
 
 
-def cleanup(owner, database, reader):
+def cleanup(owner, publisher, database):
     path = f"/api/database?databaseId={database}"
     roster = call(owner, path)["sharing"]
     if roster.get("status") == "pending":
         roster = call(owner, "/api/retry", {"databaseId": database}, refusals=REFUSALS)["sharing"]
-    members = roster.get("members")
-    require(members is not None, "circle_cleanup_roster_unavailable")
-    if any(row["state"] == "active" for row in members):
-        call(owner, "/api/revoke", {"databaseId": database, "nodeKey": reader}, refusals=REFUSALS)
-        revoked = call(owner, path)["sharing"].get("members") or []
-        require(len(revoked) == 1 and revoked[0]["state"] == "revoked", "circle_cleanup_revoked")
-        print("ExeMem confirmed the final recipient revocation.", flush=True)
-        summary("ExeMem confirmed the final recipient revocation.")
+    require(roster.get("members") is not None, "circle_cleanup_roster_unavailable")
+    revoke_roster(publisher, database)
+    report("ExeMem confirmed the final recipient revocations.")
 
 
 def connect(programs, publisher, api_key):
@@ -203,6 +202,8 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     album = sdk(recipient, "read", database=database, schema=ALBUM, key="seed")
+    second_app = sdk(recipient, "read", database=database, schema=ALBUM, key="seed", appId="album-viewer")
+    require(second_app == album, "independent_app_opens_same_published_album")
     require(album["fields"]["text"] == f"Initial {ALBUM}", "circle_sdk_read_shared_content")
     report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")

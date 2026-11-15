@@ -64,7 +64,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/harness.py scripts/cloud_backup/*.py scripts/mutation_log_load/node_auth.py apps/social/*.py apps/social/social
           python3 -m json.tool lastdb-app.json > /dev/null
-          node --check apps/social/web/app.js
+          for script in apps/social/web/*.js; do node --check "$script"; done
           node --check scripts/cloud_backup/social_sdk.mjs
 
   build-client:

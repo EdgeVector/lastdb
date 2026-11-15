@@ -19,6 +19,15 @@ try {
     case 'setup':
       result = await social.setupDatabase(input);
       break;
+    case 'circles':
+      result = await social.listCircles();
+      break;
+    case 'request-sharing':
+      result = await social.requestSharing(input);
+      break;
+    case 'sharing-status':
+      result = await social.getSharingStatus(input.requestId);
+      break;
     case 'invite':
       result = await social.inviteReader(input.database, input.recipient);
       break;
@@ -32,7 +41,7 @@ try {
       result = await social.revokeAccess(input.database, input.nodeKey);
       break;
     case 'read': {
-      const root = await connect({ appId: 'social-dev-sdk', socketPath: join(dataDir, 'data', 'folddb.sock') });
+      const root = await connect({ appId: input.appId ?? 'social-dev-sdk', socketPath: join(dataDir, 'data', 'folddb.sock') });
       const { client } = await root.openDatabaseSession(input.database, 'read');
       result = await client.get(input.schema, input.key);
       break;

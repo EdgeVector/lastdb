@@ -39,12 +39,37 @@ export interface SocialDatabaseSetup {
   definitions: Record<string, string>;
 }
 
+type SocialGrantScope =
+    { writeSchemas: string[] | 'all'; preset?: never }
+    | { preset: 'viewer' | 'commenter' | 'album-organizer'; writeSchemas?: never };
+
+export type SocialSharingChange =
+  | ({ operation: 'setCircleBinding'; databaseId: string; circleId: string } & SocialGrantScope)
+  | { operation: 'removeCircleBinding'; databaseId: string; circleId: string }
+  | ({ operation: 'setPersonGrant' | 'restorePerson'; databaseId: string; nodeKey: string } & SocialGrantScope)
+  | { operation: 'revokePerson'; databaseId: string; nodeKey: string };
+
+export interface SocialSharingRequest {
+  requestId: string;
+  /** Display label for the app that proposed the change. */
+  appId: string;
+  change: SocialSharingChange;
+}
+
+export interface SocialSharingStatus {
+  requestId: string;
+  databaseId: string;
+  status: 'awaitingApproval' | 'pending' | 'confirmed' | 'needsReview';
+  revision?: string;
+  error?: string;
+}
+
 /** Share with people through Social. Use `connect` and `select` for content. */
 export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: SocialClientOptions) {
   const baseArgs = ['--data-dir', dataDir];
   if (lastdbPath !== undefined) baseArgs.push('--lastdb', lastdbPath);
 
-  function run(action: string, args: string[], input?: SocialInvitation): Promise<unknown> {
+  function run(action: string, args: string[], input?: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const child = execFile(socialPath, [...baseArgs, action, ...args], {
         timeout: 180_000,
@@ -70,6 +95,30 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   }
 
   return {
+    /** List the owner's reusable circle labels and stable IDs. */
+    async listCircles(): Promise<{ id: string; name: string }[]> {
+      const value = await run('list-circles', []);
+      if (!Array.isArray(value) || !value.every((item: unknown): item is { id: string; name: string } =>
+        isObject(item) && typeof item['id'] === 'string' && typeof item['name'] === 'string')) {
+        throw new UnexpectedResponseError('Social returned an invalid circle list', 0, null);
+      }
+      return value.map(({ id, name }) => ({ id, name }));
+    },
+
+    /** Save a declaration for approval in Social. Retry with the same UUID and change. */
+    async requestSharing(request: SocialSharingRequest): Promise<SocialSharingStatus> {
+      const receipt = parseSharingStatus(await run('request-sharing', [], request), request.requestId);
+      if (receipt.databaseId !== request.change.databaseId) {
+        throw new UnexpectedResponseError('Social returned sharing status for a different database', 0, null);
+      }
+      return receipt;
+    },
+
+    /** Read the outcome using the UUID assigned when the app proposed the change. */
+    async getSharingStatus(requestId: string): Promise<SocialSharingStatus> {
+      return parseSharingStatus(await run('sharing-status', ['--', requestId]), requestId);
+    },
+
     /** Create a named database using Social's original filtered sharing format. */
     async createDatabase(name: string): Promise<ListedDatabase> {
       return parseListedDatabase(await run('create-db', ['--', name]));
@@ -140,6 +189,21 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
       return result['revision'];
     },
   };
+}
+
+function parseSharingStatus(value: unknown, expectedId: string): SocialSharingStatus {
+  if (isObject(value)) {
+    const { requestId, databaseId, status, revision, error } = value;
+    if (requestId === expectedId && typeof databaseId === 'string'
+      && (status === 'awaitingApproval' || status === 'pending' || status === 'needsReview' || status === 'confirmed')
+      && (revision === undefined || typeof revision === 'string')
+      && (error === undefined || typeof error === 'string')
+      && (status !== 'confirmed' || typeof revision === 'string')) {
+      return { requestId, databaseId, status, ...(revision === undefined ? {} : { revision }),
+        ...(error === undefined ? {} : { error }) };
+    }
+  }
+  throw new UnexpectedResponseError('Social returned invalid sharing status', 0, null);
 }
 
 function parseInvitation(result: unknown): SocialInvitation {
