@@ -1,6 +1,4 @@
-use super::{
-    parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand, ShareFilesCommand,
-};
+use super::{parse_json_response, post_json_with_timeout, DatabaseTarget, ShareCommand};
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
 use lastdb_node::share_invitation::{self, ShareContact, MAX_SEALED_INVITATION_BYTES};
@@ -12,8 +10,6 @@ use std::time::Duration;
 
 #[path = "share_cmds/contributors.rs"]
 mod contributors;
-#[path = "share_cmds/files/mod.rs"]
-mod files;
 #[path = "share_cmds/named.rs"]
 mod named;
 #[path = "share_cmds/queries/mod.rs"]
@@ -29,12 +25,7 @@ pub(super) fn run(
             invitation,
             publisher,
             name,
-        }
-        | ShareCommand::Files(ShareFilesCommand::Receive {
-            invitation,
-            publisher,
-            name,
-        }) => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
+        } => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
         ShareCommand::Invite {
             recipient,
             recipient_key,
@@ -51,7 +42,6 @@ pub(super) fn run(
             regrant,
         }),
         ShareCommand::Contributors(action) => contributors::run(data_dir, db, action),
-        ShareCommand::Files(action) => files::run(data_dir, db, action),
         ShareCommand::Queries(action) => queries::run(data_dir, action),
         action => run_offline(data_dir, action),
     }

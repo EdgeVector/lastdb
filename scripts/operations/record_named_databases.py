@@ -91,6 +91,7 @@ def check(node, cli, output):
     wrong = run_cli(node, cli, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector read personal data: " + wrong.stderr)
+    check_cli_operations(node, cli, output, saved["notes_id"])
     print("Named databases survived restart with the same ids and isolated values", flush=True)
 
 
@@ -195,11 +196,40 @@ def cli_read(node, cli, selector, value):
     require(got == value, f"lastdb --db {selector} read {got}")
 
 
+def run_cmd(node, binary, *arguments):
+    environment = {**os.environ, "LASTDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.socket)}
+    return subprocess.run([str(binary), *arguments], capture_output=True, text=True, timeout=60, env=environment)
+
+
 def run_cli(node, cli, selector):
-    environment = os.environ.copy()
-    environment["LASTDB_HOME"] = str(node.home)
-    environment["LASTDB_SOCKET_PATH"] = str(node.socket)
-    return subprocess.run(
-        [str(cli), "--db", selector, "get", "RecordById", "--key-hash", "one", "--json"],
-        capture_output=True, text=True, timeout=60, env=environment,
-    )
+    return run_cmd(node, cli, "--db", selector, "get", "RecordById", "--key-hash", "one", "--json")
+
+
+def check_cli_operations(node, cli, output, database_id):
+    daemon_help = run_cmd(node, node.binary, "--help")
+    require(daemon_help.returncode == 0 and "--share-owner-home" not in daemon_help.stdout,
+            "the standalone publication flag is still available")
+    share_help = run_cmd(node, cli, "share", "--help")
+    subcommands = {line.split()[0] for line in share_help.stdout.splitlines() if line.strip()}
+    require(share_help.returncode == 0 and {"accept", "contributors"} <= subcommands and "files" not in subcommands,
+            "share --help subcommands drifted: " + share_help.stdout)
+    listed = run_cmd(node, cli, "db", "list", "--json")
+    require(listed.returncode == 0 and any(db["id"] == database_id for db in json.loads(listed.stdout)["databases"]),
+            "db list missed the named database: " + listed.stderr)
+    keys = run_cmd(node, cli, "--db", database_id, "get-keys", "RecordById", "--json")
+    require(keys.returncode == 0 and [k["hash"] for k in json.loads(keys.stdout)["keys"]] == ["one"],
+            "selected database get-keys failed: " + keys.stderr)
+    request = output / "cli-mutate.json"
+    request.write_text(json.dumps(mutation(
+        "RecordById", {"hash": "cli-op"}, {"id": "cli-op", "bucket": "b1", "value": "via-cli"}, "create",
+        alternates={"by_bucket": {"hash": "b1", "range": "cli-op"}}, expected={"type": "absent"},
+    )))
+    written = run_cmd(node, cli, "--db", database_id, "mutate", "--request-file", str(request))
+    require(written.returncode == 0 and "record_revision" in json.loads(written.stdout),
+            "selected database mutate failed: " + written.stderr)
+    got = run_cmd(node, cli, "--db", database_id, "get", "RecordById", "--key-hash", "cli-op", "--json")
+    require(got.returncode == 0 and json.loads(got.stdout)["results"][0]["fields"]["value"] == "via-cli",
+            "selected database read missed CLI mutation: " + got.stderr)
+    wrong = run_cmd(node, cli, "--db", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "mutate", "--request-file", str(request))
+    require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
+            "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)

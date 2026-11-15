@@ -10,9 +10,8 @@ import tempfile
 
 from node import OwnedNode
 from programs import Programs
-from signed_files import running, summary
 from social_app import ROOT
-from support import OperationError, failure, require
+from support import OperationError, failure, require, running, summary
 
 sys.path.insert(0, str(ROOT / "apps/social"))
 from app import SocialApp  # noqa: E402

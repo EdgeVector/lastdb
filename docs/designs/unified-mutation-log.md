@@ -251,11 +251,10 @@ Older spec-bound shares retain the namespace rules of their selected spec.
 graph namespace (`spec/index.json`, `spec/social-graph/`). `spec/README.md`
 keeps it personal-only, so a shareable database rejects it.
 
-`lastdb-files` is the namespace the share files command publishes, for
-`FileCatalog` and `FileChunk`
-(`lastdb_node/src/bin/lastdb/share_cmds/files/mod.rs` and `publisher.rs`).
-`scripts/operations/record_share_files.py` writes those same schemas on a
-share home.
+`lastdb-files` remains in `spec/index.json` and `database_policy` as a
+compatibility spec binding (`FileCatalog` and `FileChunk`) for older
+spec-bound shares; the legacy `lastdb share files` CLI chunking path is
+retired.
 
 For spec-bound shares, `BoundPolicy` uses the database's spec to classify
 namespaces. An app-private namespace is refused with `AppPrivateNamespace`.

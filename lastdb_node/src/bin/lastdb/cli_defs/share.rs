@@ -46,9 +46,6 @@ pub(crate) enum ShareCommand {
     /// Manage contributor grants for ordinary database mutations.
     #[command(subcommand)]
     Contributors(ShareContributorCommand),
-    /// Share files with the LastDB Files app.
-    #[command(subcommand)]
-    Files(ShareFilesCommand),
     /// Publish a saved keyed query into one owned share database.
     #[command(subcommand)]
     Queries(ShareQueriesCommand),
@@ -116,32 +113,5 @@ pub(crate) enum ShareContributorCommand {
         /// Contributor's Ed25519 public key in lowercase hex.
         #[arg(long)]
         recipient_key: String,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum ShareFilesCommand {
-    /// Add a regular file to the owned Files database selected by --db.
-    Add { file: PathBuf },
-    /// Register a signed Files invitation on this node.
-    Receive {
-        invitation: PathBuf,
-        /// Publisher's public key obtained through a trusted channel.
-        #[arg(long)]
-        publisher: String,
-        /// Optional local name for use with --db.
-        #[arg(long)]
-        name: Option<String>,
-    },
-    /// List completed files in the selected database, including while offline.
-    List,
-    /// Save and verify a file from the selected database.
-    Save {
-        /// File ID from the list command.
-        #[arg(long)]
-        file: String,
-        /// New path for the complete file.
-        #[arg(long)]
-        out: PathBuf,
     },
 }

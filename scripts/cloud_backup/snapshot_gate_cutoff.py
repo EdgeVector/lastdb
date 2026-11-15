@@ -3,14 +3,19 @@
 import http.client
 import json
 import os
+from pathlib import Path
 import stat
+import sys
 import urllib.error
 
-from native_records import create, key as record_key, replace
-from node import OwnedNode
-from signed_files import retry, running
-from snapshot_cleanup import SNAPSHOT_DEV_ACCOUNT, current_attempt, start_tracking
-from snapshot_gate_aws import (
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+
+from harness import create, key as record_key, replace_row as replace  # noqa: E402
+from node import OwnedNode  # noqa: E402
+from snapshot_cleanup import SNAPSHOT_DEV_ACCOUNT, current_attempt, start_tracking  # noqa: E402
+from snapshot_gate_aws import (  # noqa: E402
     CUTOFF_DIGEST,
     SNAPSHOT_THROUGH,
     entry_key,
@@ -18,7 +23,7 @@ from snapshot_gate_aws import (
     summary,
     verify_cloud_target,
 )
-from snapshot_gate_reclaim import (
+from snapshot_gate_reclaim import (  # noqa: E402
     NEWER_THAN_SNAPSHOT,
     auto_reclaim_preimage,
     automatic_floor,
@@ -27,8 +32,17 @@ from snapshot_gate_reclaim import (
     index_status,
     reclaim_compatibility_prefix,
 )
-from snapshot_gate_roundtrip import cli, prefixed
-from support import CREDENTIALS_FILE, OperationError, dev_endpoint, read_json, require, write_private
+from snapshot_gate_roundtrip import cli, prefixed  # noqa: E402
+from support import (  # noqa: E402
+    CREDENTIALS_FILE,
+    OperationError,
+    dev_endpoint,
+    read_json,
+    require,
+    retry,
+    running,
+    write_private,
+)
 
 FINAL_HEAD = 16
 SNAPSHOT_ONLY = {"id": "native-cutoff-base", "note": "only present on the source at snapshot"}

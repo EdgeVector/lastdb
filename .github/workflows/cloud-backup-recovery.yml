@@ -1,6 +1,6 @@
 name: Cloud backup recovery
 
-# Signed Files transfer and Social sharing on an accepted main dispatch.
+# Social sharing and registry preparation on an accepted main dispatch.
 # Pull requests only check recipe syntax. They never receive cloud credentials.
 on:
   pull_request:
@@ -31,8 +31,8 @@ on:
       mode:
         description: "Run a DEV operation or prepare a Social registry declaration"
         type: choice
-        options: [signed-files, social-share, social-circles, social-prepare]
-        default: signed-files
+        options: [social-share, social-circles, social-prepare]
+        default: social-share
       social_install_revision:
         description: "For either Social sharing mode, optionally install this exact signed DEV Social source"
         type: string
@@ -76,7 +76,7 @@ jobs:
       actions: read
     uses: ./.github/workflows/cloud-backup-build.yml
 
-  signed-files:
+  social-sharing:
     name: Signed sharing in DEV
     needs: [recipe-syntax, build-client]
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
@@ -155,7 +155,6 @@ jobs:
           tar -xzf "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz" \
             -C "$client_bin_dir" lastdb lastdbd
           case "$OPERATION" in
-            signed-files) recipe=signed_files ;;
             social-share) recipe=social_share ;;
             social-circles) recipe=social_circles ;;
             social-prepare) recipe=social_prepare ;;

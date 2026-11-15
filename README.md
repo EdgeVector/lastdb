@@ -126,7 +126,7 @@ Use `lastdb --help` to see the commands in the installed release.
 | `mutate` | Submit a conditional write and supply the record’s file when needed. |
 | `app` | Browse the signed registry and manage apps. |
 | `backup` | Configure backup and restore an accepted recovery point. |
-| `share` | Invite readers and share files from a named database. |
+| `share` | Export contacts and manage invitations on a named database. |
 | `db` | List the local database and accepted shares. |
 | `admin` | Diagnose or maintain a home. |
 
@@ -164,40 +164,6 @@ Only the publisher reads it and checks the proposed change against the
 current rules. The publisher saves and uploads accepted changes to a separate
 published log, which all active receivers follow.
 [How sharing works](docs/designs/shared-database-mutation-logs.md)
-
-### Share files
-
-Create a named database with the Files spec. Use an existing publisher home
-connected to ExeMem and run its normal LastDB daemon.
-
-```sh
-lastdb --data-dir OWNER db create trip --spec-name lastdb-files --spec-version 1
-lastdb --data-dir OWNER --db trip share files add FILE
-```
-
-The recipient exports a public contact from their own LastDB home. Verify the
-recipient key through a trusted channel before issuing the invitation.
-
-```sh
-lastdb --data-dir RECIPIENT share contact --out CONTACT
-lastdb --data-dir OWNER --db trip share invite --recipient CONTACT \
-  --recipient-key RECIPIENT_KEY --out INVITATION
-```
-
-The recipient verifies the publisher key and runs their own LastDB daemon.
-They can accept the invitation without a separate ExeMem account.
-
-```sh
-lastdb --data-dir RECIPIENT share files receive INVITATION --publisher PUBLISHER_KEY --name trip
-lastdb --data-dir RECIPIENT db list
-lastdb --data-dir RECIPIENT --db trip share files list
-lastdb --data-dir RECIPIENT --db trip share files save --file FILE_ID --out PATH
-```
-
-The recipient follows the signed mutation log. After the files appear in the
-local catalog, list and save also work offline. An import publishes its catalog
-entry after all of the file's chunks are written. LastDB verifies the file
-digest before saving it to the requested path.
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —

@@ -2,7 +2,6 @@
 
 import time
 
-from signed_files import retry
 from snapshot_gate_aws import (
     SNAPSHOT_THROUGH,
     entry_digest,
@@ -12,7 +11,7 @@ from snapshot_gate_aws import (
     summary,
     verify_facts,
 )
-from support import OperationError, require
+from support import OperationError, require, retry
 
 NEWER_THAN_SNAPSHOT = {"id": "native-cutoff-tail", "note": "written after publishing the snapshot"}
 
