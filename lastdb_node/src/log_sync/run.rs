@@ -36,7 +36,18 @@ pub(super) async fn run_ready(host: &Host, mut ready: Ready) -> Pause {
             return Pause::Retry;
         }
     }
-    pull_and_checkpoint(host, &mut ready).await
+    let pause = pull_and_checkpoint(host, &mut ready).await;
+    if ready.publisher.is_none()
+        && crate::host::owned::find_shareable(&host.home, &ready.database_id)
+            .is_ok_and(|entry| entry.whole_database())
+    {
+        if let Err(error) = super::inbox::drain(host, &ready.log).await {
+            tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
+                %error, "private submission inbox awaits retry");
+            return Pause::Retry;
+        }
+    }
+    pause
 }
 
 pub(super) async fn pull_and_checkpoint(host: &Host, ready: &mut Ready) -> Pause {

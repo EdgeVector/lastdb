@@ -9,8 +9,8 @@ import uuid
 from node import Connection
 from signed_files import retry, run_operation, summary
 from social_app import call, observe_access, window
-from social_log_views import pending_positions, scope_for
-from support import OperationError, decode_json, read_json, require
+from social_log_views import inbox, pending_positions, published_views, scope_for
+from support import OperationError, decode_json, require
 
 SCOPE = {"name": "whole-database", "version": 1}
 ALBUM = "dev-albums/Album"
@@ -150,15 +150,16 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
     publisher.stop()
     try:
+        require(not inbox(publisher, scope, database)["entries"], "circle_empty_inbox")
+        published_before = published_views(recipient, scope, database)
         denied = submit(recipient, database, session, mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"))
         allowed = submit(recipient, database, session, mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"))
-        through = pending_positions(publisher, recipient, scope, database, (denied, allowed))
-        summary("ExeMem delivered both pending entries to the publisher and only publisher-authored entries to Ana.")
+        through = pending_positions(publisher, recipient, scope, database, (denied, allowed), published_before)
+        summary("ExeMem queued both writes in the publisher's inbox and refused Ana's inbox read and settlement. The published log did not advance.")
     finally:
         publisher.start()
-    checkpoint = publisher.home / "log-sync" / database / "session.json"
-    retry("circle_publisher_consumed_submissions", lambda: read_json(checkpoint, 4096),
-          lambda state: state["cursor"] >= through)
+    retry("circle_publisher_consumed_submissions", lambda: inbox(publisher, scope, database),
+          lambda page: int(page["next"]) >= through and not page["entries"])
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")

@@ -21,14 +21,17 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise OperationError("circle_cloud_redirect")
 
 
-def post(path, data, authentication):
+def post(path, data, authentication, *, expect_denial=False):
     request = urllib.request.Request(dev_endpoint() + path, data=data, method="POST",
                                      headers={"Content-Type": "application/json", **authentication})
     try:
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=15) as response:
+            require(not expect_denial, "circle_cloud_receiver_inbox_access")
             require(response.status == 200, "circle_cloud_response_status")
             data = response.read(2_000_001)
     except urllib.error.HTTPError as error:
+        if expect_denial and error.code in (401, 403):
+            return None
         raise OperationError(f"circle_cloud_{path.rsplit('/', 1)[-1]}_http_{error.code}") from None
     except (OSError, urllib.error.URLError):
         raise OperationError("circle_cloud_unavailable") from None
@@ -43,34 +46,48 @@ def scope_for(publisher, api_key):
     return scope
 
 
-def view(node, scope, database, action, revision):
+def view(node, scope, database, action, *, expect_denial=False):
     key = NodeKey.from_seed((node.home / "identity.key").read_bytes())
     path = f"{ROOT}/mutation-log/{action}"
     fields = {"database_id": database}
     if action == "list":
         fields.update(after="0", limit="32")
+    if action == "inbox/settle":
+        fields.update(through="0")
     body = json.dumps(fields).encode()
     header, _ = authorization(key, path, database, time.time_ns() // 1_000_000, body,
                               scope["account_generation"], account=scope["account_id"],
-                              member_revision=revision)
-    return key.public.hex(), post(path, body, {"Authorization": header})
+                              member_revision="1")
+    return key.public.hex(), post(path, body, {"Authorization": header}, expect_denial=expect_denial)
 
 
-def pending_positions(publisher, recipient, scope, database, mutation_ids):
-    calls = [(publisher, "list"), (recipient, "list"), (recipient, "head")]
+def inbox(publisher, scope, database):
+    return view(publisher, scope, database, "inbox/list")[1]
+
+
+def published_views(recipient, scope, database):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        return list(pool.map(lambda action: view(recipient, scope, database, action)[1], ("list", "head")))
+
+
+def pending_positions(publisher, recipient, scope, database, mutation_ids, published_before):
+    calls = [(publisher, "list", False), (publisher, "inbox/list", False),
+             (recipient, "inbox/list", True), (recipient, "inbox/settle", True)]
     with ThreadPoolExecutor(max_workers=len(calls)) as pool:
-        owner, reader_list, reader_head = list(pool.map(
-            lambda call: view(call[0], scope, database, call[1], "1"), calls))
-    publisher_key, page = owner
-    recipient_key = reader_list[0]
+        owner, owner_inbox, reader_inbox, _ = list(pool.map(
+            lambda call: view(call[0], scope, database, call[1], expect_denial=call[2]), calls))
+    publisher_key, published = owner
+    _, page = owner_inbox
+    recipient_key = reader_inbox[0]
     pending = {row["entry"]["device_id"]: int(row["delivery_seq"]) for row in page["entries"]
                if row["entry"]["node_public_key"] == recipient_key
                and row["entry"]["namespace"] == "lastdb-member-submission"}
     expected = {f"member-{mutation_id}" for mutation_id in mutation_ids}
     require(set(pending) == expected, "circle_publisher_sees_both_pending_submissions")
-    require(reader_list[1]["entries"], "circle_exemem_receiver_has_published_entries")
-    for _, view_body in (reader_list, reader_head):
+    published_after = published_views(recipient, scope, database)
+    require(published_after[0]["entries"], "circle_exemem_receiver_has_published_entries")
+    require(published_after == published_before, "circle_inbox_did_not_advance_published_log")
+    for view_body in (published, *published_after):
         require(all(row["entry"]["node_public_key"] == publisher_key for row in view_body["entries"]),
                 "circle_exemem_receiver_only_publisher_entries")
-        require(int(view_body["next"]) >= max(pending.values()), "circle_cloud_view_reaches_pending")
     return max(pending.values())
