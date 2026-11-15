@@ -72,7 +72,7 @@ pub(crate) async fn update_member(
     exchange::commit(&session, home, &entry.id, &signed).await
 }
 
-pub(super) fn read_body(session: &PublisherSession, database_id: &str) -> Result<Vec<u8>, String> {
+fn read_body(session: &PublisherSession, database_id: &str) -> Result<Vec<u8>, String> {
     let request = MemberListReadRequest {
         version: Version::V2,
         stream: Stream {
@@ -85,7 +85,7 @@ pub(super) fn read_body(session: &PublisherSession, database_id: &str) -> Result
     serde_json::to_vec(&request).map_err(|_| "cannot encode member list read".into())
 }
 
-pub(super) fn authorization(
+fn authorization(
     session: &PublisherSession,
     body: &[u8],
     database_id: &str,
