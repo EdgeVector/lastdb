@@ -232,12 +232,40 @@ jobs:
             exit 1
           fi
 
-  snapshot-resume-cleanup-dev:
-    name: Resume an earlier snapshot cleanup in DEV
+  snapshot-resume-origin:
+    name: Verify the earlier snapshot attempt
     needs: recipe-syntax
     if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'resume-cleanup'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      legacy: ${{ steps.origin.outputs.legacy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: origin
+        name: Verify exact provenance and select its cleanup queue
+        env:
+          SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
+          ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
+          ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
+        run: |
+          python3 scripts/cloud_backup/snapshot_gate.py resolve-resume \
+            "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
+
+  snapshot-resume-cleanup-dev:
+    name: Resume an earlier snapshot cleanup in DEV
+    needs: snapshot-resume-origin
+    if: needs.snapshot-resume-origin.outputs.legacy == 'true' || needs.snapshot-resume-origin.outputs.legacy == 'false'
     concurrency:
-      group: snapshot-attempt-${{ github.event.inputs.original_run_id }}-${{ github.event.inputs.original_run_attempt }}
+      # Historical attempts still share one account, including in-flight jobs
+      # from before the cutover. New accounts only serialize an exact attempt.
+      group: ${{ needs.snapshot-resume-origin.outputs.legacy == 'true' && 'snapshot-roundtrip-dev' || format('snapshot-attempt-{0}-{1}', github.event.inputs.original_run_id, github.event.inputs.original_run_attempt) }}
       queue: max
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
@@ -251,8 +279,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - id: resume
-        name: Verify the original attempt and resume disposable account cleanup
+      - name: Verify the original attempt and resume disposable account cleanup
+        if: needs.snapshot-resume-origin.outputs.legacy == 'false'
         env:
           SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
           ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
@@ -261,17 +289,17 @@ jobs:
           python3 scripts/cloud_backup/snapshot_gate.py resume-cleanup \
             "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
       - name: Install the historical signed cleanup dependency
-        if: steps.resume.outputs.legacy == 'true'
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         run: python3 -m pip install --quiet cryptography==41.0.7
       - name: Assume the DEV mutation-log cleanup role for a historical attempt
-        if: steps.resume.outputs.legacy == 'true'
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
           role-session-name: snapshot-resume-${{ github.run_id }}
       - name: Resume the historical fixed-owner signed cleanup
-        if: steps.resume.outputs.legacy == 'true'
+        if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         env:
           SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
           ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}

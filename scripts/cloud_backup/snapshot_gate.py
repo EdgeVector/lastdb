@@ -118,23 +118,24 @@ def resume_cleanup(command):
         f"original_run={attempt.run_id} original_attempt={attempt.attempt} "
         f"original_source={revision} database_id={attempt.database}"
     )
-    if command == "resume-legacy-cleanup":
+    if command == "resolve-resume":
+        output = os.environ.get("GITHUB_OUTPUT")
+        require(output, "snapshot_resume_output")
+        with open(output, "a", encoding="ascii") as stream:
+            stream.write(f"legacy={'false' if disposable else 'true'}\n")
+    elif command == "resume-legacy-cleanup":
         require(not disposable, "snapshot_resume_disposable_attempt")
         cleanup(load_guard(), attempt, load_owner(), expect_charge=proof == "success", resume=True,
                 proof_skipped=proof == "skipped")
-    elif disposable:
-        retire(attempt, summary, expect_charge=proof == "success")
     else:
-        output = os.environ.get("GITHUB_OUTPUT")
-        require(output, "snapshot_resume_legacy_output")
-        with open(output, "a", encoding="ascii") as stream:
-            stream.write("legacy=true\n")
+        require(disposable, "snapshot_resume_legacy_attempt")
+        retire(attempt, summary, expect_charge=proof == "success")
 
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     native = command == "native-cutoff"
-    resume = command in ("resume-cleanup", "resume-legacy-cleanup")
+    resume = command in ("resolve-resume", "resume-cleanup", "resume-legacy-cleanup")
     if native or resume:
         require_native_dispatch()
     require(command in ("run", "retire") or native or resume, "command")
