@@ -89,6 +89,7 @@ def cleanup_objects(guard, database, aws, summary):
             and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
     guard.allow_stream(database)
     endpoint = dev_endpoint()
+    expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
     receipt = Path(os.environ["RUNNER_TEMP"]) / f"snapshot-provider-cleanup-{database}.json"
     expected = {**run_fields(database), "complete": True}
     # A metadata purge can fail after deleting admission rows. A private,
@@ -98,12 +99,14 @@ def cleanup_objects(guard, database, aws, summary):
         require(isinstance(saved, dict) and {**saved, "released_bytes": None}
                 == {**expected, "released_bytes": None}, "snapshot_cleanup_receipt")
         released = released_bytes(saved.get("released_bytes"))
+        require(not expect_charge or released > 0, "snapshot_cleanup_missing_charge")
         summary(f"provider_objects=empty released_bytes={released} prior_run_local_confirmation")
         return
     # Before registration there can be no upload grants. Once registered, all
     # admission metadata survives provider cleanup, even on partial failure.
     found = aws(guard, "query", guard.query_request(guard.DEV_TABLE, database))
     if not found.get("Items") and not found.get("LastEvaluatedKey"):
+        require(not expect_charge, "snapshot_cleanup_missing_metadata")
         summary("provider_objects=not_registered_or_already_cleaned")
         return
     owner, api_key, generation = load_ci_key()
@@ -138,6 +141,7 @@ def cleanup_objects(guard, database, aws, summary):
                 and (wait_ms == 0 or count == 0), "snapshot_cleanup_reply")
         deleted += count
         if complete:
+            require(not expect_charge or released > 0, "snapshot_cleanup_missing_charge")
             write_private(receipt, json.dumps({**expected,
                                                "released_bytes": str(released)}).encode("ascii"))
             summary(f"provider_objects=empty confirmed_deleted={deleted} released_bytes={released}")
