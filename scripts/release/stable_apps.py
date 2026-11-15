@@ -23,10 +23,13 @@ def command(argv, environment, directory, output, name, body=None, timeout=300, 
 
 def source_for(node, plan, app, output, environment, cli):
     prefix = [str(cli), "--data-dir", str(node.home), "app"]
-    resolved = subprocess.run([*prefix, "list", app, "--channel", "stable", "--json"],
+    # The owned home sets ENVIRONMENT=dev so the daemon stays off the cloud.
+    # Frozen stable SHAs come from the prod index, so name that index here.
+    registry = ["--env", "prod", "--channel", "stable"]
+    resolved = subprocess.run([*prefix, "list", app, *registry, "--json"],
                               env=environment, capture_output=True, text=True, timeout=60)
     if resolved.returncode == 0 and json.loads(resolved.stdout).get("sha") == plan["apps"][app]:
-        command([*prefix, "install", app, "--channel", "stable", "--accept-install"],
+        command([*prefix, "install", app, *registry, "--accept-install"],
                 environment, output, output, app + "-registry-install", timeout=600)
         active = Path(environment["LASTDB_APPS_ROOT"]) / app / "current"
         receipt = json.loads((active / "lastdb-app-install.json").read_text())
