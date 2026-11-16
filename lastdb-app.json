@@ -1,6 +1,6 @@
 {
   "app_id": "social-graph",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "source": "https://github.com/EdgeVector/lastdb.git",
   "audience": "public",
   "metadata": {
@@ -143,20 +143,6 @@
         "request_id": "Stable identifier of the saved sharing request.",
         "app_id": "Label of the app that proposed the sharing request.",
         "database_id": "Stable identifier of the database in the proposal."
-      },
-      "owner_app_id": "social-graph"
-    },
-    {
-      "name": "SharingRequestIndexProgress",
-      "descriptive_name": "Sharing request index progress",
-      "purpose_statement": "Saved progress for importing the previous Social request records.",
-      "schema_type": "Hash",
-      "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
-      "fields": ["cursor", "complete"],
-      "field_types": { "cursor": "String", "complete": "Boolean" },
-      "field_descriptions": {
-        "cursor": "LastDB key-list continuation for the next import page.",
-        "complete": "Whether Social has indexed all saved proposals from before the upgrade."
       },
       "owner_app_id": "social-graph"
     },

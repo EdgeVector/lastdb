@@ -1,20 +1,19 @@
-"""Exercise Social's owner interface and selected-database sessions in DEV."""
+"""Run Social's owner commands and selected-database sessions in DEV."""
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing, contextmanager
-from http.client import HTTPConnection
+from contextlib import closing
 import json
 import os
 from pathlib import Path
 import subprocess
-from urllib.parse import parse_qs, urlsplit
 
 from node import Connection
-from support import decode_json, require, retry, summary
+from support import OperationError, decode_json, require, retry, summary
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = {"name": "social", "version": 1}
+GROUPS = ("person", "circle", "db", "grant", "request")
 
 
 def command(node):
@@ -53,58 +52,33 @@ def install(publisher, root, revision):
     summary(f"Installed Social from the signed {catalog.upper()} registry at `{revision}` and used its managed command link.")
 
 
-@contextmanager
-def window(node, database=None, sharing_request=None):
-    launch = [*command(node), "open", "--no-browser"]
-    if database:
-        launch.extend(("--database", database))
-    if sharing_request:
-        launch.extend(("--sharing-request", sharing_request))
-    with subprocess.Popen(launch, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                          env=node.programs.environment) as process:
-        try:
-            import select
-            require(bool(select.select([process.stdout], [], [], 20)[0]), "social_window_start")
-            target = urlsplit(process.stdout.readline(4096).decode().strip())
-            require(target.hostname == "127.0.0.1" and target.port, "social_loopback")
-            if database:
-                require(parse_qs(target.query).get("databaseId") == [database], "social_settings_deep_link")
-            if sharing_request:
-                require(parse_qs(target.query).get("sharingRequest") == [sharing_request], "social_request_deep_link")
-            token = parse_qs(target.fragment).get("session", [None])[0]
-            require(bool(token), "social_window_session")
-            with closing(HTTPConnection(target.hostname, target.port, timeout=10)) as connection:
-                connection.request("GET", target.path)
-                with connection.getresponse() as reply:
-                    require(reply.status == 200 and b"<title>Social</title>" in reply.read(65537),
-                            "social_page_served")
-            yield target.port, token
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+def social(node, *arguments, stdin=None, refusal=None, refusals=()):
+    """Run one Social command and decode its JSON result."""
+    label = "_".join(arguments[:2] if arguments[0] in GROUPS else arguments[:1]).replace("-", "_")
+    try:
+        result = subprocess.run([*command(node), *arguments],
+                                input=None if stdin is None else json.dumps(stdin).encode(),
+                                capture_output=True, env=node.programs.environment, timeout=180)
+    except subprocess.TimeoutExpired as error:
+        raise OperationError(f"social_{label}_deadline") from error
+    if refusal is not None:
+        require(result.returncode == 1 and not result.stdout and refusal in result.stderr,
+                f"social_{label}_expected_refusal")
+        return None
+    if result.returncode:
+        # An invitation is held in memory and must never enter workflow output.
+        for fragment, code in refusals:
+            require(fragment.encode() not in result.stderr, code)
+        detail = result.stderr.decode(errors="replace").partition(" returned HTTP ")[2][:3]
+        suffix = f"_http_{detail}" if detail.isascii() and detail.isdigit() else ""
+        raise OperationError(f"social_{label}_failed{suffix}")
+    return decode_json(result.stdout)
 
 
-def call(window, path, body=None, *, authorized=True, status=200, refusals=()):
-    port, token = window
-    headers = {"Content-Type": "application/json"}
-    if authorized:
-        headers["X-Social-Session"] = token
-    with closing(HTTPConnection("127.0.0.1", port, timeout=100)) as connection:
-        connection.request("GET" if body is None else "POST", path,
-                           None if body is None else json.dumps(body).encode(), headers)
-        with connection.getresponse() as reply:
-            raw = reply.read(4 * 1024 * 1024)
-            if refusals and reply.status != status:
-                response = decode_json(raw)
-                message = response.get("error", "") if isinstance(response, dict) else ""
-                for fragment, code in refusals:
-                    require(fragment not in message, code)
-            require(reply.status == status, f"social_app_{path.split('?')[0]}_http_{reply.status}")
-            return decode_json(raw)
+def pick(node, spec, intent, database):
+    """Issue an owner-approved data session for one database."""
+    return social(node, "pick-database", "--spec", spec["name"], "--version", str(spec["version"]),
+                  "--intent", intent, "--database", database, "--session")
 
 
 def scoped(node, selection, app, method, path, body=None, status=200):
@@ -117,12 +91,11 @@ def scoped(node, selection, app, method, path, body=None, status=200):
             return decode_json(reply.read(65537)) if status == 200 else None
 
 
-def open_content_apps(recipient, browser, database):
-    args = {"spec": SPEC, "intent": "read", "databaseId": database}
-    choices = call(browser, "/api/picker", args)
+def open_content_apps(recipient, database):
+    choices = social(recipient, "pick-database", "--spec", SPEC["name"], "--version", str(SPEC["version"]),
+                     "--intent", "read")
     require(any(row["databaseId"] == database for row in choices), "social_picker_received_database")
-    require(call(browser, "/api/pick", {**args, "databaseId": None}) is None, "social_picker_cancel")
-    selections = [(name, call(browser, "/api/pick", args)) for name in ("album-viewer", "photo-journal")]
+    selections = [(name, pick(recipient, SPEC, "read", database)) for name in ("album-viewer", "photo-journal")]
     require(all(selection["databaseId"] == database and selection["spec"] == SPEC
                 for _, selection in selections), "social_picker_shared_database")
     for app, selection in selections:
@@ -143,14 +116,14 @@ def read_album(node, selections, database, key, title=None):
                for reply in results)
 
 
-def observe_access(browser, database, state, revision=None, *, role="read", write_schemas=None):
+def observe_access(node, database, state, revision=None, *, role="read", write_schemas=None):
     def matches(result):
         access = result["database"]["selfAccess"]
         return (access["state"] == state and access["confirmedAtMs"] and not access["stale"]
                 and (revision is None or access["revision"] == str(revision))
                 and (state != "active" or access["role"] == role)
                 and (write_schemas is None or access.get("writeSchemas") == write_schemas))
-    retry(f"social_recipient_access_{state}", lambda: call(browser, f"/api/database?databaseId={database}"), matches)
+    retry(f"social_recipient_access_{state}", lambda: social(node, "db", "show", database), matches)
 
 
 def report_content_flow():

@@ -29,14 +29,8 @@ class ReusableCircles:
         definition = self.node.declare_private("CircleDirectory")
         record = self.node.get_record(SCHEMA, KEY)
         data = json.loads(record["fields"]["directory"]) if record else {"circles": []}
-        # Older versions require the legacy key before any edit or replay.
-        # Saving only pendingDatabases prevents them from replaying these operations.
-        legacy_pending = data.pop("pending", [])
-        data.setdefault("pendingDatabases", legacy_pending)
-        operations = data.setdefault("operations", {})
-        previous = data.pop("operation", None)
-        if previous:
-            operations.setdefault(previous["databaseId"], previous)
+        data.setdefault("pendingDatabases", [])
+        data.setdefault("operations", {})
         return definition, record, data
 
     def save(self, definition, record, data, remove_request=None):
@@ -68,13 +62,21 @@ class ReusableCircles:
         except (SocialError, OSError, HTTPException):
             return None
 
-    def edit(self, args, *, apply=False):
+    def change(self, args, *, apply=False, token=None, defer=False):
+        """Preview one edit under the lock, and apply that same preview when asked.
+
+        With `defer`, a database whose grants changed outside Social stays pending
+        for `social db retry --resolve`, and the other databases are applied.
+        """
         with self.circles.lock():
-            return self.edit_locked(args, apply=apply)
+            preview = self.edit_locked(args)
+            if not apply:
+                return {**preview, "applied": False}
+            confirm(preview, token, defer=defer)
+            return {**self.edit_locked({**args, "token": preview["token"]}, apply=True), "applied": True}
 
     def edit_locked(self, args, *, apply=False, operation=None, remove_request=None):
-        if not self.node.has_named_grants():
-            raise SocialError("reusable circles need a LastDB build with grants by schema name")
+        self.node.require_named_grants()
         definition, record, data = self.load()
         prior, pending = data["circles"], set(data["pendingDatabases"])
         retrying = "circle" not in args and operation is None
@@ -254,6 +256,21 @@ class ReusableCircles:
             return {**row, "revision": result["revision"], "status": "confirmed"}
         except (SocialError, OSError, HTTPException) as error:
             return {**row, "error": str(error), "status": "pending"}
+
+
+def confirm(preview, token, *, defer=False):
+    """Refuse to apply a preview that moved or that still has outside grants to resolve."""
+    if token not in (None, preview["token"]):
+        raise SocialError("sharing changed since the preview; review the changes again")
+    names = preview.get("contactNames", {})
+    unresolved = [f'--resolve {row["name"]}:{names.get(item["nodeKey"], item["nodeKey"])}=keep|social'
+                  for row in preview["databases"] for item in row.get("conflicts", [])]
+    if unresolved and not defer:
+        raise SocialError("grants changed outside Social; rerun with " + " ".join(unresolved))
+    blocked = [f'{row["name"]}: {row["error"]}' for row in preview["databases"]
+               if "error" in row and not row.get("conflicts")]
+    if blocked:
+        raise SocialError("; ".join(blocked))
 
 
 def impact(plan):

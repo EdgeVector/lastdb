@@ -47,6 +47,8 @@ class LastDB:
         self.home = home.resolve()
         self.socket = self.home / "data" / "folddb.sock"
         self.executable = executable.resolve()
+        self.capabilities = None
+        self.declared = {}
 
     def call(self, method, path, body=None, *, request_id=None):
         payload = None if body is None else json.dumps(body, separators=(",", ":")).encode()
@@ -75,17 +77,21 @@ class LastDB:
             raise SocialError(result.stderr.strip() or f"LastDB {arguments[0]} failed")
         return json.loads(result.stdout)
 
+    def supports(self, capability):
+        if self.capabilities is None:
+            self.capabilities = self.call("GET", "/api/version").get("capabilities", {})
+        return self.capabilities.get(capability) is True
+
     def require_sessions(self):
-        if self.call("GET", "/api/version").get("capabilities", {}).get("database_sessions_v1") is not True:
+        if not self.supports("database_sessions_v1"):
             raise SocialError("Social needs a LastDB build with database sessions")
 
-    def has_named_grants(self):
-        return (self.call("GET", "/api/version").get("capabilities", {})
-                .get("named_schema_write_grants_v1") is True)
+    def require_named_grants(self):
+        if not self.supports("named_schema_write_grants_v1"):
+            raise SocialError("circles need a LastDB build with grants by schema name")
 
     def can_retry_database_create(self):
-        return (self.call("GET", "/api/version").get("capabilities", {})
-                .get("whole_database_create_retry_v1") is True)
+        return self.supports("whole_database_create_retry_v1")
 
     def verify_contact(self, path, expected_key):
         return self.command("share", "verify-contact", str(path), "--recipient-key", expected_key)
@@ -98,9 +104,12 @@ class LastDB:
 
     def declare_private(self, schema):
         definition = SCHEMAS[schema] if isinstance(schema, str) else schema
-        return self.call("POST", "/api/schemas/declare", {
-            "namespace": "social-graph", "schema": definition,
-        })["definition_id"]
+        name = definition["name"]
+        if name not in self.declared:
+            self.declared[name] = self.call("POST", "/api/schemas/declare", {
+                "namespace": "social-graph", "schema": definition,
+            })["definition_id"]
+        return self.declared[name]
 
     def get_record(self, schema, key):
         rows = self.call("POST", "/api/query", {

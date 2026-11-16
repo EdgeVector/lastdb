@@ -45,30 +45,12 @@ class Circles:
     def describe(self, database):
         return self.load(database)["circles"]
 
-    def set(self, database, revision, requests, restore):
-        if not isinstance(revision, str):
-            raise SocialError("select the sharing revision you reviewed")
-        if not isinstance(restore, list):
-            raise SocialError("choose circle members to restore")
-        definitions = self.schemas(database)
-        circles = normalize(requests, definitions)
-        plan = self.plan(database, definitions, circles, restore, revision=revision,
-                         named=self.node.has_named_grants())
-        return self.apply(database, plan)
-
-    def plan(self, database, definitions, circles, restore=(), *, revision=None, named=True, review=None,
-             direct_change=None):
+    def plan(self, database, definitions, circles, restore=(), *, review=None, direct_change=None):
         if self.sharing.pending_edit(database):
             raise SavedSharingUpdate("A sharing request is waiting for confirmation.")
         policy = self.load(database)
         prior_circles = policy["circles"]
-        # Edits from the database view affect only its original local circles.
-        linked = [circle for circle in prior_circles if "id" in circle]
-        local = [circle for circle in prior_circles if "id" not in circle]
-        circles = (circles + linked) if revision is not None else (local + circles)
         current = self.sharing.configuration(database)
-        if revision is not None and revision != current["revision"]:
-            raise SocialError("sharing changed while you edited it; review the current roster")
         before = resolve(prior_circles)
         desired = resolve(circles)
         before.update({key: before.get(key, []) for key in policy["direct"]})
@@ -86,7 +68,7 @@ class Circles:
                 raise SocialError("save this person's verified contact before sharing")
             target = member_by_key.get(direct_key)
             restore = apply_direct_intent(direct, direct_change, target, definitions, restore)
-        conflicts = outside_changes(members, before, policy, definitions, named)
+        conflicts = outside_changes(members, before, policy, definitions)
         if conflicts:
             choices = review or {}
             if set(choices) != {row["nodeKey"] for row in conflicts}:
@@ -106,7 +88,7 @@ class Circles:
                 direct[key] = member.get("writeSchemas") or []
         for key in direct:
             desired.setdefault(key, [])
-        replacement = merge(members, before, desired, set(restore), direct, definitions, named)
+        replacement = merge(members, before, desired, set(restore), direct, definitions)
         if direct_change and direct_change["operation"] == "revokePerson":
             replacement = [revoke_row(target) if row["nodeKey"] == direct_key else row for row in replacement]
         if len(replacement) > 98:
@@ -186,7 +168,7 @@ def apply_direct_intent(direct, change, target, definitions, restore):
     scope = change["writeSchemas"]
     scope = normalize([{"name": "Direct grant", "members": [key], "writeSchemas": scope}],
                       definitions)[0]["writeSchemas"]
-    scope = scope if scope == FULL else named_scope(scope, [], definitions, True)
+    scope = scope if scope == FULL else named_scope(scope, [])
     if operation == "restorePerson":
         if target and target["state"] == "revoked":
             restore = [*restore, key]
@@ -203,7 +185,7 @@ def grant_value(member):
     return {"state": member["state"], "role": member["role"], "writeSchemas": scope}
 
 
-def outside_changes(members, before, policy, definitions, named):
+def outside_changes(members, before, policy, definitions):
     confirmed = policy.get("confirmed", {})
     changes = []
     for row in members:
@@ -212,7 +194,7 @@ def outside_changes(members, before, policy, definitions, named):
             continue
         previous = confirmed.get(key)
         if previous is None:
-            scope = combine_scope(before[key], policy["direct"].get(key), definitions, named)
+            scope = combine_scope(before[key], policy["direct"].get(key), definitions)
             previous = {"state": "active", "role": "submit" if scope else "read", "writeSchemas": scope}
         current = grant_value(row)
         if previous != current:
@@ -220,7 +202,7 @@ def outside_changes(members, before, policy, definitions, named):
     return changes
 
 
-def merge(current, before, desired, restore, direct, definitions, named):
+def merge(current, before, desired, restore, direct, definitions):
     members = {row["nodeKey"]: row for row in current}
     for key in before.keys() - desired.keys():
         previous = members.get(key)
@@ -235,7 +217,7 @@ def merge(current, before, desired, restore, direct, definitions, named):
         previous = members.get(key)
         if previous and previous["state"] == "revoked" and key not in restore:
             continue
-        scope = combine_scope(scope, direct.get(key), definitions, named)
+        scope = combine_scope(scope, direct.get(key), definitions)
         row = {"nodeKey": key, "state": "active", "role": "submit" if scope else "read", "writeSchemas": scope}
         if previous and previous["state"] == "revoked":
             row["regrant"] = True
@@ -243,24 +225,21 @@ def merge(current, before, desired, restore, direct, definitions, named):
     return [members[key] for key in sorted(members)]
 
 
-def combine_scope(circle, direct, definitions, named):
+def combine_scope(circle, direct, definitions):
     if FULL in (circle, direct):
         return FULL
     if isinstance(direct, dict):
-        return named_scope(circle, direct["names"], definitions, named)
-    elif direct:
-        if not named:
-            return sorted(set(direct) | set(named_scope(circle, [], definitions, False)))
-        registered = {definition: name for name, definition in definitions.items()}
+        return named_scope(circle, direct["names"])
+    if direct:
+        # A grant made outside Social can list definition IDs. Keep it as written.
         if not circle:
             return direct
+        registered = {definition: name for name, definition in definitions.items()}
         if any(registered.get(item) not in circle for item in direct):
             raise SocialError("review the direct grant before combining it with a circle")
-    return named_scope(circle, [], definitions, named)
+    return named_scope(circle, [])
 
 
-def named_scope(circle, direct, definitions, named):
+def named_scope(circle, direct):
     names = sorted(set(circle) | set(direct))
-    if not named:
-        return sorted(definitions[name] for name in names)
     return {"names": names} if names else []

@@ -1,178 +1,210 @@
 # Social
 
 Social remembers verified contacts in the local personal database and manages
-access to owned named LastDB databases set up for sharing. It uses the
-LastDB owner socket for the selected home. Use Python 3.9 or later and the LastDB client
-and daemon from the same build. The publisher needs a connected ExeMem account.
+access to owned named LastDB databases set up for sharing. It is a command-line
+tool. It uses the LastDB owner socket of the selected home. Use Python 3.9 or
+later and the LastDB client and daemon from the same build. The publisher needs
+a connected ExeMem account.
+
+```sh
+social --data-dir "$lastdb_home" COMMAND ...
+```
+
+`LASTDB_HOME` can stand in for `--data-dir`. A command prints a plain table on
+a terminal and JSON when its output is piped or when you pass `--json`. An
+error prints one `social:` line on standard error and exits non-zero.
+
+| Command | What it does |
+| --- | --- |
+| `person add NAME --node-key KEY --contact FILE` | Verify a contact file and save the contact |
+| `person list`, `person show PERSON` | The address book. One person, with what you share and what they share with you |
+| `person rename PERSON NAME`, `person remove PERSON` | Rename a contact. Remove one that has no active grant and is in no circle |
+| `circle list`, `circle show CIRCLE` | Circles, their members, and their linked databases |
+| `circle set CIRCLE [--members A,B] [--link DB=SCOPE] [--unlink DB] [--rename NAME]` | Create a circle, or change the named parts of one |
+| `circle remove CIRCLE` | Remove a circle and the access it grants |
+| `db create NAME [--setup shared-albums] [--filtered]` | Create a whole-database share, optionally from a named setup |
+| `db verify ID --setup NAME [--finish]` | Verify a database against a named setup |
+| `db list`, `db show DB` | Databases. One database with its roster, circles, and pending change |
+| `db accept [FILE] --publisher KEY [--name NAME]` | Accept a sealed invitation |
+| `db retry [DB]` | Resume unfinished sharing updates |
+| `grant list [DB]`, `grant revoke DB PERSON` | Active grants. Revoke one person |
+| `grant set DB PERSON --write SCOPE`, `grant restore DB PERSON` | Give one person their own grant on a whole-database share. Restore a revoked person |
+| `invite DB PERSON [--out FILE]` | Seal an invitation for a person |
+| `request submit`, `request status ID` | For apps: propose a sharing change, read its outcome |
+| `request list`, `request show ID`, `request approve ID`, `request decline ID` | For the owner: review and decide app proposals |
+| `pick-database --spec NAME --version N --intent read\|write` | List the databases an app can use, or select one |
+| `check` | Check the running LastDB for Social compatibility |
+
+`PERSON` is a saved contact's name, or a node key. `DB` is a database name or
+ID. `CIRCLE` is a circle name or ID.
+
+## Preview, then apply
+
+`circle set`, `circle remove`, `grant set`, `grant restore`, and `grant revoke`
+change who can reach a database. Without `--apply` they print what would change and change nothing.
+
+```sh
+social circle set Family --members Ana,Bea --link family=social/Comment
+social circle set Family --members Ana,Bea --link family=social/Comment --apply
+```
+
+A preview includes a `token`. Pass `--apply --token TOKEN` to make the change
+only if it still matches that preview.
+
+When another publisher tool changed a grant that Social manages, the command
+stops and names each one. Decide each with `--resolve DB:PERSON=keep` to keep
+the outside grant as a direct grant, or `--resolve DB:PERSON=social` to apply
+Social's grant. Unrelated grants and explicit revocations are preserved.
+A circle edit can instead take `--apply --defer-conflicts`: the other databases
+are updated, and the one with the outside grant stays pending for
+`db retry DB --resolve ...`.
+
+Social applies each database independently and saves unfinished work. An
+unfinished update only blocks new changes to the same database. `db retry`
+resumes it.
+
+## Contacts
+
+`lastdb share contact --out PATH` exports a contact file and its public node
+key. Check the key with the person through another channel, then save them:
+
+```sh
+social person add Ana --node-key "$ana_key" --contact ana.contact
+```
 
 ## Whole-database sharing
 
-Use `social create-db --whole-database NAME` to create an empty share for
-your app's own schemas. For the standard album schemas, use the shared-albums
-setup below. After confirming a circle grant, use
-`social seal-invitation --database ID --node-key VERIFIED_KEY` to get the
-sealed receipt for the caller to deliver. This uses the same operation as
-**Seal invitation** in the app.
+`social db create NAME` creates an empty share for your app's own schemas.
+Install the schemas through LastDB, then link a circle to the database.
 
-The TypeScript [LastDB app SDK](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
-exposes `socialClient` for creation, setup, invitations, acceptance, and
-revocation. It calls the installed Social app. Use the returned stable
-database ID with the regular LastDB client for schemas, records, and files.
-Use the Circles screen to set reusable people and schema grants.
+A circle is one list of people with links to any number of databases. Each
+link carries a write scope: `read`, `all`, or a comma-separated list of
+canonical schema names such as `social/Comment`. Every member can read each
+whole database. Write access combines across overlapping circles. `all` also
+covers future schemas. An explicit revoke on a database stays in effect
+across later circle edits.
 
-### Accept sharing declarations from apps
+```sh
+social circle set Family --members Ana,Bea --link family=social/Comment --link trips=read --apply
+social invite family Ana --out ana-invitation.json
+```
 
-Social 0.5.0 lets a local app list reusable circle names and IDs with
-`social list-circles`, then submit a sharing request as JSON on stdin to
-`social request-sharing`. Reuse the same request UUID when retrying the
-same declaration. The command saves the proposal with `awaitingApproval`
-and returns the request ID. Use `social open --sharing-request UUID` to
-put the proposal in front of the owner and `social sharing-status UUID`
-to look up its outcome after the owner reviews it. In Social 0.6.0, choosing
-**Decline request** saves a terminal `declined` status. Closing the review
-leaves it awaiting approval. Reusing a declined request's UUID returns the
-same outcome. Open **Requests** in a regular Social window to find saved
-proposals awaiting approval and review or decline them. Requests reads saved
-decisions, including decisions made in an older window during an upgrade.
-Social imports older proposals in pages when you open Requests after
-upgrading. Use **Load more saved requests** to continue if shown. Use the
-current installed `social` command in app integrations. If an older
-executable submitted a request after the import finished, use **Refresh**
-in Requests or resubmit the same declaration and UUID with the current
-command to make it visible.
+For one person outside any circle, use a direct grant. It combines with the
+person's circle grants. A revoked person comes back only through an explicit
+`grant restore`.
+
+```sh
+social grant set family Cal --write social/Comment --apply
+social grant revoke family Cal --apply
+social grant restore family Cal --write read --apply
+```
+
+`invite` produces JSON with `databaseId`, `revision`, `publisher`, and
+`invitation`. With `--out` it writes that receipt to a file only you can read.
+Without it the receipt goes to standard output. Hand the sealed receipt to
+the recipient. Keep it out of logs.
+The recipient accepts it with the publisher's independently verified key:
+
+```sh
+social db accept ana-invitation.json --publisher "$trusted_publisher_key" --name family
+```
+
+`db accept` returns LastDB's received database metadata. The local LastDB
+syncs its records from ExeMem. `db show` reports the recipient's cloud access
+and downloaded record readiness separately.
+
+Compatible schema upgrades keep a grant in place. The publisher still checks
+the specific current definition and the record rules for each write. On a
+whole-database share, a receiver with a `social/Comment` write grant can
+create comments and edit comments they created. The publisher can edit or
+delete any comment.
+
+### Named setups
+
+`social db create family --setup shared-albums` creates a whole-database share
+with the catalog definitions for Album, AlbumItem, Photo, and Comment already
+installed. Social records the new database ID before installing schemas and
+resumes setup by the same name. `social db verify ID --setup shared-albums`
+checks an owned or received share by its stable ID and reports the current
+definition IDs. Add `--finish` to install missing schemas in an owned
+database. Additive schema updates can introduce more fields under the same
+name. When replacing a record, read it first, retain the fields and keys you
+aren't editing, and send the replacement against the record's current
+revision.
+
+## Sharing proposals from apps
+
+A local app lists circles with `social circle list` and submits a proposal as
+JSON on standard input to `social request submit`. Reuse the same request UUID
+when retrying the same declaration. The proposal is saved with
+`awaitingApproval`. `social request status UUID` reports its outcome.
 
 An app can request a circle binding, remove a binding, set a direct person
-grant, revoke, or explicitly restore a person. Give a list of installed
-canonical schema names or choose the `viewer`, `commenter`, or
-`album-organizer` preset. A full write scope includes future schemas and
-requires review. After approval, the binding follows changes to the circle.
-Social applies each database independently and saves unfinished work for
-retry when it opens again. An unfinished update only blocks new changes that
-affect the same database. The owner can review a new app request for another
-database while the earlier change is pending. Reopen any Social windows
-after upgrading. Once Social 0.6.0 saves the circle directory, use 0.6.0
-or later to edit circles and resume its sharing updates.
+grant, revoke, or explicitly restore a person. It gives a list of installed
+canonical schema names or one of the `viewer`, `commenter`, or
+`album-organizer` presets.
 
-The owner sees the current and proposed grants when another publisher tool
-changes a grant that Social manages. They can preserve the outside grant as
-a direct grant or approve Social's proposed write scopes. Unrelated grants
-and explicit revocations are preserved. Use `seal-invitation` after a
-new recipient's grant is confirmed.
-
-## Existing filtered shares
-
-Create an owned database with `social create-db NAME`. This uses the existing
-Social format for albums and photos. You can also share an existing named
-database set up with LastDB's Social or Files format. Use the database name
-with the Social command, and use LastDB's schema and record APIs for content.
-`lastdb share contact --out PATH`
-exports a contact file and its public node key. Check the key independently
-with the person before granting access.
+The owner decides:
 
 ```sh
-apps/social/social --data-dir "$publisher_home" --lastdb "$lastdb_bin" \
-  add --database family --user Ana --node-key "$ana_key" --contact "$ana_contact"
+social request list
+social request show UUID
+social request approve UUID
+social request decline UUID
 ```
 
-`add` returns JSON with `databaseId`, `revision`, `publisher`, and `invitation`.
-The caller hands the sealed invitation receipt to the recipient. Keep it out
-of logs. The recipient passes that JSON to `accept` on stdin, with the
-publisher's independently verified key.
+`request show` prints the access the proposal would produce. After approval a
+circle binding follows later changes to the circle. A decline is final, and
+reusing a declined request's UUID returns the same outcome.
+
+The owner socket trusts every program that runs as its OS user, so an app
+running as the owner could run `request approve` itself. Run content apps
+outside that trust boundary before treating owner approval as app isolation.
+
+## Filtered shares
+
+`social db create NAME --filtered` creates a share in the earlier Social
+format for albums and photos. You can also manage an existing named database
+set up with LastDB's Social or Files format. On these shares `invite` grants
+reader access and seals the invitation in one step:
 
 ```sh
-apps/social/social --data-dir "$recipient_home" --lastdb "$lastdb_bin" \
-  accept --publisher "$trusted_publisher_key" --name family < "$receipt"
+social invite family "$ana_key" --name Ana --contact ana.contact
 ```
 
-`accept` returns LastDB's received database metadata, including its verified
-spec. The local LastDB syncs its records from ExeMem. `grants --database NAME`
-returns the applied revision and member list. `list` shows active grants with
-known names. `remove --database NAME --user Ana` revokes access. Calling `add`
-again restores a revoked reader. Calling it on an already active reader issues
-a fresh invitation at the same revision. You can omit `--contact` when Social
-already remembers the verified contact for that node key.
-An active contributor grant must be revoked before using `add` for reader
-access. A revoked contributor returns as a reader when you use `add`.
-An old pending contributor regrant requires owner review before retry.
-`list` and `grants` report a database with a pending or unavailable roster
-using its own status row. Other databases' confirmed access stays visible.
+You can omit `--name` and `--contact` when Social already remembers the
+contact. Calling `invite` again on an active reader issues a fresh invitation
+at the same revision, and on a revoked reader restores access. An active
+contributor grant must be revoked before `invite` grants reader access.
+`grant list` reports a database with a pending or unavailable roster in its
+own status row. Other databases' confirmed access stays visible.
 
 Social reads and updates the whole LastDB share configuration, preserving
 other members. It records the exact pending request in the personal database
-until LastDB confirms the result or definitively rejects it. A later `add` or
-`remove` can resume delivery. LastDB seals the invitation after the grant.
+until LastDB confirms the result or definitively rejects it.
 
-## Open the local app
+## How sharing works
 
-Run `social --data-dir "$lastdb_home" open` on a running LastDB node. The
-launcher opens a browser window for the local Social session. Add verified
-contacts under People. Use Databases to create a share, see the applied roster,
-revoke access, copy the sealed invitation, or accept one. The recipient's
-cloud access and downloaded record readiness are shown separately. Use
-`open --database ID` to go directly to a database's sharing settings.
-
-Choose **Whole database with circle write access** when creating a database
-for circles. Install the database's schemas through LastDB, then open
-**Circles** to create one membership list with links to several databases.
-Use a LastDB build with named schema grants for this screen.
-Set the write scope on each link and preview the changes before applying them.
-A member can read each whole database. Write access combines across overlapping
-circles, and an explicit revoke on a database stays in effect across later circle
-edits. If one database update fails, review the unfinished changes and retry it.
-Existing local circles remain editable under the database. Use **Seal invitation**
-on each database to hand its new recipients their sealed receipts.
-
-Write grants use the installed schema's canonical name, for example
-`social/Comment`. Compatible upgrades keep the grant in place. The publisher
-still checks the specific current definition and the record rules for each write.
-The **All schemas** choice also covers future schemas. An older exact-ID circle
-grant can be converted by reviewing and saving its circle settings.
-
-On a whole-database share, LastDB lets a receiver with a `social/Comment`
-write grant create comments and edit comments they created. The publisher can
-edit or delete any comment. These rules apply under every circle and every app.
-
-Choose **Shared albums (version 1)** to create a whole-database share with
-the catalog definitions for Album, AlbumItem, Photo, and Comment already
-installed. Social records the newly created database ID before installing
-schemas and can resume setup by the same provisioning name. To reopen a
-compatible owned or received share, select its stable ID. Reopening verifies
-that the required fields and keys are present and reports the current definition
-IDs. Additive schema updates can introduce more fields under the same name.
-When replacing a record, read it first, retain the fields and keys you aren't
-editing, and send the replacement against the record's current revision.
-
-```sh
-social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --name family
-social --data-dir "$lastdb_home" setup-database --setup shared-albums --version 1 --database DATABASE_ID
-```
-
-For an incomplete owned setup, pass `--finish-existing` with its exact ID.
-Social verifies the schemas already present before installing missing ones.
-With retryable whole-database creation, setup by local name reserves its ID
-before creating the database and can resume by the same name.
-
-Apps use the sharing settings to show which changes the publisher allows.
 Every active receiver can send an encrypted change to the pending mutation
 log. A successful submission confirms that ExeMem queued it. Only the
 publisher's LastDB can read pending changes. It checks each one against the
 current schema permissions and record rules, discards refusals, and uploads
-accepted changes to the separate published log. Receivers follow that log
-and can read the resulting record after it syncs.
+accepted changes to the separate published log. Receivers follow that log and
+can read the resulting record after it syncs.
 [How sharing works](../../docs/designs/shared-database-mutation-logs.md)
 
 Social changes must preserve the two logs, the signed per-database roster and
 schema grants, and the publisher's authority to approve each mutation.
 [Requirements to preserve](../../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 
-The picker filters by spec and intent. For example, run
-`social --data-dir "$isolated_home" pick-database --spec social --version 1 --intent read`
-to see choices. Add `--choose` to open the browser picker and wait for the
-user's selection or cancellation. Add `--database ID --session` when an
-owner has already made the choice. An approved selection includes a
-short-lived `databaseSession`. A client uses the selected ID with the normal
-LastDB data API and sends that value in `X-LastDB-Database-Session`. Keep the
-session out of logs. The node limits a session to the selected database and
-its approved operation. The existing owner socket still trusts programs that
-run as its OS user. Run content apps outside that owner trust boundary before
-using this as an app isolation guarantee.
+## Choosing a database for an app
+
+`social pick-database --spec social --version 1 --intent read` lists the
+databases that match. Add `--database ID` to check one selection, and
+`--session` to issue a short-lived `databaseSession` for it. A client uses the
+selected ID with the normal LastDB data API and sends that value in
+`X-LastDB-Database-Session`. Keep the session out of logs. The node limits a
+session to the selected database and its approved operation.
+
+The TypeScript [LastDB app SDK](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
+exposes `socialClient`, which runs these commands.

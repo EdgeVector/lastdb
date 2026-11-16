@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import re
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from lastdb import LastDBError, SCHEMAS, SocialError, record_mutation
 from circles import DIGEST
 from request_index import RequestIndex
-from reusable_circles import encoded
+from reusable_circles import confirm, encoded
 
 
 SCHEMA = "social-graph/SharingRequest"
 DEFINITION = SCHEMAS["SharingRequest"]
+# An owner's own change has no saved proposal. Its ID comes from the change,
+# so a preview and its apply agree.
+OWNER_CHANGES = uuid5(NAMESPACE_URL, "social-graph/owner-change")
 APP_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}\Z")
 PRESETS = {
     "viewer": [],
@@ -42,8 +45,8 @@ class SharingRequests:
         _, _, data = self.reusable.load()
         return [{"id": row["id"], "name": row["name"]} for row in data["circles"]]
 
-    def awaiting(self, cursor=None, *, recheck=False):
-        return self.index.awaiting(cursor, recheck=recheck)
+    def awaiting(self, cursor=None):
+        return self.index.awaiting(cursor)
 
     def submit(self, args):
         if args.keys() != {"requestId", "appId", "change"}:
@@ -74,20 +77,7 @@ class SharingRequests:
     def replay(self, declaration, prior):
         if not prior or prior["declaration"] != declaration:
             raise SocialError("this request ID belongs to a different declaration")
-        request_id = declaration["requestId"]
-        result = self.status(request_id)
-        if result["status"] != "awaitingApproval":
-            return result
-        self.node.declare_private("PendingSharingRequest")
-        if self.index.get(request_id):
-            return result
-        # A legacy app may have saved just the declaration. Keep the local
-        # decision and this repair serialized with owner approval and decline.
-        with self.reusable.circles.lock():
-            result = self.status(request_id)
-            if result["status"] == "awaitingApproval":
-                self.index.ensure(declaration)
-            return result
+        return self.status(declaration["requestId"])
 
     def load(self, request_id):
         definition = self.node.declare_private(DEFINITION)
@@ -118,24 +108,53 @@ class SharingRequests:
             _, _, data = self.load(request_id)
         return status(declaration, data.get("receipt"))
 
-    def preview(self, request_id, review=None, token=None):
+    def preview(self, request_id, review=None):
         with self.reusable.circles.lock():
-            _, _, data = self.load(request_id)
-            if not data:
-                raise SocialError("sharing request does not exist")
-            request = data["declaration"]
+            return self.review(request_id, review)
+
+    def approve(self, request_id, review=None, token=None):
+        """Apply the proposal exactly as its preview shows it, under one lock."""
+        with self.reusable.circles.lock():
+            preview = self.review(request_id, review)
+            if "token" not in preview:
+                return preview
+            confirm(preview, token)
+            return self.review(request_id, review, preview["token"])
+
+    def owner_change(self, change, review=None, *, apply=False, token=None):
+        """Preview or apply a direct grant, revoke or restore that the owner asked for."""
+        change = parse_change(change)
+        request = {"requestId": str(uuid5(OWNER_CHANGES, encoded(change))), "change": change}
+        with self.reusable.circles.lock():
             _, _, directory = self.reusable.load()
-            active = directory["operations"].get(request["change"]["databaseId"])
-            if "receipt" in data or (active and active["requestId"] == request_id):
-                return self.status(request_id)
             edit, operation, label = self.edit(request, directory, review)
-            if token is None:
-                result = self.reusable.edit_locked(edit, operation=operation)
-                return {**status(request), **result, "subjectName": label}
-            self.archive(active)
-            self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation,
-                                      remove_request=self.index.remove(request_id))
+            preview = {**self.reusable.edit_locked(edit, operation=operation),
+                       "subjectName": label, "change": change}
+            if not apply:
+                return {**preview, "applied": False}
+            confirm(preview, token)
+            self.archive(directory["operations"].get(change["databaseId"]))
+            applied = self.reusable.edit_locked({**edit, "token": preview["token"]}, apply=True,
+                                                operation=operation)
+            return {**applied, "subjectName": label, "change": change, "applied": True}
+
+    def review(self, request_id, review, token=None):
+        _, _, data = self.load(request_id)
+        if not data:
+            raise SocialError("sharing request does not exist")
+        request = data["declaration"]
+        _, _, directory = self.reusable.load()
+        active = directory["operations"].get(request["change"]["databaseId"])
+        if "receipt" in data or (active and active["requestId"] == request_id):
             return self.status(request_id)
+        edit, operation, label = self.edit(request, directory, review)
+        if token is None:
+            result = self.reusable.edit_locked(edit, operation=operation)
+            return {**status(request), **result, "subjectName": label}
+        self.archive(active)
+        self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation,
+                                  remove_request=self.index.remove(request_id))
+        return self.status(request_id)
 
     def decline(self, request_id):
         with self.reusable.circles.lock():
