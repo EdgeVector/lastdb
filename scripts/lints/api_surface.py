@@ -42,7 +42,7 @@ SDK_ROUTES = "lastdb_app_sdk/src/databases.ts"
 SURFACE = "lastdb_node/api-surface.json"
 SDK_GENERATED = "lastdb_app_sdk/src/apiVersion.generated.ts"
 
-ROUTE_LITERAL = re.compile(r'"(/health|/api/[A-Za-z0-9_/-]*)"')
+ROUTE_LITERAL = re.compile(r'"(/health|/api/[A-Za-z0-9_/-]*|/v1/[A-Za-z0-9_/-]*)"')
 SDK_ROUTE_LITERAL = re.compile(r"'(/api/[A-Za-z0-9_/-]*)'")
 
 

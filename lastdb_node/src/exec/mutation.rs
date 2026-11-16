@@ -55,26 +55,40 @@ pub(in crate::exec) async fn execute_deferred_mutation(
     let work = match route {
         DataRoute::Mutation => heap_route!(mutation_route, req, ctx, host),
         DataRoute::MutationBatch => heap_route!(batch_route, req, ctx, host),
+        DataRoute::V1Write => heap_route!(super::app_api::write_route, req, ctx, host),
         _ => return content_free(404, "Not Found"),
     };
     with_handler_timeout_budget(ctx, data_route_budget(route), work).await
 }
 
-async fn stamp_and_validate(host: &Host, parsed: &mut ParsedMutation) -> Result<(), HostError> {
-    let req = parsed.mutation.schema_name.clone();
+async fn stamp_and_validate(host: &Host, mutation: &mut Mutation) -> Result<(), HostError> {
+    let req = mutation.schema_name.clone();
     let canonical = resolve_schema_name(host, &req)?
         .ok_or_else(|| HostError::new(404, format!("Schema not found: {req}")))?;
-    validate_mutation_fields(host, &req, &canonical, &parsed.mutation.record_fields).await?;
-    parsed.mutation.schema_name = canonical;
-    parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
+    validate_mutation_fields(host, &req, &canonical, &mutation.record_fields).await?;
+    mutation.schema_name = canonical;
+    mutation.uuid = uuid::Uuid::new_v4().to_string();
     Ok(())
+}
+
+/// Stamp, validate and commit mutations built by the app API as one transaction.
+pub(in crate::exec) async fn commit_mutations(
+    host: &Host,
+    mut mutations: Vec<Mutation>,
+) -> Result<(), HostError> {
+    for mutation in &mut mutations {
+        stamp_and_validate(host, mutation).await?;
+    }
+    run_core_commit(host, mutations, "Write failed")
+        .await
+        .map(|_| ())
 }
 
 pub(in crate::exec) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {
-    stamp_and_validate(host, &mut parsed).await?;
+    stamp_and_validate(host, &mut parsed.mutation).await?;
     let field_bytes: usize = parsed
         .mutation
         .record_fields
@@ -122,7 +136,7 @@ async fn execute_mutations_batch(
     let drained = batch.iter().any(|i| i.convergence.waits());
     let mut mutations = Vec::with_capacity(batch.len());
     for mut parsed in batch {
-        stamp_and_validate(host, &mut parsed).await?;
+        stamp_and_validate(host, &mut parsed.mutation).await?;
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();

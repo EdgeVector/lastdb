@@ -110,9 +110,9 @@ impl UdsServer {
         }
         let routed = uds_router::route(&req);
         let deferred = match &routed {
-            ControlRoute::Data(r @ (DataRoute::Mutation | DataRoute::MutationBatch)) => {
-                Some(Some(*r))
-            }
+            ControlRoute::Data(
+                r @ (DataRoute::Mutation | DataRoute::MutationBatch | DataRoute::V1Write),
+            ) => Some(Some(*r)),
             ControlRoute::Database if database_routes::is_deferred_database_request(&req) => {
                 Some(None)
             }

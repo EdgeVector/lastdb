@@ -37,6 +37,7 @@ macro_rules! heap_route {
 }
 
 mod admin_routes;
+mod app_api;
 mod database_owned;
 mod database_routes;
 mod database_session;
@@ -161,6 +162,8 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::DbDeleteBlob => heap_route!(file_blob::db_delete_blob, req, ctx, host),
             DataRoute::BackupSnapshot => heap_route!(backup_snapshot, req, ctx, host),
             DataRoute::CloudWake => return cloud_wake(req, ctx, host),
+            DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
+            DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
         };
         fut.await
     })
