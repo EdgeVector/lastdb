@@ -6,7 +6,7 @@ pub mod advice;
 use schema_types::FieldValueType;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 /// Maximum allowed sensitivity level (`0` = Public through `4` = Highly Restricted).
 pub const MAX_SENSITIVITY_LEVEL: u8 = 4;
@@ -293,51 +293,4 @@ fn words(text: &str) -> Vec<String> {
 
 pub(crate) fn same_description(left: &str, right: &str) -> bool {
     words(left) == words(right)
-}
-
-fn overlap(left: &str, right: &str) -> f32 {
-    let left: BTreeSet<_> = words(left).into_iter().collect();
-    let right: BTreeSet<_> = words(right).into_iter().collect();
-    let union = left.union(&right).count();
-    if union == 0 {
-        return 0.0;
-    }
-    left.intersection(&right).count() as f32 / union as f32
-}
-
-fn different_qualifiers(left: &str, right: &str) -> bool {
-    let left = words(left);
-    let right = words(right);
-    [
-        &["created", "updated", "deleted"][..],
-        &["start", "end"][..],
-        &["source", "target", "destination"][..],
-        &["minimum", "maximum"][..],
-        &["first", "last"][..],
-        &["public", "private"][..],
-        &["latitude", "longitude"][..],
-        &["seconds", "milliseconds", "microseconds"][..],
-        &["bytes", "bits"][..],
-    ]
-    .iter()
-    .any(|qualifiers| {
-        let a: BTreeSet<_> = left
-            .iter()
-            .filter(|word| qualifiers.contains(&word.as_str()))
-            .collect();
-        let b: BTreeSet<_> = right
-            .iter()
-            .filter(|word| qualifiers.contains(&word.as_str()))
-            .collect();
-        !a.is_empty() && !b.is_empty() && a.is_disjoint(&b)
-    })
-}
-
-/// Name overlap of a canonical name close enough to suggest in advice.
-pub(crate) fn name_overlap(name: &str, other_name: &str) -> Option<f32> {
-    if name == other_name || different_qualifiers(name, other_name) {
-        return None;
-    }
-    let score = overlap(name, other_name);
-    (score >= 0.5).then_some(score)
 }

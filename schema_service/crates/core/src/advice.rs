@@ -9,9 +9,10 @@ use crate::DataClassification;
 use schema_types::{DeclarativeSchemaDefinition, FieldValueType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 mod findings;
+mod matching;
 
 /// Maximum fields one draft may name before advice refuses it.
 pub const MAX_ADVICE_FIELDS: usize = 512;
@@ -102,6 +103,10 @@ impl SchemaAdviceResponse {
         if fields.len() < 2 {
             return;
         }
+        let normalized: Vec<_> = fields
+            .iter()
+            .map(|&field| (field, matching::field_name(field)))
+            .collect();
 
         let mut matches = Vec::new();
         for row in catalog {
@@ -118,14 +123,7 @@ impl SchemaAdviceResponse {
                 .flatten()
                 .map(String::as_str)
                 .collect();
-            let shared = fields
-                .intersection(&candidate)
-                .filter(|&&name| {
-                    draft.types.get(name).is_none_or(|expected| {
-                        row.definition.field_types.get(name) == Some(expected)
-                    })
-                })
-                .count();
+            let shared = shared_fields(&draft, &normalized, &candidate, row.definition);
             if shared >= 2 && shared * 2 >= fields.len() {
                 let score = shared * 1024 / (fields.len() + candidate.len() - shared);
                 matches.push((score, shared, id, row));
@@ -145,6 +143,41 @@ impl SchemaAdviceResponse {
                 .map(|(_, shared, id, row)| similar_finding(&row, id, shared, fields.len())),
         );
     }
+}
+
+fn shared_fields(
+    draft: &Draft,
+    fields: &[(&str, matching::FieldName)],
+    candidate: &BTreeSet<&str>,
+    definition: &DeclarativeSchemaDefinition,
+) -> usize {
+    let mut by_name = BTreeMap::<_, Vec<_>>::new();
+    for &field in candidate {
+        by_name
+            .entry(matching::field_name(field).normalized)
+            .or_default()
+            .push(field);
+    }
+    let mut matched = BTreeSet::new();
+    for (field, name) in fields {
+        let Some(candidates) = by_name.get(name.normalized.as_str()) else {
+            continue;
+        };
+        let agrees = candidates.iter().any(|&other| {
+            draft
+                .types
+                .get(*field)
+                .is_none_or(|expected| definition.field_types.get(other) == Some(expected))
+                && matching::descriptions_compatible(
+                    draft.descriptions.get(*field).map(String::as_str),
+                    definition.field_descriptions.get(other).map(String::as_str),
+                )
+        });
+        if agrees {
+            matched.insert(name.normalized.as_str());
+        }
+    }
+    matched.len()
 }
 
 fn similar_finding(
