@@ -24,12 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cost import Ledger, format_estimate
 from drive import LoadError, Session, drive
-from faults import MAX_CONTENTION_TRIES, backoff_seconds, is_contention, is_throttle, worst_exit
+from faults import (MAX_CONTENTION_TRIES, backoff_seconds, format_summary, is_contention,
+                    is_throttle, render_summaries, worst_exit, write_summaries)
 from guard import (DEV_TABLE, GuardError, allow_endpoint, allow_region_environment,
                    allow_role, allow_stream, allow_table, allow_table_arn, aws_dynamodb,
                    batch_delete_keys, database_id_for_run, iter_partition_keys,
                    load_endpoints, load_partitions, refuse_prod_environment, writes_partition)
-from stats import format_summary, render_summaries, write_summaries
 from node_auth import NodeKey, TokenError, account_id, authorization
 
 
@@ -236,14 +236,12 @@ def main(argv):
         finally:
             Path(args.ledger).write_text(json.dumps(ledger.snapshot()), encoding="utf-8")
         return 0
-    ident = account_id(key.public)
     reports = []
 
     def transport(method, path, body):
         return post(endpoint, key, database_id, method, path, body, api_key, account_generation)
 
-    session = Session(database_id, ident, key.public.hex(), transport, ledger,
-                      lambda: time.time_ns() // 1_000_000)
+    session = Session(database_id, transport, ledger, lambda: time.time_ns() // 1_000_000)
     label = SCALE_LABEL if args.scale else PRELIMINARY_LABEL
     print(label)
     try:

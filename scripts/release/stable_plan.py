@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze, gate, package, and compatibility-prove a stable LastDB release."""
+"""Freeze, gate, and compatibility-prove a stable LastDB release."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import time
 from urllib.error import HTTPError
 
+from nightly_package import write_json
 from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
 
 TAP = "EdgeVector/homebrew-lastdb"
@@ -56,9 +58,7 @@ def app_sources():
 
 
 def installed_app_sources(current):
-    """App commits that users can still have installed: every complete signed
-    list from MIN_SUPPORTED_API_VERSION up to API_VERSION that differs from
-    the apps this run already proves."""
+    """App commits that users can still have installed across MIN_SUPPORTED_API_VERSION..API_VERSION."""
     versions = surface()
     result = {}
     for api_version in range(versions["min_supported_api_version"], versions["api_version"] + 1):
@@ -72,12 +72,12 @@ def api(path, method="GET", payload=None):
     if not path.startswith(("repos/EdgeVector/lastdb/", "repos/" + TAP + "/",
                             *(f"repos/EdgeVector/{app}/" for app in APPS))):
         raise ValueError("Release request outside the fixed repositories")
-    command = ["gh", "api", "--method", method, path]
+    cmd = ["gh", "api", "--method", method, path]
     body = b""
     if payload is not None:
-        command += ["--input", "-"]
+        cmd += ["--input", "-"]
         body = json.dumps(payload).encode()
-    return json.loads(_capture(command, body) or "null")
+    return json.loads(_capture(cmd, body) or "null")
 
 
 def load(path):
@@ -100,8 +100,7 @@ def make(output):
     if _capture(["git", "status", "--porcelain"]).strip():
         raise ValueError("Release source must be clean")
     formula = api(f"repos/{TAP}/contents/Formula/lastdb.rb?ref=main")
-    text = base64.b64decode(formula["content"]).decode()
-    match = re.search(r'^\s*version "(\d+)\.(\d+)\.(\d+)"', text, re.M)
+    match = re.search(r'^\s*version "(\d+)\.(\d+)\.(\d+)"', base64.b64decode(formula["content"]).decode(), re.M)
     if match is None:
         raise ValueError("The stable formula has no explicit numeric version")
     version = ".".join((*match.groups()[:2], str(int(match[3]) + 1)))
@@ -111,12 +110,10 @@ def make(output):
             "epoch": int(_capture(["git", "show", "-s", "--format=%ct", source])),
             "run_url": f"https://github.com/EdgeVector/lastdb/actions/runs/{os.environ['GITHUB_RUN_ID']}",
             "apps": app_sources()}
-    # A PR build must still serve the apps that the supported API range lists.
     plan["installed_apps"] = {} if publish else installed_app_sources(plan["apps"])
     marker = f"<!-- lastdb-stable:v1 source={source} "
     rows = api(f"repos/{TAP}/releases?per_page=100")
-    skip = publish and any(not row["draft"] and not row["prerelease"]
-                           and marker in row.get("body", "") for row in rows)
+    skip = publish and any(not row["draft"] and not row["prerelease"] and marker in row.get("body", "") for row in rows)
     Path(output).write_text(json.dumps(plan, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
         for key in ("source", "version", "tag", "base"):
@@ -125,53 +122,130 @@ def make(output):
     return plan
 
 
-def package_bundle(plan_path, target, bin_dir, output):
-    from nightly_package import MAX_BINARY_BYTES, archive_pair, digest, validate_architecture, validate_pair, write_json
-    plan = load(plan_path)
-    output.mkdir(parents=True)
-    binaries = validate_pair(bin_dir, plan["version"])
-    validate_architecture(bin_dir, target)
-    bundle = output / f"lastdb-{target}.tar.gz"
-    archive_pair(bundle, bin_dir, binaries, plan["epoch"])
-    if bundle.stat().st_size > MAX_BINARY_BYTES:
-        raise ValueError("Release archive exceeds the package bound")
-    write_json(output / f"lastdb-{target}.manifest.json", {
-        "schema": "lastdb.mini.bundle.v1", "target": target,
-        "source_git_oid": plan["source"], "version": plan["version"], "binaries": binaries,
-        "artifact": {"file": bundle.name, "size": bundle.stat().st_size, "sha256": digest(bundle)}})
+def command(argv, environment, directory, output, name, body=None, timeout=300, retain_output=True, accept_exit=(0,)):
+    with (output / (name + ".log")).open("w") as log:
+        result = subprocess.run(argv, cwd=directory, env=environment, input=body, text=True,
+                                stdout=subprocess.PIPE, stderr=log, timeout=timeout)
+        if result.returncode not in accept_exit or len(result.stdout) > 1024 ** 2:
+            raise RuntimeError(f"App operation {name} failed; see its CI artifact")
+        if retain_output:
+            log.write(result.stdout)
+    return result.stdout
+
+
+def source_for(node, plan, app, output, environment, cli):
+    prefix = [str(cli), "--data-dir", str(node.home), "app"]
+    # The owned home sets ENVIRONMENT=dev so the daemon stays off the cloud.
+    # Frozen stable SHAs come from the prod index, so name that index here.
+    registry = ["--env", "prod", "--channel", "stable"]
+    resolved = subprocess.run([*prefix, "list", app, *registry, "--json"],
+                              env=environment, capture_output=True, text=True, timeout=60)
+    if resolved.returncode == 0 and json.loads(resolved.stdout).get("sha") == plan["apps"][app]:
+        command([*prefix, "install", app, *registry, "--accept-install"],
+                environment, output, output, app + "-registry-install", timeout=600)
+        active = Path(environment["LASTDB_APPS_ROOT"]) / app / "current"
+        receipt = json.loads((active / "lastdb-app-install.json").read_text())
+        if receipt["sha"] != plan["apps"][app] or receipt.get("inactive") is not False:
+            raise ValueError("The activated registry app differs from the frozen source")
+        write_json(output / (app + ".install-receipt.json"), receipt)
+        return active / "source", True
+    source = output / app
+    command(["git", "clone", "--no-checkout", f"https://github.com/EdgeVector/{app}.git", str(source)],
+            environment, output, output, app + "-clone")
+    command(["git", "checkout", "--detach", plan["apps"][app]], environment, source, output, app + "-checkout")
+    manifest = json.loads((source / "lastdb-app.json").read_text())
+    for phase in ("prepare", "probe"):
+        for index, step in enumerate(manifest["install"][phase]):
+            command(step["argv"], environment, source, output, f"{app}-{phase}-{index}",
+                    timeout=min(step.get("timeout_s", 300), 600), accept_exit=tuple(step.get("accept_exit", [0])))
+    return source, False
+
+
+def prove_apps(node, plan, output, declare=True):
+    observed = node.call("/api/version")
+    environment = {**os.environ, **node.environment,
+                   "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"), os.environ["PATH"])),
+                   "LASTDB_APPS_ROOT": str(node.root / "managed-apps"),
+                   "LASTSECRETS_SOCKET_PATH": str(node.socket), "LASTDB_SOCKET_PATH": str(node.socket)}
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"):
+        environment.pop(name, None)
+    results = {}
+    for app in APPS:
+        source, installed = source_for(node, plan, app, output, environment, node.binaries / "lastdb")
+        manifest = json.loads((source / "lastdb-app.json").read_text())
+        if manifest["app_id"] != app:
+            raise ValueError("App source identity differs")
+        link = next(item for item in manifest["install"]["links"] if item["command"] == app)
+        executable = Path(environment["HOME"]) / ".local/bin" / app if installed else source / link["source"]
+        run = lambda args, name, body=None, retain_output=True: command(
+            [str(executable), *args], environment, source, output, app + "-" + name, body, retain_output=retain_output)
+        if app == "brain":
+            run(["init"], "init")
+            value = "CI stable qualification record"
+            run(["put", "ci-release-qualification", "--type", "concept"], "put", value)
+            if value not in run(["get", "ci-release-qualification", "--type", "concept"], "get"):
+                raise RuntimeError("Brain did not return the acknowledged record")
+        elif app == "lastsecrets":
+            run(["init"], "init")
+            value = "generated-nonsecret-ci-value"
+            run(["put", "ci-release-qualification", "--label", "CI qualification", "--provider", "ci",
+                 "--purpose", "release", "--env", "dev", "--value-stdin"], "put", value)
+            if run(["get", "ci-release-qualification"], "get", retain_output=False).strip() != value:
+                raise RuntimeError("LastSecrets did not return the acknowledged value")
+        else:
+            inbox = node.home / "apps/search/inbox"
+            if not inbox.is_dir() or not any(path.suffix == ".json" for path in inbox.iterdir()):
+                raise RuntimeError("Database writes produced no real Search delivery")
+            run(["init", "--last-db-home", str(node.home)], "init")
+            drained = json.loads(run(["drain", "--last-db-home", str(node.home)], "drain"))
+            hits = json.loads(run(["query", "CI stable qualification record", "--json", "--last-db-home", str(node.home)], "query"))
+            if (drained.get("ok") is not True or not any(
+                    hit.get("schema_name") == "brain/Concept" and hit.get("key_hash") == "ci-release-qualification"
+                    and "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
+                raise RuntimeError("Search did not query the real database changes")
+            run(["status", "--last-db-home", str(node.home)], "status")
+        if not declare:
+            results[app] = {"sha": plan["apps"][app], "installed_from_registry": installed, "complete": True}
+            continue
+        statement = output / (app + ".declaration.json")
+        command([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
+                 "--manifest", str(source / "lastdb-app.json"), "--channel", "stable",
+                 "--prepare", str(statement)], environment, source, output, app + "-declaration")
+        declaration = json.loads(statement.read_text())
+        if declaration["sha"] != plan["apps"][app]:
+            raise ValueError("The validated app commit differs from the plan")
+        results[app] = {"sha": declaration["sha"], "api_version": declaration["api_version"],
+                        "outbox_format_version": observed["current_outbox_format_version"],
+                        "installed_from_registry": installed, "declaration": declaration, "complete": True}
+    write_json(output / "apps.json", results)
+    return results
 
 
 def prove_compatibility(plan_path, bundles, output):
-    from nightly_assets import digest, document, validate_bundle
-    from nightly_package import write_json
+    from nightly_package import digest, document, validate_bundle
     from nightly_probe import OwnedNode, operations, unpack
-    from stable_apps import prove
     plan = load(plan_path)
     output.mkdir(parents=True)
     target = "x86_64-unknown-linux-gnu"
     validate_bundle(bundles, target, plan)
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output,
-                     plan["version"], enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         observed = operations(node)
-        apps = prove(node, plan, output)
+        apps = prove_apps(node, plan, output)
     finally:
         node.close()
     installed = {}
     for api_version, sources in plan.get("installed_apps", {}).items():
-        # A fresh generated home for each older list: the real app commits
-        # that users installed run their own operations against this build.
         older = output / f"api-{api_version}"
         older.mkdir()
-        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older,
-                         plan["version"], enable_search=True)
+        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older, plan["version"], enable_search=True)
         try:
             unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
             operations(node)
-            installed[api_version] = prove(node, {**plan, "apps": sources}, older, declare=False)
+            installed[api_version] = prove_apps(node, {**plan, "apps": sources}, older, declare=False)
         except Exception as error:
             raise RuntimeError(
                 f"The apps in the signed stable list for API {api_version} do not work against this "
@@ -194,29 +268,24 @@ def prove_compatibility(plan_path, bundles, output):
 
 
 def qualify_release(plan_path, bundles, output):
-    from nightly_assets import digest, document
-    from nightly_package import write_json
+    from nightly_package import digest, document
     from nightly_probe import OwnedNode, operations, read, unpack, write
     from home_format import HOME_FORMAT
-    from stable_apps import prove
     plan = load(plan_path)
     output.mkdir(parents=True)
     target = "x86_64-unknown-linux-gnu"
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"],
-                     enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         version = operations(node)
-        apps = prove(node, plan, output)
+        apps = prove_apps(node, plan, output)
         if plan["publish"] and any(not proof["installed_from_registry"] for proof in apps.values()):
             raise RuntimeError("Publish the validated bootstrap app declarations, then retry qualification; no hour started")
         started = datetime.now(timezone.utc)
         beginning = time.monotonic()
         latencies = []
-        # PRs exercise the actual command path briefly, but cannot produce a
-        # qualified result. There is no input that shortens a publishing run.
         duration = HOUR if plan["publish"] else 30
         required_samples = duration // 30 + 1
         while True:
@@ -261,16 +330,10 @@ def qualify_release(plan_path, bundles, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    plan_cmd = sub.add_parser("plan")
-    plan_cmd.add_argument("--plan", type=Path, required=True)
+    sub.add_parser("plan").add_argument("--plan", type=Path, required=True)
     gates_cmd = sub.add_parser("gates")
     gates_cmd.add_argument("--plan", type=Path, required=True)
     gates_cmd.add_argument("--wait-seconds", type=int, default=RELEASE_GATE_WAIT_SECONDS)
-    pkg_cmd = sub.add_parser("package")
-    pkg_cmd.add_argument("--plan", type=Path, required=True)
-    pkg_cmd.add_argument("--target", choices=("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"), required=True)
-    pkg_cmd.add_argument("--bin-dir", type=Path, required=True)
-    pkg_cmd.add_argument("--output", type=Path, required=True)
     for name in ("compatibility", "qualify"):
         bundle_cmd = sub.add_parser(name)
         bundle_cmd.add_argument("--plan", type=Path, required=True)
@@ -281,8 +344,6 @@ def main():
         print(json.dumps(make(args.plan), sort_keys=True))
     elif args.command == "gates":
         print(json.dumps(wait_gates(load(args.plan), args.wait_seconds), sort_keys=True))
-    elif args.command == "package":
-        package_bundle(args.plan, args.target, args.bin_dir, args.output)
     elif args.command == "compatibility":
         prove_compatibility(args.plan, args.bundles, args.output)
     else:

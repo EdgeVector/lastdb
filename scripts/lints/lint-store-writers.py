@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Format writer capability ownership and the recognized direct-writer inventory.
+"""Format writer capability ownership and the recognized direct-writer check.
 
 Logical providers cannot hold raw store types, native row constructors or namespace
 factories. Trusted format/physical modules and the enumerated bootstrap entry
 functions retain those rights; private child constructors bind one home context.
 
 This lint finds every Rust function with a direct write verb (put, delete,
-batch_mutate, ...) and a raw handle or range scan token. Each function needs a
-`path|function|reason` entry in scripts/lints/store-writers.allow. A function of
-`*` covers the writers of one file. An entry with no writer fails.
+batch_mutate, ...) and a raw handle or range scan token. Any direct writer fails.
 
 This is a source check. It does not prove the live result. It finds a direct
 write in the source; it cannot see a key that a caller builds elsewhere and
@@ -22,7 +20,6 @@ import re
 import sys
 
 SOURCE_DIRS = ["fold_db/crates/model/src", "fold_db/crates/core/src", "lastdb_node/src"]
-ALLOW = "scripts/lints/store-writers.allow"
 
 WRITE = re.compile(
     r"\.(?:put_item|batch_put_items|batch_delete_keys|delete_item|batch_mutate|batch_put|"
@@ -146,7 +143,6 @@ def functions(nostr):
     for m in FN.finditer(nostr):
         i = m.end()
         paren = 0
-        angle_ok = True
         while i < len(nostr):
             ch = nostr[i]
             if ch == "(":
@@ -168,7 +164,6 @@ def functions(nostr):
                 out.append((m.group(1), m.start(), j))
                 break
             i += 1
-        _ = angle_ok
     return out
 
 
@@ -217,22 +212,6 @@ def scan(root, capability_failures=None):
     return found
 
 
-def load_allow(root):
-    entries = []
-    with open(os.path.join(root, ALLOW), encoding="utf-8") as handle:
-        for number, line in enumerate(handle, 1):
-            line = line.rstrip("\n")
-            if not line.strip() or line.lstrip().startswith("#"):
-                continue
-            parts = line.split("|", 2)
-            if len(parts) != 3 or not all(p.strip() for p in parts):
-                print(f"{ALLOW}:{number}: need path|function|reason", file=sys.stderr)
-                sys.exit(1)
-            path, fn, reason = (p.strip() for p in parts)
-            entries.append({"path": path, "fn": fn, "reason": reason, "line": number})
-    return entries
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -240,33 +219,13 @@ def main():
     root = os.path.abspath(args.root)
     capability_failures = []
     found = scan(root, capability_failures)
-    entries = load_allow(root)
-    failed = bool(capability_failures)
     for failure in capability_failures:
         print(f"lint-store-writers: {failure}", file=sys.stderr)
-    used = set()
     for path, fn in sorted(found):
-        match = [e for e in entries if e["path"] == path and e["fn"] in (fn, "*")]
-        if not match:
-            failed = True
-            print(
-                f"lint-store-writers: {path}::{fn} writes through a raw handle "
-                f"but is not in the allow list.\n"
-                f"  Add `{path}|{fn}|<reason>` to {ALLOW}.",
-                file=sys.stderr,
-            )
-        used.update(e["line"] for e in match)
-    for e in entries:
-        if e["line"] not in used:
-            failed = True
-            print(
-                f"lint-store-writers: {ALLOW}:{e['line']} names {e['path']}::{e['fn']}, "
-                "which is not a writer any more. Remove the line.",
-                file=sys.stderr,
-            )
-    if failed:
+        print(f"lint-store-writers: {path}::{fn} writes through a raw handle", file=sys.stderr)
+    if capability_failures or found:
         return 1
-    print(f"lint-store-writers: OK ({len(found)} writer functions, {len(entries)} allow lines)")
+    print("lint-store-writers: OK (0 writer functions)")
     return 0
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run the packaged CLI and daemon on one owned, generated, offline home."""
 
+from __future__ import annotations
+
 import argparse
 import http.client
 import json
@@ -20,9 +22,11 @@ for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
     if _entry not in sys.path:
         sys.path.append(_entry)
 
-from harness import UnixConnection, poll_until, read_shutdown_receipt, send_unix_request, verify_shutdown_receipt  # noqa: E402,F401
+from harness import (  # noqa: E402
+    mutation as build_mutation, poll_until, read_shutdown_receipt, send_unix_request,
+    stop_process, verify_shutdown_receipt,
+)
 from home_format import NODE_MARKER  # noqa: E402
-
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
@@ -44,30 +48,19 @@ class OwnedNode:
             self.close()
             raise
         self.environment = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "LANG": "C",
-            "HOME": str(self.root / "os-home"),
-            "TMPDIR": str(self.root / "tmp"),
-            "LASTDB_HOME": str(self.home),
-            "LASTDB_ISOLATED_COPY": "1",
-            "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
-            "ENVIRONMENT": "dev",
-            "EXEMEM_ENV": "dev",
-            "RUST_MIN_STACK": "16777216",
-            "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
+            "HOME": str(self.root / "os-home"), "TMPDIR": str(self.root / "tmp"),
+            "LASTDB_HOME": str(self.home), "LASTDB_ISOLATED_COPY": "1",
+            "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1", "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev",
+            "RUST_MIN_STACK": "16777216", "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
             "EXEMEM_API_URL": "http://127.0.0.1:9",
         }
 
     def call(self, path, body=None):
         status, raw, _, _, _ = send_unix_request(
-            self.socket,
-            "GET" if body is None else "POST",
-            path,
-            body,
+            self.socket, "GET" if body is None else "POST", path, body,
             {"Content-Type": "application/json", "X-LastDB-Client": "nightly-release"},
-            timeout=30,
-            max_bytes=1024 * 1024,
-        )
+            timeout=30, max_bytes=1024 * 1024)
         if status != 200 or len(raw) > 1024 * 1024:
             raise RuntimeError(f"Release operation {path} failed: HTTP {status}: {raw[:600]!r}")
         value = json.loads(raw)
@@ -79,14 +72,11 @@ class OwnedNode:
         if self.process is not None:
             raise RuntimeError("The owned daemon is already active")
         self.log = (self.output / "node.log").open("a")
-        self.process = subprocess.Popen(
-            [str(self.binaries / "lastdbd"), "--data-dir", str(self.home), "--socket-path", str(self.socket)]
-            + (["--enable-search"] if self.enable_search else []),
-            env=self.environment,
-            stdin=subprocess.DEVNULL,
-            stdout=self.log,
-            stderr=self.log,
-        )
+        argv = [str(self.binaries / "lastdbd"), "--data-dir", str(self.home), "--socket-path", str(self.socket)]
+        if self.enable_search:
+            argv.append("--enable-search")
+        self.process = subprocess.Popen(argv, env=self.environment, stdin=subprocess.DEVNULL,
+                                        stdout=self.log, stderr=self.log)
 
         def check_boot():
             if self.process.poll() is not None:
@@ -101,7 +91,8 @@ class OwnedNode:
                 pass
             return None
 
-        return poll_until(90, check_boot, interval=0.05, timeout_error="The packaged daemon missed its health deadline")
+        return poll_until(90, check_boot, interval=0.05,
+                          timeout_error="The packaged daemon missed its health deadline")
 
     def stop(self, crash=False):
         if self.process is None:
@@ -109,22 +100,19 @@ class OwnedNode:
         process = self.process
         if crash and process.poll() is not None:
             raise RuntimeError("The owned daemon exited before the deliberate crash")
-        if process.poll() is None:
-            process.kill() if crash else process.terminate()
         try:
-            process.wait(timeout=45)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
-            raise RuntimeError("The owned daemon required a forced stop")
+            forced = stop_process(process, timeout=45, kill_timeout=10, crash=crash)
         finally:
             if process.poll() is not None:
                 self.process = None
                 self.log.close()
                 self.log = None
+        if forced:
+            raise RuntimeError("The owned daemon required a forced stop")
         if crash and process.returncode != -signal.SIGKILL:
             raise RuntimeError("The owned daemon did not exit from the deliberate SIGKILL")
-        if not crash and (process.returncode != 0 or not verify_shutdown_receipt(read_shutdown_receipt(self.home), process.pid)):
+        if not crash and (process.returncode != 0
+                          or not verify_shutdown_receipt(read_shutdown_receipt(self.home), process.pid)):
             raise RuntimeError("The packaged daemon lacks a successful shutdown receipt")
 
     def close(self):
@@ -136,49 +124,32 @@ class OwnedNode:
             if self.log is not None:
                 self.log.close()
                 self.log = None
-            if (
-                self.root.is_symlink()
-                or self.root.stat().st_uid != self.uid
-                or self.root.stat().st_ino != self.inode
-                or self.root.parent != Path("/tmp").resolve()
-                or not self.root.name.startswith("ldb-rel-")
-            ):
+            if (self.root.is_symlink() or self.root.stat().st_uid != self.uid
+                    or self.root.stat().st_ino != self.inode
+                    or self.root.parent != Path("/tmp").resolve()
+                    or not self.root.name.startswith("ldb-rel-")):
                 raise RuntimeError("The generated home identity changed; refuse cleanup")
             shutil.rmtree(self.root)
 
 
 def unpack(bundle, manifest, directory, expected_version, source):
-    if (
-        manifest.get("schema") != "lastdb.mini.bundle.v1"
-        or manifest.get("source_git_oid") != source
-        or manifest.get("version") != expected_version
-        or manifest.get("target") not in TARGETS
-    ):
+    if (manifest.get("schema") != "lastdb.mini.bundle.v1" or manifest.get("source_git_oid") != source
+            or manifest.get("version") != expected_version or manifest.get("target") not in TARGETS):
         raise ValueError("The package manifest has a different source, version, or target")
     artifact = manifest["artifact"]
-    if (
-        not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES
-        or artifact["file"] != bundle.name
-        or artifact["sha256"] != digest(bundle)
-        or artifact["size"] != bundle.stat().st_size
-    ):
+    if (not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES or artifact["file"] != bundle.name
+            or artifact["sha256"] != digest(bundle) or artifact["size"] != bundle.stat().st_size):
         raise ValueError("The package bytes differ from the bundle manifest")
     with tarfile.open(bundle, "r:gz") as archive:
         members = []
         for member in archive:
-            if (
-                len(members) == 2
-                or member.name not in {"lastdb", "lastdbd"}
-                or not member.isfile()
-                or not 0 < member.size <= MAX_BINARY_BYTES
-            ):
+            if (len(members) == 2 or member.name not in {"lastdb", "lastdbd"}
+                    or not member.isfile() or not 0 < member.size <= MAX_BINARY_BYTES):
                 raise ValueError("The archive exceeds the bounded executable pair")
             members.append(member)
         if len(members) != 2 or {member.name for member in members} != {"lastdb", "lastdbd"}:
             raise ValueError("The archive must contain only the matched executable pair")
         for member in members:
-            if not member.isfile() or not 0 < member.size <= MAX_BINARY_BYTES:
-                raise ValueError("A release archive member has an invalid type or size")
             with archive.extractfile(member) as content, (directory / member.name).open("xb") as output:
                 shutil.copyfileobj(content, output, length=1024 * 1024)
             (directory / member.name).chmod(0o755)
@@ -187,38 +158,17 @@ def unpack(bundle, manifest, directory, expected_version, source):
     validate_architecture(directory, manifest["target"])
 
 
-def record(number, updated):
+def _record(number, updated):
     key = f"record-{number:02d}"
     return key, {"bucket": HASH, "id": key, "body": f"nightly-record-{number}-{'updated' if updated else 'created'}"}
 
 
-def mutation(number, updated, create, revision=None):
-    key, fields = record(number, updated)
-    return {
-        "type": "mutation",
-        "schema": SCHEMA,
-        "key_value": {"hash": HASH, "range": key},
-        "record": fields,
-        "alternates": {},
-        "mutation_type": "create" if create else "replace",
-        "expected": {"type": "absent"} if create else {"type": "revision", "revision": revision},
-        "durability": "durable",
-        "convergence": "sync",
-    }
-
-
-def revisions_for(node, numbers):
+def _revisions_for(node, numbers):
     keys = [f"record-{number:02d}" for number in numbers]
-    result = node.call(
-        "/api/query",
-        {"schema_name": SCHEMA, "limit": len(keys), "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}},
-    )
-    found = {}
-    for row in result.get("results", []):
-        key = row.get("key", {})
-        revision = row.get("revision")
-        if key.get("hash") == HASH and isinstance(revision, str) and revision:
-            found[key.get("range")] = revision
+    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": len(keys),
+                                      "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}})
+    found = {row["key"]["range"]: row["revision"] for row in result.get("results", [])
+             if row.get("key", {}).get("hash") == HASH and isinstance(row.get("revision"), str) and row["revision"]}
     if any(key not in found for key in keys):
         raise RuntimeError("The packaged daemon did not return the records to replace")
     return found
@@ -226,34 +176,24 @@ def revisions_for(node, numbers):
 
 def write(node, numbers, create=False):
     numbers = list(numbers)
-    revisions = {} if create else revisions_for(node, numbers)
-    result = node.call(
-        "/api/mutations/batch",
-        {
-            "mutations": [
-                mutation(number, not create, create, None if create else revisions[f"record-{number:02d}"])
-                for number in numbers
-            ]
-        },
-    )
+    revisions = {} if create else _revisions_for(node, numbers)
+    mutations = []
+    for number in numbers:
+        key, fields = _record(number, not create)
+        expected = {"type": "absent"} if create else {"type": "revision", "revision": revisions[key]}
+        mutations.append(build_mutation(SCHEMA, {"hash": HASH, "range": key}, fields,
+                                        "create" if create else "replace", expected=expected))
+    result = node.call("/api/mutations/batch", {"mutations": mutations})
     identities = result.get("mutation_ids")
-    if (
-        result.get("count") != len(numbers)
-        or result.get("durability") != "durable"
-        or result.get("errors")
-        or not isinstance(identities, list)
-        or len(identities) != len(numbers)
-        or any(not isinstance(value, str) or not value for value in identities)
-    ):
+    if (result.get("count") != len(numbers) or result.get("durability") != "durable"
+            or result.get("errors") or not isinstance(identities, list) or len(identities) != len(numbers)
+            or any(not isinstance(value, str) or not value for value in identities)):
         raise RuntimeError("The packaged daemon did not acknowledge the full durable batch")
 
 
 def read(node, updated, ranged=False):
-    condition = (
-        {"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
-        if ranged
-        else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]}
-    )
+    condition = ({"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
+                 if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
     result = node.call("/api/query", {"schema_name": SCHEMA, "limit": 8, "filter": condition})
     records = result.get("results", [])
     if result.get("returned_count") != 8 or len(records) != 8:
@@ -262,11 +202,7 @@ def read(node, updated, ranged=False):
     for item in records:
         key = item.get("key", {})
         number = int(key.get("range", "").removeprefix("record-"))
-        expected = {
-            "bucket": HASH,
-            "id": f"record-{number:02d}",
-            "body": f"nightly-record-{number}-{'updated' if number in updated else 'created'}",
-        }
+        _, expected = _record(number, number in updated)
         if key != {"hash": HASH, "range": expected["id"]} or item.get("fields") != expected:
             raise RuntimeError("The packaged daemon returned different keys or values")
         found.append(number)
@@ -276,35 +212,18 @@ def read(node, updated, ranged=False):
 
 def operations(node):
     version = node.start()
-    status = subprocess.run(
-        [str(node.binaries / "lastdb"), "--data-dir", str(node.home), "status", "--json"],
-        env=node.environment,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=35,
-    )
+    status = subprocess.run([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "status", "--json"],
+                            env=node.environment, capture_output=True, text=True, check=True, timeout=35)
     if not isinstance(json.loads(status.stdout), dict):
         raise RuntimeError("The packaged CLI returned an invalid status response")
-    marker = node.home / "data" / "laststore-pack-node-v1"
-    if marker.read_bytes() != NODE_MARKER:
+    if (node.home / "data" / "laststore-pack-node-v1").read_bytes() != NODE_MARKER:
         raise RuntimeError("The packaged daemon did not initialize a home in the current format")
-    node.call(
-        "/api/schemas/seed-system",
-        {
-            "isolated_copy": True,
-            "schema": {
-                "source": "system_seed",
-                "name": SCHEMA,
-                "descriptive_name": SCHEMA,
-                "schema_type": "HashRange",
-                "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
-                "fields": FIELDS,
-                "field_types": {"bucket": "String", "id": "String"},
-                "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS},
-            },
-        },
-    )
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
+        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
+        "fields": FIELDS, "field_types": {"bucket": "String", "id": "String"},
+        "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS},
+    }})
     write(node, range(8), create=True)
     read(node, set())
     read(node, set(), ranged=True)
@@ -340,28 +259,16 @@ def main():
         node.close()
     if type(version.get("api_version")) is not int or not isinstance(version.get("capabilities"), dict):
         raise ValueError("The packaged daemon lacks its compatibility contract")
-    write_json(
-        args.output / "probe.json",
-        {
-            "schema": "lastdb.nightly.probe.v1",
-            "complete": True,
-            "target": manifest["target"],
-            "source_git_oid": args.source,
-            "version": args.version,
-            "bundle_sha256": digest(args.bundle),
-            "api_version": version["api_version"],
-            "capabilities": version["capabilities"],
-            "min_supported_api_version": version.get("min_supported_api_version"),
-            "current_outbox_format_version": version.get("current_outbox_format_version"),
-            "records": 8,
-            "daemon_stopped": True,
-            "home_removed": True,
-            "checks": {
-                name: True
-                for name in ("keyed_read", "range_read", "update", "reopen", "cli_status", "crash_recovery")
-            },
-        },
-    )
+    checks = ("keyed_read", "range_read", "update", "reopen", "cli_status", "crash_recovery")
+    write_json(args.output / "probe.json", {
+        "schema": "lastdb.nightly.probe.v1", "complete": True, "target": manifest["target"],
+        "source_git_oid": args.source, "version": args.version, "bundle_sha256": digest(args.bundle),
+        "api_version": version["api_version"], "capabilities": version["capabilities"],
+        "min_supported_api_version": version.get("min_supported_api_version"),
+        "current_outbox_format_version": version.get("current_outbox_format_version"),
+        "records": 8, "daemon_stopped": True, "home_removed": True,
+        "checks": {name: True for name in checks},
+    })
     print("Packaged CLI, durable writes, keyed reads, ranges, reopen, and crash recovery passed")
 
 

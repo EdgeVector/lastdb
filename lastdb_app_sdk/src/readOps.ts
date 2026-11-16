@@ -2,11 +2,12 @@
  * Keyed read operations: `list`, `get`, `query`, `queryBatch`, and `queryAll`.
  */
 
-import { LASTDB_API_ROUTES, scopedApiPath } from './apiRoutes.js';
 import {
+  LASTDB_API_ROUTES,
   mapDataError,
   normalizeRecordKeyInput,
   pairBatchReplies,
+  scopedApiPath,
   toError,
   type BatchEntry,
   type ClientContext,
@@ -38,7 +39,7 @@ function queryRowDedupKey(row: QueryRow): string {
   return `rendered:${row.key}`;
 }
 
-export function buildQueryBody(
+function buildQueryBody(
   schemaName: string,
   filter: QueryFilter,
 ): Record<string, unknown> {

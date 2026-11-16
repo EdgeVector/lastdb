@@ -5,7 +5,7 @@ Check out EdgeVector/lastdb, including at a nightly tag, and run:
 
     python3 scripts/release/published_client.py --out-dir DIR
 
-The command resolves the release with nightly_remote.latest_nightly: the
+The command resolves the release with nightly_publish.latest_nightly: the
 first non-draft prerelease whose tag is nightly-YYYYMMDD-<sha9>. It then
 downloads that release and prints:
 
@@ -30,9 +30,9 @@ import tempfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from nightly_assets import INDEX, document
+from nightly_package import INDEX, document
 from nightly_plan import CORE_VERSION, REPOSITORY, SHA
-from nightly_remote import download, latest_nightly
+from nightly_publish import download, latest_nightly
 
 
 LINUX = "lastdb-x86_64-unknown-linux-gnu.tar.gz"

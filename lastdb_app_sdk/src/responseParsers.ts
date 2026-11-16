@@ -98,7 +98,7 @@ export function parseQueryResponse(body: unknown): QueryResult {
 }
 
 /** Read the pagination metadata off a `200` `/api/query` body, or `null` when absent. */
-export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
+function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
   if (!isObject(body)) return null;
   const totalCount = body['total_count'];
   const limit = body['limit'];
@@ -135,7 +135,7 @@ export function parseMutationId(body: Record<string, JsonValue>, raw: unknown): 
 }
 
 /** Normalize one raw query row (`{key, fields, metadata}`) into a {@link QueryRow}. */
-export function parseQueryRow(raw: unknown): QueryRow {
+function parseQueryRow(raw: unknown): QueryRow {
   const fields = isObject(raw) ? raw['fields'] : undefined;
   const rawKey = isObject(raw) ? raw['key'] : undefined;
   if (!isObject(raw) || !isObject(fields) || !isObject(rawKey)) {
@@ -179,7 +179,7 @@ function parseAlternates(value: unknown, raw: unknown): Record<string, KeyValue 
 }
 
 /** Read the metadata block of a row, or `null` when absent. */
-export function parseRecordMetadata(raw: unknown): RecordMetadata | null {
+function parseRecordMetadata(raw: unknown): RecordMetadata | null {
   if (!isObject(raw)) return null;
   const sourceFileName = raw['source_file_name'];
   const map = raw['metadata'];
@@ -223,7 +223,7 @@ export function parseFileMarker(
 }
 
 /** Render a row's structured `{hash, range}` key (`"hash:range"` / `"hash"` / `"range"`). */
-export function parseRowKey(rawKey: Record<string, JsonValue>): {
+function parseRowKey(rawKey: Record<string, JsonValue>): {
   key: string;
   keyValue: KeyValue | null;
 } {
@@ -236,7 +236,7 @@ export function parseRowKey(rawKey: Record<string, JsonValue>): {
   return { key, keyValue };
 }
 
-export function parseKeyValue(rawKey: unknown): KeyValue | null {
+function parseKeyValue(rawKey: unknown): KeyValue | null {
   if (!isObject(rawKey)) return null;
   const hash = typeof rawKey['hash'] === 'string' ? rawKey['hash'] : null;
   const range = typeof rawKey['range'] === 'string' ? rawKey['range'] : null;

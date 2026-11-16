@@ -1,7 +1,15 @@
-"""Publish app-declared sharing through the owner's Social commands in the signed DEV operation."""
+"""Publish app-declared sharing through Social owner commands and inspect ExeMem logs in DEV."""
 
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 import json
+from pathlib import Path
+import sys
+import time
+import urllib.error
+import urllib.request
 import uuid
 
 from cryptography.hazmat.primitives import serialization
@@ -9,12 +17,95 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from node import Connection
 from social_app import sdk, social
-from support import decode_json, require, summary
+from support import OperationError, decode_json, dev_endpoint, require, summary
+
+_LOAD_DIR = str(Path(__file__).resolve().parents[1] / "mutation_log_load")
+if _LOAD_DIR not in sys.path:
+    sys.path.append(_LOAD_DIR)
+from node_auth import NodeKey, authorization  # noqa: E402
+
+LOG_ROOT = "/api/cloud/backups/v2"
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        raise OperationError("circle_cloud_redirect")
+
+
+def post_log(path, data, authentication, *, expect_denial=False):
+    request = urllib.request.Request(dev_endpoint() + path, data=data, method="POST",
+                                     headers={"Content-Type": "application/json", **authentication})
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=15) as response:
+            require(not expect_denial, "circle_cloud_receiver_inbox_access")
+            require(response.status == 200, "circle_cloud_response_status")
+            data = response.read(2_000_001)
+    except urllib.error.HTTPError as error:
+        if expect_denial and error.code in (401, 403):
+            return None
+        raise OperationError(f"circle_cloud_{path.rsplit('/', 1)[-1]}_http_{error.code}") from None
+    except (OSError, urllib.error.URLError):
+        raise OperationError("circle_cloud_unavailable") from None
+    require(len(data) <= 2_000_000, "circle_cloud_response_size")
+    return decode_json(data)
+
+
+def scope_for(publisher, api_key):
+    body = json.dumps({"version": 2, "account_id": publisher.account}).encode()
+    scope = post_log(LOG_ROOT + "/context/read", body, {"X-API-Key": api_key.decode("ascii")})["scope"]
+    require(scope["account_id"] == publisher.account, "circle_cloud_publisher_scope")
+    return scope
+
+
+def view(node, scope, database, action, revision, *, expect_denial=False):
+    key = NodeKey.from_seed((node.home / "identity.key").read_bytes())
+    path = f"{LOG_ROOT}/mutation-log/{action}"
+    fields = {"database_id": database}
+    if action == "list":
+        fields.update(after="0", limit="32")
+    if action == "inbox/settle":
+        fields.update(through="0")
+    body = json.dumps(fields).encode()
+    header, _ = authorization(key, path, database, time.time_ns() // 1_000_000, body,
+                              scope["account_generation"], account=scope["account_id"],
+                              member_revision=str(revision))
+    return key.public.hex(), post_log(path, body, {"Authorization": header}, expect_denial=expect_denial)
+
+
+def inbox(publisher, scope, database, revision):
+    return view(publisher, scope, database, "inbox/list", revision)[1]
+
+
+def published_views(recipient, scope, database, revision):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        return list(pool.map(lambda action: view(recipient, scope, database, action, revision)[1], ("list", "head")))
+
+
+def pending_positions(publisher, recipient, scope, database, revision, mutation_ids, published_before):
+    calls = [(publisher, "list", False), (publisher, "inbox/list", False),
+             (recipient, "inbox/list", True), (recipient, "inbox/settle", True)]
+    with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+        owner, owner_inbox, reader_inbox, _ = list(pool.map(
+            lambda call: view(call[0], scope, database, call[1], revision, expect_denial=call[2]), calls))
+    publisher_key, published = owner
+    _, page = owner_inbox
+    recipient_key = reader_inbox[0]
+    pending = {row["entry"]["device_id"]: int(row["delivery_seq"]) for row in page["entries"]
+               if row["entry"]["node_public_key"] == recipient_key
+               and row["entry"]["namespace"] == "lastdb-member-submission"}
+    expected = {f"member-{mutation_id}" for mutation_id in mutation_ids}
+    require(set(pending) == expected, "circle_publisher_sees_all_pending_submissions")
+    published_after = published_views(recipient, scope, database, revision)
+    require(published_after[0]["entries"], "circle_exemem_receiver_has_published_entries")
+    require(published_after == published_before, "circle_inbox_did_not_advance_published_log")
+    for view_body in (published, *published_after):
+        require(all(row["entry"]["node_public_key"] == publisher_key for row in view_body["entries"]),
+                "circle_exemem_receiver_only_publisher_entries")
+    return max(pending.values())
 
 
 def configure_bindings(publisher, circle, first, second, scopes):
-    require(sdk(publisher, "circles") == [{"id": circle["id"], "name": circle["name"]}],
-            "app_circle_discovery")
+    require(sdk(publisher, "circles") == [{"id": circle["id"], "name": circle["name"]}], "app_circle_discovery")
     decline_binding(publisher, circle["id"], first)
     requests = []
     for app, database, grant in (
@@ -27,7 +118,6 @@ def configure_bindings(publisher, circle, first, second, scopes):
         require(current["revision"] == "0" and not current["members"], "app_request_needs_owner_approval")
         request_id = declaration["requestId"]
         requests.append(request_id)
-        # Each command is a new owner process, so this reads the saved proposal.
         preview = preview_request(publisher, request_id)
         require(preview["status"] == "awaitingApproval", "app_request_visible_on_reopen")
         approve(publisher, request_id, preview)
@@ -77,7 +167,6 @@ def propose(publisher, app, change):
 
 
 def resolutions(review):
-    """Write `{database: {person: choice}}` as the --resolve flags of a Social command."""
     return [flag for database, people in (review or {}).items() for person, choice in people.items()
             for flag in ("--resolve", f"{database}:{person}={choice}")]
 
@@ -131,8 +220,7 @@ def external_changes(publisher, circle, database, reader, schema):
     approve(publisher, request_id, review, refusal=b"grants changed outside Social")
     require(outside in roster(publisher, database)["members"], "outside_scope_preserved_before_review")
     choices = {database: {reader: "keep"}}
-    preview = preview_request(publisher, request_id, choices)
-    result = approve(publisher, request_id, preview, choices)
+    result = approve(publisher, request_id, preview_request(publisher, request_id, choices), choices)
     require(result["status"] == "confirmed" and outside in roster(publisher, database)["members"],
             "outside_scope_retained_after_owner_review")
     summary("A separate publisher grant survived an app update. An overlapping write grant required review "
@@ -147,8 +235,7 @@ def person_requests(publisher, database, reader, separate):
         ("restorePerson", {"preset": "viewer"}, "active"),
         ("setPersonGrant", {"preset": "viewer"}, "active"),
     ):
-        request = propose(publisher, "photo-journal", {**target, "operation": operation, **extra})
-        request_id = request["requestId"]
+        request_id = propose(publisher, "photo-journal", {**target, "operation": operation, **extra})["requestId"]
         result = approve(publisher, request_id, preview_request(publisher, request_id))
         rows = roster(publisher, database)["members"]
         grant = next(row for row in rows if row["nodeKey"] == reader)

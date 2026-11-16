@@ -41,15 +41,10 @@ def validate(case, result, recipe):
         if len(idle) < 2 or any(not math.isfinite(x) or x <= 0 for x in values + idle):
             raise ValueError(f"{case}: invalid resource samples")
         receipt = point["compaction"]
-        if receipt.get("format") == 2:
-            settled = receipt.get("settled_seconds")
-            if (receipt.get("automatic_merges") is not True or type(settled) is not float
-                    or not math.isfinite(settled) or settled < 3):
-                raise ValueError(f"{case}: the v2 disk size did not settle")
-        elif (receipt.get("executed") is not True or receipt.get("dry_run") is not False
-                or receipt.get("reclaim_deferred") is not False
-                or receipt.get("reclaim_remaining") is not False or receipt.get("reclaim_error")):
-            raise ValueError(f"{case}: incomplete compaction")
+        settled = receipt.get("settled_seconds")
+        if (receipt.get("format") != 2 or receipt.get("automatic_merges") is not True
+                or type(settled) is not float or not math.isfinite(settled) or settled < 3):
+            raise ValueError(f"{case}: the v2 disk size did not settle")
     metrics = result["metrics"]
     if metrics["live_records"] != points[-1]["live_records"]:
         raise ValueError(f"{case}: final record count differs")

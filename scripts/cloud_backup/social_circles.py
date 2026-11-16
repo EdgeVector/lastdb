@@ -1,5 +1,7 @@
 """Exercise a Social circle's whole-database reads and scoped writes in DEV."""
 
+from __future__ import annotations
+
 from contextlib import closing
 import hashlib
 import json
@@ -10,14 +12,14 @@ import uuid
 
 from node import Connection
 from social_app import install, observe_access, pick, sdk, social
-from social_declarations import configure_bindings, external_changes, independent_update, revoke_roster
-from social_log_views import inbox, pending_positions, published_views, scope_for
+from social_declarations import (
+    configure_bindings, external_changes, inbox, independent_update,
+    pending_positions, published_views, revoke_roster, scope_for,
+)
 from support import OperationError, decode_json, require, retry, run_operation, summary
 
 SCOPE = {"name": "whole-database", "version": 1}
-ALBUM = "dev-albums/Album"
-COMMENT = "dev-comments/Comment"
-STANDARD_COMMENT = "social/Comment"
+ALBUM, COMMENT, STANDARD_COMMENT = "dev-albums/Album", "dev-comments/Comment", "social/Comment"
 COMMENT_GRANT = {"names": [COMMENT, STANDARD_COMMENT]}
 REFUSALS = (
     ("select writable schemas", "circle_invalid_schema_selection"),
@@ -55,9 +57,7 @@ def mutation(schema, definition, key, text):
 
 
 def query(node, database, schema, key):
-    return node.call(f"/api/databases/{database}/query", {
-        "schema_name": schema, "filter": {"HashKey": key},
-    })["results"]
+    return node.call(f"/api/databases/{database}/query", {"schema_name": schema, "filter": {"HashKey": key}})["results"]
 
 
 def wait_text(node, database, schema, key, text, stage):
@@ -69,14 +69,47 @@ def submit(node, database, session, update, *, mutation_id=None):
     mutation_id = mutation_id or str(uuid.uuid4())
     with closing(Connection(node.socket)) as connection:
         connection.request("POST", f"/api/databases/{database}/mutation", json.dumps(update), {
-            "Content-Type": "application/json", "Idempotency-Key": mutation_id,
-            "X-LastDB-Database-Session": session,
+            "Content-Type": "application/json", "Idempotency-Key": mutation_id, "X-LastDB-Database-Session": session,
         })
         with connection.getresponse() as reply:
             require(reply.status == 202, f"circle_write_http_{reply.status}_expected_202")
             body = decode_json(reply.read(65537))
     require(body["mutation_id"] == mutation_id and body["status"] == "submitted", "circle_submission_receipt")
     return mutation_id
+
+
+def report(message):
+    print(message, flush=True)
+    summary(message)
+
+
+def create_database(owner, name):
+    database = social(owner, "db", "create", name)["id"]
+    report(f"Owned DEV mutation log {database} for {name}.")
+    return database
+
+
+def edit_circle(owner, *arguments):
+    edit = ("circle", "set", "Family", *arguments)
+    preview = social(owner, *edit, refusals=REFUSALS)
+    require(all("error" not in row for row in preview["databases"]), "circle_reusable_preview")
+    response = social(owner, *edit, "--apply", "--token", preview["token"], refusals=REFUSALS)
+    require(not response["pending"], "circle_reusable_apply")
+    return response
+
+
+def revisions(response):
+    return {row["databaseId"]: row["revision"] for row in response["databases"]}
+
+
+def cleanup(publisher, database):
+    roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
+    if roster.get("status") == "pending":
+        social(publisher, "db", "retry", database, refusals=REFUSALS)
+        roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
+    require(roster.get("members") is not None, "circle_cleanup_roster_unavailable")
+    revoke_roster(publisher, database)
+    report("ExeMem confirmed the final recipient revocations.")
 
 
 def transfer(programs, root, publisher, recipient, api_key):
@@ -89,19 +122,15 @@ def transfer(programs, root, publisher, recipient, api_key):
     report(f"Owned DEV mutation log {database} for {name} through the packaged SDK.")
     second = create_database(publisher, f"{name}-second")
     definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
-    definition = Path(__file__).resolve().parents[2] / "spec/social/Comment.json"
+    comment_spec = Path(__file__).resolve().parents[2] / "spec/social/Comment.json"
     definitions[STANDARD_COMMENT] = publisher.call(
-        f"/api/databases/{database}/schemas/declare", json.loads(definition.read_text())
-    )["definition_id"]
+        f"/api/databases/{database}/schemas/declare", json.loads(comment_spec.read_text()))["definition_id"]
     for schema in (ALBUM, COMMENT):
-        publisher.call(f"/api/databases/{database}/mutation",
-                       mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
-    definition = declare(publisher, second, COMMENT)
-    publisher.call(f"/api/databases/{second}/mutation", mutation(COMMENT, definition, "seed", "Second database"))
-    # Enroll the stopped publisher, then record its connected boot identity.
-    # Enrolling a running node can re-exec it to enable local capture.
+        publisher.call(f"/api/databases/{database}/mutation", mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
+    second_def = declare(publisher, second, COMMENT)
+    publisher.call(f"/api/databases/{second}/mutation", mutation(COMMENT, second_def, "seed", "Second database"))
     publisher.stop()
-    connect(programs, publisher, api_key)
+    programs.connect_existing(publisher.home, publisher.account, api_key, "circle_dev_connection")
     scope = scope_for(publisher, api_key)
     publisher.keep_saved_credentials = True
     publisher.start()
@@ -153,57 +182,12 @@ def share_with_circle(publisher, recipient, database, second, definitions, scope
     social(publisher, "grant", "revoke", second, reader, "--apply")
     social(publisher, "circle", "set", "Family", *read_links, "--apply", "--token", preview["token"],
            refusal=b"sharing changed since the preview")
-    require(revisions(edit_circle(publisher, *read_links)) == {database: "2", second: "2"},
-            "circle_reader_revision")
+    require(revisions(edit_circle(publisher, *read_links)) == {database: "2", second: "2"}, "circle_reader_revision")
     observe_access(recipient, second, "revoked")
     exercise_reader(publisher, recipient, database, definitions, scope)
     external_changes(publisher, circle, database, reader, COMMENT)
     independent_update(publisher, circle["id"], database, second, reader, COMMENT)
     report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
-
-
-def create_database(owner, name):
-    database = social(owner, "db", "create", name)["id"]
-    report(f"Owned DEV mutation log {database} for {name}.")
-    return database
-
-
-def report(message):
-    print(message, flush=True)
-    summary(message)
-
-
-def edit_circle(owner, *arguments):
-    """Preview a change to the Family circle, then apply exactly that preview."""
-    edit = ("circle", "set", "Family", *arguments)
-    preview = social(owner, *edit, refusals=REFUSALS)
-    require(all("error" not in row for row in preview["databases"]), "circle_reusable_preview")
-    response = social(owner, *edit, "--apply", "--token", preview["token"], refusals=REFUSALS)
-    require(not response["pending"], "circle_reusable_apply")
-    return response
-
-
-def revisions(response):
-    return {row["databaseId"]: row["revision"] for row in response["databases"]}
-
-
-def cleanup(publisher, database):
-    roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
-    if roster.get("status") == "pending":
-        social(publisher, "db", "retry", database, refusals=REFUSALS)
-        roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
-    require(roster.get("members") is not None, "circle_cleanup_roster_unavailable")
-    revoke_roster(publisher, database)
-    report("ExeMem confirmed the final recipient revocations.")
-
-
-def connect(programs, publisher, api_key):
-    receipt = programs.command(publisher.home, [
-        "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-        "--expected-user-hash", publisher.account, "--json",
-    ], input_bytes=api_key, timeout=20)
-    require(receipt["environment"] == "dev" and receipt["account_id"] == publisher.account
-            and receipt["credentials_saved"] is True, "circle_dev_connection")
 
 
 def exercise(publisher, recipient, database, receipt, definitions, scope, reader):
@@ -212,24 +196,21 @@ def exercise(publisher, recipient, database, receipt, definitions, scope, reader
     for schema in (ALBUM, COMMENT):
         wait_text(recipient, database, schema, "seed", f"Initial {schema}", "circle_whole_database_read")
     album = sdk(recipient, "read", database=database, schema=ALBUM, key="seed")
-    second_app = sdk(recipient, "read", database=database, schema=ALBUM, key="seed", appId="album-viewer")
-    require(second_app == album, "independent_app_opens_same_published_album")
+    require(sdk(recipient, "read", database=database, schema=ALBUM, key="seed", appId="album-viewer") == album,
+            "independent_app_opens_same_published_album")
     require(album["fields"]["text"] == f"Initial {ALBUM}", "circle_sdk_read_shared_content")
-    report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
+    report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. "
+           "The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")
     observe_access(recipient, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
     sdk_access = next(row for row in sdk(recipient, "list-databases") if row["id"] == database)["selfAccess"]
     require(sdk_access["state"] == "active" and sdk_access["stale"] is False
             and sdk_access["writeSchemas"] == COMMENT_GRANT, "circle_sdk_confirmed_grant")
-    created = mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana")
-    created["metadata"] = {"share_author": "unverified-author"}
-    updates = [
-        mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"),
-        created,
-        mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed"),
-    ]
-    queued = queue_and_restart(publisher, recipient, database, scope, 1, updates,
-                               check_status=True)
+    created = {**mutation(COMMENT, definitions[COMMENT], "allowed", "From Ana"),
+               "metadata": {"share_author": "unverified-author"}}
+    updates = [mutation(ALBUM, definitions[ALBUM], "blocked", "Cannot write"), created,
+               mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed")]
+    queued = queue_and_restart(publisher, recipient, database, scope, 1, updates, check_status=True)
     verify_results(recipient, database, queued)
     verify_settled_retry(publisher, recipient, database, scope, updates[1], queued[1])
     for node in (publisher, recipient):
@@ -238,21 +219,16 @@ def exercise(publisher, recipient, database, receipt, definitions, scope, reader
         wait_text(node, database, COMMENT, "seed", f"Initial {COMMENT}", "circle_invalid_create_discarded")
     stored = query(publisher, database, COMMENT, "allowed")[0]
     require(stored["metadata"]["metadata"]["share_author"] == reader, "circle_comment_author_from_sender")
-    message = "The publisher set the new Comment's author from its verified sender and discarded the Album and invalid Comment mutations."
-    print(message, flush=True)
-    summary(message)
+    report("The publisher set the new Comment's author from its verified sender and discarded the Album and invalid Comment mutations.")
 
 
 def standard_comment(database, definition, key, text, author):
-    update = mutation(STANDARD_COMMENT, definition, key, text)
-    update["key_value"] = {"hash": "seed-album", "range": key}
-    update["record"] = {
-        "target": {"database": database, "schema": ALBUM, "key": "seed"},
-        "author_id": author,
-        "created_at": "2026-11-14T00:00:00Z",
-        "social_comment_text": text,
+    return {
+        **mutation(STANDARD_COMMENT, definition, key, text),
+        "key_value": {"hash": "seed-album", "range": key},
+        "record": {"target": {"database": database, "schema": ALBUM, "key": "seed"},
+                   "author_id": author, "created_at": "2026-11-14T00:00:00Z", "social_comment_text": text},
     }
-    return update
 
 
 def standard_rows(node, database):
@@ -268,18 +244,15 @@ def texts(rows):
 
 
 def replace_comment(update, row, text):
-    return {
-        **update, "mutation_type": "replace", "expected": {"type": "revision", "revision": row["revision"]},
-        "record": {**row["fields"], "social_comment_text": text},
-    }
+    return {**update, "mutation_type": "replace", "expected": {"type": "revision", "revision": row["revision"]},
+            "record": {**row["fields"], "social_comment_text": text}}
 
 
 def exercise_comment_ownership(publisher, recipient, database, definition, scope, reader):
     author = hashlib.sha256(reader.encode()).hexdigest()
-    owner_comment = standard_comment(database, definition, "publisher", "Publisher wrote this", author)
+    owner_comment = {**standard_comment(database, definition, "publisher", "Publisher wrote this", author),
+                     "metadata": {"share_author": reader}}
     mine = standard_comment(database, definition, "receiver", "Ana wrote this", "spoofed-author")
-    # Neither publisher-controlled record metadata nor a matching author field grants ownership.
-    owner_comment["metadata"] = {"share_author": reader}
     path = f"/api/databases/{database}/mutation"
     publisher.call(path, owner_comment)
     queue_and_restart(publisher, recipient, database, scope, 1, [mine])
@@ -304,7 +277,8 @@ def exercise_comment_ownership(publisher, recipient, database, definition, scope
         rows = retry("standard_comment_policy_applied", lambda: standard_rows(node, database),
                      lambda rows: texts(rows) == expected)
         require(rows["receiver"]["fields"]["author_id"] == author, "standard_edited_author_unchanged")
-    report("Ana read both standard comments, created and edited her own, and kept her verified author ID. The publisher discarded her deletion and her edit to the publisher's comment.")
+    report("Ana read both standard comments, created and edited her own, and kept her verified author ID. "
+           "The publisher discarded her deletion and her edit to the publisher's comment.")
 
 
 def exercise_upgrade(publisher, recipient, database, previous, scope, sender):
@@ -319,10 +293,10 @@ def exercise_upgrade(publisher, recipient, database, previous, scope, sender):
     observe_access(recipient, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
     current = query(recipient, database, COMMENT, "upgrade")[0]
     require(current.get("metadata") is None, "circle_publisher_metadata_private")
-    update = mutation(COMMENT, new, "upgrade", "After edit")
-    update.update(mutation_type="replace", expected={"type": "revision", "revision": current["revision"]},
-                  record={**current["fields"], "text": "After edit"},
-                  source_file_name="replacement.txt", metadata={"share_author": "replacement-author"})
+    update = {**mutation(COMMENT, new, "upgrade", "After edit"), "mutation_type": "replace",
+              "expected": {"type": "revision", "revision": current["revision"]},
+              "record": {**current["fields"], "text": "After edit"},
+              "source_file_name": "replacement.txt", "metadata": {"share_author": "replacement-author"}}
     stale = {**update, "record": {**update["record"], "text": "Stale edit"}}
     queue_and_restart(publisher, recipient, database, scope, 1, [update, stale])
     for node in (publisher, recipient):
@@ -333,25 +307,23 @@ def exercise_upgrade(publisher, recipient, database, previous, scope, sender):
     stored = query(publisher, database, COMMENT, "upgrade")[0]["metadata"]
     require(stored["source_file_name"] == seeded["source_file_name"] and stored["metadata"] == seeded["metadata"],
             "circle_publisher_metadata_preserved")
-    report("Ana edited the upgraded Comment at the same sharing revision. The added field, older record, and publisher metadata remained. The publisher discarded the stale edit.")
+    report("Ana edited the upgraded Comment at the same sharing revision. The added field, older record, "
+           "and publisher metadata remained. The publisher discarded the stale edit.")
     return new
 
 
 def exercise_reader(publisher, recipient, database, definitions, scope):
     observe_access(recipient, database, "active", 2)
     wait_text(recipient, database, COMMENT, "allowed", "From Ana", "circle_reader_retains_access")
-    updates = [mutation(COMMENT, definitions[COMMENT], "reader", "Reader submission")]
-    queue_and_restart(publisher, recipient, database, scope, 2, updates)
+    queue_and_restart(publisher, recipient, database, scope, 2,
+                      [mutation(COMMENT, definitions[COMMENT], "reader", "Reader submission")])
     for node in (publisher, recipient):
         require(not query(node, database, COMMENT, "reader"), "circle_reader_write_discarded")
-    message = "Ana submitted with an empty write scope. The publisher consumed the entry and published no record."
-    print(message, flush=True)
-    summary(message)
+    report("Ana submitted with an empty write scope. The publisher consumed the entry and published no record.")
 
 
 def verify_results(recipient, database, queued):
-    unknown = str(uuid.uuid4())
-    results = sdk(recipient, "submission-status", database=database, ids=[*queued, unknown])
+    results = sdk(recipient, "submission-status", database=database, ids=[*queued, str(uuid.uuid4())])
     require([row["status"] for row in results] == ["discarded", "published", "discarded", "unknown"],
             "circle_sdk_final_proposal_results")
     report("The receiving SDK read the final outcome of each of Ana's proposals by UUID.")

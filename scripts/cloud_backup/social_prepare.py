@@ -8,8 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from node import OwnedNode
-from programs import Programs
+from node import OwnedNode, Programs
 from social_app import ROOT, source
 from support import OperationError, failure, require, running, summary
 

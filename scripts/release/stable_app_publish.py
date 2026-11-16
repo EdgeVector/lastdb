@@ -19,7 +19,7 @@ import urllib.request
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
-from nightly_assets import document
+from nightly_package import document
 from nightly_plan import _capture
 from stable_plan import APPS, api
 

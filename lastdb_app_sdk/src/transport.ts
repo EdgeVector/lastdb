@@ -127,7 +127,7 @@ export function openDiscoveredSocket(options: {
 }
 
 /** Case-insensitively merge request header layers (later layers override earlier ones). */
-export function mergeHeaders(
+function mergeHeaders(
   ...layers: Array<Record<string, string> | undefined>
 ): Record<string, string> {
   const merged: Record<string, string> = {};

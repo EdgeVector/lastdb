@@ -4,10 +4,11 @@
 
 import {
   LASTDB_API_ROUTES,
+  mapDataError,
   schemaRoute,
   scopedApiPath,
-} from './apiRoutes.js';
-import { mapDataError, type ClientContext } from './clientHelpers.js';
+  type ClientContext,
+} from './clientHelpers.js';
 import { NodeTooOldError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 import type {

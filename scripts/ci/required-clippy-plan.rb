@@ -8,12 +8,10 @@
 # mixed-family, and unknown paths retain the current Mini clippy command.
 
 require "optparse"
-require "shellwords"
 
 CLIPPY_ARGS = {
   # Broad is the exact pre-change required command. Keep this fallback stable.
   "broad" => %w[-p lastdb_node --lib --bins],
-  "mini" => %w[-p lastdb_node --lib --bins],
   "schema" => %w[
     -p schema_service_server_lambda
     --bins
@@ -23,9 +21,6 @@ CLIPPY_ARGS = {
 # These paths sit at the top of their dependency family. A change cannot
 # invalidate a different required family through an in-workspace consumer.
 LEAF_PREFIXES = {
-  "mini" => %w[
-    lastdb_node/
-  ],
   "schema" => %w[
     schema_service/crates/server_lambda/
   ],
@@ -75,15 +70,10 @@ OptionParser.new do |opts|
   opts.on("--run FAMILY", CLIPPY_ARGS.keys, "Run the selected clippy family") do |family|
     options[:run] = family
   end
-  opts.on("--print-command FAMILY", CLIPPY_ARGS.keys, "Print the selected command") do |family|
-    options[:print_command] = family
-  end
 end.parse!
 
 if options[:run]
   exec(*command_for(options[:run]))
-elsif options[:print_command]
-  puts Shellwords.join(command_for(options[:print_command]))
 else
   paths = ARGV.empty? ? STDIN.read.lines(chomp: true) : ARGV
   result = plan(paths)

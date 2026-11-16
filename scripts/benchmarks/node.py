@@ -148,17 +148,22 @@ class Node:
             raise RuntimeError(f"{path}: HTTP {status}: {raw[:600]!r}")
         return result.get("data", result), elapsed, json.loads(cost) if cost else None
 
-    def start(self):
-        if self.process is not None:
-            raise RuntimeError("The owned daemon is already active")
+    def daemon_env(self, home=None):
         environment = {k: v for k, v in os.environ.items()
                        if not k.startswith(("LASTDB", "FOLD", "SENTRY", "OBS_", "OTEL_"))}
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
-                           LASTDB_HOME=str(self.home), RUST_MIN_STACK="16777216", **self.environment)
+                           LASTDB_HOME=str(self.home if home is None else home),
+                           RUST_MIN_STACK="16777216", **self.environment)
         if self.native_timing:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         if self.workers:
             environment["LASTDB_UDS_WORKERS"] = str(self.workers)
+        return environment
+
+    def start(self):
+        if self.process is not None:
+            raise RuntimeError("The owned daemon is already active")
+        environment = self.daemon_env()
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket), *self.arguments],

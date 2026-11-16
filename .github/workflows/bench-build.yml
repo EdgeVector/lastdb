@@ -75,7 +75,7 @@ jobs:
 
       - name: Check space for two fresh builds and the selected corpus
         id: disk-build
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build
+        run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase build
 
       - name: Reclaim disk space only when the build budget needs it
         if: steps.disk-build.outputs.cleanup-required == 'true'
@@ -90,7 +90,7 @@ jobs:
           swap-storage: false
 
       - name: Require the build and corpus disk budget
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build --require
+        run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase build --require
 
       - name: Select one Rust toolchain for both builds
         working-directory: candidate
@@ -171,7 +171,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASELINE_SHA: ${{ inputs.baseline }}
           BASELINE_KEY: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
-        run: python3 driver/scripts/benchmarks/cache.py --revision "$BASELINE_SHA" --key "$BASELINE_KEY"
+        run: python3 driver/scripts/benchmarks/programs.py cache --revision "$BASELINE_SHA" --key "$BASELINE_KEY"
 
       - name: Restore the baseline after the main cache upload
         id: baseline-retry

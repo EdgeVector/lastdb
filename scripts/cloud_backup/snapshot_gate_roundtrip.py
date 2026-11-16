@@ -7,10 +7,8 @@ import re
 import shutil
 import time
 
-from node import OwnedNode
-from programs import execute
-from snapshot_cleanup import current_attempt, register_and_track
-from snapshot_gate_aws import gate_id, note, summary
+from node import OwnedNode, execute
+from snapshot_gate_aws import current_attempt, gate_id, note, register_and_track, summary
 from support import CREDENTIALS_FILE, OperationError, private_file, read_json, require, stable, write_private
 
 RECORDS = 300_000
@@ -307,7 +305,7 @@ def check_restored(programs, destination, database_id, digest, numbers, account)
     started = time.monotonic()
     restored = OwnedNode(destination, programs, account=account)
     try:
-        restored.start(sign_in=False)
+        restored.start()
         count = verify_records(restored, database_id, digest)
         require_record(restored, database_id, TAIL_KEY, TAIL_BODY)
         write_record(restored, database_id, "live", "live")
@@ -334,24 +332,12 @@ def run_gate(programs, root, owner):
     opt_into_first_snapshot(home, database_id)
     destination = root / "restored"
     try:
-        node.start(sign_in=False)
+        node.start()
         digest = seed(programs, node, database_id, numbers)
         node.stop()
-        connected = programs.command(
-            home,
-            ["backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-             "--expected-user-hash", owner.account, "--json"],
-            input_bytes=owner.api_key.encode(),
-            timeout=60,
-        )
-        require(
-            connected.get("ok") is True
-            and connected.get("credentials_saved") is True
-            and connected.get("account_id") == owner.account,
-            "dev_connection",
-        )
+        programs.connect_existing(node, owner.api_key, timeout=60)
         register_and_track(attempt, owner)
-        node.start(sign_in=False)
+        node.start()
         upload(programs, node, database_id, numbers)
         tail_started = time.monotonic()
         write_record(node, database_id, TAIL_KEY, TAIL_BODY)

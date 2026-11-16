@@ -5,9 +5,9 @@
 import {
   isValidDatabaseSelector,
   LASTDB_API_ROUTES,
+  mapDataError,
   validateDatabaseSelector,
-} from './apiRoutes.js';
-import { mapDataError } from './clientHelpers.js';
+} from './clientHelpers.js';
 import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 import type { Transport } from './transport.js';
@@ -258,7 +258,7 @@ function parseScope(value: unknown): ShareWriteScope | undefined {
   throw new UnexpectedResponseError('database returned an invalid write scope', 200, null);
 }
 
-export function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
+function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
   if (isObject(value)) {
     const { state, role, revision, confirmedAtMs, stale, writeSchemas } = value;
     if (

@@ -8,10 +8,13 @@
 
 import { existsSync } from 'node:fs';
 
-import { databaseScope, resolveSessionHeaders } from './apiRoutes.js';
 import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
 import { executeDeleteBlob, executeFetchBlob, executePutBlob } from './blobOps.js';
-import type { ClientContext } from './clientHelpers.js';
+import {
+  databaseScope,
+  resolveSessionHeaders,
+  type ClientContext,
+} from './clientHelpers.js';
 import {
   bindNodeDatabaseSpec,
   createNodeDatabase,
@@ -38,7 +41,7 @@ import { openDiscoveredSocket, udsTransport, withDefaultHeaders, type Transport 
 import type * as Types from './types.js';
 
 /** Attach `X-LastDB-Client` unless the caller already provided one. */
-export function buildClientHeaders(
+function buildClientHeaders(
   appId: string,
   clientId?: string,
   defaultHeaders?: Record<string, string>,

@@ -5,8 +5,12 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { LASTDB_API_ROUTES, scopedApiPath } from './apiRoutes.js';
-import { mapDataError, type ClientContext } from './clientHelpers.js';
+import {
+  LASTDB_API_ROUTES,
+  mapDataError,
+  scopedApiPath,
+  type ClientContext,
+} from './clientHelpers.js';
 import {
   RequestRejectedError,
   ShareSubmissionUncertainError,
@@ -211,7 +215,7 @@ function parseBatchOperations(value: unknown, raw: unknown): MutationBatchOperat
   };
 }
 
-export function parseMutationBatchResult(
+function parseMutationBatchResult(
   rawBody: unknown,
   expectedCount: number,
 ): MutationBatchResult {

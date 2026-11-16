@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python3 -m pip install cryptography==46.0.3 rfc8785==0.1.4
+      - run: python3 -m pip install --quiet cryptography==46.0.3 rfc8785==0.1.4
       - name: Freeze the source, numeric stable version, and required app commits
         id: plan
         env:
@@ -135,32 +135,10 @@ jobs:
         with:
           key: nightly-release-${{ matrix.target }}
           save-if: ${{ github.event_name != 'pull_request' }}
-      - name: Link the supported Homebrew OpenSSL
-        if: runner.os == 'macOS'
-        run: |
-          brew list --versions openssl@3 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
-          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
-      - name: Build and strip the matched numeric stable CLI and daemon
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --locked --release --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd
-          for binary in lastdb lastdbd; do
-            path="$CARGO_TARGET_DIR/$TARGET/release/$binary"
-            strip "$path"
-            if [ '${{ runner.os }}' = macOS ]; then
-              codesign --force --sign - "$path"
-              codesign --verify --strict "$path"
-              if otool -L "$path" | grep -E 'lib(ssl|crypto)\.' | grep -v '/opt/homebrew/opt/openssl@3/lib/'; then
-                exit 1
-              fi
-            fi
-          done
-      - name: Package exact executable versions, source, and hashes
+      - name: Build, verify, and package the matched numeric stable CLI and daemon
         run: >-
-          python3 scripts/release/stable_plan.py package --plan "$RUNNER_TEMP/stable-plan.json"
-          --target "$TARGET" --bin-dir "$CARGO_TARGET_DIR/$TARGET/release"
-          --output "$RUNNER_TEMP/stable-bundles"
+          python3 scripts/release/nightly_package.py build-target --target "$TARGET"
+          --plan "$RUNNER_TEMP/stable-plan.json" --out-dir "$RUNNER_TEMP/stable-bundles"
       - name: Exercise each native package's durable operations and recovery
         timeout-minutes: 10
         run: |
@@ -347,7 +325,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python3 -m pip install cryptography==46.0.3 rfc8785==0.1.4
+      - run: python3 -m pip install --quiet cryptography==46.0.3 rfc8785==0.1.4
       - uses: actions/download-artifact@v8
         with:
           name: stable-plan-${{ github.run_id }}

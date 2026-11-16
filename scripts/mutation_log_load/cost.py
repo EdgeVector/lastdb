@@ -19,7 +19,6 @@ from faults import MAX_CONTENTION_TRIES
 PAGE_BYTES = 4096
 LIST_LIMIT = 90
 SERVER_ATTEMPTS = 3
-FULL_PARTITION_LOAD = True
 MUTATING_WRITE_UNITS = 6
 ENTRY_ROW_BYTES = 350
 ROW_OVERHEAD_BYTES = 150
@@ -36,9 +35,8 @@ CAP_USD = 6.0
 
 
 class CapExceeded(Exception):
-    def __init__(self, estimate):
+    def __init__(self):
         super().__init__("cost cap")
-        self.estimate = estimate
 
 
 def read_units(partition_bytes):
@@ -55,10 +53,7 @@ def stored_growth(nbytes):
 
 def load_reads(main_bytes, sub_bytes):
     """Reads for one #778 load of the main partition and ``{id}#sub``."""
-    sub = read_units(sub_bytes)
-    if FULL_PARTITION_LOAD:
-        return read_units(main_bytes) + sub + 1
-    return 2 + sub
+    return read_units(main_bytes) + read_units(sub_bytes) + 1
 
 
 def recheck_hold(partition_bytes, sub_bytes):
@@ -143,7 +138,7 @@ class Ledger:
             projected = self.project(kind, nbytes, direct=False, grow=grow, attempts=attempts)
             reserve = projected["recheck_reserve_usd"] if hold_recheck else 0
             if projected["total_usd"] + reserve >= self.cap_usd:
-                raise CapExceeded(projected)
+                raise CapExceeded()
             self._apply(projected)
             return projected
 

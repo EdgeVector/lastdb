@@ -13,7 +13,7 @@ sys.path[:0] = [str(_SCRIPTS), str(_SCRIPTS / "benchmarks")]
 from harness import conditioned, marker_format, mutation as native_mutation, poll_until, send_unix_request  # noqa: E402
 from home_format import HOME_FORMAT  # noqa: E402
 from node import Node  # noqa: E402
-import record_drop_tracking, record_format_refusal, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
+import record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 
 FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
@@ -84,8 +84,7 @@ def hash_records(node):
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v1"}, "create")
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v1"}, "the created record differs")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
-    require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"},
-            "the full replacement differs")
+    require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"}, "the full replacement differs")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1"})
     require("value" not in one(node, "one"), "an omitted field survived replacement")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
@@ -274,11 +273,9 @@ def retention(node):
     require(time.time() < kept_until, "the sweep was too slow to tell an old record from a rewritten one")
     require(live == ["fresh", "kept"], "the sweep deleted a record younger than the policy: " + repr(live))
     rows = [row for row in ledger(node) if row.get("schema") in {"RecordTtl", reply["anchor"]}]
-    require(len(rows) == 1 and rows[0]["caller"] == "ttl-sweep-purge" and rows[0]["verb"] == "purge"
-            and rows[0]["records_erased"] == 1,
+    require(len(rows) == 1 and rows[0]["caller"] == "ttl-sweep-purge" and rows[0]["verb"] == "purge" and rows[0]["records_erased"] == 1,
             "the TTL sweep audit row differs: " + repr(rows))
-    print("Retention: the TTL sweep deleted the expired record, kept a rewritten and a fresh "
-          "record, and wrote its audit row", flush=True)
+    print("Retention: the TTL sweep deleted the expired record, kept a rewritten and a fresh record, and wrote its audit row", flush=True)
 
 
 def delete_audit(node):
@@ -341,19 +338,18 @@ def main():
         retention(node)
         query_refusals(node)
         record_runs.check(node)
-        record_drop_tracking.exercise(node)
+        record_inline_files.exercise_drop_tracking(node)
         record_inline_files.exercise(node)
-        retry = conditioned(node, [mutation("RecordById", {"hash": "four"},
-            {"id": "four", "bucket": "b5"})])[0]
+        retry = conditioned(node, [mutation("RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"})])[0]
         acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
         record_named_databases.prepare(node, args.cli.resolve(strict=True), output)
         node.stop()
-        record_format_refusal.exercise(node)
+        record_inline_files.exercise_format_refusal(node)
         node.start()
         refused(lambda: node.call("/api/mutation", retry), "HTTP 409")
         require(query(node, "RecordById", {"HashKey": "four"})[0]["revision"] == acknowledged,
                 "a stale replay changed the record after restart")
-        record_drop_tracking.check(node)
+        record_inline_files.check_drop_tracking(node)
         record_inline_files.check(node)
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")

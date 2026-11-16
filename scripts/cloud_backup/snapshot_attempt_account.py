@@ -9,8 +9,8 @@ import time
 from urllib.parse import parse_qsl, urlsplit
 import uuid
 
-from snapshot_cleanup import (CLEANUP_BUDGET, DATABASE_PREFIXES, GRANT_TTL_MS, RunAttempt,
-                              SnapshotOwner, released_bytes)
+from snapshot_gate_aws import (CLEANUP_BUDGET, DATABASE_PREFIXES, GRANT_TTL_MS, RunAttempt,
+                               SnapshotOwner, released_bytes)
 from support import (CREDENTIALS_FILE, OperationError, decode_json, dev_endpoint, private_file,
                      read_json, require, stable, write_private)
 

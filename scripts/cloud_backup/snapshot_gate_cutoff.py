@@ -16,33 +16,12 @@ if _SCRIPTS not in sys.path:
 from harness import create, key as record_key, replace_row as replace  # noqa: E402
 from node import OwnedNode  # noqa: E402
 from snapshot_attempt_account import inspect as inspect_attempt  # noqa: E402
-from snapshot_cleanup import current_attempt, start_tracking  # noqa: E402
-from snapshot_gate_aws import (  # noqa: E402
-    CUTOFF_DIGEST,
-    SNAPSHOT_THROUGH,
-    entry_key,
-    summary,
-)
-from snapshot_gate_reclaim import (  # noqa: E402
-    NEWER_THAN_SNAPSHOT,
-    auto_reclaim_preimage,
-    automatic_floor,
-    automatic_supported,
-    check_auto_reclaim,
-    index_status,
-    reclaim_signed_prefix,
-)
+from snapshot_gate_aws import CUTOFF_DIGEST, SNAPSHOT_THROUGH, current_attempt, entry_key, start_tracking, summary  # noqa: E402
+from snapshot_gate_reclaim import (NEWER_THAN_SNAPSHOT, auto_reclaim_preimage, automatic_floor,  # noqa: E402
+                                   automatic_supported, check_auto_reclaim, index_status, reclaim_signed_prefix)
 from snapshot_gate_roundtrip import cli, prefixed  # noqa: E402
-from support import (  # noqa: E402
-    CREDENTIALS_FILE,
-    OperationError,
-    dev_endpoint,
-    read_json,
-    require,
-    retry,
-    running,
-    write_private,
-)
+from support import (CREDENTIALS_FILE, OperationError, dev_endpoint, read_json,  # noqa: E402
+                     require, retry, running, write_private)
 
 FINAL_HEAD = 16
 SNAPSHOT_ONLY = {"id": "native-cutoff-base", "note": "only present on the source at snapshot"}
@@ -206,7 +185,7 @@ def catch_up(private, programs, call, database, read_storage, api_key, source, p
     private.check_progress(peer, database, 4, 10)
     writer = private.device_id(peer)
     expected_records = [private.LAGGING_LOCAL, *records[1:], SNAPSHOT_ONLY, *OFFLINE_RECORDS]
-    private.connect(programs, source, api_key)
+    programs.connect_existing(source, api_key, "private_dev_connection")
     with running(source, remove_saved=True):
         prepare_native_snapshot(private, call, source, database)
         if automatic:
@@ -224,7 +203,7 @@ def catch_up(private, programs, call, database, read_storage, api_key, source, p
         final_head = FINAL_HEAD + int(automatic)
         write_offline_tail(private, call, peer, database, current_head)
         old_inode = owned_directory_inode(peer.home / "data")
-        private.connect(programs, peer, api_key)
+        programs.connect_existing(peer, api_key, "private_dev_connection")
         with running(peer, remove_saved=True):
             wait_reopen(private, peer, database, snapshot_id, writer, old_inode, peer.instance_id, final_head)
             private.wait_prefix(peer, database, final_head, "private_native_peer_final_position")
@@ -234,7 +213,7 @@ def catch_up(private, programs, call, database, read_storage, api_key, source, p
             private.expect_records(peer, database, expected_records, "private_native_peer_final_records")
             private.expect_records(source, database, expected_records, "private_native_source_final_records")
     if automatic:
-        private.connect(programs, source, api_key)
+        programs.connect_existing(source, api_key, "private_dev_connection")
         with running(source, remove_saved=True):
             private.expect_records(source, database, expected_records, "native_automatic_reclaim_restarted_records")
             state = call("snapshot/bytes", {"action": "automatic-retention"})
@@ -308,7 +287,7 @@ def run_native_cutoff(programs, root, owner, *, require_automatic):
     credentials = OwnedNode(root / "connection", programs, account=owner.account)
     credentials.home.mkdir(mode=0o700)
     write_private(credentials.home / "identity.key", owner.key.private.private_bytes_raw())
-    private.connect(programs, credentials, owner.api_key)
+    programs.connect_existing(credentials, owner.api_key, "private_dev_connection")
     source, peer = (
         OwnedNode(root / name, programs, account=owner.account, isolated_copy=True, keep_saved_credentials=True)
         for name in ("source", "peer")

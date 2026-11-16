@@ -21,10 +21,9 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(SCRIPTS / "cloud_backup"), str(SCRIPTS / "mutation_log_load")]
 
 import guard as legacy_guard  # noqa: E402
-from programs import Programs  # noqa: E402
+from node import Programs  # noqa: E402
 from snapshot_attempt_account import provision, require_prior_retired, resume_instruction, retire  # noqa: E402
-from snapshot_cleanup import RunAttempt, current_attempt, load_owner  # noqa: E402
-from snapshot_gate_aws import cleanup, require_native_dispatch, summary  # noqa: E402
+from snapshot_gate_aws import RunAttempt, cleanup, current_attempt, load_owner, require_native_dispatch, summary  # noqa: E402
 from snapshot_gate_cutoff import run_native_cutoff  # noqa: E402
 from snapshot_gate_roundtrip import run_gate  # noqa: E402
 from support import OperationError, child_environment, decode_json, dev_endpoint, failure, require  # noqa: E402
