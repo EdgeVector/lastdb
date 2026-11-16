@@ -1,7 +1,7 @@
 //! Recipient-owned registration store for received Share databases.
 mod managed;
 
-use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
+use crate::cloud_backup_client::ShareEnvironment;
 use crate::offline_home::Directory;
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -65,7 +65,8 @@ struct Entry {
 #[derive(Clone, Copy)]
 enum Lock {
     Writer,
-    Pointer,
+    PointerRead,
+    PointerWrite,
 }
 
 type LoadedRegistration = (Option<Registration>, Option<Zeroizing<Vec<u8>>>);
@@ -108,11 +109,10 @@ impl Entry {
         Ok(ciphertext)
     }
 
-    fn lock(&self, lock: Lock, exclusive: bool) -> Result<File> {
-        let pointer = matches!(lock, Lock::Pointer);
+    fn lock(&self, lock: Lock) -> Result<File> {
         let name = match lock {
             Lock::Writer => "refresh.lock",
-            Lock::Pointer => "pointer.lock",
+            Lock::PointerRead | Lock::PointerWrite => "pointer.lock",
         };
         self.directory
             .check()
@@ -127,23 +127,13 @@ impl Entry {
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(path)?;
         let meta = file.metadata()?;
-        if !meta.is_file()
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.mode() & 0o7777 != 0o600
-            || meta.nlink() != 1
-        {
+        if !crate::offline_home::is_private_file(&meta) || meta.mode() & 0o7777 != 0o600 {
             return Err(ShareCacheError::Invalid("lock file"));
         }
-        if pointer {
-            if exclusive {
-                file.lock()?;
-            } else {
-                file.lock_shared()?;
-            }
-        } else if exclusive {
-            file.try_lock().map_err(|_| ShareCacheError::Busy)?;
-        } else {
-            file.try_lock_shared().map_err(|_| ShareCacheError::Busy)?;
+        match lock {
+            Lock::PointerWrite => file.lock()?,
+            Lock::PointerRead => file.lock_shared()?,
+            Lock::Writer => file.try_lock().map_err(|_| ShareCacheError::Busy)?,
         }
         Ok(file)
     }
@@ -181,7 +171,7 @@ fn private_directory(path: &Path, create: bool) -> Result<Directory> {
 impl ShareCache {
     pub(crate) fn open_verified(&self, id: &Id) -> Result<OpenedShareInvitation> {
         let entry = self.entry(id, false)?;
-        let _pointer = entry.lock(Lock::Pointer, false)?;
+        let _pointer = entry.lock(Lock::PointerRead)?;
         let (registration, _) = entry.load()?;
         let registration = registration.ok_or(ShareCacheError::Unavailable)?;
         self.require_management(&registration)?;
@@ -259,7 +249,7 @@ impl Registration {
 }
 
 fn publish(entry: &Entry, previous: Option<&[u8]>, registration: &Registration) -> Result<Vec<u8>> {
-    let _gate = entry.lock(Lock::Pointer, true)?;
+    let _gate = entry.lock(Lock::PointerWrite)?;
     entry.publish(previous, registration)
 }
 

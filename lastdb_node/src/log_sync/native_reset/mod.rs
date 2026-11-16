@@ -112,16 +112,8 @@ impl Drop for Stage {
 }
 
 fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
-    let bytes = Zeroizing::new(
-        disk::read_limited(&home.join(IDENTITY_KEY_FILE), 32)
-            .map_err(|error| io_error(&error))?
-            .ok_or("native recovery identity is missing")?,
-    );
-    let value = bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| "invalid native recovery identity")?;
-    Ok(Zeroizing::new(value))
+    crate::offline_home::read_home_identity_seed(home)?
+        .ok_or_else(|| "native recovery identity is missing".into())
 }
 
 fn inode(path: &Path) -> Result<Inode, String> {
@@ -160,7 +152,7 @@ fn lock_home(home: &Path) -> Result<File, String> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(home.join(LOCK))
         .map_err(|error| io_error(&error))?;
-    if !crate::cloud::is_private_file(&lock.metadata().map_err(|error| io_error(&error))?) {
+    if !crate::offline_home::is_private_file(&lock.metadata().map_err(|error| io_error(&error))?) {
         return Err("native recovery lock is not a private file".into());
     }
     rfs::flock(&lock, FlockOperation::NonBlockingLockExclusive)

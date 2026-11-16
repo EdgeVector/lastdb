@@ -38,14 +38,10 @@ struct ConfigMember {
     pub node_key: Digest,
     pub role: ShareMemberRole,
     pub state: ShareMemberState,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub regrant: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write_schemas: Option<ShareWriteScope>,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 impl From<ConfigMember> for ShareMember {

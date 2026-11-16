@@ -8,13 +8,14 @@ pub use enrollment::{
     register_native_device, seed_from_phrase, ConnectedHomeContext, VerifiedHomeCredentials,
 };
 
+use crate::offline_home::read_private_named;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::{AccountId, Id};
 use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fs::{self, File, Metadata, OpenOptions};
-use std::io::{self, Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::fs::File;
+use std::io::Write;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
@@ -43,7 +44,7 @@ pub(crate) fn first_backup_intent(home: &Path) -> bool {
         "invalid first backup intent file",
         "invalid first backup intent length",
     )
-    .is_ok_and(|bytes| bytes.as_deref() == Some(FIRST_BACKUP_INTENT))
+    .is_ok_and(|bytes| bytes.as_deref().map(Vec::as_slice) == Some(FIRST_BACKUP_INTENT))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,47 +92,6 @@ fn read_key<'de, D: Deserializer<'de>>(d: D) -> Result<Zeroizing<String>, D::Err
     String::deserialize(d).map(Zeroizing::new)
 }
 
-pub(crate) fn is_private_file(meta: &Metadata) -> bool {
-    meta.is_file()
-        && meta.uid() == unsafe { libc::geteuid() }
-        && meta.mode() & 0o077 == 0
-        && meta.nlink() == 1
-}
-
-fn read_private_named(
-    path: &Path,
-    max_bytes: u64,
-    priv_err: &'static str,
-    lim_err: &'static str,
-) -> Result<Option<Vec<u8>>, &'static str> {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(priv_err),
-    };
-    if !meta.is_file() {
-        return Err(priv_err);
-    }
-    if meta.len() > max_bytes {
-        return Err(lim_err);
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|_| priv_err)?;
-    if !is_private_file(&file.metadata().map_err(|_| priv_err)?) {
-        return Err(priv_err);
-    }
-    let mut bytes = Vec::new();
-    file.take(max_bytes + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| priv_err)?;
-    (bytes.len() as u64 <= max_bytes)
-        .then_some(Some(bytes))
-        .ok_or(lim_err)
-}
-
 fn open_owned_home_dir(home: &Path) -> Result<File, String> {
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let dir = File::from(
@@ -158,8 +118,8 @@ pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, S
     else {
         return Ok(None);
     };
-    let creds = SavedCredentials::parse(&Zeroizing::new(raw))
-        .map_err(|_| "invalid native backup credential file")?;
+    let creds =
+        SavedCredentials::parse(&raw).map_err(|_| "invalid native backup credential file")?;
     (!creds.api_key.is_empty())
         .then_some(Some(creds))
         .ok_or_else(|| "native backup credential is empty".into())
@@ -196,7 +156,6 @@ pub fn load_saved_developer_key(home: &Path) -> Result<Option<Zeroizing<String>>
     else {
         return Ok(None);
     };
-    let raw = Zeroizing::new(raw);
     let trimmed = std::str::from_utf8(&raw)
         .map_err(|_| "saved developer API key file is not UTF-8")?
         .trim();

@@ -15,6 +15,7 @@ use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::config::DatabaseConfig;
 use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroizing;
 
 pub use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
@@ -152,13 +153,13 @@ impl Host {
             .is_file();
         let (seed, fresh) = load_or_generate_seed_with_meta(home)?;
         if fresh {
-            match bip39::Mnemonic::from_entropy(&seed) {
+            match bip39::Mnemonic::from_entropy(seed.as_ref()) {
                 Ok(m) => recovery::emit_fresh_recovery_phrase(&m.to_string()),
                 Err(e) => tracing::warn!(error = %e, "BIP39 phrase could not be encoded"),
             }
         }
         let keypair = Arc::new(
-            Ed25519KeyPair::from_secret_key(&seed)
+            Ed25519KeyPair::from_secret_key(seed.as_ref())
                 .map_err(|e| format!("identity keyfile is not a valid Ed25519 seed: {e}"))?,
         );
         let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
@@ -225,30 +226,23 @@ pub(crate) fn has_cloud_credentials(home: &Path) -> bool {
     }
 }
 
-fn load_or_generate_seed_with_meta(home: &Path) -> Result<([u8; 32], bool), String> {
-    let key_path = home.join(IDENTITY_KEY_FILE);
-    let kp = key_path.display();
-    if key_path.exists() {
-        let bytes = std::fs::read(&key_path).map_err(|e| format!("failed to read {kp}: {e}"))?;
-        let len = bytes.len();
-        let seed = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| format!("{kp} has invalid length {len} (expected 32)"))?;
+fn load_or_generate_seed_with_meta(home: &Path) -> Result<(Zeroizing<[u8; 32]>, bool), String> {
+    if let Some(seed) = crate::offline_home::read_home_identity_seed(home)? {
         return Ok((seed, false));
     }
     let pair =
         Ed25519KeyPair::generate().map_err(|e| format!("identity generation failed: {e}"))?;
-    let seed = pair.secret_key_bytes();
+    let seed = Zeroizing::new(pair.secret_key_bytes());
     std::fs::create_dir_all(home)
         .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
+    let key_path = home.join(IDENTITY_KEY_FILE);
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
     opts.mode(0o600);
     opts.open(&key_path)
-        .and_then(|mut f| f.write_all(&seed).and_then(|()| f.sync_all()))
-        .map_err(|e| format!("failed to write {kp}: {e}"))?;
+        .and_then(|mut f| f.write_all(seed.as_ref()).and_then(|()| f.sync_all()))
+        .map_err(|e| format!("failed to write {}: {e}", key_path.display()))?;
     Ok((seed, true))
 }
 

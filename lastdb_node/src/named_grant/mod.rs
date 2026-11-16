@@ -6,8 +6,9 @@ mod pending;
 mod successor;
 
 use crate::cloud::load_connected_home_context;
-use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
-use crate::cloud_backup_client::{authorization_post, build_shared_http_client, PathPostTarget};
+use crate::cloud_backup_client::{
+    authorization_post, build_shared_http_client, GuestReadPermission, PathPostTarget,
+};
 use crate::host::owned;
 use crate::profile::endpoints::Environment;
 use crate::share_invitation::{self, ShareContact};

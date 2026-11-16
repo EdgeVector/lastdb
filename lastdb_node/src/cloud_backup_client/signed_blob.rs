@@ -236,7 +236,7 @@ impl SignedBlobClient {
         headers.insert(reqwest::header::AUTHORIZATION, parsed);
         let url = self.transport.api_endpoint(BLOB_BYTES_OP);
         self.transport
-            .post_bounded_with_headers(url, request, CONTROL_JSON_MAX_BYTES, headers)
+            .post_bounded_with_headers(url, body, CONTROL_JSON_MAX_BYTES, headers)
             .await
     }
 }

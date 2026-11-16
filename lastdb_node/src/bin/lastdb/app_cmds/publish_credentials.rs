@@ -9,9 +9,7 @@ use lastdb_node::profile::endpoints::{
     Environment,
 };
 use serde_json::Value;
-use std::fs::OpenOptions;
 use std::io::{self, Read};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::time::Duration;
 use zeroize::Zeroizing;
@@ -20,7 +18,16 @@ const MAX_DEV_KEY_BYTES: u64 = 256;
 
 fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     if path == Path::new("-") {
-        return read_dev_key(io::stdin().lock());
+        let mut raw = Zeroizing::new(Vec::new());
+        io::stdin()
+            .lock()
+            .take(MAX_DEV_KEY_BYTES + 1)
+            .read_to_end(&mut raw)
+            .map_err(|_| "failed to read the publisher signing key")?;
+        if raw.len() as u64 > MAX_DEV_KEY_BYTES {
+            return Err("publisher signing key exceeds size limit".into());
+        }
+        return parse_dev_key(&raw);
     }
     if path
         .to_str()
@@ -28,41 +35,19 @@ fn load_dev_key(path: &Path) -> Result<SigningKey, String> {
     {
         return Err("dev key path does not accept a lastsecrets locator".into());
     }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|e| format!("failed to open dev key {}: {e}", path.display()))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| format!("failed to inspect dev key {}: {e}", path.display()))?;
-    if !meta.is_file()
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.permissions().mode() & 0o077 != 0
-    {
-        return Err(format!(
-            "dev key {} must be a private regular owner file (chmod 600)",
-            path.display()
-        ));
-    }
-    if meta.len() > MAX_DEV_KEY_BYTES {
-        return Err(format!("dev key {} exceeds size limit", path.display()));
-    }
-    read_dev_key(file)
+    let raw = lastdb_node::offline_home::read_private_named(
+        path,
+        MAX_DEV_KEY_BYTES,
+        "dev key must be a private regular owner file (chmod 600)",
+        "dev key exceeds size limit",
+    )
+    .map_err(|err| format!("{err} ({})", path.display()))?
+    .ok_or_else(|| format!("failed to open dev key {}: not found", path.display()))?;
+    parse_dev_key(&raw)
 }
 
-fn read_dev_key(reader: impl Read) -> Result<SigningKey, String> {
-    let mut raw = Zeroizing::new(Vec::new());
-    reader
-        .take(MAX_DEV_KEY_BYTES + 1)
-        .read_to_end(&mut raw)
-        .map_err(|_| "failed to read the publisher signing key")?;
-    if raw.len() as u64 > MAX_DEV_KEY_BYTES {
-        return Err("publisher signing key exceeds size limit".into());
-    }
-    let text = Zeroizing::new(
-        String::from_utf8(raw.to_vec()).map_err(|_| "publisher signing key is not UTF-8")?,
-    );
+fn parse_dev_key(raw: &[u8]) -> Result<SigningKey, String> {
+    let text = std::str::from_utf8(raw).map_err(|_| "publisher signing key is not UTF-8")?;
     let decoded = Zeroizing::new(
         BASE64
             .decode(text.trim())

@@ -12,6 +12,7 @@ name = "foundation"
 doc = "Pure node types, endpoints, paths, private files, identities, and accepted-write ledgers."
 modules = [
   "accepted_writes",
+  "offline_home",
   "profile",
 ]
 
@@ -40,10 +41,9 @@ modules = [
 
 [[layer]]
 name = "share_primitives"
-doc = "Offline home descriptors, signed mutation-log envelopes, and sealed share invitations."
+doc = "Signed mutation-log envelopes and sealed share invitations."
 modules = [
   "log_envelope",
-  "offline_home",
   "share_invitation",
 ]
 

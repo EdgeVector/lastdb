@@ -57,12 +57,8 @@ struct ListRequest<'a> {
     database_id: &'a str,
     after: DecimalU64,
     limit: DecimalU64,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     accept_native_reset: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
 }
 
 #[derive(Deserialize)]

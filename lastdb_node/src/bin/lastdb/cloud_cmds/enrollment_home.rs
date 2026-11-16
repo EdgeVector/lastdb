@@ -1,19 +1,20 @@
-//! Descriptor-pinned home guard for self-serve cloud backup enrollment.
+//! Descriptor-pinned home guards for self-serve cloud backup enrollment and fresh homes.
 use super::setup::{canonical_backup_endpoint, encode_connected_credentials, PHRASE_FILE};
 use cloud_backup_protocol::AccountId;
 use lastdb_node::cloud::{
     SavedCredentials, CLOUD_CREDENTIALS_FILE, FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE,
 };
-use lastdb_node::host::IDENTITY_KEY_FILE;
 use lastdb_node::offline_home::{
-    entry_present, open_directory, open_private_at, read_private_file, require_owned_directory,
-    same_inode,
+    dir_entry_names, entry_present, open_directory, open_private_at, read_identity_seed_at,
+    read_private_file, require_absolute, require_mode_0700_directory, require_owned_directory,
+    same_inode, DIR_FLAGS,
 };
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
 use rustix::fs::{self, AtFlags, Mode, OFlags};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
@@ -83,11 +84,7 @@ impl PreparedHome {
 
     pub(super) fn seed(&self) -> Result<Zeroizing<[u8; 32]>, String> {
         self.verify_dir()?;
-        let seed: Zeroizing<[u8; 32]> = read_private_file(&self.directory, IDENTITY_KEY_FILE, 32)?
-            .as_slice()
-            .try_into()
-            .map(Zeroizing::new)
-            .map_err(|_| "native identity must contain 32 bytes".to_owned())?;
+        let seed = read_identity_seed_at(&self.directory)?;
         if !entry_present(&self.directory, PHRASE_FILE)? {
             return Ok(seed);
         }
@@ -232,5 +229,122 @@ impl PreparedHome {
             .sync_all()
             .and_then(|()| self.parent.sync_all())
             .map_err(|_| "cannot sync native enrollment home".into())
+    }
+}
+
+pub(super) struct FreshHome {
+    parent: File,
+    name: OsString,
+    directory: Option<File>,
+    created_files: Vec<&'static str>,
+    committed: bool,
+}
+
+impl FreshHome {
+    pub(super) fn preflight_empty_parent(destination: &Path) -> Result<Self, String> {
+        let target = Self::preflight_empty(destination)?;
+        require_mode_0700_directory(
+            &target.parent,
+            "credential parent must be an owner-only directory",
+        )?;
+        if !dir_entry_names(&target.parent, "cannot inspect credential parent")?.is_empty() {
+            return Err("credential parent must be empty".into());
+        }
+        Ok(target)
+    }
+
+    pub(super) fn preflight_empty(destination: &Path) -> Result<Self, String> {
+        require_absolute(destination)?;
+        let name = destination
+            .file_name()
+            .ok_or("destination requires a home name")?;
+        let parent = open_directory(destination.parent().ok_or("missing destination parent")?)?;
+        let mode = parent
+            .metadata()
+            .map_err(|_| "cannot inspect destination parent")?
+            .permissions()
+            .mode();
+        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+            return Err(
+                "destination parent must prevent other users from replacing its entries".into(),
+            );
+        }
+        if entry_present(&parent, name.to_str().ok_or("invalid home name")?)? {
+            return Err("recovery home must not already exist".into());
+        }
+        Ok(Self {
+            parent,
+            name: name.to_os_string(),
+            directory: None,
+            created_files: Vec::new(),
+            committed: false,
+        })
+    }
+
+    pub(super) fn create(mut self) -> Result<Self, String> {
+        fs::mkdirat(&self.parent, &self.name, Mode::from_raw_mode(0o700))
+            .map_err(|_| "cannot exclusively create recovery home")?;
+        let dir: File = fs::openat(&self.parent, &self.name, DIR_FLAGS, Mode::empty())
+            .map_err(|_| "cannot open new recovery home without symlinks")?
+            .into();
+        fs::fchmod(&dir, Mode::from_raw_mode(0o700)).map_err(|_| "cannot protect recovery home")?;
+        require_owned_directory(&dir)?;
+        self.directory = Some(dir);
+        Ok(self)
+    }
+
+    fn dir(&self) -> &File {
+        self.directory.as_ref().expect("created recovery home")
+    }
+
+    pub(super) fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
+        let mut file = open_private_at(
+            self.dir(),
+            name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
+            Mode::from_raw_mode(0o600),
+            "cannot exclusively create recovery credential file",
+        )?;
+        self.created_files.push(name);
+        file.write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| "cannot write recovery credential file".into())
+    }
+
+    pub(super) fn commit(&mut self) -> Result<(), String> {
+        let dir = self.dir();
+        if !same_inode(&self.parent, &self.name, dir) {
+            return Err("recovery home changed during preparation".into());
+        }
+        const EXACT_ERR: &str = "recovery home requires the exact protected credential files";
+        require_mode_0700_directory(dir, EXACT_ERR)?;
+        let entries = dir_entry_names(dir, "cannot inspect final recovery-home entries")?;
+        if self.created_files.is_empty()
+            || entries.len() != self.created_files.len()
+            || entries
+                .iter()
+                .any(|n| !self.created_files.iter().any(|f| f.as_bytes() == n))
+        {
+            return Err(EXACT_ERR.into());
+        }
+        dir.sync_all()
+            .and_then(|()| self.parent.sync_all())
+            .map_err(|_| "cannot sync recovery home".to_owned())?;
+        self.committed = true;
+        Ok(())
+    }
+}
+
+impl Drop for FreshHome {
+    fn drop(&mut self) {
+        if self.committed || self.directory.is_none() {
+            return;
+        }
+        for name in &self.created_files {
+            let _ = fs::unlinkat(self.dir(), *name, AtFlags::empty());
+        }
+        if same_inode(&self.parent, &self.name, self.dir()) {
+            let _ = fs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR);
+        }
     }
 }

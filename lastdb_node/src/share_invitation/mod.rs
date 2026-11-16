@@ -1,5 +1,5 @@
 //! Recipient-encrypted invitations for ordinary Backup V2 share streams.
-use crate::cloud_backup_client::storage_transfer::GuestReadPermission;
+use crate::cloud_backup_client::GuestReadPermission;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use cloud_backup_protocol::Digest;
@@ -49,15 +49,10 @@ pub struct OpenedShareInvitation {
 
 /// Load the recipient decryption and contact authority from a LastDB identity home.
 pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, String> {
-    let directory = crate::offline_home::Directory::open(home).map_err(|e| e.to_string())?;
-    let bytes = directory
-        .read(crate::profile::IDENTITY_KEY_FILE)
+    let seed = crate::offline_home::Directory::open(home)
         .map_err(|e| e.to_string())?
+        .identity_seed()?
         .ok_or("share requires an initialized LastDB identity")?;
-    let seed = Zeroizing::new(
-        <[u8; 32]>::try_from(bytes.as_slice())
-            .map_err(|_| "invalid LastDB identity size".to_owned())?,
-    );
     ShareRecipient::from_identity_seed(&seed).map_err(|e| e.to_string())
 }
 
