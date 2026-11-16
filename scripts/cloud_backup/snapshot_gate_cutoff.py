@@ -214,7 +214,7 @@ def catch_up(private, programs, call, database, read_storage, api_key, source, p
             preimage = auto_reclaim_preimage(private, call, database, read_storage, peer)
         snapshot_id = publish_native_snapshot(private, programs, call, source, database)
         if automatic:
-            first_tail = check_auto_reclaim(private, call, source, read_storage, snapshot_id, preimage)
+            first_tail = check_auto_reclaim(private, call, source, database, read_storage, snapshot_id, preimage)
             expected_records.append(NEWER_THAN_SNAPSHOT)
         else:
             summary("automatic_reclaim=unavailable")
