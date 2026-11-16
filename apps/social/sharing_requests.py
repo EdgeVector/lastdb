@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from lastdb import LastDBError, SCHEMAS, SocialError, record_mutation
 from circles import DIGEST
@@ -14,6 +14,9 @@ from reusable_circles import confirm, encoded
 
 SCHEMA = "social-graph/SharingRequest"
 DEFINITION = SCHEMAS["SharingRequest"]
+# An owner's own change has no saved proposal. Its ID comes from the change,
+# so a preview and its apply agree.
+OWNER_CHANGES = uuid5(NAMESPACE_URL, "social-graph/owner-change")
 APP_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}\Z")
 PRESETS = {
     "viewer": [],
@@ -117,6 +120,23 @@ class SharingRequests:
                 return preview
             confirm(preview, token)
             return self.review(request_id, review, preview["token"])
+
+    def owner_change(self, change, review=None, *, apply=False, token=None):
+        """Preview or apply a direct grant, revoke or restore that the owner asked for."""
+        change = parse_change(change)
+        request = {"requestId": str(uuid5(OWNER_CHANGES, encoded(change))), "change": change}
+        with self.reusable.circles.lock():
+            _, _, directory = self.reusable.load()
+            edit, operation, label = self.edit(request, directory, review)
+            preview = {**self.reusable.edit_locked(edit, operation=operation),
+                       "subjectName": label, "change": change}
+            if not apply:
+                return {**preview, "applied": False}
+            confirm(preview, token)
+            self.archive(directory["operations"].get(change["databaseId"]))
+            applied = self.reusable.edit_locked({**edit, "token": preview["token"]}, apply=True,
+                                                operation=operation)
+            return {**applied, "subjectName": label, "change": change, "applied": True}
 
     def review(self, request_id, review, token=None):
         _, _, data = self.load(request_id)

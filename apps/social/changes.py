@@ -1,5 +1,7 @@
 """Owner changes to sharing. Each one previews first and applies only on request."""
 
+import json
+import os
 from uuid import NAMESPACE_URL, uuid5
 
 from lastdb import SocialError
@@ -94,6 +96,13 @@ def grant_revoke(app, database, person, *, apply=False):
             "state": "revoked"}
 
 
+def grant_direct(app, operation, database, person, scope, *, review=None, apply=False, token=None):
+    """Set or restore one person's own grant on an owned whole-database share."""
+    change = {"operation": operation, "databaseId": app.owned_whole(database)["id"],
+              "nodeKey": app.resolve_people([person])[0], "writeSchemas": parse_scope(scope)}
+    return app.sharing_requests.owner_change(change, review, apply=apply, token=token)
+
+
 def retry(app, database=None, review=None):
     """Resume saved sharing updates for one database, or for every database that has one."""
     database_id = app.sharing.owned(database)["id"] if database else None
@@ -109,8 +118,21 @@ def retry(app, database=None, review=None):
         return {**reusable.edit_locked({**args, "token": preview["token"]}, apply=True), "applied": True}
 
 
-def invite(app, database, person, *, name=None, contact=None):
+def invite(app, database, person, *, name=None, contact=None, out=None):
     """Seal an invitation. On a filtered share this also grants reader access."""
+    receipt = seal(app, database, person, name, contact)
+    if out is None:
+        return receipt
+    # The receipt lets its recipient open the database. Keep it readable by the owner only.
+    descriptor = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        os.fchmod(descriptor, 0o600)
+        json.dump(receipt, stream, sort_keys=True)
+    return {"databaseId": receipt["databaseId"], "revision": receipt["revision"],
+            "publisher": receipt["publisher"], "out": str(out)}
+
+
+def seal(app, database, person, name, contact):
     database = app.sharing.owned(database)
     if contact is not None:
         if name is None:

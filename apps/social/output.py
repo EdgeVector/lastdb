@@ -77,7 +77,7 @@ def change(value):
     names = value.get("contactNames", {})
     lines = []
     if "subjectName" in value:
-        lines.append(f"{value.get('appId', 'request')}: {value['change']['operation']} for {value['subjectName']}")
+        lines.append(f"{value.get('appId', 'owner')}: {value['change']['operation']} for {value['subjectName']}")
     if "before" in value:
         lines.append(f"{value['name']}: {names.get(value['nodeKey'], value['nodeKey'])}: "
                      f"{grant(value['before'])} -> {grant(value['after'])}")

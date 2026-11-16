@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 
-from lastdb import LastDBError, SocialError
+from lastdb import LastDBError, SocialError, record_mutation
 
 
 PERSON_SCHEMA = "social-graph/Person"
@@ -49,6 +49,25 @@ class People:
                 self.index(person_id)
                 return fields
         raise SocialError("contact changed concurrently; retry the operation")
+
+    def remove(self, node_key):
+        """Delete the contact and its address book entry in one batch."""
+        definition = self.declare()
+        entry_definition = self.node.declare_private("AddressBookEntry")
+        person_id = hashlib.sha256(node_key.encode()).hexdigest()
+        entry_key = {"hash": BOOK_HASH, "range": person_id}
+        reply = self.node.call("POST", "/api/queries/batch", {"queries": [
+            query_for(person_id), {"schema_name": ADDRESS_BOOK, "filter": {"HashRangeKey": entry_key}},
+        ]})["results"]
+        if len(reply) != 2 or any(item["status"] != 200 for item in reply):
+            raise SocialError("LastDB could not read the contact")
+        person, entry = (item["response"]["results"] for item in reply)
+        if not person:
+            raise SocialError("this person is not in the address book")
+        removals = [record_mutation(PERSON_SCHEMA, definition, {"hash": person_id, "range": None}, None, person[0])]
+        if entry:
+            removals.append(record_mutation(ADDRESS_BOOK, entry_definition, entry_key, None, entry[0]))
+        self.node.call("POST", "/api/mutations/batch", {"mutations": removals})
 
     def by_keys(self, node_keys):
         if not node_keys:

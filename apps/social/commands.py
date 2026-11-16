@@ -20,6 +20,14 @@ def person_show(app, args):
     return app.person(app.resolve_people([args.person])[0])
 
 
+def person_rename(app, args):
+    return app.rename_person(app.resolve_people([args.person])[0], args.name)
+
+
+def person_remove(app, args):
+    return app.remove_person(app.resolve_people([args.person])[0])
+
+
 def circle_list(app, _args):
     return app.reusable_circles.load()[2]["circles"]
 
@@ -79,8 +87,18 @@ def grant_revoke(app, args):
     return changes.grant_revoke(app, args.database, args.person, apply=args.apply)
 
 
+def grant_set(app, args):
+    return changes.grant_direct(app, "setPersonGrant", args.database, args.person, args.write,
+                                **change_options(app, args))
+
+
+def grant_restore(app, args):
+    return changes.grant_direct(app, "restorePerson", args.database, args.person, args.write,
+                                **change_options(app, args))
+
+
 def invite(app, args):
-    return changes.invite(app, args.database, args.person, name=args.name, contact=args.contact)
+    return changes.invite(app, args.database, args.person, name=args.name, contact=args.contact, out=args.out)
 
 
 def request_submit(app, _args):
@@ -133,11 +151,13 @@ def change_options(app, args):
 
 HANDLERS = {
     "person add": person_add, "person list": person_list, "person show": person_show,
+    "person rename": person_rename, "person remove": person_remove,
     "circle list": circle_list, "circle show": circle_show, "circle set": circle_set,
     "circle remove": circle_remove,
     "db create": db_create, "db verify": db_verify, "db list": db_list, "db show": db_show,
     "db accept": db_accept, "db retry": db_retry,
-    "grant list": grant_list, "grant revoke": grant_revoke,
+    "grant list": grant_list, "grant set": grant_set, "grant restore": grant_restore,
+    "grant revoke": grant_revoke,
     "invite": invite,
     "request submit": request_submit, "request status": request_status, "request list": request_list,
     "request show": request_show, "request approve": request_approve, "request decline": request_decline,

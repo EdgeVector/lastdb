@@ -17,6 +17,8 @@ RESOLVE = flag("--resolve", action="append", metavar="DATABASE:PERSON=keep|socia
                help="Keep a grant made outside Social as a direct grant, or apply Social's grant")
 PERSON = flag("person", help="Saved contact name, or node key")
 DATABASE = flag("database", help="Database name or ID")
+WRITE = flag("--write", default="read", metavar="read|all|Schema,Schema",
+             help="Write scope. The person always reads the whole database. Default: read")
 SETUP_VERSION = flag("--version", type=int, default=1, help="Setup version")
 
 COMMANDS = {
@@ -26,6 +28,8 @@ COMMANDS = {
             flag("--contact", required=True, type=Path, help="Contact file from `lastdb share contact`"))),
         "list": ("List saved contacts", ()),
         "show": ("Show what you share with a person and what they share with you", (PERSON,)),
+        "rename": ("Change a contact's name", (PERSON, flag("name", help="New name"))),
+        "remove": ("Remove a contact that has no active grant and no circle membership", (PERSON,)),
     }),
     "circle": ("Reusable lists of people linked to databases", {
         "list": ("List circles with their members and linked databases", ()),
@@ -59,11 +63,16 @@ COMMANDS = {
     }),
     "grant": ("Access for one person on one database", {
         "list": ("List active grants", (flag("database", nargs="?", help="Database name or ID. Default: all"),)),
+        "set": ("Give one person their own grant on a whole-database share", (
+            DATABASE, PERSON, WRITE, RESOLVE, *APPLY)),
+        "restore": ("Restore a revoked person on a whole-database share", (
+            DATABASE, PERSON, WRITE, RESOLVE, *APPLY)),
         "revoke": ("Revoke a person's access", (DATABASE, PERSON, APPLY[0])),
     }),
     "invite": ("Seal an invitation for a person. A filtered share also grants reader access", (
         DATABASE, PERSON, flag("--name", help="Contact name, with --contact"),
-        flag("--contact", type=Path, help="Contact file for a new or updated contact"))),
+        flag("--contact", type=Path, help="Contact file for a new or updated contact"),
+        flag("--out", type=Path, help="Write the sealed receipt to this file, readable by you only"))),
     "request": ("Sharing changes proposed by apps", {
         "submit": ("Save a JSON declaration from standard input for owner review", ()),
         "status": ("Read the outcome of a proposal", (flag("request_id"),)),

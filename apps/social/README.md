@@ -18,6 +18,7 @@ error prints one `social:` line on standard error and exits non-zero.
 | --- | --- |
 | `person add NAME --node-key KEY --contact FILE` | Verify a contact file and save the contact |
 | `person list`, `person show PERSON` | The address book. One person, with what you share and what they share with you |
+| `person rename PERSON NAME`, `person remove PERSON` | Rename a contact. Remove one that has no active grant and is in no circle |
 | `circle list`, `circle show CIRCLE` | Circles, their members, and their linked databases |
 | `circle set CIRCLE [--members A,B] [--link DB=SCOPE] [--unlink DB] [--rename NAME]` | Create a circle, or change the named parts of one |
 | `circle remove CIRCLE` | Remove a circle and the access it grants |
@@ -27,7 +28,8 @@ error prints one `social:` line on standard error and exits non-zero.
 | `db accept [FILE] --publisher KEY [--name NAME]` | Accept a sealed invitation |
 | `db retry [DB]` | Resume unfinished sharing updates |
 | `grant list [DB]`, `grant revoke DB PERSON` | Active grants. Revoke one person |
-| `invite DB PERSON` | Seal an invitation for a person |
+| `grant set DB PERSON --write SCOPE`, `grant restore DB PERSON` | Give one person their own grant on a whole-database share. Restore a revoked person |
+| `invite DB PERSON [--out FILE]` | Seal an invitation for a person |
 | `request submit`, `request status ID` | For apps: propose a sharing change, read its outcome |
 | `request list`, `request show ID`, `request approve ID`, `request decline ID` | For the owner: review and decide app proposals |
 | `pick-database --spec NAME --version N --intent read\|write` | List the databases an app can use, or select one |
@@ -38,8 +40,8 @@ ID. `CIRCLE` is a circle name or ID.
 
 ## Preview, then apply
 
-`circle set`, `circle remove`, and `grant revoke` change who can reach a
-database. Without `--apply` they print what would change and change nothing.
+`circle set`, `circle remove`, `grant set`, `grant restore`, and `grant revoke`
+change who can reach a database. Without `--apply` they print what would change and change nothing.
 
 ```sh
 social circle set Family --members Ana,Bea --link family=social/Comment
@@ -81,11 +83,23 @@ across later circle edits.
 
 ```sh
 social circle set Family --members Ana,Bea --link family=social/Comment --link trips=read --apply
-social invite family Ana > ana-invitation.json
+social invite family Ana --out ana-invitation.json
 ```
 
-`invite` returns JSON with `databaseId`, `revision`, `publisher`, and
-`invitation`. Hand that sealed receipt to the recipient. Keep it out of logs.
+For one person outside any circle, use a direct grant. It combines with the
+person's circle grants. A revoked person comes back only through an explicit
+`grant restore`.
+
+```sh
+social grant set family Cal --write social/Comment --apply
+social grant revoke family Cal --apply
+social grant restore family Cal --write read --apply
+```
+
+`invite` produces JSON with `databaseId`, `revision`, `publisher`, and
+`invitation`. With `--out` it writes that receipt to a file only you can read.
+Without it the receipt goes to standard output. Hand the sealed receipt to
+the recipient. Keep it out of logs.
 The recipient accepts it with the publisher's independently verified key:
 
 ```sh

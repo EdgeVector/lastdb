@@ -41,6 +41,27 @@ class SocialApp:
         verified = self.node.verify_contact(path, node_key)
         return public_person(self.people.remember(node_key, name, verified["contactCode"]))
 
+    def rename_person(self, node_key, name):
+        person = self.people.by_keys([node_key])[node_key]
+        return public_person(self.people.remember(node_key, checked_name(name), person["contact_code"]))
+
+    def remove_person(self, node_key):
+        """Remove a contact that no circle lists and no owned database grants access to."""
+        person = self.people.by_keys([node_key])[node_key]
+        circles = [row["name"] for row in self.reusable_circles.load()[2]["circles"] if node_key in row["members"]]
+        if circles:
+            raise SocialError(f"remove this person from these circles first: {', '.join(circles)}")
+        configs = self.sharing.all_configurations(None)
+        unknown = [config["name"] for config in configs if "status" in config]
+        if unknown:
+            raise SocialError(f"could not confirm the roster of: {', '.join(unknown)}")
+        active = [config["name"] for config in configs for member in config["members"]
+                  if member["nodeKey"] == node_key and member["state"] == "active"]
+        if active:
+            raise SocialError(f"revoke this person's access first on: {', '.join(active)}")
+        self.people.remove(node_key)
+        return {**public_person(person), "removed": True}
+
     def people_list(self):
         contacts = [public_person(person) for person in self.people.address_book()]
         return sorted(contacts, key=lambda person: person["name"].casefold())
@@ -159,7 +180,7 @@ class SocialApp:
             raise SocialError("save this person's verified contact first")
         config = self.sharing.configuration(database["id"])
         if not any(row["nodeKey"] == node_key and row["state"] == "active" for row in config["members"]):
-            raise SocialError("grant this person access through a circle before sealing an invitation")
+            raise SocialError("grant access with a circle or `social grant set` before sealing an invitation")
         return self.sharing.seal(database["id"], node_key, person["contact_code"], config["revision"],
                                  self.node.own_key())
 
