@@ -141,7 +141,7 @@ def auto_reclaim_preimage(private, call, database, read_storage, peer):
     return facts, entry["entry"]
 
 
-def check_auto_reclaim(private, call, source, read_storage, snapshot_id, preimage):
+def check_auto_reclaim(private, call, source, database, read_storage, snapshot_id, preimage):
     initial_facts, old_entry = preimage
     tail = SNAPSHOT_THROUGH + 1
     private.write(source, database, NEWER_THAN_SNAPSHOT)
