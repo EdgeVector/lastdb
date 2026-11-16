@@ -142,7 +142,7 @@ fn ensure_dir(path: &Path) -> Result<(), String> {
         return Err("private directory must be a real directory".into());
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .map_err(|_| "cannot protect a private directory")
+        .map_err(|_| "cannot protect a private directory".into())
 }
 
 fn matches_intent(saved: &Saved, node: &Digest, intent: MemberIntent) -> bool {

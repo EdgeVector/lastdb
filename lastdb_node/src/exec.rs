@@ -55,7 +55,7 @@ use reply::{content_free, envelope, error_response, json_ok, render, HostError};
 
 pub use schema_declare::normalize_app_manifest_schema;
 pub use uds_server::UdsServer;
-pub use wire::parse_mutation_body;
+pub use wire::{parse_mutation_body, ParsedMutation, Reject};
 
 pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsResponse>>(
     ctx: &AccessContext,

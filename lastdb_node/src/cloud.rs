@@ -1,7 +1,6 @@
 //! Account identity, saved cloud/developer credentials, and explicit backup enrollment.
 mod enrollment;
 
-pub(crate) use enrollment::load_home_keypair;
 pub use enrollment::{
     account_from_phrase, app_publisher_signing_key, client_from_home,
     client_from_home_with_keypair, load_connected_home_context, load_home_account_id,

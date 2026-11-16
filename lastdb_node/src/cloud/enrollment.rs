@@ -128,7 +128,7 @@ pub fn app_publisher_signing_key(home: &Path) -> Result<SigningKey, String> {
     Ok(SigningKey::from_bytes(&seed))
 }
 
-pub(crate) fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {
+fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {
     const PRIV_ERR: &str = "home identity.key must be a private owner file";
     const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
     let Some(raw) = read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)?
