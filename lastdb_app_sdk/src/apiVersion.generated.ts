@@ -2,7 +2,7 @@
 // Source: lastdb_node/src/lastdb_uds/uds_router.rs and lastdb_node/src/version.rs.
 
 /** Current `lastdbd` Unix-socket protocol `API_VERSION`. */
-export const LASTDB_SDK_API_VERSION = 34;
+export const LASTDB_SDK_API_VERSION = 35;
 
 /** Minimum protocol `api_version` supported by `lastdbd`. */
 export const LASTDB_MIN_SUPPORTED_API_VERSION = 29;
