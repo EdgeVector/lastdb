@@ -1,4 +1,3 @@
-use crate::Text;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,32 +91,3 @@ impl std::fmt::Display for ProtocolError {
 }
 
 impl std::error::Error for ProtocolError {}
-
-/// Pending outcomes are never definite failures.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PendingReason {
-    /// Bytes for this operation have not arrived.
-    AwaitingBytes,
-    /// The provider outcome is not known yet.
-    OutcomeUnknown,
-}
-
-/// The exact operation cannot succeed under its frozen input.
-/// This classification does not authorize deletion or release unknown byte reservations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TerminalFailureCode {
-    /// The frozen input does not match its byte digest.
-    IntegrityMismatch,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-/// A terminal failure of one frozen operation. It does not delete data or release unknown reservations.
-pub struct TerminalFailure {
-    /// Why this frozen operation cannot succeed.
-    pub code: TerminalFailureCode,
-    /// Protocol field the failure refers to, at most 128 bytes.
-    pub field: Text<128>,
-}

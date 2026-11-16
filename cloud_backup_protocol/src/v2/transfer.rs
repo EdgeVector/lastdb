@@ -1,152 +1,40 @@
-//! Public create-once object transfer identities. Provider locations and worker state stay private.
+//! Temporary presigned object upload grants.
+
 use super::limits::{
-    encoded as encoded_json_bytes, CONTROL_JSON_MAX_BYTES as RECEIPT_JSON_MAX_BYTES,
-    CONTROL_JSON_MAX_BYTES as REQUEST_JSON_MAX_BYTES,
+    encoded as encoded_json_bytes, CONTROL_JSON_MAX_BYTES as REQUEST_JSON_MAX_BYTES,
 };
-use super::{Job, Object, Version};
-use crate::{CloudScope, Digest, Id, PendingReason, ProtocolError, TerminalFailure};
+use crate::{DecimalU64, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
 
-/// The service returns an authoritative receipt only after exact byte verification.
-/// An internally consistent client value does not establish service authority or retention.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectReceipt {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Id of this receipt. Validation requires it to equal `identity_sha256`.
-    pub receipt_id: Digest,
-    /// Account id and account generation.
-    pub scope: CloudScope,
-    /// Stored object this receipt names.
-    pub object: Object,
+/// A single presigned multipart UploadPart, with partNumber=1 and one exact uploadId.
+/// Its signed headers are content-length and host; completion stays service-owned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferMode {
+    /// One presigned multipart UploadPart. Completion stays with the service.
+    MultipartPart,
 }
 
-impl ObjectReceipt {
-    /// Domain-separated SHA-256 of the version, scope, and object. The receipt id is not an input.
-    pub fn identity_sha256(&self) -> Result<Digest, ProtocolError> {
-        super::hash::input(
-            "lastdb:cloud-byte-backup:object-receipt:v2",
-            &(self.version, &self.scope, &self.object),
-        )
-    }
-
-    /// Validate scope and object, require `receipt_id` to equal `identity_sha256`, and check encoded size.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.scope.validate()?;
-        self.object.validate()?;
-        if self.receipt_id != self.identity_sha256()? {
-            return Err(ProtocolError::invalid("object_receipt.receipt_id"));
-        }
-        encoded_json_bytes(self, RECEIPT_JSON_MAX_BYTES)
-    }
-}
-
+/// Temporary upload authority. Never save this URL in a durable record.
+/// Absent mode is the signed conditional PUT with an exact Content-Length.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// One object a job asks to upload or reuse.
-pub struct TransferInput {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Client-chosen id of one transfer item.
-    pub request_id: Id,
-    /// Stream and commit id this value belongs to.
-    pub job: Job,
-    /// Object bytes to transfer.
-    pub object: Object,
-    /// A record blob version uploads to its client-derived path, on B2, and
-    /// is never an inventory member. Absent for every other object, so older
-    /// inputs keep their digest.
+pub struct UploadGrant {
+    /// Temporary upload URL. Do not store it on a durable record.
+    pub url: Text<8192>,
+    /// Unix epoch milliseconds when this grant expires. Zero is rejected.
+    pub expires_ms: DecimalU64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub blob: Option<super::blobs::BlobPath>,
+    /// How the URL is signed. Absent means a conditional PUT with an exact content length.
+    pub transfer_mode: Option<TransferMode>,
 }
 
-impl TransferInput {
-    /// Validate the job and object, and reject oversized JSON. A blob path
-    /// requires the B2 destination.
+impl UploadGrant {
+    /// Reject a zero expiry or oversized JSON.
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.job.validate()?;
-        self.object.validate()?;
-        if let Some(path) = &self.blob {
-            path.validate()?;
-            if self.object.destination != super::Destination::B2 {
-                return Err(ProtocolError::invalid("transfer.blob.destination"));
-            }
-        }
-        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
-    }
-
-    /// Domain-separated SHA-256 of this input, after validation.
-    pub fn input_sha256(&self) -> Result<Digest, ProtocolError> {
-        self.validate()?;
-        super::hash::input("lastdb:cloud-byte-backup:transfer:v2", self)
-    }
-}
-
-/// Pending is not a terminal failure. A timeout cannot produce Verified or Rejected.
-/// Verified covers both a new upload and safe reuse of the same protected bytes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-pub enum TransferStatus {
-    /// The transfer is not finished. A timeout does not become Verified or Rejected.
-    Pending {
-        /// Why the transfer is still unfinished.
-        reason: PendingReason,
-    },
-    /// The service verified these exact bytes, whether newly uploaded or reused.
-    Verified {
-        /// Receipt for the verified object bytes.
-        receipt: ObjectReceipt,
-    },
-    /// This input cannot succeed.
-    Rejected {
-        /// Why this input cannot succeed.
-        failure: TerminalFailure,
-    },
-}
-
-impl TransferStatus {
-    /// Check a verified receipt's scope and object, or a rejected failure's encoded size, against `input`.
-    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
-        input.validate()?;
-        match self {
-            Self::Pending { .. } => {}
-            Self::Verified { receipt } => {
-                receipt.validate()?;
-                if receipt.scope != input.job.stream.scope || receipt.object != input.object {
-                    return Err(ProtocolError::invalid("transfer.receipt.identity"));
-                }
-            }
-            Self::Rejected { failure } => encoded_json_bytes(failure, REQUEST_JSON_MAX_BYTES)?,
+        if self.expires_ms.get() == 0 {
+            return Err(ProtocolError::invalid("upload_grant.expires_ms"));
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
     }
 }
-
-/// The input digest binds the response to the complete saved job and object identity.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TransferView {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Client-chosen id of one transfer item.
-    pub request_id: Id,
-    /// SHA-256 of the transfer input this view answers.
-    pub input_sha256: Digest,
-    /// Pending, verified, or rejected state of that input.
-    pub state: TransferStatus,
-}
-
-impl TransferView {
-    /// Require this view's request id and input digest to match `input`, then validate the state.
-    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
-        if self.request_id != input.request_id || self.input_sha256 != input.input_sha256()? {
-            return Err(ProtocolError::invalid("transfer.response.identity"));
-        }
-        self.state.validate_for(input)?;
-        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
-    }
-}
-
-mod api;
-pub use api::*;

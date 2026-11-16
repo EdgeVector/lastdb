@@ -15,7 +15,7 @@ mod primitives;
 pub mod v2;
 
 pub use common::*;
-pub use error::{ErrorCode, PendingReason, ProtocolError, TerminalFailure, TerminalFailureCode};
+pub use error::{ErrorCode, ProtocolError};
 pub use primitives::{AccountId, DecimalU64, Digest, Id, RelativePath, Text};
 
 use serde::{Deserialize, Serialize};

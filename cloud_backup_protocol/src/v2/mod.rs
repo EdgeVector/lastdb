@@ -1,7 +1,7 @@
 //! Generic byte backup transport. Pure wire validation; no I/O or admission.
 //! Native formats, recovery keys and client completeness stay with the client.
 
-use crate::{AccountId, CloudScope, DecimalU64, Digest, Id, ProtocolError, Text};
+use crate::{AccountId, CloudScope, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod share_access;
@@ -39,11 +39,6 @@ pub mod hash {
             u64::try_from(bytes.len()).map_err(|_| ProtocolError::limit("v2.body"))?;
         crate::framed_sha256_digest(domain_length, domain, body_length, &bytes)
     }
-}
-
-/// Status and close messages for one cold-blob job.
-pub mod jobs {
-    pub use super::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 }
 
 /// Transport metadata bounds, independent of client disk or object file size.
@@ -161,23 +156,6 @@ impl Stream {
     }
 }
 
-/// One commit attempt on a stream.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Job {
-    /// Account scope and stream id.
-    pub stream: Stream,
-    /// Commit id within the stream.
-    pub commit_id: Id,
-}
-
-impl Job {
-    /// Validate the stream.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()
-    }
-}
-
 /// Immutable provider destination without any client file-kind meaning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -198,29 +176,6 @@ fn validate_destinations(values: &[Destination]) -> Result<(), ProtocolError> {
         return Err(ProtocolError::invalid("v2.required_destinations"));
     }
     Ok(())
-}
-
-/// Positive stored byte length. Provider, account and working-resource admission
-/// remain runtime policy; a transport object has no native file-size ceiling.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Object {
-    /// SHA-256 of the stored object bytes.
-    pub sha256: Digest,
-    /// Stored object length, in bytes. Zero is rejected.
-    pub bytes: DecimalU64,
-    /// The provider that stores the object.
-    pub destination: Destination,
-}
-
-impl Object {
-    /// Reject a zero byte length.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.bytes.get() == 0 {
-            return Err(ProtocolError::invalid("v2.object.bytes"));
-        }
-        Ok(())
-    }
 }
 
 /// Ask which account generation is current and whether new work is allowed.
@@ -267,88 +222,6 @@ impl ContextReadResponse {
         if self.scope.account_id != request.account_id {
             return Err(ProtocolError::invalid("v2.context.response.account_id"));
         }
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-}
-
-/// Why a job was closed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloseReason {
-    /// The caller asked to close the job.
-    UserRequested,
-    /// The client source is no longer available.
-    SourceUnavailable,
-    /// The account generation changed.
-    GenerationChanged,
-}
-
-/// Close fences acceptance and never proves that an older provider effect failed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
-pub enum JobStatus {
-    /// The job is open. Close validation rejects this state.
-    Active,
-    /// The job closed.
-    Closed {
-        /// Why the job closed.
-        reason: CloseReason,
-    },
-}
-
-/// Current state of one job, bound to the begin digest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct JobResult {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Stream and commit id this value belongs to.
-    pub job: Job,
-    /// SHA-256 of the Begin value.
-    pub begin_sha256: Digest,
-    /// Whether the job is active or closed.
-    pub status: JobStatus,
-}
-
-impl JobResult {
-    /// Reject a bad job or oversized JSON.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.job.validate()?;
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-
-    /// Require the same job and begin digest, and reject a result that is still `Active`.
-    pub fn validate_for_close(&self, request: &JobCloseRequest) -> Result<(), ProtocolError> {
-        self.validate()?;
-        request.validate()?;
-        if self.job != request.job
-            || self.begin_sha256 != request.begin_sha256
-            || matches!(self.status, JobStatus::Active)
-        {
-            return Err(ProtocolError::invalid("v2.job_result.close"));
-        }
-        Ok(())
-    }
-}
-
-/// Close one job. Closing does not prove an older provider write failed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct JobCloseRequest {
-    /// Protocol version. V2 serializes this field as the JSON integer 2.
-    pub version: Version,
-    /// Stream and commit id this value belongs to.
-    pub job: Job,
-    /// SHA-256 of the Begin value.
-    pub begin_sha256: Digest,
-    /// Why the caller is closing the job.
-    pub reason: CloseReason,
-}
-
-impl JobCloseRequest {
-    /// Validate the job and the encoded size.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.job.validate()?;
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
