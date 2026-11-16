@@ -33,10 +33,8 @@ sentry-telemetry = ["observability/sentry"]
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 database_policy = { path = "../database_policy" }
 mutation_log = { path = "../mutation_log" }
-mutation_log_sync = { path = "../mutation_log_sync" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
-laststore = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
 observability = { workspace = true }
 schema_types = { workspace = true }
@@ -62,11 +60,11 @@ hex = "0.4.3"
 # Seal path (mirrors fold_db_node auth_envelope + connection crypto).
 aes-gcm = "0.10"
 hkdf = "0.12"
-sha2 = "0.10"
+sha2 = { workspace = true }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
-base64 = "0.22"
+base64 = { workspace = true }
 rand = "0.8"
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [lib]
 test = false

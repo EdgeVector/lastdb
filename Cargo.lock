@@ -1952,10 +1952,8 @@ dependencies = [
  "futures",
  "hex",
  "hkdf",
- "laststore",
  "libc",
  "mutation_log",
- "mutation_log_sync",
  "observability",
  "rand 0.8.8",
  "reqwest 0.12.28",
@@ -2103,13 +2101,6 @@ name = "mutation_log"
 version = "0.1.0"
 dependencies = [
  "database_policy",
-]
-
-[[package]]
-name = "mutation_log_sync"
-version = "0.1.0"
-dependencies = [
- "mutation_log",
 ]
 
 [[package]]

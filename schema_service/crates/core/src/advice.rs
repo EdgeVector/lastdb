@@ -15,7 +15,7 @@ mod findings;
 mod matching;
 
 /// Maximum fields one draft may name before advice refuses it.
-pub const MAX_ADVICE_FIELDS: usize = 512;
+const MAX_ADVICE_FIELDS: usize = 512;
 
 /// One draft declaration: the JSON an app puts in `lastdb-app.json` `schemas`.
 #[derive(Debug, Deserialize)]

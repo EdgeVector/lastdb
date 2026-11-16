@@ -15,8 +15,7 @@ mod index_history;
 mod native;
 mod native_reset;
 mod owner_recovery;
-mod received;
-pub(crate) mod received_access;
+pub(crate) mod received;
 mod restore;
 mod retention;
 mod run;
@@ -27,6 +26,30 @@ mod upload;
 mod wire;
 
 use crate::profile::private_fs as disk;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SyncRole {
+    Owner,
+    Reader,
+}
+
+impl SyncRole {
+    pub(super) fn can_write(self) -> bool {
+        matches!(self, Self::Owner)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SyncState {
+    pub(super) role: SyncRole,
+    pub(super) cursor: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SyncOutcome {
+    pub(super) entries: Vec<mutation_log::StoredEntry>,
+    pub(super) cursor: u64,
+}
 
 pub(crate) use contributions::{
     schema_id, status as share_write_status, submit as submit_share_write, validate_write_scopes,

@@ -8,7 +8,7 @@ use base64::Engine as _;
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::limits::MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES;
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
-use mutation_log::{LogError, MutationLog, Recovery};
+use mutation_log::LogError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -19,42 +19,31 @@ use crate::database_replay::{
 
 use super::cloud::CloudLog;
 use super::http::Proof;
-use super::paths;
+use super::{paths, SyncRole};
 
 const OBJECT_RANGE: u64 = 180 * 1024;
 /// Same bound as `database_replay` chain order.
 const CHAIN_LIMIT: usize = 1024;
 
-pub(super) fn recover(
+pub(super) async fn recover(
     log: &CloudLog,
-    reader: &mutation_log::Writer,
+    role: SyncRole,
     local_cursor: u64,
-) -> Result<Recovery, LogError> {
-    if log.principal() != &reader.key || log.device() != &reader.device {
-        return Err(LogError::Unauthorized);
-    }
-    let through = log.wait(install(
-        log.clone(),
+) -> Result<u64, LogError> {
+    install(
+        log,
         local_cursor.saturating_add(1)..=u64::MAX,
-        true,
-    ))??;
-    match log.list(&reader.key, through, mutation_log::LIST_PAGE_LIMIT, 0) {
-        Ok(page) => Ok(Recovery {
-            reset: None,
-            entries: page.entries,
-            next: page.next,
-        }),
-        Err(LogError::CursorExpired { .. }) => Err(LogError::SnapshotRequired),
-        Err(error) => Err(error),
-    }
+        role.can_write(),
+    )
+    .await
 }
 
 pub(super) async fn install(
-    log: CloudLog,
+    log: &CloudLog,
     allowed_through: std::ops::RangeInclusive<u64>,
     live: bool,
 ) -> Result<u64, LogError> {
-    let chain = walk(&log).await?;
+    let chain = walk(log).await?;
     let tip = chain.first().ok_or(LogError::SnapshotRequired)?;
     if !allowed_through.contains(&tip.through_delivery_seq) {
         return Err(LogError::SnapshotRequired);
@@ -63,7 +52,7 @@ pub(super) async fn install(
     let request = SnapshotInstall {
         database_id: log.database_id().to_owned(),
         snapshot_ref: tip,
-        objects: objects(&log, &chain).await?,
+        objects: objects(log, &chain).await?,
     };
     let mut files = SnapshotFiles { log: log.clone() };
     let device = live.then(|| log.device().as_str());

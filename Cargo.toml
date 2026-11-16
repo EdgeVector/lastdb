@@ -20,10 +20,8 @@ members = [
     "cloud_backup_protocol",
     # Spec catalog and share admission. No I/O.
     "database_policy",
-    # Pure unified mutation log (one log per database). No I/O.
+    # Pure published-log state machine (personal and shareable logs; whole-database shares keep a separate pending inbox). No I/O.
     "mutation_log",
-    # Shared-sync step over the MutationLog port. Off unless the caller enables it.
-    "mutation_log_sync",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
     # cloud sync over the owner Unix socket (no ingestion, no discovery, no
@@ -49,6 +47,9 @@ default-members = [
     "schema_service/crates/core",
     "schema_service/crates/server_lambda",
     "app_identity_crypto",
+    "cloud_backup_protocol",
+    "database_policy",
+    "mutation_log",
     "lastdb_node",
 ]
 

@@ -11,9 +11,7 @@
 /docs/proofs/**/*.csv
 /docs/proofs/**/*.tsv
 /docs/proofs/**/*.txt
-# Nested target dirs from building the workspace-excluded exemem lambdas
-# in their own directory (e.g. exemem_service/lambdas/*/target/). Without
-# this, `git add -A` sweeps thousands of build artifacts into a commit.
+# Nested target dirs so `git add -A` never sweeps build artifacts into a commit.
 **/target/
 # Even if someone renames a target dir or force-adds, never track rustc
 # library products (the May 2026 bloat was mostly libaws_sdk_*.rlib).
@@ -42,71 +40,11 @@
 # blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
 /data/
 
-# Generated benchmark values and duplicate captures stay in the local worktree.
-# Compact reports, reproducible drivers, and identities remain in Git.
-# The completion proof's evidence-index.json records local hashes and sizes.
-/docs/proofs/**/*.jsonl
-/docs/proofs/**/*.log
-/docs/proofs/**/*.log.gz
-/docs/proofs/**/*.stdout
-/docs/proofs/**/*.stderr
-/docs/proofs/**/*.time
-/docs/proofs/**/sample.txt
-/docs/proofs/**/source-inputs/
-/docs/proofs/**/*-source-inputs/
-/docs/proofs/**/*.py
-!/docs/proofs/*/*.py
-!/docs/proofs/graph-first-20261017/drivers/*.py
-/docs/proofs/**/source-identity.json
-/docs/proofs/**/receipt-manifest.json
-# Large metadata replies stay intact locally; their gzip copies are tracked.
-/docs/proofs/native-quality-review-20261020/**/raw-http/cold-???.json
-/docs/proofs/native-quality-review-20261020/**/raw-http/repeat-???.json
-# Large round-13 request/reply originals stay local; exact gzip copies are tracked.
-/docs/proofs/native-review-20261020-round13/**/raw-http/large-*.body.json
-/docs/proofs/native-review-20261020-round13/**/raw-http/large-*.request.json
-/docs/proofs/**/current-source-pending*.json
-/docs/proofs/schema-range-preload-20261017/keys-*.json
-/docs/proofs/**/*-source.json
-/docs/proofs/**/*source-freeze.json
-/docs/proofs/**/source.json
-/docs/proofs/**/source-inputs.json
-# Keep generated copies local; the task's canonical request input is tracked.
-/docs/proofs/record-query-delete-authority-20261018/*/operation-inputs.json
-/docs/proofs/core-memory-state-20261018/current-source*.json
-/docs/proofs/core-memory-state-20261018/before-source-prior.json
-!/docs/proofs/core-memory-state-20261018/before-source.json
-!/docs/proofs/core-memory-state-20261018/current-source-v4.json
-/docs/proofs/*/disk-component/**/read*.json
-/docs/proofs/*/disk-component/**/range*.json
-
-# Round 3 retains exact samples, concise tables, seals, and recovery provenance.
-# Full generated status summaries remain unchanged in the local proof tree.
-/docs/proofs/core-quality-round3-20261018/benchmark/comparison-unaccepted-historical-metadata.json
-/docs/proofs/core-quality-round3-20261018/benchmark/comparison.json
-/docs/proofs/core-quality-round3-20261018/benchmark/paired-tables.json
-/docs/proofs/core-quality-round3-20261018/benchmark/write-frontiers.json
-/docs/proofs/core-quality-round3-20261018/benchmark-final/comparison-unaccepted-historical-metadata.json
-/docs/proofs/core-quality-round3-20261018/benchmark-final/comparison.json
-/docs/proofs/core-quality-round3-20261018/benchmark-final/paired-tables.json
-/docs/proofs/core-quality-round3-20261018/benchmark-final/write-frontiers.json
-/docs/proofs/core-quality-round3-20261018/ordinary-*/ordinary-operation-inputs.json
-
-# Keep the full local response seal; commit the compact file hashes beside it.
-/docs/proofs/warm-set-read-boundaries-20261019/sealed-originals.json
-
-# Matched-write raw output belongs in external artifacts, including compressed data.
-/docs/proofs/matched-write-concurrency-20261023/*
-!/docs/proofs/matched-write-concurrency-20261023/*.py
-!/docs/proofs/matched-write-concurrency-20261023/REPORT.md
-!/docs/proofs/matched-write-concurrency-20261023/artifact.json
-
 # Generated operational output stays outside Git (Tom, 2026-10-23).
 /.evidence/
 /.benchmark-output/
 /benchmark-results/
 /bench-results/
-/.portal-worktree
 **/__pycache__/
 *.pyc
 *.log

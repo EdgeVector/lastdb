@@ -22,7 +22,7 @@ use crate::share_invitation::inbox;
 use super::cloud::CloudLog;
 use super::{
     http::{Endpoint, Proof},
-    paths, received, received_access as members, wire as log_wire,
+    paths, received, wire as log_wire,
 };
 
 pub(super) use intake::apply;
@@ -173,8 +173,8 @@ pub(crate) async fn submit(
         .map_err(|_| Unavailable)?;
     let (_, definition) = intake::resolve_schema(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
-    let observed = members::access(&log).await.ok_or(Unavailable)?;
-    let members::ObservedAccess::Active { revision, .. } = observed else {
+    let observed = received::access(&log).await.ok_or(Unavailable)?;
+    let received::ObservedAccess::Active { revision, .. } = observed else {
         return Err(Forbidden);
     };
     log.member_revision = revision;

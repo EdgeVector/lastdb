@@ -1,6 +1,6 @@
 use crate::{
-    Capability, DatabaseKind, Grant, LogError, LogState, NamespaceKind, NamespacePolicy,
-    PrincipalId, SnapshotRef, Stamp, StoredEntry, LIST_PAGE_LIMIT,
+    BoundPolicy, Capability, DatabaseKind, Grant, LogError, LogState, PrincipalId, Stamp,
+    StoredEntry, LIST_PAGE_LIMIT,
 };
 
 /// Head a reader is allowed to see.
@@ -13,31 +13,6 @@ pub struct ScopedHead {
     pub cursor: u64,
     /// Stamp of the last visible entry. Absent when this reader can see none.
     pub stamp: Option<Stamp>,
-}
-
-/// Snapshot the caller downloads before applying the still-stored suffix.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reset {
-    /// Shell pointer to the snapshot bytes.
-    pub snapshot_ref: SnapshotRef,
-    /// Last delivery sequence the snapshot includes.
-    pub through: u64,
-    /// When the shell cut the snapshot.
-    pub at_ms: u64,
-}
-
-/// Still-stored entries a device needs after its position falls below the floor.
-///
-/// The caller downloads `reset` when it is set, applies `entries`, persists
-/// that, then acks `next`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Recovery {
-    /// Snapshot to install when the caller's position is below the trim floor.
-    pub reset: Option<Reset>,
-    /// Visible entries still stored after the caller's position.
-    pub entries: Vec<StoredEntry>,
-    /// Scan cursor to ack after the reset and `entries` are applied.
-    pub next: u64,
 }
 
 /// One page of entries the reader may see, in delivery order.
@@ -56,7 +31,7 @@ fn entry_visible(
     database: &LogState,
     stored: &StoredEntry,
     reader: &PrincipalId,
-    policy: &impl NamespacePolicy,
+    policy: &BoundPolicy,
 ) -> bool {
     let entry = &stored.entry;
     if entry.database_id != database.database_id {
@@ -65,7 +40,7 @@ fn entry_visible(
     match &database.kind {
         DatabaseKind::Personal => holds_owner(database, reader),
         DatabaseKind::Shareable { publisher } => {
-            policy.classify(&entry.namespace) == NamespaceKind::Official
+            policy.allows_in_share(&entry.namespace)
                 && (reader == publisher
                     || (&entry.writer.key == publisher && holds_receive(database, reader)))
         }
@@ -124,7 +99,7 @@ impl LogState {
     pub(crate) fn head_for(
         &self,
         reader: &PrincipalId,
-        policy: &impl NamespacePolicy,
+        policy: &BoundPolicy,
     ) -> Result<Option<ScopedHead>, LogError> {
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
@@ -138,7 +113,7 @@ impl LogState {
         reader: &PrincipalId,
         after: u64,
         limit: usize,
-        policy: &impl NamespacePolicy,
+        policy: &BoundPolicy,
     ) -> Result<ListPage, LogError> {
         if limit == 0 || limit > LIST_PAGE_LIMIT {
             return Err(LogError::InvalidPage);
@@ -221,11 +196,7 @@ pub(crate) fn holds_submit(database: &LogState, principal: &PrincipalId) -> bool
         .any(|grant| grant.principal == *principal && grant.capability == Capability::Submit)
 }
 
-fn scoped_head(
-    state: &LogState,
-    reader: &PrincipalId,
-    policy: &impl NamespacePolicy,
-) -> Option<ScopedHead> {
+fn scoped_head(state: &LogState, reader: &PrincipalId, policy: &BoundPolicy) -> Option<ScopedHead> {
     let cursor = state.head.as_ref().map(|head| head.delivery_seq)?;
     let mut stamp = None;
     for stored in &state.entries {
@@ -241,7 +212,7 @@ fn page(
     reader: &PrincipalId,
     after: u64,
     limit: usize,
-    policy: &impl NamespacePolicy,
+    policy: &BoundPolicy,
 ) -> ListPage {
     let mut entries = Vec::new();
     let mut next = after;

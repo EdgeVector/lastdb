@@ -1,20 +1,14 @@
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 
 use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
-use mutation_log::{
-    AppendBatch, AppendOutcome, ListPage, LogError, MutationLog, PrincipalId, Recovery, ScopedHead,
-    Writer,
-};
-use mutation_log_sync::{Outcome, SyncState};
+use mutation_log::{ListPage, LogError, PrincipalId, ScopedHead, Writer};
 use serde::{Deserialize, Serialize};
 
 use crate::host::Host;
 
-use super::account;
 use super::http::{self, Endpoint, Proof};
-use super::paths;
-use super::wire;
+use super::{account, paths, restore, wire, SyncOutcome, SyncState};
 
 #[derive(Serialize)]
 struct WriterTipRequest<'a> {
@@ -30,7 +24,6 @@ struct WriterTipResponse {
 
 #[derive(Clone)]
 pub(crate) struct CloudLog {
-    handle: tokio::runtime::Handle,
     host: Option<Arc<Host>>,
     endpoint: Arc<Endpoint>,
     keypair: Arc<Ed25519KeyPair>,
@@ -100,7 +93,6 @@ impl CloudLog {
         let principal = PrincipalId::new(&hex::encode(keypair.public_key_bytes()))
             .map_err(|_| "node key is not a log label")?;
         Ok(Self {
-            handle: tokio::runtime::Handle::current(),
             host: None,
             endpoint: Arc::new(endpoint),
             keypair,
@@ -169,15 +161,25 @@ impl CloudLog {
         }
     }
 
-    pub(crate) async fn drive_once(
-        &self,
-        mut state: SyncState,
-        now_ms: u64,
-    ) -> Result<Outcome, mutation_log_sync::SyncError> {
-        let log = self.clone();
-        tokio::task::spawn_blocking(move || mutation_log_sync::drive(&mut state, &log, now_ms))
-            .await
-            .map_err(|_| LogError::UnexpectedOutcome)?
+    pub(crate) async fn drive_once(&self, state: SyncState) -> Result<SyncOutcome, LogError> {
+        match self.list_async(state.cursor).await {
+            Ok(page) => Ok(SyncOutcome {
+                entries: page.entries,
+                cursor: page.next,
+            }),
+            Err(LogError::CursorExpired { .. }) => {
+                let through = restore::recover(self, state.role, state.cursor).await?;
+                match self.list_async(through).await {
+                    Ok(page) => Ok(SyncOutcome {
+                        entries: page.entries,
+                        cursor: page.next,
+                    }),
+                    Err(LogError::CursorExpired { .. }) => Err(LogError::SnapshotRequired),
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) async fn head_async(&self) -> Result<Option<ScopedHead>, LogError> {
@@ -186,16 +188,10 @@ impl CloudLog {
     }
 
     pub(super) async fn list_async(&self, after: u64) -> Result<ListPage, LogError> {
-        let body = wire::list_body(
-            self.database_id.as_str(),
-            after,
-            mutation_log::LIST_PAGE_LIMIT,
-            false,
-        )?;
-        wire::list_page(
-            self.database_id.as_str(),
-            &self.post(paths::LIST, body).await?,
-        )
+        let database = self.database_id();
+        let body = wire::list_body(database, after, mutation_log::LIST_PAGE_LIMIT, false)?;
+        let reply = self.post(paths::LIST, body).await?;
+        wire::list_page(database, &reply)
     }
 
     pub(super) async fn writer_tip_async(&self) -> Result<u64, LogError> {
@@ -223,7 +219,7 @@ impl CloudLog {
             .await
             .map_err(|_| LogError::UnexpectedOutcome)?;
         if status == 400 && wire::unsupported_reset(&payload) {
-            return self.list_retained(after).await.map(Ok);
+            return self.list_async(after).await.map(Ok);
         }
         if status == 409 {
             if let Some(cut) = wire::native_cut(&payload, after) {
@@ -236,52 +232,10 @@ impl CloudLog {
         Err(wire::service_error(&payload).unwrap_or(LogError::UnexpectedOutcome))
     }
 
-    pub(super) async fn list_retained(&self, after: u64) -> Result<ListPage, LogError> {
-        let database = self.database_id();
-        let body = wire::list_body(database, after, mutation_log::LIST_PAGE_LIMIT, false)?;
-        let reply = self.post(paths::LIST, body).await?;
-        wire::list_page(database, &reply)
-    }
-
     pub(super) async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
         self.endpoint
             .post_json(self.signed(path, &body, Proof::Data))
             .await
-    }
-
-    pub(super) fn wait<T>(
-        &self,
-        future: impl std::future::Future<Output = T> + Send + 'static,
-    ) -> Result<T, LogError>
-    where
-        T: Send + 'static,
-    {
-        let (tx, rx) = mpsc::sync_channel(1);
-        self.handle.spawn(async move {
-            let _ = tx.send(future.await);
-        });
-        rx.recv().map_err(|_| LogError::UnexpectedOutcome)
-    }
-
-    fn call(&self, path: &'static str, body: Vec<u8>) -> Result<Vec<u8>, LogError> {
-        let endpoint = Arc::clone(&self.endpoint);
-        let keypair = Arc::clone(&self.keypair);
-        let scope = self.scope.clone();
-        let database_id = self.database_id.clone();
-        let revision = self.member_revision;
-        self.wait(async move {
-            endpoint
-                .post_json(http::LogRequest {
-                    keypair: &keypair,
-                    scope: &scope,
-                    database_id: &database_id,
-                    path,
-                    body: &body,
-                    member_revision: revision,
-                    proof: Proof::Data,
-                })
-                .await
-        })?
     }
 
     fn signed<'a>(&'a self, path: &'a str, body: &'a [u8], proof: Proof) -> http::LogRequest<'a> {
@@ -293,75 +247,6 @@ impl CloudLog {
             body,
             member_revision: self.member_revision,
             proof,
-        }
-    }
-}
-
-impl MutationLog for CloudLog {
-    fn append(&mut self, batch: AppendBatch) -> Result<AppendOutcome, LogError> {
-        self.same_reader(&batch.writer.key)?;
-        self.same_device(&batch.writer.device)?;
-        let body = wire::append_request(&batch)?;
-        wire::append_outcome(&self.call(paths::APPEND, body)?, &batch)
-    }
-
-    fn head(&self, reader: &PrincipalId) -> Result<Option<ScopedHead>, LogError> {
-        self.same_reader(reader)?;
-        let body = wire::database_body(self.database_id.as_str())?;
-        wire::scoped_head(&self.call(paths::HEAD, body)?)
-    }
-
-    fn list(
-        &self,
-        reader: &PrincipalId,
-        after: u64,
-        limit: usize,
-        _now_ms: u64,
-    ) -> Result<ListPage, LogError> {
-        self.same_reader(reader)?;
-        let body = wire::list_body(self.database_id.as_str(), after, limit, false)?;
-        wire::list_page(self.database_id.as_str(), &self.call(paths::LIST, body)?)
-    }
-
-    fn recover(
-        &self,
-        reader: &Writer,
-        local_cursor: u64,
-        _now_ms: u64,
-    ) -> Result<Recovery, LogError> {
-        super::restore::recover(self, reader, local_cursor)
-    }
-
-    fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError> {
-        if reader != &writer.key {
-            return Err(LogError::Unauthorized);
-        }
-        self.same_device(&writer.device)?;
-        let body = canonical_bytes(&WriterTipRequest {
-            database_id: self.database_id.as_str(),
-            device_id: writer.device.as_str(),
-        })
-        .map_err(|_| LogError::InvalidEntry)?;
-        let response: WriterTipResponse = serde_json::from_slice(&self.call(paths::HEAD, body)?)
-            .map_err(|_| LogError::UnexpectedOutcome)?;
-        Ok(response.last_writer_seq.get())
-    }
-}
-
-impl CloudLog {
-    fn same_reader(&self, reader: &PrincipalId) -> Result<(), LogError> {
-        if reader == &self.principal {
-            Ok(())
-        } else {
-            Err(LogError::Unauthorized)
-        }
-    }
-
-    fn same_device(&self, device: &mutation_log::DeviceId) -> Result<(), LogError> {
-        if device == &self.device {
-            Ok(())
-        } else {
-            Err(LogError::Unauthorized)
         }
     }
 }

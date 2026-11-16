@@ -1,6 +1,6 @@
 use crate::{
-    AppendBatch, DatabaseKind, Entry, LogError, LogState, NamespaceKind, NamespacePolicy,
-    StoredEntry, SubmissionStatus, Writer, APPEND_BATCH_LIMIT,
+    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, StoredEntry,
+    SubmissionStatus, Writer, APPEND_BATCH_LIMIT,
 };
 
 /// Result of an append that did not fail.
@@ -82,7 +82,7 @@ impl LogState {
     pub fn append(
         &self,
         batch: &AppendBatch,
-        policy: &impl NamespacePolicy,
+        policy: &BoundPolicy,
     ) -> Result<(Self, AppendOutcome), LogError> {
         check_batch(self, batch, policy)?;
         let last = self.tips.get(&batch.writer).copied().unwrap_or(0);
@@ -104,7 +104,7 @@ impl LogState {
 fn check_batch(
     state: &LogState,
     batch: &AppendBatch,
-    policy: &impl NamespacePolicy,
+    policy: &BoundPolicy,
 ) -> Result<(), LogError> {
     if batch.entries.is_empty() {
         return Err(LogError::EmptyBatch);
@@ -126,7 +126,7 @@ fn check_entry(
     state: &LogState,
     batch: &AppendBatch,
     entry: &Entry,
-    policy: &impl NamespacePolicy,
+    policy: &BoundPolicy,
 ) -> Result<(), LogError> {
     if entry.database_id != state.database_id {
         return Err(LogError::WrongDatabase);
@@ -135,7 +135,7 @@ fn check_entry(
         return Err(LogError::WriterMismatch);
     }
     if matches!(state.kind, DatabaseKind::Shareable { .. })
-        && policy.classify(&entry.namespace) == NamespaceKind::AppPrivate
+        && !policy.allows_in_share(&entry.namespace)
     {
         return Err(LogError::AppPrivateNamespace);
     }
@@ -221,10 +221,10 @@ fn check_submission_status(
     let Some(record) = state.submission_records.get(&(writer.clone(), writer_seq)) else {
         return Ok(());
     };
-    let writer = writer.clone();
-    Err(match record.status {
-        SubmissionStatus::Rejected => LogError::SubmissionRejected { writer, writer_seq },
-        SubmissionStatus::Expired => LogError::SubmissionExpired { writer, writer_seq },
+    let SubmissionStatus::Expired = record.status;
+    Err(LogError::SubmissionExpired {
+        writer: writer.clone(),
+        writer_seq,
     })
 }
 

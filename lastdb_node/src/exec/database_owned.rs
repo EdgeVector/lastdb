@@ -168,10 +168,7 @@ fn shared_database(home: &Path, share: &RegisteredShare) -> Value {
     value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!("reader");
     if share.signed_log {
-        value["selfAccess"] = json!(crate::log_sync::received_access::view(
-            home,
-            share.id.as_str()
-        ));
+        value["selfAccess"] = json!(crate::log_sync::received::view(home, share.id.as_str()));
     }
     value["kind"] = json!("received");
     if share.whole_database() {

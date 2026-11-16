@@ -242,7 +242,7 @@ async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<
             Ok(page) => page,
             Err(LogError::CursorExpired { snapshot_through }) if !recovered_snapshot => {
                 let first = cursor.saturating_add(1).max(snapshot_through);
-                cursor = restore::install(log.clone(), first..=through, false)
+                cursor = restore::install(log, first..=through, false)
                     .await
                     .map_err(|error| error.to_string())?;
                 recovered_snapshot = true;

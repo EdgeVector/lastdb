@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AppendOutcome, DatabaseId, DeviceId, LogError, Namespace, NamespacePolicy, PrincipalId,
-    ScopedHead,
+    AppendOutcome, BoundPolicy, DatabaseId, DeviceId, LogError, Namespace, PrincipalId, ScopedHead,
 };
 
 /// Opaque pointer to snapshot bytes held by the shell.
@@ -178,8 +177,6 @@ pub struct AppendBatch {
 /// Why a dropped pending submission cannot be copied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmissionStatus {
-    /// The publisher rejected the submission.
-    Rejected,
     /// The submission aged out before it was copied.
     Expired,
 }
@@ -194,7 +191,7 @@ pub struct SubmissionRecord {
     pub writer: Writer,
     /// Writer sequence of that submission.
     pub writer_seq: u64,
-    /// Rejected or expired.
+    /// Why the submission ended.
     pub status: SubmissionStatus,
     /// When trim dropped the entry. The shell supplies this clock reading.
     pub time_ms: u64,
@@ -326,7 +323,7 @@ pub struct StepResult {
 pub fn step(
     state: &LogState,
     command: Command,
-    policy: &impl NamespacePolicy,
+    policy: &BoundPolicy,
 ) -> Result<StepResult, LogError> {
     let (state, outcome) = match command {
         Command::BeginAppend { writer } => (state.begin_append(&writer)?, Outcome::AppendBegun),

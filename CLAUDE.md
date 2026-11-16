@@ -72,7 +72,7 @@ pure domain model, and telemetry), `schema_service/crates/{schema_types,core,ser
 Mini daemon — the shipped product, including the `host`, `lastdb_uds`,
 `lastdb_identity`, and `folddb_profile` modules), plus shared
 `app_identity_crypto`, `cloud_backup_protocol`, `database_policy`,
-`mutation_log*`, and `vendor/laststore`. (The `fold_db_node` desktop node, Tauri
+`mutation_log`, and `vendor/laststore`. (The `fold_db_node` desktop node, Tauri
 app, and `file_to_markdown` were deleted in the Mini-only cutover 2026-07-12;
 restore point: branch `archive/desktop-dmg-pre-removal`.)
 
@@ -192,7 +192,7 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- Size limits (`fold_db/crates/model/src/limits.rs`, `lastdb_model::content_limit`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
+- Size limits (`fold_db/crates/model/src/record_value.rs`, `fold_db/crates/model/src/keys.rs`, `fold_db/crates/core/src/limits.rs`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) configures the status-only `max_peer_field_value` field; no write path reads it. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
 
 The docs folders were removed on 2026-11-02 (Tom). `docs/` keeps only designs
 for work in progress. Read a removed page with `git show 13a2cf188:<path>`.

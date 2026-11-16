@@ -111,7 +111,6 @@ impl SchemaServiceState {
         &self,
         request: &SchemaAdviceRequest,
     ) -> Result<SchemaAdviceResponse, String> {
-        let _ = &request.app_id;
         let draft = draft(&request.schema)?;
         let mut findings = Vec::new();
         for name in &draft.fields {
