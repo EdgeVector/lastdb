@@ -81,7 +81,7 @@ jobs:
         env:
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/python-script-pycache
         run: >-
-          bash scripts/ci/mini-gate-step.sh "Python script and Social syntax" --
+          bash scripts/ci/mini-gate-step.sh "Python script syntax" --
           python3 -m py_compile
           scripts/lints/*.py
           scripts/lints/protocol_pin/*.py
@@ -91,8 +91,6 @@ jobs:
           scripts/cloud_backup/*.py
           scripts/mutation_log_load/*.py
           scripts/release/*.py
-          apps/social/*.py
-          apps/social/social
       - name: No build-artifact blobs in tree
         uses: EdgeVector/.github/no-build-artifacts@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:

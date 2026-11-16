@@ -151,7 +151,7 @@ developer API key using `EXEMEM_DEV_API_KEY`.
 
 ### Share a database
 
-Use [Social](apps/social/README.md) to share a named database with verified
+Use [Social](https://github.com/EdgeVector/social) to share a named database with verified
 contacts and circles. TypeScript apps use `socialClient` from `@lastdb/app-sdk`
 to create a share, seal or accept an invitation, and get its stable database
 ID. Use the same package's regular data client to work with the records.

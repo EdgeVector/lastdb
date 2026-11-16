@@ -1,4 +1,4 @@
-"""Prepare an unsigned Social DEV registry declaration using the exact CI node."""
+"""Prepare an unsigned Social DEV registry declaration for the pinned EdgeVector/social commit."""
 
 import argparse
 import json
@@ -10,10 +10,11 @@ import tempfile
 
 from node import OwnedNode
 from programs import Programs
-from social_app import ROOT
+from social_app import ROOT, source
 from support import OperationError, failure, require, running, summary
 
-sys.path.insert(0, str(ROOT / "apps/social"))
+SOCIAL = source(os.environ)
+sys.path.insert(0, str(SOCIAL / "src"))
 from app import SocialApp  # noqa: E402
 from lastdb import LastDB  # noqa: E402
 from sharing_requests import DEFINITION as SHARING_REQUEST  # noqa: E402
@@ -45,16 +46,19 @@ def prepare():
             app.sharing.pending_edit("registry-preflight")
             lastdb.declare_private(SHARING_REQUEST)
             lastdb.declare_private("PendingSharingRequest")
-            origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True).strip()
-            expected_origin = "https://github.com/EdgeVector/lastdb.git"
+            origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=SOCIAL, text=True).strip()
+            expected_origin = "https://github.com/EdgeVector/social.git"
             require(origin in (expected_origin, expected_origin.removesuffix(".git")), "social_prepare_origin")
-            subprocess.run(["git", "remote", "set-url", "origin", expected_origin], cwd=ROOT, check=True)
+            subprocess.run(["git", "remote", "set-url", "origin", expected_origin], cwd=SOCIAL, check=True)
+            revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOCIAL, text=True).strip()
+            require(revision == (ROOT / "scripts/cloud_backup/social.rev").read_text().strip(),
+                    "social_prepare_pinned_source")
             subprocess.run([
                 str(programs.directory / "lastdb"), "--data-dir", str(home), "app", "publish", "--env", "dev",
-                "--channel", "next", "--manifest", str(ROOT / "lastdb-app.json"), "--prepare", str(declaration),
+                "--channel", "next", "--manifest", str(SOCIAL / "lastdb-app.json"), "--prepare", str(declaration),
             ], check=True, timeout=60)
         payload = json.loads(declaration.read_text(encoding="utf-8"))
-        require(payload["sha"] == os.environ["GITHUB_SHA"] and payload["app_id"] == "social-graph"
+        require(payload["sha"] == revision and payload["app_id"] == "social-graph"
                 and payload["source"] == expected_origin and payload["channel"] == "next"
                 and payload["lastdb_build"] == args.version,
                 "social_prepare_exact_source")
