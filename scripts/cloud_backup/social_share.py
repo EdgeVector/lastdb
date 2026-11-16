@@ -91,12 +91,7 @@ def transfer(programs, root, publisher, recipient, api_key):
     # Enroll the stopped publisher and verify the next boot, as in social_circles.
     # Live enrollment can re-exec the daemon with the same PID and a new start time.
     publisher.stop()
-    connected = programs.command(publisher.home, [
-        "backup", "connect", "--existing", "--env", "dev", "--api-key-stdin",
-        "--expected-user-hash", publisher.account, "--json",
-    ], input_bytes=api_key, timeout=20)
-    require(connected["environment"] == "dev" and connected["account_id"] == publisher.account
-            and connected["credentials_saved"] is True, "social_dev_connection")
+    programs.connect_existing(publisher.home, publisher.account, api_key, "social_dev_connection")
     publisher.keep_saved_credentials = True
     publisher.start()
     contact = root / "reader.contact"

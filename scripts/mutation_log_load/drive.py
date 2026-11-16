@@ -12,8 +12,8 @@ from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
-from finish import _device, audit_log, finding_text, request_for, tier_report, verify_after_cap
-from routes import READS, RouteError, check_success, path_for
+from finish import (READS, RouteError, _device, audit_log, check_success,
+                    finding_text, path_for, request_for, tier_report, verify_after_cap)
 
 
 APPENDS = 10
@@ -61,10 +61,8 @@ def run_writers(count, worker):
 
 
 class Session:
-    def __init__(self, database_id, account_id, writer_key, transport, ledger, clock):
+    def __init__(self, database_id, transport, ledger, clock):
         self.database_id = database_id
-        self.account_id = account_id
-        self.writer_key = writer_key
         self.transport = transport
         self.ledger = ledger
         self.clock = clock
@@ -122,7 +120,7 @@ class Session:
         while True:
             if self.stop.is_set() and not self.in_logcheck:
                 if self.capped.is_set():
-                    raise CapExceeded(self.ledger.snapshot())
+                    raise CapExceeded()
                 raise LoadError("stopped")
             self._charge(operation, body)
             status, payload, latency = self.transport("POST", path_for(operation), body)

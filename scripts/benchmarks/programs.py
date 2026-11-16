@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transfer exact, verified programs between jobs in one hosted CI run."""
+"""Await baseline caches and transfer verified programs between CI jobs."""
 
 import argparse
 import hashlib
@@ -10,12 +10,74 @@ import platform
 import re
 import subprocess
 import tarfile
+import time
+from urllib.parse import urlencode
 
 from build import native_context, verify
 from node import file_hash, save
 
 
 FILES = ("lastdbd", "lastdb", "build.json")
+
+
+def github(path, query):
+    endpoint = f"repos/{os.environ['GITHUB_REPOSITORY']}/{path}?{urlencode(query)}"
+    result = subprocess.run(["gh", "api", endpoint], capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise RuntimeError("GitHub cache availability could not be read")
+    return json.loads(result.stdout)
+
+
+def producer_pending(revision):
+    runs = github("actions/workflows/bench.yml/runs",
+                  {"event": "push", "branch": "main", "head_sha": revision, "per_page": 20})
+    for run in runs["workflow_runs"]:
+        if (run["head_sha"] != revision or run["event"] != "push"
+                or run["head_branch"] != "main" or run["status"] == "completed"):
+            continue
+        jobs = github(f"actions/runs/{run['id']}/jobs", {"per_page": 100})
+        for job in jobs["jobs"]:
+            for step in job["steps"]:
+                if step["name"] == "Save the accepted candidate for future baselines":
+                    return step["status"] != "completed"
+        return True
+    return False
+
+
+def cache_available(key):
+    caches = github("actions/caches", {"key": key, "ref": "refs/heads/main", "per_page": 100})
+    return any(cache["key"] == key and cache["ref"] == "refs/heads/main"
+               and cache["size_in_bytes"] > 0 for cache in caches["actions_caches"])
+
+
+def wait_cache(args):
+    if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
+        raise ValueError("The baseline revision must be a complete SHA")
+    deadline = time.monotonic() + args.timeout
+    ready, reason = False, "no active main producer"
+    try:
+        while True:
+            ready = cache_available(args.key)
+            if ready:
+                reason = "exact main cache is available"
+                break
+            if not producer_pending(args.revision):
+                ready = cache_available(args.key)
+                reason = "exact main cache is available" if ready else "no pending compatible main cache upload"
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                reason = "main cache wait reached its ten-minute limit"
+                break
+            print("Exact baseline cache is pending; the trusted main build is active.", flush=True)
+            time.sleep(min(15, remaining))
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError):
+        reason = "cache lookup unavailable; build the baseline from source"
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
+        stream.write(f"ready={str(ready).lower()}\n")
+    print(reason, flush=True)
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
+        summary.write(f"\nBaseline cache: {reason}.\n")
 
 
 def configuration():
@@ -61,8 +123,6 @@ def verify_context(archive, fingerprint):
 
 
 def runtime_dependencies(programs):
-    # Hosted images roll out gradually. Build tools can differ between jobs;
-    # the shared ELF programs require compatible runtime symbols, not the same compiler.
     dependencies = {}
     for program in programs:
         result = subprocess.run(["ldd", "-r", str(program)], text=True, capture_output=True,
@@ -116,10 +176,19 @@ def unpack(args, revisions, fingerprint):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("pack", "unpack"))
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--archive", type=Path, required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("pack", "unpack"):
+        bundle = commands.add_parser(name)
+        bundle.add_argument("--root", type=Path, required=True)
+        bundle.add_argument("--archive", type=Path, required=True)
+    cache_cmd = commands.add_parser("cache")
+    cache_cmd.add_argument("--revision", required=True)
+    cache_cmd.add_argument("--key", required=True)
+    cache_cmd.add_argument("--timeout", type=int, choices=range(0, 601), default=600)
     args = parser.parse_args()
+    if args.command == "cache":
+        wait_cache(args)
+        return
     revisions, fingerprint = configuration()
     {"pack": pack, "unpack": unpack}[args.command](args, revisions, fingerprint)
 

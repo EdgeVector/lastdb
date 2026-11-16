@@ -23,11 +23,11 @@ export type {
   SocialSharingChange, SocialSharingRequest, SocialSharingStatus,
 } from './social.js';
 
-export { LASTDB_API_ROUTES } from './apiRoutes.js';
 export {
   LASTDB_MIN_SUPPORTED_API_VERSION,
   LASTDB_SDK_API_VERSION,
 } from './apiVersion.generated.js';
+export { LASTDB_API_ROUTES } from './clientHelpers.js';
 
 export {
   REQUEST_ID_HEADER,

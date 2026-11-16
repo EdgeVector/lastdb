@@ -8,9 +8,11 @@ import {
   FILE_SHA256_HEADER,
   FILE_SIZE_HEADER,
   LASTDB_API_ROUTES,
+  mapDataError,
+  normalizeRecordKeyInput,
   scopedApiPath,
-} from './apiRoutes.js';
-import { mapDataError, normalizeRecordKeyInput, type ClientContext } from './clientHelpers.js';
+  type ClientContext,
+} from './clientHelpers.js';
 import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { buildMutationOperation, parseCommittedMutation } from './mutationOps.js';
 import { isNonEmptyString, isObject, parseFileMarker } from './responseParsers.js';

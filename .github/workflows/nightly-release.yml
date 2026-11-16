@@ -155,48 +155,18 @@ jobs:
           # rustup show auto-installs today and warns that this will stop.
           rustup toolchain install
           rustup show active-toolchain
-          rustup target add "$TARGET"
           mkdir "$RUNNER_TEMP/nightly-evidence"
           { rustc --version; cargo --version; uname -a; printf '%s\n' "$SOURCE_SHA" "$NIGHTLY_VERSION"; } > "$RUNNER_TEMP/nightly-evidence/build.txt"
       - uses: Swatinem/rust-cache@v2
         with:
           key: nightly-release-${{ matrix.target }}
           save-if: ${{ github.event_name != 'pull_request' }}
-      - name: Link the Homebrew openssl@3 that the installed Macs have
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # openssl-sys links the runner's default Homebrew OpenSSL. The
-          # runner image moved to openssl@4, and a pair linked to it does not
-          # start on a Mac that has only openssl@3.
-          brew list --versions openssl@3 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
-          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
-      - name: Build the exact release CLI and daemon
-        shell: bash
-        env:
-          FOLDDB_BUILD_VERSION_OVERRIDE: ${{ env.NIGHTLY_VERSION }}
-        run: |
-          set -euo pipefail
-          cargo build --locked --release --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd \
-            2>&1 | tee "$RUNNER_TEMP/nightly-evidence/build.log"
-          for binary in lastdb lastdbd; do
-            path="$CARGO_TARGET_DIR/$TARGET/release/$binary"
-            strip "$path"
-            if [ '${{ runner.os }}' = macOS ]; then
-              codesign --force --sign - "$path"
-              codesign --verify --strict "$path"
-              if otool -L "$path" | grep -E 'lib(ssl|crypto)\.' | grep -v '/opt/homebrew/opt/openssl@3/lib/'; then
-                echo "$path links an OpenSSL other than openssl@3" >&2
-                exit 1
-              fi
-            fi
-          done
-      - name: Package the matched pair with exact versions and hashes
+      - name: Build, verify, and package the exact release CLI and daemon
         run: >-
-          python3 scripts/release/nightly_package.py --target "$TARGET"
-          --bin-dir "$CARGO_TARGET_DIR/$TARGET/release" --out-dir "$RUNNER_TEMP/nightly-bundles"
-          --git-oid "$SOURCE_SHA" --expect-version "$NIGHTLY_VERSION" --source-epoch "$SOURCE_EPOCH"
+          python3 scripts/release/nightly_package.py build-target --target "$TARGET"
+          --out-dir "$RUNNER_TEMP/nightly-bundles" --git-oid "$SOURCE_SHA"
+          --expect-version "$NIGHTLY_VERSION" --source-epoch "$SOURCE_EPOCH"
+          --build-log "$RUNNER_TEMP/nightly-evidence/build.log"
       - name: Use the packaged programs for isolated durable writes, reads, and recovery
         timeout-minutes: 10
         shell: bash
@@ -218,16 +188,13 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Verify the uploaded package metadata and expiration
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
           ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
           CANDIDATE_SHA: ${{ env.SOURCE_SHA }}
-        run: |
-          set -euo pipefail
-          python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-evidence/upload"
+        run: python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-evidence/upload"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -284,9 +251,7 @@ jobs:
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
           ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
           CANDIDATE_SHA: ${{ needs.plan.outputs.source }}
-        run: |
-          set -euo pipefail
-          python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-receipt"
+        run: python3 scripts/benchmarks/artifact.py --output "$RUNNER_TEMP/nightly-receipt"
 
   attest:
     needs: [plan, assemble]

@@ -1,26 +1,192 @@
-"""AWS DEV guard, DynamoDB metadata verification, and cleanup for snapshot gates."""
+"""AWS DEV guard, disposable provider cleanup, and DynamoDB metadata checks."""
 
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import hashlib
+import http.client
+import json
 import os
 from pathlib import Path
 import re
 import sys
+import time
+import urllib.error
 
 _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 from harness import summary_line  # noqa: E402
-from snapshot_cleanup import cleanup_objects, current_attempt  # noqa: E402
-from support import OperationError, require  # noqa: E402
+from support import BaselineDataError, OperationError, dev_endpoint, require, seed  # noqa: E402
 
+ROOT = "/api/cloud/backups/v2/mutation-log"
+SNAPSHOT_DEV_ACCOUNT = "f0fa35067ce1bb7cda7810ca96a100df"
+GRANT_TTL_MS = 900_000
+CLEANUP_BUDGET = 1_200
+DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
+LEGACY_DATABASE_VERSION = 1
+DISPOSABLE_DATABASE_VERSION = 2
+DATABASE_PREFIXES = {
+    LEGACY_DATABASE_VERSION: "c1da11d0-0000-4000-8000-",
+    DISPOSABLE_DATABASE_VERSION: "c1da11d1-0000-4000-8000-",
+}
 ADMISSION_HEAD = "head"
 SNAPSHOT_THROUGH = 12
 CUTOFF_DIGEST = re.compile(r"[0-9a-f]{64}")
 WRITER_LABEL = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+@dataclass(frozen=True, repr=False)
+class SnapshotOwner:
+    key: object
+    generation: str
+    phrase: bytes
+    api_key: str
+
+    @property
+    def account(self):
+        from node_auth import account_id
+        return account_id(self.key.public)
+
+
+@dataclass(frozen=True)
+class RunAttempt:
+    run_id: str
+    attempt: str
+    database_version: int = LEGACY_DATABASE_VERSION
+
+    def __post_init__(self):
+        require(re.fullmatch(r"[1-9][0-9]{0,18}", self.run_id)
+                and re.fullmatch(r"[1-9][0-9]{0,4}", self.attempt), "snapshot_run_attempt")
+
+    @property
+    def database(self):
+        return self.database_for(self.database_version)
+
+    def database_for(self, version):
+        material = f"{self.run_id}:{self.attempt}".encode("ascii")
+        return DATABASE_PREFIXES[version] + hashlib.sha256(material).hexdigest()[:12]
+
+    def identity(self):
+        return {"run_id": self.run_id, "run_attempt": self.attempt}
+
+    def fields(self):
+        return {"database_id": self.database, **self.identity()}
+
+
+def current_attempt():
+    return RunAttempt(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                      DISPOSABLE_DATABASE_VERSION)
+
+
+def load_owner():
+    from node_auth import NodeKey, account_id
+
+    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
+    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
+    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
+    require(len(api_key.encode(errors="surrogatepass")) <= 4096, "dev_api_key")
+    api_key = api_key.strip()
+    require(api_key and api_key.isascii() and api_key.isprintable(), "dev_api_key")
+    require(0 < len(raw) <= 65_536, "snapshot_baseline")
+    try:
+        baseline = json.loads(raw)
+    except json.JSONDecodeError:
+        raise OperationError("snapshot_baseline") from None
+    require(isinstance(baseline, dict) and set(baseline) == {"account", "account_generation"}, "snapshot_baseline")
+    generation = baseline.get("account_generation")
+    try:
+        key = NodeKey.from_seed(seed(phrase))
+    except BaselineDataError:
+        raise OperationError("snapshot_phrase") from None
+    require(baseline.get("account") == account_id(key.public) == SNAPSHOT_DEV_ACCOUNT
+            and isinstance(generation, str) and DECIMAL.fullmatch(generation)
+            and int(generation) <= 2**64 - 1, "snapshot_baseline_scope")
+    return SnapshotOwner(key, generation, phrase, api_key)
+
+
+def start_tracking(call, attempt):
+    result = call("snapshot/bytes", {**attempt.fields(), "action": "track_dev"})
+    require(result == {"database_id": attempt.database, "tracking": True}, "snapshot_tracking")
+
+
+def register_and_track(attempt, owner):
+    from run import post
+
+    database = attempt.database
+    endpoint = dev_endpoint()
+
+    def call(operation, fields):
+        body = json.dumps({**fields, "database_id": database}, separators=(",", ":")).encode("utf-8")
+        try:
+            status, result, _ = post(endpoint, owner.key, database, "POST", f"{ROOT}/{operation}",
+                                     body, owner.api_key, owner.generation)
+        except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
+            raise OperationError("snapshot_tracking_transport") from None
+        require(200 <= status < 300 and isinstance(result, dict), "snapshot_tracking_service")
+        return result
+
+    registration = call("create-database", {"kind": "personal"})
+    require(registration.get("database_id") == database
+            and registration.get("state") == "native", "snapshot_tracking_registration")
+    start_tracking(call, attempt)
+
+
+def released_bytes(value):
+    require(isinstance(value, str) and DECIMAL.fullmatch(value)
+            and int(value) <= 2**64 - 1, "snapshot_cleanup_released_bytes")
+    return int(value)
+
+
+def cleanup_objects(guard, attempt, owner, summary_fn, *, expect_charge, receipt_only=False):
+    from run import post
+
+    require(os.environ.get("GITHUB_ACTIONS") == "true"
+            and os.environ.get("GITHUB_REF") == "refs/heads/main", "accepted_main_only")
+    database = guard.allow_stream(attempt.database)
+    endpoint = dev_endpoint()
+    action = "cleanup_receipt_dev" if receipt_only else "cleanup_dev"
+    body = json.dumps({**attempt.fields(), "action": action}, separators=(",", ":")).encode("utf-8")
+    deleted = 0
+    deadline = time.monotonic() + CLEANUP_BUDGET
+    for _ in range(128):
+        if time.monotonic() >= deadline:
+            break
+        try:
+            status, result, _ = post(endpoint, owner.key, database, "POST", f"{ROOT}/snapshot/bytes",
+                                     body, owner.api_key, owner.generation)
+        except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
+            time.sleep(2)
+            continue
+        if status in (429, 502, 503, 504):
+            time.sleep(2)
+            continue
+        if receipt_only and status == 404 and result == {"code": "not_found", "field": "snapshot.cleanup.receipt"}:
+            return False
+        require(status == 200 and isinstance(result, dict) and set(result) ==
+                {"database_id", "deleted", "complete", "retry_after_ms", "released_bytes"}
+                and result.get("database_id") == database, "snapshot_cleanup_service")
+        count, complete = result.get("deleted"), result.get("complete")
+        wait_ms = result.get("retry_after_ms")
+        released = released_bytes(result.get("released_bytes"))
+        require(type(count) is int and 0 <= count <= 64 and type(complete) is bool
+                and type(wait_ms) is int and 0 <= wait_ms <= GRANT_TTL_MS
+                and (not complete or count == wait_ms == 0)
+                and (complete or released == 0)
+                and (wait_ms == 0 or count == 0)
+                and (not receipt_only or complete), "snapshot_cleanup_reply")
+        deleted += count
+        if complete:
+            require(not expect_charge or released > 0, "snapshot_cleanup_missing_charge")
+            if receipt_only:
+                summary_fn("provider_cleanup_receipt=verified")
+            summary_fn(f"provider_objects=empty confirmed_deleted={deleted} released_bytes={released}")
+            return True
+        if wait_ms:
+            time.sleep(min(wait_ms / 1000, max(0, deadline - time.monotonic())))
+    raise OperationError("snapshot_cleanup_incomplete_metadata_retained")
 
 
 def summary(line):
@@ -37,12 +203,8 @@ def gate_id():
 
 
 def require_native_dispatch():
-    require(
-        os.environ.get("GITHUB_ACTIONS") == "true"
-        and os.environ.get("GITHUB_REF") == "refs/heads/main"
-        and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
-        "native_cutoff_manual_main_only",
-    )
+    require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF") == "refs/heads/main"
+            and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "native_cutoff_manual_main_only")
 
 
 def aws(guard, operation, payload):
@@ -54,18 +216,14 @@ def aws(guard, operation, payload):
 
 def partition_keys(guard, partition):
     try:
-        return list(
-            guard.iter_partition_keys(guard.DEV_TABLE, partition, call=lambda op, req: aws(guard, op, req))
-        )
+        return list(guard.iter_partition_keys(guard.DEV_TABLE, partition, call=lambda op, req: aws(guard, op, req)))
     except guard.GuardError as error:
         raise OperationError("snapshot_metadata_page" if str(error) == "page" else str(error)) from error
 
 
 def delete_keys(guard, partition, pending):
     try:
-        return guard.batch_delete_keys(
-            guard.DEV_TABLE, partition, pending, call=lambda op, req: aws(guard, op, req)
-        )
+        return guard.batch_delete_keys(guard.DEV_TABLE, partition, pending, call=lambda op, req: aws(guard, op, req))
     except guard.GuardError as error:
         raise OperationError("cleanup_aws") from error
 
@@ -73,16 +231,12 @@ def delete_keys(guard, partition, pending):
 def delete_without_head(guard, database, partition, keys):
     table = guard.DEV_TABLE
     head = guard.delete_batch(table, database, [ADMISSION_HEAD])["RequestItems"][table][0]
-    absent = {
-        "Delete": {
-            "TableName": table,
-            "Key": head["DeleteRequest"]["Key"],
-            "ConditionExpression": "attribute_not_exists(record_id)",
-        }
-    }
+    absent = {"Delete": {"TableName": table, "Key": head["DeleteRequest"]["Key"],
+                         "ConditionExpression": "attribute_not_exists(record_id)"}}
     for offset in range(0, len(keys), 8):
-        batch = guard.delete_batch(table, partition, keys[offset : offset + 8])
-        deletes = [{"Delete": {"TableName": table, "Key": item["DeleteRequest"]["Key"]}} for item in batch["RequestItems"][table]]
+        batch = guard.delete_batch(table, partition, keys[offset:offset + 8])
+        deletes = [{"Delete": {"TableName": table, "Key": item["DeleteRequest"]["Key"]}}
+                   for item in batch["RequestItems"][table]]
         aws(guard, "transact-write-items", {"TransactItems": [absent, *deletes]})
     return len(keys)
 
@@ -99,18 +253,14 @@ def cleanup(guard, attempt, owner, *, expect_charge, resume=False, proof_skipped
     partitions = guard.load_partitions(database)
     head_present = ADMISSION_HEAD in partition_keys(guard, database)
     if not head_present and not resume:
-        require(
-            not expect_charge and all(not partition_keys(guard, part) for part in partitions),
-            "snapshot_cleanup_missing_head",
-        )
+        require(not expect_charge and all(not partition_keys(guard, part) for part in partitions),
+                "snapshot_cleanup_missing_head")
         summary("provider_objects=not_registered")
         return
     receipt = cleanup_objects(guard, attempt, owner, summary, expect_charge=expect_charge, receipt_only=not head_present)
     if not receipt:
-        require(
-            proof_skipped and all(not partition_keys(guard, part) for part in partitions),
-            "snapshot_resume_no_verified_receipt",
-        )
+        require(proof_skipped and all(not partition_keys(guard, part) for part in partitions),
+                "snapshot_resume_no_verified_receipt")
         summary("provider_objects=not_registered original_proof_skipped")
         return
     deleted = 0
@@ -166,18 +316,10 @@ def verify_facts(database, through, entries, facts):
     positions = {}
     for key, fact in facts.items():
         _, node, device, last_text = key.split("#")
-        first = fact["first_writer_seq"]
-        delivery = fact["first_delivery_seq"]
-        digests = fact["digests"]
+        first, delivery, digests = fact["first_writer_seq"], fact["first_delivery_seq"], fact["digests"]
         last = first + len(digests) - 1
-        if (
-            not WRITER_LABEL.fullmatch(node)
-            or not WRITER_LABEL.fullmatch(device)
-            or last_text != f"{last:020d}"
-            or first < 1
-            or delivery < 1
-            or not 1 <= len(digests) <= 90
-        ):
+        if (not WRITER_LABEL.fullmatch(node) or not WRITER_LABEL.fullmatch(device)
+                or last_text != f"{last:020d}" or first < 1 or delivery < 1 or not 1 <= len(digests) <= 90):
             raise OperationError("native cutoff write fact")
         for index, digest in enumerate(digests):
             position = delivery + index

@@ -142,21 +142,6 @@ def read_json(path, max_bytes=262144):
     return decode_json(raw)
 
 
-def save_json(path, value):
-    raw = (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
-    require(len(raw) <= 65536, "summary_size")
-    write_private(path, raw)
-    sync_directory(Path(path).parent)
-
-
-def sync_directory(path):
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
 def canonical_uuid(value):
     require(isinstance(value, str) and str(uuid.UUID(value)) == value and uuid.UUID(value).int != 0, "baseline_uuid")
     return value
@@ -224,8 +209,7 @@ def summary(message):
 
 
 def _run_two_node_operation(operation):
-    from node import OwnedNode
-    from programs import Programs
+    from node import OwnedNode, Programs
 
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=operation.__module__)

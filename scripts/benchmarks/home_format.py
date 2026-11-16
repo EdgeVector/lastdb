@@ -23,7 +23,6 @@ def source_constant(path, name):
 
 HOME_FORMAT = source_constant(FORMAT, "HOME_FORMAT")
 NODE_MARKER = source_constant(FORMAT, "RECORD_NODE_BYTES")
-BACKUP_PROFILE = source_constant(FORMAT, "RECORD_PROFILE")
 CREDENTIALS_FILE = source_constant("lastdb_node/src/cloud.rs", "CLOUD_CREDENTIALS_FILE")
 if not NODE_MARKER.startswith(f"format={HOME_FORMAT}\n".encode()):
     raise ValueError("the authoritative home version and node marker disagree")

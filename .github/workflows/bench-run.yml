@@ -101,7 +101,7 @@ jobs:
 
       - name: Check corpus space after both programs are ready
         id: disk-measure
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure
+        run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase measure
 
       - name: Reclaim disk space only when the corpus budget needs it
         if: steps.disk-measure.outputs.cleanup-required == 'true'
@@ -116,7 +116,7 @@ jobs:
           swap-storage: false
 
       - name: Require corpus space before measurements
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
+        run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase measure --require
 
       - name: Compare 16 durable writers on six fresh generated homes
         if: matrix.lane == 'writers'
@@ -237,7 +237,7 @@ jobs:
 
       - name: Record remaining runner space
         if: always()
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase finish
+        run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase finish
 
       - name: Publish benchmark summary
         if: always() && matrix.lane == 'speed'
