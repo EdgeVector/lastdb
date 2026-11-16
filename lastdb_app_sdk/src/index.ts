@@ -17,12 +17,6 @@ export type {
   ShareWriteScope,
 } from './databases.js';
 
-export { socialClient } from './social.js';
-export type {
-  SocialClientOptions, SocialDatabaseSetup, SocialInvitation, SocialSetupRequest,
-  SocialSharingChange, SocialSharingRequest, SocialSharingStatus,
-} from './social.js';
-
 export {
   LASTDB_MIN_SUPPORTED_API_VERSION,
   LASTDB_SDK_API_VERSION,
