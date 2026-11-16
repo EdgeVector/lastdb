@@ -86,7 +86,7 @@ The code is for the program. The message is for people and can change.
 
 ## Not built yet
 
-- A `file` path on a `put`, and a file path on a read.
+- A `file` path on a `create` or a `replace`, and a file path on a read.
 - A received (shared) database as a `database` value.
 - The app socket, the sandbox profile and the per-app schema check. Until they
   exist, these routes serve every caller of the owner socket as the owner.
