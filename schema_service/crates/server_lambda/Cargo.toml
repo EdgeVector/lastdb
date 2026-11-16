@@ -15,12 +15,6 @@ test = false
 name = "server_lambda"
 path = "src/main.rs"
 
-[features]
-default = []
-# Retained as an empty feature flag so schema-infra's `--features fastembed`
-# build invocation remains compatible across the advisory cutover.
-fastembed = []
-
 [dependencies]
 app_identity_crypto = { workspace = true }
 aws-credential-types = "1.3"

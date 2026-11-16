@@ -18,22 +18,21 @@
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod append;
-mod error;
 mod model;
 mod read;
-mod state;
+
+use std::fmt;
 
 use database_policy::{admit_namespace, NamespaceClass, SpecBinding};
 
 pub use append::AppendOutcome;
 pub use database_policy::SHAREABLE_NAMESPACES;
-pub use error::LogError;
 pub use model::{
-    AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, Snapshot, Stamp,
-    StoredEntry, SubmissionRecord, SubmissionStatus, Writer,
+    step, AppendBatch, Capability, Command, DatabaseKind, Entry, Grant, Head, Incorporation,
+    LogState, Outcome, Snapshot, SnapshotRef, Stamp, StepResult, StoredEntry, SubmissionRecord,
+    SubmissionStatus, Writer,
 };
-pub use read::{can_read, entry_visible, ListPage, Recovery, Reset, ScopedHead};
-pub use state::{step, Command, LogState, Outcome, StepResult};
+pub use read::{ListPage, Recovery, Reset, ScopedHead};
 
 /// Entries applied in one append transaction.
 pub const APPEND_BATCH_LIMIT: usize = 90;
@@ -88,48 +87,11 @@ label_id!(
     InvalidId,
     "Node key. The same key is used on every device of that node."
 );
-
-/// Opaque pointer to snapshot bytes held by the shell.
-///
-/// The core stores the pointer and returns it on reset. It does not store
-/// the bytes. Any non-empty text without a control character is accepted.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SnapshotRef(String);
-
-impl SnapshotRef {
-    /// Reject an empty pointer or one that contains a control character.
-    pub fn new(value: &str) -> Result<Self, LogError> {
-        if !value.is_empty() && value.chars().all(|ch| !ch.is_control()) {
-            Ok(Self(value.to_owned()))
-        } else {
-            Err(LogError::InvalidId)
-        }
-    }
-
-    /// Borrow the pointer.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Schema namespace, the part before `/` in a name such as `hearth/PhotoMeta`.
-///
-/// The schema name stays in the entry payload. This core classifies the
-/// namespace only.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Namespace(String);
-
-impl Namespace {
-    /// Reject an empty namespace or one that already includes the schema name.
-    pub fn new(value: &str) -> Result<Self, LogError> {
-        checked_label(value, LogError::InvalidNamespace).map(Self)
-    }
-
-    /// Borrow the namespace.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+label_id!(
+    Namespace,
+    InvalidNamespace,
+    "Schema namespace, the part before `/` in a name such as `hearth/PhotoMeta`."
+);
 
 /// Persistence port for one database log.
 ///
@@ -192,11 +154,7 @@ impl BoundPolicy {
         Self { binding: None }
     }
 
-    /// Admit namespaces through this catalog binding.
-    ///
-    /// `binding` must already be [`SpecBinding::admitted`]. The registry row,
-    /// the publication marker, and this policy share that value.
-    pub fn new(binding: SpecBinding) -> Self {
+    pub(crate) fn new(binding: SpecBinding) -> Self {
         Self {
             binding: Some(binding),
         }
@@ -260,3 +218,138 @@ where
         self(namespace)
     }
 }
+
+/// A refused log step. The caller's previous state is unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LogError {
+    /// An id was empty, too long, or outside the selector alphabet.
+    InvalidId,
+    /// A namespace was empty, too long, or contained a slash.
+    InvalidNamespace,
+    /// An append carried no entries.
+    EmptyBatch,
+    /// An append carried more than [`APPEND_BATCH_LIMIT`] entries.
+    BatchTooLarge,
+    /// A list limit was zero or above [`LIST_PAGE_LIMIT`].
+    InvalidPage,
+    /// An entry named a different database than the log.
+    WrongDatabase,
+    /// An entry's writer differed from the batch.
+    WriterMismatch,
+    /// An entry broke a structural rule, such as a re-append from a key other than the publisher.
+    InvalidEntry,
+    /// `incorporated_from` did not match a stored submission.
+    UnknownSubmission,
+    /// A batch mixes an already copied submission with a new entry.
+    MixedIncorporation,
+    /// A writer sequence repeated with different content.
+    Conflict,
+    /// A port operation received an outcome from a different command.
+    UnexpectedOutcome,
+    /// A writer sequence was zero, repeated, or unordered inside the batch.
+    InvalidSequence,
+    /// This writer has no representable successor. `u64::MAX` is never stored.
+    SequenceExhausted,
+    /// The next writer sequence skipped ahead of this writer's last accepted value.
+    Gap {
+        /// The next sequence this writer can accept.
+        expected: u64,
+        /// The sequence the batch offered.
+        got: u64,
+    },
+    /// This writer already has an append open.
+    AppendInFlight,
+    /// Append or finish ran without an open append for this writer.
+    AppendNotOpen,
+    /// The principal may not perform this step.
+    Unauthorized,
+    /// A shareable database was asked to store an app-private namespace.
+    AppPrivateNamespace,
+    /// A personal database was asked to grant a receiver or a contributor.
+    PersonalNotShareable,
+    /// An owner grant was asked of a shareable database.
+    DeviceGrantNotShareable,
+    /// The cursor is below the trim floor. Load the snapshot, then list after it.
+    CursorExpired {
+        /// Delivery sequence the latest snapshot covers, or zero when none exists.
+        snapshot_through: u64,
+    },
+    /// Trim would drop entries, and no snapshot pointer covers that floor.
+    SnapshotRequired,
+    /// A pending submission aged out before the publisher copied it.
+    SubmissionExpired {
+        /// Writer (node key, device) of the submission.
+        writer: Writer,
+        /// Writer sequence of that submission.
+        writer_seq: u64,
+    },
+    /// The publisher rejected this pending submission.
+    SubmissionRejected {
+        /// Writer (node key, device) of the submission.
+        writer: Writer,
+        /// Writer sequence of that submission.
+        writer_seq: u64,
+    },
+}
+
+impl fmt::Display for LogError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidId => f.write_str("invalid id"),
+            Self::InvalidNamespace => f.write_str("invalid namespace"),
+            Self::EmptyBatch => f.write_str("empty append batch"),
+            Self::BatchTooLarge => f.write_str("append batch exceeds its limit"),
+            Self::InvalidPage => f.write_str("invalid list page"),
+            Self::WrongDatabase => f.write_str("entry database differs from the log"),
+            Self::WriterMismatch => f.write_str("entry writer differs from the batch"),
+            Self::InvalidEntry => f.write_str("invalid log entry"),
+            Self::UnknownSubmission => {
+                f.write_str("incorporation does not match a pending submission")
+            }
+            Self::MixedIncorporation => {
+                f.write_str("batch mixes an already copied submission with a new entry")
+            }
+            Self::Conflict => f.write_str("writer sequence repeats different content"),
+            Self::UnexpectedOutcome => {
+                f.write_str("log step returned an outcome this operation does not use")
+            }
+            Self::InvalidSequence => f.write_str("invalid writer sequence"),
+            Self::SequenceExhausted => {
+                f.write_str("writer sequence space is exhausted at u64::MAX")
+            }
+            Self::Gap { expected, got } => {
+                write!(f, "writer sequence gap: expected {expected}, got {got}")
+            }
+            Self::AppendInFlight => f.write_str("append already in flight for this writer"),
+            Self::AppendNotOpen => f.write_str("append is not open for this writer"),
+            Self::Unauthorized => f.write_str("not authorized for this log step"),
+            Self::AppPrivateNamespace => {
+                f.write_str("app-private namespace cannot enter a shareable database")
+            }
+            Self::PersonalNotShareable => {
+                f.write_str("a personal database cannot be granted to a receiver")
+            }
+            Self::DeviceGrantNotShareable => {
+                f.write_str("an owner grant belongs on a personal database")
+            }
+            Self::CursorExpired { snapshot_through } => {
+                write!(f, "cursor expired; snapshot covers {snapshot_through}")
+            }
+            Self::SnapshotRequired => f.write_str("trim needs a snapshot that covers the floor"),
+            Self::SubmissionExpired { writer, writer_seq } => write!(
+                f,
+                "pending submission expired before it was copied ({}, {}, seq {writer_seq})",
+                writer.key.as_str(),
+                writer.device.as_str()
+            ),
+            Self::SubmissionRejected { writer, writer_seq } => write!(
+                f,
+                "pending submission was rejected ({}, {}, seq {writer_seq})",
+                writer.key.as_str(),
+                writer.device.as_str()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LogError {}

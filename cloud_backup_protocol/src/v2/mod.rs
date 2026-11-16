@@ -12,11 +12,6 @@ pub mod blobs {
     pub use super::{BlobPath, MAX_BLOB_SEGMENT_BYTES};
 }
 
-/// Backup stream, job, destination, and object primitives.
-pub mod common {
-    pub use super::{Destination, Job, Object, Stream};
-}
-
 /// Advisory account context read wire types.
 pub mod context {
     pub use super::{ContextReadRequest, ContextReadResponse};
@@ -71,11 +66,6 @@ pub mod limits {
         }
         Ok(())
     }
-}
-
-/// V2 protocol version marker.
-pub mod version {
-    pub use super::Version;
 }
 
 /// The protocol version. It accepts only the JSON integer 2.

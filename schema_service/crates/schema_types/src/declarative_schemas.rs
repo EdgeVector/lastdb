@@ -52,8 +52,6 @@ pub struct DeclarativeSchemaDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_hash_algo_version: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub superseded_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_app_id: Option<String>,
 }
 
@@ -249,7 +247,6 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.field_declarations == o.field_declarations
             && self.field_versions == o.field_versions
             && self.identity_hash == o.identity_hash
-            && self.superseded_by == o.superseded_by
             && self.owner_app_id == o.owner_app_id
     }
 }
@@ -305,33 +302,24 @@ fn decode_definition(mut map: Map<String, Value>) -> Result<DeclarativeSchemaDef
     }
     let mut s =
         DeclarativeSchemaDefinition::deserialize(Value::Object(map)).map_err(|e| e.to_string())?;
-    if let Some(keys) = &s.record_keys {
-        keys.validate()?;
-        let kind = match keys.primary.kind {
-            crate::record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
-            crate::record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
-        };
-        if s.key.is_some() || !s.alternate_keys.is_empty() || (had_type && s.schema_type != kind) {
-            return Err(
-                "record_keys cannot be mixed with field-derived or conflicting key declarations"
-                    .into(),
-            );
-        }
-        s.schema_type = kind;
-    } else if !had_type {
-        let (h, r) = s.key.as_ref().map_or((false, false), |k| {
-            (k.hash_field.is_some(), k.range_field.is_some())
-        });
-        s.schema_type = match (h, r) {
-            (true, true) => DeclarativeSchemaType::HashRange,
-            (true, false) => DeclarativeSchemaType::Hash,
-            (false, true) => DeclarativeSchemaType::Range,
-            (false, false) => DeclarativeSchemaType::Single,
+    if !had_type {
+        s.schema_type = if let Some(keys) = &s.record_keys {
+            keys.primary.kind.schema_type()
+        } else {
+            let (h, r) = s.key.as_ref().map_or((false, false), |k| {
+                (k.hash_field.is_some(), k.range_field.is_some())
+            });
+            match (h, r) {
+                (true, true) => DeclarativeSchemaType::HashRange,
+                (true, false) => DeclarativeSchemaType::Hash,
+                (false, true) => DeclarativeSchemaType::Range,
+                (false, false) => DeclarativeSchemaType::Single,
+            }
         };
     }
+    s.validate_definition()?;
     if s.identity_hash.is_none() && (s.owner_app_id.is_some() || s.file_required) {
         s.compute_identity_hash();
     }
-    s.validate_definition()?;
     Ok(s)
 }

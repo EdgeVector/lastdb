@@ -9,9 +9,9 @@
 //! LastDB check for a schema, its fields, and a file. A service that stores
 //! the log does not call it. The payload stays opaque there.
 //!
-//! `spec/index.json` records the same catalog. Social schemas live in
-//! `spec/social/`. A database name does not select a spec. The stored
-//! `{ "name", "version" }` binding does. `social-graph` stays in `personal`.
+//! Social schemas live in `spec/social/`. A database name does not select a
+//! spec. The stored `{ "name", "version" }` binding does. `social-graph` stays
+//! in `personal`.
 
 /// Union of provisioned share namespaces, for callers that do not yet
 /// carry a per-database binding. Named databases use [`admit_namespace`].

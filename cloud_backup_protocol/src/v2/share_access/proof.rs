@@ -3,9 +3,8 @@
 //! The digest binds the database id, the HTTP action, the raw body, and a
 //! nonce. The service stores the nonce. This module does not.
 
-use super::{
-    exact_lower_hex, Ed25519Signature, SHARE_NODE_READ_AUTHORITY_DOMAIN, SHARE_REQUEST_SKEW_MS,
-};
+use super::{Ed25519Signature, SHARE_NODE_READ_AUTHORITY_DOMAIN, SHARE_REQUEST_SKEW_MS};
+use crate::primitives::exact_lower_hex;
 use crate::v2::{limits, Stream, Version};
 use crate::{bytes_sha256, input_digest, DecimalU64, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Serialize};

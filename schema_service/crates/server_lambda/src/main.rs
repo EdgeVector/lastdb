@@ -32,11 +32,12 @@ pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>,
         .map_err(|e| Error::from(format!("Failed to build response: {e}")))
 }
 
+fn json_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
+    json_response(status, &json!({ "error": message }))
+}
+
 fn payload_too_large() -> Result<Response<Body>, Error> {
-    json_response(
-        413,
-        &schema_service_core::error_only_body("Request body exceeds 128 KiB limit"),
-    )
+    json_error(413, "Request body exceeds 128 KiB limit")
 }
 
 fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
@@ -56,19 +57,10 @@ where
             }
             String::from_utf8_lossy(b).into_owned()
         }
-        Body::Empty => {
-            return Err(json_response(
-                400,
-                &schema_service_core::error_only_body("Request body is empty"),
-            ));
-        }
+        Body::Empty => return Err(json_error(400, "Request body is empty")),
     };
-    serde_json::from_str(&raw).map_err(|parse_error| {
-        json_response(
-            400,
-            &schema_service_core::error_only_body(&format!("{error}: {parse_error}")),
-        )
-    })
+    serde_json::from_str(&raw)
+        .map_err(|parse_error| json_error(400, &format!("{error}: {parse_error}")))
 }
 
 fn dispatch_stateless(method: &str, path: &str) -> RouteResult {
@@ -123,13 +115,10 @@ async fn dispatch_with_state(
                         &json!({"findings": response.findings, "catalog": status}),
                     )
                 }
-                Err(message) => json_response(400, &schema_service_core::error_only_body(&message)),
+                Err(message) => json_error(400, &message),
             }
         }
-        _ => json_response(
-            404,
-            &schema_service_core::error_only_body(&format!("Not found: {method} {path}")),
-        ),
+        _ => json_error(404, &format!("Not found: {method} {path}")),
     }
 }
 

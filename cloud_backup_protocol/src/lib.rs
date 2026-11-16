@@ -12,10 +12,6 @@ pub mod limits {
     pub use crate::v2::limits::CONTROL_JSON_MAX_BYTES as REQUEST_JSON_MAX_BYTES;
 }
 mod primitives;
-/// Public Mini recovery profile re-exports.
-pub mod recovery {
-    pub use crate::{RecoveryDescriptor, RecoveryProfile};
-}
 pub mod v2;
 
 pub use common::*;
@@ -123,5 +119,11 @@ pub(crate) fn verify_account_public_key(
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }

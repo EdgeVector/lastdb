@@ -2,7 +2,6 @@
 //! private, conditional S3 image. Vocabulary advice remains independent.
 
 mod feed;
-mod manifests;
 mod storage;
 
 use std::collections::BTreeMap;

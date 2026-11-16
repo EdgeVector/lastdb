@@ -4,8 +4,10 @@ use super::{
     draft, finding, AdviceEvidence, AdviceFinding, AdviceKind, Draft, SchemaAdviceRequest,
     SchemaAdviceResponse,
 };
-use crate::field_name_policy::{name_overlap, same_description, validate_new_field_name};
-use crate::{CanonicalField, DataClassification, SchemaServiceState};
+use crate::{
+    name_overlap, same_description, validate_new_field_name, CanonicalField, DataClassification,
+    SchemaServiceState,
+};
 use schema_types::FieldValueType;
 use std::collections::HashMap;
 
