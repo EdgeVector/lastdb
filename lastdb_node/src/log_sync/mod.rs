@@ -73,7 +73,7 @@ mod retry {
 
     use serde::{Deserialize, Serialize};
 
-    use super::disk;
+    use crate::profile::private_fs as disk;
 
     const META_LIMIT: usize = 4096;
     const SEAL_LIMIT: usize = 1024 * 1024 + 4096;
