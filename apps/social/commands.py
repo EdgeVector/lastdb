@@ -39,11 +39,11 @@ def circle_show(app, args):
 def circle_set(app, args):
     members = None if args.members is None else [item for item in args.members.split(",") if item]
     return changes.circle_set(app, args.circle, members=members, links=args.link, unlink=args.unlink,
-                              rename=args.rename, **change_options(app, args))
+                              rename=args.rename, defer=args.defer_conflicts, **change_options(app, args))
 
 
 def circle_remove(app, args):
-    return changes.circle_remove(app, args.circle, **change_options(app, args))
+    return changes.circle_remove(app, args.circle, defer=args.defer_conflicts, **change_options(app, args))
 
 
 def db_create(app, args):

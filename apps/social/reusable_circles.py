@@ -62,13 +62,17 @@ class ReusableCircles:
         except (SocialError, OSError, HTTPException):
             return None
 
-    def change(self, args, *, apply=False, token=None):
-        """Preview one edit under the lock, and apply that same preview when asked."""
+    def change(self, args, *, apply=False, token=None, defer=False):
+        """Preview one edit under the lock, and apply that same preview when asked.
+
+        With `defer`, a database whose grants changed outside Social stays pending
+        for `social db retry --resolve`, and the other databases are applied.
+        """
         with self.circles.lock():
             preview = self.edit_locked(args)
             if not apply:
                 return {**preview, "applied": False}
-            confirm(preview, token)
+            confirm(preview, token, defer=defer)
             return {**self.edit_locked({**args, "token": preview["token"]}, apply=True), "applied": True}
 
     def edit_locked(self, args, *, apply=False, operation=None, remove_request=None):
@@ -254,16 +258,17 @@ class ReusableCircles:
             return {**row, "error": str(error), "status": "pending"}
 
 
-def confirm(preview, token):
+def confirm(preview, token, *, defer=False):
     """Refuse to apply a preview that moved or that still has outside grants to resolve."""
     if token not in (None, preview["token"]):
         raise SocialError("sharing changed since the preview; review the changes again")
     names = preview.get("contactNames", {})
     unresolved = [f'--resolve {row["name"]}:{names.get(item["nodeKey"], item["nodeKey"])}=keep|social'
                   for row in preview["databases"] for item in row.get("conflicts", [])]
-    if unresolved:
+    if unresolved and not defer:
         raise SocialError("grants changed outside Social; rerun with " + " ".join(unresolved))
-    blocked = [f'{row["name"]}: {row["error"]}' for row in preview["databases"] if "error" in row]
+    blocked = [f'{row["name"]}: {row["error"]}' for row in preview["databases"]
+               if "error" in row and not row.get("conflicts")]
     if blocked:
         raise SocialError("; ".join(blocked))
 

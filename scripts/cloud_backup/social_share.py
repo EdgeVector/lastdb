@@ -4,38 +4,18 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import subprocess
 import time
 import uuid
 
-from social_app import (call as app_call, command as social_command, install, observe_access,
-                        open_content_apps, read_album, report_content_flow, sdk, window)
-from support import OperationError, decode_json, require, retry, run_operation, summary
+from social_app import (install, observe_access, open_content_apps, pick, read_album, report_content_flow,
+                        sdk, social)
+from support import require, retry, run_operation, summary
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = {"name": "social", "version": 1}
 SCHEMA = "social/Album"
 ALBUMS = ("Before sharing", "While shared", "While revoked")
-
-
-def social(node, *arguments, receipt=None, refusal=None):
-    command = [*social_command(node), *arguments]
-    try:
-        result = subprocess.run(command, input=json.dumps(receipt).encode() if receipt else None,
-                                capture_output=True, env=node.programs.environment, timeout=180)
-    except subprocess.TimeoutExpired as error:
-        raise OperationError(f"social_{arguments[0]}_deadline") from error
-    if refusal is not None:
-        require(result.returncode == 1 and not result.stdout and refusal in result.stderr,
-                f"social_{arguments[0]}_expected_refusal")
-        return None
-    if result.returncode:
-        # An invitation is held in memory and must never enter workflow output.
-        detail = result.stderr.decode(errors="replace").partition(" returned HTTP ")[2][:3]
-        suffix = f"_http_{detail}" if detail.isascii() and detail.isdigit() else ""
-        raise OperationError(f"social_{arguments[0]}_failed{suffix}")
-    return decode_json(result.stdout)
 
 
 def album(node, database, index):
@@ -61,10 +41,13 @@ def wait_for_album(node, database, index):
 
 
 def roster(node, database):
-    configurations = social(node, "grants", "--database", database)
-    require(len(configurations) == 1 and configurations[0]["databaseId"] == database,
-            "social_roster_database")
-    return configurations[0]
+    applied = social(node, "db", "show", database)["sharing"]
+    require(applied["databaseId"] == database, "social_roster_database")
+    if "members" in applied:
+        # The owner view adds each member's saved name and circles to the applied roster.
+        applied["members"] = [{key: value for key, value in member.items() if key not in ("name", "circles")}
+                              for member in applied["members"]]
+    return applied
 
 
 def expect_roster(node, database, revision, member=None):
@@ -74,9 +57,9 @@ def expect_roster(node, database, revision, member=None):
 
 
 def share(publisher, database, contact, node_key, revision):
-    arguments = ["add", "--database", database, "--user", "Ana", "--node-key", node_key]
+    arguments = ["invite", database, node_key]
     if contact is not None:
-        arguments.extend(["--contact", str(contact)])
+        arguments.extend(["--name", "Ana", "--contact", str(contact)])
     receipt = social(publisher, *arguments)
     require(receipt["databaseId"] == database and receipt["revision"] == str(revision)
             and isinstance(receipt.get("invitation"), str) and bool(receipt["invitation"]),
@@ -86,8 +69,8 @@ def share(publisher, database, contact, node_key, revision):
 
 
 def revoke(publisher, database, reader_key, revision):
-    result = social(publisher, "remove", "--user", "Ana", "--database", database)
-    require(result == {"databaseId": database, "revision": str(revision),
+    result = social(publisher, "grant", "revoke", database, "Ana", "--apply")
+    require(result == {"applied": True, "databaseId": database, "revision": str(revision),
                        "nodeKey": reader_key, "state": "revoked"}, "social_revoke_ack")
     expect_roster(publisher, database, revision, {"nodeKey": reader_key, "role": "read", "state": "revoked"})
 
@@ -126,62 +109,54 @@ def transfer(programs, root, publisher, recipient, api_key):
     require(reader_key != publisher_key, "social_separate_identity")
     retry("social_initial_configuration", lambda: roster(publisher, database),
           lambda config: config.get("revision") == "0" and config.get("members") == [])
-    with window(publisher, database) as owner_app:
-        app_call(owner_app, "/api/home", authorized=False, status=403)
-        person = app_call(owner_app, "/api/remember", {
-            "name": "Ana", "nodeKey": reader_key, "contactCode": contact.read_text().strip(),
-        })
-        require(person == {"name": "Ana", "nodeKey": reader_key}
-                and person in app_call(owner_app, "/api/home")["people"], "social_app_saved_contact")
-        with window(recipient) as recipient_app:
-            share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app)
+    person = social(publisher, "person", "add", "Ana", "--node-key", reader_key, "--contact", str(contact))
+    require(person == {"name": "Ana", "nodeKey": reader_key}
+            and person in social(publisher, "person", "list"), "social_app_saved_contact")
+    share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key)
     check_role_and_overview(programs, root, publisher, database, name, contact, reader_key)
 
 
 def verify_shared_albums_setup(node, name):
     setup = {"setupName": "shared-albums", "requiredVersion": 1}
-    with window(node) as browser:
-        created = app_call(browser, "/api/setup-database", {**setup, "localName": name})
-        database = created["databaseId"]
-        require(str(uuid.UUID(database)) == database and created["name"] == name
-                and created["setupName"] == setup["setupName"] and created["version"] == 1,
-                "social_named_setup_database")
-        definitions = created["definitions"]
-        require(set(definitions) == {"social/Album", "social/AlbumItem", "social/Photo", "social/Comment"},
-                "social_named_setup_definitions")
-        reopened = sdk(node, "setup", **setup, databaseId=database)
-        repeated = sdk(node, "setup", **setup, localName=name)
-        require(reopened == repeated == created, "social_named_setup_stable_id")
-        incomplete = sdk(node, "create-shared", name=f"{name}-repair")
-        recovered = sdk(node, "setup", **setup, databaseId=incomplete["id"], finishExisting=True)
-        require(recovered["databaseId"] == incomplete["id"]
-                and recovered["definitions"] == definitions, "social_named_setup_repaired_by_id")
-        app_call(browser, "/api/setup-database", {**setup, "databaseId": database,
-                                                  "requiredVersion": 2}, status=400)
-        write_album(node, database, definitions[SCHEMA], 0)
-        choose = {"spec": {"name": "whole-database", "version": 1},
-                  "intent": "read", "databaseId": database}
-        selections = [(app, app_call(browser, "/api/pick", choose))
-                      for app in ("album-viewer", "photo-journal")]
-        require(all(selection["databaseId"] == database for _, selection in selections)
-                and read_album(node, selections, database, "album-0", ALBUMS[0]),
-                "social_named_setup_two_apps")
-        schema = json.loads((ROOT / "spec/social/Album.json").read_text())
-        schema["schema"]["fields"].append("event_label")
-        schema["schema"]["field_types"]["event_label"] = "String"
-        schema["schema"]["field_descriptions"]["event_label"] = "Optional label for the occasion."
-        upgraded = node.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
-        reopened = sdk(node, "setup", **setup, databaseId=database)
-        require(reopened["databaseId"] == database and reopened["definitions"][SCHEMA] == upgraded
-                and definitions[SCHEMA] != upgraded, "social_named_setup_compatible_expansion")
-        require(read_album(node, selections, database, "album-0", ALBUMS[0]),
-                "social_named_setup_upgrade_kept_record")
+    created = social(node, "db", "create", name, "--setup", setup["setupName"])
+    database = created["databaseId"]
+    require(str(uuid.UUID(database)) == database and created["name"] == name
+            and created["setupName"] == setup["setupName"] and created["version"] == 1,
+            "social_named_setup_database")
+    definitions = created["definitions"]
+    require(set(definitions) == {"social/Album", "social/AlbumItem", "social/Photo", "social/Comment"},
+            "social_named_setup_definitions")
+    reopened = sdk(node, "setup", **setup, databaseId=database)
+    repeated = sdk(node, "setup", **setup, localName=name)
+    require(reopened == repeated == created, "social_named_setup_stable_id")
+    incomplete = sdk(node, "create-shared", name=f"{name}-repair")
+    recovered = sdk(node, "setup", **setup, databaseId=incomplete["id"], finishExisting=True)
+    require(recovered["databaseId"] == incomplete["id"]
+            and recovered["definitions"] == definitions, "social_named_setup_repaired_by_id")
+    social(node, "db", "verify", database, "--setup", setup["setupName"], "--version", "2",
+           refusal=b"supported Social database setup")
+    write_album(node, database, definitions[SCHEMA], 0)
+    selections = [(app, pick(node, {"name": "whole-database", "version": 1}, "read", database))
+                  for app in ("album-viewer", "photo-journal")]
+    require(all(selection["databaseId"] == database for _, selection in selections)
+            and read_album(node, selections, database, "album-0", ALBUMS[0]),
+            "social_named_setup_two_apps")
+    schema = json.loads((ROOT / "spec/social/Album.json").read_text())
+    schema["schema"]["fields"].append("event_label")
+    schema["schema"]["field_types"]["event_label"] = "String"
+    schema["schema"]["field_descriptions"]["event_label"] = "Optional label for the occasion."
+    upgraded = node.call(f"/api/databases/{database}/schemas/declare", schema)["definition_id"]
+    reopened = sdk(node, "setup", **setup, databaseId=database)
+    require(reopened["databaseId"] == database and reopened["definitions"][SCHEMA] == upgraded
+            and definitions[SCHEMA] != upgraded, "social_named_setup_compatible_expansion")
+    require(read_album(node, selections, database, "album-0", ALBUMS[0]),
+            "social_named_setup_upgrade_kept_record")
     message = "Two scoped apps read the same album, and shared-albums v1 reopened after an additive schema upgrade."
     print(message, flush=True)
     summary(message)
 
 
-def share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key, recipient_app):
+def share_albums(publisher, recipient, name, database, definition, reader_key, publisher_key):
     try:
         receipt = sdk(publisher, "invite", database=name, recipient={"name": "Ana", "nodeKey": reader_key})
         require(receipt["databaseId"] == database and receipt["publisher"] == publisher_key and receipt["revision"] == "1",
@@ -195,10 +170,10 @@ def share_albums(publisher, recipient, name, database, definition, reader_key, p
         listed = next(row for row in recipient.call("/api/databases")["databases"]
                       if row["id"] == database)
         require(listed.get("spec") == SPEC, "social_spec_after_restart")
-        observe_access(recipient_app, database, "active", 1)
-        selections = open_content_apps(recipient, recipient_app, database)
+        observe_access(recipient, database, "active", 1)
+        selections = open_content_apps(recipient, database)
         require(read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_initial_album")
-        grants = social(publisher, "list", "--database", database)
+        grants = social(publisher, "grant", "list", database)
         require(len(grants) == 1 and grants[0]["user"] == "Ana", "social_remembers_contact")
         share(publisher, database, None, reader_key, 1)
         write_album(publisher, database, definition, 1)
@@ -210,13 +185,13 @@ def share_albums(publisher, recipient, name, database, definition, reader_key, p
         for _ in range(12):
             require(album(recipient, database, 2) == [], "social_revoked_read_new_album")
             time.sleep(1)
-        observe_access(recipient_app, database, "revoked")
+        observe_access(recipient, database, "revoked")
         require(read_album(recipient, selections, database, "album-2")
                 and read_album(recipient, selections, database, "album-0", ALBUMS[0]), "social_apps_revoked")
         wait_for_album(recipient, database, 0)
         share(publisher, database, None, reader_key, 3)
         wait_for_album(recipient, database, 2)
-        observe_access(recipient_app, database, "active", 3)
+        observe_access(recipient, database, "active", 3)
         require(read_album(recipient, selections, database, "album-2", ALBUMS[2]), "social_apps_caught_up")
     finally:
         applied = roster(publisher, database)
@@ -236,14 +211,14 @@ def share_albums(publisher, recipient, name, database, definition, reader_key, p
 
 def check_role_and_overview(programs, root, publisher, other_database, name, contact, reader_key):
     # Use a second generated database so the original transfer keeps its four revisions.
-    created = social(publisher, "create-db", f"{name}-roles")
+    created = social(publisher, "db", "create", f"{name}-roles", "--filtered")
     database = str(uuid.UUID(created["id"]))
     summary(f"Owned DEV role-check mutation log `{database}`.")
     print(f"Social DEV role-check database {database}", flush=True)
     retry("social_role_configuration", lambda: roster(publisher, database),
           lambda config: config.get("revision") == "0")
     grant_file = root / "contributor.grant"
-    arguments = ("add", "--database", database, "--user", "Ana", "--node-key", reader_key)
+    arguments = ("invite", database, reader_key)
     try:
         programs.command(publisher.home, [
             "--db", database, "share", "contributors", "grant", "--recipient", str(contact),
@@ -253,14 +228,14 @@ def check_role_and_overview(programs, root, publisher, other_database, name, con
         expect_roster(publisher, database, 1, contributor)
         social(publisher, *arguments, refusal=b"already has contributor access")
         expect_roster(publisher, database, 1, contributor)
-        social(publisher, "remove", "--database", database, "--node-key", reader_key)
+        social(publisher, "grant", "revoke", database, reader_key, "--apply")
         expect_roster(publisher, database, 2, {**contributor, "state": "revoked"})
         share(publisher, database, None, reader_key, 3)
         check_overview(publisher, other_database, database, reader_key)
     finally:
         applied = roster(publisher, database)
         if any(member["state"] == "active" for member in applied.get("members", [])):
-            social(publisher, "remove", "--database", database, "--node-key", reader_key)
+            social(publisher, "grant", "revoke", database, reader_key, "--apply")
     expect_roster(publisher, database, 4, {"nodeKey": reader_key, "role": "read", "state": "revoked"})
     message = ("Social refused an active contributor, restored a revoked contributor as a reader, "
                "and kept a confirmed roster visible while another database's roster was unavailable.")
@@ -274,11 +249,12 @@ def check_overview(publisher, busy_database, confirmed_database, reader_key):
     lock = publisher.home / "share-members" / f"{busy_database}.lock"
     with lock.open("rb") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        configurations = {row["databaseId"]: row for row in social(publisher, "grants")}
+        configurations = {target: social(publisher, "db", "show", target)["sharing"]
+                          for target in (busy_database, confirmed_database)}
         require(configurations[busy_database].get("status") == "unavailable"
                 and configurations[busy_database].get("httpStatus") == 503
                 and configurations[confirmed_database].get("revision") == "3", "social_partial_rosters")
-        rows = {row["databaseId"]: row for row in social(publisher, "list")}
+        rows = {row["databaseId"]: row for row in social(publisher, "grant", "list")}
         require(rows[busy_database].get("status") == "unavailable"
                 and rows[confirmed_database].get("nodeKey") == reader_key
                 and rows[confirmed_database].get("role") == "read", "social_partial_overview")

@@ -9,7 +9,7 @@ import sys
 import uuid
 
 from node import Connection
-from social_app import call, install, observe_access, sdk, window
+from social_app import install, observe_access, pick, sdk, social
 from social_declarations import configure_bindings, external_changes, independent_update, revoke_roster
 from social_log_views import inbox, pending_positions, published_views, scope_for
 from support import OperationError, decode_json, require, retry, run_operation, summary
@@ -83,83 +83,87 @@ def transfer(programs, root, publisher, recipient, api_key):
     name = f"ci-circles-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
     if revision := os.environ.get("SOCIAL_INSTALL_REVISION"):
         install(publisher, root, revision)
-    with window(publisher) as owner:
-        created = sdk(publisher, "create-shared", name=name)
-        require(created["sharingMode"] == "whole_database" and created["name"] == name, "circle_sdk_create")
-        database = created["id"]
-        report(f"Owned DEV mutation log {database} for {name} through the packaged SDK.")
-        second = create_database(owner, f"{name}-second")
-        definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
-        definition = Path(__file__).resolve().parents[2] / "spec/social/Comment.json"
-        definitions[STANDARD_COMMENT] = publisher.call(
-            f"/api/databases/{database}/schemas/declare", json.loads(definition.read_text())
-        )["definition_id"]
-        for schema in (ALBUM, COMMENT):
-            publisher.call(f"/api/databases/{database}/mutation",
-                           mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
-        definition = declare(publisher, second, COMMENT)
-        publisher.call(f"/api/databases/{second}/mutation", mutation(COMMENT, definition, "seed", "Second database"))
-        # Enroll the stopped publisher, then record its connected boot identity.
-        # Enrolling a running node can re-exec it to enable local capture.
-        publisher.stop()
-        connect(programs, publisher, api_key)
-        scope = scope_for(publisher, api_key)
-        publisher.keep_saved_credentials = True
-        publisher.start()
-        contact = root / "recipient.contact"
-        reader = programs.command(recipient.home, ["share", "contact", "--out", str(contact)])["recipient_public_key"]
-        sender = programs.command(publisher.home, ["share", "contact", "--out", str(root / "owner.contact")])["recipient_public_key"]
-        require(reader != sender, "circle_two_identities")
-        call(owner, "/api/remember", {"name": "Ana", "nodeKey": reader, "contactCode": contact.read_text().strip()})
-        ready = retry("circle_cloud_ready", lambda: call(owner, f"/api/database?databaseId={database}"),
-                      lambda row: row["sharing"].get("revision") == "0")
-        require(set(definitions).issubset(ready["schemas"]), "circle_schema_catalog_missing")
-        retry("circle_second_cloud_ready", lambda: call(owner, f"/api/database?databaseId={second}"),
-              lambda row: row["sharing"].get("revision") == "0")
-        circle = {"id": str(uuid.uuid4()), "name": "Family", "members": [], "links": {}}
-        try:
-            require(edit_circle(owner, circle) == {}, "circle_starts_as_private_membership")
-            links = configure_bindings(publisher, owner, circle, database, second, COMMENT_GRANT["names"])
-            circle = {**circle, "links": links, "members": [reader]}
-            require(edit_circle(owner, circle) == {database: "1", second: "1"}, "circle_grant_revisions")
-            receipt = sdk(publisher, "seal", database=database, nodeKey=reader)
-            require(receipt["publisher"] == sender and receipt["databaseId"] == database
-                    and receipt["revision"] == "1", "circle_sdk_sealed_invitation")
-            with window(recipient) as remote:
-                exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader)
-                exercise_comment_ownership(publisher, recipient, remote, database,
-                                           definitions[STANDARD_COMMENT], scope, reader)
-                second_receipt = call(owner, "/api/circle-invitation", {"databaseId": second, "nodeKey": reader})
-                call(remote, "/api/accept", {"receipt": second_receipt, "publisher": sender, "name": "second"})
-                wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
-                observe_access(remote, second, "active", 1, write_schemas=[])
-                definitions[COMMENT] = exercise_upgrade(publisher, recipient, remote, database,
-                                                        definitions[COMMENT], scope, sender)
-                read_circle = {**circle, "links": {database: [], second: [COMMENT]}}
-                preview = call(owner, "/api/circles/preview", {"circle": read_circle})
-                call(owner, "/api/revoke", {"databaseId": second, "nodeKey": reader})
-                call(owner, "/api/circles/apply", {"circle": read_circle, "token": preview["token"]}, status=400)
-                require(edit_circle(owner, read_circle) == {database: "2", second: "2"}, "circle_reader_revision")
-                observe_access(remote, second, "revoked")
-                exercise_reader(publisher, recipient, remote, database, definitions, scope)
-                external_changes(publisher, owner, circle, database, reader, COMMENT)
-                independent_update(publisher, owner, circle["id"], database, second, reader, COMMENT)
-                report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
-        finally:
-            failed = sys.exc_info()[0] is not None
-            cleanup_error = None
-            for target in (database, second):
-                try:
-                    cleanup(owner, publisher, target)
-                except OperationError as error:
-                    summary(f"The final DEV recipient revocation for {target} could not be confirmed.")
-                    cleanup_error = cleanup_error or error
-            if cleanup_error and not failed:
-                raise cleanup_error
+    created = sdk(publisher, "create-shared", name=name)
+    require(created["sharingMode"] == "whole_database" and created["name"] == name, "circle_sdk_create")
+    database = created["id"]
+    report(f"Owned DEV mutation log {database} for {name} through the packaged SDK.")
+    second = create_database(publisher, f"{name}-second")
+    definitions = {schema: declare(publisher, database, schema) for schema in (ALBUM, COMMENT)}
+    definition = Path(__file__).resolve().parents[2] / "spec/social/Comment.json"
+    definitions[STANDARD_COMMENT] = publisher.call(
+        f"/api/databases/{database}/schemas/declare", json.loads(definition.read_text())
+    )["definition_id"]
+    for schema in (ALBUM, COMMENT):
+        publisher.call(f"/api/databases/{database}/mutation",
+                       mutation(schema, definitions[schema], "seed", f"Initial {schema}"))
+    definition = declare(publisher, second, COMMENT)
+    publisher.call(f"/api/databases/{second}/mutation", mutation(COMMENT, definition, "seed", "Second database"))
+    # Enroll the stopped publisher, then record its connected boot identity.
+    # Enrolling a running node can re-exec it to enable local capture.
+    publisher.stop()
+    connect(programs, publisher, api_key)
+    scope = scope_for(publisher, api_key)
+    publisher.keep_saved_credentials = True
+    publisher.start()
+    contact = root / "recipient.contact"
+    reader = programs.command(recipient.home, ["share", "contact", "--out", str(contact)])["recipient_public_key"]
+    sender = programs.command(publisher.home, ["share", "contact", "--out", str(root / "owner.contact")])["recipient_public_key"]
+    require(reader != sender, "circle_two_identities")
+    social(publisher, "person", "add", "Ana", "--node-key", reader, "--contact", str(contact), refusals=REFUSALS)
+    ready = retry("circle_cloud_ready", lambda: social(publisher, "db", "show", database),
+                  lambda row: row["sharing"].get("revision") == "0")
+    require(set(definitions).issubset(ready["schemas"]), "circle_schema_catalog_missing")
+    retry("circle_second_cloud_ready", lambda: social(publisher, "db", "show", second),
+          lambda row: row["sharing"].get("revision") == "0")
+    try:
+        share_with_circle(publisher, recipient, database, second, definitions, scope, reader, sender)
+    finally:
+        failed = sys.exc_info()[0] is not None
+        cleanup_error = None
+        for target in (database, second):
+            try:
+                cleanup(publisher, target)
+            except OperationError as error:
+                summary(f"The final DEV recipient revocation for {target} could not be confirmed.")
+                cleanup_error = cleanup_error or error
+        if cleanup_error and not failed:
+            raise cleanup_error
+
+
+def share_with_circle(publisher, recipient, database, second, definitions, scope, reader, sender):
+    created = edit_circle(publisher)
+    circle = created["circle"]
+    require(revisions(created) == {} and circle["name"] == "Family" and not circle["members"]
+            and not circle["links"], "circle_starts_as_private_membership")
+    configure_bindings(publisher, circle, database, second, COMMENT_GRANT["names"])
+    require(revisions(edit_circle(publisher, "--members", reader)) == {database: "1", second: "1"},
+            "circle_grant_revisions")
+    receipt = sdk(publisher, "seal", database=database, nodeKey=reader)
+    require(receipt["publisher"] == sender and receipt["databaseId"] == database
+            and receipt["revision"] == "1", "circle_sdk_sealed_invitation")
+    exercise(publisher, recipient, database, receipt, definitions, scope, reader)
+    exercise_comment_ownership(publisher, recipient, database, definitions[STANDARD_COMMENT], scope, reader)
+    second_receipt = social(publisher, "invite", second, reader)
+    social(recipient, "db", "accept", "--publisher", sender, "--name", "second", stdin=second_receipt)
+    wait_text(recipient, second, COMMENT, "seed", "Second database", "circle_second_database_read")
+    observe_access(recipient, second, "active", 1, write_schemas=[])
+    definitions[COMMENT] = exercise_upgrade(publisher, recipient, database, definitions[COMMENT], scope, sender)
+    read_links = ("--link", f"{database}=read", "--link", f"{second}={COMMENT}")
+    preview = social(publisher, "circle", "set", "Family", *read_links)
+    social(publisher, "grant", "revoke", second, reader, "--apply")
+    social(publisher, "circle", "set", "Family", *read_links, "--apply", "--token", preview["token"],
+           refusal=b"sharing changed since the preview")
+    require(revisions(edit_circle(publisher, *read_links)) == {database: "2", second: "2"},
+            "circle_reader_revision")
+    observe_access(recipient, second, "revoked")
+    exercise_reader(publisher, recipient, database, definitions, scope)
+    external_changes(publisher, circle, database, reader, COMMENT)
+    independent_update(publisher, circle["id"], database, second, reader, COMMENT)
+    report("One reusable circle granted distinct access to two databases and preserved an explicit revoke after an edit.")
 
 
 def create_database(owner, name):
-    database = call(owner, "/api/create", {"name": name, "sharingMode": "whole_database"})["id"]
+    database = social(owner, "db", "create", name)["id"]
     report(f"Owned DEV mutation log {database} for {name}.")
     return database
 
@@ -169,20 +173,25 @@ def report(message):
     summary(message)
 
 
-def edit_circle(owner, circle):
-    edit = {"circle": circle}
-    preview = call(owner, "/api/circles/preview", edit, refusals=REFUSALS)
+def edit_circle(owner, *arguments):
+    """Preview a change to the Family circle, then apply exactly that preview."""
+    edit = ("circle", "set", "Family", *arguments)
+    preview = social(owner, *edit, refusals=REFUSALS)
     require(all("error" not in row for row in preview["databases"]), "circle_reusable_preview")
-    response = call(owner, "/api/circles/apply", {**edit, "token": preview["token"]}, refusals=REFUSALS)
+    response = social(owner, *edit, "--apply", "--token", preview["token"], refusals=REFUSALS)
     require(not response["pending"], "circle_reusable_apply")
+    return response
+
+
+def revisions(response):
     return {row["databaseId"]: row["revision"] for row in response["databases"]}
 
 
-def cleanup(owner, publisher, database):
-    path = f"/api/database?databaseId={database}"
-    roster = call(owner, path)["sharing"]
+def cleanup(publisher, database):
+    roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
     if roster.get("status") == "pending":
-        roster = call(owner, "/api/retry", {"databaseId": database}, refusals=REFUSALS)["sharing"]
+        social(publisher, "db", "retry", database, refusals=REFUSALS)
+        roster = social(publisher, "db", "show", database, refusals=REFUSALS)["sharing"]
     require(roster.get("members") is not None, "circle_cleanup_roster_unavailable")
     revoke_roster(publisher, database)
     report("ExeMem confirmed the final recipient revocations.")
@@ -197,7 +206,7 @@ def connect(programs, publisher, api_key):
             and receipt["credentials_saved"] is True, "circle_dev_connection")
 
 
-def exercise(publisher, recipient, remote, database, receipt, definitions, scope, reader):
+def exercise(publisher, recipient, database, receipt, definitions, scope, reader):
     accepted = sdk(recipient, "accept", receipt=receipt, publisher=receipt["publisher"], name="family")
     require(accepted["id"] == database and accepted["sharingMode"] == "whole_database", "circle_received_database")
     for schema in (ALBUM, COMMENT):
@@ -208,7 +217,7 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
     require(album["fields"]["text"] == f"Initial {ALBUM}", "circle_sdk_read_shared_content")
     report("The packaged SDK used Social to create a whole-database share, seal a circle invitation and accept it. The recipient read shared data through the LastDB SDK.")
     summary("Ana read the seeded records in both Album and Comment.")
-    observe_access(remote, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
+    observe_access(recipient, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
     sdk_access = next(row for row in sdk(recipient, "list-databases") if row["id"] == database)["selfAccess"]
     require(sdk_access["state"] == "active" and sdk_access["stale"] is False
             and sdk_access["writeSchemas"] == COMMENT_GRANT, "circle_sdk_confirmed_grant")
@@ -219,10 +228,10 @@ def exercise(publisher, recipient, remote, database, receipt, definitions, scope
         created,
         mutation(COMMENT, definitions[COMMENT], "seed", "A create cannot replace the seed"),
     ]
-    queued = queue_and_restart(publisher, recipient, remote, database, scope, 1, updates,
+    queued = queue_and_restart(publisher, recipient, database, scope, 1, updates,
                                check_status=True)
     verify_results(recipient, database, queued)
-    verify_settled_retry(publisher, recipient, remote, database, scope, updates[1], queued[1])
+    verify_settled_retry(publisher, recipient, database, scope, updates[1], queued[1])
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "allowed", "From Ana", "circle_authorized_write_applied")
         require(not query(node, database, ALBUM, "blocked"), "circle_forbidden_write_missing")
@@ -265,7 +274,7 @@ def replace_comment(update, row, text):
     }
 
 
-def exercise_comment_ownership(publisher, recipient, remote, database, definition, scope, reader):
+def exercise_comment_ownership(publisher, recipient, database, definition, scope, reader):
     author = hashlib.sha256(reader.encode()).hexdigest()
     owner_comment = standard_comment(database, definition, "publisher", "Publisher wrote this", author)
     mine = standard_comment(database, definition, "receiver", "Ana wrote this", "spoofed-author")
@@ -273,7 +282,7 @@ def exercise_comment_ownership(publisher, recipient, remote, database, definitio
     owner_comment["metadata"] = {"share_author": reader}
     path = f"/api/databases/{database}/mutation"
     publisher.call(path, owner_comment)
-    queue_and_restart(publisher, recipient, remote, database, scope, 1, [mine])
+    queue_and_restart(publisher, recipient, database, scope, 1, [mine])
     expected = {"publisher": "Publisher wrote this", "receiver": "Ana wrote this"}
     for node in (publisher, recipient):
         rows = retry("standard_comments_visible", lambda: standard_rows(node, database),
@@ -289,7 +298,7 @@ def exercise_comment_ownership(publisher, recipient, remote, database, definitio
     edit["record"]["author_id"] = "spoofed-editor"
     delete = {**edit, "mutation_type": "delete", "record": {}}
     cross_author = replace_comment(owner_comment, rows["publisher"], "Forbidden edit")
-    queue_and_restart(publisher, recipient, remote, database, scope, 1, [cross_author, delete, edit])
+    queue_and_restart(publisher, recipient, database, scope, 1, [cross_author, delete, edit])
     expected["receiver"] = "Edited by Ana"
     for node in (publisher, recipient):
         rows = retry("standard_comment_policy_applied", lambda: standard_rows(node, database),
@@ -298,7 +307,7 @@ def exercise_comment_ownership(publisher, recipient, remote, database, definitio
     report("Ana read both standard comments, created and edited her own, and kept her verified author ID. The publisher discarded her deletion and her edit to the publisher's comment.")
 
 
-def exercise_upgrade(publisher, recipient, remote, database, previous, scope, sender):
+def exercise_upgrade(publisher, recipient, database, previous, scope, sender):
     new = declare(publisher, database, COMMENT, expanded=True)
     require(new != previous, "circle_schema_upgrade_new_definition")
     seeded = mutation(COMMENT, new, "upgrade", "Before edit")
@@ -307,7 +316,7 @@ def exercise_upgrade(publisher, recipient, remote, database, previous, scope, se
     seeded["metadata"] = {"import_origin": "publisher", "share_author": sender}
     publisher.call(f"/api/databases/{database}/mutation", seeded)
     wait_text(recipient, database, COMMENT, "upgrade", "Before edit", "circle_upgraded_record_received")
-    observe_access(remote, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
+    observe_access(recipient, database, "active", 1, role="submit", write_schemas=COMMENT_GRANT)
     current = query(recipient, database, COMMENT, "upgrade")[0]
     require(current.get("metadata") is None, "circle_publisher_metadata_private")
     update = mutation(COMMENT, new, "upgrade", "After edit")
@@ -315,7 +324,7 @@ def exercise_upgrade(publisher, recipient, remote, database, previous, scope, se
                   record={**current["fields"], "text": "After edit"},
                   source_file_name="replacement.txt", metadata={"share_author": "replacement-author"})
     stale = {**update, "record": {**update["record"], "text": "Stale edit"}}
-    queue_and_restart(publisher, recipient, remote, database, scope, 1, [update, stale])
+    queue_and_restart(publisher, recipient, database, scope, 1, [update, stale])
     for node in (publisher, recipient):
         wait_text(node, database, COMMENT, "upgrade", "After edit", "circle_upgraded_record_edited")
         require(query(node, database, COMMENT, "upgrade")[0]["fields"] == update["record"],
@@ -328,11 +337,11 @@ def exercise_upgrade(publisher, recipient, remote, database, previous, scope, se
     return new
 
 
-def exercise_reader(publisher, recipient, remote, database, definitions, scope):
-    observe_access(remote, database, "active", 2)
+def exercise_reader(publisher, recipient, database, definitions, scope):
+    observe_access(recipient, database, "active", 2)
     wait_text(recipient, database, COMMENT, "allowed", "From Ana", "circle_reader_retains_access")
     updates = [mutation(COMMENT, definitions[COMMENT], "reader", "Reader submission")]
-    queue_and_restart(publisher, recipient, remote, database, scope, 2, updates)
+    queue_and_restart(publisher, recipient, database, scope, 2, updates)
     for node in (publisher, recipient):
         require(not query(node, database, COMMENT, "reader"), "circle_reader_write_discarded")
     message = "Ana submitted with an empty write scope. The publisher consumed the entry and published no record."
@@ -348,11 +357,11 @@ def verify_results(recipient, database, queued):
     report("The receiving SDK read the final outcome of each of Ana's proposals by UUID.")
 
 
-def verify_settled_retry(publisher, recipient, remote, database, scope, update, mutation_id):
+def verify_settled_retry(publisher, recipient, database, scope, update, mutation_id):
     pending = inbox(publisher, scope, database, 1)
     require(not pending["entries"], "circle_retry_starts_with_settled_inbox")
     published = published_views(recipient, scope, database, 1)
-    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
+    session = pick(recipient, SCOPE, "write", database)["databaseSession"]
     submit(recipient, database, session, update, mutation_id=mutation_id)
     results = sdk(recipient, "submission-status", database=database, ids=[mutation_id])
     require([row["status"] for row in results] == ["published"], "circle_retry_preserves_outcome")
@@ -361,8 +370,8 @@ def verify_settled_retry(publisher, recipient, remote, database, scope, update, 
     report("Ana retried a settled mutation with the same UUID and operation. Its published outcome and both log positions stayed the same.")
 
 
-def queue_and_restart(publisher, recipient, remote, database, scope, revision, updates, *, check_status=False):
-    session = call(remote, "/api/pick", {"spec": SCOPE, "intent": "write", "databaseId": database})["databaseSession"]
+def queue_and_restart(publisher, recipient, database, scope, revision, updates, *, check_status=False):
+    session = pick(recipient, SCOPE, "write", database)["databaseSession"]
     publisher.stop()
     try:
         require(not inbox(publisher, scope, database, revision)["entries"], "circle_empty_inbox")

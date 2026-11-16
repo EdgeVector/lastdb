@@ -55,6 +55,9 @@ When another publisher tool changed a grant that Social manages, the command
 stops and names each one. Decide each with `--resolve DB:PERSON=keep` to keep
 the outside grant as a direct grant, or `--resolve DB:PERSON=social` to apply
 Social's grant. Unrelated grants and explicit revocations are preserved.
+A circle edit can instead take `--apply --defer-conflicts`: the other databases
+are updated, and the one with the outside grant stays pending for
+`db retry DB --resolve ...`.
 
 Social applies each database independently and saves unfinished work. An
 unfinished update only blocks new changes to the same database. `db retry`

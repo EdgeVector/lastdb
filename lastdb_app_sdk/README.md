@@ -10,7 +10,7 @@ databases, and short-lived scoped database sessions.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.12.0.tgz
+npm install /path/to/lastdb-app-sdk-0.13.0.tgz
 ```
 
 Use the tarball from the Social sharing DEV operation, or build one from

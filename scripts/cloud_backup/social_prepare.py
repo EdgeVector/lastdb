@@ -45,7 +45,6 @@ def prepare():
             app.sharing.pending_edit("registry-preflight")
             lastdb.declare_private(SHARING_REQUEST)
             lastdb.declare_private("PendingSharingRequest")
-            lastdb.declare_private("SharingRequestIndexProgress")
             origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=ROOT, text=True).strip()
             expected_origin = "https://github.com/EdgeVector/lastdb.git"
             require(origin in (expected_origin, expected_origin.removesuffix(".git")), "social_prepare_origin")

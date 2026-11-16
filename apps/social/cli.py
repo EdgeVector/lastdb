@@ -16,6 +16,8 @@ APPLY = (
 RESOLVE = flag("--resolve", action="append", metavar="DATABASE:PERSON=keep|social",
                help="Keep a grant made outside Social as a direct grant, or apply Social's grant")
 PERSON = flag("person", help="Saved contact name, or node key")
+DEFER = flag("--defer-conflicts", action="store_true",
+             help="With --apply, leave a database with an unresolved outside grant pending for `db retry`")
 DATABASE = flag("database", help="Database name or ID")
 WRITE = flag("--write", default="read", metavar="read|all|Schema,Schema",
              help="Write scope. The person always reads the whole database. Default: read")
@@ -40,9 +42,9 @@ COMMANDS = {
             flag("--link", action="append", default=[], metavar="DATABASE=read|all|Schema,Schema",
                  help="Link a database with a write scope. Members always read the whole database"),
             flag("--unlink", action="append", default=[], metavar="DATABASE", help="Remove a database link"),
-            flag("--rename", metavar="NAME"), RESOLVE, *APPLY)),
+            flag("--rename", metavar="NAME"), RESOLVE, DEFER, *APPLY)),
         "remove": ("Remove a circle and the access it grants", (
-            flag("circle", help="Circle name or ID"), RESOLVE, *APPLY)),
+            flag("circle", help="Circle name or ID"), RESOLVE, DEFER, *APPLY)),
     }),
     "db": ("Shared databases", {
         "create": ("Create a whole-database share", (

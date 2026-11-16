@@ -58,7 +58,7 @@ def parse_review(app, entries):
 
 
 def circle_set(app, name, *, members=None, links=(), unlink=(), rename=None, review=None,
-               apply=False, token=None):
+               apply=False, token=None, defer=False):
     """Create a circle or replace the named parts of an existing one."""
     circles = app.reusable_circles.load()[2]["circles"]
     current = next((row for row in circles if same_circle(row, name)), None)
@@ -78,14 +78,15 @@ def circle_set(app, name, *, members=None, links=(), unlink=(), rename=None, rev
                     else current["members"] if current else []),
         "links": scopes,
     }
-    result = app.reusable_circles.change({"circle": circle, "review": review}, apply=apply, token=token)
+    result = app.reusable_circles.change({"circle": circle, "review": review}, apply=apply, token=token,
+                                         defer=defer)
     return {**result, "circle": circle}
 
 
-def circle_remove(app, selector, *, review=None, apply=False, token=None):
+def circle_remove(app, selector, *, review=None, apply=False, token=None, defer=False):
     circle = app.circle(selector)
     result = app.reusable_circles.change({"circle": circle, "remove": True, "review": review},
-                                         apply=apply, token=token)
+                                         apply=apply, token=token, defer=defer)
     return {**result, "circle": circle}
 
 
