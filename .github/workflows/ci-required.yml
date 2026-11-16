@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install ripgrep
@@ -138,7 +138,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check Node/npm toolchain
         run: |
           node --version
@@ -164,7 +164,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Install ripgrep
         uses: EdgeVector/.github/install-ripgrep@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
       - name: Install Rust
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Enforce source diff size and allow policy
@@ -214,7 +214,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Scan tracked text files for secrets
         uses: EdgeVector/.github/secret-scan@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
 
@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install --profile minimal
@@ -259,7 +259,7 @@ jobs:
       contents: read
       checks: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Wait for the installed-app proof when the surface changed
@@ -277,7 +277,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - name: Install tree-sitter

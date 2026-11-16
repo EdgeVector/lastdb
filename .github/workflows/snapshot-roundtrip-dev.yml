@@ -287,7 +287,7 @@ jobs:
         run: python3 -m pip install --quiet cryptography==41.0.7
       - name: Assume the DEV mutation-log cleanup role for a historical attempt
         if: needs.snapshot-resume-origin.outputs.legacy == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
