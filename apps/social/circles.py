@@ -50,8 +50,6 @@ class Circles:
             raise SavedSharingUpdate("A sharing request is waiting for confirmation.")
         policy = self.load(database)
         prior_circles = policy["circles"]
-        # A circle saved without an ID predates the circle directory. Keep its grants.
-        circles = [circle for circle in prior_circles if "id" not in circle] + circles
         current = self.sharing.configuration(database)
         before = resolve(prior_circles)
         desired = resolve(circles)

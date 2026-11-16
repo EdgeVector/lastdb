@@ -16,6 +16,16 @@ def same_circle(row, selector):
     return selector == row["id"] or selector.casefold() == row["name"].casefold()
 
 
+def new_circle_id(name, taken):
+    """Derive an unused ID from the name. A renamed circle keeps the ID its old name gave it."""
+    attempt = 0
+    while True:
+        identity = str(uuid5(CIRCLE_IDS, f"{name.casefold()}#{attempt}"))
+        if identity not in taken:
+            return identity
+        attempt += 1
+
+
 def parse_scope(text):
     """Read `read`, `all`, or a comma-separated list of canonical schema names."""
     if text == "read":
@@ -62,7 +72,7 @@ def circle_set(app, name, *, members=None, links=(), unlink=(), rename=None, rev
     for database in unlink:
         scopes.pop(database if database in scopes else app.selected(database, rows)["id"], None)
     circle = {
-        "id": current["id"] if current else str(uuid5(CIRCLE_IDS, name.casefold())),
+        "id": current["id"] if current else new_circle_id(name, {row["id"] for row in circles}),
         "name": rename or (current["name"] if current else name),
         "members": (app.resolve_people(members) if members is not None
                     else current["members"] if current else []),
