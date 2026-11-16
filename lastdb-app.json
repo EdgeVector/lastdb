@@ -132,6 +132,35 @@
       "owner_app_id": "social-graph"
     },
     {
+      "name": "PendingSharingRequest",
+      "descriptive_name": "Pending sharing request",
+      "purpose_statement": "One app proposal awaiting the owner's sharing decision.",
+      "schema_type": "HashRange",
+      "record_keys": { "primary": { "kind": "hash_range", "range_type": "String" }, "alternates": {} },
+      "fields": ["request_id", "app_id", "database_id"],
+      "field_types": { "request_id": "String", "app_id": "String", "database_id": "String" },
+      "field_descriptions": {
+        "request_id": "Stable identifier of the saved sharing request.",
+        "app_id": "Label of the app that proposed the sharing request.",
+        "database_id": "Stable identifier of the database in the proposal."
+      },
+      "owner_app_id": "social-graph"
+    },
+    {
+      "name": "SharingRequestIndexProgress",
+      "descriptive_name": "Sharing request index progress",
+      "purpose_statement": "Saved progress for importing the previous Social request records.",
+      "schema_type": "Hash",
+      "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
+      "fields": ["cursor", "complete"],
+      "field_types": { "cursor": "String", "complete": "Boolean" },
+      "field_descriptions": {
+        "cursor": "LastDB key-list continuation for the next import page.",
+        "complete": "Whether Social has indexed all saved proposals from before the upgrade."
+      },
+      "owner_app_id": "social-graph"
+    },
+    {
       "name": "DatabaseSetup",
       "descriptive_name": "Database setup",
       "purpose_statement": "Progress for a database provisioned from a named Social setup.",

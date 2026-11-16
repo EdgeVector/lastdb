@@ -2,6 +2,7 @@
 
 from contextlib import closing
 import json
+from pathlib import Path
 import uuid
 
 from cryptography.hazmat.primitives import serialization
@@ -49,20 +50,25 @@ def decline_binding(publisher, circle, database):
     change = {"operation": "setCircleBinding", "databaseId": database,
               "circleId": circle, "preset": "commenter"}
     declaration = propose(publisher, "photo-journal", change)
+    legacy = save_legacy_request(publisher, change)
     request = {"requestId": declaration["requestId"]}
     before = roster(publisher, database)
     with window(publisher) as review_window:
         call(review_window, "/api/sharing-requests", authorized=False, status=403)
         pending = call(review_window, "/api/sharing-requests")
-        require(pending == {"requests": [{**request, "appId": "photo-journal", "databaseId": database}],
-                            "nextCursor": None}, "app_request_found_on_regular_open")
+        names = {row["requestId"]: (row["appId"], row["databaseId"]) for row in pending["requests"]}
+        require(names == {declaration["requestId"]: ("photo-journal", database), legacy: ("old-gallery", database)}
+                and pending["nextCursor"] is None and not pending["importing"], "app_request_found_on_regular_open")
         preview = preview_request(review_window, declaration["requestId"])
         call(review_window, "/api/sharing-request/decline", request, authorized=False, status=403)
         declined = call(review_window, "/api/sharing-request/decline", request)
         require(declined["status"] == "declined", "app_owner_declined")
         require(approve(review_window, declaration["requestId"], preview) == declined,
                 "app_decline_cannot_be_approved")
-        require(not call(review_window, "/api/sharing-requests")["requests"], "app_declined_request_leaves_list")
+        remaining = call(review_window, "/api/sharing-requests")["requests"]
+        require([row["requestId"] for row in remaining] == [legacy], "app_declined_request_leaves_list")
+        call(review_window, "/api/sharing-request/decline", {"requestId": legacy})
+        require(not call(review_window, "/api/sharing-requests")["requests"], "app_imported_request_leaves_list")
     with window(publisher, sharing_request=declaration["requestId"]) as reopened:
         require(call(reopened, "/api/sharing-request/decline", request) == declined,
                 "app_decline_idempotent_after_reopen")
@@ -71,7 +77,25 @@ def decline_binding(publisher, circle, database):
             and roster(publisher, database) == before, "app_decline_returned_through_sdk")
     summary("A signed-in owner found a proposal in Requests in a regular Social window and declined it. "
             "It left the list, and its terminal status survived reopening, a repeated request, "
-            "and an old approval preview without changing the roster.")
+            "and an old approval preview without changing the roster. Social also imported a saved legacy proposal.")
+
+
+def save_legacy_request(publisher, change):
+    manifest = Path(__file__).resolve().parents[2] / "lastdb-app.json"
+    definition = next(row for row in json.loads(manifest.read_text())["schemas"] if row["name"] == "SharingRequest")
+    definition = {name: value for name, value in definition.items() if name != "owner_app_id"}
+    installed = publisher.call("/api/schemas/declare", {"namespace": "social-graph", "schema": definition})
+    request_id = str(uuid.uuid4())
+    declaration = {"requestId": request_id, "appId": "old-gallery", "change": change}
+    normalized = {**declaration, "change": {key: value for key, value in change.items() if key != "preset"}}
+    normalized["change"]["writeSchemas"] = ["social/Comment"]
+    publisher.call("/api/mutation", {
+        "type": "mutation", "schema": "social-graph/SharingRequest", "definition_id": installed["definition_id"],
+        "key_value": {"hash": request_id}, "alternates": {},
+        "record": {"request": json.dumps({"declaration": normalized})}, "mutation_type": "create",
+        "expected": {"type": "absent"}, "durability": "durable",
+    })
+    return request_id
 
 
 def propose(publisher, app, change):

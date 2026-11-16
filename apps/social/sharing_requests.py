@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urlencode
 from uuid import UUID
 
-from lastdb import LastDBError, SCHEMAS, SocialError
+from lastdb import LastDBError, SCHEMAS, SocialError, record_mutation
 from circles import DIGEST
+from request_index import RequestIndex
 from reusable_circles import encoded
 
 
@@ -36,30 +36,14 @@ def uuid_key(value):
 class SharingRequests:
     def __init__(self, node, reusable):
         self.node, self.reusable = node, reusable
+        self.index = RequestIndex(node, reusable)
 
     def circles(self):
         _, _, data = self.reusable.load()
         return [{"id": row["id"], "name": row["name"]} for row in data["circles"]]
 
     def awaiting(self, cursor=None):
-        self.node.declare_private(DEFINITION)
-        params = {"schema": SCHEMA, "limit": 64}
-        if cursor is not None:
-            params["cursor"] = cursor
-        page = self.node.call("GET", "/api/list?" + urlencode(params))["list"]
-        next_cursor = page.get("next_cursor")
-        if page["has_more"] and (not next_cursor or next_cursor == cursor):
-            raise SocialError("LastDB omitted the next sharing request page")
-        keys = [item["hash"] for item in page["keys"]]
-        if not keys:
-            return {"requests": [], "nextCursor": next_cursor}
-        batch = self.node.call("POST", "/api/queries/batch", {
-            "queries": [{"schema_name": SCHEMA, "filter": {"HashKey": key}} for key in keys],
-        })["results"]
-        if len(batch) != len(keys) or any(item["status"] != 200 for item in batch):
-            raise SocialError("LastDB could not read the sharing request page")
-        operations = self.reusable.load()[2]["operations"]
-        return {"requests": pending_requests(batch, operations), "nextCursor": next_cursor}
+        return self.index.awaiting(cursor)
 
     def submit(self, args):
         if args.keys() != {"requestId", "appId", "change"}:
@@ -79,7 +63,7 @@ class SharingRequests:
         if (circle and not any(row["id"] == circle for row in self.circles())) or database not in self.reusable.owned():
             raise SocialError("select an existing circle and an owned whole-database share")
         try:
-            self.save(definition, request_id, {"declaration": declaration}, None)
+            self.save(definition, request_id, {"declaration": declaration}, None, self.index.add(declaration))
         except LastDBError as error:
             if error.status != 409:
                 raise
@@ -97,8 +81,13 @@ class SharingRequests:
         record = self.node.get_record(SCHEMA, uuid_key(request_id))
         return definition, record, json.loads(record["fields"]["request"]) if record else None
 
-    def save(self, definition, request_id, data, previous):
-        self.node.write_record(SCHEMA, definition, request_id, {"request": encoded(data)}, previous)
+    def save(self, definition, request_id, data, previous, index_change=None):
+        fields = {"request": encoded(data)}
+        if index_change is None:
+            self.node.write_record(SCHEMA, definition, request_id, fields, previous)
+        else:
+            update = record_mutation(SCHEMA, definition, {"hash": request_id, "range": None}, fields, previous)
+            self.node.call("POST", "/api/mutations/batch", {"mutations": [update, index_change]})
 
     def status(self, request_id):
         _, _, data = self.load(request_id)
@@ -131,7 +120,8 @@ class SharingRequests:
                 result = self.reusable.edit_locked(edit, operation=operation)
                 return {**status(request), **result, "subjectName": label}
             self.archive(active)
-            self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation)
+            self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation,
+                                      remove_request=self.index.remove(request_id))
             return self.status(request_id)
 
     def decline(self, request_id):
@@ -148,7 +138,7 @@ class SharingRequests:
             if receipt or (active and active["requestId"] == request_id):
                 raise SocialError("only requests awaiting approval can be declined")
             receipt = {"status": "declined"}
-            self.save(definition, request_id, {**data, "receipt": receipt}, record)
+            self.save(definition, request_id, {**data, "receipt": receipt}, record, self.index.remove(request_id))
             return status(request, receipt)
 
     def edit(self, request, directory, review):
@@ -178,20 +168,6 @@ class SharingRequests:
         definition, record, data = self.load(active["requestId"])
         if data and "receipt" not in data:
             self.save(definition, active["requestId"], {**data, "receipt": active}, record)
-
-
-def pending_requests(batch, operations):
-    requests = []
-    for item in batch:
-        for row in item["response"]["results"]:
-            saved = json.loads(row["fields"]["request"])
-            request = saved["declaration"]
-            database = request["change"]["databaseId"]
-            current = operations.get(database)
-            if "receipt" not in saved and (not current or current["requestId"] != request["requestId"]):
-                requests.append({"requestId": request["requestId"], "appId": request["appId"],
-                                 "databaseId": database})
-    return requests
 
 
 def parse_change(change):

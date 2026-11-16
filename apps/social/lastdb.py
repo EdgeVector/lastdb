@@ -109,15 +109,20 @@ class LastDB:
         return rows[0] if rows else None
 
     def write_record(self, schema, definition, key, fields, previous):
-        return self.call("POST", "/api/mutation", {
-            "type": "mutation", "schema": schema, "definition_id": definition,
-            "key_value": {"hash": key, "range": None}, "alternates": {},
-            "record": fields, "mutation_type": "replace" if previous else "create",
-            "expected": {"type": "revision", "revision": previous["revision"]}
-            if previous else {"type": "absent"}, "durability": "durable",
-        })
+        mutation = record_mutation(schema, definition, {"hash": key, "range": None}, fields, previous)
+        return self.call("POST", "/api/mutation", mutation)
 
     def own_key(self):
         with tempfile.TemporaryDirectory(prefix="social-contact-") as directory:
             path = Path(directory) / "publisher.contact"
             return self.command("share", "contact", "--out", str(path))["recipient_public_key"]
+
+
+def record_mutation(schema, definition, key, fields, previous):
+    return {
+        "type": "mutation", "schema": schema, "definition_id": definition,
+        "key_value": key, "alternates": {}, "record": fields or {},
+        "mutation_type": "delete" if fields is None else ("replace" if previous else "create"),
+        "expected": {"type": "revision", "revision": previous["revision"]}
+        if previous else {"type": "absent"}, "durability": "durable",
+    }
