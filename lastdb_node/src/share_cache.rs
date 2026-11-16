@@ -30,7 +30,7 @@ pub(crate) enum ShareCacheError {
     Unavailable,
     Invalid(&'static str),
     Invitation(crate::share_invitation::ShareInvitationError),
-    Io(std::io::Error),
+    Io,
 }
 
 type Result<T> = std::result::Result<T, ShareCacheError>;
@@ -270,7 +270,7 @@ impl std::fmt::Display for ShareCacheError {
             Self::Unavailable => f.write_str("no verified snapshot is available for this share"),
             Self::Invalid(field) => write!(f, "invalid share cache {field}"),
             Self::Invitation(error) => write!(f, "{error}"),
-            Self::Io(_) => f.write_str("share cache disk operation failed"),
+            Self::Io => f.write_str("share cache disk operation failed"),
         }
     }
 }
@@ -278,8 +278,8 @@ impl std::fmt::Display for ShareCacheError {
 impl std::error::Error for ShareCacheError {}
 
 impl From<std::io::Error> for ShareCacheError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
+    fn from(_: std::io::Error) -> Self {
+        Self::Io
     }
 }
 
