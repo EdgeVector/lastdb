@@ -15,16 +15,15 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
-pub(in crate::storage) mod admit;
 pub(in crate::storage) mod cas_delete;
 mod kv;
 pub(in crate::storage) use kv::native_routing;
 pub(in crate::storage) mod physical;
-pub(crate) mod publication;
 mod read;
 pub(crate) mod record_warm;
 mod run_commit;
 pub(in crate::storage) mod run_node;
+pub(in crate::storage) use run_node as admit;
 pub(crate) mod transaction;
 
 pub use super::disk_backup::{snapshot, NativeCloudWorkGuard};

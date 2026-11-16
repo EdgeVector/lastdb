@@ -159,7 +159,7 @@ impl PackRuntime {
 fn commit_split(v2: &V2Home, ops: Vec<HomeMutation>) -> StorageResult<()> {
     let is_cas = |op: &HomeMutation| op.collection == CAS_COLLECTION;
     if !ops.iter().any(is_cas) {
-        return v2.home.commit(ops).map(|_| ()).map_err(map);
+        return v2.home.commit(ops).map_err(map);
     }
     let (cas, main): (Vec<_>, _) = ops.into_iter().partition(is_cas);
     let last: BTreeMap<_, _> = cas.into_iter().map(|op| (op.key.clone(), op)).collect();

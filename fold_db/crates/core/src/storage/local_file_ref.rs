@@ -3,7 +3,7 @@
 use super::disk_pack::{run_blocking, PackRuntime};
 use super::error::{StorageError, StorageResult};
 use crate::error::FoldDbError;
-use lastdb_model::hex::hex_lower;
+use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::record_value::FileMarker;
 use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 use serde::{Deserialize, Serialize};
@@ -240,7 +240,6 @@ fn read_verified_local_file(entry: &Entry) -> StorageResult<Vec<u8>> {
         .try_reserve_exact(capacity)
         .map_err(|_| StorageError::write_limit("alloc refused"))?;
     File::open(path)?.read_to_end(&mut bytes)?;
-    let matches =
-        bytes.len() as u64 == entry.size_bytes && hex_lower(Sha256::digest(&bytes)) == entry.sha256;
+    let matches = bytes.len() as u64 == entry.size_bytes && sha256_hex(&bytes) == entry.sha256;
     matches.then_some(bytes).ok_or_else(mismatch)
 }

@@ -142,19 +142,12 @@ impl Stamp {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecordValueError {
     Format(String),
-    TooLarge { bytes: usize },
 }
 
 impl std::fmt::Display for RecordValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Format(detail) => write!(f, "invalid record value: {detail}"),
-            Self::TooLarge { bytes } => {
-                write!(
-                    f,
-                    "record value is {bytes} bytes; maximum is {MAX_RECORD_BYTES}"
-                )
-            }
         }
     }
 }
@@ -240,14 +233,6 @@ impl StoredRecord {
         }
     }
 
-    pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
-        let bytes = self.encode_uncapped()?;
-        let len = bytes.len();
-        (len <= MAX_RECORD_BYTES)
-            .then_some(bytes)
-            .ok_or(RecordValueError::TooLarge { bytes: len })
-    }
-
     pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
         self.validate_structure()?;
         serde_json::to_vec(self).map_err(|e| RecordValueError::Format(e.to_string()))
@@ -293,7 +278,6 @@ impl StoredRecord {
 
 pub mod author_clock {
     use crate::schema::types::Mutation;
-    use sha2::{Digest, Sha256};
 
     pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
 
@@ -327,8 +311,8 @@ pub mod author_clock {
     #[must_use]
     pub fn mutation_author_clock_key(device_id: &str) -> String {
         format!(
-            "mutation_author_clock:{:x}",
-            Sha256::digest(device_id.as_bytes())
+            "mutation_author_clock:{}",
+            crate::canonical::hex::sha256_hex(device_id)
         )
     }
 

@@ -3,6 +3,7 @@
 use super::super::super::io;
 use super::super::super::Error;
 use super::super::{Inner, Meta, Note, PendingNote};
+use lastdb_model::hex::sha256_hex;
 use std::path::Path;
 
 const BODY_MAX: u64 = 2 * 1024 * 1024;
@@ -64,7 +65,7 @@ pub(super) fn verified_bytes(
         return Err(Error::Gap);
     }
     let bytes = io::read_exact(path, max)?;
-    if bytes.len() as u64 != len || super::super::body::sha256_hex(&bytes) != expected {
+    if bytes.len() as u64 != len || sha256_hex(&bytes) != expected {
         return Err(Error::Gap);
     }
     Ok(bytes)
@@ -158,9 +159,9 @@ pub(super) fn pending_note(sequence: u64, note: &Note) -> PendingNote {
         sequence,
         mutation_id: note.mutation_id.clone(),
         plaintext_sha256: note.plaintext_sha256.clone(),
-        envelope_sha256: super::super::body::sha256_hex(&note.envelope),
+        envelope_sha256: sha256_hex(&note.envelope),
         authored_at_ms: note.authored_at_ms,
-        file_sha256: note.file.as_deref().map(super::super::body::sha256_hex),
+        file_sha256: note.file.as_deref().map(sha256_hex),
         envelope_bytes: note.envelope.len() as u64,
         file_bytes: note.file.as_ref().map_or(0, Vec::len) as u64,
     }
@@ -189,7 +190,11 @@ pub(super) fn write_staged(
             .ok_or(Error::Unavailable)?;
         let dir = root.join("staging").join(seq_name(planned_note.sequence));
         io::ensure_dir(&dir)?;
-        io::write_json(&dir.join("meta.json"), &meta_of(planned_note))?;
+        let meta = Meta {
+            version: 1,
+            note: planned_note.clone(),
+        };
+        io::write_json(&dir.join("meta.json"), &meta)?;
         io::write_bytes(&dir.join("body.bin"), &note.envelope)?;
         if let Some(file) = note.file.as_deref() {
             io::write_bytes(&dir.join("file.bin"), file)?;
@@ -275,20 +280,6 @@ fn note_ok(note: &PendingNote) -> bool {
         && note.file_sha256.as_deref().is_none_or(super::super::sha_ok)
 }
 
-fn meta_of(note: &PendingNote) -> Meta {
-    Meta {
-        version: 1,
-        sequence: note.sequence,
-        mutation_id: note.mutation_id.clone(),
-        plaintext_sha256: note.plaintext_sha256.clone(),
-        envelope_sha256: note.envelope_sha256.clone(),
-        authored_at_ms: note.authored_at_ms,
-        file_sha256: note.file_sha256.clone(),
-        envelope_bytes: note.envelope_bytes,
-        file_bytes: note.file_bytes,
-    }
-}
-
 fn place_entry(root: &Path, note: &PendingNote) -> Result<(), Error> {
     let name = seq_name(note.sequence);
     let dest = root.join("entries").join(&name);
@@ -304,16 +295,7 @@ fn place_entry(root: &Path, note: &PendingNote) -> Result<(), Error> {
 }
 
 fn verify_entry(dir: &Path, note: &PendingNote) -> Result<(), Error> {
-    let meta = read_meta(dir)?;
-    if meta.sequence != note.sequence
-        || meta.mutation_id != note.mutation_id
-        || meta.plaintext_sha256 != note.plaintext_sha256
-        || meta.envelope_sha256 != note.envelope_sha256
-        || meta.authored_at_ms != note.authored_at_ms
-        || meta.file_sha256 != note.file_sha256
-        || meta.envelope_bytes != note.envelope_bytes
-        || meta.file_bytes != note.file_bytes
-    {
+    if read_meta(dir)?.note != *note {
         return Err(Error::Gap);
     }
     verified_bytes(

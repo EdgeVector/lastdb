@@ -79,7 +79,7 @@ if [[ -n "$hits" ]]; then
   fail=1
 fi
 
-allowed=(base64 chrono hmac schema_types serde serde_json sha2)
+allowed=(base64 hmac schema_types serde serde_json sha2)
 deps="$(awk '
   /^\[/ {
     section = $0
@@ -119,18 +119,6 @@ while read -r kind name; do
     fail=1
   fi
 done <<<"$deps"
-
-chrono_line="$(rg -n '^chrono\b' "$manifest" || true)"
-if [[ -n "$chrono_line" ]]; then
-  if ! printf '%s\n' "$chrono_line" | rg -q 'default-features\s*=\s*false'; then
-    echo "FAIL: model chrono must set default-features = false (no clock feature): $chrono_line" >&2
-    fail=1
-  fi
-  if printf '%s\n' "$chrono_line" | rg -q '"(clock|now)"'; then
-    echo "FAIL: model chrono must not enable the clock or now feature: $chrono_line" >&2
-    fail=1
-  fi
-fi
 
 if [[ "$fail" -ne 0 ]]; then
   exit 1

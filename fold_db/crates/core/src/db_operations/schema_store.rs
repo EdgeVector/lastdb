@@ -7,7 +7,6 @@ use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{Metadata, ReplayTarget};
 use crate::storage::format::read::ReadStore;
 use crate::storage::format::schemas::*;
-use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -16,7 +15,6 @@ use std::sync::Arc;
 mod replay;
 mod retention;
 mod retention_sweep;
-mod retention_tracking;
 
 pub(crate) use replay::SchemaDrop;
 pub use retention_sweep::RetentionFloors;
@@ -47,30 +45,26 @@ impl SchemaStore {
         }
     }
 
-    pub async fn flush(&self) -> Result<(), SchemaError> {
-        Ok(self.format.flush().await?)
-    }
-
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         let Some(bytes) = self.schemas_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };
         let schema =
-            decode_catalog_json::<Schema>(&bytes).map_err(|e| SchemaError::StorageRead {
+            serde_json::from_slice::<Schema>(&bytes).map_err(|e| SchemaError::StorageRead {
                 detail: format!("schema catalog row {schema_name} is unreadable: {e}"),
             })?;
         schema.validate()?;
         Ok(Some(schema))
     }
 
-    pub async fn get_schema_state(
+    pub(crate) async fn get_schema_state(
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
         let Some(bytes) = self.schema_states_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };
-        decode_catalog_json::<SchemaState>(&bytes)
+        serde_json::from_slice::<SchemaState>(&bytes)
             .map(Some)
             .map_err(|e| SchemaError::StorageRead {
                 detail: format!("schema state row {schema_name} is unreadable: {e}"),
@@ -87,7 +81,7 @@ impl SchemaStore {
             .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))
     }
 
-    pub async fn get_all_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
+    pub(crate) async fn get_all_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
         let rows = read_catalog_range::<Schema>(
             &self.schemas_store,
             crate::storage::format::SCHEMAS_NAMESPACE,
@@ -111,7 +105,9 @@ impl SchemaStore {
         Ok(schemas)
     }
 
-    pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
+    pub(crate) async fn get_all_schema_states(
+        &self,
+    ) -> Result<HashMap<String, SchemaState>, SchemaError> {
         Ok(read_catalog_range::<SchemaState>(
             &self.schema_states_store,
             crate::storage::format::SCHEMA_STATES_NAMESPACE,
@@ -130,7 +126,7 @@ impl SchemaStore {
     ) -> Result<(), SchemaError> {
         transaction::scope(
             Arc::clone(&self.runtime),
-            async move {
+            Box::pin(async move {
                 schema
                     .validate_definition()
                     .map_err(SchemaError::InvalidData)?;
@@ -169,8 +165,7 @@ impl SchemaStore {
                 )?;
                 self.note_local_replay(schema_name, mutation_id).await?;
                 Ok(())
-            }
-            .boxed(),
+            }),
         )
         .await
     }
@@ -182,7 +177,7 @@ impl SchemaStore {
     ) -> Result<(), SchemaError> {
         transaction::scope(
             Arc::clone(&self.runtime),
-            async move {
+            Box::pin(async move {
                 if self
                     .schema_states_store
                     .get_item::<SchemaState>(schema_name)
@@ -198,8 +193,7 @@ impl SchemaStore {
                     })
                     .await?;
                 Ok(())
-            }
-            .boxed(),
+            }),
         )
         .await
     }
@@ -281,7 +275,7 @@ async fn read_catalog_range<T: DeserializeOwned>(
             let key = String::from_utf8(k).map_err(|e| {
                 SchemaError::InvalidData(format!("the {catalog} catalog has a non-UTF-8 key: {e}"))
             })?;
-            let val = decode_catalog_json::<T>(&v).map_err(|e| {
+            let val = serde_json::from_slice::<T>(&v).map_err(|e| {
                 SchemaError::InvalidData(format!("{catalog} catalog row {key} is unreadable: {e}"))
             })?;
             out.push((key, val));

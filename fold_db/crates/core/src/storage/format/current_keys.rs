@@ -21,8 +21,7 @@ pub(in crate::storage) const META_PFX: &[&str] = &[
 const FAMILIES: &[&str] = &["rk", "ak", "ad", "fi", "dellog"];
 
 pub(crate) mod families {
-    use lastdb_model::{hex::hex_lower, portable_mutation::Position, record_space::RECORD_PREFIX};
-    use sha2::{Digest, Sha256};
+    use lastdb_model::{hex::sha256_hex, portable_mutation::Position, record_space::RECORD_PREFIX};
 
     pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
 
@@ -35,7 +34,7 @@ pub(crate) mod families {
             .and_then(|rest| rest.split(':').next())
             .filter(|space| !space.is_empty())
             .ok_or_else(|| super::unsupported("a record file path needs a record key"))?;
-        let hash = hex_lower(Sha256::digest(record.as_bytes()));
+        let hash = sha256_hex(record);
         Ok(format!(
             "{RECORD_FILE_PREFIX}{space}:{hash}:{}:{:020}",
             version.source_stream, version.sequence

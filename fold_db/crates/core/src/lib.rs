@@ -10,18 +10,9 @@ pub mod resident;
 pub mod schema;
 pub mod storage;
 
-pub use crate::access::{
-    error,
-    error::{FoldDbError, FoldDbResult},
-};
+pub use crate::access::error;
 pub use crate::crypto::security;
 pub use crate::db_operations::alternate_keys;
-pub use crate::fold_db_core::FoldDB;
-pub use crate::limits::{content_limit, manifest_retention};
+pub use crate::limits::content_limit;
 pub use crate::platform::{clock, env_flag};
-pub use crate::schema::types::operations::MutationType;
-pub use crate::schema::SchemaState;
-pub use lastdb_model::{
-    canonical, hex, portable_mutation, record_replacement, record_value, storage_policy,
-};
-pub use storage::DatabaseConfig;
+pub use lastdb_model::{canonical, hex, record_replacement, record_value, storage_policy};

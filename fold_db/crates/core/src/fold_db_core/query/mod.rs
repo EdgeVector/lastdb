@@ -28,7 +28,7 @@ pub struct QueryExecutor {
 }
 
 pub mod query_executor {
-    pub use super::{AlternatePage, QueryExecutor};
+    pub use super::AlternatePage;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -53,7 +53,7 @@ pub struct Record {
 pub type QueryRecords = HashMap<KeyValue, Record>;
 
 impl Record {
-    pub fn from_stored(r: &lastdb_model::record_value::StoredRecord) -> Self {
+    pub(crate) fn from_stored(r: &lastdb_model::record_value::StoredRecord) -> Self {
         let meta = r
             .meta
             .as_ref()

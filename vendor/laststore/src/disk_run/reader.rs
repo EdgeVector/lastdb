@@ -30,7 +30,7 @@ struct MemoEntry {
 
 pub(crate) struct MetadataMemo {
     entries: Vec<MemoEntry>,
-    pub(crate) retained_bytes: u64,
+    retained_bytes: u64,
     max_bytes: u64,
 }
 

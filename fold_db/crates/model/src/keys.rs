@@ -38,10 +38,6 @@ pub mod storage_policy {
     const _: () = assert!(BACKUP_RESOURCES.concurrent_streams > 0);
 }
 
-pub mod limits {
-    pub use super::{content_limit, storage_policy};
-}
-
 pub mod kind_partition {
     #[must_use]
     pub fn anchored(kind: &str, rest: &str) -> String {

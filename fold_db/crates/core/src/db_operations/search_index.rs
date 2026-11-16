@@ -255,11 +255,11 @@ pub mod queue_policy {
     }
 
     fn atomic_write(inbox: &Path, name: &str, body: &[u8]) -> io::Result<()> {
-        let mut temp = tempfile::NamedTempFile::new_in(inbox)?;
-        temp.write_all(body)?;
-        temp.as_file().sync_all()?;
-        temp.persist_noclobber(inbox.join(name))
-            .map_err(|e| e.error)?;
+        let tmp = inbox.join(format!(".{name}.tmp"));
+        let mut file = File::create(&tmp)?;
+        file.write_all(body)?;
+        file.sync_all()?;
+        fs::rename(&tmp, inbox.join(name))?;
         File::open(inbox)?.sync_all()
     }
 }

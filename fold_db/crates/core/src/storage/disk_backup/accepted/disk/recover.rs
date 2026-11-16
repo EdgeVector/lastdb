@@ -149,31 +149,31 @@ pub(super) fn read_page(
 
 pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
     let dir = root.join("entries").join(files::seq_name(sequence));
-    let meta = files::read_meta(&dir)?;
-    if meta.sequence != sequence || !super::id_ok(&meta.mutation_id) {
+    let note = files::read_meta(&dir)?.note;
+    if note.sequence != sequence || !super::id_ok(&note.mutation_id) {
         return Err(Error::Gap);
     }
     let envelope = files::verified_bytes(
         &dir.join("body.bin"),
-        meta.envelope_bytes,
-        &meta.envelope_sha256,
+        note.envelope_bytes,
+        &note.envelope_sha256,
         files::body_max(),
     )?;
-    let file_ciphertext = match meta.file_sha256 {
+    let file_ciphertext = match note.file_sha256 {
         Some(expected) => Some(files::verified_bytes(
             &dir.join("file.bin"),
-            meta.file_bytes,
+            note.file_bytes,
             &expected,
             files::file_max(),
         )?),
-        None if meta.file_bytes == 0 && !dir.join("file.bin").exists() => None,
+        None if note.file_bytes == 0 && !dir.join("file.bin").exists() => None,
         None => return Err(Error::Gap),
     };
     Ok(Entry {
         sequence,
-        mutation_id: meta.mutation_id,
+        mutation_id: note.mutation_id,
         envelope,
-        authored_at_ms: meta.authored_at_ms,
+        authored_at_ms: note.authored_at_ms,
         file_ciphertext,
         file_reference: read_reference(&dir)?,
     })

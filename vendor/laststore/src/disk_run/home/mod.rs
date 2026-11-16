@@ -1,17 +1,14 @@
 //! A disk format v2 home: sorted run files and one CURRENT.
 
 mod cleanup;
-mod commit;
 mod compaction;
-mod diagnostics;
 mod manifest;
 mod range;
 mod read;
 
-pub use cleanup::CheckpointSpec;
-pub use commit::{HomeMutation, RunCommit};
-pub use diagnostics::{LogicalInventory, RunHomeDiagnostics};
-pub use manifest::{CURRENT, RUNS};
+pub use cleanup::{CheckpointSpec, LogicalInventory, RunHomeDiagnostics};
+pub use compaction::HomeMutation;
+pub use manifest::RUNS;
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{ReadBudget, RunRead, RunReadCosts, RunRoot, RunSnapshot};
 
@@ -33,8 +30,7 @@ use uuid::Uuid;
 const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME4";
 /// File name of the exclusive owner lock (flock).
 pub const LOCK: &str = "LOCK";
-/// File name of the clear home descriptor.
-pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
+const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
 
 fn invalid(msg: &str) -> Error {
     Error::Config(msg.into())
@@ -68,6 +64,41 @@ fn read_descriptor(path: &Path) -> Result<Uuid> {
     (!id.is_nil())
         .then_some(id)
         .ok_or_else(|| corrupt("nil home identity"))
+}
+
+fn lock_and_load(
+    root: &Path,
+    key: &[u8; 32],
+    create_lock: bool,
+) -> Result<(PathBuf, Uuid, File, Manifest)> {
+    let root_dir = root.canonicalize()?;
+    let identity = read_descriptor(&root_dir.join(RUN_HOME_MARKER))?;
+    let lock = if create_lock {
+        OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600)
+            .custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32)
+            .open(root_dir.join(LOCK))?
+    } else {
+        let f = open_nofollow(&root_dir.join(LOCK))?;
+        if !f.metadata()?.is_file() {
+            return Err(invalid("disk run snapshot: LOCK is not a file"));
+        }
+        f
+    };
+    match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => require_path(&root_dir, &lock)?,
+        Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
+            return Err(Error::HomeBusy(
+                "disk run home: another owner holds the home".into(),
+            ))
+        }
+        Err(e) => return Err(std::io::Error::from(e).into()),
+    }
+    let manifest = Manifest::load(&root_dir, key, identity)?;
+    Ok((root_dir, identity, lock, manifest))
 }
 
 /// An open v2 home. One process owns it; reads and writes share it.
@@ -133,26 +164,7 @@ impl RunHome {
 
     /// Open an existing home, take its owner lock, and remove crash leftovers.
     pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        let root_dir = root.canonicalize()?;
-        let identity = read_descriptor(&root_dir.join(RUN_HOME_MARKER))?;
-        let flags = (OFlags::NOFOLLOW | OFlags::NONBLOCK).bits() as i32;
-        let mut opts = OpenOptions::new();
-        opts.create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(flags);
-        let lock = opts.open(root_dir.join(LOCK))?;
-        match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => require_path(&root_dir, &lock)?,
-            Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
-                return Err(Error::HomeBusy(
-                    "disk run home: another owner holds the home".into(),
-                ))
-            }
-            Err(e) => return Err(std::io::Error::from(e).into()),
-        }
-        let manifest = Manifest::load(&root_dir, key, identity)?;
+        let (root_dir, identity, lock, manifest) = lock_and_load(root, key, true)?;
         for entry in fs::read_dir(&root_dir)? {
             let entry = entry?;
             let name = entry.file_name();

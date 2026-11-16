@@ -2,15 +2,14 @@
 
 mod replace;
 mod replay;
-mod shared_revision;
 mod write_records;
 
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::portable_mutation::Stamp;
 
 use crate::crypto::security::Ed25519KeyPair;
@@ -39,7 +38,7 @@ pub use crate::resident::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 pub use crate::storage::format::metadata::ReplayStamp;
-pub use shared_revision::SharedRecordRevision;
+pub use write_records::SharedRecordRevision;
 
 pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
@@ -69,8 +68,8 @@ impl MutationManager {
     pub fn write_mutations(
         &self,
         mutations: Vec<Mutation>,
-    ) -> BoxFuture<'_, Result<Vec<String>, SchemaError>> {
-        async move { Ok(self.write_mutations_receipt(mutations).await?.mutation_ids) }.boxed()
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, SchemaError>> + Send + '_>> {
+        Box::pin(async move { Ok(self.write_mutations_receipt(mutations).await?.mutation_ids) })
     }
 
     /// Commit an authenticated replay and its receipt in the same native write scope.
@@ -82,7 +81,7 @@ impl MutationManager {
     ) -> Result<Option<T>, SchemaError> {
         let runtime = self.db_ops.native_runtime();
         runtime
-            .replay_accepted(transaction::request_scope(Arc::clone(&runtime), async {
+            .replay_accepted(transaction::scope(Arc::clone(&runtime), async {
                 if self
                     .db_ops
                     .metadata()
@@ -151,7 +150,7 @@ impl MutationManager {
         let runtime = self.db_ops.native_runtime();
         let mut stages = ResidentCommitStages::default();
         let (mutation_ids, record_revisions, operations, revision) =
-            transaction::request_scope(Arc::clone(&runtime), async {
+            transaction::scope(Arc::clone(&runtime), async {
                 if let Some(adm) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
                     if mutations.len() != 1 {
                         return Err(SchemaError::InvalidData(

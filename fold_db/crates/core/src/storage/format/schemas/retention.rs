@@ -34,6 +34,18 @@ pub(crate) enum Tracking {
     Partition,
 }
 
+impl Tracking {
+    pub(crate) const ALL: [Self; 3] = [Self::Age, Self::Latest, Self::Partition];
+
+    pub(crate) fn prefix(self, schema: &str) -> String {
+        match self {
+            Self::Age => retention_age_prefix(schema),
+            Self::Latest => retention_age_latest_prefix(schema),
+            Self::Partition => retention_hash_partition_prefix(schema),
+        }
+    }
+}
+
 pub(crate) enum StateDelete<'a> {
     Key {
         schema: &'a str,
@@ -74,7 +86,7 @@ pub(crate) fn retention_age_prefix(schema: &str) -> String {
     format!("{RETENTION_AGE_KEY_PREFIX}{}\0", fp(schema))
 }
 
-pub(crate) fn retention_age_latest_prefix(schema: &str) -> String {
+fn retention_age_latest_prefix(schema: &str) -> String {
     format!("{RETENTION_AGE_LATEST_PREFIX}{}\0", fp(schema))
 }
 
@@ -140,11 +152,7 @@ pub(super) fn encode_delete(
         }
         StateDelete::Selected { schema, kind, keys } => {
             require_name(schema)?;
-            let prefix = match kind {
-                Tracking::Age => retention_age_prefix(schema),
-                Tracking::Latest => retention_age_latest_prefix(schema),
-                Tracking::Partition => retention_hash_partition_prefix(schema),
-            };
+            let prefix = kind.prefix(schema);
             for key in keys {
                 let suffix = key.strip_prefix(&prefix).ok_or_else(bad)?;
                 let digest = if matches!(kind, Tracking::Age) {
