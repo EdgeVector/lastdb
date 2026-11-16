@@ -39,12 +39,6 @@ export const LASTDB_API_ROUTES = {
   version: '/api/version',
 } as const;
 
-/** Current `lastdbd` Unix-socket protocol `API_VERSION` (`uds_router::API_VERSION`). */
-export const LASTDB_SDK_API_VERSION = 34;
-
-/** Minimum protocol `api_version` supported by `lastdbd` (`MIN_SUPPORTED_API_VERSION`). */
-export const LASTDB_MIN_SUPPORTED_API_VERSION = 29;
-
 /** Header carrying an owner-approved short-lived database session token. */
 export const DATABASE_SESSION_HEADER = 'X-LastDB-Database-Session';
 

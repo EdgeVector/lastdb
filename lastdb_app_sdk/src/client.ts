@@ -8,7 +8,8 @@
 
 import { existsSync } from 'node:fs';
 
-import { databaseScope, LASTDB_SDK_API_VERSION, resolveSessionHeaders } from './apiRoutes.js';
+import { databaseScope, resolveSessionHeaders } from './apiRoutes.js';
+import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
 import { executeDeleteBlob, executeFetchBlob, executePutBlob } from './blobOps.js';
 import type { ClientContext } from './clientHelpers.js';
 import {
