@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::profile::private_fs;
 
+use super::chain as decode;
 use super::chain::Link;
-use super::decode;
 use super::types::SnapshotInstall;
 use super::RestoreError;
 

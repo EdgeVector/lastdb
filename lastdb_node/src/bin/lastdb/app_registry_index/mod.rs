@@ -101,7 +101,7 @@ impl IndexLocation {
 }
 
 async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
-    let mut resp = client
+    let resp = client
         .get(url)
         .send()
         .await
@@ -109,14 +109,9 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
     if !resp.status().is_success() {
         return Err(format!("GET {url} returned {}", resp.status().as_u16()));
     }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| format!("GET {url}: {e}"))? {
-        if bytes.len().saturating_add(chunk.len()) > 2_097_152 {
-            return Err(format!("GET {url}: registry object exceeds 2 MiB"));
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(bytes)
+    lastdb_node::cloud_backup_client::read_bounded_bytes(resp, 2_097_152)
+        .await
+        .map_err(|e| format!("GET {url}: {e}"))
 }
 
 pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, String), String> {

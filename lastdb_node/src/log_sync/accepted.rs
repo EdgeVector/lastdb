@@ -3,7 +3,6 @@
 //! The reader is `accepted_writes`. A page is acknowledged locally only after
 //! every item is published or withheld. Cloud delivery progress stays in `run`.
 
-mod position;
 mod source;
 
 use std::collections::{HashMap, HashSet};
@@ -19,14 +18,13 @@ use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Name
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Item, Page};
+use crate::host::owned::registered_databases;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
-use position::LocalUpload;
-use source::{capture_block, legacy_pending, read_page, PublishPolicy};
+use source::{capture_block, legacy_pending, read_page, LocalUpload, PublishPolicy};
 
 use super::cloud::CloudLog;
-use super::registry;
 use super::retry::{self, Seal};
 use super::{upload, wire};
 
@@ -331,7 +329,7 @@ async fn append_entries(
             }
             continue;
         }
-        if wire::payment_subscription(status, &reply) {
+        if crate::cloud::is_payment_subscription_error(status, &reply) {
             mark_payment_hold(log.database_id());
             return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
         }
@@ -344,10 +342,10 @@ async fn append_entries(
 }
 
 fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {
-    let database = registry::databases(&host.home)
+    let database = registered_databases(&host.home)
         .into_iter()
         .find(|database| database.id == database_id)?;
-    match database.kind.as_str() {
+    match database.kind {
         "personal" => Some(PublishPolicy::Private),
         "shareable" => {
             let spec = database.spec?;

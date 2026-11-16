@@ -1,81 +1,59 @@
-//! Values used to install a database snapshot.
-//!
-//! Parsers live in [`super::wire`]. This module does not open a socket and
-//! does not acknowledge a delivery cursor.
+//! Values and JSON parsers used to install a database snapshot.
 
 use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::CloudScope;
+use cloud_backup_protocol::v2::limits::{
+    CONTROL_JSON_MAX_BYTES, MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES,
+};
+use cloud_backup_protocol::{CloudScope, DecimalU64};
+use serde::Deserialize;
 
 use crate::host::{BlockedDelivery, ReplayBlockReason};
 
 /// One snapshot chain for one database.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotInstall {
-    /// Stable database id. Every part must carry this same id.
     pub database_id: String,
-    /// Tip ref to install.
     pub snapshot_ref: String,
-    /// Every manifest in the `previous_ref` chain, oldest or newest order.
     pub objects: Vec<SnapshotObject>,
 }
 
 /// One snapshot object: its manifest and every part.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotObject {
-    /// Manifest for this ref.
     pub manifest: SnapshotManifest,
-    /// Parts `0 .. manifest.parts`. Order does not matter.
     pub parts: Vec<SnapshotPart>,
 }
 
 /// Manifest fields from I's snapshot response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotManifest {
-    /// Object ref.
     pub snapshot_ref: String,
-    /// Delivery sequence covered by this object and its ancestors.
     pub through_delivery_seq: u64,
-    /// Snapshot clock. Zero is refused.
     pub at_ms: u64,
-    /// Time the service stored the object.
     pub written_at_ms: u64,
-    /// Part count. At least one.
     pub parts: u32,
-    /// Absent when this object's parts are a complete snapshot.
     pub previous_ref: Option<String>,
 }
 
 /// One part of one snapshot object.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotPart {
-    /// Database id. Must match the install request.
     pub database_id: String,
-    /// Snapshot ref. Must match the manifest.
     pub snapshot_ref: String,
-    /// Part index, `0 .. parts`.
     pub index: u32,
-    /// Entries in stored order.
     pub entries: Vec<SnapshotEntry>,
 }
 
 /// One log entry inside a part. `payload_b64` is unpadded URL-safe base64.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct SnapshotEntry {
-    /// Service accept time.
     pub accepted_at_ms: u64,
-    /// Writer node key.
     pub writer_key: String,
-    /// Writer device label.
     pub writer_device: String,
-    /// Writer sequence. Zero is refused.
     pub writer_seq: u64,
-    /// Author time recorded on the entry.
     pub authored_at_ms: u64,
-    /// Namespace. The payload schema must use this same namespace.
     pub namespace: String,
-    /// Incorporation source, when the entry was copied forward.
     pub incorporated_from: Option<IncorporatedFrom>,
-    /// Envelope bytes, unpadded URL-safe base64. Not canonical JSON.
     pub payload_b64: String,
 }
 
@@ -83,43 +61,29 @@ pub struct SnapshotEntry {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IncorporatedFrom {
-    /// Writer node key.
     pub writer_key: String,
-    /// Writer device label.
     pub writer_device: String,
-    /// Writer sequence. Zero is refused.
     pub writer_seq: u64,
 }
 
-/// File bytes E fetches with I's `delivery/object` route.
+/// File bytes fetched with `delivery/object`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SnapshotFileRequest {
-    /// Database that owns the blob.
     pub database_id: String,
-    /// Account scope from the record payload.
     pub scope: CloudScope,
-    /// Blob path from the record payload.
     pub path: BlobPath,
 }
 
 /// Static install failure. The text is a class, never record bytes or a path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestoreError {
-    /// The database id is not a registered database with a verified content key.
     Scope(&'static str),
-    /// The chain, manifest, or part bytes are not acceptable.
     Chain(&'static str),
-    /// One entry's identity or record payload is not acceptable.
     Entry(&'static str),
-    /// Record file bytes are missing, were not uploaded, or do not match the marker.
     File(&'static str),
-    /// Local journal or marker state disagrees with this chain.
     Conflict(&'static str),
-    /// Local state could not be made durable. Nothing was acknowledged.
     Durable(&'static str),
-    /// The open store refused the record, schema, or file seal.
     Apply(&'static str),
-    /// A local rule holds this replay entry and all later deliveries.
     ReplayBlocked {
         reason: ReplayBlockReason,
         delivery_sequence: Option<u64>,
@@ -181,3 +145,88 @@ impl std::fmt::Display for RestoreError {
 }
 
 impl std::error::Error for RestoreError {}
+
+/// Parse one manifest body within the control JSON limit.
+pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError> {
+    let body: ManifestBody = decode_json(bytes, CONTROL_JSON_MAX_BYTES)?;
+    let parts =
+        u32::try_from(body.parts.get()).map_err(|_| RestoreError::Chain("snapshot part"))?;
+    Ok(SnapshotManifest {
+        snapshot_ref: body.snapshot_ref,
+        through_delivery_seq: body.through_delivery_seq.get(),
+        at_ms: body.at_ms.get(),
+        written_at_ms: body.written_at_ms.get(),
+        parts,
+        previous_ref: body.previous_ref,
+    })
+}
+
+/// Parse one part body, including the entry array stored in `part`.
+pub fn part_from_json(bytes: &[u8]) -> Result<SnapshotPart, RestoreError> {
+    let body: PartBody = decode_json(bytes, MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES)?;
+    let docs: Vec<EntryDoc> =
+        serde_json::from_str(&body.part).map_err(|_| RestoreError::Chain("snapshot json"))?;
+    let index =
+        u32::try_from(body.index.get()).map_err(|_| RestoreError::Chain("snapshot part"))?;
+    Ok(SnapshotPart {
+        database_id: body.database_id,
+        snapshot_ref: body.snapshot_ref,
+        index,
+        entries: docs.into_iter().map(entry_from).collect(),
+    })
+}
+
+fn decode_json<'a, T: Deserialize<'a>>(bytes: &'a [u8], maximum: u64) -> Result<T, RestoreError> {
+    if bytes.len() as u64 > maximum {
+        return Err(RestoreError::Chain("snapshot json"));
+    }
+    serde_json::from_slice(bytes).map_err(|_| RestoreError::Chain("snapshot json"))
+}
+
+fn entry_from(doc: EntryDoc) -> SnapshotEntry {
+    SnapshotEntry {
+        accepted_at_ms: doc.accepted_at_ms,
+        writer_key: doc.writer_key,
+        writer_device: doc.writer_device,
+        writer_seq: doc.writer_seq,
+        authored_at_ms: doc.authored_at_ms,
+        namespace: doc.namespace,
+        incorporated_from: doc.incorporated_from,
+        payload_b64: doc.payload,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestBody {
+    snapshot_ref: String,
+    through_delivery_seq: DecimalU64,
+    at_ms: DecimalU64,
+    written_at_ms: DecimalU64,
+    parts: DecimalU64,
+    #[serde(default)]
+    previous_ref: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartBody {
+    database_id: String,
+    snapshot_ref: String,
+    index: DecimalU64,
+    part: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EntryDoc {
+    accepted_at_ms: u64,
+    writer_key: String,
+    writer_device: String,
+    writer_seq: u64,
+    authored_at_ms: u64,
+    namespace: String,
+    #[serde(default)]
+    incorporated_from: Option<IncorporatedFrom>,
+    payload: String,
+}

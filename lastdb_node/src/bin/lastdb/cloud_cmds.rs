@@ -21,8 +21,6 @@ mod dev_keys;
 mod enrollment_home;
 #[path = "cloud_cmds/log_ops.rs"]
 mod log_ops;
-#[path = "cloud_cmds/recovery_home.rs"]
-mod recovery_home;
 #[path = "cloud_cmds/restore.rs"]
 mod restore;
 #[path = "cloud_cmds/setup.rs"]
@@ -72,7 +70,7 @@ pub(super) fn admin_backup_command(
             let expanded = data_dir
                 .map(lastdb_node::profile::paths::expand_tilde_path)
                 .transpose()?;
-            recovery_home::recover_credentials_home(expanded.as_deref(), args)
+            restore::recover_credentials_home(expanded.as_deref(), args)
         }
     }
 }

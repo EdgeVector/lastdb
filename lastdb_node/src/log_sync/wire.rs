@@ -250,10 +250,6 @@ pub(super) fn unsupported_reset(body: &[u8]) -> bool {
     })
 }
 
-pub(crate) fn payment_subscription(status: u16, body: &[u8]) -> bool {
-    crate::cloud::is_payment_subscription_error(status, body)
-}
-
 pub(crate) fn service_error(body: &[u8]) -> Option<LogError> {
     let value: Value = serde_json::from_slice(body).ok()?;
     let code = value.get("code").and_then(Value::as_str).unwrap_or("");

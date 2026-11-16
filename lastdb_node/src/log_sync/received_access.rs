@@ -1,14 +1,99 @@
-//! Recipient-only observations from the signed member read already used by sync.
+//! Signed member-list revision reads and recipient self-access observations.
 
 use std::path::{Path, PathBuf};
 
-use cloud_backup_protocol::{
-    v2::share_access::{ShareMemberRole, ShareWriteScope},
-    DecimalU64,
+use cloud_backup_protocol::canonical_bytes;
+use cloud_backup_protocol::v2::share_access::{
+    MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareWriteScope,
+    SHARE_MEMBER_LIST_READ_PATH,
 };
+use cloud_backup_protocol::v2::{Stream, Version};
+use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
 use serde::{Deserialize, Serialize};
 
-use super::{disk, members::ObservedAccess};
+use super::cloud::CloudLog;
+use super::disk;
+use super::http::Proof;
+
+pub(super) enum ObservedAccess {
+    Active {
+        revision: u64,
+        role: Option<ShareMemberRole>,
+        write_schemas: Option<ShareWriteScope>,
+    },
+    Revoked,
+    Absent,
+}
+
+pub(super) async fn revision(log: &CloudLog) -> Option<u64> {
+    match read_member_access(log, Proof::Data).await {
+        Some(ObservedAccess::Active { revision, .. }) => Some(revision),
+        _ => None,
+    }
+}
+
+pub(super) async fn access(log: &CloudLog) -> Option<ObservedAccess> {
+    read_member_access(log, Proof::SelfAccess).await
+}
+
+async fn read_member_access(log: &CloudLog, proof: Proof) -> Option<ObservedAccess> {
+    let request = MemberListReadRequest {
+        version: Version::V2,
+        stream: Stream {
+            scope: log.scope.clone(),
+            stream_id: Id::try_from(log.database_id().to_owned()).ok()?,
+        },
+    };
+    request.validate().ok()?;
+    let (status, bytes) = log
+        .post_status(
+            SHARE_MEMBER_LIST_READ_PATH,
+            canonical_bytes(&request).ok()?,
+            proof,
+        )
+        .await
+        .ok()?;
+    if (200..300).contains(&status) {
+        return active_access(&bytes, &request.stream);
+    }
+    let refusal: ProtocolError = serde_json::from_slice(&bytes).ok()?;
+    match (refusal.code, refusal.field.as_str()) {
+        (ErrorCode::Unauthorized, "share.grant.revoked") => Some(ObservedAccess::Revoked),
+        (ErrorCode::Unauthorized, "share.grant.absent") => Some(ObservedAccess::Absent),
+        _ => None,
+    }
+}
+
+#[derive(Deserialize)]
+struct AccessRevision {
+    version: Version,
+    database_id: Id,
+    revision: DecimalU64,
+    role: Option<ShareMemberRole>,
+    write_schemas: Option<ShareWriteScope>,
+}
+
+fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
+    if let Ok(view) = serde_json::from_slice::<AccessRevision>(bytes) {
+        if view.version != Version::V2 || view.database_id != stream.stream_id {
+            return None;
+        }
+        return Some(ObservedAccess::Active {
+            revision: view.revision.get(),
+            role: view.role,
+            write_schemas: view.write_schemas,
+        });
+    }
+    let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;
+    if view.version != Version::V2 || view.stream != *stream {
+        return None;
+    }
+    Some(ObservedAccess::Active {
+        revision: view.revision.get(),
+        role: None,
+        write_schemas: None,
+    })
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,16 +127,14 @@ impl AccessView {
             stale: true,
         }
     }
+
+    pub(crate) fn can_submit(&self) -> bool {
+        !self.stale && self.state == AccessState::Active
+    }
 }
 
 fn path(home: &Path, id: &str) -> PathBuf {
     home.join("log-sync").join(id).join("self-access.json")
-}
-
-impl AccessView {
-    pub(crate) fn can_submit(&self) -> bool {
-        !self.stale && self.state == AccessState::Active
-    }
 }
 
 pub(crate) fn view(home: &Path, id: &str) -> AccessView {

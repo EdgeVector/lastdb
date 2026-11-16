@@ -269,7 +269,10 @@ fn validate_binding(binding: &LogBinding<'_>) -> Result<(), LogEnvelopeError> {
     Ok(())
 }
 
-fn refuse_owner_material(node_seed: &[u8; 32], key: &[u8; 32]) -> Result<(), LogEnvelopeError> {
+pub(crate) fn refuse_owner_material(
+    node_seed: &[u8; 32],
+    key: &[u8; 32],
+) -> Result<(), LogEnvelopeError> {
     if key == node_seed || is_zero(key) {
         return Err(LogEnvelopeError::Key);
     }
@@ -299,11 +302,7 @@ fn node_key(value: &str) -> Result<(), LogEnvelopeError> {
 }
 
 fn require_label(value: &str) -> Result<(), LogEnvelopeError> {
-    let legal = (1..=64).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
-    if legal {
+    if crate::profile::valid_label_64(value) {
         Ok(())
     } else {
         Err(LogEnvelopeError::InvalidBinding)

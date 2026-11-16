@@ -2,9 +2,9 @@
 //! (`POST /api/cloud/backups/v2/mutation-log/blob/bytes`).
 
 use super::{
-    AuthClient, BackupTransport, BackupTransportError as E, PresignedPut, TransportResult,
+    authorization_post, AuthClient, BackupTransport, BackupTransportError as E, PathPostTarget,
+    PresignedPut, TransportResult,
 };
-use crate::node_read::{authorization_post, PathPostTarget};
 use crate::profile::endpoints::{environment_for_exemem_api_url, Environment};
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::context::{ContextReadRequest, ContextReadResponse};
@@ -106,7 +106,7 @@ impl SignedBlobClient {
         request: &ContextReadRequest,
     ) -> TransportResult<ContextReadResponse> {
         request.validate()?;
-        let derived = crate::service_home::user_hash_from_pubkey(&self.keypair.public_key_base64())
+        let derived = crate::profile::user_hash_from_pubkey(&self.keypair.public_key_base64())
             .map_err(|_| E::Configuration("identity"))?;
         if derived != request.account_id.as_str() {
             return Err(E::Configuration("account identity"));

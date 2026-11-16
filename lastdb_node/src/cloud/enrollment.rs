@@ -1,12 +1,13 @@
 //! Home identity key loading, recovery-phrase derivation, environment pinning, and device enrollment.
-use super::{load_saved_credentials, read_private_named};
+use super::{load_saved_credentials, read_private_named, SavedConnection};
 use crate::cloud_backup_client::{
-    bounded, build_shared_http_client, https, AuthClient, SignedBlobClient,
+    build_shared_http_client, https, read_bounded_bytes, AuthClient, SignedBlobClient,
 };
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
-use crate::service_home::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
+use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use app_identity_crypto::SigningKey;
-use cloud_backup_protocol::AccountId;
+use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
+use cloud_backup_protocol::{AccountId, CloudScope};
 use fold_db::security::Ed25519KeyPair;
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -15,19 +16,107 @@ use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
+pub struct VerifiedHomeCredentials {
+    pub env: Environment,
+    pub api_url: &'static str,
+    pub api_key: Zeroizing<String>,
+    pub connection: Option<SavedConnection>,
+    pub expected_account_id: Option<String>,
+}
+
+pub struct ConnectedHomeContext {
+    pub env: Environment,
+    pub api_url: &'static str,
+    pub api_key: Zeroizing<String>,
+    pub keypair: Arc<Ed25519KeyPair>,
+    pub account_id: AccountId,
+    pub scope: CloudScope,
+}
+
 pub fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
     load_home_keypair(home)?
         .map(|pair| user_hash_from_pubkey(&pair.public_key_base64()))
         .transpose()
 }
 
+pub fn load_verified_cloud_credentials(
+    home: &Path,
+) -> Result<Option<VerifiedHomeCredentials>, String> {
+    let Some(creds) = load_saved_credentials(home)? else {
+        return Ok(None);
+    };
+    let env = endpoints::environment_for_exemem_api_url(&creds.api_url)
+        .ok_or("saved cloud credentials do not match a compiled Exemem environment")?;
+    let expected_account_id = load_home_account_id(home)?;
+    if let Some(conn) = &creds.connection {
+        if conn.environment != env.as_str() {
+            return Err("saved cloud connection environment does not match credentials URL".into());
+        }
+        if let Some(expected) = &expected_account_id {
+            if conn.account_id.as_str() != expected {
+                return Err(
+                    "saved cloud connection account does not match this home's identity.key".into(),
+                );
+            }
+        }
+    }
+    Ok(Some(VerifiedHomeCredentials {
+        env,
+        api_url: exemem_api_url_for(env),
+        api_key: creds.api_key,
+        connection: creds.connection,
+        expected_account_id,
+    }))
+}
+
+pub async fn load_connected_home_context(
+    home: &Path,
+    keypair: Option<Arc<Ed25519KeyPair>>,
+) -> Result<ConnectedHomeContext, String> {
+    let creds = load_verified_cloud_credentials(home)?
+        .ok_or("no saved cloud credentials — run 'lastdb backup connect' first")?;
+    let conn = creds
+        .connection
+        .as_ref()
+        .ok_or("saved cloud credentials have no account connection")?;
+    let keypair = match keypair {
+        Some(pair) => pair,
+        None => Arc::new(
+            load_home_keypair(home)?.ok_or("cloud sync needs an initialized home identity")?,
+        ),
+    };
+    let account_id = AccountId::try_from(user_hash_from_pubkey(&keypair.public_key_base64())?)
+        .map_err(|_| "invalid native account identity".to_owned())?;
+    if conn.account_id != account_id {
+        return Err("saved cloud connection account does not match this home's identity".into());
+    }
+    let backup = SignedBlobClient::from_auth_and_keypair(
+        AuthClient::new(creds.api_url.to_owned(), creds.api_key.as_str().to_owned()),
+        Arc::clone(&keypair),
+    )
+    .map_err(|error| error.to_string())?;
+    if conn.endpoint != backup.canonical_endpoint() {
+        return Err("saved cloud connection endpoint does not match compiled environment".into());
+    }
+    let context = backup
+        .context(&ContextReadRequest {
+            version: Version::V2,
+            account_id: account_id.clone(),
+            required_destinations: Vec::new(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ConnectedHomeContext {
+        env: creds.env,
+        api_url: creds.api_url,
+        api_key: creds.api_key,
+        keypair,
+        account_id,
+        scope: context.scope,
+    })
+}
+
 /// Recover the stable, domain-separated publisher signing key for a LastDB account.
-///
-/// This keeps the app registry signing key separate from the account key used
-/// for cloud registration and backup. The same account can publish after restore.
-///
-/// # Errors
-/// Returns an error when the private native identity cannot be read or derived.
 pub fn app_publisher_signing_key(home: &Path) -> Result<SigningKey, String> {
     let pair =
         load_home_keypair(home)?.ok_or("connect a native LastDB home before publishing an app")?;
@@ -154,12 +243,11 @@ pub async fn register_native_device(
     .map_err(|_| "Invalid Exemem API URL for register".to_owned())?;
     let expected = user_hash_from_pubkey(&keypair.public_key_base64())
         .map_err(|_| "Cannot derive native account identity".to_owned())?;
-    let req = build_shared_http_client()
+    let resp = build_shared_http_client()
         .map_err(|_| "cannot construct native registration client")?
         .post(url.clone())
         .timeout(Duration::from_secs(30))
-        .json(&body);
-    let resp = observability::propagation::inject_w3c(req)
+        .json(&body)
         .send()
         .await
         .map_err(|_| "native registration request failed")?;
@@ -172,7 +260,7 @@ pub async fn register_native_device(
             resp.status().as_u16()
         ));
     }
-    let bytes = bounded(resp, 65_536)
+    let bytes = read_bounded_bytes(resp, 65_536)
         .await
         .map_err(|_| "cannot read native registration response")?;
     let json: serde_json::Value =

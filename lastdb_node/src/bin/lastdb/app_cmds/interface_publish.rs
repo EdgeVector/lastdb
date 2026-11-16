@@ -8,7 +8,6 @@ use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
 use lastdb_node::profile::endpoints::{registry_api_url_for, Environment};
 use serde_json::{json, Value};
-use std::io::Write;
 use std::process::Command;
 use std::time::Duration;
 
@@ -213,12 +212,8 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     };
     let mut payload = publish_payload(home, input)?;
     if let Some(path) = &input.prepare {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .and_then(|mut f| f.write_all(&serde_json::to_vec_pretty(&payload).unwrap_or_default()))
-            .map_err(|e| e.to_string())?;
+        let pretty = serde_json::to_vec_pretty(&payload).unwrap_or_default();
+        crate::write_new_private_file(path, &pretty, "prepared app declaration")?;
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }

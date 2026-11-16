@@ -21,22 +21,19 @@ mod accepted_record;
 mod apply;
 mod archived;
 mod chain;
-mod decode;
 mod journal;
 mod owned;
 mod page;
 mod payload;
 mod types;
-mod wire;
 
 pub use payload::{AcceptedBody, FileObject, FileSection};
 pub use types::{
-    IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest, SnapshotInstall,
-    SnapshotManifest, SnapshotObject, SnapshotPart,
+    manifest_from_json, part_from_json, IncorporatedFrom, RestoreError, SnapshotEntry,
+    SnapshotFileRequest, SnapshotInstall, SnapshotManifest, SnapshotObject, SnapshotPart,
 };
-pub use wire::{manifest_from_json, part_from_json};
 
-pub(crate) use decode::binding as snapshot_binding;
+pub(crate) use chain::binding as snapshot_binding;
 pub(crate) use owned::replay_owned;
 pub(crate) use page::DeliveredEntry;
 
@@ -69,7 +66,7 @@ pub(crate) async fn install(
         &request.objects,
     )?;
     let decoder = target.decoder(&request.database_id);
-    decode::check_chain(decoder, &chain)?;
+    chain::check_chain(decoder, &chain)?;
     let mut journal = journal::load(&host.home, &request.database_id)?
         .unwrap_or_else(|| journal::Journal::fresh(&request.database_id, &request.snapshot_ref));
     let plan = journal::plan(&journal, request, &chain)?;
@@ -137,8 +134,8 @@ struct RestoreTarget {
 }
 
 impl RestoreTarget {
-    fn decoder<'a>(&'a self, database_id: &'a str) -> decode::EntryDecoder<'a> {
-        decode::EntryDecoder {
+    fn decoder<'a>(&'a self, database_id: &'a str) -> chain::EntryDecoder<'a> {
+        chain::EntryDecoder {
             key: &self.key,
             database_id,
             private: self.private,

@@ -7,13 +7,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
-use cloud_backup_protocol::CloudScope;
-use cloud_backup_protocol::Id;
+use cloud_backup_protocol::{CloudScope, Id};
 use fold_db::security::Ed25519KeyPair;
 use mutation_log::LogError;
 use reqwest::Url;
 
-use crate::node_read::{self, PathPostTarget};
+use crate::cloud_backup_client::{
+    authorization_post, build_shared_http_client, read_bounded_bytes, PathPostTarget,
+};
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::wire;
@@ -51,15 +52,13 @@ pub(crate) struct Endpoint {
 }
 
 /// Saved connection environment and the endpoint that environment already uses.
-pub(crate) fn selected_service(home: &std::path::Path) -> Result<SelectedService, String> {
+pub(crate) fn selected_service(home: &Path) -> Result<SelectedService, String> {
     let saved = crate::cloud::load_saved_credentials(home)?
         .ok_or("log sync needs saved cloud credentials")?;
     saved_service(&saved)
 }
 
-pub(super) fn saved_service(
-    saved: &crate::cloud::SavedCredentials,
-) -> Result<SelectedService, String> {
+fn saved_service(saved: &crate::cloud::SavedCredentials) -> Result<SelectedService, String> {
     let connection = saved
         .connection
         .as_ref()
@@ -90,14 +89,7 @@ impl Endpoint {
             Some(port) => format!("{}://{host}:{port}", url.scheme()),
             None => format!("{}://{host}", url.scheme()),
         };
-        // trace-egress: propagate — log sync posts to the enrolled service.
-        let http = reqwest::Client::builder()
-            .https_only(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|_| "cannot build the log sync client")?;
+        let http = build_shared_http_client().map_err(|_| "cannot build the log sync client")?;
         Ok(Self {
             origin,
             environment,
@@ -160,6 +152,7 @@ impl Endpoint {
         let mut http_request = self
             .http
             .post(url)
+            .timeout(Duration::from_secs(30))
             .header(reqwest::header::AUTHORIZATION, header)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
         if matches!(request.proof, Proof::SelfAccess) {
@@ -171,20 +164,22 @@ impl Endpoint {
             };
             http_request = http_request.header("X-API-Key", key.as_str());
         }
-        let response =
-            observability::propagation::inject_w3c(http_request.body(request.body.to_vec()))
-                .send()
-                .await
-                .map_err(|_| LogError::UnexpectedOutcome)?;
+        let response = http_request
+            .body(request.body.to_vec())
+            .send()
+            .await
+            .map_err(|_| LogError::UnexpectedOutcome)?;
         let status = response.status().as_u16();
-        let bytes = read_limited(response, limit).await?;
+        let bytes = read_bounded_bytes(response, limit)
+            .await
+            .map_err(|_| LogError::UnexpectedOutcome)?;
         Ok((status, bytes))
     }
 
     fn authorize(&self, request: &LogRequest<'_>, now_ms: u64) -> Result<String, String> {
         let environment = ShareEnvironment::parse(self.environment)
             .map_err(|_| "cloud connection environment is not dev or prod".to_owned())?;
-        node_read::authorization_post(
+        authorization_post(
             request.keypair,
             PathPostTarget {
                 scope: request.scope,
@@ -197,19 +192,4 @@ impl Endpoint {
             now_ms,
         )
     }
-}
-
-async fn read_limited(response: reqwest::Response, limit: u64) -> Result<Vec<u8>, LogError> {
-    let length = response.content_length().unwrap_or(0);
-    if length > limit {
-        return Err(LogError::UnexpectedOutcome);
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|_| LogError::UnexpectedOutcome)?;
-    if bytes.len() as u64 > limit {
-        return Err(LogError::UnexpectedOutcome);
-    }
-    Ok(bytes.to_vec())
 }

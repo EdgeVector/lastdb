@@ -3,14 +3,12 @@
 use std::fs;
 use std::path::Path;
 
-use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{CloudScope, Digest, Id};
 use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::disk_backup::{
     accepted::{UploadIdentity, UploadPosition},
     stopped_sync::SyncBoundary,
 };
-use mutation_log::MutationLog;
 use serde::{Deserialize, Serialize};
 
 use crate::host::{owned, Host};
@@ -92,10 +90,9 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
             .map_err(|_| "could not read the local upload position")?
             .is_none()
     {
-        let c = log.clone();
-        let writer = tokio::task::spawn_blocking(move || c.writer_tip(c.principal(), &c.reader()))
+        let writer = log
+            .writer_tip_async()
             .await
-            .map_err(|_| "native recovery writer check stopped")?
             .map_err(|_| "could not verify the native recovery writer's accepted entries")?;
         if writer != 0 {
             return Err(
@@ -114,7 +111,7 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         device_id: log.device().as_str().to_owned(),
         principal: log.principal().as_str().to_owned(),
         cursor,
-        data: inode(&host.home.join("data")).map_err(|e| io_error(&e))?,
+        data: inode(&host.home.join("data"))?,
         boundary: runtime
             .sync_boundary(&upload)
             .await
@@ -150,7 +147,7 @@ pub(super) async fn prepare(
     if prepared_native_recovery(&host.home)?
         || cut.snapshot_through.get() <= origin.cursor
         || through < cut.snapshot_through.get()
-        || inode(&stage.path).map_err(|error| io_error(&error))? != stage.inode
+        || inode(&stage.path)? != stage.inode
         || stage.path.parent() != Some(host.home.as_path())
         || session::load_cursor(stage.path(), origin.database_id.as_str())? != through
     {
@@ -165,7 +162,7 @@ pub(super) async fn prepare(
         return Err("local writes or cloud scope changed while preparing recovery".into());
     }
     let data = stage.path.join("data");
-    let stage_data = inode(&data).map_err(|error| io_error(&error))?;
+    let stage_data = inode(&data)?;
     if !stage_data.same_device(origin.data) {
         return Err("native recovery needs both data directories on one filesystem".into());
     }
@@ -223,15 +220,10 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     let stage_home = home.join(valid_stage_name(&journal.stage_name)?);
     let data = home.join("data");
     let staged = stage_home.join("data");
-    if journal.version != 1
-        || inode(&stage_home).map_err(|error| io_error(&error))? != journal.stage_home
-    {
+    if journal.version != 1 || inode(&stage_home)? != journal.stage_home {
         return Err("native recovery stage identity changed".into());
     }
-    let order = (
-        inode(&data).map_err(|error| io_error(&error))?,
-        inode(&staged).map_err(|error| io_error(&error))?,
-    );
+    let order = (inode(&data)?, inode(&staged)?);
     let prior = (journal.origin.data, journal.stage_data);
     if order == (prior.1, prior.0) {
         let seed = seed(home)?;
@@ -252,17 +244,7 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     {
         return bail();
     }
-    let Ok(client) = crate::cloud::client_from_home(home) else {
-        return bail();
-    };
-    let Ok(current) = client
-        .context(&ContextReadRequest {
-            version: Version::V2,
-            account_id: journal.origin.scope.account_id.clone(),
-            required_destinations: Vec::new(),
-        })
-        .await
-    else {
+    let Ok(current) = crate::cloud::load_connected_home_context(home, None).await else {
         return bail();
     };
     if current.scope != journal.origin.scope || identity_matches(home, &journal.origin).is_err() {
@@ -352,7 +334,7 @@ fn identity_matches(home: &Path, origin: &Origin) -> Result<(), String> {
     let device = disk::read_limited(&home.join("log-sync").join("device-id"), 128)
         .map_err(|error| io_error(&error))?
         .ok_or("missing original sync device")?;
-    let owner = super::super::registry::databases(home).into_iter().next();
+    let owner = owned::registered_databases(home).into_iter().next();
     if hex::encode(pair.public_key_bytes()) != origin.principal
         || std::str::from_utf8(&device).ok().map(str::trim) != Some(origin.device_id.as_str())
         || saved_environment(home, &origin.scope)? != origin.environment

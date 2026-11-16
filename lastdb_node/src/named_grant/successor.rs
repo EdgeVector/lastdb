@@ -1,8 +1,6 @@
 //! Build the next whole member set. Revoked rows stay. Regrant is explicit.
 
-use super::session::PublisherSession;
-use super::MemberAck;
-use super::MemberIntent;
+use super::{MemberAck, MemberIntent, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
     Ed25519Signature, MemberListReadResponse, MemberListUpdate, ShareMember, ShareMemberRole,
     ShareMemberState,

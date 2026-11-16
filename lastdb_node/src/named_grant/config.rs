@@ -1,6 +1,6 @@
 //! Publisher access to ExeMem's complete signed member configuration.
 
-use super::{exchange, pending, session, successor};
+use super::{exchange, pending, successor, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
     MemberListReadResponse, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
@@ -107,7 +107,7 @@ pub(crate) async fn read_config(
     {
         return Err(ConfigError::Pending);
     }
-    let session = session::open(home)
+    let session = PublisherSession::open(home)
         .await
         .map_err(|e| unconfirmed_or_payment(&e))?;
     let document = read(&session, database_id).await?;
@@ -142,7 +142,7 @@ pub(crate) async fn set_config(
         }
     }
     let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
-    let session = session::open(home)
+    let session = PublisherSession::open(home)
         .await
         .map_err(|e| unconfirmed_or_payment(&e))?;
     let expected = request.expected_revision.get();
@@ -179,7 +179,7 @@ pub(crate) async fn set_config(
 }
 
 pub(super) async fn read(
-    session: &session::PublisherSession,
+    session: &PublisherSession,
     database_id: &str,
 ) -> Result<MemberListReadResponse, ConfigError> {
     let document = exchange::read_document(session, database_id)
@@ -202,7 +202,7 @@ pub(crate) async fn lock_applied(
     {
         return Err(ConfigError::Pending);
     }
-    let session = session::open(home)
+    let session = PublisherSession::open(home)
         .await
         .map_err(|e| unconfirmed_or_payment(&e))?;
     Ok((lock, read(&session, database_id).await?))

@@ -6,17 +6,30 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::{Entry, Kind, OwnedError, SpecBinding};
+use super::{Entry, Kind, OwnedError};
+use crate::profile::PublicationSpec;
 
 pub(super) const FORMAT: u32 = 1;
 const REGISTRY_DIR: &str = "databases";
 const REGISTRY_FILE: &str = "registry.json";
+const REGISTRY_LIMIT: usize = 65_536;
+
+/// One database this node owns. `native` is an owned sibling, not the owner row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RegisteredDatabase {
+    pub id: String,
+    pub name: Option<String>,
+    pub kind: &'static str,
+    pub spec: Option<PublicationSpec>,
+    pub native: bool,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RegistryFile {
     pub format: u32,
     pub owner: Entry,
+    #[serde(default)]
     pub owned: Vec<Entry>,
 }
 
@@ -47,6 +60,104 @@ pub(crate) fn prepare_snapshot_restore(
     write(home, &file).map_err(|e| e.to_string())
 }
 
+/// Owner row, then each usable owned sibling.
+pub(crate) fn registered_databases(home: &Path) -> Vec<RegisteredDatabase> {
+    let Some(bytes) =
+        crate::profile::private_fs::read_limited(&registry_path(home), REGISTRY_LIMIT)
+            .ok()
+            .flatten()
+    else {
+        return Vec::new();
+    };
+    let Ok(file) = serde_json::from_slice::<RegistryFile>(&bytes) else {
+        return Vec::new();
+    };
+    if file.format != FORMAT {
+        return Vec::new();
+    }
+    let Some(owner) = accept_registered(&file.owner, false) else {
+        return Vec::new();
+    };
+    let mut rows = vec![owner];
+    for entry in &file.owned {
+        let Some(row) = accept_registered(entry, true) else {
+            continue;
+        };
+        if rows.iter().any(|existing| existing.id == row.id) {
+            continue;
+        }
+        rows.push(row);
+    }
+    rows
+}
+
+fn accept_registered(row: &Entry, native: bool) -> Option<RegisteredDatabase> {
+    require_id(&row.id).ok()?;
+    let spec = match &row.spec {
+        Some(spec) if validate_binding(Some(spec)).is_ok() => Some(spec.clone()),
+        Some(_) if native => return None,
+        None | Some(_) => None,
+    };
+    Some(RegisteredDatabase {
+        id: row.id.clone(),
+        name: row.name.clone(),
+        kind: row.kind.as_str(),
+        spec,
+        native,
+    })
+}
+
+/// Resolve one shareable sibling by id or exact name.
+pub(crate) fn find_shareable(home: &Path, selector: &str) -> Result<Entry, String> {
+    if !crate::profile::valid_label_64(selector) {
+        return Err("invalid database selector".into());
+    }
+    let file = read(home)
+        .map_err(|_| "database registry is unavailable".to_owned())?
+        .ok_or("database is not registered on this node")?;
+    if matches_entry(&file.owner, selector) {
+        return Err("personal database is not shareable".into());
+    }
+    let mut found = None;
+    for entry in &file.owned {
+        if !matches_entry(entry, selector) {
+            continue;
+        }
+        if found.is_some() {
+            return Err("database registry is unavailable".into());
+        }
+        found = Some(entry.clone());
+    }
+    let Some(entry) = found else {
+        return Err("database is not registered on this node".into());
+    };
+    if entry.kind != Kind::Shareable {
+        return Err("database is not shareable".into());
+    }
+    if entry.spec.is_none() {
+        return Err("share creation requires a spec binding".into());
+    }
+    if cloud_backup_protocol::Id::try_from(entry.id.clone()).is_err() {
+        return Err("database registry is unavailable".into());
+    }
+    Ok(entry)
+}
+
+/// True when this id or name is already the owner or an owned sibling.
+pub(crate) fn registry_claims(home: &Path, id: &str, name: Option<&str>) -> Result<bool, ()> {
+    let Some(file) = read(home).map_err(|_| ())? else {
+        return Ok(false);
+    };
+    let claimed = |entry: &Entry| {
+        entry.id == id || name.is_some_and(|name| entry.name.as_deref() == Some(name))
+    };
+    Ok(claimed(&file.owner) || file.owned.iter().any(claimed))
+}
+
+fn matches_entry(entry: &Entry, selector: &str) -> bool {
+    entry.id == selector || entry.name.as_deref() == Some(selector)
+}
+
 pub(super) fn read(home: &Path) -> Result<Option<RegistryFile>, String> {
     let path = registry_path(home);
     if !path.is_file() {
@@ -59,7 +170,6 @@ pub(super) fn read(home: &Path) -> Result<Option<RegistryFile>, String> {
 }
 
 pub(super) struct WriteError {
-    /// The temp file was renamed onto `registry.json`. The previous file is gone.
     pub renamed: bool,
     message: String,
 }
@@ -104,8 +214,7 @@ fn write_temp(temporary: &Path, bytes: &[u8]) -> Result<(), String> {
     file.write_all(bytes)
         .map_err(|error| format!("write database registry: {error}"))?;
     file.sync_all()
-        .map_err(|error| format!("sync database registry: {error}"))?;
-    Ok(())
+        .map_err(|error| format!("sync database registry: {error}"))
 }
 
 impl WriteError {
@@ -140,14 +249,17 @@ pub(super) fn fresh_id(used: &HashSet<String>) -> Result<String, OwnedError> {
     Err(OwnedError::Unavailable)
 }
 
-pub(crate) fn validate_create(name: &str, spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
+pub(crate) fn validate_create(
+    name: &str,
+    spec: Option<&PublicationSpec>,
+) -> Result<(), OwnedError> {
     if !crate::profile::valid_database_name(name) {
         return Err(OwnedError::InvalidName);
     }
     validate_binding(spec)
 }
 
-pub(super) fn validate_binding(spec: Option<&SpecBinding>) -> Result<(), OwnedError> {
+pub(super) fn validate_binding(spec: Option<&PublicationSpec>) -> Result<(), OwnedError> {
     if let Some(spec) = spec {
         if !crate::profile::valid_label_64(&spec.name) || spec.version == 0 {
             return Err(OwnedError::InvalidSpec);
@@ -209,8 +321,7 @@ fn accept_sibling(
         ));
     }
     validate_create(&name, entry.spec.as_ref())
-        .map_err(|_| format!("owned database {name} failed its name or spec binding check"))?;
-    Ok(())
+        .map_err(|_| format!("owned database {name} failed its name or spec binding check"))
 }
 
 fn require_id(id: &str) -> Result<(), String> {

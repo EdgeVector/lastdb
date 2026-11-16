@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use cloud_backup_protocol::{CloudScope, Id};
-use mutation_log::{ListPage, LogError, MutationLog};
+use mutation_log::{ListPage, LogError};
 use zeroize::Zeroizing;
 
 use crate::database_replay::{self, snapshot_binding, SnapshotEntry};
@@ -145,10 +145,8 @@ async fn place(
 }
 
 pub(super) async fn head(log: &CloudLog) -> Result<u64, String> {
-    let log = log.clone();
-    tokio::task::spawn_blocking(move || log.head(log.principal()))
+    log.head_async()
         .await
-        .map_err(|_| "signed recovery head did not complete")?
         .map(|head| head.map_or(0, |head| head.cursor))
         .map_err(|error| error.to_string())
 }
@@ -209,12 +207,7 @@ fn decode_payload(entry: &SnapshotEntry) -> Result<Vec<u8>, String> {
 }
 
 async fn read_page(log: &CloudLog, after: u64) -> Result<ListPage, LogError> {
-    let log = log.clone();
-    tokio::task::spawn_blocking(move || {
-        log.list(log.principal(), after, mutation_log::LIST_PAGE_LIMIT, 0)
-    })
-    .await
-    .map_err(|_| LogError::UnexpectedOutcome)?
+    log.list_async(after).await
 }
 
 pub(super) async fn count_entries(log: &CloudLog, cap: u64) -> Result<u64, String> {

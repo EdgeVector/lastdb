@@ -13,16 +13,15 @@ use fold_db::security::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
 
 use super::Host;
+use crate::profile::PublicationSpec;
 
-mod create;
-mod lookup;
 mod registry;
 mod store;
 
-pub(crate) use registry::prepare_snapshot_restore;
-
-pub(crate) use lookup::{find_shareable, registry_claims};
-pub(crate) use registry::validate_create;
+pub(crate) use registry::{
+    find_shareable, prepare_snapshot_restore, registered_databases, registry_claims,
+    validate_create, RegisteredDatabase,
+};
 
 /// AES content key for one owned sibling. Callers must not treat this as a
 /// signing seed.
@@ -44,28 +43,31 @@ pub(crate) enum Kind {
     Shareable,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SpecBinding {
-    pub name: String,
-    pub version: u32,
+impl Kind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Personal => "personal",
+            Self::Shareable => "shareable",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Entry {
     pub id: String,
+    #[serde(default)]
     pub name: Option<String>,
     pub kind: Kind,
-    pub spec: Option<SpecBinding>,
+    #[serde(default)]
+    pub spec: Option<PublicationSpec>,
 }
 
 impl Entry {
     pub(crate) fn whole_database(&self) -> bool {
-        self.spec.as_ref().is_some_and(|spec| {
-            database_policy::SpecBinding::new(&spec.name, spec.version)
-                .is_ok_and(|binding| binding.is_whole_database())
-        })
+        self.spec
+            .as_ref()
+            .is_some_and(PublicationSpec::whole_database)
     }
 }
 
@@ -199,7 +201,7 @@ impl Tables {
         &self,
         home: &Path,
         id: &str,
-        spec: Option<SpecBinding>,
+        spec: Option<PublicationSpec>,
     ) -> Result<Entry, OwnedError> {
         let mut state = self.write()?;
         let index = state

@@ -1,62 +1,35 @@
 //! Read and extend the immutable acceptance index for one personal cloud log.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
-use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
-use cloud_backup_protocol::{AccountId, DecimalU64, Id};
+use cloud_backup_protocol::{DecimalU64, Id};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::cloud_backup_client::{AuthClient, SignedBlobClient};
+use crate::cloud::load_connected_home_context;
+use crate::host::owned::registered_databases;
 
-use super::{cloud::CloudLog, http, registry, session, snapshot::transport};
+use super::{cloud::CloudLog, http, session, snapshot::transport};
 
 pub(super) async fn personal_log(home: &Path, selector: &str) -> Result<(Id, CloudLog), String> {
-    let database = registry::databases(home)
+    let database = registered_databases(home)
         .into_iter()
         .find(|db| {
             !db.native && db.kind == "personal" && (db.id == selector || selector == "personal")
         })
         .ok_or("select personal or its exact database id in this home")?;
     let database = Id::try_from(database.id).map_err(|error| error.to_string())?;
-    let mut saved = crate::cloud::load_saved_credentials(home)?
-        .ok_or("cloud log maintenance needs the existing saved cloud connection")?;
-    let selected = http::saved_service(&saved)?;
-    let keypair = Arc::new(
-        crate::cloud::load_home_keypair(home)?.ok_or("home has no existing owner identity")?,
-    );
-    let account = crate::service_home::user_hash_from_pubkey(&keypair.public_key_base64())?;
-    let account = AccountId::try_from(account).map_err(|error| error.to_string())?;
-    if saved.connection.as_ref().map(|conn| &conn.account_id) != Some(&account) {
-        return Err("the saved cloud connection belongs to a different owner identity".into());
-    }
+    let ctx = load_connected_home_context(home, None).await?;
     let device = session::saved_device_id(home)?.ok_or("home has no existing sync device id")?;
-    let endpoint = http::Endpoint::open(&selected.api_url, selected.label)?;
-    let backup = SignedBlobClient::from_auth_and_keypair(
-        AuthClient::new(saved.api_url, std::mem::take(&mut *saved.api_key)),
-        Arc::clone(&keypair),
-    )
-    .map_err(|error| error.to_string())?;
-    let context = backup
-        .context(&ContextReadRequest {
-            version: Version::V2,
-            account_id: account.clone(),
-            required_destinations: Vec::new(),
-        })
-        .await
-        .map_err(|_| "cloud account context failed")?;
-    if context.scope.account_id != account {
-        return Err("the cloud returned a different owner account".into());
-    }
+    let endpoint = http::Endpoint::open(ctx.api_url, ctx.env.as_str())?;
     let log = CloudLog::open_offline(
         endpoint,
-        context.scope,
+        ctx.scope,
         database.clone(),
         &device,
-        keypair,
-        selected.label,
+        ctx.keypair,
+        ctx.env.as_str(),
     )?;
     Ok((database, log))
 }

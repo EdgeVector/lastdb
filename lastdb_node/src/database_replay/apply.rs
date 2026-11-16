@@ -7,7 +7,7 @@ use fold_db::schema::types::{
     CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query, SchemaError,
 };
 
-use super::decode;
+use super::chain;
 use super::payload::{self, FileFetch, RecordFile, SchemaChange};
 use super::types::{SnapshotEntry, SnapshotFileRequest};
 use super::RestoreError;
@@ -47,7 +47,7 @@ async fn load_file(
             path: fetch.object.path.clone(),
         })
         .await?;
-    let binding = decode::binding(database_id, entry);
+    let binding = chain::binding(database_id, entry);
     let plain = crate::log_envelope::open_blob(key, &binding, &sealed)
         .map_err(|_| RestoreError::File("snapshot file"))?;
     if !plain_matches(&plain, &fetch.marker) {

@@ -1,6 +1,6 @@
 //! Node-owned Share bindings on top of the registration cache.
 use super::{
-    files, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
+    private_directory, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
     MANAGED_SHARE_DIRECTORY,
 };
 use crate::registered_share::RegisteredShare;
@@ -41,12 +41,12 @@ impl ShareCache {
         let root = home.join(MANAGED_SHARE_DIRECTORY);
         let recipient = crate::share_invitation::recipient(&home)
             .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
-        files::private_directory(&root, create)?;
+        private_directory(&root, create)?;
         Ok(Some(Self { root, recipient }))
     }
 
     pub(crate) fn managed_ids(&self) -> Result<Vec<Id>> {
-        let directory = files::private_directory(&self.root, false)?;
+        let directory = private_directory(&self.root, false)?;
         let mut ids = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let name = entry?
@@ -99,7 +99,7 @@ impl ShareCache {
         if expected.is_some_and(|expected| expected.as_str() != id.as_str()) {
             return Err(ShareCacheError::Invalid("database id"));
         }
-        let directory = files::private_directory(&self.root, false)?;
+        let directory = private_directory(&self.root, false)?;
         let lock = directory
             .open_lock(REGISTRY_LOCK)
             .map_err(|_| ShareCacheError::Invalid("registry lock"))?;

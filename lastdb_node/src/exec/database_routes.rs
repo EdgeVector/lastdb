@@ -1,7 +1,5 @@
 //! Database selection and scoped request dispatch on the owner socket.
 
-mod catalog;
-
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
@@ -32,10 +30,12 @@ pub(in crate::exec) async fn execute_database_request(
         return super::database_session::issue(req, ctx, host);
     }
     match (req.method.as_str(), req.target.as_str()) {
-        ("GET", DATABASES_PATH) => return catalog::list(ctx, host),
+        ("GET", DATABASES_PATH) => return database_owned::list(ctx, host),
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
         ("POST", database_owned::SPEC_PATH) => return database_owned::bind(req, ctx, host),
-        ("POST", catalog::ACCEPT_PATH) => return catalog::accept(req, ctx, host).await,
+        ("POST", database_owned::ACCEPT_PATH) => {
+            return database_owned::accept(req, ctx, host).await
+        }
         _ => {}
     }
     let Some((selector, path)) = split_database_path(&req.target) else {
@@ -80,11 +80,13 @@ async fn dispatch(
             .await
         }
         Selection::Signed(share) => match route {
-            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
+            DataRoute::Mutation => {
+                super::database_session::submit_signed(req, ctx, host, &share).await
+            }
             DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
                 error_response(403, "operation is unavailable on a received database", ctx)
             }
-            _ => super::database_signed::read(route, req, ctx, host, share.as_ref()).await,
+            _ => super::database_session::read_signed(route, req, ctx, host, share.as_ref()).await,
         },
     }
 }
@@ -111,7 +113,7 @@ pub(in crate::exec) async fn execute_deferred_database_request(
                 with_handler_timeout_budget(
                     ctx,
                     handler_timeout(),
-                    super::database_signed::submission_status(req, ctx, host, &share),
+                    super::database_session::submission_status(req, ctx, host, &share),
                 )
                 .await
             }
@@ -144,7 +146,9 @@ pub(in crate::exec) async fn execute_deferred_database_request(
             .await
         }
         Ok(Selection::Signed(share)) => match route {
-            DataRoute::Mutation => super::database_signed::submit(req, ctx, host, &share).await,
+            DataRoute::Mutation => {
+                super::database_session::submit_signed(req, ctx, host, &share).await
+            }
             _ => error_response(403, "operation is unavailable on a received database", ctx),
         },
         Err(response) => response,

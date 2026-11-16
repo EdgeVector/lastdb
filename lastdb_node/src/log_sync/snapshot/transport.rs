@@ -15,7 +15,8 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 
-use super::{files, Manifest};
+use super::{bootstrap as files, Manifest};
+use crate::cloud_backup_client::build_shared_http_client;
 use crate::log_sync::{cloud::CloudLog, http::Proof};
 
 const PAGE: usize = 32;
@@ -171,7 +172,7 @@ async fn upload_files(
     if pending.is_empty() {
         return Ok(());
     }
-    let client = client()?;
+    let client = build_shared_http_client().map_err(|_| "cannot build snapshot transfers")?;
     for page in pending.chunks(PAGE) {
         let grants = grants(
             log,
@@ -227,7 +228,7 @@ pub(super) async fn download(
     manifest: &Manifest,
     destination: &Path,
 ) -> Result<(), String> {
-    let client = client()?;
+    let client = build_shared_http_client().map_err(|_| "cannot build snapshot transfers")?;
     files::create_layout(destination).map_err(|error| error.to_string())?;
     for (page, entries) in manifest.files.chunks(PAGE).enumerate() {
         let grants = grants(
@@ -297,16 +298,6 @@ async fn receive(
     output.sync_all().await.map_err(|error| error.to_string())
 }
 
-fn client() -> Result<Client, String> {
-    Client::builder()
-        .https_only(true)
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(900))
-        .build()
-        .map_err(|_| "cannot build snapshot transfers".to_owned())
-}
-
 fn request(
     mut request: reqwest::RequestBuilder,
     headers: &BTreeMap<String, String>,
@@ -316,7 +307,7 @@ fn request(
             request = request.header(name, value);
         }
     }
-    request
+    request.timeout(Duration::from_secs(900))
 }
 
 async fn grants(

@@ -3,8 +3,7 @@
 use std::cmp::Ordering;
 
 use fold_db::access::AccessContext;
-use fold_db::fold_db_core::query::query_executor::AlternatePage;
-use fold_db::fold_db_core::query::Record;
+use fold_db::fold_db_core::query::{AlternatePage, Record};
 use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
