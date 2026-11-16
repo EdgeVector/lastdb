@@ -79,6 +79,8 @@ def recipe_for(args):
               "reads": "known exact hash/range keys; storage receipts on every measured read",
               "mixed": "each client alternates read/write; adjacent clients start with opposite kinds",
               "cold": "purged warm records after reopen; disjoint first keys; positive disk payload receipts; OS pages uncontrolled",
+              "spread_records": 33 * PROFILES[args.profile]["samples"],
+              "cold_spread": "distinct shuffled keys over 64 hashes; seed batches interleave the hashes, so several run files cover each key",
               "timing": "RPC through response bytes; payload construction and response validation excluded",
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",

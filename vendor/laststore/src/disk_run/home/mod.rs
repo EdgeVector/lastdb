@@ -17,6 +17,7 @@ use super::{MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
 use manifest::{Manifest, RunFile};
+use read::ReaderPool;
 use rustix::fs::{FlockOperation, OFlags};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
@@ -112,6 +113,7 @@ pub struct RunHome {
     publish_mutex: Mutex<()>,
     merge_mutex: Mutex<()>,
     retired: Mutex<Vec<Weak<RunFile>>>,
+    readers: Arc<ReaderPool>,
     poisoned: AtomicBool,
     lock: Arc<File>,
 }
@@ -187,6 +189,7 @@ impl RunHome {
             publish_mutex: Mutex::new(()),
             merge_mutex: Mutex::new(()),
             retired: Mutex::default(),
+            readers: Arc::default(),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
         })
@@ -260,6 +263,8 @@ impl RunHome {
         for run in runs {
             run.retire();
         }
+        // Mark first, forget second: `ReaderPool::reader` then never keeps a retired run.
+        self.readers.forget(runs);
         let mut retired = unpoison(&self.retired);
         retired.retain(|w| w.strong_count() > 0);
         retired.extend(runs.iter().map(Arc::downgrade));

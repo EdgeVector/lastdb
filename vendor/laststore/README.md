@@ -12,7 +12,10 @@ A run file has data blocks, index blocks with a bloom filter, a top block, and a
 Each block is one `frame`: zstd when it makes the block smaller, then AES-256-GCM.
 The block key comes from the home key and the run id.
 A reader reads the footer and the top block, then one index block and one data block for each lookup.
-A reader keeps nothing after its call.
+A read call keeps no index block, data block, or record after it ends.
+A home keeps at most 32 opened readers of live runs between calls, least recently used first.
+Each kept reader holds a file descriptor, the cipher, the footer, and the decoded top block.
+A merge that replaces a run drops its reader.
 
 An ordinary open reads at most 512 tail bytes first.
 When those bytes contain the complete top frame, the footer and top need one file read.

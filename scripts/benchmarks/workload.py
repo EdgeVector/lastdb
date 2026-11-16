@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 import math
+import random
 import threading
 import time
 
@@ -24,13 +25,22 @@ PROFILES = {
 }
 
 
+# Spread records use numbers from SPREAD_BASE and 64 hashes. Their seed batches interleave the
+# hashes, so each run file from those batches covers the whole spread key span.
+SPREAD_BASE, SPREAD_HASHES = 500_000_000, 64
+
+
 def key(number):
     return f"key-{number:09d}"
 
 
+def bucket(number):
+    return HASH if number < SPREAD_BASE else f"spread-{number % SPREAD_HASHES:02d}"
+
+
 def fields(number, revision):
     title = f"record-{number}-{revision}"
-    return {"bucket": HASH, "id": key(number), "title": title,
+    return {"bucket": bucket(number), "id": key(number), "title": title,
             "body": hashlib.shake_256(title.encode()).hexdigest(512)}
 
 
@@ -40,7 +50,7 @@ def encoded(value):
 
 def read_request(numbers):
     return encoded({"schema_name": SCHEMA,
-                    "filter": {"HashRangeKeys": [[HASH, key(n)] for n in numbers]},
+                    "filter": {"HashRangeKeys": [[bucket(n), key(n)] for n in numbers]},
                     "limit": len(numbers)})
 
 
@@ -53,7 +63,7 @@ def write_request(numbers, revision, insert):
         mutations.append({"type": "mutation", "schema": SCHEMA,
                           "mutation_type": "create" if insert else "update",
                           "durability": "durable",
-                          "key_value": {"hash": HASH, "range": key(number)},
+                          "key_value": {"hash": bucket(number), "range": key(number)},
                           "fields_and_values": value})
     return encoded({"mutations": mutations})
 
@@ -67,10 +77,10 @@ def validate_read(result, numbers):
     for record in records:
         coordinate, value = record["key"], record["fields"]
         number = expected.get(coordinate["range"])
-        if coordinate["hash"] != HASH or coordinate["range"] in found or number is None:
+        if number is None or coordinate["hash"] != bucket(number) or coordinate["range"] in found:
             raise RuntimeError("A keyed read returned an unexpected or duplicate key")
         title = value["title"]
-        if (value["bucket"] != HASH or value["id"] != coordinate["range"]
+        if (value["bucket"] != bucket(number) or value["id"] != coordinate["range"]
                 or not title.startswith(f"record-{number}-")
                 or value["body"] != hashlib.shake_256(title.encode()).hexdigest(512)):
             raise RuntimeError("A keyed read returned an invalid generated record")
@@ -110,6 +120,13 @@ class Workload:
             numbers = list(range(start, min(start + 128, self.recipe["records"])))
             result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))
             self.validate_write(result, len(numbers))
+        spread = self.recipe.get("spread_records", 0)
+        for start in range(0, spread, 128):
+            numbers = list(range(SPREAD_BASE + start, SPREAD_BASE + min(start + 128, spread)))
+            result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))
+            self.validate_write(result, len(numbers))
+        self.spread_order = list(range(SPREAD_BASE, SPREAD_BASE + spread))
+        random.Random(spread).shuffle(self.spread_order)
         result, _, _ = self.node.call("/api/db/flush", {})
         if result.get("durable") is not True:
             raise RuntimeError("The generated seed lacks a durable flush")
@@ -133,8 +150,13 @@ class Workload:
             client, turn = index % clients, index // clients
             # Every client alternates; adjacent clients start with opposite kinds.
             mixed_read = mode == "mixed" and (client + turn) % 2 == 0
-            kind = "read" if mode in ("cold", "hot", "read") or mixed_read else "write"
-            if mode == "cold":
+            kind = "read" if mode in ("cold", "spread", "hot", "read") or mixed_read else "write"
+            if mode == "spread":
+                numbers = self.spread_order[self.spread_next:self.spread_next + batch]
+                self.spread_next += batch
+                if len(numbers) != batch:
+                    raise RuntimeError("The spread seed has too few records for distinct cold keys")
+            elif mode == "cold":
                 numbers = list(range(self.cold_next, self.cold_next + batch))
                 self.cold_next += batch
             elif mode == "insert":
@@ -183,7 +205,7 @@ class Workload:
                         # Native unknown-path fallbacks do not increment the old
                         # logical miss counter. Use the purge + first-key boundary
                         # and actual disk bytes, rather than interpreting zero as hot.
-                        if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
+                        if mode in ("cold", "spread") and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
                             raise RuntimeError("The cold read did not fetch payload bytes from disk")
                         # A home has one warm entry per record key, whatever the fields.
                         needed = len(numbers)
@@ -265,6 +287,10 @@ class Workload:
             self.cold_next = 0
             self.measure("cold-read/1", "cold")
             self.measure("cold-read/32", "cold", batch=32)
+            if self.recipe.get("spread_records"):
+                self.spread_next = 0
+                self.measure("cold-read-spread/1", "spread")
+                self.measure("cold-read-spread/32", "spread", batch=32)
             hot = list(range(self.recipe["records"] - 256, self.recipe["records"]))
             for start in range(0, len(hot), 64):
                 numbers = hot[start:start + 64]

@@ -1,15 +1,21 @@
 //! Published roots, file-handle snapshots, stopped-home readers, and point reads.
 
 use super::manifest::{Manifest, RunFile, CURRENT};
-use super::{invalid, lock_and_load, open_nofollow, run_key, RunHome, RUNS, RUN_HOME_MARKER};
+use super::{
+    invalid, lock_and_load, open_nofollow, run_key, unpoison, RunHome, RUNS, RUN_HOME_MARKER,
+};
 use crate::disk_run::{Found, MetadataMemo, RunReader};
 use crate::{Error, Result};
 use std::fs::File;
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 const MAX_BATCH_KEYS: usize = 10_000;
+/// Most opened run readers that one home keeps between read calls. Each holds one file
+/// descriptor, and a launchd process starts with a soft limit of 256.
+const MAX_SHARED_READERS: usize = 32;
 pub(super) type ReadSlot = (Arc<RunFile>, Option<Arc<RunReader>>);
 
 fn slots(manifest: &Manifest) -> Result<Vec<ReadSlot>> {
@@ -26,6 +32,44 @@ fn slots(manifest: &Manifest) -> Result<Vec<ReadSlot>> {
     }
     runs.extend(manifest.newest_first().map(|r| (Arc::clone(r), None)));
     Ok(runs)
+}
+
+/// Opened readers of live runs, shared by the read calls of one home.
+///
+/// A reader holds a file descriptor, the cipher, the footer, and the decoded top block. It
+/// holds no index block, no data block, and no record. The order is least recently used first.
+#[derive(Default)]
+pub(super) struct ReaderPool(Mutex<Vec<(Uuid, Arc<RunReader>)>>);
+
+impl ReaderPool {
+    fn reader(&self, file: &RunFile, key: &[u8; 32]) -> Result<Arc<RunReader>> {
+        let id = file.meta.id;
+        {
+            let mut held = unpoison(&self.0);
+            if let Some(at) = held.iter().position(|(run, _)| *run == id) {
+                let hit = held.remove(at);
+                let reader = Arc::clone(&hit.1);
+                held.push(hit);
+                return Ok(reader);
+            }
+        }
+        // Open outside the lock: an open reads the file tail and decrypts the top block.
+        let reader = Arc::new(RunReader::open(&file.path, key)?);
+        let mut held = unpoison(&self.0);
+        // A merge marks a replaced run before it forgets it here, so a read of an older
+        // root cannot leave the descriptor of a deleted file in the pool.
+        if !file.is_retired() && held.iter().all(|(run, _)| *run != id) {
+            if held.len() >= MAX_SHARED_READERS {
+                held.remove(0);
+            }
+            held.push((id, Arc::clone(&reader)));
+        }
+        Ok(reader)
+    }
+
+    pub(super) fn forget(&self, runs: &[Arc<RunFile>]) {
+        unpoison(&self.0).retain(|(id, _)| runs.iter().all(|run| run.meta.id != *id));
+    }
 }
 
 /// One published state of a home: a handle to the CURRENT that a commit or a merge installed.
@@ -64,6 +108,7 @@ impl RunHome {
             self.key,
             Arc::clone(&self.lock),
             budget,
+            Some(Arc::clone(&self.readers)),
         )
         .expect("unbounded read root")
     }
@@ -154,6 +199,7 @@ pub struct RunRead {
     pub(super) key: [u8; 32],
     _lock: Arc<File>,
     pub(super) runs: Vec<ReadSlot>,
+    pool: Option<Arc<ReaderPool>>,
     pub(super) budget: ReadBudget,
     pub(super) costs: RunReadCosts,
     pub(super) metadata: MetadataMemo,
@@ -165,6 +211,7 @@ impl RunRead {
         key: [u8; 32],
         lock: Arc<File>,
         budget: ReadBudget,
+        pool: Option<Arc<ReaderPool>>,
     ) -> Result<Self> {
         let runs = slots(&manifest)?;
         Ok(Self {
@@ -172,6 +219,7 @@ impl RunRead {
             key,
             _lock: lock,
             runs,
+            pool,
             budget,
             costs: RunReadCosts::default(),
             metadata: MetadataMemo::new(budget.bytes),
@@ -181,7 +229,7 @@ impl RunRead {
     /// Open one existing CURRENT without the cleanup performed by `RunHome::open`.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
         let (_, _, lock, manifest) = lock_and_load(root, key, false)?;
-        Self::build(Arc::new(manifest), *key, Arc::new(lock), budget)
+        Self::build(Arc::new(manifest), *key, Arc::new(lock), budget, None)
     }
 
     /// Complete commits in the held CURRENT.
@@ -230,7 +278,10 @@ impl RunRead {
                 }
             }
             let (file, reader) = &mut self.runs[slot];
-            *reader = Some(Arc::new(RunReader::open(&file.path, &self.key)?));
+            *reader = Some(match &self.pool {
+                Some(pool) => pool.reader(file, &self.key)?,
+                None => Arc::new(RunReader::open(&file.path, &self.key)?),
+            });
         }
         Ok(self.runs[slot].1.as_ref().unwrap())
     }
