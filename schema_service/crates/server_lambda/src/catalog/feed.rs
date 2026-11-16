@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use app_identity_crypto::{
-    github_repo, hex_lower, interface_list_path, verifying_key_from_base64, InterfaceList,
-    VerifyingKey, LIST_CHANNELS, MAX_LIST_BYTES, REGISTRY_LIST_PUBKEY_B64,
+    github_repo, hex_lower, interface_list_path, InterfaceList, LIST_CHANNELS, MAX_LIST_BYTES,
 };
 use futures::{stream, StreamExt};
 use http::{header, StatusCode};
@@ -42,8 +41,6 @@ enum Read {
 
 impl Catalog {
     pub(super) async fn refresh(&self) -> Result<Report, String> {
-        let trust = verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64)
-            .map_err(|_| "invalid pinned registry trust key")?;
         let previous = self
             .store
             .read(&self.client, Duration::from_secs(8))
@@ -52,7 +49,7 @@ impl Catalog {
             || (Image::default(), None),
             |(image, etag)| (image, Some(etag)),
         );
-        let mut report = self.refresh_lists(&mut image, &trust).await;
+        let mut report = self.refresh_lists(&mut image).await;
         if image.lists.is_empty() {
             return Err("no signed public registry lists could be verified".into());
         }
@@ -66,7 +63,7 @@ impl Catalog {
         Ok(report)
     }
 
-    async fn refresh_lists(&self, image: &mut Image, trust: &VerifyingKey) -> Report {
+    async fn refresh_lists(&self, image: &mut Image) -> Report {
         let highest = image
             .lists
             .values()
@@ -83,7 +80,7 @@ impl Catalog {
             .map(|(channel, api)| {
                 let key = interface_list_path(&channel, api);
                 let previous = prior.get(&key);
-                async move { (key, self.read_list(&channel, api, previous, trust).await) }
+                async move { (key, self.read_list(&channel, api, previous).await) }
             })
             .buffer_unordered(8)
             .collect()
@@ -112,7 +109,6 @@ impl Catalog {
         channel: &str,
         api: u32,
         previous: Option<&ListState>,
-        trust: &VerifyingKey,
     ) -> Result<Option<ListState>, String> {
         let url = format!(
             "{}/{}",
@@ -144,7 +140,7 @@ impl Catalog {
             .and_then(reqwest::Response::error_for_status)
             .map_err(|error| error.to_string())?;
         let signature = bounded_body(signature, 4096).await?;
-        let signed = InterfaceList::load(&bytes, &signature, trust, channel, api)?;
+        let signed = InterfaceList::load(&bytes, &signature, &self.trust, channel, api)?;
         let sha256 = hex_lower(&Sha256::digest(&bytes));
         if previous.is_some_and(|prior| {
             signed.seq < prior.seq || signed.seq == prior.seq && prior.sha256 != sha256

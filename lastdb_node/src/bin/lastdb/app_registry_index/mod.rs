@@ -3,9 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use app_identity_crypto::{
-    key_id, verifying_key_from_base64, VerifyingKey, REGISTRY_LIST_PUBKEY_B64,
-};
+use app_identity_crypto::{key_id, verifying_key_from_base64, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 pub mod managed;
@@ -125,7 +123,14 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
         .map_err(|e| format!("GET {url}: {e}"))
 }
 
-pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, String), String> {
+pub fn resolve_list_trust_key(
+    flag: Option<&str>,
+    location: &IndexLocation,
+    env_override: Option<lastdb_node::profile::endpoints::Environment>,
+) -> Result<(VerifyingKey, String), String> {
+    use lastdb_node::profile::endpoints::{
+        environment_for_registry_index_url, registry_list_key_for, Environment,
+    };
     let env = std::env::var(TRUST_KEY_ENV)
         .ok()
         .filter(|s| !s.trim().is_empty());
@@ -139,7 +144,13 @@ pub fn resolve_list_trust_key(flag: Option<&str>) -> Result<(VerifyingKey, Strin
             "env:LASTDB_REGISTRY_TRUST_KEY",
         )
     } else {
-        let k = verifying_key_from_base64(REGISTRY_LIST_PUBKEY_B64).map_err(str_err)?;
+        let target = match location {
+            IndexLocation::Url(base) => environment_for_registry_index_url(base)
+                .or(env_override)
+                .unwrap_or_else(Environment::from_env_or_prod),
+            IndexLocation::Dir(_) => env_override.unwrap_or_else(Environment::from_env_or_prod),
+        };
+        let k = verifying_key_from_base64(registry_list_key_for(target)).map_err(str_err)?;
         return Ok((k, format!("pinned:{}", key_id(&k))));
     };
     let raw = raw.trim();

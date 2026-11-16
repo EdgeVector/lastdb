@@ -43,7 +43,7 @@ fn load_catalog(
 ) -> Result<Catalog, String> {
     let ch = ch.unwrap_or(registry::DEFAULT_CHANNEL);
     let loc = registry::IndexLocation::resolve(index, env_override)?;
-    let (vk, trust) = registry::resolve_list_trust_key(trust_key)?;
+    let (vk, trust) = registry::resolve_list_trust_key(trust_key, &loc, env_override)?;
     let (build, node_src, api, outbox, min_api) = registry::running_node(home);
     let range = (min_api, api);
     let mut list = crate::block_on(

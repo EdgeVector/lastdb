@@ -24,7 +24,6 @@ from nightly_plan import _capture
 from stable_plan import APPS, api
 
 PROFILE = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
-KEY = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw="
 SIGNED = ("app_id", "channel", "app_version", "api_version", "lastdb_build",
           "outbox_format_version", "source", "sha", "audience")
 
@@ -40,11 +39,12 @@ def download(url):
 def catalog(api_version, channel="stable"):
     if channel not in ("stable", "next"):
         raise ValueError("Invalid app channel")
-    base = json.loads(PROFILE.read_text())["environments"]["prod"]["registry_index"]
+    prod = json.loads(PROFILE.read_text())["environments"]["prod"]
+    base = prod["registry_index"]
     raw = download(f"{base}/{channel}/api/{api_version}.json")
     envelope = json.loads(download(f"{base}/{channel}/api/{api_version}.json.sig"))
     digest = hashlib.sha256(raw).hexdigest()
-    key = base64.b64decode(KEY, validate=True)
+    key = base64.b64decode(prod["registry_list_key"], validate=True)
     if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
             or envelope.get("key_id") != hashlib.sha256(key).hexdigest()):
         raise ValueError("Invalid registry list signature envelope")
