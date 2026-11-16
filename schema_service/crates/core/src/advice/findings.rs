@@ -1,11 +1,11 @@
 //! Findings for one draft schema against the curated canonical vocabulary.
 
 use super::{
-    draft, finding, AdviceEvidence, AdviceFinding, AdviceKind, Draft, SchemaAdviceRequest,
-    SchemaAdviceResponse,
+    draft, finding, matching, AdviceEvidence, AdviceFinding, AdviceKind, Draft,
+    SchemaAdviceRequest, SchemaAdviceResponse,
 };
 use crate::{
-    name_overlap, same_description, validate_new_field_name, CanonicalField, DataClassification,
+    same_description, validate_new_field_name, CanonicalField, DataClassification,
     SchemaServiceState,
 };
 use schema_types::FieldValueType;
@@ -26,10 +26,9 @@ fn canonical_finding(name: &str, canonical: &CanonicalField, draft: &Draft) -> A
             canonical.field_type
         ));
     }
-    if let Some(text) = draft
-        .descriptions
-        .get(name)
-        .filter(|text| !same_description(text, &canonical.description))
+    let description = draft.descriptions.get(name);
+    if let Some(text) =
+        description.filter(|text| !matching::descriptions_agree(text, &canonical.description))
     {
         differences.push(format!(
             "the description \"{text}\" differs from the canonical \"{}\"",
@@ -44,8 +43,11 @@ fn canonical_finding(name: &str, canonical: &CanonicalField, draft: &Draft) -> A
         ));
     }
     let evidence = AdviceEvidence {
-        suggested_type: (draft.types.get(name) != Some(&canonical.field_type))
-            .then(|| canonical.field_type.clone()),
+        suggested_type: (matching::descriptions_compatible(
+            description.map(String::as_str),
+            Some(&canonical.description),
+        ) && draft.types.get(name) != Some(&canonical.field_type))
+        .then(|| canonical.field_type.clone()),
         canonical_field_hash: Some(hash),
         ..AdviceEvidence::default()
     };
@@ -61,7 +63,8 @@ fn canonical_finding(name: &str, canonical: &CanonicalField, draft: &Draft) -> A
             evidence,
         );
     }
-    let exact = draft.types.contains_key(name) && draft.descriptions.contains_key(name);
+    let exact = draft.types.contains_key(name)
+        && description.is_some_and(|text| same_description(text, &canonical.description));
     let message = if exact {
         format!("`{name}` matches the canonical field.")
     } else {
@@ -76,16 +79,19 @@ fn canonical_finding(name: &str, canonical: &CanonicalField, draft: &Draft) -> A
 fn near_names<'a>(
     name: &str,
     kind: Option<&FieldValueType>,
+    description: Option<&str>,
     vocabulary: &'a HashMap<String, CanonicalField>,
 ) -> Vec<(&'a str, &'a CanonicalField)> {
-    let mut near: Vec<(f32, &str, &CanonicalField)> = vocabulary
+    let name = matching::field_name(name);
+    let mut near: Vec<_> = vocabulary
         .iter()
         .filter(|(_, field)| kind.is_none_or(|kind| *kind == field.field_type))
         .filter_map(|(other, field)| {
-            name_overlap(name, other).map(|score| (score, other.as_str(), field))
+            matching::canonical_candidate(&name, description, other, &field.description)
+                .map(|score| (score, other.as_str(), field))
         })
         .collect();
-    near.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    near.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
     near.into_iter()
         .take(MAX_NEAR_MATCHES)
         .map(|(_, other, field)| (other, field))
@@ -121,10 +127,19 @@ impl SchemaServiceState {
                 ));
             }
             let canonical = self.canonical_fields.get(name.as_str());
+            let description = draft.descriptions.get(name).map(String::as_str);
+            let canonical_for_meaning = canonical.filter(|canonical| {
+                matching::descriptions_compatible(description, Some(&canonical.description))
+            });
             let near = if canonical.is_some() {
                 Vec::new()
             } else {
-                near_names(name, draft.types.get(name), &self.canonical_fields)
+                near_names(
+                    name,
+                    draft.types.get(name),
+                    description,
+                    &self.canonical_fields,
+                )
             };
             if let Some(canonical) = canonical {
                 findings.push(canonical_finding(name, canonical, &draft));
@@ -146,7 +161,8 @@ impl SchemaServiceState {
                 )
             }));
             if !draft.types.contains_key(name) {
-                let suggested = canonical.or_else(|| near.first().map(|&(_, field)| field));
+                let suggested =
+                    canonical_for_meaning.or_else(|| near.first().map(|&(_, field)| field));
                 let message = suggested.map_or_else(
                     || format!("`{name}` has no type. Every field needs one."),
                     |field| {
@@ -166,7 +182,7 @@ impl SchemaServiceState {
                     },
                 ));
             }
-            if let Some(label) = canonical
+            if let Some(label) = canonical_for_meaning
                 .filter(|_| !draft.classified.contains(name))
                 .and_then(|field| field.classification.as_ref())
             {
