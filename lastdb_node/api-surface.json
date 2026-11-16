@@ -1,5 +1,5 @@
 {
-  "api_version": 34,
+  "api_version": 35,
   "min_supported_api_version": 29,
   "capabilities": [
     "atomic_owned_mutations_v1",
@@ -19,9 +19,9 @@
     "/api/databases/accept",
     "/api/databases/session",
     "/api/databases/spec",
+    "/api/databases/{database}/db/delete-blob",
     "/api/databases/{database}/submissions/status",
     "/api/db/cleanup",
-    "/api/db/delete-blob",
     "/api/db/delete-ledger",
     "/api/db/fetch-blob",
     "/api/db/flush",
