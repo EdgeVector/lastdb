@@ -101,7 +101,7 @@ class ReusableCircles:
         fingerprint = sha256(encoded([record["revision"] if record else None, desired,
                                       plans, operation]).encode()).hexdigest()
         if not apply:
-            return {"token": fingerprint, "databases": [impact(plan) for plan in plans]}
+            return self.preview(fingerprint, plans)
         if args.get("token") != fingerprint:
             raise SocialError("sharing changed since the preview; review the changes again")
         if not retrying and any("error" in plan and "conflicts" not in plan for plan in plans):
@@ -113,6 +113,17 @@ class ReusableCircles:
         if retrying:
             plans = self.replay_pending(data, plans, review)
         return self.finish(definition, record, data, plans)
+
+    def preview(self, fingerprint, plans):
+        databases = [impact(plan) for plan in plans]
+        node_keys = {entry["nodeKey"] for item in databases for field in ("changes", "conflicts")
+                     for entry in item.get(field, [])}
+        try:
+            people = self.circles.people.by_keys(node_keys)
+        except (SocialError, OSError, HTTPException):
+            people = {}
+        return {"token": fingerprint, "databases": databases,
+                "contactNames": {key: person["display_name"] for key, person in people.items()}}
 
     def resume(self, database=None):
         pending = self.load()[2]["pendingDatabases"]

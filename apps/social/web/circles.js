@@ -72,8 +72,8 @@ function describeGrant(grant) {
 }
 
 async function previewReusable(edit) {
-  const {token, databases} = await api('circles/preview', edit);
-  const review = grantReviewFields(databases);
+  const {token, databases, contactNames} = await api('circles/preview', edit);
+  const review = grantReviewFields(databases, contactNames);
   dialog('Review circle changes', review.fields.length ? 'Preview resolutions' : 'Apply changes', review.fields, async (data) => {
     if (review.fields.length) return () => previewReusable({...edit, review: review.choices(data, edit.review)});
     const result = await api('circles/apply', {...edit, token});
@@ -84,17 +84,17 @@ async function previewReusable(edit) {
       }
     };
   });
-  renderGrantImpact(databases);
+  renderGrantImpact(databases, contactNames);
   if (databases.some((row) => row.error && !row.conflicts) && edit.circle && !review.fields.length) {
     $('submit').disabled = true;
   }
 }
 
-function contactName(key) {
-  return state.home.people.find((person) => person.nodeKey === key)?.name ?? key;
+function contactName(key, names = {}) {
+  return names[key] ?? state.home?.people.find((person) => person.nodeKey === key)?.name ?? key;
 }
 
-function grantReviewFields(databases) {
+function grantReviewFields(databases, names) {
   const conflicts = databases.flatMap((row) => (row.conflicts ?? []).map((conflict) => ({
     ...conflict, databaseId: row.databaseId, name: row.name,
     field: `${row.databaseId}:${conflict.nodeKey}`,
@@ -102,7 +102,7 @@ function grantReviewFields(databases) {
   return {
     fields: conflicts.map((row) => ({
       name: row.field,
-      label: `${row.name} · ${contactName(row.nodeKey)} · current grant ${describeGrant(row.current)}`,
+      label: `${row.name} · ${contactName(row.nodeKey, names)} · current grant ${describeGrant(row.current)}`,
       options: [{nodeKey: '', name: 'Choose a resolution'},
         {nodeKey: 'keepDirect', name: 'Keep the outside grant as a direct grant'},
         {nodeKey: 'useSocial', name: 'Apply the Social grants'}],
@@ -117,7 +117,7 @@ function grantReviewFields(databases) {
   };
 }
 
-function renderGrantImpact(databases) {
+function renderGrantImpact(databases, names) {
   const fields = $('fields');
   for (const row of databases) {
     fields.append(element('h3', row.name));
@@ -127,7 +127,7 @@ function renderGrantImpact(databases) {
     }
     if (!row.changes.length) fields.append(element('p', 'Access stays the same.', 'muted'));
     for (const {nodeKey, before, after} of row.changes) {
-      fields.append(element('p', `${contactName(nodeKey)} · ${describeGrant(before)} → ${describeGrant(after)}`));
+      fields.append(element('p', `${contactName(nodeKey, names)} · ${describeGrant(before)} → ${describeGrant(after)}`));
     }
   }
 }
@@ -161,7 +161,7 @@ async function previewSharingRequest(requestId, resolutions) {
   const args = {requestId, review: resolutions};
   const preview = await api('sharing-request/preview', args);
   if (preview.status !== 'awaitingApproval') return refresh();
-  const review = grantReviewFields(preview.databases);
+  const review = grantReviewFields(preview.databases, preview.contactNames);
   const removing = ['removeCircleBinding', 'revokePerson'].includes(preview.change.operation);
   dialog(`Sharing request from ${preview.appId}`, review.fields.length ? 'Preview resolutions' : 'Approve sharing',
     review.fields, async (data) => {
@@ -172,6 +172,6 @@ async function previewSharingRequest(requestId, resolutions) {
     });
   $('fields').prepend(element('p', removing ? `Remove ${preview.subjectName} from this database.`
     : `${preview.subjectName} · ${scopeOf(preview.change.writeSchemas)}`));
-  renderGrantImpact(preview.databases);
+  renderGrantImpact(preview.databases, preview.contactNames);
   if (!review.fields.length && preview.databases.some((row) => row.error)) $('submit').disabled = true;
 }

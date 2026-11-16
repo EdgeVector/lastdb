@@ -152,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.set_circles(args)
         if target.path in ("/api/circles/preview", "/api/circles/apply"):
             return app.reusable_circles.edit(args, apply=target.path.endswith("/apply"))
+        if target.path == "/api/sharing-requests/recheck":
+            return app.sharing_requests.awaiting(recheck=True)
         if target.path == "/api/sharing-request/preview":
             return app.sharing_requests.preview(args["requestId"], args.get("review"))
         if target.path == "/api/sharing-request/decline":

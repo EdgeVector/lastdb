@@ -48,16 +48,17 @@ function accessOf(row) {
   return `${access.stale ? 'Last confirmed · ' : ''}${labels[access.state] || 'Unconfirmed'}`;
 }
 
-async function refresh() {
+async function refresh(recheckRequests = false) {
   const ticket = ++state.request;
   $('notice').hidden = true;
-  const [home, directory, requests] = await Promise.all([api('home'),
+  const showingRequests = state.tab === 'requests';
+  const data = await Promise.all([showingRequests ? state.home : api('home'),
     state.tab === 'circles' ? api('reusable-circles') : null,
-    state.tab === 'requests' ? fetchRequestPage() : null]);
+    showingRequests ? fetchRequestPage(recheckRequests) : null]).catch((error) => {
+    if (ticket === state.request) throw error;
+  });
   if (ticket !== state.request) return;
-  state.home = home;
-  state.directory = directory;
-  state.requests = requests;
+  [state.home, state.directory, state.requests] = data;
   renderList();
   await renderSelection();
 }
