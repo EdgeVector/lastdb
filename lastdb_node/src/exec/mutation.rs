@@ -75,13 +75,11 @@ async fn stamp_and_validate(host: &Host, mutation: &mut Mutation) -> Result<(), 
 pub(in crate::exec) async fn commit_mutations(
     host: &Host,
     mut mutations: Vec<Mutation>,
-) -> Result<(), HostError> {
+) -> Result<ResidentCommitReceipt, HostError> {
     for mutation in &mut mutations {
         stamp_and_validate(host, mutation).await?;
     }
-    run_core_commit(host, mutations, "Write failed")
-        .await
-        .map(|_| ())
+    run_core_commit(host, mutations, "Write failed").await
 }
 
 pub(in crate::exec) async fn commit_parsed_mutation(

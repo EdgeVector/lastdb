@@ -173,7 +173,9 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
     } else {
         let records: Vec<Value> = rows
             .iter()
-            .map(|row| json!({ "key": row["key"], "record": row["fields"] }))
+            .map(|row| {
+                json!({ "key": row["key"], "revision": row["revision"], "record": row["fields"] })
+            })
             .collect();
         out.insert("records".into(), Value::Array(records));
     }

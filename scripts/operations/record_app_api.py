@@ -1,9 +1,10 @@
 """The app API on a fresh generated home: POST /v1/read and POST /v1/write.
 
-A write names no condition: a put creates or replaces, the same put again is
-written again, and a delete of an absent record is not an error. One list is
-all or nothing. A read names a key or a range under one hash, and each read in
-a list gets its own result or its own error.
+A write carries a condition. A create writes only when no record holds the key.
+A replace and a delete name the revision the caller read, and write only when
+the record is still at it. One list is all or nothing. A read names a key or a
+range under one hash, and each read in a list gets its own result or its own
+error.
 """
 import json
 import os
@@ -24,11 +25,14 @@ def read(node, *reads):
 
 
 def write(node, *mutations):
-    return node.call("/v1/write", {"mutations": list(mutations)})[0]["written"]
+    reply = node.call("/v1/write", {"mutations": list(mutations)})[0]
+    require(reply["written"] == len(mutations) == len(reply["revisions"]),
+            "a write did not report one revision for each mutation: " + repr(reply))
+    return reply["revisions"]
 
 
-def put(schema, key, record, alternates=None, database=None):
-    item = {"schema": schema, "op": "put", "key": key, "record": record}
+def create(schema, key, record, alternates=None, database=None):
+    item = {"schema": schema, "op": "create", "key": key, "record": record}
     if alternates is not None:
         item["alternates"] = alternates
     if database is not None:
@@ -37,25 +41,34 @@ def put(schema, key, record, alternates=None, database=None):
 
 
 def by_id(name, bucket, value, schema=BY_ID, database=None):
-    return put(schema, {"hash": name}, {"id": name, "bucket": bucket, "value": value},
-               {"by_bucket": {"hash": bucket, "range": name}}, database)
+    return create(schema, {"hash": name}, {"id": name, "bucket": bucket, "value": value},
+                  {"by_bucket": {"hash": bucket, "range": name}}, database)
 
 
-def delete(schema, key):
-    return {"schema": schema, "op": "delete", "key": key}
+def replace(name, bucket, value, revision):
+    return {**by_id(name, bucket, value), "op": "replace", "revision": revision}
+
+
+def delete(schema, key, revision):
+    return {"schema": schema, "op": "delete", "key": key, "revision": revision}
 
 
 def held(record):
     return {field: value for field, value in record.items() if value is not None}
 
 
-def value_of(node, name, schema=BY_ID, database=None):
+def stored(node, name, schema=BY_ID, database=None):
     item = {"schema": schema, "key": {"hash": name}}
     if database is not None:
         item["database"] = database
     records = read(node, item)[0]["records"]
     require(len(records) <= 1, f"{schema} {name} returned {len(records)} records")
-    return held(records[0]["record"]).get("value") if records else None
+    return records[0] if records else None
+
+
+def value_of(node, name, **options):
+    row = stored(node, name, **options)
+    return held(row["record"]).get("value") if row else None
 
 
 def error_body(node, path, body):
@@ -64,19 +77,29 @@ def error_body(node, path, body):
     return status, json.loads(raw)
 
 
+def conflict(node, *mutations):
+    status, reply = error_body(node, "/v1/write", {"mutations": list(mutations)})
+    require(status == 409 and reply["error"]["code"] == "conflict",
+            f"a write whose condition does not hold was not refused: {status} {reply!r}")
+
+
 def writes(node):
-    require(write(node, by_id("one", "b1", "v1")) == 1, "a put of a new record was not written")
-    require(value_of(node, "one") == "v1", "the new record differs")
-    require(write(node, by_id("one", "b1", "v2")) == 1, "a put over a record was not written")
-    require(write(node, by_id("one", "b1", "v2")) == 1, "the same put again was not written")
-    require(value_of(node, "one") == "v2", "a put with no condition did not replace the record")
-    require(write(node, by_id("dup", "b1", "first"), by_id("dup", "b1", "second")) == 2,
-            "one list with one key twice was not written")
-    require(value_of(node, "dup") == "second", "the last mutation for a key did not win")
-    stray = put(BY_ID, {"hash": "three"}, {"nope": "x"}, {"by_bucket": {"hash": "b1", "range": "three"}})
-    refused(lambda: write(node, by_id("two", "b1", "v"), stray), "HTTP 400")
+    first = write(node, by_id("one", "b1", "v1"))[0]
+    require(stored(node, "one")["revision"] == first, "a read returned another revision than the write")
+    conflict(node, by_id("one", "b1", "again"))
+    require(value_of(node, "one") == "v1", "a create over a record changed it")
+    second = write(node, replace("one", "b1", "v2", first))[0]
+    require(second != first and value_of(node, "one") == "v2", "a replace at the read revision was not written")
+    conflict(node, replace("one", "b1", "stale", first))
+    require(value_of(node, "one") == "v2", "a replace at a stale revision changed the record")
+    require(write(node, replace("one", "b1", "v3", second), by_id("dup", "b1", "d")) and
+            value_of(node, "one") == "v3" and value_of(node, "dup") == "d", "a list of two mutations was not written")
+    conflict(node, by_id("two", "b1", "v"), by_id("one", "b1", "again"))
     require(value_of(node, "two") is None, "a refused list wrote one of its records")
-    print("App API writes: put creates and replaces with no condition, last mutation per key wins, "
+    stray = create(BY_ID, {"hash": "three"}, {"nope": "x"}, {"by_bucket": {"hash": "b1", "range": "three"}})
+    refused(lambda: write(node, by_id("two", "b1", "v"), stray), "HTTP 400")
+    require(value_of(node, "two") is None, "a list with an invalid record wrote its other record")
+    print("App API writes: create only when absent, replace only at the read revision, "
           "and a refused list writes nothing", flush=True)
 
 
@@ -84,20 +107,24 @@ def deletes(node):
     lookup = {"schema": BY_ID, "via": "by_bucket", "range": {"hash": "b1"}}
     found = sorted(row["key"]["hash"] for row in read(node, lookup)[0]["records"])
     require(found == ["dup", "one"], "the alternate key read differs: " + repr(found))
-    require(write(node, delete(BY_ID, {"hash": "one"})) == 1, "a delete was not carried out")
-    require(value_of(node, "one") is None, "a deleted record still reads")
+    revision = stored(node, "one")["revision"]
+    conflict(node, delete(BY_ID, {"hash": "one"}, "0" * len(revision)))
+    require(value_of(node, "one") == "v3", "a delete at another revision removed the record")
+    write(node, delete(BY_ID, {"hash": "one"}, revision))
+    require(stored(node, "one") is None, "a deleted record still reads")
     found = [row["key"]["hash"] for row in read(node, lookup)[0]["records"]]
     require(found == ["dup"], "a deleted alternate entry still resolves: " + repr(found))
-    require(write(node, delete(BY_ID, {"hash": "one"})) == 1, "a delete of an absent record failed")
-    require(write(node, by_id("one", "b3", "back")) == 1, "a put after a delete was not written")
-    require(value_of(node, "one") == "back", "a put after a delete differs")
-    print("App API deletes: delete, delete of an absent record, and put after delete passed", flush=True)
+    conflict(node, delete(BY_ID, {"hash": "one"}, revision))
+    write(node, by_id("one", "b3", "back"))
+    require(value_of(node, "one") == "back", "a create after a delete differs")
+    print("App API deletes: delete at the read revision, refusal at another, and create after delete passed",
+          flush=True)
 
 
 def ranges(node):
-    require(write(node, *[put(BY_BUCKET, {"hash": "bk", "range": key},
-                              {"id": key, "bucket": "bk", "value": key.upper()})
-                          for key in "caebd"]) == 5, "the range records were not written")
+    write(node, *[create(BY_BUCKET, {"hash": "bk", "range": key},
+                         {"id": key, "bucket": "bk", "value": key.upper()})
+                  for key in "caebd"])
     keys, cursor = [], None
     for _ in range(10):
         item = {"schema": BY_BUCKET, "range": {"hash": "bk"}, "limit": 2, "keys_only": True}
@@ -132,8 +159,11 @@ def refusals(node):
     require(results[2]["error"]["code"] == "not_found", "a read of an absent database was not refused")
     for path, body in [("/v1/read", {"reads": []}), ("/v1/write", {"mutations": []}),
                        ("/v1/read", {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}, "where": []}]}),
-                       ("/v1/write", {"mutations": [{"schema": BY_ID, "op": "put", "key": {"hash": "x"}}]}),
-                       ("/v1/write", {"mutations": [{**by_id("x", "b1", "v"), "expected": {"type": "absent"}}]}),
+                       ("/v1/write", {"mutations": [{"schema": BY_ID, "op": "create", "key": {"hash": "x"}}]}),
+                       ("/v1/write", {"mutations": [{**by_id("x", "b1", "v"), "op": "put"}]}),
+                       ("/v1/write", {"mutations": [{**by_id("x", "b1", "v"), "op": "replace"}]}),
+                       ("/v1/write", {"mutations": [{"schema": BY_ID, "op": "delete", "key": {"hash": "dup"}}]}),
+                       ("/v1/write", {"mutations": [{**by_id("x", "b1", "v"), "revision": "r"}]}),
                        ("/v1/write", {"mutations": [by_id("x", "b1", "v"),
                                                     by_id("y", "b1", "v", database=MISSING_DATABASE)]})]:
         status, reply = error_body(node, path, body)
@@ -159,8 +189,7 @@ def exercise(node):
 def named_database(node, database):
     """A database identifier on an item reads and writes that database, not personal."""
     require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
-    require(write(node, by_id("app-api", "b1", "named", schema="RecordById", database=database)) == 1,
-            "a write to a named database was not written")
+    write(node, by_id("app-api", "b1", "named", schema="RecordById", database=database))
     require(value_of(node, "app-api", schema="RecordById", database=database) == "named",
             "a named database did not return its record")
     require(value_of(node, "app-api", schema="RecordById") is None,

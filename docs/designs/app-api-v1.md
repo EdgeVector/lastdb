@@ -20,7 +20,7 @@ POST /v1/read
 
 200
 { "results": [
-    { "records": [ { "key": { "hash": "n1", "range": null }, "record": { … } } ], "next_cursor": null },
+    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "record": { … } } ], "next_cursor": null },
     { "keys": [ … ], "next_cursor": "b3f1…" },
     { "records": [ … ], "next_cursor": null },
     { "error": { "code": "not_found", "message": "…" } }
@@ -42,24 +42,27 @@ POST /v1/read
 ```
 POST /v1/write
 { "mutations": [
-    { "schema": "notes/Note", "op": "put",    "key": { "hash": "n4" }, "record": { … } },
-    { "schema": "notes/Note", "op": "put",    "key": { "hash": "n5" }, "record": { … },
-      "alternates": { "by_author": { "hash": "tom", "range": "n5" } } },
-    { "schema": "notes/Tag",  "op": "delete", "key": { "hash": "work", "range": "2026-11-16" } }
+    { "schema": "notes/Note", "op": "create",  "key": { "hash": "n4" }, "record": { … } },
+    { "schema": "notes/Note", "op": "replace", "key": { "hash": "n1" }, "revision": "9c2e…", "record": { … },
+      "alternates": { "by_author": { "hash": "tom", "range": "n1" } } },
+    { "schema": "notes/Tag",  "op": "delete",  "key": { "hash": "work", "range": "2026-11-16" }, "revision": "41ab…" }
 ] }
 
 200
-{ "written": 3 }
+{ "written": 3, "revisions": [ "77d0…", "a3f1…", "c09e…" ] }
 ```
 
-- A mutation is `put` or `delete`. It names no condition and is carried out as
-  sent. The new value wins.
-- A `put` carries the complete record. A `put` of the same value again is written again.
-- A `delete` of a record that does not exist is not an error.
-- A schema that declares alternate keys takes their addresses in `alternates` on a `put`.
-- The list is all or nothing. When one list names a key twice, the last mutation for it wins.
-- Every mutation in one list names the same database.
-- The reply comes after the write is on disk.
+Every write carries a condition, so two writers cannot overwrite each other without knowing it.
+
+- `create` writes only when no record holds the key. It carries the record and no revision.
+- `replace` writes only when the record is still at `revision`, the revision the caller read. It carries the complete record.
+- `delete` deletes only when the record is still at `revision`. It carries no record.
+- A mutation whose condition does not hold refuses the whole list with `409 conflict`. The caller reads again and decides.
+- A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
+- The list is all or nothing. Every mutation in one list names the same database.
+- The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
+
+A read returns each record's `revision` beside its key.
 
 ## Errors
 
@@ -74,18 +77,12 @@ A refusal is an HTTP status with one body shape:
 | 400 | `invalid_request` |
 | 403 | `permission_denied` |
 | 404 | `not_found` |
+| 409 | `conflict` |
 | 413 | `too_large` |
 | 503 | `busy` |
 | 500, 507 | `internal` |
 
 The code is for the program. The message is for people and can change.
-
-## How a write with no condition is carried out today
-
-The engine commits each record against its revision. The route reads the
-current revision of every key in the list, commits against those revisions, and
-starts again when another writer changed a record in between. After eight
-attempts it answers `busy`. A caller never sees a revision or a conflict.
 
 ## Not built yet
 

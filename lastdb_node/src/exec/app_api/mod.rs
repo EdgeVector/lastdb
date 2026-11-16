@@ -20,13 +20,13 @@ fn bad(message: impl Into<String>) -> HostError {
     HostError::new(400, message)
 }
 
-/// The app API answers with six statuses. A write conflict never reaches the
-/// caller: `/v1/write` retries it, and reports `busy` when it cannot settle.
+/// The statuses the app API answers with. Every other status maps onto one of them.
 const fn normalize(status: u16) -> u16 {
     match status {
-        400 | 409 | 422 => 400,
+        400 | 422 => 400,
         401 | 403 => 403,
         404 => 404,
+        409 => 409,
         413 => 413,
         423 | 429 | 503 => 503,
         507 => 507,
@@ -39,6 +39,7 @@ const fn code(status: u16) -> &'static str {
         400 => "invalid_request",
         403 => "permission_denied",
         404 => "not_found",
+        409 => "conflict",
         413 => "too_large",
         503 => "busy",
         _ => "internal",
@@ -50,6 +51,7 @@ const fn reason(status: u16) -> &'static str {
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
         413 => "Payload Too Large",
         503 => "Service Unavailable",
         507 => "Insufficient Storage",
