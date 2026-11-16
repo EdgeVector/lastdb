@@ -1,8 +1,10 @@
 //! Metadata namespace capability, local author clocks, receipts, shared revisions, and stream state.
 
+mod changes;
 mod files;
 mod replay;
 
+pub use changes::{Change, ChangePage, CHANGES_PAGE};
 pub(crate) use files::{decrypt_file_row, require_row, seal_row};
 pub(in crate::storage::format) use files::{encode_files, FileChange};
 pub use replay::ReplayStamp;

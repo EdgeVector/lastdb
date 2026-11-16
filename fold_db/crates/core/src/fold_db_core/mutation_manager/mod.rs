@@ -267,6 +267,15 @@ impl MutationManager {
             .format
             .stage_records(schema, changes)
             .await?;
+        let listed: Vec<_> = changed
+            .iter()
+            .zip(&outcomes)
+            .map(|(r, &(live, _, _))| (r.key, !live))
+            .collect();
+        self.db_ops
+            .metadata()
+            .stage_changes(&schema.name, &listed)
+            .await?;
         let live = changed
             .iter()
             .zip(&outcomes)
