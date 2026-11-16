@@ -201,6 +201,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/schemas/seed-system" => Some(("POST", SeedSystemSchema)),
         "/api/schemas/drop" => Some(("POST", DropSchema)),
         "/api/status" => Some(("GET", Status)),
+        "/api/surface-gate-probe" => Some(("GET", Status)),
         "/api/admin/shed" => Some(("POST", AdminShed)),
         CLOUD_WAKE_PATH => Some(("POST", CloudWake)),
         "/api/db/schemas" => Some(("GET", DbSchemas)),
