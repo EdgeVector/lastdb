@@ -139,8 +139,11 @@ async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, 
         .as_array()
         .ok_or_else(|| HostError::internal("write read is incomplete"))?;
     match rows.as_slice() {
-        // The engine refuses a delete of an absent record on its revision.
-        [] => Ok(Alternates::new()),
+        // No record holds the key, so no revision of it can match.
+        [] => Err(HostError::new(
+            409,
+            "the record does not exist, so the delete revision does not match",
+        )),
         [row] => serde_json::from_value(row["alternates"].clone())
             .map_err(|_| HostError::internal("stored alternates are invalid")),
         _ => Err(bad(
