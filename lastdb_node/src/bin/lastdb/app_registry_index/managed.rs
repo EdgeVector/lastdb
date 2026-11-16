@@ -272,8 +272,8 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
             "previous source is held after rollback; explicit install consent is required".into(),
         );
     }
-    let (_, _, api, outbox) = super::running_node(home);
-    if prior.listing.api_version != api
+    let (_, _, api, outbox, min_api) = super::running_node(home);
+    if !(min_api..=api).contains(&prior.listing.api_version)
         || prior
             .listing
             .outbox_format_version

@@ -170,7 +170,7 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
         return Err("origin must be a public https://github.com/owner/repo.git URL".into());
     }
     let sha = git(&root, &["rev-parse", "HEAD"])?;
-    let (build, _, api_version, outbox) = registry::running_node(home);
+    let (build, _, api_version, outbox, _) = registry::running_node(home);
     let sock = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     require_held_schemas_listed(&sock, app_id, &listed)?;
     let channel = input

@@ -8,12 +8,16 @@ use std::path::{Path, PathBuf};
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
 
-type Catalog = (
-    registry::InterfaceList,
-    String,
-    String,
-    (String, &'static str),
-);
+/// The apps the running node can install, with where and how they were read.
+struct Catalog {
+    list: registry::InterfaceList,
+    location: registry::IndexLocation,
+    trust: String,
+    /// Build and where it was read from.
+    node: (String, &'static str),
+    /// The node's minimum supported and current API versions.
+    range: (u32, u32),
+}
 
 fn parse_catalog_env(raw: Option<&str>) -> Result<Option<Environment>, String> {
     raw.map(|v| Environment::try_from_str(v).map_err(|_| "--env must be dev or prod".to_owned()))
@@ -38,12 +42,21 @@ fn load_catalog(
     let ch = ch.unwrap_or(registry::DEFAULT_CHANNEL);
     let loc = registry::IndexLocation::resolve(index, env_override)?;
     let (vk, trust) = registry::resolve_list_trust_key(trust_key)?;
-    let (build, node_src, api, outbox) = registry::running_node(home);
-    let mut list = crate::block_on("app catalog", registry::fetch_list(&loc, ch, api, &vk))?;
+    let (build, node_src, api, outbox, min_api) = registry::running_node(home);
+    let range = (min_api, api);
+    let mut list = crate::block_on(
+        "app catalog",
+        registry::fetch_supported(&loc, ch, range, &vk),
+    )?;
     list.apps
         .retain(|e| e.outbox_format_version.is_none_or(|v| v == outbox));
-    let idx = loc.describe_interface(ch, list.api_version);
-    Ok((list, idx, trust, (build, node_src)))
+    Ok(Catalog {
+        list,
+        location: loc,
+        trust,
+        node: (build, node_src),
+        range,
+    })
 }
 
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
@@ -98,7 +111,13 @@ fn list_apps(
     src: &CatalogSource,
 ) -> Result<(), String> {
     let env_override = parse_catalog_env(src.env.as_deref())?;
-    let (list, index, trust, (nb, ns)) = load_catalog(
+    let Catalog {
+        list,
+        location,
+        trust,
+        node: (nb, ns),
+        range: (min_api, api),
+    } = load_catalog(
         home,
         src.channel.as_deref(),
         src.index.as_deref(),
@@ -110,7 +129,7 @@ fn list_apps(
             print_pretty_json(&list);
         } else {
             println!(
-                "# {} API {} · sequence {} · generated {}",
+                "# {} API {min_api} to {api} · newest list API {} sequence {} · generated {}",
                 list.channel, list.api_version, list.seq, list.generated_at
             );
             for e in &list.apps {
@@ -119,12 +138,14 @@ fn list_apps(
         }
         return Ok(());
     };
-    let api = list.api_version;
     let e = list
         .apps
         .iter()
         .find(|e| e.app_id == app_id)
-        .ok_or_else(|| format!("no app '{app_id}' was proved with lastdb API {api}"))?;
+        .ok_or_else(|| {
+            format!("no app '{app_id}' was proved with lastdb API {min_api} to {api}")
+        })?;
+    let index = location.describe_interface(&e.channel, e.api_version);
     if catalog_entry || json {
         print_pretty_json(e);
     } else {
@@ -163,13 +184,19 @@ fn resolutions(
     if trust_key.is_some() || std::env::var_os(registry::TRUST_KEY_ENV).is_some() {
         return Err("managed installs require the pinned registry key".into());
     }
-    let (list, index, trust, _) = load_catalog(home, Some(channel), index, env_override, None)?;
+    let Catalog {
+        list,
+        location,
+        trust,
+        ..
+    } = load_catalog(home, Some(channel), index, env_override, None)?;
     Ok(list
         .apps
         .into_iter()
         .map(|entry| registry::Resolution {
+            // Each entry names the list of its own API version.
+            index: location.describe_interface(&entry.channel, entry.api_version),
             entry,
-            index: index.clone(),
             trust: trust.clone(),
         })
         .collect())
@@ -305,7 +332,13 @@ fn upgrade_one(
         .as_ref()
         .map_err(Clone::clone)?;
     std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
-    let Some(row) = rows.iter().find(|r| r.entry.app_id == app) else {
+    // An upgrade never moves to a listing from an older API version than the
+    // installed one. That would be a downgrade, for example after the newer
+    // listing was withdrawn; the installed copy stays instead.
+    let Some(row) = rows
+        .iter()
+        .find(|r| r.entry.app_id == app && r.entry.api_version >= cur.listing.api_version)
+    else {
         return Ok((!polling)
             .then(|| json!({"app": app, "state": "no_row", "installed_release": cur.sha})));
     };
