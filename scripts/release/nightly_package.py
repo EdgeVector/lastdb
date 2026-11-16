@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import gzip
 import hashlib
 import json
@@ -190,6 +191,20 @@ def build_target(args):
     package_bundle(args.target, bin_dir, args.out_dir, git_oid, version, epoch, nightly_only=nightly_only)
 
 
+@contextmanager
+def open_executable_pair(bundle):
+    with tarfile.open(bundle, "r:gz") as archive:
+        members = []
+        for member in archive:
+            if (len(members) == 2 or member.name not in {"lastdb", "lastdbd"}
+                    or not member.isfile() or not 0 < member.size <= MAX_FILE):
+                raise ValueError("The archive exceeds the bounded executable pair")
+            members.append(member)
+        if len(members) != 2 or {member.name for member in members} != {"lastdb", "lastdbd"}:
+            raise ValueError("The archive must contain only the matched executable pair")
+        yield archive, members
+
+
 def validate_bundle(folder, target, plan):
     prefix = f"lastdb-{target}"
     bundle = folder / f"{prefix}.tar.gz"
@@ -205,19 +220,10 @@ def validate_bundle(folder, target, plan):
     if len(binaries) != 2 or {item["name"] for item in binaries} != {"lastdb", "lastdbd"}:
         raise ValueError("The release requires one matched CLI and daemon")
     expected = {item["name"]: item for item in binaries}
-    with tarfile.open(bundle, "r:gz") as archive:
-        members = []
-        for member in archive:
-            if (len(members) == 2 or member.name not in expected or not member.isfile()
-                    or not 0 < member.size <= MAX_FILE):
-                raise ValueError("The archive exceeds the executable pair")
-            members.append(member)
-        if len(members) != 2 or {member.name for member in members} != set(expected):
-            raise ValueError("The archive contains files outside the executable pair")
+    with open_executable_pair(bundle) as (archive, members):
         for member in members:
             item = expected[member.name]
-            if (not member.isfile() or not 0 < member.size <= MAX_FILE
-                    or item["version"] != plan["version"] or not HEX.fullmatch(item["sha256"])
+            if (item["version"] != plan["version"] or not HEX.fullmatch(item["sha256"])
                     or type(item.get("size")) is not int or item["size"] != member.size
                     or member.mode != 0o755):
                 raise ValueError("An executable's type, version, or size is invalid")

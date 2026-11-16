@@ -4,22 +4,49 @@
 
 import {
   LASTDB_API_ROUTES,
-  mapDataError,
   schemaRoute,
   scopedApiPath,
   type ClientContext,
-} from './clientHelpers.js';
-import { NodeTooOldError, UnexpectedResponseError } from './errors.js';
+} from './databases.js';
+import { mapDataError, NodeTooOldError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
-import type {
-  AutoIdentityResult,
-  DeclareSchemaRequest,
-  DeclareSchemaResult,
-  JsonValue,
-  LoadedSchema,
-  NodeVersion,
-  SchemaDescriptor,
-} from './types.js';
+import type { JsonValue, NodeVersion } from './types.js';
+
+/** One schema entry from `GET /api/schemas` or `GET /api/schema/<name>`. */
+export interface LoadedSchema {
+  name: string;
+  identityHash: string | null;
+  descriptiveName: string | null;
+  ownerAppId: string | null;
+  fields: string[];
+}
+
+/** Descriptor used to resolve an app-owned loaded schema from `/api/schemas`. */
+export interface SchemaDescriptor {
+  ownerAppId: string;
+  descriptiveName: string;
+  fields?: readonly string[];
+}
+
+/** `GET /api/system/auto-identity` parsed result. */
+export type AutoIdentityResult =
+  | { provisioned: true; userHash: string; publicKey: string | null; userId: string | null }
+  | { provisioned: false; reason: string; next: string | null };
+
+/** `POST /api/schemas/declare`. */
+export interface DeclareSchemaRequest {
+  namespace: string;
+  schema: Record<string, unknown>;
+  intent?: 'catalog_sync' | 'check';
+}
+
+/** The definition the declare response named, keyed later by `schemaName`. */
+export interface DeclareSchemaResult {
+  schemaName: string;
+  definitionId: string;
+  identityHash: string | null;
+  resolution: string | null;
+}
 
 const DEFINITION_ID_PATTERN = /^[0-9a-f]{64}$/;
 

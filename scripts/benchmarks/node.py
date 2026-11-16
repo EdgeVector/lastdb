@@ -22,7 +22,7 @@ from harness import (  # noqa: E402,F401
     poll_until, read_shutdown_receipt, save_json as save, send_unix_request,
     stop_process, verify_shutdown_receipt,
 )
-from record_protocol import RecordProtocol  # noqa: E402
+from benchmarks.record_protocol import RecordProtocol  # noqa: E402
 
 CATEGORIES = ("database", "search_queue", "other_home")
 SIZES = ("logical_bytes", "allocated_bytes")
@@ -116,12 +116,11 @@ class Node:
         save(output / "ownership.json", self.owner)
         self.process, self.log = None, None
 
-    def call(self, path, body=None, receipt=False, request_id=None, transport=None,
-             complete_records=False, timeout=60):
+    def call(self, path, body=None, receipt=False, request_id=None, transport=None, timeout=60):
         if self.record_protocol is not None:
             return self.record_protocol.call(
                 self._exchange, path, body, receipt=receipt, request_id=request_id,
-                transport=transport, complete_records=complete_records, timeout=timeout)
+                transport=transport, timeout=timeout)
         return self._exchange(path, body, receipt=receipt, request_id=request_id, transport=transport, timeout=timeout)
 
     def _exchange(self, path, body=None, receipt=False, request_id=None, transport=None, timeout=60):

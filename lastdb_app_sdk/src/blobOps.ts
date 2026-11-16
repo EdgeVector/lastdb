@@ -4,32 +4,103 @@
  */
 
 import {
-  FILE_BLOB_METADATA_LENGTH_HEADER,
-  FILE_SHA256_HEADER,
-  FILE_SIZE_HEADER,
   LASTDB_API_ROUTES,
-  mapDataError,
-  normalizeRecordKeyInput,
   scopedApiPath,
   type ClientContext,
-} from './clientHelpers.js';
-import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
+} from './databases.js';
+import { mapDataError, RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { buildMutationOperation, parseCommittedMutation } from './mutationOps.js';
+import { normalizeRecordKeyInput } from './readOps.js';
 import { isNonEmptyString, isObject, parseFileMarker } from './responseParsers.js';
 import type {
-  BlobThumbnailInput,
-  DeleteBlobOptions,
-  FetchBlobOptions,
-  FetchedBlob,
+  CreateMutationOp,
+  FileMarker,
   FilePlacement,
   MutationResult,
-  PutBlobRequest,
-  PutBlobResult,
   RecordKeyInput,
   ReplaceMutationOp,
 } from './types.js';
 
+const FILE_BLOB_METADATA_LENGTH_HEADER = 'X-LastDB-File-Blob-Metadata-Length';
+const FILE_SHA256_HEADER = 'x-lastdb-file-sha256';
+const FILE_SIZE_HEADER = 'x-lastdb-file-size';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** Mutations eligible for `putBlob` (`create` or complete `replace`). */
+export type PutBlobMutationOp = CreateMutationOp | ReplaceMutationOp;
+
+/** Optional inline thumbnail attached alongside a `blob` placement in `putBlob`. */
+export interface BlobThumbnailInput {
+  bytes: Uint8Array | ArrayBuffer;
+  name?: string;
+  mediaType?: string;
+}
+
+/** Upload raw in-memory bytes for a record's blob or inline file (`POST /api/db/put-blob`). */
+export interface PutBlobBytesRequest {
+  op: PutBlobMutationOp;
+  bytes: Uint8Array | ArrayBuffer;
+  localPath?: never;
+  name?: string;
+  mediaType?: string;
+  placement?: FilePlacement;
+  thumbnail?: BlobThumbnailInput;
+  timeoutMs?: number;
+}
+
+/** Reference an existing local file path on an owner node (`POST /api/db/put-blob`). */
+export interface PutBlobLocalPathRequest {
+  op: PutBlobMutationOp;
+  localPath: string;
+  bytes?: never;
+  name?: string;
+  mediaType?: string;
+  placement?: 'blob';
+  thumbnail?: BlobThumbnailInput;
+  timeoutMs?: number;
+}
+
+/** Request payload for `LastDbClient.putBlob`. */
+export type PutBlobRequest = PutBlobBytesRequest | PutBlobLocalPathRequest;
+
+/** Receipt returned by `POST /api/db/put-blob`. */
+export interface PutBlobResult {
+  file: FileMarker;
+  placement: FilePlacement;
+  thumbnail: FileMarker | null;
+  mutationId: string;
+  recordRevision: string;
+  local: boolean;
+}
+
+/** Options for `LastDbClient.fetchBlob` (`POST /api/db/fetch-blob`). */
+export interface FetchBlobOptions {
+  /** Require the record to match this 64-hex revision token when reading. */
+  expectedRevision?: string;
+  /** Which attached file to read (`'blob'` default, or `'inline'`). */
+  placement?: FilePlacement;
+  /** Request the JSON envelope so `name` and `mediaType` are populated alongside `bytes`. */
+  includeMetadata?: boolean;
+  /** Optional per-request timeout override in milliseconds. */
+  timeoutMs?: number;
+}
+
+/** Plaintext bytes and verified digest returned by `LastDbClient.fetchBlob`. */
+export interface FetchedBlob {
+  bytes: Uint8Array;
+  sha256: string;
+  sizeBytes: number;
+  name?: string;
+  mediaType?: string;
+}
+
+/** Options for `LastDbClient.deleteBlob` (`POST /api/db/delete-blob`). */
+export interface DeleteBlobOptions {
+  /** Which attached file to clear (`'blob'` default, or `'inline'`). */
+  placement?: FilePlacement;
+  /** Optional per-request timeout override in milliseconds. */
+  timeoutMs?: number;
+}
 
 function toBuffer(input: Uint8Array | ArrayBuffer): Buffer {
   if (Buffer.isBuffer(input)) return input;

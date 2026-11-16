@@ -50,22 +50,23 @@ def ids(rows):
 
 
 def refused(call, words):
+    expected = (words,) if isinstance(words, str) else tuple(words)
     try:
         call()
     except RuntimeError as error:
-        require(all(word in str(error) for word in words),
+        require(all(word in str(error) for word in expected),
                 "the call failed for another reason: " + str(error))
         return
     raise RuntimeError("the call did not fail: " + repr(words))
 
 
-def definition(name, schema_type, fields, alternates=None):
+def definition(name, schema_type, fields, alternates=None, description_prefix="Record home example "):
     return {
         "source": "system_seed", "name": name, "descriptive_name": name, "schema_type": schema_type,
         "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if schema_type == "HashRange" else {"kind": "hash"},
                         "alternates": alternates or {}},
         "fields": fields, "field_types": {f: "String" for f in fields},
-        "field_descriptions": {f: "Record home example " + f for f in fields}, "field_versions": {f: 1 for f in fields},
+        "field_descriptions": {f: description_prefix + f for f in fields}, "field_versions": {f: 1 for f in fields},
     }
 
 
@@ -74,14 +75,15 @@ DROPPED = definition("RecordDrop", "Hash", FIELDS, {"by_bucket": RANGED})
 RACED = definition("RecordRace", "Hash", FIELDS, {"by_bucket": RANGED})
 
 
-def seed(node, schema):
-    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+def system_seed(node, schema, database_id=None):
+    path = "/api/schemas/seed-system" if database_id is None else f"/api/databases/{database_id}/schemas/seed-system"
+    node.call(path, {"isolated_copy": True, "schema": schema})
 
 
 def install(node):
     for schema in [definition("RecordRun", "HashRange", FIELDS), definition("RecordNoKey", "Hash", ["value"]),
                    definition("RecordAged", "HashRange", FIELDS), DROPPED, RACED]:
-        seed(node, schema)
+        system_seed(node, schema)
 
 
 def mutation(schema, key, values, operation):
@@ -257,7 +259,7 @@ def drop_release(node):
             f"RecordDrop holds {len(listed)} listed and {len(alternate)} alternate records before the drop")
     reply = node.call("/api/schemas/drop", {"schema": "RecordDrop", "must_exist": True})[0]
     require(reply["existed"], "the schema drop did not find RecordDrop: " + repr(reply))
-    seed(node, DROPPED)
+    system_seed(node, DROPPED)
     listed, alternate = dropped_rows(node)
     require(listed == [] and alternate == [],
             f"the schema installed again after its drop holds {len(listed)} listed and "
@@ -266,7 +268,7 @@ def drop_release(node):
     # an installed schema refuses a change of its alternate keys.
     changed = definition("RecordDrop", "Hash", FIELDS,
                          {"by_value": RANGED})
-    refused(lambda: seed(node, changed), ["alternate"])
+    refused(lambda: system_seed(node, changed), ["alternate"])
     write(node, [mutation("RecordDrop", {"hash": "d0001"},
                           {"id": "d0001", "bucket": "fresh", "value": "new"}, "create")])
     listed, alternate = dropped_rows(node)
@@ -333,7 +335,7 @@ def drop_race(node):
             + repr(outcome["other"]))
     require(reply["existed"], "the schema drop did not find RecordRace: " + repr(reply))
     require(outcome["blocked"] >= 1, "no write met the drop while it ran: " + repr(outcome))
-    seed(node, RACED)
+    system_seed(node, RACED)
     listed, alternate = race_rows(node)
     require(listed == [] and alternate == [],
             f"the drop left {len(listed)} listed and {len(alternate)} alternate records of a "

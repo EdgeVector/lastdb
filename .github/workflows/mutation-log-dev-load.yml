@@ -86,13 +86,14 @@ jobs:
         env:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
         working-directory: scripts/mutation_log_load
-        run: |
-          python3 -c 'from guard import allow_region, allow_role; import os; allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"]); allow_region("us-west-2")'
+        run: python3 -c 'from guard import allow_role; import os; allow_role(os.environ["LASTDB_MUTATION_LOG_DEV_ROLE_ARN"])'
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           aws-region: us-west-2
           role-session-name: mutation-log-load-${{ github.run_id }}
+      - name: Install the signed recipe dependency
+        run: python3 -m pip install --quiet cryptography==41.0.7
       - name: Run signed DEV load or private recovery
         id: load
         continue-on-error: true
@@ -107,7 +108,6 @@ jobs:
           LOAD_DURATION: ${{ inputs.duration }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
         run: |
-          python3 -m pip install --quiet cryptography==41.0.7
           set +e
           scale=
           if [ "$LOAD_DURATION" = "scale" ]; then
@@ -132,7 +132,6 @@ jobs:
           LASTDB_MUTATION_LOG_DEV_ROLE_ARN: ${{ vars.LASTDB_MUTATION_LOG_DEV_ROLE_ARN }}
           CONFIRM_DEPLOYED: ${{ inputs.confirm_deployed }}
         run: |
-          python3 -m pip install --quiet cryptography==41.0.7
           set +e
           python3 scripts/mutation_log_load/run.py \
             --phase cleanup \

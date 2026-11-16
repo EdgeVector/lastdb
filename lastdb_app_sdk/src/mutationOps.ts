@@ -7,18 +7,19 @@ import { randomUUID } from 'node:crypto';
 
 import {
   LASTDB_API_ROUTES,
-  mapDataError,
   scopedApiPath,
   type ClientContext,
-} from './clientHelpers.js';
+} from './databases.js';
 import {
+  mapDataError,
   RequestRejectedError,
   ShareSubmissionUncertainError,
   TransportError,
   UnexpectedResponseError,
 } from './errors.js';
-import { isObject, parseMutationId } from './responseParsers.js';
+import { isNonEmptyString, isObject } from './responseParsers.js';
 import type {
+  JsonValue,
   MutationBatchItem,
   MutationBatchOperations,
   MutationBatchOptions,
@@ -37,6 +38,17 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 function isMutationId(id: string): boolean {
   return id.length === 36 && UUID_LOWERCASE.test(id) && id !== NIL_UUID;
+}
+
+function parseMutationId(body: Record<string, JsonValue>, raw: unknown): string {
+  const id = body['mutation_id'];
+  if (!isNonEmptyString(id)) {
+    throw new UnexpectedResponseError('mutation returned no mutation ID', 200, raw);
+  }
+  if (body['success'] !== true) {
+    throw new UnexpectedResponseError('mutation returned no success marker', 200, raw);
+  }
+  return id;
 }
 
 /** Look up this receiver's proposal by the UUID used for submission. */

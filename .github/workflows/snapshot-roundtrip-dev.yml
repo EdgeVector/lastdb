@@ -12,8 +12,6 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f client=nightly
 # Native cutoff recovery from the exact accepted client:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff
-# Require automatic log removal on the deployed DEV service:
-#   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff -f require_automatic=true
 # Resume cleanup for one completed attempt without building or uploading:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=resume-cleanup -f original_run_id=RUN -f original_run_attempt=ATTEMPT
 # Re-run failed jobs can reuse a successful import and retire its exact account.
@@ -45,10 +43,6 @@ on:
           - round-trip
           - native-cutoff
           - resume-cleanup
-      require_automatic:
-        description: "Require automatic log removal in native cutoff mode"
-        type: boolean
-        default: false
       original_run_id:
         description: "Original GitHub Actions run ID for resume-cleanup"
         type: string
@@ -93,16 +87,12 @@ jobs:
           SELECTED_REF: ${{ github.ref }}
           SNAPSHOT_MODE: ${{ github.event.inputs.mode }}
           CLIENT: ${{ github.event.inputs.client || 'build' }}
-          REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
           ORIGINAL_RUN_ID: ${{ github.event.inputs.original_run_id }}
           ORIGINAL_RUN_ATTEMPT: ${{ github.event.inputs.original_run_attempt }}
         run: |
           test "$SELECTED_REF" = refs/heads/main
           if [ "$SNAPSHOT_MODE" = native-cutoff ]; then
             test "$CLIENT" = build
-          fi
-          if [ "$REQUIRE_AUTOMATIC" = true ]; then
-            test "$SNAPSHOT_MODE" = native-cutoff
           fi
           if [ "$SNAPSHOT_MODE" = resume-cleanup ]; then
             [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]]
@@ -177,14 +167,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'native-cutoff'
         env:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
-          REQUIRE_AUTOMATIC: ${{ github.event.inputs.require_automatic }}
         run: |
-          args=()
-          if [ "$REQUIRE_AUTOMATIC" = true ]; then
-            args+=(--require-automatic)
-          fi
           python3 scripts/cloud_backup/snapshot_gate.py native-cutoff \
-            --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION" "${args[@]}"
+            --bin-dir "$CLIENT_BIN_DIR" --version "$CLIENT_VERSION"
 
   snapshot-retirement:
     name: Retire the DEV snapshot account

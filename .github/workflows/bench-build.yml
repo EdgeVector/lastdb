@@ -57,7 +57,7 @@ jobs:
           persist-credentials: false
 
       - name: Check benchmark script syntax
-        run: python3 -m py_compile driver/scripts/benchmarks/*.py
+        run: python3 -m py_compile driver/scripts/harness.py driver/scripts/benchmarks/*.py
 
       - name: Checkout exact candidate product source
         uses: actions/checkout@v5

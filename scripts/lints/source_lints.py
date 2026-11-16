@@ -214,8 +214,8 @@ def _check_no_hardcoded_urls(repo: Path, tracked: list[str]) -> bool:
     hosts = sorted({
         re.sub(r"^https?://", "", val).split("/", 1)[0]
         for env_map in env_data.get("environments", {}).values()
-        for key, val in env_map.items()
-        if key != "region" and isinstance(val, str) and val.startswith("http")
+        for val in env_map.values()
+        if isinstance(val, str) and val.startswith("http")
     })
     encoded = [(h, h.encode("utf-8")) for h in hosts]
     errors = 0

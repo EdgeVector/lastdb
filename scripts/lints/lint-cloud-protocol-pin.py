@@ -228,29 +228,8 @@ def _make_variant_live(pinned: Schema, load_service: Callable[[], list[str] | No
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--repo-root", default=".")
-    p.add_argument("--head-protocol", help="protocol tree to treat as the client")
-    p.add_argument("--pinned-protocol", help="protocol tree to treat as the deployed service")
-    p.add_argument("--pinned-service", help="service Rust source tree for local removed-variant checks")
-    p.add_argument("--dump", action="store_true", help="print the head wire summary and exit")
-    p.add_argument("--force-compare", action="store_true", help="compare AST shapes even when tree SHAs match")
-    args = p.parse_args()
-    repo = Path(args.repo_root).resolve()
-    head_root = Path(args.head_protocol).resolve() if args.head_protocol else repo
-
-    if args.dump:
-        from protocol_pin.ast_scan import load_protocol
-        _dump(load_protocol(head_root))
-        return
-
-    if args.pinned_protocol:
-        from protocol_pin.ast_scan import collect_usage, load_protocol
-        head, pinned = load_protocol(head_root), load_protocol(Path(args.pinned_protocol).resolve())
-        svc_loader = (lambda: _local_service_sources(Path(args.pinned_service).resolve())) if args.pinned_service else (lambda: None)
-        _report("local", incompatibilities(pinned, head, collect_usage(repo, head), _make_variant_live(pinned, svc_loader)))
-        return
-
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    repo = Path(__file__).resolve().parents[2]
     sha = pin_sha()
     if not (re.fullmatch(r"[0-9a-f]{40}", sha) and _git(repo, "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0):
         fetch = _git(repo, "fetch", "--depth", "1", "origin", sha)
@@ -262,7 +241,7 @@ def main() -> None:
     pin_tree = pin_proc.stdout.strip()
 
     clean = _git(repo, "status", "--porcelain", "--", "cloud_backup_protocol")
-    if not args.force_compare and not args.head_protocol and clean.returncode == 0 and not clean.stdout.strip():
+    if clean.returncode == 0 and not clean.stdout.strip():
         head_proc = _git(repo, "rev-parse", "--verify", "HEAD:cloud_backup_protocol")
         if head_proc.returncode == 0 and head_proc.stdout.strip() == pin_tree:
             print(f"cloud-protocol-pin: cloud_backup_protocol tree matches pinned {sha} ({pin_tree})")
@@ -270,15 +249,14 @@ def main() -> None:
 
     from protocol_pin.ast_scan import collect_usage, load_protocol
 
-    head = load_protocol(head_root)
-    svc_loader = (lambda: _local_service_sources(Path(args.pinned_service).resolve())) if args.pinned_service else _remote_service_sources
+    head = load_protocol(repo)
     with tempfile.TemporaryDirectory(prefix="protocol-pin-") as tmp:
         arc = _git(repo, "archive", sha, "cloud_backup_protocol", text=False)
         if arc.returncode != 0:
             raise SystemExit(f"pinned commit {sha} has no cloud_backup_protocol tree")
         subprocess.run(["tar", "-x", "-C", tmp], input=arc.stdout, check=True)
         pinned = load_protocol(Path(tmp))
-        errors = incompatibilities(pinned, head, collect_usage(repo, head), _make_variant_live(pinned, svc_loader))
+        errors = incompatibilities(pinned, head, collect_usage(repo, head), _make_variant_live(pinned, _remote_service_sources))
     _report(sha, errors)
 
 
@@ -306,11 +284,6 @@ def _gh_open(url: str, token: str):
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30)
-
-
-def _local_service_sources(root: Path) -> list[str] | None:
-    base = root / "exemem_service" if (root / "exemem_service").is_dir() else root
-    return ([norm_code(p.read_text(encoding="utf-8")) for p in sorted(base.rglob("*.rs"))] or None) if base.is_dir() else None
 
 
 def _remote_service_sources() -> list[str] | None:
@@ -344,19 +317,6 @@ def pin_sha() -> str:
         f"Could not read EdgeVector/exemem-infra main's fold gitlink ({last}). "
         "The storage-service pin is that submodule. This check fails closed until the pin can be read."
     )
-
-
-def _dump(schema) -> None:
-    for path in sorted(schema.types):
-        td = schema.types[path]
-        if td.kind == "alias":
-            print(f"alias {path} -> {td.alias}")
-            continue
-        print(f"{td.kind} {path} repr={td.repr} deny={td.deny}")
-        for item in td.fields:
-            print(f"  {item.wire} {item.encoded} skip={item.skip} default={item.default}")
-        for variant in td.variants:
-            print(f"  variant {variant.name} -> {variant.wire} {variant.kind}")
 
 
 if __name__ == "__main__":

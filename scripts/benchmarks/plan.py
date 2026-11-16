@@ -12,8 +12,6 @@ import sys
 
 
 DOCUMENT_FILES = {".gitignore", ".gitattributes", ".github/CODEOWNERS", ".last-stack/pr-venue"}
-UNBUILDABLE_REPLAY_MERGE = "84fc27b29c1d9036948ca3c28a30997f72d590de"
-LAST_BUILDABLE_REPLAY_BASE = "b175c9e6aa88ab19d0ff7d9a8764c2ffa6917806"
 GIB = 1024 ** 3
 # The 100,000-record nightly reached 29.8 GiB in run 40082466885.
 # Homes run one at a time and are removed before the next version starts.
@@ -95,12 +93,6 @@ def main():
     required = args.always or bool(product) or not paths
     reason = ("product or benchmark configuration change" if product else
               "scheduled, main, manual, or empty change" if required else "documentation-only change")
-    if event in {"pull_request", "merge_group", "push"} and baseline == UNBUILDABLE_REPLAY_MERGE:
-        repaired_base = revision(LAST_BUILDABLE_REPLAY_BASE)
-        if git("rev-parse", baseline + "^").decode().strip() != repaired_base:
-            raise ValueError("The replay repair benchmark base is not the direct accepted parent")
-        reason += f". Measuring against accepted {repaired_base} because {baseline} fails to build"
-        baseline = repaired_base
     result = {"required": str(required).lower(), "baseline": baseline, "candidate": candidate,
               "requested_baseline": requested_baseline,
               "driver": git("rev-parse", "HEAD").decode().strip(),

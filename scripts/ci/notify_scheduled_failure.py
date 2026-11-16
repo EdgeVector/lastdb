@@ -3,9 +3,14 @@
 
 import json
 import os
+from pathlib import Path
 import re
+import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request, build_opener
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from harness import NoRedirect, summary_line  # noqa: E402
 
 REPOSITORY = "EdgeVector/lastdb"
 ASSIGNEE = "shiba4life"
@@ -18,11 +23,6 @@ WORKFLOWS = {
 }
 RESULTS = {"success", "failure", "cancelled", "skipped"}
 MAX_BODY = 1024 * 1024
-
-
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *_args, **_kwargs):
-        raise RuntimeError("notify_github_redirect")
 
 
 def conclusion(results):
@@ -65,7 +65,7 @@ class GitHub:
         if not 0 < len(value) <= 4096 or any(ord(char) < 33 or ord(char) > 126 for char in value):
             raise SystemExit("notify_token")
         self.calls = 0
-        self.opener = build_opener(NoRedirect())
+        self.opener = build_opener(NoRedirect(SystemExit("notify_github_redirect")))
         self.headers = {
             "Authorization": "Bearer " + value,
             "Accept": "application/vnd.github+json",
@@ -99,10 +99,6 @@ class GitHub:
             raise SystemExit("notify_github_http_" + str(error.code)) from None
         except (URLError, TimeoutError, OSError):
             raise SystemExit("notify_github_transport") from None
-        except RuntimeError as error:
-            if str(error) != "notify_github_redirect":
-                raise
-            raise SystemExit("notify_github_redirect") from None
         if not raw.strip():
             return None
         try:
@@ -143,11 +139,7 @@ def tracked(issues, workflow_file):
 
 
 def note(text):
-    print(text, flush=True)
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if path:
-        with open(path, "a", encoding="utf-8") as stream:
-            stream.write(text + "\n")
+    summary_line(text, echo=True)
 
 
 def assigned(issue):

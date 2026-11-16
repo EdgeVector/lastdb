@@ -16,14 +16,14 @@ if _SCRIPTS not in sys.path:
 from harness import create, key as record_key, replace_row as replace  # noqa: E402
 from node import OwnedNode  # noqa: E402
 from snapshot_attempt_account import inspect as inspect_attempt  # noqa: E402
+from snapshot_gate import (NEWER_THAN_SNAPSHOT, auto_reclaim_preimage, automatic_floor,  # noqa: E402
+                           automatic_supported, check_auto_reclaim)
 from snapshot_gate_aws import CUTOFF_DIGEST, SNAPSHOT_THROUGH, current_attempt, entry_key, start_tracking, summary  # noqa: E402
-from snapshot_gate_reclaim import (NEWER_THAN_SNAPSHOT, auto_reclaim_preimage, automatic_floor,  # noqa: E402
-                                   automatic_supported, check_auto_reclaim, index_status, reclaim_signed_prefix)
 from snapshot_gate_roundtrip import cli, prefixed  # noqa: E402
 from support import (CREDENTIALS_FILE, OperationError, dev_endpoint, read_json,  # noqa: E402
                      require, retry, running, write_private)
 
-FINAL_HEAD = 16
+FINAL_HEAD = 17
 SNAPSHOT_ONLY = {"id": "native-cutoff-base", "note": "only present on the source at snapshot"}
 OFFLINE_RECORDS = [
     {"id": "native-cutoff-queue-a", "note": "first disjoint offline write"},
@@ -155,15 +155,13 @@ def wait_reopen(private, peer, database, snapshot_id, writer, old_inode, old_ins
     require(peer.health(), "private_native_reopened_health")
 
 
-def check_tail(private, call, source, peer, *, automatic):
+def check_tail(private, call, source, peer):
     page = call("list", {"after": str(SNAPSHOT_THROUGH), "limit": "8", "accept_native_reset": True})
     source_id, peer_id = private.device_id(source), private.device_id(peer)
-    start = SNAPSHOT_THROUGH + 1
-    expected = []
-    if automatic:
-        expected.append((start, source_id, 9))
-        start += 1
-    expected.extend((start + offset, peer_id, 5 + offset) for offset in range(len(OFFLINE_RECORDS) + 2))
+    expected = [
+        (SNAPSHOT_THROUGH + 1, source_id, 9),
+        *((SNAPSHOT_THROUGH + 2 + offset, peer_id, 5 + offset) for offset in range(len(OFFLINE_RECORDS) + 2)),
+    ]
     require(
         private.decimal(page["next"]) == expected[-1][0]
         and [
@@ -173,70 +171,62 @@ def check_tail(private, call, source, peer, *, automatic):
         == expected,
         "private_native_delivered_tail",
     )
-    for device, seq in ((source_id, "9" if automatic else "8"), (peer_id, "8")):
+    for device, seq in ((source_id, "9"), (peer_id, "8")):
         require(call("head", {"device_id": device}) == {"last_writer_seq": seq}, "private_native_writer_head")
 
 
-def catch_up(private, programs, call, database, read_storage, api_key, source, peer, records, *, history_supported, automatic):
+def catch_up(private, programs, call, database, read_storage, api_key, source, peer, records):
     require(peer.process is None and peer.clean_stops > 0, "private_native_peer_stopped")
     require(not os.path.lexists(peer.home / CREDENTIALS_FILE), "private_native_peer_no_credentials")
     receipt = peer.home / "log-sync" / database / "native-recovery.json"
     require(not os.path.lexists(receipt), "private_native_peer_recovery_is_new")
     private.check_progress(peer, database, 4, 10)
     writer = private.device_id(peer)
-    expected_records = [private.LAGGING_LOCAL, *records[1:], SNAPSHOT_ONLY, *OFFLINE_RECORDS]
+    expected_records = [private.LAGGING_LOCAL, *records[1:], SNAPSHOT_ONLY, *OFFLINE_RECORDS, NEWER_THAN_SNAPSHOT]
     programs.connect_existing(source, api_key, "private_dev_connection")
     with running(source, remove_saved=True):
         prepare_native_snapshot(private, call, source, database)
-        if automatic:
-            automatic_supported(call, eligible=True)
-            preimage = auto_reclaim_preimage(private, call, database, read_storage, peer)
+        automatic_supported(call, eligible=True)
+        preimage = auto_reclaim_preimage(private, call, database, read_storage, peer)
         snapshot_id = publish_native_snapshot(private, programs, call, source, database)
-        if automatic:
-            first_tail = check_auto_reclaim(private, call, source, database, read_storage, snapshot_id, preimage)
-            expected_records.append(NEWER_THAN_SNAPSHOT)
-        else:
-            summary("automatic_reclaim=unavailable")
-            reclaim_signed_prefix(private, call, database, read_storage, snapshot_id, history_supported=history_supported)
+        first_tail = check_auto_reclaim(private, call, source, database, read_storage, snapshot_id, preimage)
         expect_cut(private, call, snapshot_id)
-        current_head = SNAPSHOT_THROUGH + int(automatic)
-        final_head = FINAL_HEAD + int(automatic)
+        current_head = SNAPSHOT_THROUGH + 1
         write_offline_tail(private, call, peer, database, current_head)
         old_inode = owned_directory_inode(peer.home / "data")
         programs.connect_existing(peer, api_key, "private_dev_connection")
         with running(peer, remove_saved=True):
-            wait_reopen(private, peer, database, snapshot_id, writer, old_inode, peer.instance_id, final_head)
-            private.wait_prefix(peer, database, final_head, "private_native_peer_final_position")
-            private.wait_prefix(source, database, final_head, "private_native_source_final_position")
-            private.check_progress(peer, database, 8, final_head)
-            private.check_progress(source, database, 8 + int(automatic), final_head)
+            wait_reopen(private, peer, database, snapshot_id, writer, old_inode, peer.instance_id, FINAL_HEAD)
+            private.wait_prefix(peer, database, FINAL_HEAD, "private_native_peer_final_position")
+            private.wait_prefix(source, database, FINAL_HEAD, "private_native_source_final_position")
+            private.check_progress(peer, database, 8, FINAL_HEAD)
+            private.check_progress(source, database, 9, FINAL_HEAD)
             private.expect_records(peer, database, expected_records, "private_native_peer_final_records")
             private.expect_records(source, database, expected_records, "private_native_source_final_records")
-    if automatic:
-        programs.connect_existing(source, api_key, "private_dev_connection")
-        with running(source, remove_saved=True):
-            private.expect_records(source, database, expected_records, "native_automatic_reclaim_restarted_records")
-            state = call("snapshot/bytes", {"action": "automatic-retention"})
-            require(
-                automatic_floor(private, state, snapshot_id) == SNAPSHOT_THROUGH,
-                "native_automatic_reclaim_final_floor",
-            )
-            entries, _ = read_storage(through=final_head)
-            require(
-                set(entries) == {entry_key(seq) for seq in range(current_head, final_head + 1)}
-                and entries[entry_key(current_head)] == first_tail,
-                "native_automatic_reclaim_final_tail",
-            )
-    check_tail(private, call, source, peer, automatic=automatic)
+    programs.connect_existing(source, api_key, "private_dev_connection")
+    with running(source, remove_saved=True):
+        private.expect_records(source, database, expected_records, "native_automatic_reclaim_restarted_records")
+        state = call("snapshot/bytes", {"action": "automatic-retention"})
+        require(
+            automatic_floor(private, state, snapshot_id) == SNAPSHOT_THROUGH,
+            "native_automatic_reclaim_final_floor",
+        )
+        entries, _ = read_storage(through=FINAL_HEAD)
+        require(
+            set(entries) == {entry_key(seq) for seq in range(current_head, FINAL_HEAD + 1)}
+            and entries[entry_key(current_head)] == first_tail,
+            "native_automatic_reclaim_final_tail",
+        )
+    check_tail(private, call, source, peer)
     summary(
         "The lagging device uploaded all four offline edits before reopening from the native "
         "snapshot. It kept its device identity and recovered the snapshot-only record, the "
         "latest of its two offline edits to the same key, and both disjoint records."
     )
-    return final_head, expected_records
+    return FINAL_HEAD, expected_records
 
 
-def run_native_cutoff(programs, root, owner, *, require_automatic):
+def run_native_cutoff(programs, root, owner):
     import private_recovery as private
     from run import post
 
@@ -246,30 +236,14 @@ def run_native_cutoff(programs, root, owner, *, require_automatic):
     summary(f"database_id={database}")
     endpoint = dev_endpoint()
 
-    def call(operation, fields, *, expected_error=None, allow_unknown_outcome=False, allow_older_service=False):
+    def call(operation, fields, *, expected_error=None):
         body = json.dumps({**fields, "database_id": database}, separators=(",", ":")).encode("utf-8")
         try:
             status, result, _ = post(
                 endpoint, owner.key, database, "POST", f"{private.ROOT}/{operation}", body, owner.api_key, owner.generation
             )
         except (TimeoutError, urllib.error.URLError, http.client.HTTPException):
-            if allow_unknown_outcome:
-                return None
             raise OperationError("private_native_signed_transport") from None
-        if (
-            allow_older_service
-            and operation == "snapshot/bytes"
-            and fields in ({"action": "retention"}, {"action": "index-status"}, {"action": "automatic-retention"})
-            and status == 400
-            and result == {"code": "invalid_input", "field": "http.body"}
-        ):
-            return None
-        error_code = result.get("code") if isinstance(result, dict) else None
-        if allow_unknown_outcome:
-            if status in (502, 504) or (status == 503 and error_code in (None, "retry_later", "outcome_unknown")):
-                return None
-            if status == 409 and result == {"code": "predecessor_conflict", "field": "snapshot.retention.floor"}:
-                return None
         require(
             isinstance(result, dict) and (200 <= status < 300 if expected_error is None else status == expected_error),
             "private_native_signed_" + operation.replace("/", "_"),
@@ -279,11 +253,7 @@ def run_native_cutoff(programs, root, owner, *, require_automatic):
     for result in (call("create-database", {"kind": "personal"}), call("access", {})):
         require(result.get("state") == "native" and result.get("database_id") == database, "private_native_registration")
     start_tracking(call, attempt)
-    automatic = automatic_supported(call, eligible=False, allow_older_service=True)
-    require(automatic or not require_automatic, "native_automatic_reclaim_required")
-    history_supported = index_status(call, database, None, allow_older_service=True)
-    if not history_supported:
-        summary("history_index=unsupported signed_bulk_reclaim=not_exercised")
+    automatic_supported(call, eligible=False)
     credentials = OwnedNode(root / "connection", programs, account=owner.account)
     credentials.home.mkdir(mode=0o700)
     write_private(credentials.home / "identity.key", owner.key.private.private_bytes_raw())
@@ -308,8 +278,6 @@ def run_native_cutoff(programs, root, owner, *, require_automatic):
         source,
         peer,
         records,
-        history_supported=history_supported,
-        automatic=automatic,
     )
 
     restored = OwnedNode(root / "restored", programs, account=owner.account)
@@ -339,11 +307,10 @@ def run_native_cutoff(programs, root, owner, *, require_automatic):
     )
     with running(restored):
         require(private.read_fields(restored, database, expected) == [[row] for row in expected], "private_native_fresh_records")
-    if automatic:
-        summary(
-            f"automatic_reclaim=verified floor={SNAPSHOT_THROUGH} "
-            f"retained_delivery={SNAPSHOT_THROUGH + 1} accepted_facts=unchanged"
-        )
+    summary(
+        f"automatic_reclaim=verified floor={SNAPSHOT_THROUGH} "
+        f"retained_delivery={SNAPSHOT_THROUGH + 1} accepted_facts=unchanged"
+    )
     summary(
         f"native_cutoff={SNAPSHOT_THROUGH} delivery_cursor={final_head} offline_edits=4 "
         f"fresh_replayed={final_head - SNAPSHOT_THROUGH}"

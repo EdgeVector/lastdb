@@ -10,7 +10,7 @@ import time
 
 from node import save
 from phases import capture_phases
-from range_continuation.process_counters import counter_delta, read_counters
+from process_counters import counter_delta, read_counters
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
 FIELDS = ["bucket", "id", "title", "body"]
