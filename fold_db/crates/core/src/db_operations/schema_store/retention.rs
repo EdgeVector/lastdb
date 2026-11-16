@@ -13,7 +13,7 @@ pub(super) fn invalid(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
 }
 
-fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
+pub(super) fn latest_keys(schema_name: &str, keys: &[KeyValue]) -> Vec<String> {
     keys.iter()
         .map(|key| retention_age_latest_key(schema_name, key))
         .collect()
