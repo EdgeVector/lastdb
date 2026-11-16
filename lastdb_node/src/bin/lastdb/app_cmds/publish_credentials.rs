@@ -244,13 +244,12 @@ pub(super) async fn post_publish(
     if endpoint.scheme() != "https" || endpoint.host_str().is_none() {
         return Err("registry URL must use HTTPS".into());
     }
-    let req = build_shared_http_client()
+    let resp = build_shared_http_client()
         .map_err(|e| format!("cannot construct registry HTTP client: {e}"))?
         .post(endpoint.clone())
         .timeout(Duration::from_secs(120))
         .bearer_auth(api_key)
-        .json(payload);
-    let resp = observability::propagation::inject_w3c(req)
+        .json(payload)
         .send()
         .await
         .map_err(|e| format!("registry publish request failed: {e}"))?;
@@ -258,13 +257,9 @@ pub(super) async fn post_publish(
         return Err("registry publish request redirected unexpectedly".into());
     }
     let status = resp.status();
-    let bytes = resp
-        .bytes()
+    let bytes = lastdb_node::cloud_backup_client::read_bounded_bytes(resp, 262_144)
         .await
         .map_err(|e| format!("failed to read registry response: {e}"))?;
-    if bytes.len() > 262_144 {
-        return Err("registry response exceeds byte limit".into());
-    }
     if !status.is_success() {
         return Err(format_publish_error(status.as_u16(), &bytes, key_source));
     }

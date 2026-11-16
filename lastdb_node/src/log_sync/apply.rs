@@ -53,21 +53,10 @@ pub(super) async fn apply_page(
     outcome: &Outcome,
     publisher: Option<&str>,
 ) -> Result<PagePlan, PageFailure> {
-    let Outcome::Pulled {
-        entries,
-        cursor,
-        reset,
-    } = outcome
-    else {
-        return Err("pull did not return a page".to_owned().into());
-    };
-    if reset.is_some() {
-        return Err("pulled page still carries a snapshot reset"
-            .to_owned()
-            .into());
-    }
+    let entries = &outcome.entries;
+    let cursor = outcome.cursor;
     if let Some(publisher) = publisher {
-        return received_page(host, log, publisher, entries, *cursor)
+        return received_page(host, log, publisher, entries, cursor)
             .await
             .map_err(Into::into);
     }
@@ -87,7 +76,7 @@ pub(super) async fn apply_page(
         )
         .await?;
         super::blob_retention::record_pulled_personal(host, log, entries)?;
-        return Ok(PagePlan::Ack(*cursor));
+        return Ok(PagePlan::Ack(cursor));
     }
     let mut handled = None;
     let mut consumed = None;
@@ -131,7 +120,7 @@ pub(super) async fn apply_page(
     if let Some(through) = consumed {
         super::contributions::settle_legacy(host, log, through).await?;
     }
-    Ok(PagePlan::Ack(*cursor))
+    Ok(PagePlan::Ack(cursor))
 }
 
 fn mark_local(host: &Host, database_id: &str, entry: &Entry) -> Result<bool, String> {

@@ -1,9 +1,9 @@
 //! Member routes. The API key is not attached. Success is the ack JSON.
 
 use super::pending;
-use super::session::PublisherSession;
 use super::successor::SignedUpdate;
-use super::{authorization, read_body, MemberAck};
+use super::{authorization, read_body, MemberAck, PublisherSession};
+use crate::cloud_backup_client::read_bounded_bytes;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
     MemberListReadResponse, MemberListRevision, SHARE_MEMBER_LIST_READ_PATH,
@@ -141,22 +141,10 @@ async fn post(
     }
     let response = request.send().await.map_err(|_| failed())?;
     let status = response.status().as_u16();
-    let bytes = read_limited(response).await.map_err(|_| failed())?;
+    let bytes = read_bounded_bytes(response, CONTROL_JSON_MAX_BYTES)
+        .await
+        .map_err(|_| failed())?;
     Ok(Reply { status, bytes })
-}
-
-async fn read_limited(response: reqwest::Response) -> Result<Vec<u8>, ()> {
-    let mut body = Vec::new();
-    let mut response = response;
-    loop {
-        let Some(chunk) = response.chunk().await.map_err(|_| ())? else {
-            return Ok(body);
-        };
-        if body.len().saturating_add(chunk.len()) > CONTROL_JSON_MAX_BYTES as usize {
-            return Err(());
-        }
-        body.extend_from_slice(&chunk);
-    }
 }
 
 fn endpoint(origin: &Url, path: &str) -> Result<Url, String> {

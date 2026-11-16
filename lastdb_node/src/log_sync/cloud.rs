@@ -6,7 +6,7 @@ use mutation_log::{
     AppendBatch, AppendOutcome, ListPage, LogError, MutationLog, PrincipalId, Recovery, ScopedHead,
     Writer,
 };
-use mutation_log_sync::{Outcome, SyncEvent, SyncState};
+use mutation_log_sync::{Outcome, SyncState};
 use serde::{Deserialize, Serialize};
 
 use crate::host::Host;
@@ -171,18 +171,43 @@ impl CloudLog {
 
     pub(crate) async fn drive_once(
         &self,
-        state: SyncState,
-        event: SyncEvent,
-    ) -> Result<(SyncState, Outcome), mutation_log_sync::SyncError> {
-        let mut log = self.clone();
-        match tokio::task::spawn_blocking(move || {
-            mutation_log_sync::drive(&state, &mut log, event, &mutation_log::classify_shareable)
+        mut state: SyncState,
+        now_ms: u64,
+    ) -> Result<Outcome, mutation_log_sync::SyncError> {
+        let log = self.clone();
+        tokio::task::spawn_blocking(move || mutation_log_sync::drive(&mut state, &log, now_ms))
+            .await
+            .map_err(|_| LogError::UnexpectedOutcome)?
+    }
+
+    pub(super) async fn head_async(&self) -> Result<Option<ScopedHead>, LogError> {
+        let body = wire::database_body(self.database_id.as_str())?;
+        wire::scoped_head(&self.post(paths::HEAD, body).await?)
+    }
+
+    pub(super) async fn list_async(&self, after: u64) -> Result<ListPage, LogError> {
+        let body = wire::list_body(
+            self.database_id.as_str(),
+            after,
+            mutation_log::LIST_PAGE_LIMIT,
+            false,
+        )?;
+        wire::list_page(
+            self.database_id.as_str(),
+            &self.post(paths::LIST, body).await?,
+        )
+    }
+
+    pub(super) async fn writer_tip_async(&self) -> Result<u64, LogError> {
+        let body = canonical_bytes(&WriterTipRequest {
+            database_id: self.database_id.as_str(),
+            device_id: self.device.as_str(),
         })
-        .await
-        {
-            Ok(result) => result,
-            Err(_) => Err(LogError::UnexpectedOutcome.into()),
-        }
+        .map_err(|_| LogError::InvalidEntry)?;
+        let response: WriterTipResponse =
+            serde_json::from_slice(&self.post(paths::HEAD, body).await?)
+                .map_err(|_| LogError::UnexpectedOutcome)?;
+        Ok(response.last_writer_seq.get())
     }
 
     /// Ask for an exact snapshot only when this caller can install one.

@@ -28,9 +28,45 @@ impl From<io::Error> for DirectoryError {
 
 type DirectoryResult<T> = Result<T, DirectoryError>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DirInode(pub u64, pub u64);
+
+impl DirInode {
+    pub fn of_dir(path: &Path) -> io::Result<Self> {
+        let meta = std::fs::symlink_metadata(path)?;
+        if !meta.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "staged path is not a directory",
+            ));
+        }
+        Ok(Self(meta.dev(), meta.ino()))
+    }
+
+    pub fn of_file(file: &File) -> io::Result<Self> {
+        let meta = file.metadata()?;
+        Ok(Self(meta.dev(), meta.ino()))
+    }
+
+    #[must_use]
+    pub fn same_device(self, other: Self) -> bool {
+        self.0 == other.0
+    }
+
+    #[must_use]
+    pub fn matches_dir(self, path: &Path) -> bool {
+        Self::of_dir(path).is_ok_and(|actual| actual == self)
+    }
+
+    pub fn remove_dir_if_owned(self, path: &Path) {
+        if self.matches_dir(path) {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
+
 fn eq_fd(a: &File, b: &File) -> io::Result<bool> {
-    let (x, y) = (a.metadata()?, b.metadata()?);
-    Ok(x.dev() == y.dev() && x.ino() == y.ino())
+    Ok(DirInode::of_file(a)? == DirInode::of_file(b)?)
 }
 
 pub fn require_absolute(path: &Path) -> Result<(), String> {

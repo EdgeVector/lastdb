@@ -11,12 +11,10 @@ pub mod lastdb_uds;
 pub(crate) mod log_envelope;
 pub mod log_sync;
 pub(crate) mod named_grant;
-pub(crate) mod node_read;
 pub mod offline_home;
 pub mod profile;
-pub mod registered_share;
-pub(crate) mod service_home;
-pub mod share_cache;
+pub(crate) mod registered_share;
+pub(crate) mod share_cache;
 pub mod share_invitation;
 pub mod version;
 

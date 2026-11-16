@@ -106,13 +106,6 @@ pub fn prefix(
     })
 }
 
-/// Record that a snapshot covers the native frontier from before the stream.
-pub fn note_snapshot(runtime: &PackRuntime, covered_frontier: u64) -> Result<(), Blocked> {
-    runtime
-        .note_accepted_snapshot(covered_frontier)
-        .map_err(blocked)
-}
-
 /// Cursor and coverage. This does not read entry bodies.
 pub fn status(runtime: &PackRuntime) -> StreamStatus {
     let status = runtime.accepted_status();

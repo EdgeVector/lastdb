@@ -13,7 +13,7 @@ use crate::log_envelope::DatabaseContentKey;
 use crate::Host;
 
 use super::apply;
-use super::decode;
+use super::chain as decode;
 use super::journal;
 use super::payload;
 use super::types::SnapshotEntry;

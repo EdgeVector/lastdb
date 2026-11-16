@@ -1,19 +1,16 @@
 //! Pseudonymous Stripe payment commands and shared cloud session client for a LastDB home.
 use super::{dev_keys, print_pretty_json, CloudAccountCommand, CloudPaymentCommand};
 use cloud_backup_protocol::AccountId;
-use futures::StreamExt;
-use lastdb_node::cloud::{load_home_account_id, load_saved_credentials};
-use lastdb_node::cloud_backup_client::build_shared_http_client;
-use lastdb_node::profile::endpoints::{
-    environment_for_exemem_api_url, exemem_api_url_for, Environment,
-};
+use lastdb_node::cloud::load_verified_cloud_credentials;
+use lastdb_node::cloud_backup_client::{build_shared_http_client, read_bounded_bytes};
+use lastdb_node::profile::endpoints::Environment;
 use reqwest::{Method, Url};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
-const MAX_JSON_BYTES: usize = 65_536;
+const MAX_JSON_BYTES: u64 = 65_536;
 
 pub(super) struct CloudSession {
     pub(super) env: Environment,
@@ -38,37 +35,22 @@ pub(crate) fn cloud_account_command(
 }
 
 pub(super) fn load_cloud_session(home: &Path) -> Result<CloudSession, String> {
-    let creds = load_saved_credentials(home)?.ok_or(
+    let creds = load_verified_cloud_credentials(home)?.ok_or(
         "no saved cloud credentials — run 'lastdb --data-dir <home> backup connect --env prod' first",
     )?;
-    let env = environment_for_exemem_api_url(&creds.api_url)
-        .ok_or("saved cloud credentials do not match a compiled Exemem environment")?;
-    if let Some(explicit) = Environment::explicit_from_env().filter(|e| *e != env) {
+    if let Some(explicit) = Environment::explicit_from_env().filter(|e| *e != creds.env) {
         return Err(format!(
             "LASTDB_ENV={} conflicts with saved {} cloud credentials in {}",
             explicit.as_str(),
-            env.as_str(),
+            creds.env.as_str(),
             home.display()
         ));
     }
-    let expected_account_id = load_home_account_id(home)?;
-    if let Some(conn) = &creds.connection {
-        if conn.environment != env.as_str() {
-            return Err("saved cloud connection environment does not match credentials URL".into());
-        }
-        if let Some(expected) = &expected_account_id {
-            if conn.account_id.as_str() != expected {
-                return Err(
-                    "saved cloud connection account does not match this home's identity.key".into(),
-                );
-            }
-        }
-    }
     Ok(CloudSession {
-        env,
-        api_url: exemem_api_url_for(env),
+        env: creds.env,
+        api_url: creds.api_url,
         api_key: creds.api_key,
-        expected_account_id,
+        expected_account_id: creds.expected_account_id,
     })
 }
 
@@ -209,36 +191,17 @@ pub(super) async fn exchange_json(
     if let Some(payload) = body {
         req = req.json(payload);
     }
-    let resp = observability::propagation::inject_w3c(req)
-        .send()
-        .await
-        .map_err(|_| "cloud API request failed")?;
+    let resp = req.send().await.map_err(|_| "cloud API request failed")?;
     if resp.status().is_redirection() || resp.url() != &url {
         return Err("cloud API request redirected unexpectedly".into());
     }
     let status = resp.status().as_u16();
-    let bytes = read_bounded(resp, MAX_JSON_BYTES).await?;
+    let bytes = read_bounded_bytes(resp, MAX_JSON_BYTES)
+        .await
+        .map_err(|_| "cloud API response exceeded limit or failed")?;
     let parsed: Value =
         serde_json::from_slice(&bytes).map_err(|_| "cloud API response was not valid JSON")?;
     Ok((status, parsed))
-}
-
-async fn read_bounded(resp: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>, String> {
-    if resp
-        .content_length()
-        .is_some_and(|len| len > max_bytes as u64)
-    {
-        return Err("cloud API response exceeds byte limit".into());
-    }
-    let (mut out, mut stream) = (Vec::new(), resp.bytes_stream());
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| "failed to read cloud API response")?;
-        if out.len().saturating_add(chunk.len()) > max_bytes {
-            return Err("cloud API response exceeds byte limit".into());
-        }
-        out.extend_from_slice(&chunk);
-    }
-    Ok(out)
 }
 
 pub(super) fn ensure_ok(status: u16, body: &Value, label: &str) -> Result<(), String> {

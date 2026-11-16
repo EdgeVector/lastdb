@@ -188,10 +188,7 @@ pub(super) fn classify(
 
 /// Marker names: 1 to 128 bytes of letters, digits, `-`, or `_`.
 pub(super) fn mutation_label(value: &str) -> bool {
-    (1..=128).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    crate::profile::valid_label_128(value)
 }
 
 fn schema_change(body: &AcceptedBody) -> Result<SchemaChange, RestoreError> {

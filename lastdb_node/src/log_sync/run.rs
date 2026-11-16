@@ -1,21 +1,22 @@
-//! Pull, apply, and save local download progress for an open database.
-//!
-//! An owned database publishes one accepted page first. A download
-//! position advances only after the downloaded changes are durable.
+//! Pull, apply, save local download progress, and drain publisher inboxes.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
+use cloud_backup_protocol::v2::share_access::{
+    MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH,
+};
+use cloud_backup_protocol::{canonical_bytes, DecimalU64};
 use mutation_log::{DatabaseId, DatabaseKind, DeviceId, ListPage, LogError, PrincipalId};
-use mutation_log_sync::{Outcome, SyncError, SyncEvent, SyncRole, SyncState};
+use mutation_log_sync::{Outcome, SyncError, SyncRole, SyncState};
 
 use crate::host::{BlockedDelivery, Host};
 
 use super::accepted;
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
-use super::session;
 use super::turn::{self, Pause};
+use super::{contributions, http, session, wire};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -73,7 +74,7 @@ pub(super) async fn run_ready(host: &Host, ready: Ready) -> Pause {
         && crate::host::owned::find_shareable(&host.home, &ready.database_id)
             .is_ok_and(|entry| entry.whole_database())
     {
-        if let Err(error) = super::inbox::drain(host, &ready.log).await {
+        if let Err(error) = drain_inbox(host, &ready.log).await {
             tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
                 %error, "private submission inbox awaits retry");
             return Pause::Retry;
@@ -90,8 +91,6 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
                 return apply_contiguous(host, ready, after, page).await;
             }
             Ok(Err(cut)) => {
-                // The service keeps older entries during migration. Avoid a
-                // database replacement while the missing edits are still there.
                 match ready.log.list_retained(after).await {
                     Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
                         return apply_contiguous(host, ready, after, page).await;
@@ -111,19 +110,15 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
                     }
                 };
             }
-            Err(LogError::CursorExpired { .. }) => {
-                // Existing signed archives are handled by the original pull.
-            }
+            Err(LogError::CursorExpired { .. }) => {}
             Err(error) => {
                 tracing::warn!(target: "lastdbd::log_sync", %error, "pull failed");
                 return ready.download_failed(host, format!("cloud pull failed: {error}"));
             }
         }
     }
-    let event = SyncEvent::Pull {
-        now_ms: fold_db::clock::unix_millis(),
-    };
-    let (_, outcome) = match ready.log.drive_once(ready.state.clone(), event).await {
+    let now_ms = fold_db::clock::unix_millis();
+    let outcome = match ready.log.drive_once(ready.state.clone(), now_ms).await {
         Ok(pulled) => pulled,
         Err(error) => {
             if matches!(
@@ -153,10 +148,9 @@ async fn apply_contiguous(host: &Host, ready: &Ready, after: u64, page: ListPage
         tracing::warn!(target: "lastdbd::log_sync", "personal delivery page has a gap");
         return ready.download_failed(host, "personal delivery page has a gap");
     }
-    let outcome = Outcome::Pulled {
-        cursor: page.next,
+    let outcome = Outcome {
         entries: page.entries,
-        reset: None,
+        cursor: page.next,
     };
     apply_and_checkpoint(host, ready, &outcome).await
 }
@@ -224,4 +218,62 @@ pub(super) fn opened_state(
     SyncState::open(database_id, kind, role)
         .map(|state| state.with_cursor(cursor))
         .map_err(|error| error.to_string())
+}
+
+async fn drain_inbox(host: &Host, log: &CloudLog) -> Result<(), String> {
+    let page = inbox_list(log).await?;
+    if page.entries.is_empty() {
+        return Ok(());
+    }
+    let database = log.database_id();
+    let through = super::owner_recovery::head(log).await?;
+    if session::load_cursor(&host.home, database)? != through
+        || !crate::database_replay::prefix_durable(&host.home, database)
+    {
+        return Err(
+            "publisher must finish syncing published changes before processing proposals".into(),
+        );
+    }
+    let mut results = Vec::with_capacity(page.entries.len());
+    for stored in &page.entries {
+        if &stored.entry.writer.key == log.principal() {
+            return Err("publisher entry was returned by the inbox".into());
+        }
+        results.push(contributions::apply(host, log, &stored.entry).await?);
+    }
+    contributions::publish_before_settlement(host, log).await?;
+    let body = canonical_bytes(&serde_json::json!({
+        "database_id": database,
+        "through": DecimalU64::new(page.next),
+        "results": results,
+    }))
+    .map_err(|_| "inbox settlement was not encoded")?;
+    let (status, _) = log
+        .post_status(MUTATION_LOG_INBOX_SETTLE_PATH, body, http::Proof::Data)
+        .await
+        .map_err(|_| "inbox settlement request failed")?;
+    if status == 200 {
+        Ok(())
+    } else {
+        Err(format!("inbox settlement returned HTTP {status}"))
+    }
+}
+
+async fn inbox_list(log: &CloudLog) -> Result<ListPage, String> {
+    let database = log.database_id();
+    let body = wire::database_body(database).map_err(|error| error.to_string())?;
+    let (status, reply) = log
+        .post_status_limit(
+            MUTATION_LOG_INBOX_LIST_PATH,
+            body,
+            http::Proof::Data,
+            http::JSON_LIMIT,
+        )
+        .await
+        .map_err(|_| "inbox list request failed")?;
+    if status == 200 {
+        wire::list_page(database, &reply).map_err(|error| error.to_string())
+    } else {
+        Err(format!("inbox list returned HTTP {status}"))
+    }
 }

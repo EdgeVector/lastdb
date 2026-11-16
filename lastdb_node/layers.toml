@@ -13,7 +13,6 @@ doc = "Pure node types, endpoints, paths, private files, identities, and accepte
 modules = [
   "accepted_writes",
   "profile",
-  "service_home",
 ]
 
 [[layer]]
@@ -22,7 +21,6 @@ doc = "Protocol versions, Unix-domain socket framing and routing, keyed local re
 modules = [
   "cloud_backup_client",
   "lastdb_uds",
-  "node_read",
   "version",
 ]
 

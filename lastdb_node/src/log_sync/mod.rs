@@ -11,21 +11,16 @@ mod blob_retention;
 mod cloud;
 mod contributions;
 mod http;
-mod inbox;
 mod index_history;
-mod members;
 mod native;
 mod native_reset;
 mod owner_recovery;
 mod received;
 pub(crate) mod received_access;
-mod registry;
 mod restore;
 mod retention;
-mod retry;
 mod run;
 mod session;
-mod signals;
 mod snapshot;
 mod turn;
 mod upload;
@@ -42,8 +37,8 @@ pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub(crate) use restore::SnapshotFiles;
 pub use retention::{reclaim as reclaim_snapshot_log, ReclaimReport};
-pub(crate) use signals::ensure_wake;
-pub use signals::{publish_first_backup_intent, request_wake};
+pub(crate) use session::ensure_wake;
+pub use session::{publish_first_backup_intent, request_wake};
 pub(crate) use snapshot::{
     completed as snapshot_completed, error as snapshot_error, request as request_snapshot,
 };
@@ -51,43 +46,132 @@ pub use snapshot::{restore_base as restore_snapshot_base, RestoredBase};
 pub use turn::spawn;
 
 mod account {
-    use cloud_backup_protocol::v2::context::ContextReadRequest;
-    use cloud_backup_protocol::v2::Version;
-    use cloud_backup_protocol::{AccountId, CloudScope};
+    use std::sync::Arc;
 
+    use cloud_backup_protocol::CloudScope;
+
+    use crate::cloud::load_connected_home_context;
     use crate::host::Host;
 
-    use super::http::{self, Endpoint};
+    use super::http::Endpoint;
 
     /// Publisher account scope from the saved connection. Receivers do not call this.
     pub(super) async fn publisher_scope(
         host: &Host,
     ) -> Result<(CloudScope, Endpoint, &'static str), String> {
-        let selected = http::selected_service(&host.home)?;
-        let account = account_of(host)?;
-        let endpoint =
-            Endpoint::open(&selected.api_url, selected.label)?.load_owner_key(&host.home);
-        let backup = crate::cloud::client_from_home(&host.home)?;
-        let context = backup
-            .context(&ContextReadRequest {
-                version: Version::V2,
-                account_id: account.clone(),
-                required_destinations: Vec::new(),
-            })
-            .await
-            .map_err(|_| "cloud account context failed")?;
-        if context.scope.account_id != account {
-            return Err("cloud account does not match this node key".into());
-        }
-        Ok((context.scope, endpoint, selected.label))
-    }
-
-    fn account_of(host: &Host) -> Result<AccountId, String> {
-        let derived = crate::service_home::user_hash_from_pubkey(&host.public_key())?;
-        if derived != host.user_hash {
+        let ctx = load_connected_home_context(&host.home, Some(Arc::clone(&host.keypair))).await?;
+        if ctx.account_id.as_str() != host.user_hash {
             return Err("node account id does not match the node key".into());
         }
-        AccountId::try_from(derived).map_err(|_| "node account id is not a cloud account id".into())
+        let endpoint = Endpoint::open(ctx.api_url, ctx.env.as_str())?.load_owner_key(&host.home);
+        Ok((ctx.scope, endpoint, ctx.env.as_str()))
+    }
+}
+
+mod retry {
+    use std::path::{Path, PathBuf};
+
+    use serde::{Deserialize, Serialize};
+
+    use crate::profile::private_fs as disk;
+
+    const META_LIMIT: usize = 4096;
+    const SEAL_LIMIT: usize = 1024 * 1024 + 4096;
+
+    #[derive(Clone, Serialize, Deserialize)]
+    pub(super) struct Seal {
+        pub writer_seq: u64,
+        pub authored_at_ms: u64,
+        pub namespace: String,
+    }
+
+    pub(super) fn load(
+        home: &Path,
+        database_id: &str,
+        mutation_id: &str,
+    ) -> Result<Option<(Seal, Vec<u8>)>, ()> {
+        if !crate::profile::valid_label_128(mutation_id) {
+            return Err(());
+        }
+        let Some(meta) = disk::read_limited(&meta_path(home, database_id, mutation_id), META_LIMIT)
+            .map_err(|_| ())?
+        else {
+            return Ok(None);
+        };
+        let seal: Seal = serde_json::from_slice(&meta).map_err(|_| ())?;
+        if seal.writer_seq == 0 || seal.namespace.is_empty() {
+            return Err(());
+        }
+        let Some(bytes) =
+            disk::read_limited(&seal_path(home, database_id, mutation_id), SEAL_LIMIT)
+                .map_err(|_| ())?
+        else {
+            return Err(());
+        };
+        if bytes.is_empty() {
+            return Err(());
+        }
+        Ok(Some((seal, bytes)))
+    }
+
+    pub(super) fn store(
+        home: &Path,
+        database_id: &str,
+        mutation_id: &str,
+        seal: &Seal,
+        envelope: &[u8],
+    ) -> Result<(), ()> {
+        if !crate::profile::valid_label_128(mutation_id)
+            || envelope.is_empty()
+            || seal.writer_seq == 0
+        {
+            return Err(());
+        }
+        let meta = serde_json::to_vec(seal).map_err(|_| ())?;
+        disk::write_private(&seal_path(home, database_id, mutation_id), envelope)
+            .map_err(|_| ())?;
+        disk::write_private(&meta_path(home, database_id, mutation_id), &meta).map_err(|_| ())
+    }
+
+    pub(super) fn store_file(
+        home: &Path,
+        database_id: &str,
+        mutation_id: &str,
+        ciphertext: &[u8],
+    ) -> Result<(), ()> {
+        if !crate::profile::valid_label_128(mutation_id) || ciphertext.is_empty() {
+            return Err(());
+        }
+        disk::write_private(&file_path(home, database_id, mutation_id), ciphertext).map_err(|_| ())
+    }
+
+    pub(super) fn load_file(
+        home: &Path,
+        database_id: &str,
+        mutation_id: &str,
+    ) -> Result<Option<Vec<u8>>, ()> {
+        if !crate::profile::valid_label_128(mutation_id) {
+            return Err(());
+        }
+        let limit = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES + 4096;
+        let limit = usize::try_from(limit).map_err(|_| ())?;
+        disk::read_limited(&file_path(home, database_id, mutation_id), limit).map_err(|_| ())
+    }
+
+    fn meta_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+        seal_dir(home, database_id).join(format!("{mutation_id}.json"))
+    }
+
+    fn seal_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+        seal_dir(home, database_id).join(format!("{mutation_id}.bin"))
+    }
+
+    fn file_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+        seal_dir(home, database_id).join(format!("{mutation_id}.file"))
+    }
+
+    fn seal_dir(home: &Path, database_id: &str) -> PathBuf {
+        home.join("log-sync").join(database_id).join("seals")
     }
 }
 

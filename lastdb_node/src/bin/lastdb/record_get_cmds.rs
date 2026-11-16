@@ -4,11 +4,8 @@ use super::*;
 use lastdb_node::lastdb_uds::{admin_handler_timeout, DEFAULT_CLI_UDS_TIMEOUT_SECS};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
-use uuid::Uuid;
 
 fn percent_encode_query(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -265,19 +262,7 @@ fn hydrate_record_file(
     if bytes.len() as u64 != size || hex::encode(Sha256::digest(bytes)) != digest {
         return Err("hydrated file differs from the queried record version".into());
     }
-    let tmp = out.with_file_name(format!(".lastdb-hydrate-{}", Uuid::new_v4()));
-    let mut f = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
-        .open(&tmp)
-        .map_err(|e| format!("create hydration output: {e}"))?;
-    let res = f
-        .write_all(bytes)
-        .and_then(|()| std::fs::hard_link(&tmp, out));
-    let clean = std::fs::remove_file(&tmp);
-    res.map_err(|e| format!("publish hydration output: {e}"))?;
-    clean.map_err(|e| format!("clean up hydration output: {e}"))?;
+    crate::write_new_private_file(out, bytes, "hydration output")?;
     rec[field] = json!(out);
     Ok(())
 }

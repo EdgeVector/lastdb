@@ -1,9 +1,7 @@
 //! Exact signed update saved before the post. One file per database.
 
-use super::exchange;
-use super::files;
-use super::session::PublisherSession;
-use super::{MemberAck, MemberIntent};
+use super::{exchange, MemberAck, MemberIntent, PublisherSession};
+use crate::profile::private_fs;
 use base64::Engine as _;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
@@ -11,10 +9,12 @@ use cloud_backup_protocol::v2::share_access::{
 };
 use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const DIRECTORY: &str = "share-members";
-const FILE_LIMIT: u64 = CONTROL_JSON_MAX_BYTES * 2;
+const FILE_LIMIT: usize = (CONTROL_JSON_MAX_BYTES * 2) as usize;
 
 pub(super) struct Saved {
     pub body: Vec<u8>,
@@ -37,7 +37,7 @@ struct PendingRecord {
 
 pub(super) fn lock(home: &Path, database_id: &str) -> Result<std::fs::File, String> {
     let directory = home.join(DIRECTORY);
-    files::ensure_dir(&directory)?;
+    ensure_dir(&directory)?;
     let dir = crate::offline_home::Directory::open(&directory).map_err(|e| e.to_string())?;
     let file = dir
         .open_lock(&format!("{database_id}.lock"))
@@ -48,7 +48,9 @@ pub(super) fn lock(home: &Path, database_id: &str) -> Result<std::fs::File, Stri
 }
 
 pub(super) fn load(home: &Path, database_id: &str) -> Result<Option<Saved>, String> {
-    let Some(bytes) = files::read_at(&path(home, database_id)?, FILE_LIMIT)? else {
+    let Some(bytes) = private_fs::read_file_limited(&path(home, database_id)?, FILE_LIMIT, false)
+        .map_err(|_| "cannot read a private file".to_owned())?
+    else {
         return Ok(None);
     };
     let record: PendingRecord =
@@ -107,7 +109,11 @@ fn encode(body: &[u8]) -> Result<String, String> {
 
 fn save(home: &Path, database_id: &str, record: &PendingRecord) -> Result<(), String> {
     let encoded = serde_json::to_vec(record).map_err(|_| "cannot store pending member update")?;
-    files::replace(&home.join(DIRECTORY), &file_name(database_id)?, &encoded)
+    let directory = home.join(DIRECTORY);
+    ensure_dir(&directory)?;
+    let name = file_name(database_id)?;
+    private_fs::write_private(&directory.join(name), &encoded)
+        .map_err(|_| "cannot publish a private file".into())
 }
 
 pub(super) async fn retry(
@@ -125,7 +131,18 @@ pub(super) async fn retry(
 }
 
 pub(super) fn remove(home: &Path, database_id: &str) -> Result<(), String> {
-    files::remove_file(&path(home, database_id)?)
+    private_fs::remove_private(&path(home, database_id)?)
+        .map_err(|_| "cannot remove a private file".into())
+}
+
+fn ensure_dir(path: &Path) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|_| "cannot create a private directory")?;
+    let metadata = fs::symlink_metadata(path).map_err(|_| "cannot inspect a private directory")?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("private directory must be a real directory".into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|_| "cannot protect a private directory".into())
 }
 
 fn matches_intent(saved: &Saved, node: &Digest, intent: MemberIntent) -> bool {

@@ -4,12 +4,10 @@
 //! checks those grants against the actual mutation before any shared write.
 
 mod intake;
-mod revision;
 
 use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
-use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{Mutation, MutationType, Schema, SchemaError};
+use fold_db::schema::types::{Schema, SchemaError};
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, Namespace};
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +22,7 @@ use crate::share_invitation::inbox;
 use super::cloud::CloudLog;
 use super::{
     http::{Endpoint, Proof},
-    members, paths, received, wire as log_wire,
+    paths, received, received_access as members, wire as log_wire,
 };
 
 pub(super) use intake::apply;
@@ -169,11 +167,11 @@ pub(crate) async fn submit(
     if !share.whole_database() {
         return Err(Forbidden);
     }
-    let mutation = parse(body)?;
+    let mutation = intake::parse(body)?;
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| Unavailable)?;
-    let (_, definition) = resolve_schema(&store, &mutation)?;
+    let (_, definition) = intake::resolve_schema(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
     let observed = members::access(&log).await.ok_or(Unavailable)?;
     let members::ObservedAccess::Active { revision, .. } = observed else {
@@ -185,7 +183,7 @@ pub(crate) async fn submit(
     let submission = Submission {
         grant_revision: revision,
         operation,
-        base_mutation: revision::receiver_base(&store, &mutation).await?,
+        base_mutation: intake::receiver_base(&store, &mutation).await?,
     };
     let invitation =
         registered_share::verified_invitation(&host.home, &share.id).map_err(|_| Unavailable)?;
@@ -317,60 +315,6 @@ fn seal_for_retry(
         incorporated_from: None,
         payload: saved,
     })
-}
-
-fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
-    use fold_db::record_replacement::RecordTarget;
-    use fold_db::schema::types::operations::Operation;
-    if body.len() > BODY_LIMIT {
-        return Err(ContributionError::Invalid);
-    }
-    let Operation::Mutation {
-        schema,
-        record_fields,
-        key_value,
-        alternates,
-        mutation_type,
-        expected,
-        definition_id,
-        source_file_name,
-        metadata,
-        file,
-        ..
-    } = serde_json::from_slice(body).map_err(|_| ContributionError::Invalid)?;
-    if mutation_type == MutationType::Purge || file.is_some() {
-        return Err(ContributionError::Forbidden);
-    }
-    let target = RecordTarget {
-        schema,
-        key: key_value,
-        alternates,
-    };
-    let mut mutation = Mutation::with_uuid(
-        String::new(),
-        target,
-        record_fields,
-        String::new(),
-        mutation_type,
-        expected,
-    );
-    mutation.definition_id = definition_id;
-    mutation.source_file_name = source_file_name;
-    mutation.metadata = metadata;
-    Ok(mutation)
-}
-
-fn resolve_schema(
-    store: &FoldDB,
-    mutation: &Mutation,
-) -> Result<(String, Digest), ContributionError> {
-    let schema = store
-        .schema_manager()
-        .get_schema_metadata(&mutation.schema_name)
-        .map_err(|_| ContributionError::Unavailable)?
-        .ok_or(ContributionError::Invalid)?;
-    let definition = schema_id(&schema)?;
-    Ok((schema.name.clone(), definition))
 }
 
 pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, ContributionError> {

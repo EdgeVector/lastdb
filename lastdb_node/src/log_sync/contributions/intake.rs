@@ -1,23 +1,100 @@
 use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
+use cloud_backup_protocol::Digest;
 use fold_db::canonical::CanonicalWriter;
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{mutation::ContributionAdmission, Mutation, MutationType};
+use fold_db::record_replacement::RecordTarget;
+use fold_db::schema::types::{
+    cas::CasExpectation, mutation::ContributionAdmission, operations::Operation, Mutation,
+    MutationType,
+};
 use mutation_log::Entry;
+use schema_types::STANDARD_COMMENT_SCHEMA;
 use sha2::{Digest as _, Sha256};
 use std::sync::Arc;
 
 use super::{
-    inbox, parse, resolve_schema, revision, terminal_record_error, CloudLog, ContributionError,
-    ProposalResult, Submission, DEVICE_PREFIX, INBOX_NAMESPACE,
+    inbox, schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult,
+    Submission, BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
 };
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_applied;
 
+pub(super) async fn receiver_base(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<Option<String>, ContributionError> {
+    let CasExpectation::Revision { revision } = &mutation.expected else {
+        return Ok(None);
+    };
+    let found = match store
+        .mutation_manager()
+        .shared_record_revision(&mutation.schema_name, &mutation.key_value)
+        .await
+    {
+        Ok(row) => row,
+        Err(error) if terminal_record_error(&error) => return Ok(None),
+        Err(_) => return Err(ContributionError::Unavailable),
+    };
+    Ok(found
+        .filter(|row| row.local_revision == *revision)
+        .map(|row| row.mutation_id))
+}
+
+pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
+    if body.len() > BODY_LIMIT {
+        return Err(ContributionError::Invalid);
+    }
+    let Operation::Mutation {
+        schema,
+        record_fields,
+        key_value,
+        alternates,
+        mutation_type,
+        expected,
+        definition_id,
+        source_file_name,
+        metadata,
+        file,
+        ..
+    } = serde_json::from_slice(body).map_err(|_| ContributionError::Invalid)?;
+    if mutation_type == MutationType::Purge || file.is_some() {
+        return Err(ContributionError::Forbidden);
+    }
+    let target = RecordTarget {
+        schema,
+        key: key_value,
+        alternates,
+    };
+    let mut mutation = Mutation::with_uuid(
+        String::new(),
+        target,
+        record_fields,
+        String::new(),
+        mutation_type,
+        expected,
+    );
+    mutation.definition_id = definition_id;
+    mutation.source_file_name = source_file_name;
+    mutation.metadata = metadata;
+    Ok(mutation)
+}
+
+pub(super) fn resolve_schema(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<(String, Digest), ContributionError> {
+    let schema = store
+        .schema_manager()
+        .get_schema_metadata(&mutation.schema_name)
+        .map_err(|_| ContributionError::Unavailable)?
+        .ok_or(ContributionError::Invalid)?;
+    let definition = schema_id(&schema)?;
+    Ok((schema.name.clone(), definition))
+}
+
 /// Check a downloaded mutation against the publisher's confirmed sharing
-/// settings and record rules. The receiver app's UI grants no write authority.
-/// Commit an allowed change to the publisher's store for normal publication.
-/// A terminal refusal consumes the pending entry without publishing a record.
+/// settings and record rules.
 pub(in crate::log_sync) async fn apply(
     host: &Host,
     log: &CloudLog,
@@ -92,7 +169,7 @@ pub(in crate::log_sync) async fn apply(
     };
     let base = submission.base_mutation.as_deref();
     if mutation.definition_id.as_deref() != Some(definition.as_str())
-        || !revision::check_record_write(&store, &mut mutation, base, &name, writer).await?
+        || !check_record_write(&store, &mut mutation, base, &name, writer).await?
     {
         return Ok(Discarded);
     }
@@ -113,6 +190,69 @@ pub(in crate::log_sync) async fn apply(
         Err(error) if terminal_record_error(&error) => Ok(Discarded),
         Err(_) => Err("member write could not be committed".into()),
     }
+}
+
+async fn check_record_write(
+    store: &FoldDB,
+    mutation: &mut Mutation,
+    base: Option<&str>,
+    schema: &str,
+    writer: &str,
+) -> Result<bool, String> {
+    let standard_comment = schema == STANDARD_COMMENT_SCHEMA;
+    let required_creator = if standard_comment {
+        match mutation.mutation_type {
+            MutationType::Create => None,
+            MutationType::Replace => Some(writer),
+            _ => return Ok(false),
+        }
+    } else {
+        None
+    };
+    if !bind_publisher_revision(store, mutation, base, required_creator).await? {
+        return Ok(false);
+    }
+    if standard_comment {
+        let author = hex::encode(Sha256::digest(writer.as_bytes()));
+        mutation
+            .record_fields
+            .insert("author_id".into(), author.into());
+    }
+    Ok(true)
+}
+
+async fn bind_publisher_revision(
+    store: &FoldDB,
+    mutation: &mut Mutation,
+    base: Option<&str>,
+    required_creator: Option<&str>,
+) -> Result<bool, String> {
+    let Some(base) = base else {
+        return Ok(required_creator.is_none());
+    };
+    if !matches!(&mutation.expected, CasExpectation::Revision { .. }) {
+        return Ok(false);
+    }
+    let current = match store
+        .mutation_manager()
+        .shared_record_revision(&mutation.schema_name, &mutation.key_value)
+        .await
+    {
+        Ok(row) => row,
+        Err(error) if terminal_record_error(&error) => return Ok(false),
+        Err(_) => return Err("member write preimage is unavailable".into()),
+    };
+    let Some(current) = current.filter(|row| {
+        row.mutation_id == base
+            && required_creator
+                .is_none_or(|creator| row.comment_creator.as_deref() == Some(creator))
+    }) else {
+        return Ok(false);
+    };
+    mutation.expected = CasExpectation::Revision {
+        revision: current.local_revision,
+    };
+    Ok(true)
 }
 
 async fn load_receipt(

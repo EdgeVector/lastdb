@@ -150,7 +150,6 @@ impl UdsServer {
             ControlRoute::Database => block_on_route(
                 &self.handle,
                 &ctx,
-                false,
                 database_routes::execute_database_request(&mut req, &ctx, &self.host),
             ),
             ControlRoute::Data(r) => block_on_data_route(&self.handle, r, &req, &ctx, &self.host),

@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::host::owned::RegisteredDatabase as Database;
 use crate::host::Host;
+use crate::profile::PublicationSpec;
 use cloud_backup_protocol::v2::Version;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +14,6 @@ use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
 use super::http::Proof;
 use super::paths;
-use super::registry::{Database, Spec};
 use super::session;
 use super::turn::{self, Pause};
 
@@ -83,8 +84,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database, cleanup: &mut Pa
             return Pause::Retry;
         }
     };
-    let revision = turn::probe_revision(&host.home, &database.id, &database.kind);
-    let log = match CloudLog::connect(host, &database.id, &device, revision).await {
+    let log = match CloudLog::connect(host, &database.id, &device, 0).await {
         Ok(log) => log,
         Err(error) => {
             host.cloud_sync.record_error(error.clone());
@@ -177,7 +177,7 @@ fn set_hold(database_id: &str, duration: Duration, pause: Pause, message: &str) 
 }
 
 async fn register(log: &CloudLog, database: &Database) -> CreateOutcome {
-    let Ok(body) = create_body(&database.id, &database.kind, database.spec.as_ref()) else {
+    let Ok(body) = create_body(&database.id, database.kind, database.spec.as_ref()) else {
         return CreateOutcome::Refused("cannot encode cloud database registration".into());
     };
     let outcome = create_view(log, body, &database.id).await;
@@ -231,14 +231,15 @@ fn holds() -> std::sync::MutexGuard<'static, HashMap<String, Hold>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn create_body(database_id: &str, kind: &str, spec: Option<&Spec>) -> Result<Vec<u8>, ()> {
+fn create_body(
+    database_id: &str,
+    kind: &str,
+    spec: Option<&PublicationSpec>,
+) -> Result<Vec<u8>, ()> {
     cloud_backup_protocol::canonical_bytes(&CreateBody {
         database_id,
         kind,
-        spec: spec.map(|spec| SpecBody {
-            name: &spec.name,
-            version: spec.version,
-        }),
+        spec,
     })
     .map_err(|_| ())
 }
@@ -264,11 +265,5 @@ struct CreateBody<'a> {
     database_id: &'a str,
     kind: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    spec: Option<SpecBody<'a>>,
-}
-
-#[derive(Serialize)]
-struct SpecBody<'a> {
-    name: &'a str,
-    version: u32,
+    spec: Option<&'a PublicationSpec>,
 }

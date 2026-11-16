@@ -12,7 +12,7 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 use zeroize::Zeroizing;
 
 mod contact;
-pub(crate) mod inbox;
+pub(crate) use contact::inbox;
 pub use contact::{ShareContact, ShareRecipient};
 
 const INVITATION_V1: &[u8] = b"lastdb-share-invite-v1\0";
@@ -51,7 +51,7 @@ pub struct OpenedShareInvitation {
 pub fn recipient(home: &std::path::Path) -> std::result::Result<ShareRecipient, String> {
     let directory = crate::offline_home::Directory::open(home).map_err(|e| e.to_string())?;
     let bytes = directory
-        .read(crate::service_home::IDENTITY_KEY_FILE)
+        .read(crate::profile::IDENTITY_KEY_FILE)
         .map_err(|e| e.to_string())?
         .ok_or("share requires an initialized LastDB identity")?;
     let seed = Zeroizing::new(

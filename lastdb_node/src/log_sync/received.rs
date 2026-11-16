@@ -18,7 +18,7 @@ use crate::registered_share::{self, RegisteredShare};
 use super::cloud::{CloudLog, LogOpen};
 use super::disk;
 use super::http::Endpoint;
-use super::members;
+use super::received_access;
 use super::run::{self, Ready};
 use super::session;
 use super::turn::{self, Pause};
@@ -68,9 +68,9 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
 }
 
 async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -> Option<CloudLog> {
-    let observed = members::access(&log).await;
-    super::received_access::record(&host.home, share.id.as_str(), observed.as_ref());
-    let Some(members::ObservedAccess::Active {
+    let observed = received_access::access(&log).await;
+    received_access::record(&host.home, share.id.as_str(), observed.as_ref());
+    let Some(received_access::ObservedAccess::Active {
         revision: fresh, ..
     }) = observed
     else {

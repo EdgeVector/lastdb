@@ -1,6 +1,17 @@
 //! Cross-environment endpoint registry, home path helpers, private-file I/O, and share specs.
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+pub const IDENTITY_KEY_FILE: &str = "identity.key";
+
+pub fn user_hash_from_pubkey(pubkey_b64: &str) -> Result<String, String> {
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(pubkey_b64)
+        .map_err(|e| format!("node public key is not valid base64: {e}"))?;
+    Ok(fold_db::hex::hex_lower(&Sha256::digest(&raw)[..16]))
+}
 
 /// Registry `spec` object stored on a publication marker that named one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,13 +30,24 @@ impl PublicationSpec {
     }
 }
 
-pub fn valid_label_64(value: &str) -> bool {
-    (1..=64).contains(&value.len())
+fn valid_label(value: &str, max_len: usize) -> bool {
+    (1..=max_len).contains(&value.len())
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+#[must_use]
+pub fn valid_label_64(value: &str) -> bool {
+    valid_label(value, 64)
+}
+
+#[must_use]
+pub fn valid_label_128(value: &str) -> bool {
+    valid_label(value, 128)
+}
+
+#[must_use]
 pub fn valid_database_name(name: &str) -> bool {
     valid_label_64(name)
         && !name.eq_ignore_ascii_case("personal")

@@ -10,28 +10,26 @@ mod app_registry_index;
 mod cli_defs;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
-#[path = "lastdb/database_cmds.rs"]
-mod database_cmds;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 #[path = "lastdb/share_cmds.rs"]
 mod share_cmds;
-#[path = "lastdb/status_ops_cmds.rs"]
-mod status_ops_cmds;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
 
+pub(crate) use admin_cmds::DatabaseTarget;
 use admin_cmds::*;
 use app_cmds::*;
 use clap::Parser;
 use cli_defs::*;
 use cloud_cmds::*;
-use database_cmds::*;
 use mutate_cmds::*;
 use record_get_cmds::*;
-use status_ops_cmds::*;
+use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
+use std::path::Path;
 pub(crate) use uds_client::*;
 
 pub(crate) fn block_on<T>(
@@ -43,6 +41,31 @@ pub(crate) fn block_on<T>(
         .build()
         .map_err(|e| format!("cannot construct {label} runtime: {e}"))?
         .block_on(future)
+}
+
+pub(crate) fn write_new_private_file(out: &Path, bytes: &[u8], label: &str) -> Result<(), String> {
+    let parent = out
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let directory =
+        std::fs::File::open(parent).map_err(|e| format!("cannot open {label} directory: {e}"))?;
+    let tmp = out.with_file_name(format!(".lastdb-{}.pending", uuid::Uuid::new_v4()));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&tmp)
+        .map_err(|e| format!("cannot create {label}: {e}"))?;
+    let result = file
+        .write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| std::fs::hard_link(&tmp, out));
+    let cleanup = std::fs::remove_file(&tmp);
+    result.map_err(|e| format!("cannot publish {label} to a new file: {e}"))?;
+    cleanup
+        .and_then(|()| directory.sync_all())
+        .map_err(|e| format!("cannot sync {label}: {e}"))
 }
 
 fn main() {

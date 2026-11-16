@@ -6,8 +6,8 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::Mutation;
 
 use super::apply::{apply_schema, bind_expected, stage_file, write_record};
+use super::chain as decode;
 use super::chain::Link;
-use super::decode;
 use super::journal::{self, Journal};
 use super::payload;
 use super::{RestoreError, SnapshotEntry};

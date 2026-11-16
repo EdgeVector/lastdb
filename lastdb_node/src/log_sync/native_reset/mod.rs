@@ -5,18 +5,18 @@ mod install;
 pub use install::install_prepared_native_recovery;
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_backup::{accepted::UploadIdentity, stopped_sync::StoppedSync};
 use rustix::fs::{self as rfs, FlockOperation, RenameFlags};
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::host::{Host, IDENTITY_KEY_FILE};
+use crate::offline_home::DirInode as Inode;
 
 use super::cloud::CloudLog;
 use super::run::Ready;
@@ -59,15 +59,6 @@ pub(super) async fn prepare(
     install::prepare(host, log, origin, stage, cut, through).await
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct Inode(u64, u64);
-
-impl Inode {
-    fn same_device(self, other: Self) -> bool {
-        self.0 == other.0
-    }
-}
-
 struct Stage {
     path: PathBuf,
     inode: Inode,
@@ -84,7 +75,7 @@ impl Stage {
             .create(&path)
             .map_err(|error| io_error(&error))?;
         let stage = Self {
-            inode: inode(&path).map_err(|error| io_error(&error))?,
+            inode: inode(&path)?,
             path,
             keep: false,
         };
@@ -114,8 +105,8 @@ impl Stage {
 
 impl Drop for Stage {
     fn drop(&mut self) {
-        if !self.keep && inode(&self.path).is_ok_and(|actual| actual == self.inode) {
-            let _ = fs::remove_dir_all(&self.path);
+        if !self.keep {
+            self.inode.remove_dir_if_owned(&self.path);
         }
     }
 }
@@ -133,20 +124,12 @@ fn seed(home: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
     Ok(Zeroizing::new(value))
 }
 
-fn inode(path: &Path) -> io::Result<Inode> {
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "native recovery path is not a directory",
-        ));
-    }
-    Ok(Inode(metadata.dev(), metadata.ino()))
+fn inode(path: &Path) -> Result<Inode, String> {
+    Inode::of_dir(path).map_err(|error| io_error(&error))
 }
 
 fn file_inode(file: &File) -> Result<Inode, String> {
-    let m = file.metadata().map_err(|error| io_error(&error))?;
-    Ok(Inode(m.dev(), m.ino()))
+    Inode::of_file(file).map_err(|error| io_error(&error))
 }
 
 fn checked_child(parent: &File, name: &str) -> Result<Inode, String> {

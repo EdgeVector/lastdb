@@ -6,7 +6,7 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{KeyValue, SchemaError};
 use sha2::{Digest, Sha256};
 
-use super::decode::{EntryDecoder, Prepared};
+use super::chain::{EntryDecoder, Prepared};
 use super::payload::{Change, RecordChange, RecordFile, SchemaChange};
 use super::{apply, DeliveredEntry, RestoreError, SnapshotEntry};
 use crate::host::ReplayBlockReason;
