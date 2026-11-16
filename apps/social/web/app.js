@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const session = new URLSearchParams(location.hash.slice(1)).get('session');
+const tabs = ['people', 'circles', 'databases', 'requests'];
 const state = {tab: 'people', selected: null, home: null, request: 0};
 
 function element(tag, text, className) {
@@ -50,11 +51,13 @@ function accessOf(row) {
 async function refresh() {
   const ticket = ++state.request;
   $('notice').hidden = true;
-  const [home, directory] = await Promise.all([api('home'),
-    state.tab === 'circles' ? api('reusable-circles') : null]);
+  const [home, directory, requests] = await Promise.all([api('home'),
+    state.tab === 'circles' ? api('reusable-circles') : null,
+    state.tab === 'requests' ? fetchRequestPage() : null]);
   if (ticket !== state.request) return;
   state.home = home;
   state.directory = directory;
+  state.requests = requests;
   renderList();
   await renderSelection();
 }
@@ -62,19 +65,21 @@ async function refresh() {
 function setTab(tab, selected = null) {
   state.tab = tab;
   state.selected = selected;
-  if (!state.home || tab === 'circles') return refresh();
+  state.requestsCursor = null;
+  if (!state.home || tab === 'circles' || tab === 'requests') return refresh();
   renderList();
   return renderSelection();
 }
 
 function renderList() {
-  if (state.tab === 'circles') return renderReusableList();
-  const people = state.tab === 'people';
-  $('heading').textContent = people ? 'People' : 'Databases';
-  for (const tab of ['people', 'circles', 'databases']) {
+  for (const tab of tabs) {
     if (tab === state.tab) $(tab).setAttribute('aria-current', 'page');
     else $(tab).removeAttribute('aria-current');
   }
+  if (state.tab === 'circles') return renderReusableList();
+  if (state.tab === 'requests') return renderRequestList();
+  const people = state.tab === 'people';
+  $('heading').textContent = people ? 'People' : 'Databases';
   $('actions').replaceChildren(...(people ? [button('Add contact', remember)] : [
     button('Accept invitation', accept, 'quiet'), button('New database', create),
   ]), button('Refresh', refresh, 'quiet'));
@@ -99,6 +104,7 @@ async function renderSelection() {
   panel.replaceChildren();
   if (tab === 'circles') return renderReusableCircle(panel, selected);
   if (!selected) return;
+  if (tab === 'requests') return showSharingRequest(panel, selected);
   panel.append(element('p', 'Loading…', 'muted'));
   const people = tab === 'people';
   const query = new URLSearchParams({[people ? 'nodeKey' : 'databaseId']: selected});
@@ -356,7 +362,7 @@ async function showPicker() {
 }
 
 function showSocial(databaseId) {
-  for (const tab of ['people', 'circles', 'databases']) $(tab).addEventListener('click', () => setTab(tab).catch(report));
+  for (const tab of tabs) $(tab).addEventListener('click', () => setTab(tab).catch(report));
   $('cancel').addEventListener('click', () => $('form-dialog').close());
   $('brand').addEventListener('click', (event) => { event.preventDefault(); setTab('people').catch(report); });
   if (databaseId) { state.tab = 'databases'; state.selected = databaseId; }

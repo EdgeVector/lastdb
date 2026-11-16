@@ -1,0 +1,36 @@
+function fetchRequestPage() {
+  const params = new URLSearchParams();
+  if (state.requestsCursor) params.set('cursor', state.requestsCursor);
+  return api(`sharing-requests?${params}`);
+}
+
+function openRequestPage(cursor) {
+  state.requestsCursor = cursor;
+  state.selected = null;
+  return refresh();
+}
+
+function renderRequestList() {
+  const {requests, nextCursor} = state.requests;
+  $('heading').textContent = 'Requests';
+  const actions = [button('Refresh', refresh, 'quiet')];
+  if (state.requestsCursor) actions.push(button('First page', () => openRequestPage(null), 'quiet'));
+  if (nextCursor) actions.push(button('Next page', () => openRequestPage(nextCursor), 'quiet'));
+  $('actions').replaceChildren(...actions);
+  if (!requests.some(({requestId}) => requestId === state.selected)) state.selected = requests[0]?.requestId ?? null;
+  const names = new Map(state.home.databases.map((row) => [row.id, nameOf(row)]));
+  $('list').replaceChildren(...requests.map(({requestId, appId, databaseId}) => {
+    const entry = button(appId, () => {
+      state.selected = requestId;
+      renderList();
+      return renderSelection();
+    }, 'entry');
+    entry.append(element('span', names.get(databaseId) || databaseId));
+    if (requestId === state.selected) entry.setAttribute('aria-current', 'true');
+    return entry;
+  }));
+  if (!requests.length) {
+    const message = state.requestsCursor || nextCursor ? 'No requests awaiting approval on this page.' : 'No requests awaiting approval.';
+    $('list').append(element('p', message, 'muted'));
+  }
+}

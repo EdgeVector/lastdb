@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlencode
 from uuid import UUID
 
 from lastdb import LastDBError, SCHEMAS, SocialError
@@ -39,6 +40,26 @@ class SharingRequests:
     def circles(self):
         _, _, data = self.reusable.load()
         return [{"id": row["id"], "name": row["name"]} for row in data["circles"]]
+
+    def awaiting(self, cursor=None):
+        self.node.declare_private(DEFINITION)
+        params = {"schema": SCHEMA, "limit": 64}
+        if cursor is not None:
+            params["cursor"] = cursor
+        page = self.node.call("GET", "/api/list?" + urlencode(params))["list"]
+        next_cursor = page.get("next_cursor")
+        if page["has_more"] and (not next_cursor or next_cursor == cursor):
+            raise SocialError("LastDB omitted the next sharing request page")
+        keys = [item["hash"] for item in page["keys"]]
+        if not keys:
+            return {"requests": [], "nextCursor": next_cursor}
+        batch = self.node.call("POST", "/api/queries/batch", {
+            "queries": [{"schema_name": SCHEMA, "filter": {"HashKey": key}} for key in keys],
+        })["results"]
+        if len(batch) != len(keys) or any(item["status"] != 200 for item in batch):
+            raise SocialError("LastDB could not read the sharing request page")
+        operations = self.reusable.load()[2]["operations"]
+        return {"requests": pending_requests(batch, operations), "nextCursor": next_cursor}
 
     def submit(self, args):
         if args.keys() != {"requestId", "appId", "change"}:
@@ -157,6 +178,20 @@ class SharingRequests:
         definition, record, data = self.load(active["requestId"])
         if data and "receipt" not in data:
             self.save(definition, active["requestId"], {**data, "receipt": active}, record)
+
+
+def pending_requests(batch, operations):
+    requests = []
+    for item in batch:
+        for row in item["response"]["results"]:
+            saved = json.loads(row["fields"]["request"])
+            request = saved["declaration"]
+            database = request["change"]["databaseId"]
+            current = operations.get(database)
+            if "receipt" not in saved and (not current or current["requestId"] != request["requestId"]):
+                requests.append({"requestId": request["requestId"], "appId": request["appId"],
+                                 "databaseId": database})
+    return requests
 
 
 def parse_change(change):

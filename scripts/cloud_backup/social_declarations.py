@@ -36,6 +36,7 @@ def configure_bindings(publisher, owner, circle, first, second, scopes):
     for request_id in requests:
         require(sdk(publisher, "sharing-status", requestId=request_id)["revision"] == "0",
                 "app_request_confirmed_empty_circle")
+    require(not call(owner, "/api/sharing-requests")["requests"], "app_confirmed_requests_leave_list")
     directory = call(owner, "/api/reusable-circles")
     links = next(row["links"] for row in directory["circles"] if row["id"] == circle["id"])
     require(links == {first: sorted(scopes), second: []}, "app_declarations_saved")
@@ -50,21 +51,27 @@ def decline_binding(publisher, circle, database):
     declaration = propose(publisher, "photo-journal", change)
     request = {"requestId": declaration["requestId"]}
     before = roster(publisher, database)
-    with window(publisher, sharing_request=declaration["requestId"]) as review_window:
+    with window(publisher) as review_window:
+        call(review_window, "/api/sharing-requests", authorized=False, status=403)
+        pending = call(review_window, "/api/sharing-requests")
+        require(pending == {"requests": [{**request, "appId": "photo-journal", "databaseId": database}],
+                            "nextCursor": None}, "app_request_found_on_regular_open")
         preview = preview_request(review_window, declaration["requestId"])
         call(review_window, "/api/sharing-request/decline", request, authorized=False, status=403)
         declined = call(review_window, "/api/sharing-request/decline", request)
         require(declined["status"] == "declined", "app_owner_declined")
         require(approve(review_window, declaration["requestId"], preview) == declined,
                 "app_decline_cannot_be_approved")
+        require(not call(review_window, "/api/sharing-requests")["requests"], "app_declined_request_leaves_list")
     with window(publisher, sharing_request=declaration["requestId"]) as reopened:
         require(call(reopened, "/api/sharing-request/decline", request) == declined,
                 "app_decline_idempotent_after_reopen")
     status = sdk(publisher, "sharing-status", **request)
     require(status["status"] == "declined" and sdk(publisher, "request-sharing", **declaration) == status
             and roster(publisher, database) == before, "app_decline_returned_through_sdk")
-    summary("A signed-in owner declined a proposal. Its terminal status survived reopening, "
-            "a repeated request, and an old approval preview without changing the roster.")
+    summary("A signed-in owner found a proposal in Requests in a regular Social window and declined it. "
+            "It left the list, and its terminal status survived reopening, a repeated request, "
+            "and an old approval preview without changing the roster.")
 
 
 def propose(publisher, app, change):

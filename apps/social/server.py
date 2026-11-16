@@ -20,6 +20,7 @@ from lastdb import SocialError
 ASSETS = Path(__file__).resolve().parent / "web"
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
           "/circles.js": ("circles.js", "text/javascript"),
+          "/requests.js": ("requests.js", "text/javascript"),
           "/styles.css": ("styles.css", "text/css")}
 MAX_BODY = 16_384
 
@@ -121,6 +122,8 @@ class Handler(BaseHTTPRequestHandler):
             return app.database(query["databaseId"][0])
         if target.path == "/api/reusable-circles":
             return app.reusable_circles.overview()
+        if target.path == "/api/sharing-requests":
+            return app.sharing_requests.awaiting(query.get("cursor", [None])[0])
         if target.path == "/api/sharing-request":
             return app.sharing_requests.status(query["requestId"][0])
         raise SocialError("unknown Social operation")
