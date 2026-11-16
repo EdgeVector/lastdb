@@ -6,9 +6,9 @@
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
     NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole, ShareMemberState,
-    SignedRequestTarget, MUTATION_LOG_BLOB_BYTES_PATH, MUTATION_LOG_DELIVERY_OBJECT_PATH,
-    MUTATION_LOG_DELIVERY_SNAPSHOT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
-    MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
+    SignedRequestTarget, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_DELIVERY_SNAPSHOT_PATH,
+    MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH,
+    SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
 use std::cmp::Ordering;
@@ -123,9 +123,7 @@ pub fn authorize_request(
     let access = authorize(current, &token.node_public_key)?;
     if matches!(
         target.path,
-        MUTATION_LOG_INBOX_LIST_PATH
-            | MUTATION_LOG_INBOX_SETTLE_PATH
-            | MUTATION_LOG_BLOB_BYTES_PATH
+        MUTATION_LOG_INBOX_LIST_PATH | MUTATION_LOG_INBOX_SETTLE_PATH
     ) && access != ShareAccess::Publisher
     {
         return Err(ProtocolError::unauthorized("share.inbox.publisher"));
@@ -174,7 +172,6 @@ fn is_mutation_log_path(path: &str) -> bool {
             | "/api/cloud/backups/v2/mutation-log/head"
             | "/api/cloud/backups/v2/mutation-log/list"
             | "/api/cloud/backups/v2/mutation-log/settle-submissions"
-            | MUTATION_LOG_BLOB_BYTES_PATH
             | MUTATION_LOG_INBOX_LIST_PATH
             | MUTATION_LOG_INBOX_SETTLE_PATH
             | MUTATION_LOG_SNAPSHOT_BYTES_PATH

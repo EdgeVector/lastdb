@@ -165,9 +165,6 @@ impl SignedBlobClient {
             }
             PrepareReply::Upload { grant } => {
                 grant.validate()?;
-                if grant.transfer_mode.is_some() {
-                    return Err(ProtocolError::invalid("blob.transfer_mode").into());
-                }
                 let put = PresignedPut {
                     sha256: target.sha256,
                     bytes: target.bytes.get(),

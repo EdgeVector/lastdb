@@ -5,12 +5,11 @@ use cloud_backup_protocol::v2::share_access::{
     NodeReadToken, ShareHttpMethod, SHARE_NODE_AUTHORIZATION_SCHEME,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
-use cloud_backup_protocol::{
-    CloudScope, DecimalU64, Digest, Id, RecoveryDescriptor, RecoveryProfile, Text,
-};
+use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Id, Text};
 use fold_db::security::Ed25519KeyPair;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
 const SCHEME: &str = "LastDBShare";
@@ -186,14 +185,14 @@ impl Claim {
         }
         let expires_ms = expires_ms(&self.expires_at)?;
         let key = decode_fixed::<32>(&self.public_key, "guest permission owner")?;
-        let recovery = RecoveryDescriptor {
-            profile: RecoveryProfile::MiniPortableV1,
-            account_public_key: Digest::try_from(fold_db::hex::hex_lower(key))?,
-        };
-        recovery
-            .validate_for(&self.scope)
+        self.scope
+            .validate()
             .map_err(|_| invalid("guest permission owner"))?;
-        Ok((expires_ms, key, recovery.account_public_key))
+        if fold_db::hex::hex_lower(&Sha256::digest(key)[..16]) != self.scope.account_id.as_str() {
+            return Err(invalid("guest permission owner"));
+        }
+        let account_public_key = Digest::try_from(fold_db::hex::hex_lower(key))?;
+        Ok((expires_ms, key, account_public_key))
     }
 }
 

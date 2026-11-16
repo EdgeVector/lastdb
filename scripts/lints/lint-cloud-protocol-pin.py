@@ -7,20 +7,24 @@ The service is `cloud_backup_protocol` pinned by EdgeVector/exemem-infra main's
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from protocol_pin.wire import Field, Schema, TypeDef, Usage  # noqa: E402
+from protocol_pin.wire import Field, Schema, TypeDef, Usage, norm_code  # noqa: E402
 
 PIN_API = "https://api.github.com/repos/EdgeVector/exemem-infra/contents/fold?ref=main"
+SERVICE_TARBALL_API = "https://api.github.com/repos/EdgeVector/exemem-infra/tarball/main"
 FIX = (
     "Land and deploy the exemem-infra pin bump first, or gate the client "
     "so it does not send the incompatible field, variant, or shape."
@@ -31,10 +35,11 @@ def _git(repo: Path, *args: str, text: bool = True) -> subprocess.CompletedProce
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=text)
 
 
-def incompatibilities(old: Schema, new: Schema, usage: Usage) -> list[str]:
+def incompatibilities(old: Schema, new: Schema, usage: Usage, variant_live: Callable[[str, str, str], bool] | None = None) -> list[str]:
     """Wire changes that make the pinned service reject this client, or vice versa."""
     errors: list[str] = []
     seen: set[tuple[str, str, str]] = set()
+    is_live = variant_live or (lambda _path, _name, _wire: True)
     for root in sorted(usage.request_roots):
         if new.get(root) is not None:
             _request(old, new, usage, f"ty({root})", f"ty({root})", errors, seen, root)
@@ -42,7 +47,7 @@ def incompatibilities(old: Schema, new: Schema, usage: Usage) -> list[str]:
         if old.get(root) is not None and new.get(root) is None:
             errors.append(f"removed response type {root}")
         elif old.get(root) is not None and new.get(root) is not None:
-            _response(old, new, f"ty({root})", f"ty({root})", errors, seen, root)
+            _response(old, new, is_live, f"ty({root})", f"ty({root})", errors, seen, root)
     return list(dict.fromkeys(errors))
 
 
@@ -99,7 +104,7 @@ def _request(old_s: Schema, new_s: Schema, usage: Usage, old_enc: str, new_enc: 
         _request_fields(old_s, new_s, usage, old_ty, new_ty, new_ty.path, None, old_ty.deny, errors, seen, where)
 
 
-def _response(old_s: Schema, new_s: Schema, old_enc: str, new_enc: str, errors: list[str], seen: set, where: str) -> None:
+def _response(old_s: Schema, new_s: Schema, is_live: Callable[[str, str, str], bool], old_enc: str, new_enc: str, errors: list[str], seen: set, where: str) -> None:
     if ("res", old_enc, new_enc) in seen:
         return
     seen.add(("res", old_enc, new_enc))
@@ -115,17 +120,17 @@ def _response(old_s: Schema, new_s: Schema, old_enc: str, new_enc: str, errors: 
     if not _check_header(old_ty, new_ty, old_b, new_b, errors, where):
         return
     if _as_inner(old_ty, new_ty):
-        _response(old_s, new_s, old_ty.fields[0].encoded, new_ty.fields[0].encoded, errors, seen, where)
+        _response(old_s, new_s, is_live, old_ty.fields[0].encoded, new_ty.fields[0].encoded, errors, seen, where)
     elif old_ty.kind == "enum":
         new_vars = {v.wire: v for v in new_ty.variants}
         for v in old_ty.variants:
             nv = new_vars.get(v.wire)
-            if nv is None and not new_ty.other_ok:
+            if nv is None and not new_ty.other_ok and is_live(old_ty.path, v.name, v.wire):
                 errors.append(f"removed {old_ty.path}::{v.name}; the deployed service can still send it")
             elif nv is not None:
-                _response_fields(old_s, new_s, v, nv, new_ty.deny, errors, seen, f"{where}::{v.name}")
+                _response_fields(old_s, new_s, is_live, v, nv, new_ty.deny, errors, seen, f"{where}::{v.name}")
     else:
-        _response_fields(old_s, new_s, old_ty, new_ty, new_ty.deny, errors, seen, where)
+        _response_fields(old_s, new_s, is_live, old_ty, new_ty, new_ty.deny, errors, seen, where)
 
 
 def _flat(schema: Schema, holder) -> list[Field]:
@@ -156,7 +161,7 @@ def _request_fields(old_s: Schema, new_s: Schema, usage: Usage, old_ty, new_ty, 
                 errors.append(f"{where} no longer sends required field {wire}")
 
 
-def _response_fields(old_s: Schema, new_s: Schema, old_ty, new_ty, deny: bool, errors: list[str], seen: set, where: str) -> None:
+def _response_fields(old_s: Schema, new_s: Schema, is_live: Callable[[str, str, str], bool], old_ty, new_ty, deny: bool, errors: list[str], seen: set, where: str) -> None:
     old_f = {f.wire: f for f in _flat(old_s, old_ty)}
     new_f = {f.wire: f for f in _flat(new_s, new_ty)}
     for wire, fld in old_f.items():
@@ -167,7 +172,7 @@ def _response_fields(old_s: Schema, new_s: Schema, old_ty, new_ty, deny: bool, e
             if deny:
                 errors.append(f"removed {where}.{wire}; the deployed service can still send it and this client denies unknown fields")
         else:
-            _response(old_s, new_s, fld.encoded, fresh.encoded, errors, seen, f"{where}.{wire}")
+            _response(old_s, new_s, is_live, fld.encoded, fresh.encoded, errors, seen, f"{where}.{wire}")
     for wire, fld in new_f.items():
         if wire not in old_f and not fld.default:
             errors.append(f"client requires {where}.{wire}, which the deployed service does not send")
@@ -205,11 +210,29 @@ def _named(schema: Schema, encoded: str) -> tuple[TypeDef | None, str]:
     return td, bound
 
 
+def _make_variant_live(pinned: Schema, load_service: Callable[[], list[str] | None]) -> Callable[[str, str, str], bool]:
+    from protocol_pin.ast_scan import proto_non_self_sources
+    svc_cache: list[list[str] | None] = []
+    proto_cache: dict[str, list[str]] = {}
+
+    def check(enum_path: str, vname: str, vwire: str) -> bool:
+        pat = re.compile(rf"\b{re.escape(vname)}\b|\"{re.escape(vwire)}\"")
+        ename = enum_path.split("::")[-1]
+        if any(pat.search(src) for src in proto_cache.setdefault(ename, proto_non_self_sources(pinned, ename))):
+            return True
+        if not svc_cache:
+            svc_cache.append(load_service())
+        return True if not svc_cache[0] else any(pat.search(src) for src in svc_cache[0])
+
+    return check
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repo-root", default=".")
     p.add_argument("--head-protocol", help="protocol tree to treat as the client")
     p.add_argument("--pinned-protocol", help="protocol tree to treat as the deployed service")
+    p.add_argument("--pinned-service", help="service Rust source tree for local removed-variant checks")
     p.add_argument("--dump", action="store_true", help="print the head wire summary and exit")
     p.add_argument("--force-compare", action="store_true", help="compare AST shapes even when tree SHAs match")
     args = p.parse_args()
@@ -224,7 +247,8 @@ def main() -> None:
     if args.pinned_protocol:
         from protocol_pin.ast_scan import collect_usage, load_protocol
         head, pinned = load_protocol(head_root), load_protocol(Path(args.pinned_protocol).resolve())
-        _report("local", incompatibilities(pinned, head, collect_usage(repo, head)))
+        svc_loader = (lambda: _local_service_sources(Path(args.pinned_service).resolve())) if args.pinned_service else (lambda: None)
+        _report("local", incompatibilities(pinned, head, collect_usage(repo, head), _make_variant_live(pinned, svc_loader)))
         return
 
     sha = pin_sha()
@@ -247,13 +271,15 @@ def main() -> None:
     from protocol_pin.ast_scan import collect_usage, load_protocol
 
     head = load_protocol(head_root)
+    svc_loader = (lambda: _local_service_sources(Path(args.pinned_service).resolve())) if args.pinned_service else _remote_service_sources
     with tempfile.TemporaryDirectory(prefix="protocol-pin-") as tmp:
         arc = _git(repo, "archive", sha, "cloud_backup_protocol", text=False)
         if arc.returncode != 0:
             raise SystemExit(f"pinned commit {sha} has no cloud_backup_protocol tree")
         subprocess.run(["tar", "-x", "-C", tmp], input=arc.stdout, check=True)
         pinned = load_protocol(Path(tmp))
-    _report(sha, incompatibilities(pinned, head, collect_usage(repo, head)))
+        errors = incompatibilities(pinned, head, collect_usage(repo, head), _make_variant_live(pinned, svc_loader))
+    _report(sha, errors)
 
 
 def _report(sha: str, errors: list[str]) -> None:
@@ -266,20 +292,44 @@ def _report(sha: str, errors: list[str]) -> None:
     print(f"cloud_backup_protocol matches the storage service pinned by exemem-infra main (fold @{sha}).")
 
 
-def pin_sha() -> str:
-    tokens: list[str] = []
+def _gh_tokens() -> list[str]:
+    seen: list[str] = []
     for name in ("GITHUB_TOKEN", "GH_TOKEN", "GH_PAT"):
         val = os.environ.get(name, "").strip()
-        if val and val not in tokens:
-            tokens.append(val)
-    tokens.append("")
-    last = "no response"
-    for token in tokens:
-        req = urllib.request.Request(PIN_API, headers={"Accept": "application/vnd.github+json", "User-Agent": "lastdb-protocol-pin"})
-        if token:
-            req.add_header("Authorization", f"Bearer {token}")
+        if val and val not in seen:
+            seen.append(val)
+    return [*seen, ""]
+
+
+def _gh_open(url: str, token: str):
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "lastdb-protocol-pin"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30)
+
+
+def _local_service_sources(root: Path) -> list[str] | None:
+    base = root / "exemem_service" if (root / "exemem_service").is_dir() else root
+    return ([norm_code(p.read_text(encoding="utf-8")) for p in sorted(base.rglob("*.rs"))] or None) if base.is_dir() else None
+
+
+def _remote_service_sources() -> list[str] | None:
+    for token in _gh_tokens():
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with _gh_open(SERVICE_TARBALL_API, token) as resp, tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
+                sources = [norm_code(f.read().decode("utf-8")) for m in tar.getmembers() if m.isfile() and "/exemem_service/" in m.name and m.name.endswith(".rs") and (f := tar.extractfile(m)) is not None]
+            if sources:
+                return sources
+        except (OSError, tarfile.TarError, UnicodeDecodeError):
+            continue
+    return None
+
+
+def pin_sha() -> str:
+    last = "no response"
+    for token in _gh_tokens():
+        try:
+            with _gh_open(PIN_API, token) as resp:
                 payload = json.load(resp)
         except urllib.error.HTTPError as exc:
             last = f"HTTP {exc.code}"

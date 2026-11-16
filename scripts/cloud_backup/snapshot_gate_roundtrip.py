@@ -26,9 +26,8 @@ TAIL_BODY = "signed tail"
 SNAPSHOT_PROTOCOL_ERRORS = frozenset(
     b"""
     InvalidInput UnsupportedCapability Unauthorized NotFound GenerationConflict
-    StreamAuthorityConflict JobClosed IdentityConflict PredecessorConflict ResourceLimit
-    QuotaExceeded MissingDependency IntegrityMismatch RecoveryKeyMismatch SourceUnavailable
-    ProviderPending OutcomeUnknown RetryLater
+    IdentityConflict PredecessorConflict ResourceLimit QuotaExceeded
+    MissingDependency IntegrityMismatch ProviderPending OutcomeUnknown RetryLater
     """.split()
 )
 

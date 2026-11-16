@@ -349,3 +349,22 @@ def _walk_usage(node, names: dict[str, str], schema: Schema, usage: Usage) -> No
                 usage.sent_variants.add((schema.canonical(p), v))
     for child in node.children:
         _walk_usage(child, names, schema, usage)
+
+
+def proto_non_self_sources(pinned: Schema, enum_name: str) -> list[str]:
+    chunks: list[str] = []
+    for path in sorted(set(pinned.files.values())):
+        for child in PARSER.parse(Path(path).read_bytes()).root_node.children:
+            if child.type in {"line_comment", "block_comment"}:
+                continue
+            if child.type == "enum_item" and (n := child.child_by_field_name("name")) and n.text.decode() == enum_name:
+                continue
+            if child.type == "impl_item" and (t := child.child_by_field_name("type")) and t.text.decode().split("<", 1)[0].strip().split("::")[-1] == enum_name:
+                body = child.child_by_field_name("body")
+                for item in body.children if body is not None else ():
+                    params = item.child_by_field_name("parameters") if item.type == "function_item" else None
+                    if item.type == "function_item" and not (params and any(p.type == "self_parameter" for p in params.children)):
+                        chunks.append(norm_code(item.text.decode()))
+                continue
+            chunks.append(norm_code(child.text.decode()))
+    return chunks

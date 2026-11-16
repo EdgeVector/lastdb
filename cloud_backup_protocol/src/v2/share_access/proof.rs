@@ -3,7 +3,7 @@
 //! The digest binds the database id, the HTTP action, the raw body, and a
 //! nonce. The service stores the nonce. This module does not.
 
-use super::{Ed25519Signature, SHARE_NODE_READ_AUTHORITY_DOMAIN, SHARE_REQUEST_SKEW_MS};
+use super::{SHARE_NODE_READ_AUTHORITY_DOMAIN, SHARE_REQUEST_SKEW_MS};
 use crate::primitives::exact_lower_hex;
 use crate::v2::{limits, Stream, Version};
 use crate::{bytes_sha256, input_digest, DecimalU64, Digest, Id, ProtocolError, Text};
@@ -12,21 +12,9 @@ use serde::{Deserialize, Serialize};
 /// HTTP method bound into a node-read proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShareHttpMethod {
-    /// HTTP GET.
-    #[serde(rename = "GET")]
-    Get,
     /// HTTP POST.
     #[serde(rename = "POST")]
     Post,
-    /// HTTP PUT.
-    #[serde(rename = "PUT")]
-    Put,
-    /// HTTP DELETE.
-    #[serde(rename = "DELETE")]
-    Delete,
-    /// HTTP HEAD.
-    #[serde(rename = "HEAD")]
-    Head,
 }
 
 /// Realm the signature is allowed to address.
@@ -157,52 +145,15 @@ impl NodeReadToken {
             ),
         )
     }
-}
 
-/// A node statement plus the signature over its digest hex.
-///
-/// `signature` is the 128-character hex form. The `LastDBNode` token carries
-/// the same signature as 64 raw bytes in the second segment.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NodeReadProof {
-    /// Statement that `digest` covers, aside from the raw HTTP body.
-    pub token: NodeReadToken,
-    /// Signature over `digest`'s lowercase hexadecimal bytes.
-    pub signature: Ed25519Signature,
-}
-
-impl NodeReadProof {
-    /// Check the statement. This does not verify the signature.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.token.validate()?;
-        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-
-    /// Digest of the statement and the exact received HTTP body octets.
-    ///
-    /// `body` is the bytes on the wire. Do not parse them and serialize again
-    /// before this call.
-    pub fn digest(&self, body: &[u8]) -> Result<Digest, ProtocolError> {
+    /// Reject an invalid statement or a clock reading outside ±[`SHARE_REQUEST_SKEW_MS`].
+    pub fn validate_fresh(&self, now_ms: u64) -> Result<(), ProtocolError> {
         self.validate()?;
-        self.token.digest(body)
-    }
-
-    /// Reject a clock reading outside ±[`SHARE_REQUEST_SKEW_MS`] and a spent nonce.
-    ///
-    /// `nonce_seen` is true when this database, node key, and nonce were
-    /// already accepted and that acceptance window has not ended. The service
-    /// stores that fact. This function does not.
-    pub fn validate_fresh(&self, now_ms: u64, nonce_seen: bool) -> Result<(), ProtocolError> {
-        self.validate()?;
-        let issued = self.token.issued_at_ms.get();
+        let issued = self.issued_at_ms.get();
         let earliest = now_ms.saturating_sub(SHARE_REQUEST_SKEW_MS);
         let latest = now_ms.saturating_add(SHARE_REQUEST_SKEW_MS);
         if issued < earliest || issued > latest {
             return Err(ProtocolError::unauthorized("share.node_read.issued_at_ms"));
-        }
-        if nonce_seen {
-            return Err(ProtocolError::unauthorized("share.node_read.replay"));
         }
         Ok(())
     }
