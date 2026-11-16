@@ -1,32 +1,19 @@
 //! Descriptor-relative private home primitives.
-use crate::cloud::is_private_file;
+use crate::profile::IDENTITY_KEY_FILE;
 use rustix::fs::{self, AtFlags, Mode, OFlags};
-use std::fs::{File, Metadata};
+use std::fs::{File, Metadata, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use zeroize::Zeroizing;
 
 const MAX_BYTES: u64 = 16 * 1024;
 const SAFE: OFlags = OFlags::NOFOLLOW.union(OFlags::CLOEXEC);
+const DISK_ERR: &str = "offline directory disk failure";
+const CHANGED_ERR: &str = "offline directory identity changed";
 pub const DIR_FLAGS: OFlags = OFlags::RDONLY.union(OFlags::DIRECTORY).union(SAFE);
 
-#[derive(Debug)]
-pub struct DirectoryError(&'static str);
-
-impl std::fmt::Display for DirectoryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-impl std::error::Error for DirectoryError {}
-impl From<io::Error> for DirectoryError {
-    fn from(_: io::Error) -> Self {
-        Self("offline directory disk failure")
-    }
-}
-
-type DirectoryResult<T> = Result<T, DirectoryError>;
+type DirectoryResult<T> = io::Result<T>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DirInode(pub u64, pub u64);
@@ -67,6 +54,70 @@ impl DirInode {
 
 fn eq_fd(a: &File, b: &File) -> io::Result<bool> {
     Ok(DirInode::of_file(a)? == DirInode::of_file(b)?)
+}
+
+pub(crate) fn is_private_file(meta: &Metadata) -> bool {
+    meta.is_file()
+        && meta.uid() == unsafe { libc::geteuid() }
+        && meta.mode() & 0o077 == 0
+        && meta.nlink() == 1
+}
+
+pub fn read_private_named(
+    path: &Path,
+    max_bytes: u64,
+    priv_err: &'static str,
+    lim_err: &'static str,
+) -> Result<Option<Zeroizing<Vec<u8>>>, &'static str> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(priv_err),
+    };
+    if !meta.is_file() {
+        return Err(priv_err);
+    }
+    if meta.len() > max_bytes {
+        return Err(lim_err);
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| priv_err)?;
+    if !is_private_file(&file.metadata().map_err(|_| priv_err)?) {
+        return Err(priv_err);
+    }
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| priv_err)?;
+    (bytes.len() as u64 <= max_bytes)
+        .then_some(Some(bytes))
+        .ok_or(lim_err)
+}
+
+fn decode_seed(raw: &[u8]) -> Result<Zeroizing<[u8; 32]>, String> {
+    <[u8; 32]>::try_from(raw)
+        .map(Zeroizing::new)
+        .map_err(|_| "home identity.key must contain exactly 32 bytes".into())
+}
+
+pub fn read_home_identity_seed(home: &Path) -> Result<Option<Zeroizing<[u8; 32]>>, String> {
+    const PRIV_ERR: &str = "home identity.key must be a private owner file";
+    const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
+    read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)
+        .map_err(str::to_owned)?
+        .map(|raw| decode_seed(&raw))
+        .transpose()
+}
+
+pub fn read_identity_seed_at(dir: &File) -> Result<Zeroizing<[u8; 32]>, String> {
+    decode_seed(&Zeroizing::new(read_private_file(
+        dir,
+        IDENTITY_KEY_FILE,
+        32,
+    )?))
 }
 
 pub fn require_absolute(path: &Path) -> Result<(), String> {
@@ -110,7 +161,7 @@ fn is_private_0600(meta: &Metadata, limit: Option<u64>) -> bool {
     is_private_file(meta) && meta.mode() & 0o777 == 0o600 && limit.is_none_or(|n| meta.len() <= n)
 }
 
-pub fn require_private_file(
+fn require_private_file(
     file: &File,
     limit: Option<u64>,
     error: &'static str,
@@ -191,19 +242,19 @@ fn openat(
     name: impl rustix::path::Arg,
     flags: OFlags,
     mode: fs::RawMode,
-) -> io::Result<File> {
-    fs::openat(dir, name, flags, Mode::from_bits_truncate(mode))
-        .map(File::from)
-        .map_err(Into::into)
+) -> DirectoryResult<File> {
+    disk(fs::openat(dir, name, flags, Mode::from_bits_truncate(mode)).map(File::from))
+}
+
+fn disk<T, E>(result: Result<T, E>) -> DirectoryResult<T> {
+    result.map_err(|_| io::Error::other(DISK_ERR))
 }
 
 impl Directory {
     pub fn open(path: &Path) -> DirectoryResult<Self> {
-        require_absolute(path).map_err(|_| DirectoryError("invalid offline directory path"))?;
-        let file =
-            open_directory(path).map_err(|_| DirectoryError("offline directory disk failure"))?;
-        require_owned_directory(&file)
-            .map_err(|_| DirectoryError("offline directory identity changed"))?;
+        require_absolute(path).map_err(|_| io::Error::other("invalid offline directory path"))?;
+        let file = disk(open_directory(path))?;
+        require_owned_directory(&file).map_err(|_| io::Error::other(CHANGED_ERR))?;
         Ok(Self {
             path: path.to_path_buf(),
             file,
@@ -211,9 +262,9 @@ impl Directory {
     }
 
     pub fn check(&self) -> DirectoryResult<()> {
-        eq_fd(&self.file, &Self::open(&self.path)?.file)?
+        disk(eq_fd(&self.file, &Self::open(&self.path)?.file))?
             .then_some(())
-            .ok_or(DirectoryError("offline directory identity changed"))
+            .ok_or_else(|| io::Error::other(CHANGED_ERR))
     }
 
     pub(crate) fn open_lock(&self, name: &str) -> DirectoryResult<File> {
@@ -224,9 +275,9 @@ impl Directory {
             OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK | SAFE,
             0o600,
         )?;
-        is_private_0600(&file.metadata()?, Some(MAX_BYTES))
+        is_private_0600(&disk(file.metadata())?, Some(MAX_BYTES))
             .then_some(file)
-            .ok_or(DirectoryError("offline directory identity changed"))
+            .ok_or_else(|| io::Error::other(CHANGED_ERR))
     }
 
     pub fn read(&self, name: &str) -> DirectoryResult<Option<Zeroizing<Vec<u8>>>> {
@@ -235,27 +286,36 @@ impl Directory {
         let mut file = match fs::openat(&self.file, name, flags, Mode::empty()) {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) => return Ok(None),
-            Err(e) => return Err(io::Error::from(e).into()),
+            Err(_) => return Err(io::Error::other(DISK_ERR)),
         };
-        let before = file.metadata()?;
+        let before = disk(file.metadata())?;
         if !is_private_0600(&before, Some(MAX_BYTES)) {
-            return Err(DirectoryError("offline directory identity changed"));
+            return Err(io::Error::other(CHANGED_ERR));
         }
         let mut bytes = Zeroizing::new(Vec::new());
-        (&mut file)
-            .take(MAX_BYTES.saturating_add(1))
-            .read_to_end(&mut bytes)?;
+        disk(
+            (&mut file)
+                .take(MAX_BYTES.saturating_add(1))
+                .read_to_end(&mut bytes),
+        )?;
         let (after, cur) = (
-            file.metadata()?,
-            openat(&self.file, name, flags, 0)?.metadata()?,
+            disk(file.metadata())?,
+            disk(openat(&self.file, name, flags, 0)?.metadata())?,
         );
         if bytes.len() as u64 != before.len()
             || stamp(&before) != stamp(&after)
             || stamp(&after) != stamp(&cur)
         {
-            return Err(DirectoryError("offline directory identity changed"));
+            return Err(io::Error::other(CHANGED_ERR));
         }
         self.check().map(|()| Some(bytes))
+    }
+
+    pub fn identity_seed(&self) -> Result<Option<Zeroizing<[u8; 32]>>, String> {
+        self.read(IDENTITY_KEY_FILE)
+            .map_err(|e| e.to_string())?
+            .map(|bytes| decode_seed(&bytes))
+            .transpose()
     }
 
     pub fn publish(
@@ -265,7 +325,9 @@ impl Directory {
         bytes: &[u8],
     ) -> DirectoryResult<()> {
         if bytes.len() as u64 > MAX_BYTES {
-            return Err(DirectoryError("offline directory file exceeds byte limit"));
+            return Err(io::Error::other(
+                "offline directory file exceeds byte limit",
+            ));
         }
         let current = self.read(name)?;
         let slice = current.as_deref().map(Vec::as_slice);
@@ -273,10 +335,10 @@ impl Directory {
             return Ok(());
         }
         if slice != expected {
-            return Err(DirectoryError("offline directory identity changed"));
+            return Err(io::Error::other(CHANGED_ERR));
         }
         self.check()?;
-        let temp = format!(".byte-backup-connection-{}.pending", uuid::Uuid::new_v4());
+        let temp = format!(".pending-{}", uuid::Uuid::new_v4());
         let mut file = openat(
             &self.file,
             temp.as_str(),
@@ -284,22 +346,26 @@ impl Directory {
             0o600,
         )?;
         let res = (|| -> DirectoryResult<()> {
-            file.write_all(bytes)?;
-            file.sync_all()?;
+            disk(file.write_all(bytes))?;
+            disk(file.sync_all())?;
             self.check()?;
             let rflags = expected.map_or(fs::RenameFlags::NOREPLACE, |_| fs::RenameFlags::empty());
-            fs::renameat_with(&self.file, temp.as_str(), &self.file, name, rflags)
-                .map_err(io::Error::from)?;
-            Ok(())
+            disk(fs::renameat_with(
+                &self.file,
+                temp.as_str(),
+                &self.file,
+                name,
+                rflags,
+            ))
         })();
         if res.is_err() {
             let _ = fs::unlinkat(&self.file, temp.as_str(), AtFlags::empty());
         }
         res?;
-        self.file.sync_all()?;
+        disk(self.file.sync_all())?;
         (self.read(name)?.as_deref().map(Vec::as_slice) == Some(bytes))
             .then_some(())
-            .ok_or(DirectoryError("offline directory identity changed"))
+            .ok_or_else(|| io::Error::other(CHANGED_ERR))
     }
 }
 

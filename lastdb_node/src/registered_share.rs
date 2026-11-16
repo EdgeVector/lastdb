@@ -1,6 +1,6 @@
 //! Stable database handles and receiver `FoldDB` stores for accepted shares.
 
-use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
+use crate::cloud_backup_client::ShareEnvironment;
 use crate::host::Host;
 use crate::share_cache::{ShareCache, ShareCacheError, MANAGED_SHARE_DIRECTORY};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};

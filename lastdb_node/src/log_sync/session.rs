@@ -16,6 +16,7 @@ const WAKE_FILE: &str = "wake";
 const SNAPSHOT_REQUEST_FILE: &str = "snapshot-request";
 const SNAPSHOT_RESULT_FILE: &str = "snapshot-result";
 const SNAPSHOT_ERROR_FILE: &str = "snapshot-error";
+// Written by `scripts/cloud_backup/snapshot_gate_roundtrip.py` in CI.
 const SNAPSHOT_FIRST_FILE: &str = "snapshot-first";
 const SNAPSHOT_BOOTSTRAP_FILE: &str = "snapshot-bootstrap.json";
 

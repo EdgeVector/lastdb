@@ -1,16 +1,13 @@
-//! Backup connection setup, snapshot queueing, and recovery-home commands.
+//! Backup connection setup, snapshot queueing, log maintenance, and recovery-home commands.
 
 use super::*;
-use lastdb_node::offline_home::{
-    dir_entry_names, entry_present, open_directory, open_private_at, require_absolute,
-    require_mode_0700_directory, require_owned_directory, same_inode, DIR_FLAGS,
-};
-use rustix::fs::{self, AtFlags, Mode, OFlags};
-use std::ffi::OsString;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use cloud_backup_protocol::Digest;
+use lastdb_node::log_sync::{index_history, reclaim_snapshot_log, IndexHistoryReport};
+use serde_json::Value;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 #[path = "cloud_cmds/account.rs"]
@@ -19,8 +16,6 @@ mod account;
 mod dev_keys;
 #[path = "cloud_cmds/enrollment_home.rs"]
 mod enrollment_home;
-#[path = "cloud_cmds/log_ops.rs"]
-mod log_ops;
 #[path = "cloud_cmds/restore.rs"]
 mod restore;
 #[path = "cloud_cmds/setup.rs"]
@@ -28,6 +23,14 @@ mod setup;
 
 pub(super) use account::cloud_account_command;
 pub(crate) use dev_keys::with_publishing_credential;
+
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(70);
+
+enum Poll {
+    Pending,
+    Ready(u64, u64),
+    Failed(String),
+}
 
 pub(super) fn backup_command(
     data_dir: Option<PathBuf>,
@@ -48,10 +51,10 @@ pub(super) fn backup_command(
             restore::run(&lastdb_node::host::resolve_home(expanded)?, args)
         }
         BackupCommand::Reclaim(args) => {
-            log_ops::run_reclaim(&lastdb_node::host::resolve_home(data_dir)?, &args)
+            run_reclaim(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
         BackupCommand::IndexLogHistory(args) => {
-            log_ops::run_index_history(&lastdb_node::host::resolve_home(data_dir)?, &args)
+            run_index_history(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
         BackupCommand::Snapshot { database, wait } => {
             let db = database.or(db).unwrap_or_else(|| "personal".to_owned());
@@ -93,127 +96,169 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
         .filter(|s| !s.is_empty())
         .ok_or("backup snapshot response missing nonce")?;
     if wait {
-        return log_ops::wait_until_head(&socket, id, nonce);
+        return wait_until_head(&socket, id, nonce);
     }
     println!("Queued signed snapshot for {id}");
     Ok(())
 }
 
-struct FreshHome {
-    parent: File,
-    name: OsString,
-    directory: Option<File>,
-    created_files: Vec<&'static str>,
-    committed: bool,
+fn run_index_history(home: &Path, args: &BackupIndexLogHistoryArgs) -> Result<(), String> {
+    if args.status == args.batches.is_some() {
+        return Err("choose --status or --batches".into());
+    }
+    let report = block_on(
+        "backup index-log-history",
+        index_history(home, &args.database, args.batches, progress),
+    )?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|_| "cannot encode index status")?
+        );
+        return Ok(());
+    }
+    println!(
+        "Database {} ({})",
+        report.database_id.as_str(),
+        report.environment
+    );
+    println!("Cloud history indexing enabled: {}", report.index_enabled);
+    println!("Database history eligible: {}", report.eligible);
+    println!("First indexed delivery: {}", first(&report));
+    if args.batches.is_some() {
+        println!(
+            "Confirmed {} batches and {} indexed entries",
+            report.batches,
+            report.indexed_entries.get()
+        );
+    }
+    Ok(())
 }
 
-impl FreshHome {
-    fn preflight_empty_parent(destination: &Path) -> Result<Self, String> {
-        let target = Self::preflight_empty(destination)?;
-        require_mode_0700_directory(
-            &target.parent,
-            "credential parent must be an owner-only directory",
-        )?;
-        if !dir_entry_names(&target.parent, "cannot inspect credential parent")?.is_empty() {
-            return Err("credential parent must be empty".into());
-        }
-        Ok(target)
-    }
+fn progress(report: &IndexHistoryReport) {
+    eprintln!(
+        "Confirmed {} batches and {} indexed entries. First indexed delivery is {}",
+        report.batches,
+        report.indexed_entries.get(),
+        first(report),
+    );
+}
 
-    fn preflight_empty(destination: &Path) -> Result<Self, String> {
-        require_absolute(destination)?;
-        let name = destination
-            .file_name()
-            .ok_or("destination requires a home name")?;
-        let parent = open_directory(destination.parent().ok_or("missing destination parent")?)?;
-        let mode = parent
-            .metadata()
-            .map_err(|_| "cannot inspect destination parent")?
-            .permissions()
-            .mode();
-        if mode & 0o022 != 0 && mode & 0o1000 == 0 {
-            return Err(
-                "destination parent must prevent other users from replacing its entries".into(),
-            );
-        }
-        if entry_present(&parent, name.to_str().ok_or("invalid home name")?)? {
-            return Err("recovery home must not already exist".into());
-        }
-        Ok(Self {
-            parent,
-            name: name.to_os_string(),
-            directory: None,
-            created_files: Vec::new(),
-            committed: false,
-        })
-    }
+fn first(report: &IndexHistoryReport) -> String {
+    report
+        .first_indexed_delivery
+        .map_or_else(|| "none".into(), |value| value.get().to_string())
+}
 
-    fn create(mut self) -> Result<Self, String> {
-        fs::mkdirat(&self.parent, &self.name, Mode::from_raw_mode(0o700))
-            .map_err(|_| "cannot exclusively create recovery home")?;
-        let dir: File = fs::openat(&self.parent, &self.name, DIR_FLAGS, Mode::empty())
-            .map_err(|_| "cannot open new recovery home without symlinks")?
-            .into();
-        fs::fchmod(&dir, Mode::from_raw_mode(0o700)).map_err(|_| "cannot protect recovery home")?;
-        require_owned_directory(&dir)?;
-        self.directory = Some(dir);
-        Ok(self)
+fn run_reclaim(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
+    if args.status == args.allow_required_client_upgrade {
+        return Err("choose --status or --allow-required-client-upgrade".into());
     }
-
-    fn dir(&self) -> &File {
-        self.directory.as_ref().expect("created recovery home")
+    let batches = args
+        .allow_required_client_upgrade
+        .then(|| args.batches.unwrap_or(16));
+    let expected = args
+        .expect_snapshot
+        .clone()
+        .map(Digest::try_from)
+        .transpose()
+        .map_err(|_| "--expect-snapshot requires a lowercase SHA-256 digest")?;
+    let report = block_on(
+        "backup reclaim",
+        reclaim_snapshot_log(
+            home,
+            &args.database,
+            batches,
+            expected.as_ref(),
+            args.steps_per_request,
+        ),
+    )?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|_| "cannot encode reclaim status")?
+        );
+        return Ok(());
     }
-
-    fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
-        let mut file = open_private_at(
-            self.dir(),
-            name,
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
-            Mode::from_raw_mode(0o600),
-            "cannot exclusively create recovery credential file",
-        )?;
-        self.created_files.push(name);
-        file.write_all(bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|_| "cannot write recovery credential file".into())
-    }
-
-    fn commit(&mut self) -> Result<(), String> {
-        let dir = self.dir();
-        if !same_inode(&self.parent, &self.name, dir) {
-            return Err("recovery home changed during preparation".into());
+    let snapshot = report.snapshot_id.as_ref().map_or("none", |id| id.as_str());
+    println!(
+        "Database {} ({})",
+        report.database_id.as_str(),
+        report.environment
+    );
+    println!("Cloud reclamation enabled: {}", report.reclaim_enabled);
+    println!("Database history eligible: {}", report.eligible);
+    println!("Recovery snapshot: {snapshot}");
+    println!("Snapshot covers through {}", report.snapshot_through.get());
+    println!(
+        "Cloud log reclaimed through {}",
+        report.reclaimed_through.get()
+    );
+    if args.allow_required_client_upgrade {
+        println!("Reclaim requests confirmed: {}", report.batches);
+        if let Some(state) = report.provider_cleanup {
+            println!("Retired snapshot cleanup: {state}");
         }
-        const EXACT_ERR: &str = "recovery home requires the exact protected credential files";
-        require_mode_0700_directory(dir, EXACT_ERR)?;
-        let entries = dir_entry_names(dir, "cannot inspect final recovery-home entries")?;
-        if self.created_files.is_empty()
-            || entries.len() != self.created_files.len()
-            || entries
-                .iter()
-                .any(|n| !self.created_files.iter().any(|f| f.as_bytes() == n))
-        {
-            return Err(EXACT_ERR.into());
+    }
+    Ok(())
+}
+
+pub(super) fn print_backup(value: &Value, json: bool) -> Result<(), String> {
+    if !json {
+        if let (Some(through), Some(replayed)) = (
+            value["snapshot_through"].as_u64(),
+            value["replayed"].as_u64(),
+        ) {
+            println!("snapshot_through={through} replayed={replayed}");
         }
-        dir.sync_all()
-            .and_then(|()| self.parent.sync_all())
-            .map_err(|_| "cannot sync recovery home".to_owned())?;
-        self.committed = true;
-        Ok(())
+        println!("Signed backup");
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).map_err(|_| "cannot encode backup result")?
+    );
+    Ok(())
+}
+
+fn wait_until_head(socket: &Path, database: &str, nonce: &str) -> Result<(), String> {
+    let path = format!("/api/backup/snapshot?database={database}&nonce={nonce}");
+    let deadline = Instant::now() + SNAPSHOT_WAIT;
+    loop {
+        match poll_status(socket, &path) {
+            Poll::Ready(through, entries) => {
+                println!("snapshot_through={through}");
+                println!("log_head={through}");
+                println!("log_entries={entries}");
+                return Ok(());
+            }
+            Poll::Failed(err) => return Err(err),
+            Poll::Pending if Instant::now() >= deadline => {
+                return Err("signed snapshot did not reach the log head".into());
+            }
+            Poll::Pending => thread::sleep(Duration::from_millis(200)),
+        }
     }
 }
 
-impl Drop for FreshHome {
-    fn drop(&mut self) {
-        if self.committed || self.directory.is_none() {
-            return;
-        }
-        for name in &self.created_files {
-            let _ = fs::unlinkat(self.dir(), *name, AtFlags::empty());
-        }
-        if same_inode(&self.parent, &self.name, self.dir()) {
-            let _ = fs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR);
+fn poll_status(socket: &Path, path: &str) -> Poll {
+    let Ok(raw) = get_path_retry(socket, path, Duration::from_secs(10)) else {
+        return Poll::Pending;
+    };
+    let Ok(reply) = parse_json_response(&raw, "backup snapshot status") else {
+        return Poll::Pending;
+    };
+    if reply["ready"].as_bool() == Some(true) {
+        if let (Some(through), Some(entries)) = (
+            reply["snapshot_through"].as_u64(),
+            reply["log_entries"].as_u64(),
+        ) {
+            return Poll::Ready(through, entries);
         }
     }
+    if let Some(err) = reply["error"].as_str().filter(|s| !s.is_empty()) {
+        return Poll::Failed(err.to_owned());
+    }
+    Poll::Pending
 }
 
 fn read_stdin_no_control(limit: usize, label: &str) -> Result<Zeroizing<String>, String> {

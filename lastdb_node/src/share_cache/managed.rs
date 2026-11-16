@@ -21,12 +21,8 @@ pub(super) struct ManagedRegistration {
     spec: Option<crate::profile::PublicationSpec>,
     expires_ms: u64,
     /// Named-database signed log. Publication shares omit this.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) signed_log: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 impl ShareCache {
@@ -74,7 +70,7 @@ impl ShareCache {
             Err(ShareCacheError::Unavailable) => return Ok(None),
             Err(error) => return Err(error),
         };
-        let _pointer = entry.lock(Lock::Pointer, false)?;
+        let _pointer = entry.lock(Lock::PointerRead)?;
         let (registration, _) = entry.load()?;
         registration
             .as_ref()
@@ -111,7 +107,7 @@ impl ShareCache {
         }
         self.admit_name(id, name)?;
         let entry = self.entry(id, true)?;
-        let _writer = entry.lock(Lock::Writer, true)?;
+        let _writer = entry.lock(Lock::Writer)?;
         let (registration, previous) = entry.load()?;
         if let Some(registration) = &registration {
             self.require_management(registration)?;

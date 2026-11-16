@@ -1,7 +1,7 @@
 //! Offline signed cloud backup restore and source-free credential home recovery.
 
-use super::log_ops::print_backup;
-use super::{read_stdin_secret, BackupRestoreArgs, FreshHome, RecoverCredentialsArgs};
+use super::enrollment_home::FreshHome;
+use super::{print_backup, read_stdin_secret, BackupRestoreArgs, RecoverCredentialsArgs};
 use base64::Engine as _;
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{AccountId, Id};

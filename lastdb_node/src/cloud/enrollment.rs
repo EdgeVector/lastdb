@@ -1,10 +1,10 @@
 //! Home identity key loading, recovery-phrase derivation, environment pinning, and device enrollment.
-use super::{load_saved_credentials, read_private_named, SavedConnection};
+use super::{load_saved_credentials, SavedConnection};
 use crate::cloud_backup_client::{
     build_shared_http_client, https, read_bounded_bytes, AuthClient, SignedBlobClient,
 };
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
-use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
+use crate::profile::user_hash_from_pubkey;
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
 use cloud_backup_protocol::{AccountId, CloudScope};
@@ -129,21 +129,12 @@ pub fn app_publisher_signing_key(home: &Path) -> Result<SigningKey, String> {
 }
 
 fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {
-    const PRIV_ERR: &str = "home identity.key must be a private owner file";
-    const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
-    let Some(raw) = read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)?
-    else {
-        return Ok(None);
-    };
-    let raw = Zeroizing::new(raw);
-    let seed: Zeroizing<[u8; 32]> = raw
-        .as_slice()
-        .try_into()
-        .map(Zeroizing::new)
-        .map_err(|_| "home identity.key must contain exactly 32 bytes".to_owned())?;
-    Ed25519KeyPair::from_secret_key(seed.as_ref())
-        .map(Some)
-        .map_err(|_| "invalid home identity.key".into())
+    crate::offline_home::read_home_identity_seed(home)?
+        .map(|seed| {
+            Ed25519KeyPair::from_secret_key(seed.as_ref())
+                .map_err(|_| "invalid home identity.key".into())
+        })
+        .transpose()
 }
 
 pub fn client_from_home(home: &Path) -> Result<SignedBlobClient, String> {

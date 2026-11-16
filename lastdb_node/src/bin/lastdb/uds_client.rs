@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -214,4 +215,62 @@ pub(crate) fn resolve_client_home_and_socket(
         lastdb_node::lastdb_uds::socket_path(&home.join("data"))
     };
     Ok((home, sock))
+}
+
+/// Build, where it was read from, API version, outbox format version, and the
+/// minimum API version the node still supports.
+#[must_use]
+pub(crate) fn running_node(home: &Path) -> (String, &'static str, u32, u32, u32) {
+    let sock = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
+    if let Ok(v) = get_path(&sock, "/api/version", Duration::from_secs(2))
+        .and_then(|raw| parse_json_response(&raw, "version"))
+    {
+        let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
+        if let (Some(b), Some(a), Some(o)) = (
+            v["build"].as_str(),
+            u32_f("api_version"),
+            u32_f("current_outbox_format_version"),
+        ) {
+            // A node that does not report a minimum supports only its own version.
+            let min = u32_f("min_supported_api_version").unwrap_or(a);
+            return (b.to_string(), "socket", a, o, min);
+        }
+    }
+    let (api, outbox, min_api) = (
+        lastdb_node::version::CURRENT_API_VERSION,
+        lastdb_node::version::CURRENT_OUTBOX_FORMAT_VERSION,
+        lastdb_node::version::MIN_SUPPORTED_API_VERSION,
+    );
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.join("lastdbd")));
+    for c in sibling.into_iter().chain([PathBuf::from("lastdbd")]) {
+        let Ok(out) = ProcessCommand::new(c)
+            .arg("--version")
+            .env("RUST_LOG", "off")
+            .output()
+        else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        for l in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Some(b) = l
+                .trim()
+                .strip_prefix("lastdbd ")
+                .map(str::trim)
+                .filter(|b| !b.is_empty())
+            {
+                return (b.to_string(), "lastdbd", api, outbox, min_api);
+            }
+        }
+    }
+    (
+        lastdb_node::version::build_version().to_string(),
+        "cli",
+        api,
+        outbox,
+        min_api,
+    )
 }

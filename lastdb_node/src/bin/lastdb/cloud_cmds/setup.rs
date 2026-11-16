@@ -1,7 +1,6 @@
 //! Native backup home initialization, self-serve cloud enrollment, and existing connections.
-use super::enrollment_home::{resolve_existing_home_path, PreparedHome, PENDING_FILE};
-use super::log_ops::print_backup;
-use super::{read_stdin_no_control, BackupConnectArgs, BackupInitArgs, FreshHome};
+use super::enrollment_home::{resolve_existing_home_path, FreshHome, PreparedHome, PENDING_FILE};
+use super::{print_backup, read_stdin_no_control, BackupConnectArgs, BackupInitArgs};
 use cloud_backup_protocol::{AccountId, Id};
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{
@@ -227,15 +226,8 @@ fn connect_existing(
         .transpose()?;
     let api_key = read_stdin_no_control(4096, "existing account API key")?;
     let dir = Directory::open(home).map_err(|e| e.to_string())?;
-    let seed = Zeroizing::new(
-        dir.read(IDENTITY_KEY_FILE)
-            .map_err(|e| e.to_string())?
-            .ok_or("missing home identity")?,
-    );
-    if seed.len() != 32 {
-        return Err("identity must contain exactly 32 bytes".into());
-    }
-    let (_, account_id) = account_from_seed_bytes(&seed)?;
+    let seed = dir.identity_seed()?.ok_or("missing home identity")?;
+    let (_, account_id) = account_from_seed_bytes(seed.as_ref())?;
     if expected.as_ref().is_some_and(|id| id != &account_id) {
         return Err("expected account identity does not match this home".into());
     }

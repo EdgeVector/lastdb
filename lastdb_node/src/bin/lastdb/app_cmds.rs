@@ -5,8 +5,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[path = "app_cmds/install_poll.rs"]
-mod install_poll;
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
 
@@ -229,7 +227,7 @@ fn install_apps(
         results.push(host::install(row, home, accept_install, inactive)?);
     }
     print_pretty_json(&results);
-    install_poll::install_poll()
+    host::install_poll()
 }
 
 type CachedLists = HashMap<(String, String), Result<Vec<registry::Resolution>, String>>;

@@ -1,6 +1,7 @@
 //! Signed registry interface lists, rollback-safe caching, and node contract probing.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use app_identity_crypto::{key_id, verifying_key_from_base64, VerifyingKey};
@@ -8,12 +9,11 @@ use serde::{Deserialize, Serialize};
 
 pub mod managed;
 mod managed_manifest;
-mod node;
 
+pub(crate) use crate::uds_client::running_node;
 pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
 };
-pub use node::running_node;
 
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 pub const DEFAULT_CHANNEL: &str = "stable";
@@ -64,17 +64,10 @@ impl IndexLocation {
         if !base.starts_with("https://") {
             return Err("registry list URL must use HTTPS".into());
         }
-        // trace-egress: propagate (anonymous static registry list endpoint)
-        let b = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .no_proxy();
-        let client = b
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(str_err)?;
-        let bytes = fetch_url(&client, &addr).await?;
+        let client = registry_http_client()?;
+        let bytes = fetch_url(client, &addr).await?;
         // A list without its signature is a failed read, not an absent list.
-        let signature = fetch_url(&client, &sig)
+        let signature = fetch_url(client, &sig)
             .await
             .map_err(|e| e.replacen(ABSENT, "registry list signature is missing", 1))?;
         Ok((bytes, signature))
@@ -103,6 +96,23 @@ impl IndexLocation {
             raw.strip_prefix("file://").unwrap_or(raw),
         )))
     }
+}
+
+fn registry_http_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    // trace-egress: propagate (anonymous static registry list endpoint)
+    let built = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(0)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(str_err)?;
+    let _ = CLIENT.set(built);
+    CLIENT.get().ok_or_else(|| "HTTP client unavailable".into())
 }
 
 async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
@@ -193,7 +203,7 @@ fn cache_file(location: &IndexLocation, channel: &str, api: u32) -> Result<PathB
     Ok(root.join(channel).join("api").join(format!("{api}.json")))
 }
 
-pub async fn fetch_list(
+async fn fetch_list(
     location: &IndexLocation,
     channel: &str,
     api: u32,

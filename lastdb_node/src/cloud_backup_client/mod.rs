@@ -2,7 +2,7 @@
 use cloud_backup_protocol::{bytes_sha256, Digest, ErrorCode, ProtocolError};
 use futures::StreamExt;
 use reqwest::{header::HeaderMap, Client, Url};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use std::{
     fmt,
     sync::{Arc, Mutex},
@@ -14,10 +14,11 @@ mod guest_permission;
 mod signed_blob;
 
 pub mod storage_transfer {
-    pub use super::guest_permission::{GuestReadPermission, ShareEnvironment};
+    pub use super::guest_permission::ShareEnvironment;
 }
 
 pub(crate) use guest_permission::{authorization_post, PathPostTarget};
+pub use guest_permission::{GuestReadPermission, ShareEnvironment};
 pub use signed_blob::{canonical_backup_endpoint, BlobUploadTarget, SignedBlobClient};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -172,11 +173,6 @@ pub async fn read_bounded_bytes(
     Ok(body)
 }
 
-#[derive(Deserialize)]
-struct ErrorTag<'a> {
-    result: Option<&'a str>,
-}
-
 struct PresignedPut<'a> {
     sha256: &'a Digest,
     bytes: u64,
@@ -217,14 +213,13 @@ impl BackupTransport {
         url
     }
 
-    async fn post_bounded_with_headers<Q: Serialize, R: DeserializeOwned>(
+    async fn post_bounded_with_headers<R: DeserializeOwned>(
         &self,
         url: Url,
-        request: &Q,
+        bytes: Vec<u8>,
         maximum: u64,
         headers: HeaderMap,
     ) -> TransportResult<R> {
-        let bytes = cloud_backup_protocol::canonical_bytes(request)?;
         if bytes.len() as u64 > maximum {
             return Err(BackupTransportError::Configuration("request bytes"));
         }
@@ -247,9 +242,7 @@ impl BackupTransport {
             if let Ok(error) = serde_json::from_slice::<ProtocolError>(&body) {
                 return Err(BackupTransportError::Protocol(error));
             }
-            let tagged = serde_json::from_slice::<ErrorTag<'_>>(&body)
-                .is_ok_and(|t| t.result == Some("error"));
-            if !status.is_success() && !tagged {
+            if !status.is_success() {
                 return Err(BackupTransportError::Http(status.as_u16()));
             }
             serde_json::from_slice(&body)

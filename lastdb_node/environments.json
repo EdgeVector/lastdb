@@ -2,7 +2,6 @@
   "_comment": "Single source of truth for cross-environment URLs and pinned registry public keys. Edit ONLY here. lastdb_node/build.rs reads this at compile time and emits Rust constants in OUT_DIR. DO NOT hardcode any gateway hostnames anywhere else; scripts/lints/source_lints.py enforces this in CI.",
   "environments": {
     "dev": {
-      "region": "us-west-2",
       "registry_index": "https://lastdb-app-registry-dev-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
       "registry_api": "https://kn2b53tt1c.execute-api.us-east-1.amazonaws.com",
       "registry_list_key": "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=",
@@ -12,7 +11,6 @@
       "schema_service": "https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com"
     },
     "prod": {
-      "region": "us-east-1",
       "registry_index": "https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/lists",
       "registry_api": "https://t37yopm41e.execute-api.us-east-1.amazonaws.com",
       "registry_list_key": "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=",

@@ -2,6 +2,8 @@
 
 use std::collections::HashSet;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -62,14 +64,7 @@ pub(crate) fn prepare_snapshot_restore(
 
 /// Owner row, then each usable owned sibling.
 pub(crate) fn registered_databases(home: &Path) -> Vec<RegisteredDatabase> {
-    let Some(bytes) =
-        crate::profile::private_fs::read_limited(&registry_path(home), REGISTRY_LIMIT)
-            .ok()
-            .flatten()
-    else {
-        return Vec::new();
-    };
-    let Ok(file) = serde_json::from_slice::<RegistryFile>(&bytes) else {
+    let Some(file) = read(home).ok().flatten() else {
         return Vec::new();
     };
     if file.format != FORMAT {
@@ -159,11 +154,12 @@ fn matches_entry(entry: &Entry, selector: &str) -> bool {
 }
 
 pub(super) fn read(home: &Path) -> Result<Option<RegistryFile>, String> {
-    let path = registry_path(home);
-    if !path.is_file() {
+    let Some(bytes) =
+        crate::profile::private_fs::read_limited(&registry_path(home), REGISTRY_LIMIT)
+            .map_err(|error| format!("read database registry: {error}"))?
+    else {
         return Ok(None);
-    }
-    let bytes = std::fs::read(&path).map_err(|error| format!("read database registry: {error}"))?;
+    };
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|error| format!("invalid database registry: {error}"))
@@ -205,10 +201,11 @@ pub(super) fn write(home: &Path, registry: &RegistryFile) -> Result<(), WriteErr
 }
 
 fn write_temp(temporary: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let mut file = opts
         .open(temporary)
         .map_err(|error| format!("write database registry: {error}"))?;
     file.write_all(bytes)
