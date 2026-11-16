@@ -14,7 +14,6 @@ MARKER = "lastdb-scheduled-failure"
 WORKFLOWS = {
     "bench.yml": "LastDB benchmarks",
     "cloud-backup-daily.yml": "Daily signed private recovery",
-    "cloud-backup-recovery.yml": "Cloud backup recovery",
     "nightly-release.yml": "Nightly LastDB release",
 }
 RESULTS = {"success", "failure", "cancelled", "skipped"}

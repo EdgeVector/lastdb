@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 from contextlib import contextmanager
 import hashlib
 import json
@@ -12,7 +11,6 @@ from pathlib import Path
 import re
 import stat
 import sys
-import tempfile
 import time
 import uuid
 
@@ -206,57 +204,3 @@ def retry(stage, command, complete):
 
 def summary(message):
     summary_line(message, echo=False)
-
-
-def _run_two_node_operation(operation):
-    from node import OwnedNode, Programs
-
-    os.umask(0o077)
-    parser = argparse.ArgumentParser(description=operation.__module__)
-    parser.add_argument("--bin-dir", type=Path, required=True)
-    parser.add_argument("--version", required=True)
-    args = parser.parse_args()
-    require(
-        os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF") == "refs/heads/main",
-        "share_accepted_ci_only",
-    )
-    dev_endpoint()
-    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE").strip().encode()
-    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY").encode()
-    require(0 < len(api_key) <= 4096, "share_dev_api_key")
-    programs = Programs(args.bin_dir.resolve(strict=True), args.version, dict(os.environ))
-    with tempfile.TemporaryDirectory(prefix="ldb-share-", dir="/tmp") as temporary:
-        root = Path(temporary).resolve()
-        publisher = OwnedNode(root / "publisher", programs)
-        publisher.home.mkdir(mode=0o700)
-        write_private(publisher.home / "identity.key", seed(phrase))
-        del phrase
-        recipient_home = root / "recipient"
-        initialized = programs.command(
-            None,
-            [
-                "admin",
-                "backup",
-                "init",
-                "--into",
-                str(recipient_home),
-                "--recovery-phrase-out",
-                str(recipient_home / "recovery-phrase.txt"),
-                "--json",
-            ],
-            timeout=20,
-        )
-        recipient = OwnedNode(recipient_home, programs, account=initialized["account_id"])
-        with running(publisher, remove_saved=True), running(recipient):
-            operation(programs, root, publisher, recipient, api_key)
-    message = "Both generated DEV daemons stopped cleanly and their temporary homes were removed."
-    print(message, flush=True)
-    summary(message)
-
-
-def run_operation(operation):
-    try:
-        _run_two_node_operation(operation)
-    except OperationError as error:
-        print(json.dumps(failure(error)), flush=True)
-        raise SystemExit(1) from None
