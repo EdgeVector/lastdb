@@ -2,7 +2,6 @@
 //!
 //! The blob metadata and sealed bytes are durable before the first request. A
 //! verified upload is durable before the log entry references `file.object`.
-//! Legacy in-flight `.job.json` records migrate seamlessly on load.
 
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -11,8 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::v2::transfer::{ObjectReceipt, TransferInput};
-use cloud_backup_protocol::v2::{Destination, Job};
 use cloud_backup_protocol::{bytes_sha256, canonical_bytes, CloudScope, DecimalU64, Digest};
 use fold_db::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
@@ -27,7 +24,7 @@ use super::disk;
 use super::files;
 use super::retry::{self, Seal};
 
-const JOB_LIMIT: usize = 65_536;
+const PENDING_LIMIT: usize = 65_536;
 const PREPARE_FAILED: &str = "the next local write could not be prepared for upload";
 
 #[derive(Serialize, Deserialize)]
@@ -40,23 +37,6 @@ struct PendingBlobUpload {
     sha256: Digest,
     #[serde(default)]
     verified: bool,
-}
-
-#[derive(Deserialize)]
-struct LegacyBegin {
-    job: Job,
-    #[serde(default)]
-    predecessor: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct LegacyFileJob {
-    seal: Seal,
-    begin: LegacyBegin,
-    input: TransferInput,
-    #[serde(default)]
-    receipt: Option<ObjectReceipt>,
-    closed: bool,
 }
 
 pub(super) struct FileSource<'a> {
@@ -243,44 +223,12 @@ fn load(
     mutation_id: &str,
 ) -> Result<Option<PendingBlobUpload>, ()> {
     let Some(bytes) =
-        disk::read_limited(&job_path(home, database_id, mutation_id), JOB_LIMIT).map_err(|_| ())?
+        disk::read_limited(&pending_path(home, database_id, mutation_id), PENDING_LIMIT)
+            .map_err(|_| ())?
     else {
         return Ok(None);
     };
-    if let Ok(saved) = serde_json::from_slice::<PendingBlobUpload>(&bytes) {
-        return Ok(Some(saved));
-    }
-    migrate_legacy(&bytes).map(Some)
-}
-
-fn migrate_legacy(bytes: &[u8]) -> Result<PendingBlobUpload, ()> {
-    let legacy: LegacyFileJob = serde_json::from_slice(bytes).map_err(|_| ())?;
-    legacy.input.validate().map_err(|_| ())?;
-    if legacy.begin.predecessor.is_some()
-        || legacy.begin.job != legacy.input.job
-        || legacy.input.object.destination != Destination::B2
-        || (legacy.closed && legacy.receipt.is_none())
-    {
-        return Err(());
-    }
-    let path = legacy.input.blob.ok_or(())?;
-    let (scope, verified) = if let Some(receipt) = legacy.receipt {
-        receipt.validate().map_err(|_| ())?;
-        if receipt.scope != legacy.input.job.stream.scope || receipt.object != legacy.input.object {
-            return Err(());
-        }
-        (receipt.scope, true)
-    } else {
-        (legacy.input.job.stream.scope, false)
-    };
-    Ok(PendingBlobUpload {
-        seal: legacy.seal,
-        scope,
-        path,
-        bytes: legacy.input.object.bytes,
-        sha256: legacy.input.object.sha256,
-        verified,
-    })
+    serde_json::from_slice(&bytes).map(Some).map_err(|_| ())
 }
 
 fn store(
@@ -290,13 +238,14 @@ fn store(
     saved: &PendingBlobUpload,
 ) -> Option<()> {
     let bytes = serde_json::to_vec(saved).ok()?;
-    if bytes.len() > JOB_LIMIT {
+    if bytes.len() > PENDING_LIMIT {
         return None;
     }
-    disk::write_private(&job_path(home, database_id, mutation_id), &bytes).ok()
+    disk::write_private(&pending_path(home, database_id, mutation_id), &bytes).ok()
 }
 
-fn job_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+fn pending_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+    // Keep the #1656 pending-upload filename in seals/.
     home.join("log-sync")
         .join(database_id)
         .join("seals")
