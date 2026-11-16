@@ -130,8 +130,18 @@ jobs:
           SDK_ARTIFACT_DIGEST: ${{ steps.social-sdk.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SDK_ARTIFACT_ID" \
-            --jq '[.workflow_run.head_sha, .digest, .expired, .expires_at] | @tsv')"
+          # The artifact API can return 404 for a few seconds after the upload.
+          # Retry the read only. The source, digest and expiration checks stay exact.
+          metadata=""
+          for attempt in 1 2 3 4 5 6; do
+            if metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SDK_ARTIFACT_ID" \
+              --jq '[.workflow_run.head_sha, .digest, .expired, .expires_at] | @tsv')"; then
+              break
+            fi
+            metadata=""
+            sleep 10
+          done
+          test -n "$metadata"
           IFS=$'\t' read -r source digest expired expiration <<< "$metadata"
           test "$source" = "$GITHUB_SHA"
           test "${digest#sha256:}" = "${SDK_ARTIFACT_DIGEST#sha256:}"
