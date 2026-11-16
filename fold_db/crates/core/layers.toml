@@ -10,10 +10,9 @@ modules = [
 
 [[layer]]
 name = "model"
-doc = "The core side of the data model: content_limit, schema::types, access context, manifest retention, and error kinds."
+doc = "The core side of the data model: schema::types, access context, manifest retention, and error kinds."
 modules = [
   "access",
-  "limits",
   "schema::types",
   "storage::error",
 ]

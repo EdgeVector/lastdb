@@ -1,9 +1,8 @@
 //! Schema model types, queries, errors, and pure logical layout rules.
 
-mod file_write;
 mod mutation;
 
-use crate::keys::content_limit::RECORD_TOO_LARGE_HINT;
+use crate::record_value::RECORD_TOO_LARGE_HINT;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -27,9 +26,6 @@ pub enum SchemaError {
     },
     InvalidField(String),
     InvalidData(String),
-    ReplayBeforeDeleteCutoff {
-        cutoff_nanos: u64,
-    },
     CasConflict {
         schema: String,
         key: String,
@@ -104,10 +100,6 @@ impl fmt::Display for SchemaError {
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
             Self::InvalidData(msg) => write!(f, "Invalid data: {msg}"),
-            Self::ReplayBeforeDeleteCutoff { cutoff_nanos } => write!(
-                f,
-                "replay_cutoff_requires_resync: original write time is missing or at/before {cutoff_nanos}; restore a current snapshot before replay"
-            ),
             Self::InvalidCursor(msg) => write!(f, "Invalid resume cursor: {msg}"),
             Self::CasConflict {
                 schema,
@@ -146,8 +138,6 @@ pub struct Query {
     pub sort_order: Option<SortOrder>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
-    #[serde(default)]
-    pub include_tombstones: bool,
 }
 
 impl Query {
@@ -162,7 +152,6 @@ impl Query {
             filter,
             sort_order: None,
             expected_total_count: None,
-            include_tombstones: false,
         }
     }
 }
@@ -209,7 +198,7 @@ pub mod types {
         pub use crate::schema::Query;
     }
     pub mod cas {
-        pub use crate::field_key_codec::record_replacement::RecordExpectation as CasExpectation;
+        pub use crate::portable_mutation::record_replacement::RecordExpectation as CasExpectation;
     }
     pub mod schema {
         pub use super::declarative_schemas::DeclarativeSchemaDefinition as Schema;
@@ -218,7 +207,7 @@ pub mod types {
 
     pub use crate::keys::QueryCursor;
     pub use crate::schema::SchemaError;
-    pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
+    pub use author_clock::MutationAuthorClockState;
     pub use cas::CasExpectation;
     pub use declarative_schemas::DeclarativeSchemaDefinition;
     pub use key_value::KeyValue;

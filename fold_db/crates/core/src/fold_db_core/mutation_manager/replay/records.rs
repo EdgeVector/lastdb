@@ -218,22 +218,18 @@ fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mut
     };
     let mut fields = HashMap::new();
     let mut meta = None;
-    let mut definition_id = None;
     if let Some(record) = record {
         target.alternates = record.alternates;
         fields = record.fields.into_iter().collect();
         meta = record.meta;
-        definition_id = record.definition_id.map(|id| id.as_str().to_owned());
     }
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
         fields,
-        String::new(),
         kind,
         CasExpectation::Absent,
     );
-    mutation.definition_id = definition_id;
     if let Some(meta) = meta {
         mutation.source_file_name = meta.source_file_name;
         mutation.metadata = Some(meta.metadata.into_iter().collect());

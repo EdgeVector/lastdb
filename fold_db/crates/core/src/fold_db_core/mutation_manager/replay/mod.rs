@@ -20,12 +20,14 @@ impl MutationManager {
             .checked_add(1)
             .and_then(|milliseconds| milliseconds.checked_mul(1_000_000))
             .ok_or_else(|| SchemaError::InvalidData("replay author clock exhausted".into()))?;
-        let writer = self.signer.public_key_base64();
         let metadata = self.db_ops.metadata();
-        let mut state = metadata.author_clock(&writer).await?.unwrap_or_default();
+        let mut state = metadata
+            .author_clock(&self.writer_id)
+            .await?
+            .unwrap_or_default();
         if state.physical_nanos < floor {
             state.observe_remote(floor, 0);
-            metadata.stage_author_clock(&writer, &state).await?;
+            metadata.stage_author_clock(&self.writer_id, &state).await?;
         }
         Ok(())
     }

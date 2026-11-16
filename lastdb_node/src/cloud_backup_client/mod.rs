@@ -13,10 +13,6 @@ use tokio::sync::OwnedSemaphorePermit;
 mod guest_permission;
 mod signed_blob;
 
-pub mod storage_transfer {
-    pub use super::guest_permission::ShareEnvironment;
-}
-
 pub(crate) use guest_permission::{authorization_post, PathPostTarget};
 pub use guest_permission::{GuestReadPermission, ShareEnvironment};
 pub use signed_blob::{canonical_backup_endpoint, BlobUploadTarget, SignedBlobClient};

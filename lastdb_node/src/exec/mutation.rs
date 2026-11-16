@@ -29,7 +29,7 @@ pub(in crate::exec) async fn mutation_route(
     match parse_mutation_body(&req.body) {
         Ok(parsed) => render(commit_parsed_mutation(host, parsed).await, ctx),
         Err(reject) => {
-            tracing::warn!(target: "fold_node::http", route = "/api/mutation", kind = reject.kind.as_str(), "mutation request refused on shape");
+            tracing::warn!(target: "lastdb_node::exec", route = "/api/mutation", kind = reject.kind.as_str(), "mutation request refused on shape");
             reject.response()
         }
     }
@@ -60,18 +60,13 @@ pub(in crate::exec) async fn execute_deferred_mutation(
     with_handler_timeout_budget(ctx, data_route_budget(route), work).await
 }
 
-async fn stamp_and_validate(
-    host: &Host,
-    parsed: &mut ParsedMutation,
-    pub_key: String,
-) -> Result<(), HostError> {
+async fn stamp_and_validate(host: &Host, parsed: &mut ParsedMutation) -> Result<(), HostError> {
     let req = parsed.mutation.schema_name.clone();
     let canonical = resolve_schema_name(host, &req)?
         .ok_or_else(|| HostError::new(404, format!("Schema not found: {req}")))?;
     validate_mutation_fields(host, &req, &canonical, &parsed.mutation.record_fields).await?;
     parsed.mutation.schema_name = canonical;
     parsed.mutation.uuid = uuid::Uuid::new_v4().to_string();
-    parsed.mutation.pub_key = pub_key;
     Ok(())
 }
 
@@ -79,7 +74,7 @@ pub(in crate::exec) async fn commit_parsed_mutation(
     host: &Host,
     mut parsed: ParsedMutation,
 ) -> Result<Value, HostError> {
-    stamp_and_validate(host, &mut parsed, host.public_key()).await?;
+    stamp_and_validate(host, &mut parsed).await?;
     let field_bytes: usize = parsed
         .mutation
         .record_fields
@@ -124,13 +119,10 @@ async fn execute_mutations_batch(
             "Mutation batch must contain at least one mutation",
         ));
     }
-    let (drained, pk) = (
-        batch.iter().any(|i| i.convergence.waits()),
-        host.public_key(),
-    );
+    let drained = batch.iter().any(|i| i.convergence.waits());
     let mut mutations = Vec::with_capacity(batch.len());
     for mut parsed in batch {
-        stamp_and_validate(host, &mut parsed, pk.clone()).await?;
+        stamp_and_validate(host, &mut parsed).await?;
         mutations.push(parsed.mutation);
     }
     let count = mutations.len();

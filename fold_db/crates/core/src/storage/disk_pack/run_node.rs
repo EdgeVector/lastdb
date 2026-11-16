@@ -8,10 +8,8 @@ use crate::storage::content_key_proof;
 use crate::storage::current_keys::{JOURNAL_RETIRED, META_PFX};
 use crate::storage::disk_backup::{accepted::Log, prearm};
 use crate::storage::disk_cleanup::CleanupJob;
-use crate::storage::format::control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY};
 use crate::storage::format::metadata::{
-    initial_local_author, validate_local_author, FILE_RETENTION_COMPLETE, FILE_RETENTION_KEY,
-    LOCAL_AUTHOR_KEY,
+    initial_local_author, validate_local_author, LOCAL_AUTHOR_KEY,
 };
 use crate::storage::format::{
     CAS_KEY_LABEL, CREATION_INTENT, CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE,
@@ -122,7 +120,6 @@ pub(in crate::storage) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> Sto
     RunRead::open_existing(&root.join(CAS_DIR), &cas_key(key), budget).map_err(map)?;
     let coords = [
         (RECORDS_COLLECTION, CURRENT_KEY_FORMAT_KEY.as_bytes()),
-        (RECORDS_COLLECTION, DELETE_REPLAY_CUTOFF_KEY.as_bytes()),
         (METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes()),
         (content_key_proof::NAMESPACE, content_key_proof::KEY),
     ]
@@ -133,7 +130,7 @@ pub(in crate::storage) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> Sto
         .into_iter()
         .collect::<laststore::Result<Vec<_>>>()
         .map_err(map)?;
-    let [fmt, floor, author, proof]: [Option<Vec<u8>>; 4] = rows
+    let [fmt, author, proof]: [Option<Vec<u8>>; 3] = rows
         .try_into()
         .map_err(|_| bad_admission("the account/format proof batch is incomplete"))?;
     let marker = fmt
@@ -144,7 +141,6 @@ pub(in crate::storage) fn admit_stopped_home(root: &Path, key: &[u8; 32]) -> Sto
             "the logical format differs from the node marker",
         ));
     }
-    validate_frozen_replay_floor(Some(marker), floor.as_deref())?;
     validate_local_author(author.as_deref())?;
     let stored_proof = proof
         .as_deref()
@@ -188,11 +184,6 @@ fn initialize_home(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<()> {
         ),
         (content_key_proof::NAMESPACE, content_key_proof::KEY, proof),
         (METADATA_NAMESPACE, LOCAL_AUTHOR_KEY.as_bytes(), author),
-        (
-            METADATA_NAMESPACE,
-            FILE_RETENTION_KEY.as_bytes(),
-            FILE_RETENTION_COMPLETE.to_vec(),
-        ),
     ];
     let ops = items
         .into_iter()

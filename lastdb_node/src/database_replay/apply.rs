@@ -127,13 +127,10 @@ async fn live_revision(
     store: &FoldDB,
     mutation: &Mutation,
 ) -> Result<Option<String>, RestoreError> {
-    let mut query = Query::new_with_filter(
+    let query = Query::new_with_filter(
         mutation.schema_name.clone(),
         Some(key_filter(&mutation.key_value)?),
     );
-    if mutation.mutation_type == MutationType::Purge {
-        query.include_tombstones = true;
-    }
     let records = store
         .query_executor()
         .query(query)
@@ -142,7 +139,16 @@ async fn live_revision(
     if records.len() > 1 {
         return Err(RestoreError::Conflict("snapshot record"));
     }
-    Ok(records.into_values().next().map(|record| record.revision))
+    if let Some(record) = records.into_values().next() {
+        return Ok(Some(record.revision));
+    }
+    if mutation.mutation_type == MutationType::Purge {
+        return store
+            .applied_delete_revision(&mutation.schema_name, &mutation.key_value)
+            .await
+            .map_err(|_| RestoreError::Apply("snapshot record"));
+    }
+    Ok(None)
 }
 
 fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, RestoreError> {

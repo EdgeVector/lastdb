@@ -143,7 +143,6 @@ fn serve_node(
     home: &Path,
     sock_path: Option<PathBuf>,
 ) -> Result<(), String> {
-    use fold_db::content_limit::{self as cl, MAX_FIELD_VALUE_BYTES_ENV};
     let (data_dir, pid) = (home.join("data"), std::process::id());
     rt.block_on(log_sync::install_prepared_native_recovery(home))?;
     let host = Arc::new(rt.block_on(Host::boot(home))?);
@@ -162,15 +161,6 @@ fn serve_node(
         workers = s.workers,
         queue_capacity = s.queue_capacity,
         "uds worker pool enabled"
-    );
-    cl::set_max_field_value_bytes(cl::parse_max_field_value_bytes(
-        std::env::var(MAX_FIELD_VALUE_BYTES_ENV).ok(),
-    ));
-    tracing::info!(
-        max_field_value_bytes = cl::max_field_value_bytes(),
-        default = cl::DEFAULT_MAX_FIELD_VALUE_BYTES,
-        absolute_max = cl::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
-        "peer field value size limit"
     );
     let server = UdsServer::new(Arc::clone(&host), rt.handle().clone(), pool.clone());
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));

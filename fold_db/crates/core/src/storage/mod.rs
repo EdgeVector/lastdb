@@ -18,8 +18,8 @@ pub(crate) mod bind {
     use super::format::records::RecordFormat;
     use super::format::schemas::SchemaFormat;
     use super::format::{
-        content_key_proof, control, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
-        MAIN_NAMESPACE, METADATA_NAMESPACE, SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
+        content_key_proof, CURRENT_KEY_FORMAT_KEY, MAIN_NAMESPACE, METADATA_NAMESPACE,
+        SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE,
     };
     use crate::schema::types::FileWriteIssuer;
     use std::sync::Arc;
@@ -45,17 +45,15 @@ pub(crate) mod bind {
         let schemas = SchemaFormat::new(schemas_kv, states_kv, Arc::clone(&runtime));
         let metadata = Metadata::new(metadata_kv.clone(), Arc::clone(&runtime));
         transaction::scope(Arc::clone(&runtime), async {
-            let [fmt_key, cutoff_key] = [CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY];
-            let rows = main
-                .get_many(vec![
-                    fmt_key.as_bytes().to_vec(),
-                    cutoff_key.as_bytes().to_vec(),
-                ])
-                .await?;
-            let [fmt, cutoff]: [_; 2] = rows
-                .try_into()
-                .map_err(|_| control::invalid("incomplete fence read"))?;
-            control::validate_frozen_replay_floor(fmt.as_deref(), cutoff.as_deref())?;
+            let fmt = main.get(CURRENT_KEY_FORMAT_KEY.as_bytes()).await?;
+            if !fmt
+                .as_deref()
+                .is_some_and(lastdb_model::field_key_codec::current_key_format)
+            {
+                return Err(StorageError::invalid(
+                    "the format marker is not the node format",
+                ));
+            }
             let missing = "content key proof is missing; this program opens only a home it created";
             let stored = metadata_kv.get(content_key_proof::KEY).await?;
             let stored = stored.ok_or_else(|| StorageError::EncryptionError(missing.into()))?;
@@ -67,7 +65,6 @@ pub(crate) mod bind {
             runtime: Arc::clone(&runtime),
             content_key,
             issuer: FileWriteIssuer::default(),
-            metadata: metadata.clone(),
         };
         runtime.finish_fresh_initialization().await?;
         Ok(BoundFormat {

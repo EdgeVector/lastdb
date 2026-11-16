@@ -299,12 +299,11 @@ async fn purge_keys(
     if rows.len() != keys.len() {
         return Err("erasure target disappeared before preparation".into());
     }
-    let (mtype, caller, sync) = if is_delete {
-        (MutationType::Delete, "ttl-sweep-delete", Some(true))
+    let (mtype, caller) = if is_delete {
+        (MutationType::Delete, "ttl-sweep-delete")
     } else {
-        (MutationType::Purge, "ttl-sweep-purge", None)
+        (MutationType::Purge, "ttl-sweep-purge")
     };
-    let pubkey = host.public_key();
     let mutations = keys
         .iter()
         .map(|key| {
@@ -317,14 +316,12 @@ async fn purge_keys(
                     alternates: r.alternates,
                 },
                 HashMap::new(),
-                pubkey.clone(),
                 mtype,
                 RecordExpectation::Revision {
                     revision: r.revision,
                 },
             );
-            (m.erase_caller, m.synchronous, m.erase_written_before_nanos) =
-                (Some(caller), sync, write_cutoff_nanos);
+            (m.erase_caller, m.erase_written_before_nanos) = (Some(caller), write_cutoff_nanos);
             m
         })
         .collect();

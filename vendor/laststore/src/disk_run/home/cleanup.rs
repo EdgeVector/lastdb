@@ -243,13 +243,8 @@ impl RunHome {
         Ok((held.iter().map(|r| r.meta.file_bytes).sum(), removed))
     }
 
-    /// Capture isolated storage diagnostics for the current published root.
+    /// Capture storage diagnostics for the current published root.
     pub fn diagnostics(&self, with_inv: bool, deadline: Instant) -> Result<RunHomeDiagnostics> {
-        if !crate::diagnostics_enabled() {
-            return Err(invalid(
-                "storage diagnostics require an isolated timing capture",
-            ));
-        }
         let root = {
             let (_commit, _merge) = (unpoison(&self.commit_mutex), unpoison(&self.merge_mutex));
             self.refuse_if_poisoned()?;

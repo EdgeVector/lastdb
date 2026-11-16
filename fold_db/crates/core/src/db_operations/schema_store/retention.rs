@@ -1,7 +1,7 @@
 //! Retention policy CRUD, manifest retention planning, and write-age/partition tracking.
 
 use super::SchemaStore;
-use crate::limits::manifest_retention::{
+use crate::access::manifest_retention::{
     ManifestRetentionOutcome, ManifestRetentionPlan, ManifestRetentionStatus,
 };
 use crate::schema::types::catalog_types::{RetentionSource, SchemaRetentionPolicy};

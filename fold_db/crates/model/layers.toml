@@ -4,7 +4,6 @@
 name = "primitives"
 doc = "Leaf helpers with no domain meaning: canonical byte framing, hex, key coordinates, cursors, prefix rules, and resource bounds."
 modules = [
-  "canonical",
   "keys",
 ]
 

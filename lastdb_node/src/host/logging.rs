@@ -23,10 +23,7 @@ struct Metrics(Vec<(&'static str, u64)>);
 
 impl Visit for Metrics {
     fn record_u64(&mut self, f: &Field, v: u64) {
-        if matches!(
-            f.name(),
-            "workers" | "queue_capacity" | "max_field_value_bytes" | "default" | "absolute_max"
-        ) {
+        if matches!(f.name(), "workers" | "queue_capacity") {
             self.0.push((f.name(), v));
         }
     }
@@ -54,7 +51,6 @@ where
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let cat = match meta.target() {
-            "lastdbd::shutdown" => "shutdown",
             "lastdb_node::cloud" => "cloud",
             "observability::crash" => "panic_report",
             _ => "daemon",

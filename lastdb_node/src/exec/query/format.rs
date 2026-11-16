@@ -107,13 +107,12 @@ pub(super) fn page_payload(
     (limit, offset): (usize, usize),
     has_more: bool,
     next_cursor: Option<QueryCursor>,
-    key_form: Option<&'static str>,
 ) -> Value {
     let n = page.len();
     json!({
         "results": Value::Array(page), "total_count": total_count, "returned_count": n,
         "limit": limit, "offset": offset, "has_more": has_more,
-        "next_cursor": serde_json::to_value(next_cursor).unwrap_or(Value::Null), "key_form": key_form,
+        "next_cursor": serde_json::to_value(next_cursor).unwrap_or(Value::Null),
     })
 }
 
@@ -137,7 +136,7 @@ pub(super) fn cursor_payload(
         })
         .flatten()
         .map(|key| QueryCursor::new(key, comparison));
-    page_payload(page, total_count, (limit, offset), has_more, next, None)
+    page_payload(page, total_count, (limit, offset), has_more, next)
 }
 
 pub(super) fn format_rows(
@@ -196,14 +195,7 @@ pub(super) fn format_alternate_page(
             c.alternate_primary = Some(e.primary.clone());
             c
         });
-    Ok(page_payload(
-        results,
-        None,
-        (limit, 0),
-        page.has_more,
-        next,
-        None,
-    ))
+    Ok(page_payload(results, None, (limit, 0), page.has_more, next))
 }
 
 pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema>) -> HostError {

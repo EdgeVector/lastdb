@@ -128,12 +128,6 @@ async fn alternate_execute(host: &Host, req: QueryRequest) -> Result<Value, Host
             "alternate pages use cursors rather than offsets",
         ));
     }
-    if req.cursor.as_ref().is_some_and(|c| c.record.is_some()) {
-        return Err(HostError::new(
-            400,
-            "a record cursor continues only an unfiltered read; continue an alternate page with the next_cursor of that page",
-        ));
-    }
     let records = host.records();
     let exec = records.query_executor();
     if req.response_format == QueryResponseFormat::Count {
@@ -164,7 +158,7 @@ async fn execute_primary_query(
     let records = host.records();
     let exec = records.query_executor();
     if fmt == QueryResponseFormat::Count {
-        if query.include_tombstones || cursor.is_some() || offset != 0 {
+        if cursor.is_some() || offset != 0 {
             return Err(HostError::new(
                 400,
                 "count replies require keyed live reads without continuation",
@@ -193,14 +187,7 @@ async fn execute_primary_query(
         let n = all.len();
         let page: Vec<_> = all.into_iter().skip(offset).take(limit).collect();
         let more = offset.saturating_add(page.len()) < n;
-        return Ok(page_payload(
-            page,
-            Some(n),
-            (limit, offset),
-            more,
-            None,
-            None,
-        ));
+        return Ok(page_payload(page, Some(n), (limit, offset), more, None));
     };
     let (page, end) = execute_query_rows(host, query, Some(window), fmt).await?;
     Ok(if desc && total.is_some() {
@@ -251,7 +238,7 @@ fn prepare_comparison(
         query.filter = c.canonical_filter(query.filter.take())?;
     }
     let binding = cmp
-        .map(|c| c.cursor_binding(&(&query.filter, query.include_tombstones, &query.sort_order)))
+        .map(|c| c.cursor_binding(&(&query.filter, &query.sort_order)))
         .transpose()?;
     if let Some(c) = cursor.as_ref() {
         match c.comparison.as_deref() {
@@ -268,15 +255,6 @@ fn prepare_comparison(
                 ));
             }
             _ => {}
-        }
-        if c.record_position()
-            .map_err(|e| HostError::new(400, e))?
-            .is_some()
-        {
-            return Err(HostError::new(
-                400,
-                "record cursors are unsupported on /api/query; continue a keyed read with its next_cursor",
-            ));
         }
     }
     let cursor = cursor
