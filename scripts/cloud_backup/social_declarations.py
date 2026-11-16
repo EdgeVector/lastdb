@@ -51,13 +51,14 @@ def decline_binding(publisher, circle, database):
               "circleId": circle, "preset": "commenter"}
     declaration = propose(publisher, "photo-journal", change)
     legacy = save_legacy_request(publisher, change)
+    legacy_id = legacy["requestId"]
     request = {"requestId": declaration["requestId"]}
     before = roster(publisher, database)
     with window(publisher) as review_window:
         call(review_window, "/api/sharing-requests", authorized=False, status=403)
         pending = call(review_window, "/api/sharing-requests")
         names = {row["requestId"]: (row["appId"], row["databaseId"]) for row in pending["requests"]}
-        require(names == {declaration["requestId"]: ("photo-journal", database), legacy: ("old-gallery", database)}
+        require(names == {declaration["requestId"]: ("photo-journal", database), legacy_id: ("old-gallery", database)}
                 and pending["nextCursor"] is None and not pending["importing"], "app_request_found_on_regular_open")
         preview = preview_request(review_window, declaration["requestId"])
         call(review_window, "/api/sharing-request/decline", request, authorized=False, status=403)
@@ -66,9 +67,12 @@ def decline_binding(publisher, circle, database):
         require(approve(review_window, declaration["requestId"], preview) == declined,
                 "app_decline_cannot_be_approved")
         remaining = call(review_window, "/api/sharing-requests")["requests"]
-        require([row["requestId"] for row in remaining] == [legacy], "app_declined_request_leaves_list")
-        call(review_window, "/api/sharing-request/decline", {"requestId": legacy})
-        require(not call(review_window, "/api/sharing-requests")["requests"], "app_imported_request_leaves_list")
+        require([row["requestId"] for row in remaining] == [legacy_id], "app_declined_request_leaves_list")
+        write_legacy_request(publisher, legacy, {"status": "declined"})
+        require(not call(review_window, "/api/sharing-requests")["requests"]
+                and sdk(publisher, "sharing-status", requestId=legacy_id)["status"] == "declined",
+                "app_legacy_decision_leaves_list")
+        discover_late_requests(publisher, review_window, change)
     with window(publisher, sharing_request=declaration["requestId"]) as reopened:
         require(call(reopened, "/api/sharing-request/decline", request) == declined,
                 "app_decline_idempotent_after_reopen")
@@ -77,25 +81,52 @@ def decline_binding(publisher, circle, database):
             and roster(publisher, database) == before, "app_decline_returned_through_sdk")
     summary("A signed-in owner found a proposal in Requests in a regular Social window and declined it. "
             "It left the list, and its terminal status survived reopening, a repeated request, "
-            "and an old approval preview without changing the roster. Social also imported a saved legacy proposal.")
+            "and an old approval preview without changing the roster. Social reconciled a decline saved in "
+            "the legacy format and recovered two late legacy proposals through refresh and SDK retry.")
+
+
+def discover_late_requests(publisher, window, change):
+    late = save_legacy_request(publisher, change)
+    call(window, "/api/sharing-requests/recheck", {}, authorized=False, status=403)
+    page = call(window, "/api/sharing-requests/recheck", {})
+    require([row["requestId"] for row in page["requests"]] == [late["requestId"]],
+            "app_refresh_recovers_late_legacy_request")
+    retried = save_legacy_request(publisher, change)
+    require(sdk(publisher, "request-sharing", **retried)["status"] == "awaitingApproval",
+            "app_retry_recovers_late_legacy_request")
+    page = call(window, "/api/sharing-requests")
+    request_ids = {late["requestId"], retried["requestId"]}
+    require({row["requestId"] for row in page["requests"]} == request_ids, "app_late_requests_visible")
+    for request_id in sorted(request_ids):
+        call(window, "/api/sharing-request/decline", {"requestId": request_id})
 
 
 def save_legacy_request(publisher, change):
+    normalized = {key: value for key, value in change.items() if key != "preset"}
+    normalized["writeSchemas"] = ["social/Comment"]
+    declaration = {"requestId": str(uuid.uuid4()), "appId": "old-gallery", "change": normalized}
+    write_legacy_request(publisher, declaration)
+    return declaration
+
+
+def write_legacy_request(publisher, declaration, receipt=None):
     manifest = Path(__file__).resolve().parents[2] / "lastdb-app.json"
     definition = next(row for row in json.loads(manifest.read_text())["schemas"] if row["name"] == "SharingRequest")
     definition = {name: value for name, value in definition.items() if name != "owner_app_id"}
     installed = publisher.call("/api/schemas/declare", {"namespace": "social-graph", "schema": definition})
-    request_id = str(uuid.uuid4())
-    declaration = {"requestId": request_id, "appId": "old-gallery", "change": change}
-    normalized = {**declaration, "change": {key: value for key, value in change.items() if key != "preset"}}
-    normalized["change"]["writeSchemas"] = ["social/Comment"]
+    schema = "social-graph/SharingRequest"
+    request_id = declaration["requestId"]
+    saved, expected, mode = {"declaration": declaration}, {"type": "absent"}, "create"
+    if receipt is not None:
+        prior = publisher.call("/api/query", {"schema_name": schema, "filter": {"HashKey": request_id}})["results"][0]
+        expected, mode = {"type": "revision", "revision": prior["revision"]}, "replace"
+        saved["receipt"] = receipt
     publisher.call("/api/mutation", {
-        "type": "mutation", "schema": "social-graph/SharingRequest", "definition_id": installed["definition_id"],
+        "type": "mutation", "schema": schema, "definition_id": installed["definition_id"],
         "key_value": {"hash": request_id}, "alternates": {},
-        "record": {"request": json.dumps({"declaration": normalized})}, "mutation_type": "create",
-        "expected": {"type": "absent"}, "durability": "durable",
+        "record": {"request": json.dumps(saved)}, "mutation_type": mode,
+        "expected": expected, "durability": "durable",
     })
-    return request_id
 
 
 def propose(publisher, app, change):

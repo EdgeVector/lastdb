@@ -42,8 +42,8 @@ class SharingRequests:
         _, _, data = self.reusable.load()
         return [{"id": row["id"], "name": row["name"]} for row in data["circles"]]
 
-    def awaiting(self, cursor=None):
-        return self.index.awaiting(cursor)
+    def awaiting(self, cursor=None, *, recheck=False):
+        return self.index.awaiting(cursor, recheck=recheck)
 
     def submit(self, args):
         if args.keys() != {"requestId", "appId", "change"}:
@@ -74,7 +74,20 @@ class SharingRequests:
     def replay(self, declaration, prior):
         if not prior or prior["declaration"] != declaration:
             raise SocialError("this request ID belongs to a different declaration")
-        return self.status(declaration["requestId"])
+        request_id = declaration["requestId"]
+        result = self.status(request_id)
+        if result["status"] != "awaitingApproval":
+            return result
+        self.node.declare_private("PendingSharingRequest")
+        if self.index.get(request_id):
+            return result
+        # A legacy app may have saved just the declaration. Keep the local
+        # decision and this repair serialized with owner approval and decline.
+        with self.reusable.circles.lock():
+            result = self.status(request_id)
+            if result["status"] == "awaitingApproval":
+                self.index.ensure(declaration)
+            return result
 
     def load(self, request_id):
         definition = self.node.declare_private(DEFINITION)

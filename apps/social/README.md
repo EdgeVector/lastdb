@@ -32,8 +32,14 @@ to look up its outcome after the owner reviews it. In Social 0.6.0, choosing
 **Decline request** saves a terminal `declined` status. Closing the review
 leaves it awaiting approval. Reusing a declined request's UUID returns the
 same outcome. Open **Requests** in a regular Social window to find saved
-proposals awaiting approval and review or decline them. Social imports older
-proposals in pages when you first open Requests after upgrading.
+proposals awaiting approval and review or decline them. Requests reads saved
+decisions, including decisions made in an older window during an upgrade.
+Social imports older proposals in pages when you open Requests after
+upgrading. Use **Load more saved requests** to continue if shown. Use the
+current installed `social` command in app integrations. If an older
+executable submitted a request after the import finished, use **Refresh**
+in Requests or resubmit the same declaration and UUID with the current
+command to make it visible.
 
 An app can request a circle binding, remove a binding, set a direct person
 grant, revoke, or explicitly restore a person. Give a list of installed
