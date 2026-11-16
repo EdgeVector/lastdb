@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 pub(crate) struct DatabaseTarget {
     pub(crate) socket: PathBuf,
-    selector: Option<String>,
+    pub(crate) selector: Option<String>,
 }
 
 impl DatabaseTarget {
