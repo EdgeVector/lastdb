@@ -16,8 +16,16 @@ SPEC = {"name": "social", "version": 1}
 GROUPS = ("person", "circle", "db", "grant", "request")
 
 
+def source(environment):
+    """The pinned EdgeVector/social clone the workflow checked out."""
+    path = environment.get("SOCIAL_SOURCE")
+    require(bool(path) and Path(path, "src/social").is_file(), "social_source_missing")
+    return Path(path)
+
+
 def command(node):
-    entrypoint = node.programs.environment.get("SOCIAL_COMMAND", str(ROOT / "apps/social/social"))
+    environment = node.programs.environment
+    entrypoint = environment.get("SOCIAL_COMMAND") or str(source(environment) / "src/social")
     return [entrypoint, "--data-dir", str(node.home), "--lastdb", str(node.programs.directory / "lastdb")]
 
 
@@ -46,8 +54,8 @@ def install(publisher, root, revision):
     require(isinstance(receipt, list) and len(receipt) == 1 and receipt[0]["sha"] == revision,
             "social_install_exact_source")
     link = home / ".local/bin/social"
-    source = root / "apps/social-graph/current/source/apps/social/social"
-    require(link.is_symlink() and link.resolve(strict=True) == source.resolve(strict=True), "social_install_command")
+    managed = root / "apps/social-graph/current/source/src/social"
+    require(link.is_symlink() and link.resolve(strict=True) == managed.resolve(strict=True), "social_install_command")
     programs.environment["SOCIAL_COMMAND"] = str(link)
     summary(f"Installed Social from the signed {catalog.upper()} registry at `{revision}` and used its managed command link.")
 
