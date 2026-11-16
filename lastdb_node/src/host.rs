@@ -162,7 +162,7 @@ impl Host {
             Ed25519KeyPair::from_secret_key(seed.as_ref())
                 .map_err(|e| format!("identity keyfile is not a valid Ed25519 seed: {e}"))?,
         );
-        let e2e_keys = E2eKeys::from_ed25519_seed(seed.as_ref())
+        let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|e| format!("E2E key derivation failed: {e}"))?;
         let inbox = fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
         let has_spool = !signed_restore
