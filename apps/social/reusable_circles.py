@@ -9,7 +9,7 @@ import json
 from uuid import UUID
 
 from circles import GrantReview, SavedSharingUpdate, normalize
-from lastdb import SocialError
+from lastdb import SocialError, record_mutation
 from sharing import can_manage_sharing
 
 
@@ -39,10 +39,15 @@ class ReusableCircles:
             operations.setdefault(previous["databaseId"], previous)
         return definition, record, data
 
-    def save(self, definition, record, data):
+    def save(self, definition, record, data, remove_request=None):
         fields = {"directory": encoded(data)}
-        ack = self.node.write_record(SCHEMA, definition, KEY, fields, record)
-        return {"fields": fields, "revision": ack["record_revision"]}
+        if remove_request is None:
+            revision = self.node.write_record(SCHEMA, definition, KEY, fields, record)["record_revision"]
+        else:
+            update = record_mutation(SCHEMA, definition, {"hash": KEY, "range": None}, fields, record)
+            ack = self.node.call("POST", "/api/mutations/batch", {"mutations": [update, remove_request]})
+            revision = ack["record_revisions"][ack["mutation_ids"][0]]
+        return {"fields": fields, "revision": revision}
 
     def owned(self):
         return {row["id"]: row for row in self.sharing.databases()
@@ -67,7 +72,7 @@ class ReusableCircles:
         with self.circles.lock():
             return self.edit_locked(args, apply=apply)
 
-    def edit_locked(self, args, *, apply=False, operation=None):
+    def edit_locked(self, args, *, apply=False, operation=None, remove_request=None):
         if not self.node.has_named_grants():
             raise SocialError("reusable circles need a LastDB build with grants by schema name")
         definition, record, data = self.load()
@@ -104,7 +109,7 @@ class ReusableCircles:
         if operation and any("error" in plan for plan in plans):
             raise SocialError("resolve the outside grants in the preview before approving this request")
         data.update(circles=desired, pendingDatabases=sorted(pending | databases), operations=operations)
-        record = self.save(definition, record, data)
+        record = self.save(definition, record, data, remove_request)
         if retrying:
             plans = self.replay_pending(data, plans, review)
         return self.finish(definition, record, data, plans)

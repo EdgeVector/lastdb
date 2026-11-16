@@ -34,8 +34,13 @@ on:
         options: [social-share, social-circles, social-prepare]
         default: social-share
       social_install_revision:
-        description: "For either Social sharing mode, optionally install this exact signed DEV Social source"
+        description: "For either Social sharing mode, optionally install this exact signed Social source"
         type: string
+      social_install_registry:
+        description: "Signed catalog for the exact install. Sharing operations still use the DEV cloud"
+        type: choice
+        options: [dev, prod]
+        default: dev
 
 permissions:
   contents: read
@@ -146,6 +151,7 @@ jobs:
           CLIENT_VERSION: ${{ needs.build-client.outputs.version }}
           OPERATION: ${{ inputs.mode }}
           SOCIAL_INSTALL_REVISION: ${{ inputs.social_install_revision }}
+          SOCIAL_INSTALL_REGISTRY: ${{ inputs.social_install_registry }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ inputs.mode != 'social-prepare' && secrets.LASTDB_CLOUD_DEV_API_KEY || '' }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ inputs.mode != 'social-prepare' && secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE || '' }}
         run: |

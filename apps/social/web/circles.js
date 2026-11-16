@@ -1,10 +1,6 @@
 function renderReusableList() {
   const {circles, pending} = state.directory;
   $('heading').textContent = 'Circles';
-  for (const tab of ['people', 'circles', 'databases']) {
-    if (tab === 'circles') $(tab).setAttribute('aria-current', 'page');
-    else $(tab).removeAttribute('aria-current');
-  }
   const actions = [button('New circle', () => editReusable())];
   if (pending.length) actions.push(button('Review unfinished changes', () => previewReusable({}), 'quiet'));
   $('actions').replaceChildren(...actions, button('Refresh', refresh, 'quiet'));
@@ -137,8 +133,9 @@ function renderGrantImpact(databases) {
 }
 
 async function showSharingRequest(panel, requestId) {
+  const ticket = state.request;
   const request = await api(`sharing-request?requestId=${encodeURIComponent(requestId)}`);
-  if (state.tab !== 'databases' || state.selected !== request.databaseId) return;
+  if (ticket !== state.request) return;
   const labels = {
     awaitingApproval: 'Awaiting owner approval',
     pending: 'Waiting for LastDB confirmation',
