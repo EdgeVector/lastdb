@@ -14,17 +14,16 @@ import sys
 import time
 import uuid
 
-_SCRIPTS = Path(__file__).resolve().parents[1]
-for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
-    if _entry not in sys.path:
-        sys.path.append(_entry)
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
-from harness import summary_line, write_private  # noqa: E402,F401
-from home_format import CREDENTIALS_FILE  # noqa: E402,F401
+from harness import CREDENTIALS_FILE, summary_line, write_private  # noqa: E402,F401
 
 
 ACCOUNT = "2a81c95623f2445854a794b5b48471d6"
 WORDS_SHA256 = "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
+DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
 CHUNK = 1024 * 1024
 
 
@@ -114,7 +113,7 @@ def stable(before, after):
     )
 
 
-def private_file(path, hardlinks=False):
+def private_file(path):
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         metadata = os.fstat(descriptor)
@@ -122,13 +121,52 @@ def private_file(path, hardlinks=False):
             stat.S_ISREG(metadata.st_mode)
             and metadata.st_uid == os.getuid()
             and metadata.st_mode & 0o077 == 0
-            and (metadata.st_nlink >= 1 if hardlinks else metadata.st_nlink == 1),
+            and metadata.st_nlink == 1,
             "private_file",
         )
         return os.fdopen(descriptor, "rb"), metadata
     except BaseException:
         os.close(descriptor)
         raise
+
+
+def load_dev_owner(expected_account, *, pop_env=False, exact_baseline_keys=False):
+    """Decode and verify the enrolled DEV owner key, API key, and account generation."""
+    mut = str(Path(__file__).resolve().parents[1] / "mutation_log_load")
+    if mut not in sys.path:
+        sys.path.insert(0, mut)
+    from node_auth import NodeKey, account_id
+
+    read_env = os.environ.pop if pop_env else os.environ.get
+    phrase = read_env("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode("utf-8", errors="surrogatepass")
+    api_key = read_env("LASTDB_CLOUD_DEV_API_KEY", "")
+    raw = read_env("LASTDB_CLOUD_DEV_BASELINE", "")
+    require(len(api_key.encode("utf-8", errors="surrogatepass")) <= 4096, "dev_api_key")
+    api_key = api_key.strip()
+    require(api_key and api_key.isascii() and api_key.isprintable(), "dev_api_key")
+    require(0 < len(raw) <= 65_536, "snapshot_baseline")
+    try:
+        baseline = json.loads(raw)
+    except json.JSONDecodeError:
+        raise OperationError("snapshot_baseline") from None
+    require(
+        isinstance(baseline, dict)
+        and (not exact_baseline_keys or set(baseline) == {"account", "account_generation"}),
+        "snapshot_baseline",
+    )
+    generation = baseline.get("account_generation")
+    try:
+        key = NodeKey.from_seed(seed(phrase))
+    except BaselineDataError:
+        raise OperationError("snapshot_phrase") from None
+    require(
+        baseline.get("account") == account_id(key.public) == expected_account
+        and isinstance(generation, str)
+        and DECIMAL.fullmatch(generation) is not None
+        and int(generation) <= 2**64 - 1,
+        "snapshot_baseline_scope",
+    )
+    return key, api_key, generation, phrase
 
 
 def read_json(path, max_bytes=262144):

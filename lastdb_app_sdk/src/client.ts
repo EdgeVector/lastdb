@@ -9,22 +9,29 @@
 import { existsSync } from 'node:fs';
 
 import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
-import { executeDeleteBlob, executeFetchBlob, executePutBlob } from './blobOps.js';
 import {
-  databaseScope,
-  resolveSessionHeaders,
-  type ClientContext,
-} from './clientHelpers.js';
+  executeDeleteBlob,
+  executeFetchBlob,
+  executePutBlob,
+  type DeleteBlobOptions,
+  type FetchBlobOptions,
+  type FetchedBlob,
+  type PutBlobRequest,
+  type PutBlobResult,
+} from './blobOps.js';
 import {
   bindNodeDatabaseSpec,
   createNodeDatabase,
+  databaseScope,
   issueNodeDatabaseSession,
   listNodeDatabases,
+  validateDatabaseSelector,
+  type ClientContext,
   type CreateDatabaseRequest,
   type DatabaseSpec,
   type ListedDatabase,
 } from './databases.js';
-import { TransportError } from './errors.js';
+import { RequestRejectedError, TransportError } from './errors.js';
 import { executeMutate, executeMutateBatch, executeShareSubmissionStatus } from './mutationOps.js';
 import { executeGet, executeList, executeQuery, executeQueryAll, executeQueryBatch } from './readOps.js';
 import {
@@ -36,9 +43,35 @@ import {
   executeResolveSchema,
   executeVersion,
   rememberSchemaDefinition,
+  type AutoIdentityResult,
+  type DeclareSchemaRequest,
+  type DeclareSchemaResult,
+  type LoadedSchema,
+  type SchemaDescriptor,
 } from './schemaOps.js';
 import { openDiscoveredSocket, udsTransport, withDefaultHeaders, type Transport } from './transport.js';
 import type * as Types from './types.js';
+
+const DATABASE_SESSION_HEADER = 'X-LastDB-Database-Session';
+
+function resolveSessionHeaders(
+  databaseId: string | undefined,
+  databaseSession: string | undefined,
+): Record<string, string> {
+  if (databaseSession === undefined) return {};
+  if (databaseId === undefined) {
+    throw new RequestRejectedError(
+      'database_session',
+      'databaseSession requires an explicit databaseId',
+    );
+  }
+  validateDatabaseSelector(databaseId);
+  const trimmed = databaseSession.trim();
+  if (trimmed.length === 0 || /[\r\n]/.test(trimmed)) {
+    throw new RequestRejectedError('database_session', 'Invalid LastDB database session token');
+  }
+  return { [DATABASE_SESSION_HEADER]: trimmed };
+}
 
 /** Attach `X-LastDB-Client` unless the caller already provided one. */
 function buildClientHeaders(
@@ -117,7 +150,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /** `GET /api/system/auto-identity` — resolve the local owner identity. */
-  autoIdentity(): Promise<Types.AutoIdentityResult> {
+  autoIdentity(): Promise<AutoIdentityResult> {
     return executeAutoIdentity(this.context);
   }
 
@@ -178,7 +211,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /** `POST /api/db/put-blob` — attach or replace a record's blob, inline, or local-path file. */
-  putBlob(schemaName: string, request: Types.PutBlobRequest): Promise<Types.PutBlobResult> {
+  putBlob(schemaName: string, request: PutBlobRequest): Promise<PutBlobResult> {
     return executePutBlob(this.context, schemaName, request);
   }
 
@@ -186,8 +219,8 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   fetchBlob(
     schemaName: string,
     key: Types.RecordKeyInput,
-    options: Types.FetchBlobOptions = {},
-  ): Promise<Types.FetchedBlob> {
+    options: FetchBlobOptions = {},
+  ): Promise<FetchedBlob> {
     return executeFetchBlob(this.context, schemaName, key, options);
   }
 
@@ -195,7 +228,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   deleteBlob(
     schemaName: string,
     op: Types.ReplaceMutationOp,
-    options: Types.DeleteBlobOptions = {},
+    options: DeleteBlobOptions = {},
   ): Promise<Types.MutationResult> {
     return executeDeleteBlob(this.context, schemaName, op, options);
   }
@@ -206,22 +239,22 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   }
 
   /** `POST /api/schemas/declare` — declare an app-owned schema. */
-  declareSchema(request: Types.DeclareSchemaRequest): Promise<Types.DeclareSchemaResult> {
+  declareSchema(request: DeclareSchemaRequest): Promise<DeclareSchemaResult> {
     return executeDeclareSchema(this.context, request);
   }
 
   /** `GET /api/schemas` — list schemas loaded on the selected database. */
-  listSchemas(): Promise<Types.LoadedSchema[]> {
+  listSchemas(): Promise<LoadedSchema[]> {
     return executeListSchemas(this.context);
   }
 
   /** `GET /api/schema/<name>` — fetch a single loaded schema entry, or `null` on `404`. */
-  getSchema(schemaName: string): Promise<Types.LoadedSchema | null> {
+  getSchema(schemaName: string): Promise<LoadedSchema | null> {
     return executeGetSchema(this.context, schemaName);
   }
 
   /** Resolve an app-owned schema descriptor against `listSchemas()`. */
-  resolveSchema(descriptor: Types.SchemaDescriptor): Promise<Types.LoadedSchema | null> {
+  resolveSchema(descriptor: SchemaDescriptor): Promise<LoadedSchema | null> {
     return executeResolveSchema(this.context, descriptor);
   }
 

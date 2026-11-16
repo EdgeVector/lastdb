@@ -14,13 +14,18 @@ import time
 
 _OPS = Path(__file__).resolve().parent
 _SCRIPTS = _OPS.parent
-for _entry in (str(_OPS), str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
+for _entry in (str(_OPS), str(_SCRIPTS)):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)
 
-from harness import conditioned, mutation, poll_until, send_unix_request, stop_process  # noqa: E402
-from home_format import FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, source_constant  # noqa: E402
-from record_runs import FIELDS as DROP_FIELDS, TTL_SECONDS, definition, mutation as run_mutation, seed, write  # noqa: E402
+from harness import (  # noqa: E402
+    FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, conditioned, mutation,
+    poll_until, send_unix_request, source_constant, stop_process,
+)
+from record_runs import (  # noqa: E402
+    FIELDS as DROP_FIELDS, TTL_SECONDS, definition, mutation as run_mutation,
+    refused, require, system_seed, write,
+)
 
 SCHEMA = "RecordFile"
 FIELDS = ["id", "value"]
@@ -41,11 +46,6 @@ PANIC_MARKER = "LastDB panic"
 DEADLINE_SECONDS = 120
 
 
-def require(value, message):
-    if not value:
-        raise RuntimeError(message)
-
-
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -55,14 +55,7 @@ def encoded(data):
 
 
 def install(node):
-    schema = {
-        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-        "schema_type": "Hash", "record_keys": {"primary": {"kind": "hash"}, "alternates": {}},
-        "fields": FIELDS, "field_types": {field: "String" for field in FIELDS},
-        "field_descriptions": {field: "Inline file example " + field for field in FIELDS},
-        "field_versions": {field: 1 for field in FIELDS},
-    }
-    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+    system_seed(node, definition(SCHEMA, "Hash", FIELDS, description_prefix="Inline file example "))
 
 
 def replacement(node, key, values):
@@ -82,15 +75,6 @@ def inline_marker(record):
 def fetch(node, key, placement):
     body = {"schema": SCHEMA, "key": {"hash": key, "range": None}, "placement": placement}
     return base64.b64decode(node.call("/api/db/fetch-blob", body)[0]["file"]["bytes_b64"])
-
-
-def refused(call, words):
-    try:
-        call()
-    except RuntimeError as error:
-        require(words in str(error), "the call failed for another reason: " + str(error))
-        return
-    raise RuntimeError("the call did not fail: " + words)
 
 
 def put(node, key, values, data, **options):
@@ -188,7 +172,7 @@ def check_drop_tracking(node):
 def exercise_drop_tracking(node):
     key = f"{int(time.time()):020d}-kept"
     kept = definition("RecordDropKeep", "HashRange", DROP_FIELDS)
-    seed(node, kept)
+    system_seed(node, kept)
     node.call("/api/db/schema-retention",
               {"action": "set", "schema": kept["name"], "ttl_seconds": TTL_SECONDS})
     write(node, [run_mutation(kept["name"], {"hash": "aged", "range": key},
@@ -203,7 +187,7 @@ def exercise_drop_tracking(node):
     node.call("/api/schemas/drop", {"schema": "RecordAged", "must_exist": True})
     again = node.call("/api/schemas/drop", {"schema": "RecordAged"})[0]
     require(not again["existed"], "the repeated schema drop was not an idempotent miss")
-    seed(node, definition("RecordAged", "HashRange", DROP_FIELDS))
+    system_seed(node, definition("RecordAged", "HashRange", DROP_FIELDS))
     check_drop_tracking(node)
     print(f"Schema drop: {TRACKED_HASHES + 1} tracked hashes removed in bounded batches; "
           "repeated drop, reinstall and other schema passed", flush=True)

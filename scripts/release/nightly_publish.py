@@ -299,7 +299,7 @@ def publish(plan, folder):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preflight", "prepare", "verify", "publish"))
+    parser.add_argument("command", choices=("preflight", "prepare", "publish"))
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--assets", type=Path)
     args = parser.parse_args()
@@ -319,10 +319,8 @@ def main():
             output.write("skip=" + str(result["skip"]).lower() + "\n")
     elif args.command == "publish":
         result = publish(plan, args.assets)
-    elif args.command == "prepare":
-        prepare(args.assets, plan)
-        result = {"source": plan["source"], "hashes": validate(args.assets, plan)}
     else:
+        prepare(args.assets, plan)
         result = {"source": plan["source"], "hashes": validate(args.assets, plan)}
     print(json.dumps(result, indent=2, sort_keys=True))
     if os.environ.get("GITHUB_STEP_SUMMARY"):

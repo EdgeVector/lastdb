@@ -1,4 +1,4 @@
-/* eslint config for the FoldDB app SDK. */
+/* ESLint configuration for @lastdb/app-sdk. */
 module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',

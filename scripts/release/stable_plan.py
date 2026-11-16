@@ -268,9 +268,9 @@ def prove_compatibility(plan_path, bundles, output):
 
 
 def qualify_release(plan_path, bundles, output):
+    from harness import HOME_FORMAT
     from nightly_package import digest, document
     from nightly_probe import OwnedNode, operations, read, unpack, write
-    from home_format import HOME_FORMAT
     plan = load(plan_path)
     output.mkdir(parents=True)
     target = "x86_64-unknown-linux-gnu"

@@ -1,38 +1,5 @@
 # LastDB benchmarks in GitHub Actions
 
-## Whole-record replacement preparation
-
-The named alternate-key workflow also measures conditional complete-record
-writes and complete application read/edit/replace operations against both exact
-revisions. It keeps the original cases and adds 128 B, 4 KiB and 48 KiB payloads,
-4/16 fields, zero/two alternate keys, and 1/4/16 independent update clients.
-Each case completes 256 successful updates over 32 owned records, giving each
-of 16 clients 16 updates. Earlier 32-update observations were too short for
-this decision. A manual comparison with equal source SHAs uses one built daemon
-and CLI for both labels; the artifact records their identical binary hashes.
-Seed writes are batched; complete verification uses one batch of known keys.
-Every logical update must receive a durable acknowledgement. Reopen verifies
-every generated record. These are actual CI daemon requests, not a fixture suite.
-
-The baseline uses complete records and an acknowledged revision. The
-application measurement includes its keyed read, full reply, serialization and
-conditional full write. Request/response body counts exclude HTTP headers.
-Successful-update throughput uses the entire concurrent case wall duration.
-Unchanged read-only calls retain the same RPC timer on both labels. Only schema
-and mutation preparation, plus reads explicitly preparing a complete replacement,
-enter the protocol adapter. Application cases keep the complete-flow outer timer
-on both labels, including JSON decoding, serialization and every physical RPC.
-Workers own distinct keys, so these observations do not establish shared-key
-conflict or retry cost; the existing contention workloads remain separate.
-
-All four AB/BA pairs remain visible in replacement-summary.json. The additional
-summary flags aggregate deterioration above five percent that occurs in at least
-three pairs. That is an investigation signal for this cutover, not a change to
-the global speed-advisory or required completion policy. Runner noise needs
-paired/control evidence; a green check alone is not proof of no regression.
-Actual backup, disk, memory and sustained-workload qualification still use the
-existing product gates. Raw outputs stay in the CI artifact, never in Git.
-
 ## Call-local metadata reuse and compression admission
 
 Ordinary keyed reads share authenticated index blocks across lookups in the same held native read call.
@@ -297,7 +264,7 @@ The report separates allocated space before and after compaction. These checkpoi
 ### Home format
 
 Each driver reads the home format from the node marker that the daemon writes when it creates the home.
-Every new home is in the current format (`home_format.py`), and the program opens no other home format.
+Every new home is in the current format (`scripts/harness.py`), and the program opens no other home format.
 A home stores one record per key. The speed lane then requires one warm hit per key, not per field.
 The size passes use the stored record values as the logical measure. The record count must drop after each delete round.
 All checkpoints of one size case must show the same home format.
@@ -360,8 +327,6 @@ The result stays under `disk-budget/` in the independent disk job’s verified a
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
 Do not compare these ratios with a different workload.
 
-## Request phases
-
 ### Optional Search queue growth
 
 Search delivery is off by default. `lastdbd --enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
@@ -380,6 +345,8 @@ Incomplete measurements fail completion; size findings stay advisory.
 The resource-growth disk fields now describe database storage. Separate queue and whole-home columns retain total disk visibility.
 Before/after comparisons use the same driver and category rules. Do not compare an older whole-home ratio with the database ratio.
 
+## Request phases
+
 Each measured call carries a unique request ID.
 After each write case, the driver requests the current request records from the explicit diagnostic status route.
 It matches records by the exact request ID and the `github-benchmark` client name.
@@ -394,11 +361,6 @@ The artifact states the exact coverage. An absent record or phase is unreported,
 The report lists the five largest reported phases for each slow call.
 Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
 These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
-
-The 128-record update case also retains native maintenance status before and after the case.
-Both status calls occur outside the latency, throughput, memory, and disk-size windows.
-These cumulative fields can show maintenance activity during the observation interval.
-They cannot locate that activity within a particular request.
 
 Each single-client 128-record update request retains bounded Linux counter observations before and after its RPC.
 The observations occur outside the response-time timer and keep each exact request ID.
@@ -455,7 +417,6 @@ The report shows every change. A p95 increase or request-rate decrease of 20% st
 CI repeats only the affected suite: speed, resource growth, or both. No suspect measure means no extra pass.
 Each suite repeats at most once. It keeps all cases and their order to preserve the prior work on each home.
 The repeat uses the same verified programs, source revisions, driver, worker counts, profile, and pair count.
-An upgrade comparison also keeps its baseline seed program and minimum retired-record count.
 It adds no build or cache restore. Both versions use fresh generated homes on the same GitHub machine.
 Standard runs retain two alternating pairs in each pass. Nightly runs retain three pairs in each pass.
 Each speed pass has a 65-minute standard limit or a 90-minute nightly limit. Each resource and disk pass has a separate 40-minute limit.
@@ -478,27 +439,18 @@ The workload uses a closed loop. It sends each client's next request after the p
 Memory samples occur every 200 ms during a case. They exclude seed and startup.
 Disk size counts file lengths, not allocated blocks. Background maintenance can change disk size during a sample.
 Files and directories removed before their size read contribute no bytes to that sample.
-The standard insert and single-record update p99 use only 32 samples per run.
+The standard 128-record insert p99 uses 32 samples per run; single-record insert and single-record update use 256 samples per run.
 The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.
 
-### Whole-record protocol comparison
+### Whole-record protocol adapter
 
 Benchmark drivers explicitly opt into `record_protocol.py`. Operational
 proofs do not use this adapter.
-Current declarations carry explicit key definitions. Existing partial-edit logical
-workloads perform a batched client read, edit the complete record, supply explicit
-alternate addresses, and condition the replacement on its revision. The timer
-includes these reads, serialization, conflicts and up to eight CAS retries. Physical
-RPC IDs and byte counts accompany the sample; `client-protocol.json` retains totals.
-No payload cache, retry suppression or write-interface compatibility path is added
+Current declarations carry explicit key definitions. Partial-edit benchmark
+workloads perform a batched client read, edit the complete record, and condition
+the replacement on its revision. The timer includes these reads, serialization,
+conflicts, and up to eight CAS retries. Physical RPC IDs and byte counts accompany
+the sample; `client-protocol.json` retains totals.
+No payload cache, retry suppression, or write-interface compatibility path is added
 to the engine. Speed advisories and disk/completion gates retain their existing rules.
-
-The separate `engine_full_replace` cases supply complete known values and use only
-revision tokens already acknowledged to that client. `application_read_replace`
-includes the full keyed read before the same complete write. Workers own distinct
-keys in that matrix, so it does not measure contention. The existing concurrent
-logical workloads retain their read/edit and retry costs rather than presenting
-those operations as engine-only replacements.
-
-Replayed successful requests may fail their revision condition; no original-acknowledgement cache exists.

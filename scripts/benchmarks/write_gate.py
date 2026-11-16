@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from bisect import bisect_left
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import hashlib, json, os, re, signal, sys, threading, time
 from pathlib import Path
@@ -14,52 +13,35 @@ from statistics import mean, median
 from disk_budget import require_search_off
 from node import Node, file_hash, publish_summary, save
 from phases import capture_phases
-from range_continuation.process_counters import counter_delta, read_counters
+from process_counters import counter_delta, read_counters
 from run import host_details
-from workload import FIELDS, Workload, describe, encoded, fields, key
+from workload import FIELDS, HASH, SCHEMA, Workload, describe, encoded, fields, key
 
 RECORDS = 100000
 
 
 class Writers:
-    def __init__(self, node, layout):
-        self.node, self.layout = node, layout
+    def __init__(self, node):
+        self.node = node
         self.versions = {}
         self.sequence = 0
 
-    def target(self, number):
-        owner = number % 16
-        schema = f"WriteContention{owner:02d}" if self.layout == "schemas" else "GitHubBenchmark"
-        bucket = f"generated-{owner:02d}" if self.layout == "hashes" else "generated"
-        return schema, bucket
-
-    def value(self, number, version):
-        return {**fields(number, version), "bucket": self.target(number)[1]}
-
     def mutation(self, number, version, create=False):
-        schema, bucket = self.target(number)
-        value = self.value(number, version)
-        return {"type": "mutation", "schema": schema, "mutation_type": "create" if create else "update",
-                "durability": "durable", "key_value": {"hash": bucket, "range": key(number)},
+        value = fields(number, version)
+        return {"type": "mutation", "schema": SCHEMA, "mutation_type": "create" if create else "update",
+                "durability": "durable", "key_value": {"hash": HASH, "range": key(number)},
                 "fields_and_values": value if create else {n: value[n] for n in ("title", "body")}}
 
     def seed(self):
-        schemas = sorted({self.target(n)[0] for n in range(16)})
-        definitions, identities = {}, set()
-        for schema in schemas:
-            description = "generated benchmark" if schema == "GitHubBenchmark" else f"{schema} generated benchmark"
-            definition = {"source": "system_seed", "name": schema, "descriptive_name": schema,
-                          "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-                          "fields": FIELDS, "field_types": {f: "String" for f in FIELDS},
-                          "field_descriptions": {f: f"{description} {f}" for f in FIELDS}}
-            self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
-            actual = self.node.call(f"/api/schema/{schema}")[0]["schema"]
-            hashes = set(actual["field_hashes"].values())
-            if len(hashes) != len(FIELDS) or identities.intersection(hashes):
-                raise ValueError("Investigation schemas must have distinct canonical fields")
-            identities.update(hashes)
-            definitions[schema] = actual
-        save(self.node.output / "schema-identities.json", definitions)
+        definition = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
+                      "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+                      "fields": FIELDS, "field_types": {f: "String" for f in FIELDS},
+                      "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
+        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
+        actual = self.node.call(f"/api/schema/{SCHEMA}")[0]["schema"]
+        if len(set(actual["field_hashes"].values())) != len(FIELDS):
+            raise ValueError("Benchmark schema must have distinct canonical fields")
+        save(self.node.output / "schema-identities.json", {SCHEMA: actual})
         for first in range(0, RECORDS, 128):
             numbers = range(first, min(first + 128, RECORDS))
             response, _, _ = self.node.call("/api/mutations/batch", {
@@ -72,20 +54,16 @@ class Writers:
         self.verify()
 
     def verify(self):
-        groups = defaultdict(list)
-        for number in [*range(32), *range(RECORDS - 256, RECORDS)]:
-            groups[self.target(number)[0]].append(number)
-        for schema, numbers in groups.items():
-            for first in range(0, len(numbers), 64):
-                selected = numbers[first:first + 64]
-                coordinates = [[self.target(n)[1], key(n)] for n in selected]
-                result = self.node.call("/api/query", {"schema_name": schema,
-                    "filter": {"HashRangeKeys": coordinates}, "limit": len(selected)})[0]
-                expected = {(self.target(n)[1], key(n)): self.value(n, self.versions.get(n, "seed"))
-                            for n in selected}
-                actual = {(r["key"]["hash"], r["key"]["range"]): r["fields"] for r in result["results"]}
-                if result["returned_count"] != len(selected) or len(result["results"]) != len(selected) or actual != expected:
-                    raise ValueError("A known-key read differs from the last durable write")
+        numbers = [*range(32), *range(RECORDS - 256, RECORDS)]
+        for first in range(0, len(numbers), 64):
+            selected = numbers[first:first + 64]
+            coordinates = [[HASH, key(n)] for n in selected]
+            result = self.node.call("/api/query", {"schema_name": SCHEMA,
+                "filter": {"HashRangeKeys": coordinates}, "limit": len(selected)})[0]
+            expected = {(HASH, key(n)): fields(n, self.versions.get(n, "seed")) for n in selected}
+            actual = {(r["key"]["hash"], r["key"]["range"]): r["fields"] for r in result["results"]}
+            if result["returned_count"] != len(selected) or len(result["results"]) != len(selected) or actual != expected:
+                raise ValueError("A known-key read differs from the last durable write")
 
     def jobs(self, name, clients, batch, requests):
         jobs = [[] for _ in range(clients)]
@@ -235,7 +213,7 @@ def measure_home(args, label, pair):
     try:
         node.start()
         require_search_off(node, directory, "before")
-        writes = Writers(node, "shared")
+        writes = Writers(node)
         writes.seed()
         home["cases"].append(writes.measure("ordinary-16", 16))
         if pair == 2:
@@ -308,25 +286,19 @@ def main():
         parser = argparse.ArgumentParser(prog="write_gate.py report", description=__doc__)
         parser.add_argument("--output", type=Path, required=True)
         args = parser.parse_args(sys.argv[2:])
-        args.report = True
-    else:
-        parser = argparse.ArgumentParser(description=__doc__)
-        parser.add_argument("--report", action="store_true")
-        for label in ("baseline", "candidate"):
-            parser.add_argument(f"--{label}", type=Path)
-            parser.add_argument(f"--{label}-revision")
-        parser.add_argument("--driver-revision")
-        parser.add_argument("--output", type=Path, required=True)
-        args = parser.parse_args()
-    if args.report:
         try:
             report, code = render_report(args.output), 0
         except (OSError, ValueError, KeyError, TypeError) as error:
             report, code = f"# Paired writer comparison incomplete\n\n{type(error).__name__}: {error}\n", 1
         publish_summary(args.output, report)
         return code
-    if any(getattr(args, n) is None for n in ("baseline", "baseline_revision", "candidate", "candidate_revision", "driver_revision")):
-        parser.error("--baseline, --baseline-revision, --candidate, --candidate-revision, and --driver-revision are required")
+    parser = argparse.ArgumentParser(description=__doc__)
+    for label in ("baseline", "candidate"):
+        parser.add_argument(f"--{label}", type=Path, required=True)
+        parser.add_argument(f"--{label}-revision", required=True)
+    parser.add_argument("--driver-revision", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         parser.error("Writer comparisons require a GitHub-hosted Actions runner")
     if any(not re.fullmatch(r"[0-9a-f]{40}", r) for r in (args.baseline_revision, args.candidate_revision, args.driver_revision)):

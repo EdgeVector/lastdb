@@ -1,17 +1,101 @@
 /**
- * Owner-socket database catalog, creation, spec binding, and session issuance.
+ * Canonical API routes, database-scope path builders, and owner-socket database
+ * catalog, creation, spec binding, and session issuance.
  */
 
-import {
-  isValidDatabaseSelector,
-  LASTDB_API_ROUTES,
-  mapDataError,
-  validateDatabaseSelector,
-} from './clientHelpers.js';
-import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
+import { mapDataError, RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 import type { Transport } from './transport.js';
 import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
+
+/** Canonical LastDB runtime API route strings used by the SDK. */
+export const LASTDB_API_ROUTES = {
+  list: '/api/list',
+  query: '/api/query',
+  /** Several independent `/api/query` bodies in one request. */
+  queryBatch: '/api/queries/batch',
+  mutation: '/api/mutation',
+  /** Atomic batch of complete conditional record mutations. */
+  mutationBatch: '/api/mutations/batch',
+  shareSubmissionStatus: '/api/submissions/status',
+  /** Create or replace a record's blob, inline, or local-reference file. */
+  putBlob: '/api/db/put-blob',
+  /** Fetch a record's blob or inline file bytes. */
+  fetchBlob: '/api/db/fetch-blob',
+  /** Clear a record's blob or inline file via complete replacement. */
+  deleteBlob: '/api/db/delete-blob',
+  autoIdentity: '/api/system/auto-identity',
+  schemas: '/api/schemas',
+  /** Single schema lookup prefix (`/api/schema/<encoded-name>`). */
+  schemaPrefix: '/api/schema',
+  /** Owner socket. The response `definition_id` is the definition the app declared. */
+  schemasDeclare: '/api/schemas/declare',
+  /** Owner socket database catalog and create endpoint. */
+  databases: '/api/databases',
+  /** Owner socket owned-database spec binding endpoint. */
+  databasesSpec: '/api/databases/spec',
+  /** Owner socket signed-log share invitation acceptance endpoint. */
+  databasesAccept: '/api/databases/accept',
+  /** Owner socket short-lived database session issuance endpoint. */
+  databasesSession: '/api/databases/session',
+  /** The client↔node compatibility handshake. Admitted on all sessions. */
+  version: '/api/version',
+} as const;
+
+/** Shared runtime context passed to domain operation modules. */
+export interface ClientContext {
+  readonly appId: string;
+  readonly transport: Transport;
+  readonly databasePath: string | null;
+  readonly definitionIds: Map<string, string>;
+}
+
+const DATABASE_SELECTOR_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** True when `value` matches `lastdbd`'s `valid_selector` grammar (`[A-Za-z0-9_-]{1,64}`). */
+export function isValidDatabaseSelector(value: string): boolean {
+  return DATABASE_SELECTOR_PATTERN.test(value);
+}
+
+/** Validate a database ID or alias against `lastdbd`'s selector grammar. */
+export function validateDatabaseSelector(databaseId: string): string {
+  if (!isValidDatabaseSelector(databaseId)) {
+    throw new RequestRejectedError('database_id', 'Invalid LastDB database ID or alias');
+  }
+  return databaseId;
+}
+
+/** Path prefix (`/api/databases/<selector>`) for a selected database, or `null` for the personal default. */
+export function databaseScope(databaseId: string | undefined): string | null {
+  return databaseId === undefined
+    ? null
+    : `${LASTDB_API_ROUTES.databases}/${validateDatabaseSelector(databaseId)}`;
+}
+
+/** Resolve an `/api/*` data route against an optional database scope and query string. */
+export function scopedApiPath(
+  scope: string | null,
+  route: string,
+  queryString?: string,
+): string {
+  const base =
+    scope === null
+      ? route
+      : `${scope}${route.startsWith('/api/') ? route.slice('/api'.length) : route}`;
+  return queryString && queryString.length > 0 ? `${base}?${queryString}` : base;
+}
+
+/** Build the single-schema metadata route (`/api/schema/<encoded>` or scoped equivalent). */
+export function schemaRoute(scope: string | null, schemaName: string): string {
+  const trimmed = schemaName.trim();
+  if (trimmed.length === 0) {
+    throw new RequestRejectedError('invalid_request', 'schema name must not be empty');
+  }
+  return scopedApiPath(
+    scope,
+    `${LASTDB_API_ROUTES.schemaPrefix}/${encodeURIComponent(trimmed)}`,
+  );
+}
 
 const UUID_HYPHENATED =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -193,7 +277,7 @@ function isUuidName(value: string): boolean {
   return UUID_HYPHENATED.test(value) || UUID_SIMPLE.test(value);
 }
 
-export function parseListedDatabase(value: unknown): ListedDatabase {
+function parseListedDatabase(value: unknown): ListedDatabase {
   if (!isObject(value) || typeof value['id'] !== 'string' || value['id'].length === 0) {
     throw new UnexpectedResponseError('database list returned a row with no id', 200, value);
   }

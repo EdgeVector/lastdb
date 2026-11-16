@@ -45,17 +45,11 @@ def uploaded_metadata(artifact_id):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--metadata", type=Path, help="Use saved metadata instead of fetching it")
-    parser.add_argument("--output", type=Path, help="Directory for artifact.json receipt")
-    parser.add_argument("--verify-id", help="Artifact ID override (defaults to ARTIFACT_ID)")
-    parser.add_argument("--expected-digest", help="Expected SHA-256 digest override (defaults to ARTIFACT_SHA256)")
-    parser.add_argument("--summary-label", default="CI artifact", help="Link label in GITHUB_STEP_SUMMARY")
+    parser.add_argument("--output", type=Path, required=True, help="Directory for artifact.json receipt")
     args = parser.parse_args()
-    if args.output is None and args.verify_id is None:
-        parser.error("--output is required unless --verify-id is given")
-    artifact_id = args.verify_id or os.environ["ARTIFACT_ID"]
-    metadata = json.loads(args.metadata.read_text()) if args.metadata else uploaded_metadata(artifact_id)
-    digest = (args.expected_digest or os.environ["ARTIFACT_SHA256"]).removeprefix("sha256:")
+    artifact_id = os.environ["ARTIFACT_ID"]
+    metadata = uploaded_metadata(artifact_id)
+    digest = os.environ["ARTIFACT_SHA256"].removeprefix("sha256:")
     revision = os.environ.get("CANDIDATE_SHA") or os.environ["GITHUB_SHA"]
     if not re.fullmatch(r"[0-9a-f]{64}", digest) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("The artifact digest or source revision is invalid")
@@ -69,11 +63,10 @@ def main():
                "command": f"gh run rerun {os.environ['GITHUB_RUN_ID']} -R {os.environ['GITHUB_REPOSITORY']}",
                "expires_at": metadata["expires_at"],
                "note": "Workflow artifact; API confirms ID, nonzero size, live state, and SHA-256 digest"}
-    if args.output is not None:
-        args.output.mkdir(parents=True, exist_ok=False)
-        save(args.output / "artifact.json", receipt)
+    args.output.mkdir(parents=True, exist_ok=False)
+    save(args.output / "artifact.json", receipt)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
-        summary.write(f"\n[Download {args.summary_label}]({receipt['url']})\n\n"
+        summary.write(f"\n[Download CI artifact]({receipt['url']})\n\n"
                       f"SHA-256: `{digest}`  \nSource: `{revision}`  \nExpires: {receipt['expires_at']}\n")
     print(json.dumps(receipt, indent=2))
 

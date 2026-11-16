@@ -12,21 +12,21 @@ import shutil
 import signal
 import subprocess
 import sys
-import tarfile
 import tempfile
 
-from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architecture, validate_pair, write_json
+from nightly_package import (
+    MAX_BINARY_BYTES, TARGETS, digest, open_executable_pair, validate_architecture,
+    validate_pair, write_json,
+)
 
-_SCRIPTS = Path(__file__).resolve().parents[1]
-for _entry in (str(_SCRIPTS), str(_SCRIPTS / "benchmarks")):
-    if _entry not in sys.path:
-        sys.path.append(_entry)
+_SCRIPTS = str(Path(__file__).resolve().parents[1])
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
 
 from harness import (  # noqa: E402
-    mutation as build_mutation, poll_until, read_shutdown_receipt, send_unix_request,
-    stop_process, verify_shutdown_receipt,
+    NODE_MARKER, mutation as build_mutation, poll_until, read_shutdown_receipt,
+    send_unix_request, stop_process, verify_shutdown_receipt,
 )
-from home_format import NODE_MARKER  # noqa: E402
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
@@ -140,15 +140,7 @@ def unpack(bundle, manifest, directory, expected_version, source):
     if (not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES or artifact["file"] != bundle.name
             or artifact["sha256"] != digest(bundle) or artifact["size"] != bundle.stat().st_size):
         raise ValueError("The package bytes differ from the bundle manifest")
-    with tarfile.open(bundle, "r:gz") as archive:
-        members = []
-        for member in archive:
-            if (len(members) == 2 or member.name not in {"lastdb", "lastdbd"}
-                    or not member.isfile() or not 0 < member.size <= MAX_BINARY_BYTES):
-                raise ValueError("The archive exceeds the bounded executable pair")
-            members.append(member)
-        if len(members) != 2 or {member.name for member in members} != {"lastdb", "lastdbd"}:
-            raise ValueError("The archive must contain only the matched executable pair")
+    with open_executable_pair(bundle) as (archive, members):
         for member in members:
             with archive.extractfile(member) as content, (directory / member.name).open("xb") as output:
                 shutil.copyfileobj(content, output, length=1024 * 1024)

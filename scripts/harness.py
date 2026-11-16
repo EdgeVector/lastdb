@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import defaultdict
 import copy
 import hashlib
@@ -10,12 +11,44 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
 import time
+import urllib.request
 
+ROOT = Path(__file__).resolve().parents[1]
+FORMAT = "fold_db/crates/core/src/storage/format.rs"
 CHUNK_BYTES = 1024 * 1024
+
+
+def source_constant(path, name):
+    source = (ROOT / path).read_text(encoding="utf-8")
+    pattern = r'\bconst\s+' + re.escape(name) + r'\s*:[^=]+?=\s*(b?"(?:\\.|[^"\\])*"|[0-9]+)\s*;'
+    matches = re.findall(pattern, source)
+    if len(matches) != 1:
+        raise ValueError(f"expected one authoritative {name} in {path}")
+    return ast.literal_eval(matches[0])
+
+
+HOME_FORMAT = source_constant(FORMAT, "HOME_FORMAT")
+NODE_MARKER = source_constant(FORMAT, "RECORD_NODE_BYTES")
+CREDENTIALS_FILE = source_constant("lastdb_node/src/cloud.rs", "CLOUD_CREDENTIALS_FILE")
+if not NODE_MARKER.startswith(f"format={HOME_FORMAT}\n".encode()):
+    raise ValueError("the authoritative home version and node marker disagree")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse HTTP redirects via HTTPError (default) or a caller-provided exception."""
+
+    def __init__(self, error=None):
+        self.error = error
+
+    def redirect_request(self, *_args, **_kwargs):
+        if self.error is None:
+            return None
+        raise self.error() if callable(self.error) else self.error
 SOCKET_OPERATIONS = {
     "/health": "health", "/api/status": "status", "/api/system/boot-identity": "boot_identity",
     "/api/db/native-status": "native_status", "/api/queries/batch": "query_batch",
@@ -122,31 +155,29 @@ def poll_until(timeout_seconds, step, *, interval=0.05, timeout_error="timed out
     raise timeout_error if isinstance(timeout_error, BaseException) else RuntimeError(timeout_error)
 
 
-def key(hash_value, range_value=None):
-    return {"hash": hash_value, "range": range_value}
+def key(hash_value):
+    return {"hash": hash_value, "range": None}
 
 
 def coordinate(schema, key_value):
     return schema, key_value.get("hash"), key_value.get("range")
 
 
-def create(schema, key_value, record, *, alternates=None, durability="durable"):
+def create(schema, key_value, record):
     return {
         "type": "mutation", "schema": schema, "key_value": key_value,
-        "record": copy.deepcopy(record), "alternates": copy.deepcopy(alternates) if alternates else {},
-        "mutation_type": "create", "expected": {"type": "absent"}, "durability": durability,
+        "record": copy.deepcopy(record), "alternates": {},
+        "mutation_type": "create", "expected": {"type": "absent"}, "durability": "durable",
     }
 
 
-def replace_row(schema, row, record, *, definition_id=None, durability="durable"):
+def replace_row(schema, row, record):
     request = {
         "type": "mutation", "schema": schema, "key_value": copy.deepcopy(row["key"]),
         "record": copy.deepcopy(record), "alternates": copy.deepcopy(row["alternates"]),
-        "mutation_type": "replace", "durability": durability,
+        "mutation_type": "replace", "durability": "durable",
         "expected": {"type": "revision", "revision": row["revision"]},
     }
-    if definition_id is not None:
-        request["definition_id"] = definition_id
     metadata = row.get("metadata") or {}
     for name in ("source_file_name", "metadata", "file"):
         if metadata.get(name) is not None:
@@ -154,13 +185,12 @@ def replace_row(schema, row, record, *, definition_id=None, durability="durable"
     return request
 
 
-def mutation(schema, key_value, record, operation="replace", *, alternates=None, expected=None,
-             durability="durable", convergence="sync"):
+def mutation(schema, key_value, record, operation="replace", *, alternates=None, expected=None):
     return {
         "type": "mutation", "schema": schema, "key_value": key_value, "record": record,
         "alternates": alternates or {}, "mutation_type": operation,
         "expected": expected if expected is not None else {"type": "absent"} if operation == "create" else None,
-        "durability": durability, "convergence": convergence,
+        "durability": "durable", "convergence": "sync",
     }
 
 
@@ -303,12 +333,13 @@ def _main():
 
 
 __all__ = [
+    "CREDENTIALS_FILE", "FORMAT", "HOME_FORMAT", "NODE_MARKER", "NoRedirect",
     "SOCKET_OPERATIONS", "SOCKET_REFUSALS", "UnixConnection", "append_step_summary",
     "classify_socket_refusal", "clean_local_cargo_packages", "conditioned", "coordinate",
     "create", "file_sha256", "key", "marker_format", "mutation", "poll_until",
     "read_records", "read_shutdown_receipt", "replace_row", "save_json",
-    "send_unix_request", "stop_process", "summary_line", "verify_shutdown_receipt",
-    "write_private",
+    "send_unix_request", "source_constant", "stop_process", "summary_line",
+    "verify_shutdown_receipt", "write_private",
 ]
 
 if __name__ == "__main__":

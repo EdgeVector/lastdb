@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Select the bounded Rust clippy scope for Fold's required GitHub gate.
+# Select the bounded Rust clippy scope for LastDB's required GitHub gate.
 #
 # Classification fails closed. Documentation-only changes skip Rust clippy.
 # A path inside a proven leaf family selects that family. Shared, workflow,
@@ -10,7 +10,7 @@
 require "optparse"
 
 CLIPPY_ARGS = {
-  # Broad is the exact pre-change required command. Keep this fallback stable.
+  # Broad checks the Mini crate library and binaries. Keep this fallback stable.
   "broad" => %w[-p lastdb_node --lib --bins],
   "schema" => %w[
     -p schema_service_server_lambda

@@ -13,8 +13,8 @@ databases, and short-lived scoped database sessions.
 npm install /path/to/lastdb-app-sdk-0.14.0.tgz
 ```
 
-Use the tarball from the Social sharing DEV operation, or build one from
-this directory with `npm ci`, `npm run build`, and `npm pack --ignore-scripts`.
+Build a tarball from this directory with `npm ci`, `npm run build`, and
+`npm pack --ignore-scripts`.
 
 ## Quickstart
 
@@ -73,7 +73,7 @@ const drafts = root.select(created.id);
 const same = await connect({ appId: 'photos', databaseId: created.name ?? created.id });
 ```
 
-To mint an owner-approved short-lived capability session (`POST /api/databases/session`)
+To mint an owner-approved short-lived database session (`POST /api/databases/session`)
 and attach `X-LastDB-Database-Session` to every scoped request, call
 `issueDatabaseSession` or `openDatabaseSession`:
 

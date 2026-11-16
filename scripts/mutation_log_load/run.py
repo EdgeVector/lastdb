@@ -20,17 +20,19 @@ import urllib.error
 import urllib.request
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_HERE = Path(__file__).resolve().parent
+sys.path[:0] = [str(_HERE), str(_HERE.parent)]
 
-from cost import Ledger, format_estimate
-from drive import LoadError, Session, drive
-from faults import (MAX_CONTENTION_TRIES, backoff_seconds, format_summary, is_contention,
+from cost import Ledger, format_estimate  # noqa: E402
+from drive import LoadError, Session, drive  # noqa: E402
+from faults import (MAX_CONTENTION_TRIES, backoff_seconds, format_summary, is_contention,  # noqa: E402
                     is_throttle, render_summaries, worst_exit, write_summaries)
-from guard import (DEV_TABLE, GuardError, allow_endpoint, allow_region_environment,
+from guard import (DEV_TABLE, GuardError, allow_endpoint, allow_region_environment,  # noqa: E402
                    allow_role, allow_stream, allow_table, allow_table_arn, aws_dynamodb,
                    batch_delete_keys, database_id_for_run, iter_partition_keys,
                    load_endpoints, load_partitions, refuse_prod_environment, writes_partition)
-from node_auth import NodeKey, TokenError, account_id, authorization
+from harness import NoRedirect  # noqa: E402
+from node_auth import TokenError, authorization  # noqa: E402
 
 
 REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
@@ -61,11 +63,6 @@ def phases(level, scale=False):
     return [scenario(name, scale) for name in levels]
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *_args, **_kwargs):
-        raise GuardError("endpoint")
-
-
 def _note(status, path, parsed):
     """One stderr line for a failure that is not a retried head conflict."""
     if status < 400:
@@ -91,7 +88,7 @@ def post(endpoint, key, database_id, method, path, body, api_key, account_genera
         headers["X-API-Key"] = api_key
     request = urllib.request.Request(
         endpoint + path, data=body, method=method, headers=headers)
-    opener = urllib.request.build_opener(NoRedirect)
+    opener = urllib.request.build_opener(NoRedirect(GuardError("endpoint")))
     started = time.monotonic()
     try:
         with opener.open(request, timeout=60) as response:
@@ -111,34 +108,15 @@ def post(endpoint, key, database_id, method, path, body, api_key, account_genera
 
 def load_ci_key():
     """The enrolled DEV CI publisher. The phrase and the API key stay in process."""
-    phrase = os.environ.get("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip()
-    api_key = os.environ.get("LASTDB_CLOUD_DEV_API_KEY", "")
-    raw = os.environ.get("LASTDB_CLOUD_DEV_BASELINE", "")
-    if not phrase or not isinstance(api_key, str) or not api_key or not raw:
-        raise TokenError("account")
     cloud = str(Path(__file__).resolve().parents[1] / "cloud_backup")
     if cloud not in sys.path:
         sys.path.insert(0, cloud)
-    from support import ACCOUNT, BaselineDataError, seed as derive_seed
+    from support import ACCOUNT, OperationError, load_dev_owner
+
     try:
-        baseline = json.loads(raw)
-    except json.JSONDecodeError:
-        raise TokenError("account") from None
-    if not isinstance(baseline, dict):
-        raise TokenError("account")
-    generation = baseline.get("account_generation")
-    if baseline.get("account") != ACCOUNT:
-        raise TokenError("account")
-    if (not isinstance(generation, str) or not generation.isdigit()
-            or (generation.startswith("0") and generation != "0")):
-        raise TokenError("account")
-    try:
-        key_seed = derive_seed(phrase.encode("ascii"))
-    except BaselineDataError as error:
+        key, api_key, generation, _phrase = load_dev_owner(ACCOUNT)
+    except OperationError as error:
         raise TokenError(str(error)) from None
-    key = NodeKey.from_seed(key_seed)
-    if account_id(key.public) != ACCOUNT:
-        raise TokenError("account")
     return key, api_key, generation
 
 
@@ -214,8 +192,6 @@ def main(argv):
         raise GuardError("level")
     endpoint, table, database_id = target()
     print("database {0}".format(database_id))
-    if "jdsx4ixk2i" in endpoint:
-        raise GuardError("endpoint")
     ledger = Ledger()
     summary_path = Path(args.summary)
     if args.phase == "cleanup":

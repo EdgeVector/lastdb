@@ -19,13 +19,12 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 from harness import summary_line  # noqa: E402
-from support import BaselineDataError, OperationError, dev_endpoint, require, seed  # noqa: E402
+from support import DECIMAL, OperationError, dev_endpoint, load_dev_owner, require  # noqa: E402
 
 ROOT = "/api/cloud/backups/v2/mutation-log"
 SNAPSHOT_DEV_ACCOUNT = "f0fa35067ce1bb7cda7810ca96a100df"
 GRANT_TTL_MS = 900_000
 CLEANUP_BUDGET = 1_200
-DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
 LEGACY_DATABASE_VERSION = 1
 DISPOSABLE_DATABASE_VERSION = 2
 DATABASE_PREFIXES = {
@@ -82,28 +81,9 @@ def current_attempt():
 
 
 def load_owner():
-    from node_auth import NodeKey, account_id
-
-    phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
-    api_key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
-    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
-    require(len(api_key.encode(errors="surrogatepass")) <= 4096, "dev_api_key")
-    api_key = api_key.strip()
-    require(api_key and api_key.isascii() and api_key.isprintable(), "dev_api_key")
-    require(0 < len(raw) <= 65_536, "snapshot_baseline")
-    try:
-        baseline = json.loads(raw)
-    except json.JSONDecodeError:
-        raise OperationError("snapshot_baseline") from None
-    require(isinstance(baseline, dict) and set(baseline) == {"account", "account_generation"}, "snapshot_baseline")
-    generation = baseline.get("account_generation")
-    try:
-        key = NodeKey.from_seed(seed(phrase))
-    except BaselineDataError:
-        raise OperationError("snapshot_phrase") from None
-    require(baseline.get("account") == account_id(key.public) == SNAPSHOT_DEV_ACCOUNT
-            and isinstance(generation, str) and DECIMAL.fullmatch(generation)
-            and int(generation) <= 2**64 - 1, "snapshot_baseline_scope")
+    key, api_key, generation, phrase = load_dev_owner(
+        SNAPSHOT_DEV_ACCOUNT, pop_env=True, exact_baseline_keys=True
+    )
     return SnapshotOwner(key, generation, phrase, api_key)
 
 

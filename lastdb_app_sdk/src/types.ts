@@ -104,9 +104,6 @@ export type DeleteMutationOp = MutationTarget & {
 /** Complete conditional record mutation (`create`, `replace`, `delete`, or `purge`). */
 export type MutationOp = CreateMutationOp | ReplaceMutationOp | DeleteMutationOp;
 
-/** Mutations eligible for `putBlob` (`create` or complete `replace`). */
-export type PutBlobMutationOp = CreateMutationOp | ReplaceMutationOp;
-
 export interface MutationResult {
   mutationId: string;
   recordRevision: string;
@@ -166,79 +163,6 @@ export interface MutationBatchResult {
   durability: MutationDurability;
   backgroundTasksDrained: boolean;
   convergencePending: boolean;
-}
-
-/** Optional inline thumbnail attached alongside a `blob` placement in `putBlob`. */
-export interface BlobThumbnailInput {
-  bytes: Uint8Array | ArrayBuffer;
-  name?: string;
-  mediaType?: string;
-}
-
-/** Upload raw in-memory bytes for a record's blob or inline file (`POST /api/db/put-blob`). */
-export interface PutBlobBytesRequest {
-  op: PutBlobMutationOp;
-  bytes: Uint8Array | ArrayBuffer;
-  localPath?: never;
-  name?: string;
-  mediaType?: string;
-  placement?: FilePlacement;
-  thumbnail?: BlobThumbnailInput;
-  timeoutMs?: number;
-}
-
-/** Reference an existing local file path on an owner node (`POST /api/db/put-blob`). */
-export interface PutBlobLocalPathRequest {
-  op: PutBlobMutationOp;
-  localPath: string;
-  bytes?: never;
-  name?: string;
-  mediaType?: string;
-  placement?: 'blob';
-  thumbnail?: BlobThumbnailInput;
-  timeoutMs?: number;
-}
-
-/** Request payload for `LastDbClient.putBlob`. */
-export type PutBlobRequest = PutBlobBytesRequest | PutBlobLocalPathRequest;
-
-/** Receipt returned by `POST /api/db/put-blob`. */
-export interface PutBlobResult {
-  file: FileMarker;
-  placement: FilePlacement;
-  thumbnail: FileMarker | null;
-  mutationId: string;
-  recordRevision: string;
-  local: boolean;
-}
-
-/** Options for `LastDbClient.fetchBlob` (`POST /api/db/fetch-blob`). */
-export interface FetchBlobOptions {
-  /** Require the record to match this 64-hex revision token when reading. */
-  expectedRevision?: string;
-  /** Which attached file to read (`'blob'` default, or `'inline'`). */
-  placement?: FilePlacement;
-  /** Request the JSON envelope so `name` and `mediaType` are populated alongside `bytes`. */
-  includeMetadata?: boolean;
-  /** Optional per-request timeout override in milliseconds. */
-  timeoutMs?: number;
-}
-
-/** Plaintext bytes and verified digest returned by `LastDbClient.fetchBlob`. */
-export interface FetchedBlob {
-  bytes: Uint8Array;
-  sha256: string;
-  sizeBytes: number;
-  name?: string;
-  mediaType?: string;
-}
-
-/** Options for `LastDbClient.deleteBlob` (`POST /api/db/delete-blob`). */
-export interface DeleteBlobOptions {
-  /** Which attached file to clear (`'blob'` default, or `'inline'`). */
-  placement?: FilePlacement;
-  /** Optional per-request timeout override in milliseconds. */
-  timeoutMs?: number;
 }
 
 /** Pass the complete cursor back unchanged. Values stay strings, including large integers and dates. */
@@ -388,42 +312,6 @@ export interface QueryAllOptions {
   pageSize?: number;
   /** Safety ceiling on total rows fetched across pages (default 100_000). */
   maxRows?: number;
-}
-
-/** One schema entry from `GET /api/schemas` or `GET /api/schema/<name>`. */
-export interface LoadedSchema {
-  name: string;
-  identityHash: string | null;
-  descriptiveName: string | null;
-  ownerAppId: string | null;
-  fields: string[];
-}
-
-/** Descriptor used to resolve an app-owned loaded schema from `/api/schemas`. */
-export interface SchemaDescriptor {
-  ownerAppId: string;
-  descriptiveName: string;
-  fields?: readonly string[];
-}
-
-/** `GET /api/system/auto-identity` parsed result. */
-export type AutoIdentityResult =
-  | { provisioned: true; userHash: string; publicKey: string | null; userId: string | null }
-  | { provisioned: false; reason: string; next: string | null };
-
-/** `POST /api/schemas/declare`. */
-export interface DeclareSchemaRequest {
-  namespace: string;
-  schema: Record<string, unknown>;
-  intent?: 'catalog_sync' | 'check';
-}
-
-/** The definition the declare response named, keyed later by `schemaName`. */
-export interface DeclareSchemaResult {
-  schemaName: string;
-  definitionId: string;
-  identityHash: string | null;
-  resolution: string | null;
 }
 
 /** One item of `LastDbClient.queryBatch`: the arguments of `query`. */

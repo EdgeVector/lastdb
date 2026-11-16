@@ -23,10 +23,13 @@ sys.path[:0] = [str(SCRIPTS / "cloud_backup"), str(SCRIPTS / "mutation_log_load"
 import guard as legacy_guard  # noqa: E402
 from node import Programs  # noqa: E402
 from snapshot_attempt_account import provision, require_prior_retired, resume_instruction, retire  # noqa: E402
-from snapshot_gate_aws import RunAttempt, cleanup, current_attempt, load_owner, require_native_dispatch, summary  # noqa: E402
-from snapshot_gate_cutoff import run_native_cutoff  # noqa: E402
-from snapshot_gate_roundtrip import run_gate  # noqa: E402
-from support import OperationError, child_environment, decode_json, dev_endpoint, failure, require  # noqa: E402
+from snapshot_gate_aws import (  # noqa: E402
+    SNAPSHOT_THROUGH, RunAttempt, cleanup, current_attempt, entry_digest, entry_key,
+    load_owner, require_native_dispatch, summary, verify_facts,
+)
+from support import OperationError, child_environment, decode_json, dev_endpoint, failure, require, retry  # noqa: E402
+
+NEWER_THAN_SNAPSHOT = {"id": "native-cutoff-tail", "note": "written after publishing the snapshot"}
 
 REPOSITORY = "EdgeVector/lastdb"
 WORKFLOW = ".github/workflows/snapshot-roundtrip-dev.yml"
@@ -170,6 +173,96 @@ def retire_gate():
         raise
 
 
+def automatic_supported(call, *, eligible):
+    state = call("snapshot/bytes", {"action": "automatic-retention"})
+    require(
+        state
+        == {
+            "reclaim_enabled": False,
+            "eligible": eligible,
+            "snapshot_id": None,
+            "snapshot_through": "0",
+            "reclaimed_through": "0",
+        },
+        "native_automatic_reclaim_initial",
+    )
+
+
+def automatic_floor(private, state, snapshot_id):
+    require(
+        state.get("reclaim_enabled") is True
+        and state.get("eligible") is True
+        and state.get("snapshot_id") == snapshot_id
+        and private.decimal(state["snapshot_through"]) == SNAPSHOT_THROUGH,
+        "native_automatic_reclaim_snapshot",
+    )
+    floor = private.decimal(state["reclaimed_through"])
+    require(0 <= floor <= SNAPSHOT_THROUGH, "native_automatic_reclaim_outside_snapshot")
+    return floor
+
+
+def auto_reclaim_preimage(private, call, database, read_storage, peer):
+    entries, facts = read_storage()
+    require(
+        set(entries) == {entry_key(seq) for seq in range(1, SNAPSHOT_THROUGH + 1)},
+        "native_automatic_reclaim_initial_bodies",
+    )
+    verify_facts(database, SNAPSHOT_THROUGH, entries, facts)
+    page = call("list", {"after": "9", "limit": "1"})
+    require(
+        private.decimal(page["next"]) == 10 and len(page["entries"]) == 1,
+        "native_automatic_reclaim_old_delivery",
+    )
+    entry = page["entries"][0]
+    require(
+        private.decimal(entry["delivery_seq"]) == 10
+        and entry["entry"]["device_id"] == private.device_id(peer)
+        and private.decimal(entry["entry"]["writer_seq"]) == 4,
+        "native_automatic_reclaim_old_writer",
+    )
+    return facts, entry["entry"]
+
+
+def check_auto_reclaim(private, call, source, database, read_storage, snapshot_id, preimage):
+    initial_facts, old_entry = preimage
+    tail = SNAPSHOT_THROUGH + 1
+    private.write(source, database, NEWER_THAN_SNAPSHOT)
+    private.wait_prefix(source, database, tail, "native_automatic_reclaim_tail")
+    previous, facts_with_tail = read_storage(through=tail)
+    tail_key = entry_key(tail)
+    require(
+        tail_key in previous and all(facts_with_tail.get(key) == value for key, value in initial_facts.items()),
+        "native_automatic_reclaim_initial_tail",
+    )
+    new_facts = {key: value for key, value in facts_with_tail.items() if key not in initial_facts}
+    require(
+        len(new_facts) == 1
+        and next(iter(new_facts.values()))
+        == {
+            "first_writer_seq": 9,
+            "first_delivery_seq": tail,
+            "digests": [entry_digest(database, previous[tail_key])],
+        },
+        "native_automatic_reclaim_tail_fact",
+    )
+    retry(
+        "native_automatic_reclaim_wait",
+        lambda: call("snapshot/bytes", {"action": "automatic-retention"}),
+        lambda state: automatic_floor(private, state, snapshot_id) == SNAPSHOT_THROUGH,
+    )
+    require(
+        read_storage(through=tail) == ({tail_key: previous[tail_key]}, facts_with_tail),
+        "native_automatic_reclaim_storage",
+    )
+    legacy = call("list", {"after": "10", "limit": "2"}, expected_error=400)
+    require(
+        legacy == {"code": "unsupported_capability", "field": "snapshot.native_reset_required"},
+        "native_automatic_reclaim_legacy_refused",
+    )
+    private.check_entry_retry(call, old_entry, tail)
+    return previous[tail_key]
+
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     native = command == "native-cutoff"
@@ -190,9 +283,6 @@ def main():
         retire_gate()
         return
     parser_args = sys.argv[2:]
-    require_automatic = native and parser_args[-1:] == ["--require-automatic"]
-    if require_automatic:
-        parser_args = parser_args[:-1]
     require(
         len(parser_args) == 4 and parser_args[0] == "--bin-dir" and parser_args[2] == "--version",
         "arguments",
@@ -207,8 +297,10 @@ def main():
         owner = provision(programs, root, attempt)
         summary(f"snapshot_account=provisioned account_id={owner.account} database_id={attempt.database}")
         if native:
-            run_native_cutoff(programs, root, owner, require_automatic=require_automatic)
+            from snapshot_gate_cutoff import run_native_cutoff
+            run_native_cutoff(programs, root, owner)
         else:
+            from snapshot_gate_roundtrip import run_gate
             run_gate(programs, root, owner)
 
 

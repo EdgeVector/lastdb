@@ -8,36 +8,28 @@ import time
 import urllib.parse
 import uuid
 
-_SCRIPTS = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(_SCRIPTS), str(_SCRIPTS / "benchmarks")]
-from harness import conditioned, marker_format, mutation as native_mutation, poll_until, send_unix_request  # noqa: E402
-from home_format import HOME_FORMAT  # noqa: E402
-from node import Node  # noqa: E402
+_OPS = Path(__file__).resolve().parent
+_SCRIPTS = _OPS.parent
+sys.path[:0] = [str(_OPS), str(_SCRIPTS)]
+from benchmarks.node import Node  # noqa: E402
+from harness import (  # noqa: E402
+    HOME_FORMAT, conditioned, marker_format, mutation as native_mutation,
+    poll_until, send_unix_request,
+)
 import record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
+from record_runs import (  # noqa: E402
+    FIELDS, RANGED, definition, ids, ledger, refused, require, system_seed,
+)
 
-FIELDS = ["id", "bucket", "value"]
 # Long enough that a record rewritten at three quarters of its age is still
 # fresh some seconds after the sweep deletes its expired neighbor.
 TTL_SECONDS = 20
 
 
-def require(value, message):
-    if not value:
-        raise RuntimeError(message)
-
-
 def install(node):
     for name, ranged in [("RecordById", False), ("RecordByBucket", True), ("RecordTtl", False)]:
-        definition = {
-            "source": "system_seed", "name": name, "descriptive_name": name,
-            "schema_type": "HashRange" if ranged else "Hash",
-            "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"} if ranged else {"kind": "hash"},
-                            "alternates": {"by_bucket": {"kind": "hash_range", "range_type": "String"}} if name == "RecordById" else {}},
-            "fields": FIELDS, "field_types": {f: "String" for f in FIELDS},
-            "field_descriptions": {f: "Record home example " + f for f in FIELDS},
-            "field_versions": {f: 1 for f in FIELDS},
-        }
-        node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
+        alternates = {"by_bucket": RANGED} if name == "RecordById" else {}
+        system_seed(node, definition(name, "HashRange" if ranged else "Hash", FIELDS, alternates))
 
 
 def mutation(schema, key, values, operation="replace", expected=None, alternates=None):
@@ -51,15 +43,6 @@ def mutate(node, schema, key, values, operation="replace", **options):
     return node.call("/api/mutation", conditioned(node, [mutation(schema, key, values, operation, **options)])[0])[0]
 
 
-def refused(call, words):
-    try:
-        call()
-    except RuntimeError as error:
-        require(words in str(error), "the call failed for another reason: " + str(error))
-        return
-    raise RuntimeError("the call did not fail: " + words)
-
-
 def query(node, schema, selector, key_name=None):
     body = {"schema_name": schema, "filter": selector}
     if key_name is not None:
@@ -67,10 +50,6 @@ def query(node, schema, selector, key_name=None):
     page = node.call("/api/query", body)[0]
     require(not page.get("has_more"), f"{schema} {selector} was truncated")
     return page["results"]
-
-
-def ids(rows):
-    return [row["fields"]["id"] for row in rows]
 
 
 def one(node, key):
@@ -128,11 +107,7 @@ def external_boundaries(node, external):
 
 def wide_empty_record_erasure(node):
     schema = "RecordWideEmpty"
-    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
-        "source": "system_seed", "name": schema, "descriptive_name": schema, "schema_type": "Hash",
-        "fields": [], "field_types": {},
-        "record_keys": {"primary": {"kind": "hash"}, "alternates": {"by_alias": {"kind": "hash"}}},
-    }})
+    system_seed(node, definition(schema, "Hash", [], {"by_alias": {"kind": "hash"}}))
     key, aliases = {"hash": "k" * 65_000}, {"by_alias": {"hash": "wide-empty"}}
     created = mutate(node, schema, key, {}, "create", alternates=aliases)
     request = mutation(schema, key, {}, "delete", alternates=aliases,
@@ -251,10 +226,6 @@ def warm_records(node):
     print(f"Record warm set: {hits} memory hits for 3 reads by key, "
           f"{after['warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
           "read after write and after delete passed", flush=True)
-
-
-def ledger(node):
-    return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
 
 
 def retention(node):

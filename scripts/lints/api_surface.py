@@ -38,7 +38,7 @@ VERSION = "lastdb_node/src/version.rs"
 # The socket server: the router and the request executors. Other trees hold
 # client paths for the cloud service, which are not this node's surface.
 SERVER_DIRS = ("lastdb_node/src/lastdb_uds", "lastdb_node/src/exec")
-SDK_ROUTES = "lastdb_app_sdk/src/clientHelpers.ts"
+SDK_ROUTES = "lastdb_app_sdk/src/databases.ts"
 SURFACE = "lastdb_node/api-surface.json"
 SDK_GENERATED = "lastdb_app_sdk/src/apiVersion.generated.ts"
 

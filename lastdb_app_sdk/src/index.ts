@@ -9,6 +9,7 @@ export type { LastDbClientOptions, OwnerClientOptions } from './client.js';
 
 export { parseQueryResponse } from './responseParsers.js';
 
+export { LASTDB_API_ROUTES } from './databases.js';
 export type {
   CreateDatabaseRequest,
   DatabaseSpec,
@@ -21,7 +22,6 @@ export {
   LASTDB_MIN_SUPPORTED_API_VERSION,
   LASTDB_SDK_API_VERSION,
 } from './apiVersion.generated.js';
-export { LASTDB_API_ROUTES } from './clientHelpers.js';
 
 export {
   REQUEST_ID_HEADER,
@@ -36,19 +36,32 @@ export type {
 } from './transport.js';
 
 export type {
-  AutoIdentityResult,
   BlobThumbnailInput,
+  DeleteBlobOptions,
+  FetchBlobOptions,
+  FetchedBlob,
+  PutBlobBytesRequest,
+  PutBlobLocalPathRequest,
+  PutBlobMutationOp,
+  PutBlobRequest,
+  PutBlobResult,
+} from './blobOps.js';
+
+export type {
+  AutoIdentityResult,
+  DeclareSchemaRequest,
+  DeclareSchemaResult,
+  LoadedSchema,
+  SchemaDescriptor,
+} from './schemaOps.js';
+
+export type {
   CasExpectation,
   ConnectOptions,
   CreateMutationOp,
   DatabaseSession,
   DatabaseSessionIntent,
-  DeclareSchemaRequest,
-  DeclareSchemaResult,
-  DeleteBlobOptions,
   DeleteMutationOp,
-  FetchBlobOptions,
-  FetchedBlob,
   FileMarker,
   FilePlacement,
   JsonValue,
@@ -56,7 +69,6 @@ export type {
   ListOptions,
   ListRecordKey,
   ListResult,
-  LoadedSchema,
   MutationBatchItem,
   MutationBatchOperations,
   MutationBatchOptions,
@@ -67,11 +79,6 @@ export type {
   MutationOptions,
   MutationResult,
   NodeVersion,
-  PutBlobBytesRequest,
-  PutBlobLocalPathRequest,
-  PutBlobMutationOp,
-  PutBlobRequest,
-  PutBlobResult,
   QueryAllOptions,
   QueryBatchItem,
   QueryBatchOutcome,
@@ -85,7 +92,6 @@ export type {
   ReplaceMutationOp,
   Row,
   RowFields,
-  SchemaDescriptor,
   SelectDatabaseOptions,
   ShareSubmissionResult,
   ShareSubmissionStatus,

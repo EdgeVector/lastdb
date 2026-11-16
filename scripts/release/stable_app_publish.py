@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import rfc8785
 
 from nightly_package import document
+from harness import NoRedirect  # noqa: E402
 from nightly_plan import _capture
 from stable_plan import APPS, api
 
@@ -84,7 +85,7 @@ def request(url, payload=None, bearer=None):
     if bearer:
         headers["Authorization"] = "Bearer " + bearer
     req = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(), headers=headers)
-    opener = urllib.request.build_opener(NoRedirect)
+    opener = urllib.request.build_opener(NoRedirect())
     try:
         with opener.open(req, timeout=45) as response:
             raw = response.read(1024 ** 2 + 1)
@@ -93,11 +94,6 @@ def request(url, payload=None, bearer=None):
             return json.loads(raw)
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"CI app publication request failed (HTTP {error.code})") from None
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
 
 
 def proof(path, artifact):

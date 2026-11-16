@@ -55,12 +55,6 @@ def refuse_prod_environment(prod_endpoint, values):
             raise GuardError("endpoint")
 
 
-def allow_region(region):
-    if region != DEV_REGION:
-        raise GuardError("region")
-    return region
-
-
 def allow_region_environment(environ):
     for name in ("AWS_REGION", "AWS_DEFAULT_REGION"):
         value = environ.get(name)
@@ -77,7 +71,7 @@ def allow_table(name):
 
 def allow_table_arn(arn, table):
     expected = "arn:aws:dynamodb:{0}:{1}:table/{2}".format(
-        allow_region(DEV_REGION), DEV_ACCOUNT, allow_table(table))
+        DEV_REGION, DEV_ACCOUNT, allow_table(table))
     if arn != expected:
         raise GuardError("table")
     return arn

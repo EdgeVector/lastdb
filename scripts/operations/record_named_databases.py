@@ -12,13 +12,10 @@ import subprocess
 import sys
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_OPS = Path(__file__).resolve().parent
+sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import conditioned, mutation  # noqa: E402
-
-
-def require(value, message):
-    if not value:
-        raise RuntimeError(message)
+from record_runs import FIELDS, RANGED, definition, refused, require, system_seed  # noqa: E402
 
 
 def prepare(node, cli, output):
@@ -28,7 +25,7 @@ def prepare(node, cli, output):
     refuse(node, {"name": "notes", "kind": "personal",
                   "spec": {"name": "notes", "version": 1}}, "invalid spec binding")
     notes = create(node, "notes", None, kind="personal")
-    refuse_call(lambda: node.call("/api/databases/spec", {
+    refused(lambda: node.call("/api/databases/spec", {
         "id": notes["id"], "spec": {"name": "notes", "version": 1},
     }), "invalid spec binding")
     refuse(node, {"name": "notes", "spec": {"name": "notes", "version": 0}}, "invalid spec binding")
@@ -39,7 +36,7 @@ def prepare(node, cli, output):
     refuse(node, {"name": "social-family", "spec": {"name": "social", "version": 1}},
            "already registered")
     personal_id = owner_id(node)
-    refuse_call(lambda: node.call("/api/databases/spec", {
+    refused(lambda: node.call("/api/databases/spec", {
         "id": personal_id, "spec": {"name": "social", "version": 1},
     }), "HTTP 404")
     alpha = bind(node, alpha["id"], {"name": "notes", "version": 1})
@@ -61,7 +58,7 @@ def prepare(node, cli, output):
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
     missing = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-    refuse_call(lambda: read_value(node, missing), "database is not registered")
+    refused(lambda: read_value(node, missing), "database is not registered")
     saved = {
         "personal_id": personal_id,
         "notes_id": notes["id"],
@@ -117,21 +114,9 @@ def bind(node, database_id, spec):
 
 
 def install(node, database_id):
-    fields = ["id", "bucket", "value"]
-    definition = {
-        "source": "system_seed", "name": "RecordById", "descriptive_name": "RecordById",
-        "schema_type": "Hash",
-        "record_keys": {
-            "primary": {"kind": "hash"},
-            "alternates": {"by_bucket": {"kind": "hash_range", "range_type": "String"}},
-        },
-        "fields": fields,
-        "field_types": {field: "String" for field in fields},
-        "field_descriptions": {field: "Named database example " + field for field in fields},
-        "field_versions": {field: 1 for field in fields},
-    }
-    node.call(f"/api/databases/{database_id}/schemas/seed-system",
-              {"isolated_copy": True, "schema": definition})
+    schema = definition("RecordById", "Hash", FIELDS, {"by_bucket": RANGED},
+                        description_prefix="Named database example ")
+    system_seed(node, schema, database_id)
 
 
 def write_value(node, database_id, value):
@@ -180,16 +165,7 @@ def check_list(node, saved, alpha_spec):
 
 
 def refuse(node, body, words):
-    refuse_call(lambda: node.call("/api/databases", body), words)
-
-
-def refuse_call(call, words):
-    try:
-        call()
-    except RuntimeError as error:
-        require(words in str(error), "the call failed for another reason: " + str(error))
-        return
-    raise RuntimeError("the call did not fail: " + words)
+    refused(lambda: node.call("/api/databases", body), words)
 
 
 def cli_read(node, cli, selector, value):

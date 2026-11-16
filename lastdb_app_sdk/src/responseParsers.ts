@@ -122,18 +122,6 @@ function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
   };
 }
 
-/** Read the `mutation_id` off a `200` `POST /api/mutation` body. */
-export function parseMutationId(body: Record<string, JsonValue>, raw: unknown): string {
-  const id = body['mutation_id'];
-  if (!isNonEmptyString(id)) {
-    throw new UnexpectedResponseError('mutation returned no mutation ID', 200, raw);
-  }
-  if (body['success'] !== true) {
-    throw new UnexpectedResponseError('mutation returned no success marker', 200, raw);
-  }
-  return id;
-}
-
 /** Normalize one raw query row (`{key, fields, metadata}`) into a {@link QueryRow}. */
 function parseQueryRow(raw: unknown): QueryRow {
   const fields = isObject(raw) ? raw['fields'] : undefined;

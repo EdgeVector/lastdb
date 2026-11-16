@@ -6,9 +6,8 @@
 #   scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
 set -uo pipefail
 
-# Keep the file-descriptor floor consistent with the lastdb_node,
-# heavy-clippy, lambda-artifact, and cloud-gc-mutations workflows.
-# Apply it once to every non-test gate command.
+# Keep the file-descriptor floor consistent with full_workspace_check in
+# ci-required.yml across every Mini-lane gate command.
 ulimit -n 8192 || true
 
 if [[ "$#" -lt 3 || "$2" != "--" ]]; then
@@ -33,9 +32,8 @@ echo "MINI_GATE_STEP=${step_name}"
 log_file="$state_dir/step.log"
 : >"$log_file"
 
-# Silent native compiles (aws-lc-sys) have killed this lane at ~80-90s of no
-# stdout — duration_mode mystery-90s, job timeout-minutes is 20. Emit a
-# heartbeat so the docker runner sees activity. 0 disables.
+# Emit a periodic stdout heartbeat during silent native compiles
+# (for example aws-lc-sys). Set MINI_GATE_HEARTBEAT_SECS=0 to disable.
 heartbeat_secs="${MINI_GATE_HEARTBEAT_SECS:-20}"
 heartbeat_pid=""
 if [[ "$heartbeat_secs" =~ ^[1-9][0-9]*$ ]]; then

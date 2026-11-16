@@ -4,18 +4,19 @@
 
 import {
   LASTDB_API_ROUTES,
-  mapDataError,
-  normalizeRecordKeyInput,
-  pairBatchReplies,
   scopedApiPath,
-  toError,
-  type BatchEntry,
   type ClientContext,
-} from './clientHelpers.js';
-import { QueryPaginationError } from './errors.js';
+} from './databases.js';
+import {
+  mapDataError,
+  QueryPaginationError,
+  RequestRejectedError,
+  UnexpectedResponseError,
+} from './errors.js';
 import { parseListResponse, parseQueryResponse } from './responseParsers.js';
 import type {
   JsonValue,
+  KeyValue,
   ListOptions,
   ListResult,
   QueryAllOptions,
@@ -31,6 +32,58 @@ import type {
 
 /** Maximum queries `lastdbd` accepts in one `/api/queries/batch` request. */
 const QUERY_BATCH_MAX_ITEMS = 64;
+
+interface BatchEntry {
+  index: number;
+  item: QueryBatchItem;
+}
+
+/** Normalize a point-lookup or blob key input into a non-empty {@link KeyValue}. */
+export function normalizeRecordKeyInput(key: RecordKeyInput, verb: string): KeyValue {
+  if (typeof key === 'string') {
+    if (key.length === 0) {
+      throw new RequestRejectedError('invalid_request', `${verb} requires a non-empty hash key`);
+    }
+    return { hash: key, range: null };
+  }
+  if (key.hash === null || key.hash.length === 0) {
+    throw new RequestRejectedError('invalid_request', `${verb} requires a non-empty hash key`);
+  }
+  const range = key.range;
+  return {
+    hash: key.hash,
+    range: range !== undefined && range !== null && range.length > 0 ? range : null,
+  };
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function pairBatchReplies(
+  chunk: readonly BatchEntry[],
+  body: unknown,
+): Array<[BatchEntry, { status: number; response: unknown }]> {
+  const results = (body as { results?: unknown } | null)?.results;
+  const malformed = (): UnexpectedResponseError =>
+    new UnexpectedResponseError(
+      `query batch returned a malformed reply (expected ${chunk.length} results)`,
+      200,
+      body,
+    );
+  if (!Array.isArray(results) || results.length !== chunk.length) {
+    throw malformed();
+  }
+  const pairs: Array<[BatchEntry, { status: number; response: unknown }]> = [];
+  for (const [position, entry] of chunk.entries()) {
+    const reply = results[position] as { status?: unknown; response?: unknown } | null;
+    if (typeof reply !== 'object' || reply === null || typeof reply.status !== 'number') {
+      throw malformed();
+    }
+    pairs.push([entry, { status: reply.status, response: reply.response }]);
+  }
+  return pairs;
+}
 
 function queryRowDedupKey(row: QueryRow): string {
   if (row.keyValue !== null) {

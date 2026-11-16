@@ -8,9 +8,11 @@ on:
   pull_request:
     paths:
       - .github/workflows/app-install-smoke.yml
+      - lastdb_node/environments.json
+      - lastdb_node/src/profile.rs
       - lastdb_node/src/bin/lastdb/app_cmds.rs
       - lastdb_node/src/bin/lastdb/app_cmds/**
-      - lastdb_node/src/app_registry_index/**
+      - lastdb_node/src/bin/lastdb/app_registry_index/**
   workflow_dispatch:
   schedule:
     # Daily at 09:00 UTC - catch app/lastdb compatibility breakage
@@ -25,7 +27,7 @@ env:
 jobs:
   app-install-smoke:
     name: install-${{ matrix.app }}
-    runs-on: macos-15  # Apple Silicon. macos-14 retires 2026-11-02.
+    runs-on: macos-15  # Apple Silicon.
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -143,7 +145,7 @@ jobs:
         run: |
           cd "$TEST_HOME"
           
-          # The CLI authenticates the signed list for this node's exact API.
+          # The CLI authenticates signed lists across this node's supported API range.
           # Old tap compat[].lastdb_version rows are no longer registry input.
           APP="${{ matrix.app }}"
           CHANNEL=stable
@@ -152,12 +154,11 @@ jobs:
             if ! lastdb app list "$APP" --catalog-entry --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
               case "$APP" in
                 brain|lastsecrets|search)
-                  echo "Missing signed compatibility for required app $APP on this exact API"
+                  echo "Missing signed compatibility for required app $APP across this node's supported API range"
                   cat "$PROOF_DIR/${APP}-registry-info.err"
                   exit 1
                   ;;
                 *)
-                  echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
                   echo "SKIP_APP=true" >> "$GITHUB_ENV"
                   echo "INSTALLED=false" >> "$GITHUB_ENV"
                   exit 0
@@ -170,7 +171,7 @@ jobs:
           lastdb app list "$APP" --json --channel "$CHANNEL" | tee "$PROOF_DIR/${APP}-resolve.json"
 
       - name: Install ${{ matrix.app }} from the signed registry
-        if: env.SKIP_REGISTRY != 'true'
+        if: env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           # The first-party install manifests and their source commits were
@@ -186,13 +187,13 @@ jobs:
 
       # === Brain (HTTP API) ===
       - name: Use the registry-installed Brain command
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
           command -v brain
           brain --version
 
       - name: Initialize Brain schemas
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -203,7 +204,7 @@ jobs:
           echo "Brain schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/brain-schemas.txt"
 
       - name: Run Brain health checks
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
           set -o pipefail
           # The socket file can outlive a dead daemon. Fail here with the
@@ -258,7 +259,7 @@ jobs:
 
       # === LastSecrets (HTTP API) ===
       - name: Use the registry-installed LastSecrets command
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
         run: command -v lastsecrets
 
       - name: Initialize LastSecrets
@@ -334,7 +335,7 @@ jobs:
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Produce Search delivery with real database writes
-        if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install
@@ -346,7 +347,7 @@ jobs:
 
       # === lastseek (Outbox) ===
       - name: Set up lastseek dependencies
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -357,7 +358,7 @@ jobs:
           cp target/release/lastseek "$HOME/.cargo/bin/" || cp target/release/lastseek /usr/local/bin/
 
       - name: Consume real LastDB delivery with lastseek
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           lastseek --version | tee "$PROOF_DIR/lastseek-version.txt"
@@ -365,18 +366,18 @@ jobs:
 
       # === Search (Outbox) ===
       - name: Use the registry-installed Search command
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: command -v search
 
       - name: Index real LastDB delivery with Search
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           cd "$APP_SOURCE"
           search init --last-db-home "$LASTDB_HOME" 2>&1 | tee "$PROOF_DIR/search-init.log"
 
       - name: Run Search health checks
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           cd "$APP_SOURCE"
