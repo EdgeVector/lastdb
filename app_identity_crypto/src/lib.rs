@@ -17,9 +17,6 @@ pub use ed25519_dalek::{SigningKey, VerifyingKey};
 const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 const SIGNATURE_LEN: usize = ed25519_dalek::SIGNATURE_LENGTH;
 
-/// Registry KMS Ed25519 public key. The private half never leaves AWS KMS.
-pub const REGISTRY_LIST_PUBKEY_B64: &str = "3xySKyIR6nD2GjBXq15Jp6UtkasK2+OAhCUEvBd60sw=";
-
 /// The channels a registry list can name.
 pub const LIST_CHANNELS: [&str; 2] = ["stable", "next"];
 

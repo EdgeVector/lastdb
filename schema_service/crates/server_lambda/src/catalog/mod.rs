@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use app_identity_crypto::{verifying_key_from_base64, VerifyingKey};
 use lambda_http::request::RequestContext;
 use lambda_http::{Body, Error, Request, Response};
 use reqwest::Client;
@@ -119,6 +120,7 @@ pub(crate) struct Catalog {
     client: Client,
     store: Store,
     registry_base: String,
+    trust: VerifyingKey,
     cached: Mutex<ReadCache>,
 }
 
@@ -134,12 +136,18 @@ impl Catalog {
         let profile: Value =
             serde_json::from_str(include_str!("../../../../../lastdb_node/environments.json"))
                 .map_err(|_| "invalid built-in registry configuration")?;
-        let registry_base = profile["environments"][environment]["registry_index"]
+        let env_profile = &profile["environments"][environment.as_str()];
+        let registry_base = env_profile["registry_index"]
             .as_str()
             .filter(|value| value.starts_with("https://"))
             .ok_or("missing HTTPS registry list base")?
             .trim_end_matches('/')
             .to_owned();
+        let list_key = env_profile["registry_list_key"]
+            .as_str()
+            .ok_or("missing registry list trust key")?;
+        let trust =
+            verifying_key_from_base64(list_key).map_err(|_| "invalid pinned registry trust key")?;
         let region = std::env::var("AWS_REGION").map_err(|_| "missing catalog storage region")?;
         let client = Client::builder()
             .timeout(Duration::from_secs(8))
@@ -153,6 +161,7 @@ impl Catalog {
             client,
             store: Store::new(&bucket, region)?,
             registry_base,
+            trust,
             cached: Mutex::new(ReadCache::default()),
         }))
     }

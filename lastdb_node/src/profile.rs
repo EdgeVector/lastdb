@@ -182,6 +182,14 @@ pub mod endpoints {
     }
 
     #[must_use]
+    pub const fn registry_list_key_for(env: Environment) -> &'static str {
+        match env {
+            Environment::Dev => gen::DEV_REGISTRY_LIST_KEY,
+            Environment::Prod => gen::PROD_REGISTRY_LIST_KEY,
+        }
+    }
+
+    #[must_use]
     pub const fn registry_ci_publisher_keys_for(env: Environment) -> (&'static str, &'static str) {
         match env {
             Environment::Dev => (
@@ -213,6 +221,14 @@ pub mod endpoints {
         [Environment::Dev, Environment::Prod]
             .into_iter()
             .find(|e| registry_api_url_for(*e).trim_end_matches('/') == url)
+    }
+
+    #[must_use]
+    pub fn environment_for_registry_index_url(index_url: &str) -> Option<Environment> {
+        let url = index_url.trim().trim_end_matches('/');
+        [Environment::Dev, Environment::Prod]
+            .into_iter()
+            .find(|e| registry_index_url_for(*e).trim_end_matches('/') == url)
     }
 
     impl Environment {
