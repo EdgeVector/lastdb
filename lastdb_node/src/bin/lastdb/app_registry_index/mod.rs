@@ -1,23 +1,21 @@
 //! Signed registry interface lists, rollback-safe caching, and node contract probing.
 
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
 use app_identity_crypto::{
     key_id, verifying_key_from_base64, VerifyingKey, REGISTRY_LIST_PUBKEY_B64,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub mod managed;
 mod managed_manifest;
+mod node;
 
 pub use app_identity_crypto::{
     valid_app_id, valid_source, validate_channel, InterfaceList, ListEntry,
 };
+pub use node::running_node;
 
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
 pub const DEFAULT_CHANNEL: &str = "stable";
@@ -25,6 +23,10 @@ pub const TRUST_KEY_ENV: &str = "LASTDB_REGISTRY_TRUST_KEY";
 const PROD_INDEX_BASE_URL: &str = lastdb_node::profile::endpoints::registry_index_url_for(
     lastdb_node::profile::endpoints::Environment::Prod,
 );
+
+/// Prefix of the error for a list the registry does not have. The list bucket
+/// answers 403 for a missing object because anonymous readers cannot list it.
+const ABSENT: &str = "registry list is absent";
 
 pub(crate) fn str_err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -51,6 +53,9 @@ impl IndexLocation {
         let addr = self.describe_interface(channel, api);
         let sig = format!("{addr}.sig");
         if matches!(self, Self::Dir(_)) {
+            if !Path::new(&addr).exists() {
+                return Err(format!("{ABSENT}: {addr}"));
+            }
             let b = std::fs::read(&addr).map_err(|e| format!("{addr}: {e}"))?;
             let s = std::fs::read(&sig).map_err(|e| format!("{sig}: {e}"))?;
             return Ok((b, s));
@@ -69,10 +74,12 @@ impl IndexLocation {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(str_err)?;
-        Ok((
-            fetch_url(&client, &addr).await?,
-            fetch_url(&client, &sig).await?,
-        ))
+        let bytes = fetch_url(&client, &addr).await?;
+        // A list without its signature is a failed read, not an absent list.
+        let signature = fetch_url(&client, &sig)
+            .await
+            .map_err(|e| e.replacen(ABSENT, "registry list signature is missing", 1))?;
+        Ok((bytes, signature))
     }
 
     pub fn resolve(
@@ -106,8 +113,12 @@ async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Strin
         .send()
         .await
         .map_err(|e| format!("GET {url} failed: {e}"))?;
+    let code = resp.status().as_u16();
+    if code == 403 || code == 404 {
+        return Err(format!("{ABSENT}: GET {url} returned {code}"));
+    }
     if !resp.status().is_success() {
-        return Err(format!("GET {url} returned {}", resp.status().as_u16()));
+        return Err(format!("GET {url} returned {code}"));
     }
     lastdb_node::cloud_backup_client::read_bounded_bytes(resp, 2_097_152)
         .await
@@ -260,66 +271,42 @@ pub async fn fetch_list(
     Ok(accepted)
 }
 
-#[must_use]
-pub fn running_node(home: &Path) -> (String, &'static str, u32, u32) {
-    if let Some(v) = socket_version(&lastdb_node::lastdb_uds::socket_path(&home.join("data"))) {
-        let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
-        if let (Some(b), Some(a), Some(o)) = (
-            v["build"].as_str(),
-            u32_f("api_version"),
-            u32_f("current_outbox_format_version"),
-        ) {
-            return (b.to_string(), "socket", a, o);
-        }
-    }
-    let (api, outbox) = (
-        lastdb_node::version::CURRENT_API_VERSION,
-        lastdb_node::version::CURRENT_OUTBOX_FORMAT_VERSION,
-    );
-    let sibling = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|p| p.join("lastdbd")));
-    for c in sibling.into_iter().chain([PathBuf::from("lastdbd")]) {
-        let Ok(out) = ProcessCommand::new(c)
-            .arg("--version")
-            .env("RUST_LOG", "off")
-            .output()
-        else {
-            continue;
+/// The apps a node can install on one channel: for each app, its entry from the
+/// highest list between the node's minimum supported API version and its own.
+///
+/// LastDB raises `API_VERSION` on every surface change and proves in CI that the
+/// apps listed down to `MIN_SUPPORTED_API_VERSION` still run, so an app listed at
+/// an older supported version needs no new listing. A level with no list is
+/// skipped. Any other failure stops the lookup: skipping it could silently offer
+/// an older release of an app whose newer list could not be read.
+///
+/// The returned list carries the header of the highest level found.
+pub async fn fetch_supported(
+    location: &IndexLocation,
+    channel: &str,
+    (min_api, api): (u32, u32),
+    trust: &VerifyingKey,
+) -> Result<InterfaceList, String> {
+    let mut merged: Option<InterfaceList> = None;
+    for level in (min_api.min(api)..=api).rev() {
+        let list = match fetch_list(location, channel, level, trust).await {
+            Ok(list) => list,
+            Err(e) if e.starts_with(ABSENT) => continue,
+            Err(e) => return Err(e),
         };
-        if !out.status.success() {
-            continue;
-        }
-        for l in String::from_utf8_lossy(&out.stdout).lines() {
-            if let Some(b) = l
-                .trim()
-                .strip_prefix("lastdbd ")
-                .map(str::trim)
-                .filter(|b| !b.is_empty())
-            {
-                return (b.to_string(), "lastdbd", api, outbox);
+        if let Some(top) = merged.as_mut() {
+            for entry in list.apps {
+                if !top.apps.iter().any(|e| e.app_id == entry.app_id) {
+                    top.apps.push(entry);
+                }
             }
+        } else {
+            merged = Some(list);
         }
     }
-    (
-        lastdb_node::version::build_version().to_string(),
-        "cli",
-        api,
-        outbox,
-    )
-}
-
-fn socket_version(socket: &Path) -> Option<Value> {
-    let mut s = UnixStream::connect(socket).ok()?;
-    let t = Some(Duration::from_secs(5));
-    s.set_read_timeout(t).ok()?;
-    s.set_write_timeout(t).ok()?;
-    s.write_all(b"GET /api/version HTTP/1.1\r\nHost: localhost\r\nX-LastDB-Client: lastdb\r\nConnection: close\r\n\r\n").ok()?;
-    let mut raw = String::new();
-    s.read_to_string(&mut raw).ok()?;
-    (raw.split_whitespace().nth(1) == Some("200")).then_some(())?;
-    let body = raw.split_once("\r\n\r\n")?.1.trim();
-    serde_json::from_str(&body[body.find('{')?..=body.rfind('}')?]).ok()
+    merged.ok_or_else(|| {
+        format!("the registry has no {channel} list for lastdb API {min_api} to {api}")
+    })
 }
 
 pub(crate) fn authorized_transition(
