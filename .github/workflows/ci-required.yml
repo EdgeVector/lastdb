@@ -7,8 +7,9 @@ name: CI required
 # The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
 # secret scan, the cargo-deny supply-chain check, the cargo-machete unused
-# dependency check, builds, the record home product proof, and the
-# cloud_backup_protocol check against the exemem-infra main fold pin.
+# dependency check, builds, the record home product proof, the
+# cloud_backup_protocol check against the exemem-infra main fold pin, and the
+# installed-app proof for a socket surface or interface version change.
 # No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
@@ -91,6 +92,7 @@ jobs:
           scripts/cloud_backup/*.py
           scripts/mutation_log_load/*.py
           scripts/release/*.py
+          scripts/ci/*.py
       - name: No build-artifact blobs in tree
         uses: EdgeVector/.github/no-build-artifacts@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:
@@ -248,6 +250,28 @@ jobs:
       contents: read
     uses: ./.github/workflows/record-home.yml
 
+  # A PR that changes the socket surface file or an interface version starts
+  # stable-release.yml, whose app-compatibility job runs the apps from every
+  # supported signed list against the PR build. This job waits for that exact
+  # result on the PR head. Every other PR and event passes at once.
+  installed_app_gate:
+    name: installed apps vs socket surface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Wait for the installed-app proof when the surface changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci/installed_app_gate.py --base "$BASE_SHA" --head "$HEAD_SHA"
+
   # Compares cloud_backup_protocol with the fold gitlink on exemem-infra main.
   # No cloud credentials. The default token is tried first. GH_PAT is the
   # fallback when that token cannot see the repository. A missing pin fails closed.
@@ -278,6 +302,7 @@ jobs:
       - supply_chain
       - record_home
       - protocol_pin
+      - installed_app_gate
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -289,7 +314,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi
