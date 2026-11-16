@@ -53,7 +53,7 @@ def source_for(node, plan, app, output, environment, cli):
     return source, False
 
 
-def prove(node, plan, output):
+def prove(node, plan, output, declare=True):
     observed = node.call("/api/version")
     environment = {**os.environ, **node.environment,
                    "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"),
@@ -103,6 +103,12 @@ def prove(node, plan, output):
                     and "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
                 raise RuntimeError("Search did not query the real database changes")
             run(["status", "--last-db-home", str(node.home)], "status")
+        if not declare:
+            # An installed older app only has to operate. Its declaration
+            # belongs to the API version that listed it.
+            results[app] = {"sha": plan["apps"][app], "installed_from_registry": installed,
+                            "complete": True}
+            continue
         statement = output / (app + ".declaration.json")
         command([str(node.binaries / "lastdb"), "--data-dir", str(node.home), "app", "publish",
                  "--manifest", str(source / "lastdb-app.json"), "--channel", "stable",
