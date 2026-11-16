@@ -8,11 +8,6 @@ use std::fmt;
 pub mod disk_run;
 pub mod space;
 
-/// True when isolated storage diagnostics (`LASTDB_SNAPSHOT_TIMING=1`) are enabled.
-pub fn diagnostics_enabled() -> bool {
-    std::env::var("LASTDB_SNAPSHOT_TIMING").is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on"))
-}
-
 /// Result alias for Last Store operations.
 pub type Result<T> = std::result::Result<T, Error>;
 

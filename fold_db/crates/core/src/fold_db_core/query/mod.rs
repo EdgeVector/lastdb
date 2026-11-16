@@ -117,9 +117,6 @@ impl QueryExecutor {
             let Some(schema) = self.prepare_query_schema(query).await? else {
                 return Ok(None);
             };
-            if query.include_tombstones {
-                return Ok(None);
-            }
             Ok(Some(
                 self.select_filtered(&schema, query.filter.clone(), None)
                     .await?

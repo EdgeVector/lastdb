@@ -14,9 +14,7 @@ use crate::schema::types::{
 use crate::storage::disk_pack::{
     record_warm::WarmRecordRead, transaction, PackReadScope, PackRuntime,
 };
-use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::format::{
-    control::{validate_frozen_replay_floor, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY},
     read::ReadStore,
     records::{self as format, RecordAddress, RecordFormat},
 };
@@ -73,7 +71,6 @@ pub struct RecordStore {
     main_store: ReadStore,
     pub(crate) format: Arc<RecordFormat>,
     pub(super) runtime: Arc<PackRuntime>,
-    serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     pub(super) node_key: [u8; 32],
 }
 
@@ -83,7 +80,6 @@ impl RecordStore {
             main_store: format.reader(),
             runtime: format.runtime(),
             format: Arc::new(format),
-            serving_replay_cutoff: Arc::default(),
             node_key,
         }
     }
@@ -132,38 +128,24 @@ impl RecordStore {
             .await
     }
 
-    pub(crate) async fn minimum_replay_time(&self) -> StorageResult<u64> {
-        if let Some(&cutoff) = self.serving_replay_cutoff.get() {
-            return Ok(cutoff);
-        }
-        self.read_minimum_replay_time().await
-    }
-
-    pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
-        self.runtime.begin_serving();
-        let cutoff = self.read_minimum_replay_time().await?;
-        if self.serving_replay_cutoff.set(cutoff).is_err()
-            && self.serving_replay_cutoff.get() != Some(&cutoff)
-        {
-            return Err(StorageError::InvalidOperation(
-                "delete replay cutoff: serving replay floor changed after startup".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    async fn read_minimum_replay_time(&self) -> StorageResult<u64> {
-        let keys = [crate::storage::format::CURRENT_KEY_FORMAT_KEY, CUTOFF_KEY]
-            .into_iter()
-            .map(|k| k.as_bytes().to_vec())
-            .collect();
-        let values = self.main_store.get_many(keys).await?;
-        let [first, second] = values.as_slice() else {
-            return Err(StorageError::InvalidOperation(
-                "delete replay cutoff: incomplete fence read".into(),
-            ));
-        };
-        validate_frozen_replay_floor(first.as_deref(), second.as_deref())
+    pub async fn applied_delete_revision(
+        &self,
+        schema: &Schema,
+        key: &KeyValue,
+    ) -> Result<Option<String>, SchemaError> {
+        let profile = schema
+            .require_record_keys()?
+            .primary
+            .range_profile()
+            .map_err(invalid)?;
+        let mut key = key.clone();
+        crate::schema::types::key_comparison::canonical_key(profile, &mut key)?;
+        let addr = self.record_address(schema, &key)?;
+        self.record_read_scope(async move {
+            let mut stamps = self.format.applied_deletes(&[&addr]).await?;
+            Ok(stamps.pop().flatten().map(|s| s.revision()))
+        })
+        .await
     }
 
     pub(crate) fn record_span(

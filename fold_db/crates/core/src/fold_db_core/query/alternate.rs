@@ -139,11 +139,10 @@ impl QueryExecutor {
             .prepare_query_schema(query)
             .await?
             .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
-        if query.include_tombstones
-            || query
-                .sort_order
-                .as_ref()
-                .is_some_and(|o| *o != SortOrder::Asc)
+        if query
+            .sort_order
+            .as_ref()
+            .is_some_and(|o| *o != SortOrder::Asc)
             || query.expected_total_count.is_some()
         {
             return Err(alternate_keys::invalid(

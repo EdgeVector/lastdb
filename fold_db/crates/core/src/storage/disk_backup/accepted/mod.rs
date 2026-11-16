@@ -7,7 +7,8 @@
 mod body;
 mod capture;
 mod disk;
-mod io;
+
+use disk::upload::io;
 
 pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
 pub use disk::upload::{UploadIdentity, UploadPosition};

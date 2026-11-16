@@ -122,7 +122,7 @@ impl ParsedMutation {
             file,
             expected,
             convergence,
-            durability,
+            durability: _,
             definition_id,
         } = op;
         let target = RecordTarget {
@@ -134,7 +134,6 @@ impl ParsedMutation {
             String::new(),
             target,
             record_fields,
-            String::new(),
             mutation_type,
             expected,
         );
@@ -142,7 +141,6 @@ impl ParsedMutation {
         m.metadata = metadata;
         m.file = file;
         m.definition_id = definition_id;
-        m.synchronous = Some(durability.unwrap_or_default().waits_for_persist());
         Self {
             mutation: m,
             convergence: convergence.or(default_convergence).unwrap_or_default(),

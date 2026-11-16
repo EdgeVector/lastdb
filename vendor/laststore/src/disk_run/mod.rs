@@ -2,11 +2,10 @@
 
 pub(crate) mod codec;
 pub mod home;
-mod merge;
 mod reader;
 mod writer;
 
-pub(crate) use merge::{merge_runs, MergeIter, RunRange};
+pub(crate) use home::range::{merge_runs, MergeIter, RunRange};
 pub(crate) use reader::{MetadataMemo, RunReader};
 pub(crate) use writer::{MergeSpace, PreparedRun, RunWriter};
 

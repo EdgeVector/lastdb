@@ -48,7 +48,7 @@ pub struct AcceptedBody {
     pub file: Option<FileSection>,
     /// Inline file, at most 64 KiB, standard base64.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline_file: Option<InlineSection>,
+    pub(super) inline_file: Option<InlineSection>,
     /// Schema definition id carried by a record or contribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition_id: Option<String>,
@@ -57,7 +57,7 @@ pub struct AcceptedBody {
     pub definition: Option<Value>,
     /// Share contribution admission. Present only for that kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contribution: Option<ContributionSection>,
+    pub(super) contribution: Option<ContributionSection>,
 }
 
 /// External file section of one cloud accepted body.
@@ -100,31 +100,31 @@ pub struct FileObject {
 /// Inline file section of an accepted body.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct InlineSection {
+pub(super) struct InlineSection {
     /// True when the mutation clears the inline file.
-    pub cleared: bool,
+    pub(super) cleared: bool,
     /// Marker for a put. Absent on a clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub marker: Option<FileMarker>,
+    pub(super) marker: Option<FileMarker>,
     /// Standard base64 plaintext. Absent on a clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<String>,
+    pub(super) data: Option<String>,
 }
 
 /// Contribution admission carried in the accepted body.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContributionSection {
+pub(super) struct ContributionSection {
     /// Installed schema definition id.
-    pub definition_id: String,
+    pub(super) definition_id: String,
     /// Contributor writer id.
-    pub writer: String,
+    pub(super) writer: String,
     /// SHA-256 of the contribution receipt.
-    pub receipt_sha256: String,
+    pub(super) receipt_sha256: String,
     /// SHA-256 of the contribution intent.
-    pub intent_sha256: String,
+    pub(super) intent_sha256: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub schema_scope: bool,
+    pub(super) schema_scope: bool,
 }
 
 pub(super) enum Change {

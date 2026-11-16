@@ -30,7 +30,6 @@ pub struct SnapshotManifest {
     pub snapshot_ref: String,
     pub through_delivery_seq: u64,
     pub at_ms: u64,
-    pub written_at_ms: u64,
     pub parts: u32,
     pub previous_ref: Option<String>,
 }
@@ -155,7 +154,6 @@ pub fn manifest_from_json(bytes: &[u8]) -> Result<SnapshotManifest, RestoreError
         snapshot_ref: body.snapshot_ref,
         through_delivery_seq: body.through_delivery_seq.get(),
         at_ms: body.at_ms.get(),
-        written_at_ms: body.written_at_ms.get(),
         parts,
         previous_ref: body.previous_ref,
     })
@@ -202,7 +200,8 @@ struct ManifestBody {
     snapshot_ref: String,
     through_delivery_seq: DecimalU64,
     at_ms: DecimalU64,
-    written_at_ms: DecimalU64,
+    #[serde(rename = "written_at_ms")]
+    _written_at_ms: DecimalU64,
     parts: DecimalU64,
     #[serde(default)]
     previous_ref: Option<String>,

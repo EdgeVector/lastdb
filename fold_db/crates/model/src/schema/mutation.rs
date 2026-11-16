@@ -1,19 +1,142 @@
-//! Mutation intents, wire operations, and deterministic authored content digests.
+//! Mutation intents, wire operations, and sealed capability tokens for record file writes.
 
 use super::types::{cas::CasExpectation, key_value::KeyValue};
 use super::SchemaError;
-use crate::canonical::{push_field, SortedKeyJsonValue};
-use crate::field_key_codec::record_replacement::RecordTarget;
+use crate::portable_mutation::record_replacement::RecordTarget;
 use crate::record_value::FileMarker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-pub use super::file_write::{FileWrite, FileWriteIssuer, LocalFileReference, SealedRecordFile};
+#[derive(Default)]
+pub struct FileWriteIssuer {
+    identity: Arc<()>,
+}
 
-fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
-    *value == T::default()
+struct Issued<T> {
+    issuer: Arc<()>,
+    marker: FileMarker,
+    data: T,
+}
+
+impl<T: PartialEq> PartialEq for Issued<T> {
+    fn eq(&self, o: &Self) -> bool {
+        Arc::ptr_eq(&self.issuer, &o.issuer) && self.marker == o.marker && self.data == o.data
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SealedRecordFile {
+    inner: Arc<Issued<Vec<u8>>>,
+}
+
+impl SealedRecordFile {
+    #[must_use]
+    pub fn marker(&self) -> &FileMarker {
+        &self.inner.marker
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct LocalFileReference {
+    inner: Arc<Issued<PathBuf>>,
+}
+
+impl LocalFileReference {
+    #[must_use]
+    pub fn marker(&self) -> &FileMarker {
+        &self.inner.marker
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.inner.data
+    }
+}
+
+impl FileWriteIssuer {
+    #[must_use]
+    pub fn issue(&self, marker: FileMarker, data: Vec<u8>) -> FileWrite {
+        FileWrite::Put(SealedRecordFile {
+            inner: Arc::new(Issued {
+                issuer: Arc::clone(&self.identity),
+                marker,
+                data,
+            }),
+        })
+    }
+
+    #[must_use]
+    pub fn issue_local(&self, marker: FileMarker, data: PathBuf) -> FileWrite {
+        FileWrite::LocalPath(LocalFileReference {
+            inner: Arc::new(Issued {
+                issuer: Arc::clone(&self.identity),
+                marker,
+                data,
+            }),
+        })
+    }
+
+    #[must_use]
+    pub fn admit(&self, file: SealedRecordFile) -> Option<Vec<u8>> {
+        Arc::ptr_eq(&self.identity, &file.inner.issuer)
+            .then(|| Arc::try_unwrap(file.inner).map_or_else(|p| p.data.clone(), |p| p.data))
+    }
+
+    #[must_use]
+    pub fn admit_local<'a>(&self, file: &'a LocalFileReference) -> Option<&'a Path> {
+        Arc::ptr_eq(&self.identity, &file.inner.issuer).then_some(file.path())
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum FileWrite {
+    Put(SealedRecordFile),
+    LocalPath(LocalFileReference),
+    Clear,
+}
+
+impl FileWrite {
+    #[must_use]
+    pub fn row_len(&self) -> usize {
+        self.sealed_row().map_or(0, <[u8]>::len)
+    }
+
+    #[must_use]
+    pub fn sealed_row(&self) -> Option<&[u8]> {
+        match self {
+            Self::Put(file) => Some(&file.inner.data),
+            Self::LocalPath(_) | Self::Clear => None,
+        }
+    }
+
+    #[must_use]
+    pub fn local_reference(&self) -> Option<&LocalFileReference> {
+        match self {
+            Self::LocalPath(file) => Some(file),
+            Self::Put(_) | Self::Clear => None,
+        }
+    }
+}
+
+impl fmt::Debug for FileWrite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Put(file) => f
+                .debug_struct("Put")
+                .field("marker", file.marker())
+                .field("row_bytes", &self.row_len())
+                .finish(),
+            Self::LocalPath(file) => f
+                .debug_struct("LocalPath")
+                .field("marker", file.marker())
+                .finish_non_exhaustive(),
+            Self::Clear => f.write_str("Clear"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,13 +182,6 @@ pub enum MutationDurability {
     Queued,
 }
 
-impl MutationDurability {
-    #[must_use]
-    pub fn waits_for_persist(self) -> bool {
-        matches!(self, Self::Durable)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
 pub enum Operation {
@@ -90,43 +206,24 @@ pub enum Operation {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Mutation {
     pub uuid: String,
     pub schema_name: String,
-    #[serde(rename = "record")]
     pub record_fields: HashMap<String, Value>,
     pub key_value: KeyValue,
     pub alternates: BTreeMap<String, Option<KeyValue>>,
     pub file: Option<FileMarker>,
-    pub pub_key: String,
     pub mutation_type: MutationType,
-    pub synchronous: Option<bool>,
     pub source_file_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_written_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub logical_counter: u64,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub author_clock_writer_id: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub author_clock_signature: String,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub author_clock_signature_version: u8,
     pub expected: CasExpectation,
-    #[serde(skip)]
     pub erase_caller: Option<&'static str>,
-    #[serde(skip)]
     pub erase_written_before_nanos: Option<u64>,
-    #[serde(skip)]
     pub file_write: Option<FileWrite>,
-    #[serde(skip)]
     pub inline_write: Option<crate::record_value::InlineWrite>,
-    #[serde(skip)]
     pub definition_id: Option<String>,
-    #[serde(skip)]
     pub contribution: Option<ContributionAdmission>,
 }
 
@@ -136,7 +233,6 @@ impl Mutation {
         uuid: String,
         target: RecordTarget,
         record_fields: HashMap<String, Value>,
-        pub_key: String,
         mutation_type: MutationType,
         expected: CasExpectation,
     ) -> Self {
@@ -147,16 +243,10 @@ impl Mutation {
             key_value: target.key,
             alternates: target.alternates,
             file: None,
-            pub_key,
             mutation_type,
-            synchronous: None,
             source_file_name: None,
             metadata: None,
             imported_written_at: None,
-            logical_counter: 0,
-            author_clock_writer_id: String::new(),
-            author_clock_signature: String::new(),
-            author_clock_signature_version: 0,
             expected,
             erase_caller: None,
             erase_written_before_nanos: None,
@@ -212,42 +302,4 @@ impl Mutation {
         }
         Ok(())
     }
-
-    #[must_use]
-    pub fn content_hash(&self) -> String {
-        let mut d = Sha256::new();
-        push_field(&mut d, b"lastdb-record-authored-content-v2");
-        push_field(&mut d, self.uuid.as_bytes());
-        push_field(&mut d, self.schema_name.as_bytes());
-        push_json(&mut d, &self.mutation_type);
-        push_json(&mut d, &self.key_value);
-        push_json(&mut d, &self.alternates);
-        push_json(&mut d, &self.file);
-        push_json(&mut d, &self.expected);
-        let fields: BTreeMap<_, _> = self.record_fields.iter().collect();
-        d.update((fields.len() as u64).to_be_bytes());
-        for (name, value) in fields {
-            push_field(&mut d, name.as_bytes());
-            push_json(&mut d, &SortedKeyJsonValue::new(value));
-        }
-        push_field(&mut d, self.pub_key.as_bytes());
-        push_json(&mut d, &self.source_file_name);
-        let meta = self
-            .metadata
-            .as_ref()
-            .map(|m| m.iter().collect::<BTreeMap<_, _>>());
-        push_json(&mut d, &meta);
-        push_json(&mut d, &self.erase_written_before_nanos);
-        push_json(&mut d, &self.imported_written_at);
-        d.update(self.logical_counter.to_be_bytes());
-        push_field(&mut d, self.author_clock_writer_id.as_bytes());
-        format!("{:x}", d.finalize())
-    }
-}
-
-fn push_json<T: Serialize>(digest: &mut Sha256, value: &T) {
-    push_field(
-        digest,
-        &serde_json::to_vec(value).expect("mutation content is serializable"),
-    );
 }

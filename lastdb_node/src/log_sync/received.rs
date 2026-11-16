@@ -16,7 +16,7 @@ use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
 use mutation_log::{DatabaseId, DeviceId, PrincipalId};
 use serde::{Deserialize, Serialize};
 
-use crate::cloud_backup_client::storage_transfer::ShareEnvironment;
+use crate::cloud_backup_client::ShareEnvironment;
 use crate::host::Host;
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 use crate::registered_share::{self, RegisteredShare};

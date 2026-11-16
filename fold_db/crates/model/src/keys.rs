@@ -1,17 +1,111 @@
-//! Key coordinates, prefix partition bounds, resume cursors, sort order, and resource bounds.
+//! Key coordinates, prefix partition bounds, resume cursors, sort order, canonical framing, and resource bounds.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize, Serializer};
 
-pub mod content_limit {
-    pub const DEFAULT_MAX_FIELD_VALUE_BYTES: usize = 256 * 1024;
-    pub const ABSOLUTE_MAX_FIELD_VALUE_BYTES: usize = 1024 * 1024;
-    pub const MIN_MAX_FIELD_VALUE_BYTES: usize = 1024;
-    pub const MAX_FIELD_VALUE_BYTES_ENV: &str = "LASTDB_MAX_FIELD_VALUE_BYTES";
-    pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
-        encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
-        (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \
-        (hash = partition, range = entry key).";
+pub mod canonical {
+    use sha2::{Digest, Sha256};
+
+    pub trait ByteSink {
+        fn put(&mut self, bytes: &[u8]);
+    }
+
+    impl ByteSink for Vec<u8> {
+        #[inline]
+        fn put(&mut self, bytes: &[u8]) {
+            self.extend_from_slice(bytes);
+        }
+    }
+
+    impl ByteSink for Sha256 {
+        #[inline]
+        fn put(&mut self, bytes: &[u8]) {
+            self.update(bytes);
+        }
+    }
+
+    #[inline]
+    pub fn push_field<S: ByteSink>(sink: &mut S, field: &[u8]) {
+        let len = u32::try_from(field.len()).expect("canonical field exceeds 4 GiB");
+        sink.put(&len.to_be_bytes());
+        sink.put(field);
+    }
+
+    #[derive(Debug, Default, Clone)]
+    pub struct CanonicalWriter {
+        buf: Vec<u8>,
+    }
+
+    impl CanonicalWriter {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        #[must_use]
+        pub fn with_capacity(capacity: usize) -> Self {
+            Self {
+                buf: Vec::with_capacity(capacity),
+            }
+        }
+
+        #[must_use]
+        pub fn field(mut self, field: &[u8]) -> Self {
+            push_field(&mut self.buf, field);
+            self
+        }
+
+        #[must_use]
+        pub fn u64(mut self, value: u64) -> Self {
+            self.buf.extend_from_slice(&value.to_be_bytes());
+            self
+        }
+
+        #[must_use]
+        pub fn finish(self) -> Vec<u8> {
+            self.buf
+        }
+    }
+
+    pub mod hex {
+        use sha2::{Digest, Sha256};
+
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+        pub fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
+            let bytes = bytes.as_ref();
+            let mut out = String::with_capacity(bytes.len() * 2);
+            for &b in bytes {
+                out.push(DIGITS[(b >> 4) as usize] as char);
+                out.push(DIGITS[(b & 0x0f) as usize] as char);
+            }
+            out
+        }
+
+        fn nibble(b: u8) -> Option<u8> {
+            match b {
+                b'0'..=b'9' => Some(b - b'0'),
+                b'a'..=b'f' => Some(b - b'a' + 10),
+                b'A'..=b'F' => Some(b - b'A' + 10),
+                _ => None,
+            }
+        }
+
+        pub fn hex_decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
+            let bytes = text.as_bytes();
+            if bytes.len() != N * 2 {
+                return None;
+            }
+            let mut out = [0u8; N];
+            for (slot, pair) in out.iter_mut().zip(bytes.chunks_exact(2)) {
+                *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+            }
+            Some(out)
+        }
+
+        pub fn sha256_hex(bytes: impl AsRef<[u8]>) -> String {
+            hex_lower(Sha256::digest(bytes.as_ref()))
+        }
+    }
 }
 
 pub mod storage_policy {
@@ -119,8 +213,6 @@ pub struct QueryCursor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comparison: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub record: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alternate_primary: Option<KeyValue>,
 }
 
@@ -131,21 +223,8 @@ impl QueryCursor {
             hash: key.hash,
             range: key.range,
             comparison,
-            record: None,
             alternate_primary: None,
         }
-    }
-
-    pub fn record_position(&self) -> Result<Option<String>, String> {
-        self.record
-            .as_deref()
-            .map(|r| {
-                let b = URL_SAFE_NO_PAD
-                    .decode(r)
-                    .map_err(|_| "the record cursor is not base64url".to_owned())?;
-                String::from_utf8(b).map_err(|_| "the record cursor is not a record key".to_owned())
-            })
-            .transpose()
     }
 
     #[must_use]

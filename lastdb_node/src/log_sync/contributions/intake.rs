@@ -70,7 +70,6 @@ pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
         String::new(),
         target,
         record_fields,
-        String::new(),
         mutation_type,
         expected,
     );
@@ -295,7 +294,6 @@ fn prepare(
     )
     .into_uuid()
     .to_string();
-    mutation.pub_key = writer.to_owned();
     let creates_record = mutation.mutation_type == MutationType::Create;
     if creates_record {
         mutation
@@ -311,5 +309,4 @@ fn prepare(
         schema_scope: true,
         creates_record,
     });
-    mutation.synchronous = Some(true);
 }

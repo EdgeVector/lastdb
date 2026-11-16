@@ -1,6 +1,5 @@
 //! Product-owned definitions of the format 15 whole-record home.
 
-pub(crate) mod current_keys;
 pub(crate) mod metadata;
 pub(crate) mod records;
 pub(crate) mod schemas;
@@ -48,7 +47,6 @@ pub(crate) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
 pub(crate) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
 
 pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:keys";
-pub(crate) const DELETE_REPLAY_CUTOFF_KEY: &str = "layout:delete-replay-cutoff";
 pub(crate) const DELETE_AUDIT_FAMILY: &str = "dellog";
 pub(crate) const SCHEMA_RELEASE_ROWS: usize = 256;
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
@@ -270,32 +268,94 @@ pub(crate) mod content_key_proof {
     }
 }
 
-pub(crate) mod control {
-    pub(crate) use super::DELETE_REPLAY_CUTOFF_KEY;
+pub(crate) mod current_keys {
     use crate::storage::{error::StorageResult, StorageError};
-    use serde::Deserialize;
+    use lastdb_model::field_key_codec::decode_hash_range_suffix;
+    use lastdb_model::field_key_id::{is_canonical_field_key_id, ALTERNATE_ENTRY_PREFIX};
+    use lastdb_model::record_space::RECORD_PREFIX;
 
-    pub(in crate::storage) fn invalid(text: impl std::fmt::Display) -> StorageError {
-        StorageError::invalid(format!("delete replay cutoff: {text}"))
+    pub(in crate::storage) const JOURNAL_RETIRED: &str = "a portable journal key is retired";
+    pub(in crate::storage) const META_PFX: &[&str] = &[
+        "portable-entry:",
+        "portable-inbox:",
+        "portable-inbox-index:",
+        "portable-progress:",
+        "portable-schema:",
+        "portable-schema-versions:",
+        "portable-replay-state",
+        "portable-restore-owner",
+        "portable-last-applied-peer",
+        "native-shared-schema-scope",
+    ];
+    const FAMILIES: &[&str] = &["rk", "ak", "ad", "fi", "dellog"];
+
+    pub(crate) mod families {
+        use lastdb_model::{
+            hex::sha256_hex, portable_mutation::Position, record_space::RECORD_PREFIX,
+        };
+
+        pub(crate) const RECORD_FILE_PREFIX: &str = "fb:";
+
+        pub(crate) fn record_file_path(
+            record: &str,
+            version: &Position,
+        ) -> super::StorageResult<String> {
+            let space = record
+                .strip_prefix(RECORD_PREFIX)
+                .and_then(|rest| rest.split(':').next())
+                .filter(|space| !space.is_empty())
+                .ok_or_else(|| super::unsupported("a record file path needs a record key"))?;
+            let hash = sha256_hex(record);
+            Ok(format!(
+                "{RECORD_FILE_PREFIX}{space}:{hash}:{}:{:020}",
+                version.source_stream, version.sequence
+            ))
+        }
     }
 
-    pub(crate) fn validate_frozen_replay_floor(
-        marker: Option<&[u8]>,
-        cutoff: Option<&[u8]>,
-    ) -> StorageResult<u64> {
-        #[derive(Deserialize)]
-        struct Cutoff {
-            v: u8,
-            minimum_written_at_nanos: u64,
+    pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
+        let is_journal = std::str::from_utf8(key).is_ok_and(|text| match namespace {
+            "metadata" => META_PFX.iter().any(|prefix| text.starts_with(prefix)),
+            "main" => text.starts_with("ade:"),
+            _ => false,
+        });
+        if is_journal {
+            return Err(StorageError::RetiredFormat(JOURNAL_RETIRED));
         }
-        if !marker.is_some_and(lastdb_model::field_key_codec::current_key_format) {
-            return Err(invalid("the format marker is not the node format"));
+        if namespace != "main" {
+            return Ok(());
         }
-        let Some(bytes) = cutoff else { return Ok(0) };
-        let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
-        (floor.v == 1 && floor.minimum_written_at_nanos > 0)
-            .then_some(floor.minimum_written_at_nanos)
-            .ok_or_else(|| invalid("invalid floor record"))
+        let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
+        if matches!(key, "layout:keys" | "layout:delete-replay-cutoff") {
+            return Ok(());
+        }
+        if !FAMILIES.contains(&key.split([':', '\0']).next().unwrap_or_default()) {
+            return Err(unsupported("unknown key family"));
+        }
+        let rest = if let Some(rec) = key.strip_prefix("ad:").or_else(|| key.strip_prefix("fi:")) {
+            Some(
+                rec.strip_prefix(RECORD_PREFIX)
+                    .ok_or_else(|| unsupported("invalid ad/fi key"))?,
+            )
+        } else {
+            key.strip_prefix(ALTERNATE_ENTRY_PREFIX)
+                .or_else(|| key.strip_prefix(RECORD_PREFIX))
+        };
+        if let Some(rest) = rest {
+            let (field_key, suffix) = rest
+                .split_once(':')
+                .ok_or_else(|| unsupported("invalid field key"))?;
+            if !is_canonical_field_key_id(field_key) || decode_hash_range_suffix(suffix).is_none() {
+                return Err(unsupported("invalid field key"));
+            }
+        }
+        Ok(())
+    }
+
+    fn unsupported(reason: &str) -> StorageError {
+        StorageError::invalid(format!(
+            "unsupported key format: {reason}; start with a fresh home"
+        ))
     }
 }
 

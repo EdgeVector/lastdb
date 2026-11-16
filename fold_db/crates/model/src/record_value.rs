@@ -1,16 +1,15 @@
 //! One complete stored record, its external addresses, file markers, and record stamp.
 
-use crate::field_key_codec::record_replacement::RecordReplacement;
+use crate::keys::KeyValue;
+use crate::portable_mutation::record_replacement::RecordReplacement;
 use crate::portable_mutation::{Position, Stamp};
-use crate::schema::types::KeyValue;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use schema_types::PortableSchemaId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub use crate::field_key_codec::record_replacement::RecordMetadata as RecordMeta;
+pub use crate::portable_mutation::record_replacement::RecordMetadata as RecordMeta;
 pub use crate::portable_mutation::Stamp as RecordStamp;
 
 pub const RECORD_VALUE_VERSION: u8 = 3;
@@ -18,6 +17,10 @@ pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const MAX_INLINE_FILE_BYTES: usize = 64 * 1024;
 pub const MAX_INLINE_LABEL_BYTES: usize = 255;
 pub const MAX_INLINE_STORED_BYTES: usize = MAX_INLINE_FILE_BYTES.div_ceil(3) * 4 + 1024;
+pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
+    encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
+    (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \
+    (hash = partition, range = entry key).";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,7 +77,7 @@ impl InlineFile {
                 name,
                 media_type,
                 size_bytes: bytes.len() as u64,
-                sha256: crate::canonical::hex::sha256_hex(bytes),
+                sha256: crate::keys::canonical::hex::sha256_hex(bytes),
             },
             data: STANDARD.encode(bytes),
         };
@@ -88,7 +91,7 @@ impl InlineFile {
             .decode(self.data.as_bytes())
             .map_err(|e| format!("inline file data is invalid base64: {e}"))?;
         (bytes.len() as u64 == self.marker.size_bytes
-            && crate::canonical::hex::sha256_hex(&bytes) == self.marker.sha256)
+            && crate::keys::canonical::hex::sha256_hex(&bytes) == self.marker.sha256)
             .then_some(bytes)
             .ok_or_else(|| "inline file bytes differ from their marker".into())
     }
@@ -172,8 +175,6 @@ pub struct StoredRecord {
     pub file_version: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_file: Option<FileMarker>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub definition_id: Option<PortableSchemaId>,
     #[serde(skip)]
     pub deleted: bool,
 }
@@ -201,7 +202,6 @@ impl StoredRecord {
             file: value.file,
             file_version,
             inline_file: value.inline_file,
-            definition_id: None,
             deleted: false,
         }
     }
@@ -228,7 +228,6 @@ impl StoredRecord {
             file: None,
             file_version: None,
             inline_file: None,
-            definition_id: None,
             deleted: true,
         }
     }
@@ -277,10 +276,6 @@ impl StoredRecord {
 }
 
 pub mod author_clock {
-    use crate::schema::types::Mutation;
-
-    pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
-
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub struct MutationAuthorClockState {
         pub physical_nanos: u64,
@@ -312,22 +307,7 @@ pub mod author_clock {
     pub fn mutation_author_clock_key(device_id: &str) -> String {
         format!(
             "mutation_author_clock:{}",
-            crate::canonical::hex::sha256_hex(device_id)
+            crate::keys::canonical::hex::sha256_hex(device_id)
         )
-    }
-
-    #[must_use]
-    pub fn mutation_author_canonical_bytes(m: &Mutation) -> Vec<u8> {
-        let h = m.content_hash();
-        crate::canonical::CanonicalWriter::with_capacity(
-            h.len() + m.uuid.len() + m.author_clock_writer_id.len() + 32,
-        )
-        .field(b"lastdb-mutation-author-v3")
-        .field(h.as_bytes())
-        .field(m.uuid.as_bytes())
-        .field(m.author_clock_writer_id.as_bytes())
-        .u64(m.imported_written_at.unwrap_or(0))
-        .u64(m.logical_counter)
-        .finish()
     }
 }

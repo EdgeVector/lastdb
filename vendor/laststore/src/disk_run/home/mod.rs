@@ -3,7 +3,7 @@
 mod cleanup;
 mod compaction;
 mod manifest;
-mod range;
+pub(super) mod range;
 mod read;
 
 pub use cleanup::{CheckpointSpec, LogicalInventory, RunHomeDiagnostics};

@@ -31,10 +31,10 @@ A home (`disk_run::home::RunHome`) is a directory:
 - A commit writes one new run, makes it durable, then publishes a new CURRENT by rename.
 - A read holds one CURRENT for its full call, so it sees complete commits only.
 - `merge_step_with_space` merges eight runs of one level into one run, and moves old runs into the base.
-- `plan.rs` states the size bound of the home.
+- `space.rs` enforces free-space headroom, replacement reservations, and bounded file inventory across the home.
 - Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the existing 1/8 stale-byte share.
 - At open, the owner deletes temporary files and runs that CURRENT does not name. Nothing replays.
 
 ## Scope
 
-This crate holds disk format v2 and the frame, space, and read-receipt code that it uses.
+This crate holds disk format v2 and the frame, space, and read-budget code that it uses.

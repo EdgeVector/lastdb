@@ -1,27 +1,22 @@
-//! Record file row encryption and file reference tracking without redundant preimage reads.
+//! Record file row encryption and file retirement planning without metadata disk I/O.
 
-use super::{schema_inv, Metadata};
+use super::schema_inv;
 use crate::crypto::envelope::{decrypt_envelope, ENVELOPE_VERSION, NONCE_SIZE, TAG_SIZE};
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, FileWriteIssuer, SchemaError};
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::format::RecordAddress;
 use crate::storage::local_file_ref::{SidecarAddition, SidecarPlan};
-use crate::storage::{error::StorageResult, KvMutation, StorageError};
+use crate::storage::KvMutation;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
 use lastdb_model::hex::{hex_decode_array, sha256_hex};
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
-use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
-
-const FILE_REFERENCE_PREFIX: &str = "portable-file-reference:";
-pub(in crate::storage) const FILE_RETENTION_KEY: &str = "portable-file-retention";
-pub(in crate::storage) const FILE_RETENTION_COMPLETE: &[u8] = b"\"complete\"";
 
 pub(in crate::storage::format) struct FileChange {
     pub(in crate::storage::format) address: RecordAddress,
@@ -33,18 +28,11 @@ pub(in crate::storage::format) struct FileChange {
 #[derive(Default)]
 struct StagedFiles {
     cas_puts: Vec<KvMutation>,
-    references: BTreeMap<String, bool>,
+    retired: BTreeSet<String>,
     sidecar: SidecarPlan,
 }
 
 type EncodedFilesOut = (Vec<KvMutation>, Vec<Vec<u8>>, SidecarPlan);
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Reference {
-    live: bool,
-    pending_through: u64,
-}
 
 fn crypto_err(detail: impl std::fmt::Display) -> FoldDbError {
     FoldDbError::SecurityError(format!("record file encryption: {detail}"))
@@ -130,63 +118,20 @@ pub(crate) fn decrypt_file_row(
     valid.then_some(plain).ok_or_else(mismatch)
 }
 
-impl Metadata {
-    pub(in crate::storage::format) async fn stage_file_references(
-        &self,
-        changes: BTreeMap<String, bool>,
-    ) -> StorageResult<Vec<Vec<u8>>> {
-        if changes.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.require_scope()?;
-        let bad = |detail: &str| StorageError::invalid(format!("file reference index: {detail}"));
-        let keys: Vec<_> = changes
-            .keys()
-            .map(|path| format!("{FILE_REFERENCE_PREFIX}{path}"))
-            .collect();
-        let requests = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
-        let rows = self.store.get_many(requests).await?;
-        if rows.len() != keys.len() {
-            return Err(bad("incomplete file reference read"));
-        }
-        let (mut ops, mut retired) = (Vec::new(), Vec::new());
-        for (((path, live), key), row) in changes.into_iter().zip(keys).zip(rows) {
-            if let Some(bytes) = row.as_deref() {
-                serde_json::from_slice::<Reference>(bytes).map_err(|e| bad(&e.to_string()))?;
-            }
-            if live {
-                let reference = Reference {
-                    live: true,
-                    pending_through: 0,
-                };
-                let value = serde_json::to_vec(&reference).map_err(|e| bad(&e.to_string()))?;
-                ops.push((key, Some(value)));
-            } else {
-                if row.is_some() {
-                    ops.push((key, None));
-                }
-                retired.push(path.into_bytes());
-            }
-        }
-        self.stage(ops).await.map(|()| retired)
+pub(in crate::storage::format) fn encode_files(
+    issuer: &FileWriteIssuer,
+    content_key: &[u8; 32],
+    changes: Vec<FileChange>,
+) -> Result<EncodedFilesOut, SchemaError> {
+    if changes.is_empty() {
+        return Ok((Vec::new(), Vec::new(), SidecarPlan::default()));
     }
-
-    pub(in crate::storage::format) async fn encode_files(
-        &self,
-        issuer: &FileWriteIssuer,
-        content_key: &[u8; 32],
-        changes: Vec<FileChange>,
-    ) -> Result<EncodedFilesOut, SchemaError> {
-        if changes.is_empty() {
-            return Ok((Vec::new(), Vec::new(), SidecarPlan::default()));
-        }
-        let mut staged = StagedFiles::default();
-        for change in changes {
-            encode_file_change(change, issuer, content_key, &mut staged)?;
-        }
-        let retired = self.stage_file_references(staged.references).await?;
-        Ok((staged.cas_puts, retired, staged.sidecar))
+    let mut staged = StagedFiles::default();
+    for change in changes {
+        encode_file_change(change, issuer, content_key, &mut staged)?;
     }
+    let retired = staged.retired.into_iter().map(String::into_bytes).collect();
+    Ok((staged.cas_puts, retired, staged.sidecar))
 }
 
 fn encode_file_change(
@@ -206,12 +151,12 @@ fn encode_file_change(
     }
     if let Some(version) = prev {
         let path = record_file_path(record_key, version)?;
-        staged.references.insert(path.clone(), false);
+        staged.retired.insert(path.clone());
         staged.sidecar.removals.push(path);
     }
     let Some(version) = next else { return Ok(()) };
     let path = record_file_path(record_key, version)?;
-    staged.references.insert(path.clone(), true);
+    staged.retired.remove(&path);
     let marker = change
         .after
         .file
