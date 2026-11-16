@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 
 /// Maximum allowed sensitivity level (`0` = Public through `4` = Highly Restricted).
-pub const MAX_SENSITIVITY_LEVEL: u8 = 4;
+const MAX_SENSITIVITY_LEVEL: u8 = 4;
 
 /// Validation rule version; excluded from field identity hashes.
-pub const NAME_POLICY_VERSION: u32 = 1;
+const NAME_POLICY_VERSION: u32 = 1;
 
 const APP_ABBREVIATIONS: &[&str] = &[
     "bcl", "bes", "bfc", "bge", "bll", "bln", "blp", "btd", "bts", "clu", "ctd", "eph", "ie",
@@ -83,21 +83,21 @@ impl DataClassification {
 
 /// A canonical field entry in the standard field vocabulary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CanonicalField {
-    pub description: String,
-    pub field_type: FieldValueType,
+pub(crate) struct CanonicalField {
+    pub(crate) description: String,
+    pub(crate) field_type: FieldValueType,
     /// Field identity version (`name+description+type+version` -> `field_hash`).
     #[serde(default = "default_field_version")]
-    pub version: u32,
+    pub(crate) version: u32,
     /// Code validation policy version. Excluded from field identity hashes.
     #[serde(default)]
-    pub name_policy_version: u32,
+    pub(crate) name_policy_version: u32,
     /// Usual data classification label for this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub classification: Option<DataClassification>,
+    pub(crate) classification: Option<DataClassification>,
     /// Optional interest category for discovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interest_category: Option<String>,
+    pub(crate) interest_category: Option<String>,
 }
 
 const fn default_field_version() -> u32 {
@@ -107,7 +107,7 @@ const fn default_field_version() -> u32 {
 impl CanonicalField {
     /// Schema Service field identity hash for this entry under `name`.
     #[must_use]
-    pub fn field_hash(&self, name: &str) -> String {
+    pub(crate) fn field_hash(&self, name: &str) -> String {
         schema_types::compute_field_hash(name, &self.description, &self.field_type, self.version)
     }
 }
@@ -181,7 +181,7 @@ impl SchemaServiceState {
 }
 
 /// Syntax gate for canonical field names.
-pub fn validate_new_field_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_new_field_name(name: &str) -> Result<(), String> {
     let words: Vec<_> = name.split('_').collect();
     let reason = if name.len() > 96 || name.is_empty() {
         Some("use 1 through 96 characters")

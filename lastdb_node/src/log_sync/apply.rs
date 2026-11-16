@@ -5,15 +5,13 @@ use std::path::{Path, PathBuf};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use mutation_log::{Entry, Incorporation, StoredEntry};
-use mutation_log_sync::Outcome;
 
 use crate::database_replay::{DeliveredEntry, IncorporatedFrom, RestoreError, SnapshotEntry};
 use crate::host::{BlockedDelivery, Host};
 use crate::log_envelope::{IncorporatedRef, LogBinding};
 
 use super::cloud::CloudLog;
-use super::disk;
-use super::session;
+use super::{disk, session, SyncOutcome};
 
 const MARKER_LIMIT: usize = 64;
 
@@ -50,7 +48,7 @@ impl From<RestoreError> for PageFailure {
 pub(super) async fn apply_page(
     host: &Host,
     log: &CloudLog,
-    outcome: &Outcome,
+    outcome: &SyncOutcome,
     publisher: Option<&str>,
 ) -> Result<PagePlan, PageFailure> {
     let entries = &outcome.entries;

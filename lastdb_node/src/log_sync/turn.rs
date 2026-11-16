@@ -13,7 +13,6 @@ use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
 use super::native;
 use super::received;
-use super::received_access;
 use super::run;
 use super::session;
 
@@ -207,12 +206,12 @@ async fn finish_open(
     device: &str,
 ) -> Prep {
     if kind != "personal" {
-        let Some(revision) = received_access::revision(&log).await else {
+        let Some(revision) = received::revision(&log).await else {
             return Prep::Pause(Pause::Retry);
         };
         log.member_revision = revision;
     }
-    let state = match run::opened_state(database_id, kind, &log, device, &host.home) {
+    let state = match run::opened_state(database_id, &log, device, &host.home) {
         Ok(state) => state,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "log sync state was refused");

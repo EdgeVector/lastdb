@@ -10,7 +10,7 @@ description = "Canonical bounded wire contract for native LastDB cloud backup"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-json-canon = "0.1"
+json-canon = { workspace = true }
 
 [lints]
 workspace = true

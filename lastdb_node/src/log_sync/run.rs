@@ -7,8 +7,7 @@ use cloud_backup_protocol::v2::share_access::{
     MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH,
 };
 use cloud_backup_protocol::{canonical_bytes, DecimalU64};
-use mutation_log::{DatabaseId, DatabaseKind, DeviceId, ListPage, LogError, PrincipalId};
-use mutation_log_sync::{Outcome, SyncError, SyncRole, SyncState};
+use mutation_log::{DatabaseId, DeviceId, ListPage, LogError};
 
 use crate::host::{BlockedDelivery, Host};
 
@@ -16,7 +15,7 @@ use super::accepted;
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
 use super::turn::{self, Pause};
-use super::{contributions, http, session, wire};
+use super::{contributions, http, session, wire, SyncOutcome, SyncRole, SyncState};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -51,7 +50,7 @@ impl Ready {
     }
 
     fn download_failed(&self, host: &Host, error: impl Into<String>) -> Pause {
-        self.record_download(host, self.state.cursor(), Some(error.into()), None);
+        self.record_download(host, self.state.cursor, Some(error.into()), None);
         Pause::Retry
     }
 }
@@ -85,13 +84,13 @@ pub(super) async fn run_ready(host: &Host, ready: Ready) -> Pause {
 
 async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
     if super::native_reset::supports(host, ready) {
-        let after = ready.state.cursor();
+        let after = ready.state.cursor;
         match ready.log.list_with_native_reset(after).await {
             Ok(Ok(page)) => {
                 return apply_contiguous(host, ready, after, page).await;
             }
             Ok(Err(cut)) => {
-                match ready.log.list_retained(after).await {
+                match ready.log.list_async(after).await {
                     Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
                         return apply_contiguous(host, ready, after, page).await;
                     }
@@ -117,13 +116,12 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
             }
         }
     }
-    let now_ms = fold_db::clock::unix_millis();
-    let outcome = match ready.log.drive_once(ready.state.clone(), now_ms).await {
+    let outcome = match ready.log.drive_once(ready.state).await {
         Ok(pulled) => pulled,
         Err(error) => {
             if matches!(
                 error,
-                SyncError::Log(LogError::CursorExpired { .. } | LogError::SnapshotRequired)
+                LogError::CursorExpired { .. } | LogError::SnapshotRequired
             ) {
                 turn::warn_once(
                     &SNAPSHOT_WARNED,
@@ -148,25 +146,20 @@ async fn apply_contiguous(host: &Host, ready: &Ready, after: u64, page: ListPage
         tracing::warn!(target: "lastdbd::log_sync", "personal delivery page has a gap");
         return ready.download_failed(host, "personal delivery page has a gap");
     }
-    let outcome = Outcome {
+    let outcome = SyncOutcome {
         entries: page.entries,
         cursor: page.next,
     };
     apply_and_checkpoint(host, ready, &outcome).await
 }
 
-async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &Outcome) -> Pause {
+async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &SyncOutcome) -> Pause {
     let plan = match apply::apply_page(host, &ready.log, outcome, ready.publisher.as_deref()).await
     {
         Ok(plan) => plan,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error.message, "pulled page was not applied");
-            ready.record_download(
-                host,
-                ready.state.cursor(),
-                Some(error.message),
-                error.blocked,
-            );
+            ready.record_download(host, ready.state.cursor, Some(error.message), error.blocked);
             return Pause::Retry;
         }
     };
@@ -192,32 +185,20 @@ fn checkpoint_download(host: &Host, ready: &Ready, seq: u64) -> Pause {
 
 pub(super) fn opened_state(
     database_id: &str,
-    database_kind: &str,
     log: &CloudLog,
     device: &str,
     home: &Path,
 ) -> Result<SyncState, String> {
     let database_id = DatabaseId::new(database_id).map_err(|_| "database id was refused")?;
-    let principal =
-        PrincipalId::new(log.principal().as_str()).map_err(|_| "node key was refused")?;
     let device = DeviceId::new(device).map_err(|_| "device id was refused")?;
-    let (kind, role) = if database_kind == "personal" {
-        (
-            DatabaseKind::Personal,
-            SyncRole::Owner { principal, device },
-        )
-    } else {
-        (
-            DatabaseKind::Shareable {
-                publisher: principal.clone(),
-            },
-            SyncRole::Publisher { principal, device },
-        )
-    };
+    if log.device() != &device {
+        return Err("device id was refused".into());
+    }
     let cursor = session::load_cursor(home, database_id.as_str())?;
-    SyncState::open(database_id, kind, role)
-        .map(|state| state.with_cursor(cursor))
-        .map_err(|error| error.to_string())
+    Ok(SyncState {
+        role: SyncRole::Owner,
+        cursor,
+    })
 }
 
 async fn drain_inbox(host: &Host, log: &CloudLog) -> Result<(), String> {

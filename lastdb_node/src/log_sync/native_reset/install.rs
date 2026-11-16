@@ -197,7 +197,7 @@ pub(super) async fn prepare(
 }
 
 /// Check for a staged recovery that still needs a stopped-home activation.
-pub fn prepared_native_recovery(home: &Path) -> Result<bool, String> {
+fn prepared_native_recovery(home: &Path) -> Result<bool, String> {
     disk::read_limited(&home.join(JOURNAL), LIMIT)
         .map(|value| value.is_some())
         .map_err(|error| io_error(&error))

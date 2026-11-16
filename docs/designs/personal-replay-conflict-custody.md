@@ -179,8 +179,7 @@ Use only scoped DEV cleanup and keep the results in the protected CI summary.
 
 - Personal replay and blocking in [record.rs](../../lastdb_node/src/database_replay/owned/record.rs)
   and [owned.rs](../../lastdb_node/src/database_replay/owned.rs).
-- Existing preimages and file ownership in [baseline.rs](../../fold_db/crates/core/src/fold_db_core/mutation_manager/replay/baseline.rs)
+- Existing preimages and file ownership in [records.rs](../../fold_db/crates/core/src/fold_db_core/mutation_manager/replay/records.rs)
   and [files.rs](../../fold_db/crates/core/src/storage/format/metadata/files.rs).
 - Main and file commit order in [publish.rs](../../fold_db/crates/core/src/storage/disk_pack/run_commit/publish.rs).
-- Native capture and recovery checks in [snapshot.rs](../../fold_db/crates/core/src/storage/disk_backup/snapshot.rs)
-  and [stopped_sync.rs](../../fold_db/crates/core/src/storage/disk_backup/stopped_sync.rs).
+- Native capture and recovery checks in [disk_backup/mod.rs](../../fold_db/crates/core/src/storage/disk_backup/mod.rs).

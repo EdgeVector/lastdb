@@ -118,9 +118,9 @@ primary unchanged."
 
 This authorizes the release qualification and app compatibility operations in
 `.github/workflows/stable-release.yml`, `.github/workflows/app-install-smoke.yml`,
-`scripts/release/stable_qualify.py`,
-`stable_apps.py` and its existing packaged-program helper
-`nightly_probe.py`. They use only fresh generated CI homes and public packaged
+`scripts/release/stable_plan.py`, `scripts/release/stable_publish.py`,
+`scripts/release/nightly_package.py`, and its packaged-program helper
+`scripts/release/nightly_probe.py`. They use only fresh generated CI homes and public packaged
 programs.
 
 Keep all other test targets retired. No local LastDB builds, benchmarks, or
@@ -128,8 +128,8 @@ runtime proofs. No primary upgrade, restart, reset, copy, or backup change.
 
 Tom extended this on 2026-11-03: "automate publishing the signed app compatibility
 records for new API versions too ... Keep everything in CI and leave my primary
-unchanged." This also authorizes `stable_compatibility.py`, `stable_app_publish.py`,
-and `app-compatibility-publish.yml`. CI must run the apps and validate their
+unchanged." This also authorizes `scripts/release/stable_app_publish.py`
+and `.github/workflows/app-compatibility-publish.yml`. CI must run the apps and validate their
 unsigned declarations before its separate KMS identity publishes them. The real
 registry installs and the full one-hour qualification remain required.
 
@@ -160,7 +160,7 @@ second backup path, a flag, or a migration.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds `libssl-dev` (the `openssl` crate), Ruby, and the pinned
-tree-sitter packages from `CLAUDE.md`, then builds `lastdb` / `lastdbd` and
+tree-sitter packages (`tree-sitter==0.23.2`, `tree-sitter-rust==0.23.2`), then builds `lastdb` / `lastdbd` and
 `lastdb_app_sdk`. `start` runs `lastdbd` in tmux session `lastdbd_dev` against
 `$HOME/.lastdb-dev` (leave `~/.lastdb` alone).
 

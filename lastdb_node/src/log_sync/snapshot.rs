@@ -325,7 +325,7 @@ pub async fn restore_base(
         probe,
         selected.label,
     )?;
-    if let Some(revision) = super::received_access::revision(&log).await {
+    if let Some(revision) = super::received::revision(&log).await {
         log.member_revision = revision;
     }
     let saved = transport::for_restore(&log, None).await?;

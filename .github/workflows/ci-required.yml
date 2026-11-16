@@ -3,7 +3,7 @@ name: CI required
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
 # this tree.
-# mutation_log and mutation_log_sync clippy checks --lib only.
+# mutation_log clippy checks --lib only.
 # The gate keeps fmt, clippy, lints, the
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
 # secret scan, the cargo-deny supply-chain check, the cargo-machete unused
@@ -131,7 +131,7 @@ jobs:
       - name: cargo clippy (domain & schema libs)
         env:
           CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "clippy domain & schema libs" -- cargo clippy --locked -p schema_service_core -p mutation_log -p mutation_log_sync --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+        run: bash scripts/ci/mini-gate-step.sh "clippy domain & schema libs" -- cargo clippy --locked -p schema_service_core -p mutation_log --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build
@@ -158,7 +158,6 @@ jobs:
 
   full_workspace_check:
     name: full workspace cargo clippy (heavy)
-    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -177,8 +176,6 @@ jobs:
         with:
           shared-key: heavy
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Heavy clippy workspace-coverage lint
-        run: ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
       - name: cargo clippy --workspace --lib --bins
         run: |
           ulimit -n 8192 || true

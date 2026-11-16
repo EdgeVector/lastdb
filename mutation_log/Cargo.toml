@@ -3,7 +3,7 @@ name = "mutation_log"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Pure unified cloud mutation log. One ordered log per database. No clock, no I/O."
+description = "Pure published-log state machine for personal and shareable databases (whole-database shares keep a separate pending inbox). No clock, no I/O."
 
 [lints]
 workspace = true

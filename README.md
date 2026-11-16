@@ -30,16 +30,18 @@ deleted the desktop node on **2026-07-12**.
 ```
 .
 ├── Cargo.toml                  # workspace root, path deps for everything internal
-├── .github/workflows/          # GitHub release train (tag push → Homebrew)
-├── fold_db/                    # core LastDB library (was EdgeVector/fold_db)
-│   └── crates/{core,observability}
-├── lastdb_node/                # Mini product: lastdb + lastdbd
-├── lastdb_host/                # owner-socket host primitives
-├── lastdb_uds/                 # Unix-domain-socket transport
-├── lastdb_identity/            # node identity helpers
+├── .github/workflows/          # CI gates and GitHub release train (tag push → Homebrew)
+├── app_identity_crypto/        # Ed25519 + JCS + signed registry-list helpers
+├── cloud_backup_protocol/      # canonical native cloud backup wire contract
+├── database_policy/            # spec catalog and share admission
+├── fold_db/                    # core LastDB engine, pure model, and observability
+│   └── crates/{core,model,observability}
 ├── lastdb_app_sdk/             # TypeScript app SDK (data client)
+├── lastdb_node/                # Mini product: lastdb + lastdbd (host, UDS, sync)
+├── mutation_log/               # pure published-log state machine
 ├── schema_service/             # advisory schema vocabulary + Lambda
 │   └── crates/{schema_types,core,server_lambda}
+├── scripts/                    # CI lints, benchmarks, release, and cloud checks
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
 └── docs/                       # designs for work in progress
 ```

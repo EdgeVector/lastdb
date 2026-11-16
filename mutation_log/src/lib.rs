@@ -1,9 +1,7 @@
-//! Pure functional core of the unified cloud mutation log.
+//! Pure functional core of the published cloud mutation log.
 //!
-//! The core models one ordered log value. Entries are tagged by writer
-//! (node key, device). The caller supplies time, IDs, and a [`NamespacePolicy`].
-//! [`MutationLog`] is the persistence port. The daemon uses
-//! `mutation_log_sync` for the signed log.
+//! The core models one ordered published log value. Entries are tagged by writer
+//! (node key, device). The caller supplies time, IDs, and a [`BoundPolicy`].
 //!
 //! # Sharing
 //!
@@ -12,8 +10,8 @@
 //! grant. A shareable database rejects an app-private namespace on append.
 //! ExeMem gives receivers only entries written by the publisher, including
 //! when filtering legacy mixed history. Whole-database shares also have a
-//! separate pending log that only the publisher reads. The publisher's LastDB
-//! validates those mutations and publishes accepted changes under its own key.
+//! separate pending inbox log that only the publisher reads. The publisher's
+//! LastDB validates those mutations and publishes accepted changes under its own key.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
@@ -23,16 +21,15 @@ mod read;
 
 use std::fmt;
 
-use database_policy::{admit_namespace, NamespaceClass, SpecBinding};
+use database_policy::{admit_namespace, valid_label, NamespaceClass, SpecBinding};
 
 pub use append::AppendOutcome;
-pub use database_policy::SHAREABLE_NAMESPACES;
 pub use model::{
     step, AppendBatch, Capability, Command, DatabaseKind, Entry, Grant, Head, Incorporation,
     LogState, Outcome, Snapshot, SnapshotRef, Stamp, StepResult, StoredEntry, SubmissionRecord,
     SubmissionStatus, Writer,
 };
-pub use read::{ListPage, Recovery, Reset, ScopedHead};
+pub use read::{ListPage, ScopedHead};
 
 /// Entries applied in one append transaction.
 pub const APPEND_BATCH_LIMIT: usize = 90;
@@ -40,11 +37,7 @@ pub const APPEND_BATCH_LIMIT: usize = 90;
 pub const LIST_PAGE_LIMIT: usize = 90;
 
 fn checked_label(value: &str, error: LogError) -> Result<String, LogError> {
-    if (1..=64).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if valid_label(value) {
         Ok(value.to_owned())
     } else {
         Err(error)
@@ -93,52 +86,6 @@ label_id!(
     "Schema namespace, the part before `/` in a name such as `hearth/PhotoMeta`."
 );
 
-/// Persistence port for one database log.
-///
-/// `append` accepts at most [`APPEND_BATCH_LIMIT`] entries and holds one
-/// in-flight batch per writer (node key, device). The other methods are the
-/// read and recovery surface. Adapters implement this trait. The sync step
-/// depends on it and not on an adapter.
-pub trait MutationLog {
-    /// Begin, apply, and finish one batch. A failed apply still finishes.
-    fn append(&mut self, batch: AppendBatch) -> Result<AppendOutcome, LogError>;
-
-    /// Last entry this reader may see.
-    fn head(&self, reader: &PrincipalId) -> Result<Option<ScopedHead>, LogError>;
-
-    /// One page of entries this reader may see.
-    fn list(
-        &self,
-        reader: &PrincipalId,
-        after: u64,
-        limit: usize,
-        now_ms: u64,
-    ) -> Result<ListPage, LogError>;
-
-    /// Entries after `local_cursor` when the cursor falls below the trim floor.
-    ///
-    /// When that start is below the trim floor, [`Recovery::reset`] names the
-    /// snapshot the shell downloads before applying [`Recovery::entries`].
-    fn recover(
-        &self,
-        reader: &Writer,
-        local_cursor: u64,
-        now_ms: u64,
-    ) -> Result<Recovery, LogError>;
-
-    /// Last accepted writer sequence for `writer`. `reader` must be that node key.
-    fn writer_tip(&self, reader: &PrincipalId, writer: &Writer) -> Result<u64, LogError>;
-}
-
-/// Whether a namespace may travel in a shareable database.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NamespaceKind {
-    /// A standard schema namespace the shareable database may store.
-    Official,
-    /// An app-private namespace. It belongs in the personal database only.
-    AppPrivate,
-}
-
 /// Namespace admission for one database spec binding.
 ///
 /// [`BoundPolicy::absent`] classifies every namespace as app-private, so a
@@ -150,6 +97,7 @@ pub struct BoundPolicy {
 
 impl BoundPolicy {
     /// No spec binding. Share appends fail closed.
+    #[must_use]
     pub fn absent() -> Self {
         Self { binding: None }
     }
@@ -169,53 +117,13 @@ impl BoundPolicy {
     }
 
     /// Borrow the binding, when one was supplied.
+    #[must_use]
     pub fn binding(&self) -> Option<&SpecBinding> {
         self.binding.as_ref()
     }
-}
 
-impl NamespacePolicy for BoundPolicy {
-    fn classify(&self, namespace: &Namespace) -> NamespaceKind {
-        if admit_namespace(self.binding.as_ref(), namespace.as_str())
-            == Ok(NamespaceClass::Official)
-        {
-            NamespaceKind::Official
-        } else {
-            NamespaceKind::AppPrivate
-        }
-    }
-}
-
-/// Classify with [`SHAREABLE_NAMESPACES`].
-///
-/// A listed namespace is [`NamespaceKind::Official`]. Every other namespace
-/// is [`NamespaceKind::AppPrivate`].
-#[must_use]
-pub fn classify_shareable(namespace: &Namespace) -> NamespaceKind {
-    if SHAREABLE_NAMESPACES.contains(&namespace.as_str()) {
-        NamespaceKind::Official
-    } else {
-        NamespaceKind::AppPrivate
-    }
-}
-
-/// Classifies namespaces.
-///
-/// [`classify_shareable`] is the interim production list. A production
-/// caller passes that function. A namespace on the list is
-/// [`NamespaceKind::Official`]. Every other namespace is
-/// [`NamespaceKind::AppPrivate`].
-pub trait NamespacePolicy {
-    /// Classify one namespace.
-    fn classify(&self, namespace: &Namespace) -> NamespaceKind;
-}
-
-impl<F> NamespacePolicy for F
-where
-    F: Fn(&Namespace) -> NamespaceKind,
-{
-    fn classify(&self, namespace: &Namespace) -> NamespaceKind {
-        self(namespace)
+    pub(crate) fn allows_in_share(&self, namespace: &Namespace) -> bool {
+        admit_namespace(self.binding.as_ref(), namespace.as_str()) == Ok(NamespaceClass::Official)
     }
 }
 
@@ -283,13 +191,6 @@ pub enum LogError {
         /// Writer sequence of that submission.
         writer_seq: u64,
     },
-    /// The publisher rejected this pending submission.
-    SubmissionRejected {
-        /// Writer (node key, device) of the submission.
-        writer: Writer,
-        /// Writer sequence of that submission.
-        writer_seq: u64,
-    },
 }
 
 impl fmt::Display for LogError {
@@ -339,12 +240,6 @@ impl fmt::Display for LogError {
             Self::SubmissionExpired { writer, writer_seq } => write!(
                 f,
                 "pending submission expired before it was copied ({}, {}, seq {writer_seq})",
-                writer.key.as_str(),
-                writer.device.as_str()
-            ),
-            Self::SubmissionRejected { writer, writer_seq } => write!(
-                f,
-                "pending submission was rejected ({}, {}, seq {writer_seq})",
                 writer.key.as_str(),
                 writer.device.as_str()
             ),

@@ -9,13 +9,8 @@
 //! LastDB check for a schema, its fields, and a file. A service that stores
 //! the log does not call it. The payload stays opaque there.
 //!
-//! Social schemas live in `spec/social/`. A database name does not select a
-//! spec. The stored `{ "name", "version" }` binding does. `social-graph` stays
-//! in `personal`.
-
-/// Union of provisioned share namespaces, for callers that do not yet
-/// carry a per-database binding. Named databases use [`admit_namespace`].
-pub const SHAREABLE_NAMESPACES: &[&str] = &["lastdb-files", "social"];
+//! A database name does not select a spec. The stored `{ "name", "version" }`
+//! binding does. `social-graph` stays in `personal`.
 
 const WHOLE_DATABASE: &str = "whole-database";
 
@@ -246,7 +241,9 @@ pub fn record_is_shareable(
         ))
 }
 
-fn valid_label(value: &str) -> bool {
+/// Whether `value` is 1..=64 ASCII alphanumeric, `-`, or `_` bytes.
+#[must_use]
+pub fn valid_label(value: &str) -> bool {
     (1..=64).contains(&value.len())
         && value
             .bytes()
