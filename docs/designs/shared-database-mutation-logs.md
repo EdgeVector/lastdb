@@ -40,9 +40,9 @@ The pending log has fixed access rules, including for a receiver's own entries. 
 
 ## From invitation to shared data
 
-Apps can use the bundled [Social helpers](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)
-in `@lastdb/app-sdk` for setup and invitations. The helper calls the Social
-app for the selected LastDB home. After accepting an invitation, the app
+Apps can use Social's client, [`@lastdb/social-client`](https://github.com/EdgeVector/social/tree/main/client),
+for setup and invitations ([how it fits with the app SDK](../../lastdb_app_sdk/README.md#set-up-sharing-with-social)).
+The client calls the Social app for the selected LastDB home. After accepting an invitation, the app
 opens the returned stable database ID in the ordinary LastDB data client.
 
 1. The publisher sets sharing in Social. Once LastDB confirms the roster in ExeMem, it returns a sealed invitation for the caller to deliver. The recipient accepts it with the verified publisher key. The recipient's LastDB obtains the database identity and keys, confirms current access, and syncs published records and schema definitions.
