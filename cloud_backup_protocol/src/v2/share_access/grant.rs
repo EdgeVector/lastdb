@@ -3,11 +3,10 @@
 //! The signed document is the whole member set. A revoked key stays on that
 //! set until a later revision marks it active and sets `regrant`.
 
-use super::receipt::SignedRequestTarget;
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
     NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole, ShareMemberState,
-    MUTATION_LOG_BLOB_BYTES_PATH, MUTATION_LOG_DELIVERY_OBJECT_PATH,
+    SignedRequestTarget, MUTATION_LOG_BLOB_BYTES_PATH, MUTATION_LOG_DELIVERY_OBJECT_PATH,
     MUTATION_LOG_DELIVERY_SNAPSHOT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
     MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
 };
@@ -35,8 +34,7 @@ pub enum MemberListReadView {
     RevisionOnly,
 }
 
-/// Accept `next` only as the revision immediately after `previous`.
-pub fn validate_successor(
+pub(super) fn validate_successor(
     previous: Option<&MemberListUpdate>,
     next: &MemberListUpdate,
 ) -> Result<(), ProtocolError> {
@@ -92,11 +90,7 @@ pub fn authorize(
     }
 }
 
-/// Reject a token whose signed stream is not the stored stream.
-///
-/// The caller verifies the signature with `token.node_public_key`.
-/// That key is not the publisher key. This function does not verify it.
-pub fn bind_request_scope(
+pub(super) fn bind_request_scope(
     token: &NodeReadToken,
     current: &MemberListReadResponse,
 ) -> Result<(), ProtocolError> {

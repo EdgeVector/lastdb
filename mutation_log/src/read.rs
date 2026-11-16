@@ -1,5 +1,5 @@
 use crate::{
-    Capability, DatabaseKind, Entry, Grant, LogError, LogState, NamespaceKind, NamespacePolicy,
+    Capability, DatabaseKind, Grant, LogError, LogState, NamespaceKind, NamespacePolicy,
     PrincipalId, SnapshotRef, Stamp, StoredEntry, LIST_PAGE_LIMIT,
 };
 
@@ -52,79 +52,24 @@ pub struct ListPage {
     pub next: u64,
 }
 
-/// Whether `principal` may read this entry.
-///
-/// On a personal database, only an owner key reads. On a shareable database
-/// the publisher key reads every entry except an app-private namespace. A
-/// receiver reads entries whose writer key is the publisher key, including
-/// re-appends, and does not read an app-private namespace. Pending member
-/// entries are visible only to the publisher. This matches the list filter.
-#[must_use]
-pub fn can_read(
-    principal: &PrincipalId,
-    database: &LogState,
-    entry: &Entry,
-    policy: &impl NamespacePolicy,
-) -> bool {
-    if entry.database_id != database.database_id {
-        return false;
-    }
-    if shareable_app_private(database, entry, policy) {
-        return false;
-    }
-    match &database.kind {
-        DatabaseKind::Personal => holds_owner(database, principal),
-        DatabaseKind::Shareable { publisher } => share_read(database, principal, publisher, entry),
-    }
-}
-
-fn shareable_app_private(
-    database: &LogState,
-    entry: &Entry,
-    policy: &impl NamespacePolicy,
-) -> bool {
-    matches!(database.kind, DatabaseKind::Shareable { .. })
-        && policy.classify(&entry.namespace) == NamespaceKind::AppPrivate
-}
-
-fn share_read(
-    database: &LogState,
-    principal: &PrincipalId,
-    publisher: &PrincipalId,
-    entry: &Entry,
-) -> bool {
-    if principal == publisher {
-        return true;
-    }
-    &entry.writer.key == publisher && holds_receive(database, principal)
-}
-
-/// Whether one stored entry is visible to `reader` in `database`.
-#[must_use]
-pub fn entry_visible(
+fn entry_visible(
     database: &LogState,
     stored: &StoredEntry,
     reader: &PrincipalId,
     policy: &impl NamespacePolicy,
 ) -> bool {
-    if stored.entry.database_id != database.database_id {
+    let entry = &stored.entry;
+    if entry.database_id != database.database_id {
         return false;
     }
-    if !can_read(reader, database, &stored.entry, policy) {
-        return false;
+    match &database.kind {
+        DatabaseKind::Personal => holds_owner(database, reader),
+        DatabaseKind::Shareable { publisher } => {
+            policy.classify(&entry.namespace) == NamespaceKind::Official
+                && (reader == publisher
+                    || (&entry.writer.key == publisher && holds_receive(database, reader)))
+        }
     }
-    shareable_namespace_allowed(database, stored, policy)
-}
-
-fn shareable_namespace_allowed(
-    database: &LogState,
-    stored: &StoredEntry,
-    policy: &impl NamespacePolicy,
-) -> bool {
-    if !matches!(database.kind, DatabaseKind::Shareable { .. }) {
-        return true;
-    }
-    policy.classify(&stored.entry.namespace) == NamespaceKind::Official
 }
 
 impl LogState {
@@ -141,12 +86,7 @@ impl LogState {
         }
     }
 
-    /// Grant `capability` to `principal`. The caller must already be allowed.
-    ///
-    /// The first grant on a personal database is an owner key granting itself.
-    /// A personal database rejects [`Capability::Receive`] and [`Capability::Submit`].
-    /// A shareable database rejects [`Capability::Owner`].
-    pub fn grant(
+    pub(crate) fn grant(
         &self,
         caller: &PrincipalId,
         principal: PrincipalId,
@@ -181,8 +121,7 @@ impl LogState {
         }
     }
 
-    /// Last visible entry, with the cursor set to the last delivery scanned.
-    pub fn head_for(
+    pub(crate) fn head_for(
         &self,
         reader: &PrincipalId,
         policy: &impl NamespacePolicy,
@@ -226,7 +165,13 @@ fn authorize_grant(
     capability: &Capability,
 ) -> Result<(), LogError> {
     match &state.kind {
-        DatabaseKind::Shareable { publisher } => caller_is(caller, publisher),
+        DatabaseKind::Shareable { publisher } => {
+            if caller == publisher {
+                Ok(())
+            } else {
+                Err(LogError::Unauthorized)
+            }
+        }
         DatabaseKind::Personal => authorize_personal_grant(state, caller, principal, capability),
     }
 }
@@ -249,14 +194,6 @@ fn authorize_personal_grant(
         };
     }
     if holds_owner(state, caller) {
-        Ok(())
-    } else {
-        Err(LogError::Unauthorized)
-    }
-}
-
-fn caller_is(caller: &PrincipalId, expected: &PrincipalId) -> Result<(), LogError> {
-    if caller == expected {
         Ok(())
     } else {
         Err(LogError::Unauthorized)

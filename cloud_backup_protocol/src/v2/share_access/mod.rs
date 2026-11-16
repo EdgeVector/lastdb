@@ -24,29 +24,29 @@
 mod grant;
 mod members;
 mod proof;
-mod receipt;
 
 pub use grant::{
-    authorize, authorize_request, bind_request_scope, member_list_read_view, member_list_revision,
-    MemberListReadView, ShareAccess,
+    authorize, authorize_request, member_list_read_view, member_list_revision, MemberListReadView,
+    ShareAccess,
 };
 pub use members::{
     AllShareSchemas, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
     MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
 pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
-pub use receipt::{
-    authorize_access_read, authorize_native_create, NativeDatabase, NativeMark, OpenDatabase,
-    OpenMark, SignedDatabase, SignedRequestTarget,
-};
 
-use crate::{AccountId, Digest, ProtocolError};
+use crate::primitives::exact_lower_hex;
+use crate::v2::Version;
+use crate::{AccountId, Digest, Id, ProtocolError};
+use grant::bind_request_scope;
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// Domain for `MemberListUpdate::digest`.
-pub const SHARE_MEMBER_LIST_UPDATE_DOMAIN: &str = "lastdb:share:member-list-update:v1";
-/// Domain for `NodeReadProof::digest`.
-pub const SHARE_NODE_READ_AUTHORITY_DOMAIN: &str = "lastdb:share:node-read-authority:v1";
+const SHARE_MEMBER_LIST_UPDATE_DOMAIN: &str = "lastdb:share:member-list-update:v1";
+const SHARE_NODE_READ_AUTHORITY_DOMAIN: &str = "lastdb:share:node-read-authority:v1";
+const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/create-database";
+const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
+
 /// Authorization scheme for [`NodeReadToken`]. Bearer share passes are not this scheme.
 pub const SHARE_NODE_AUTHORIZATION_SCHEME: &str = "LastDBNode";
 /// Symmetric clock skew for a signed share request, in milliseconds.
@@ -74,11 +74,6 @@ pub const MUTATION_LOG_DELIVERY_SNAPSHOT_PATH: &str =
 /// Read one signed ciphertext range of a record file.
 pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/object";
-/// Create one fresh signed database. The success body is [`NativeDatabase`].
-pub const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
-    "/api/cloud/backups/v2/mutation-log/create-database";
-/// Read whether the database is open, native, or committed.
-pub const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
 /// Read a pending page from the publisher-only contribution inbox.
 pub const MUTATION_LOG_INBOX_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/list";
 /// Settle a durable page in the publisher-only contribution inbox.
@@ -117,13 +112,6 @@ impl<'de> Deserialize<'de> for Ed25519Signature {
     }
 }
 
-pub(super) fn exact_lower_hex(value: &str, len: usize) -> bool {
-    value.len() == len
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 /// The publisher key is the account key: the first 16 bytes of SHA-256 over
 /// the raw 32-byte key equal `account`.
 pub(super) fn account_key_matches(
@@ -131,4 +119,197 @@ pub(super) fn account_key_matches(
     account: &AccountId,
 ) -> Result<(), ProtocolError> {
     crate::verify_account_public_key(public_key, account, "share.publisher_public_key")
+}
+
+/// `native`. Not `open`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeMark {
+    /// Fresh signed database.
+    Native,
+}
+
+/// `open`. This tag does not select a signed digest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenMark {
+    /// No native row.
+    Open,
+}
+
+/// Native create response. No migration evidence and no service signature.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeDatabase {
+    /// Always `native`. This object is not an open database and not a receipt.
+    pub state: NativeMark,
+    /// Protocol version. V2 serializes this field as the JSON integer 2.
+    pub version: Version,
+    /// Realm of the create. A DEV database is not a PROD database.
+    pub environment: ShareEnvironment,
+    /// Database the create inserted.
+    pub database_id: Id,
+}
+
+impl NativeDatabase {
+    /// Response body for a successful native create.
+    #[must_use]
+    pub fn new(environment: ShareEnvironment, database_id: Id) -> Self {
+        Self {
+            state: NativeMark::Native,
+            version: Version::V2,
+            environment,
+            database_id,
+        }
+    }
+}
+
+/// Signed state of one database. Open is the absence of this value.
+///
+/// This enum is not the TLS body. Send [`NativeDatabase`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignedDatabase {
+    /// Spec stored at create. No evidence digest.
+    Native(NativeDatabase),
+}
+
+impl SignedDatabase {
+    /// Database this state names.
+    #[must_use]
+    pub fn database_id(&self) -> &Id {
+        match self {
+            Self::Native(native) => &native.database_id,
+        }
+    }
+
+    /// Realm this state names.
+    #[must_use]
+    pub fn environment(&self) -> ShareEnvironment {
+        match self {
+            Self::Native(native) => native.environment,
+        }
+    }
+
+    /// Reject a state for another database or realm.
+    pub fn bind(
+        &self,
+        token: &NodeReadToken,
+        service: ShareEnvironment,
+    ) -> Result<(), ProtocolError> {
+        if self.database_id() != &token.database_id || self.environment() != service {
+            return Err(ProtocolError::unauthorized("share.cutover.identity"));
+        }
+        Ok(())
+    }
+}
+
+/// Authenticated response while the database is still open.
+///
+/// This is not a [`SignedDatabase`]. It does not select the raw-body proof and
+/// it does not close legacy reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenDatabase {
+    /// Always `open`. This object is not [`NativeDatabase`].
+    pub state: OpenMark,
+    /// Protocol version. V2 serializes this field as the JSON integer 2.
+    pub version: Version,
+    /// Realm the service answered in.
+    pub environment: ShareEnvironment,
+    /// Database that is still open.
+    pub database_id: Id,
+}
+
+impl OpenDatabase {
+    /// Status body for a database with no native create and no cutover row.
+    #[must_use]
+    pub fn new(environment: ShareEnvironment, database_id: Id) -> Self {
+        Self {
+            state: OpenMark::Open,
+            version: Version::V2,
+            environment,
+            database_id,
+        }
+    }
+}
+
+/// HTTP target of one signed request, plus the stored signed state if any.
+///
+/// `path` is the raw request path. The body octets are not here. The caller
+/// hashed those octets with `NodeReadProof::digest` before this call.
+#[derive(Clone, Copy, Debug)]
+pub struct SignedRequestTarget<'a> {
+    /// Realm this service is.
+    pub environment: ShareEnvironment,
+    /// Method the service received.
+    pub method: ShareHttpMethod,
+    /// Raw path the service received, including `/api`.
+    pub path: &'a str,
+    /// Stored native database or cutover row. Absent while the database is open.
+    pub access: Option<&'a SignedDatabase>,
+}
+
+/// Authorize the first signed create, or an equal native retry.
+///
+/// The body signature is already checked. Success writes only in the service
+/// transaction that inserts the native row. A refusal writes nothing.
+pub fn authorize_native_create(
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_post(
+        target.method,
+        target.path,
+        MUTATION_LOG_CREATE_DATABASE_PATH,
+    )?;
+    token.require_target(target.environment, target.method, target.path)?;
+    if token.database_id != token.stream.stream_id {
+        return Err(ProtocolError::unauthorized("share.node_read.scope"));
+    }
+    require_publisher_key(token)?;
+    match target.access {
+        None => {
+            if token.member_list_revision.get() != 0 {
+                return Err(ProtocolError::invalid("share.create.revision"));
+            }
+            Ok(())
+        }
+        Some(SignedDatabase::Native(native)) => {
+            if native.database_id != token.database_id || native.environment != target.environment {
+                return Err(ProtocolError::unauthorized("share.cutover.identity"));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Authorize a body-signed status read. A stale revision does not reject it.
+///
+/// Success is not log access.
+pub fn authorize_access_read(
+    current: &MemberListReadResponse,
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_post(target.method, target.path, MUTATION_LOG_ACCESS_PATH)?;
+    token.require_target(target.environment, target.method, target.path)?;
+    bind_request_scope(token, current)?;
+    authorize(current, &token.node_public_key)?;
+    if let Some(state) = target.access {
+        state.bind(token, target.environment)?;
+    }
+    Ok(())
+}
+
+fn require_publisher_key(token: &NodeReadToken) -> Result<(), ProtocolError> {
+    account_key_matches(&token.node_public_key, &token.stream.scope.account_id)
+        .map_err(|_| ProtocolError::unauthorized("share.create.publisher"))
+}
+
+fn require_post(method: ShareHttpMethod, path: &str, expected: &str) -> Result<(), ProtocolError> {
+    if method == ShareHttpMethod::Post && path == expected {
+        Ok(())
+    } else {
+        Err(ProtocolError::invalid("share.node_read.route"))
+    }
 }

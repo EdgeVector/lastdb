@@ -6,7 +6,7 @@ name: notify-schema-infra
 # DEV, and follows the PROD canary rules (Tom, 2026-10-31: deploy on merge).
 #
 # The paths are the inputs of the schema-infra build
-#   cargo lambda build -p schema_service_server_lambda --features fastembed --locked
+#   cargo lambda build -p schema_service_server_lambda --locked
 # at the workspace root: the path-crate closure of that package plus the
 # workspace files.
 # schema-infra scripts/deploy/fold-lambda-inputs.txt keeps the same list and

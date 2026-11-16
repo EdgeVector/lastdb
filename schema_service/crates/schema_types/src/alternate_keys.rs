@@ -1,6 +1,6 @@
 //! Record key addresses, named alternate keys, and key-field validation.
 
-use crate::{DeclarativeSchemaDefinition, DeclarativeSchemaType, FieldValueType};
+use crate::{DeclarativeSchemaDefinition, FieldValueType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -14,7 +14,7 @@ pub(crate) fn is_false(value: &bool) -> bool {
 pub mod record_keys {
     use super::{is_false, MAX_ALTERNATE_KEYS};
     use crate::field_range_profile::FieldRangeProfile;
-    use crate::{DeclarativeSchemaDefinition, FieldValueType};
+    use crate::{DeclarativeSchemaDefinition, DeclarativeSchemaType, FieldValueType};
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
@@ -23,6 +23,15 @@ pub mod record_keys {
     pub enum RecordKeyKind {
         Hash,
         HashRange,
+    }
+
+    impl RecordKeyKind {
+        pub(crate) const fn schema_type(self) -> DeclarativeSchemaType {
+            match self {
+                Self::Hash => DeclarativeSchemaType::Hash,
+                Self::HashRange => DeclarativeSchemaType::HashRange,
+            }
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -111,16 +120,13 @@ impl DeclarativeSchemaDefinition {
             .as_ref()
             .ok_or("owned schemas require explicit record_keys")?;
         keys.validate()?;
-        let kind = match keys.primary.kind {
-            record_keys::RecordKeyKind::Hash => DeclarativeSchemaType::Hash,
-            record_keys::RecordKeyKind::HashRange => DeclarativeSchemaType::HashRange,
-        };
-        (self.schema_type == kind && self.key.is_none() && self.alternate_keys.is_empty())
-            .then_some(())
-            .ok_or_else(|| {
-                "record_keys require one owned Hash/HashRange layout without field-derived keys"
-                    .into()
-            })
+        (self.schema_type == keys.primary.kind.schema_type()
+            && self.key.is_none()
+            && self.alternate_keys.is_empty())
+        .then_some(())
+        .ok_or_else(|| {
+            "record_keys require one owned Hash/HashRange layout without field-derived keys".into()
+        })
     }
 
     #[must_use]

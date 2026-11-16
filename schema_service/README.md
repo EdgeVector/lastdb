@@ -5,7 +5,7 @@ from apps in the public LastDB App Registry.
 
 Canonical field names use full concept and property names. New fields cannot
 use the audited app abbreviations such as `bge_*` and `rle_*`. The direct
-checks live in `crates/core/src/field_name_policy.rs`.
+checks live in `crates/core/src/lib.rs`.
 
 ## Cloud-only deployment
 

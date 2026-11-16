@@ -7,8 +7,6 @@ use super::{Job, Object, Version};
 use crate::{CloudScope, Digest, Id, PendingReason, ProtocolError, TerminalFailure};
 use serde::{Deserialize, Serialize};
 
-pub use super::limits::MAX_BATCH_ITEMS;
-
 /// The service returns an authoritative receipt only after exact byte verification.
 /// An internally consistent client value does not establish service authority or retention.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

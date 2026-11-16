@@ -1,8 +1,9 @@
 use super::super::limits::{
     encoded as encoded_json_bytes, CONTROL_JSON_MAX_BYTES as REQUEST_JSON_MAX_BYTES,
+    MAX_BATCH_ITEMS,
 };
 use super::super::{Destination, Job, Version};
-use super::{TransferInput, TransferView, MAX_BATCH_ITEMS};
+use super::{TransferInput, TransferView};
 use crate::{DecimalU64, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
 

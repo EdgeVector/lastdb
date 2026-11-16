@@ -240,23 +240,6 @@ pub struct KeyConfig {
     pub range_field: Option<String>,
 }
 
-#[derive(Debug)]
-pub enum FoldDbError {
-    Config(String),
-}
-
-impl fmt::Display for FoldDbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Config(msg) => write!(f, "Configuration error: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for FoldDbError {}
-
-pub type FoldDbResult<T> = Result<T, FoldDbError>;
-
 impl DeclarativeSchemaDefinition {
     pub fn validate_field_name(name: &str) -> Result<(), String> {
         if matches!(name, "\u{1f}record" | "__record") {
@@ -314,7 +297,6 @@ impl DeclarativeSchemaDefinition {
 
     pub fn normalize_wire(&mut self) {
         self.hash = None;
-        self.superseded_by = None;
         if self.identity_hash.is_none() && self.owner_app_id.is_some() {
             self.compute_identity_hash();
         }

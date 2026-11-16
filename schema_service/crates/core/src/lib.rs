@@ -2,15 +2,27 @@
 //! draft schema advice (`GET /v1/fields/vocabulary`, `POST /v1/advice/schema`).
 
 pub mod advice;
-pub mod field_name_policy;
 
-use schema_types::{FieldValueType, FoldDbError, FoldDbResult};
+use schema_types::FieldValueType;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Maximum allowed sensitivity level (`0` = Public through `4` = Highly Restricted).
 pub const MAX_SENSITIVITY_LEVEL: u8 = 4;
+
+/// Validation rule version; excluded from field identity hashes.
+pub const NAME_POLICY_VERSION: u32 = 1;
+
+const APP_ABBREVIATIONS: &[&str] = &[
+    "bcl", "bes", "bfc", "bge", "bll", "bln", "blp", "btd", "bts", "clu", "ctd", "eph", "ie",
+    "klh", "liv", "nh", "prk", "psi", "rle", "tmb",
+];
+
+const SHORT_WORDS: &[&str] = &[
+    "at", "by", "in", "of", "on", "or", "to", "id", "ip", "cm", "kg", "km", "mm", "ms", "ns", "ph",
+    "us",
+];
 
 /// Two-dimensional data classification label for a canonical vocabulary field.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -111,24 +123,22 @@ struct SeedEntry {
     interest_category: Option<String>,
 }
 
-fn builtin_definitions() -> FoldDbResult<Vec<(String, CanonicalField)>> {
+fn builtin_definitions() -> Result<Vec<(String, CanonicalField)>, String> {
     let entries: Vec<SeedEntry> =
         serde_json::from_str(include_str!("builtin_canonical_fields.json"))
-            .map_err(|error| FoldDbError::Config(format!("invalid canonical seed: {error}")))?;
+            .map_err(|error| format!("invalid canonical seed: {error}"))?;
     entries
         .into_iter()
         .map(|entry| {
             let classification = DataClassification::new(entry.sensitivity, &entry.domain)
-                .map_err(|error| {
-                    FoldDbError::Config(format!("invalid canonical seed classification: {error}"))
-                })?;
+                .map_err(|error| format!("invalid canonical seed classification: {error}"))?;
             Ok((
                 entry.name,
                 CanonicalField {
                     description: entry.description,
                     field_type: entry.field_type,
                     version: 1,
-                    name_policy_version: field_name_policy::NAME_POLICY_VERSION,
+                    name_policy_version: NAME_POLICY_VERSION,
                     classification: Some(classification),
                     interest_category: entry.interest_category,
                 },
@@ -149,13 +159,12 @@ impl SchemaServiceState {
     ///
     /// # Errors
     /// Returns an error if the embedded canonical seed violates vocabulary or naming rules.
-    pub fn from_builtin() -> FoldDbResult<Self> {
+    pub fn from_builtin() -> Result<Self, String> {
         let definitions = builtin_definitions()?;
-        let canonical_fields =
-            field_name_policy::canonical_fields_after_insert(&HashMap::new(), &definitions)?;
+        let canonical_fields = canonical_fields_after_insert(&definitions)?;
         let sorted: BTreeMap<&String, &CanonicalField> = canonical_fields.iter().collect();
         let vocabulary_json = json!({
-            "name_policy_version": field_name_policy::NAME_POLICY_VERSION,
+            "name_policy_version": NAME_POLICY_VERSION,
             "fields": sorted,
         });
         Ok(Self {
@@ -171,8 +180,164 @@ impl SchemaServiceState {
     }
 }
 
-/// Standard single-field JSON error envelope.
-#[must_use]
-pub fn error_only_body(message: &str) -> Value {
-    json!({ "error": message })
+/// Syntax gate for canonical field names.
+pub fn validate_new_field_name(name: &str) -> Result<(), String> {
+    let words: Vec<_> = name.split('_').collect();
+    let reason = if name.len() > 96 || name.is_empty() {
+        Some("use 1 through 96 characters")
+    } else if words.iter().any(|word| {
+        word.is_empty()
+            || !word.as_bytes()[0].is_ascii_lowercase()
+            || !word
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    }) {
+        Some("use lowercase words separated by single underscores")
+    } else if words
+        .iter()
+        .filter(|word| {
+            !matches!(
+                **word,
+                "of" | "to" | "by" | "in" | "at" | "for" | "and" | "the"
+            )
+        })
+        .count()
+        < 2
+    {
+        Some("name both the subject and its property")
+    } else if words.iter().any(|word| word.len() == 1) {
+        Some("spell out each concept; a one-letter key role is not a concept")
+    } else if words
+        .iter()
+        .any(|word| word.len() == 2 && !SHORT_WORDS.contains(word))
+    {
+        Some("spell out short names; use standard key terms, connectives or units")
+    } else if words.iter().enumerate().any(|(index, word)| {
+        APP_ABBREVIATIONS.contains(word)
+            && !(*word == "psi"
+                && index > 0
+                && words[index - 1] == "pressure"
+                && index + 1 == words.len())
+    }) {
+        Some("spell out app abbreviations")
+    } else if words
+        .iter()
+        .any(|word| matches!(*word, "generic" | "entity" | "item"))
+    {
+        Some("replace the generic subject with the actual concept")
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        Err(format!(
+            "invalid_canonical_name: '{name}': {reason}; for example 'file_size_bytes'"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn canonical_fields_after_insert(
+    fields: &[(String, CanonicalField)],
+) -> Result<HashMap<String, CanonicalField>, String> {
+    let mut candidate = HashMap::with_capacity(fields.len());
+    for (name, field) in fields {
+        validate_insert(&candidate, name, field)?;
+        candidate.insert(name.clone(), field.clone());
+    }
+    Ok(candidate)
+}
+
+fn validate_insert(
+    existing: &HashMap<String, CanonicalField>,
+    name: &str,
+    field: &CanonicalField,
+) -> Result<(), String> {
+    validate_new_field_name(name)?;
+    if field.name_policy_version != NAME_POLICY_VERSION {
+        return Err(format!(
+            "invalid_canonical_policy: '{name}' requires name policy {NAME_POLICY_VERSION}"
+        ));
+    }
+    if field.description.trim().is_empty() || field.version == 0 {
+        return Err(format!(
+            "canonical_field_definition_conflict: '{name}' requires a description and a positive identity version"
+        ));
+    }
+    if field.description.len() > 4096 || words(&field.description).len() < 3 {
+        return Err(format!(
+            "invalid_canonical_description: '{name}' requires a specific description of 3 or more words, at most 4096 bytes"
+        ));
+    }
+    if existing.get(name).is_some_and(|stored| stored != field) {
+        return Err(format!(
+            "canonical_field_conflict: '{name}' already has another definition; reset it explicitly before replacement"
+        ));
+    }
+    for (other_name, other) in existing {
+        if other_name != name && same_description(&other.description, &field.description) {
+            return Err(format!(
+                "canonical_field_reuse_required: '{name}' duplicates '{other_name}'; reuse that concept or describe a distinct subject and property"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+pub(crate) fn same_description(left: &str, right: &str) -> bool {
+    words(left) == words(right)
+}
+
+fn overlap(left: &str, right: &str) -> f32 {
+    let left: BTreeSet<_> = words(left).into_iter().collect();
+    let right: BTreeSet<_> = words(right).into_iter().collect();
+    let union = left.union(&right).count();
+    if union == 0 {
+        return 0.0;
+    }
+    left.intersection(&right).count() as f32 / union as f32
+}
+
+fn different_qualifiers(left: &str, right: &str) -> bool {
+    let left = words(left);
+    let right = words(right);
+    [
+        &["created", "updated", "deleted"][..],
+        &["start", "end"][..],
+        &["source", "target", "destination"][..],
+        &["minimum", "maximum"][..],
+        &["first", "last"][..],
+        &["public", "private"][..],
+        &["latitude", "longitude"][..],
+        &["seconds", "milliseconds", "microseconds"][..],
+        &["bytes", "bits"][..],
+    ]
+    .iter()
+    .any(|qualifiers| {
+        let a: BTreeSet<_> = left
+            .iter()
+            .filter(|word| qualifiers.contains(&word.as_str()))
+            .collect();
+        let b: BTreeSet<_> = right
+            .iter()
+            .filter(|word| qualifiers.contains(&word.as_str()))
+            .collect();
+        !a.is_empty() && !b.is_empty() && a.is_disjoint(&b)
+    })
+}
+
+/// Name overlap of a canonical name close enough to suggest in advice.
+pub(crate) fn name_overlap(name: &str, other_name: &str) -> Option<f32> {
+    if name == other_name || different_qualifiers(name, other_name) {
+        return None;
+    }
+    let score = overlap(name, other_name);
+    (score >= 0.5).then_some(score)
 }

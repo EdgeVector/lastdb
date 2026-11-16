@@ -34,11 +34,10 @@
 .env
 .env.local
 
-# Local agent/tool state (gstack, scratch, embedding cache)
+# Local agent/tool state (gstack, scratch)
 .gstack/
 .agent-scratch/
 .portal-worktree
-.fastembed_cache/
 # A node run from the repo root writes its store to ./data/ (conf, db,
 # blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
 /data/

@@ -111,18 +111,19 @@ string_primitive!(
     "Relative path of at most 512 bytes and eight components. Empty parts, `.`, `..`, a backslash, a drive prefix, and control characters are rejected."
 );
 
-fn lower_hex(value: &str) -> bool {
-    value
-        .bytes()
-        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+pub(crate) fn exact_lower_hex(value: &str, len: usize) -> bool {
+    value.len() == len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn valid_digest(value: &str) -> bool {
-    value.len() == 64 && lower_hex(value)
+    exact_lower_hex(value, 64)
 }
 
 fn valid_account(value: &str) -> bool {
-    value.len() == 32 && lower_hex(value)
+    exact_lower_hex(value, 32)
 }
 
 fn valid_id(value: &str) -> bool {

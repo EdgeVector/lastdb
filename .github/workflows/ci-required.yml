@@ -118,18 +118,10 @@ jobs:
           CLIPPY_FAMILY: ${{ steps.required-clippy-plan.outputs.family }}
           CLIPPY_MODE: ${{ steps.required-clippy-plan.outputs.mode }}
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (${CLIPPY_MODE}:${CLIPPY_FAMILY})" -- ruby scripts/ci/required-clippy-plan.rb --run "$CLIPPY_FAMILY"
-      - name: cargo clippy (schema_service_core functional core)
+      - name: cargo clippy (domain & schema libs)
         env:
           CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (schema_service_core)" -- cargo clippy --locked -p schema_service_core --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
-      - name: cargo clippy (mutation_log functional core)
-        env:
-          CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log)" -- cargo clippy --locked -p mutation_log --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
-      - name: cargo clippy (mutation_log_sync shared-sync step)
-        env:
-          CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (mutation_log_sync)" -- cargo clippy --locked -p mutation_log_sync --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+        run: bash scripts/ci/mini-gate-step.sh "clippy domain & schema libs" -- cargo clippy --locked -p schema_service_core -p mutation_log -p mutation_log_sync --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build
@@ -182,11 +174,6 @@ jobs:
           ulimit -n 8192 || true
           cargo clippy --workspace --lib --bins --locked \
             -- -D warnings
-      - name: cargo clippy the Lambda with schema-infra build features
-        run: |
-          ulimit -n 8192 || true
-          cargo clippy --locked -p schema_service_server_lambda --bins \
-            --features fastembed -- -D warnings
       - name: Build schema_service_server_lambda and verify its seed vocabulary
         run: |
           set -euo pipefail
