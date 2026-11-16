@@ -5,4 +5,4 @@
 export const LASTDB_SDK_API_VERSION = 35;
 
 /** Minimum protocol `api_version` supported by `lastdbd`. */
-export const LASTDB_MIN_SUPPORTED_API_VERSION = 29;
+export const LASTDB_MIN_SUPPORTED_API_VERSION = 35;
