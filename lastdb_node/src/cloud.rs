@@ -8,7 +8,8 @@ pub use enrollment::{
     register_native_device, seed_from_phrase, ConnectedHomeContext, VerifiedHomeCredentials,
 };
 
-use cloud_backup_protocol::{limits::REQUEST_JSON_MAX_BYTES, AccountId, Id};
+use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
+use cloud_backup_protocol::{AccountId, Id};
 use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs::{self, File, Metadata, OpenOptions};
@@ -150,7 +151,7 @@ pub fn load_saved_credentials(home: &Path) -> Result<Option<SavedCredentials>, S
     const LIM_ERR: &str = "native backup credential file exceeds its byte limit";
     let Some(raw) = read_private_named(
         &home.join(CLOUD_CREDENTIALS_FILE),
-        REQUEST_JSON_MAX_BYTES,
+        CONTROL_JSON_MAX_BYTES,
         PRIV_ERR,
         LIM_ERR,
     )?

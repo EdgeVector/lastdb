@@ -11,7 +11,7 @@
 //!
 //! A signed request uses the `LastDBNode` authorization scheme. The token is
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
-//! signature over `NodeReadProof::digest` of the exact HTTP body. The signing
+//! signature over `NodeReadToken::digest` of the exact HTTP body. The signing
 //! key is the node key in that token. It is not the publisher account key.
 //! Data routes call `authorize_request` on the mutation-log paths. Those paths
 //! are the same in DEV and PROD. A native create and a legacy cutover are
@@ -33,7 +33,7 @@ pub use members::{
     AllShareSchemas, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
     MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
-pub use proof::{NodeReadProof, NodeReadToken, ShareEnvironment, ShareHttpMethod};
+pub use proof::{NodeReadToken, ShareEnvironment, ShareHttpMethod};
 
 use crate::primitives::exact_lower_hex;
 use crate::v2::Version;
@@ -236,7 +236,7 @@ impl OpenDatabase {
 /// HTTP target of one signed request, plus the stored signed state if any.
 ///
 /// `path` is the raw request path. The body octets are not here. The caller
-/// hashed those octets with `NodeReadProof::digest` before this call.
+/// hashed those octets with `NodeReadToken::digest` before this call.
 #[derive(Clone, Copy, Debug)]
 pub struct SignedRequestTarget<'a> {
     /// Realm this service is.

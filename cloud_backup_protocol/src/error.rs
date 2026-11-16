@@ -14,10 +14,6 @@ pub enum ErrorCode {
     NotFound,
     /// The account generation does not match.
     GenerationConflict,
-    /// Stream authority does not match the caller's claim.
-    StreamAuthorityConflict,
-    /// The job is already closed.
-    JobClosed,
     /// An identity does not match the frozen input.
     IdentityConflict,
     /// The predecessor head does not match.
@@ -30,10 +26,6 @@ pub enum ErrorCode {
     MissingDependency,
     /// Stored bytes do not match the declared digest.
     IntegrityMismatch,
-    /// The recovery public key does not match the account.
-    RecoveryKeyMismatch,
-    /// The client source is unavailable.
-    SourceUnavailable,
     /// The provider has not finished. This is not a terminal failure.
     ProviderPending,
     /// The provider outcome is not known. This is not a terminal failure.

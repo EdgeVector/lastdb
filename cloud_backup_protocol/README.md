@@ -10,11 +10,11 @@ The active backup and share transport is `src/v2`. The legacy shared HTTP
 routes and their wire module are gone.
 
 `src/v2/share_access` is the shared wire for grants and signed requests.
-`NodeReadProof::digest` binds the database id, the HTTP action, the raw body, and a nonce.
+`NodeReadToken::digest` binds the database id, the HTTP action, the raw body, and a nonce.
 The domain string is `lastdb:share:node-read-authority:v1`.
 A revoked member stays on the signed member list until a later revision sets `regrant`.
 The signing key is the node key. DEV and PROD use the same mutation-log paths.
-`NodeReadProof::digest` hashes the raw body octets and the service realm.
+`NodeReadToken::digest` hashes the raw body octets and the service realm.
 Data routes use `authorize_request` once the database is native or committed.
 Native create is only `POST /api/cloud/backups/v2/mutation-log/create-database`.
 That request authorizes and creates the database in one transaction, with no migration evidence.
@@ -30,7 +30,7 @@ publisher to read or settle entries. The publisher's LastDB checks schema
 write grants after decryption and publishes only committed changes.
 [Requirements to preserve](../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 
-The crate root holds the scalar, recovery and limit types that `src/v2` uses.
+The crate root holds the scalar types and digest helpers that `src/v2` uses.
 Keep completion checks, retained bytes, and unresolved provider obligations until their exact saved state proves release is safe.
 
 Builds, lint, and required benchmarks run in GitHub CI.
