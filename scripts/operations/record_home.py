@@ -16,7 +16,7 @@ from harness import (  # noqa: E402
     HOME_FORMAT, conditioned, marker_format, mutation as native_mutation,
     poll_until, send_unix_request,
 )
-import record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
+import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 from record_runs import (  # noqa: E402
     FIELDS, RANGED, definition, ids, ledger, refused, require, system_seed,
 )
@@ -311,9 +311,11 @@ def main():
         record_runs.check(node)
         record_inline_files.exercise_drop_tracking(node)
         record_inline_files.exercise(node)
+        record_app_api.exercise(node)
         retry = conditioned(node, [mutation("RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"})])[0]
         acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
         record_named_databases.prepare(node, args.cli.resolve(strict=True), output)
+        record_app_api.named_database(node, "work")
         node.stop()
         record_inline_files.exercise_format_refusal(node)
         node.start()

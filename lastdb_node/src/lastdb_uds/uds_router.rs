@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 34;
+pub const API_VERSION: u32 = 35;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 pub const DATABASES_PATH: &str = "/api/databases";
 pub const DATABASE_SCOPE_PREFIX: &str = "/api/databases/";
@@ -150,6 +150,8 @@ pub enum DataRoute {
     DbDeleteBlob,
     BackupSnapshot,
     CloudWake,
+    V1Read,
+    V1Write,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,6 +216,8 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/mutation" => Some(("POST", Mutation)),
         "/api/mutations/batch" => Some(("POST", MutationBatch)),
         "/api/queries/batch" => Some(("POST", QueryBatch)),
+        "/v1/read" => Some(("POST", V1Read)),
+        "/v1/write" => Some(("POST", V1Write)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),
         _ if path

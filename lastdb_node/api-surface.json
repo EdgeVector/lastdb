@@ -1,5 +1,5 @@
 {
-  "api_version": 34,
+  "api_version": 35,
   "min_supported_api_version": 29,
   "capabilities": [
     "atomic_owned_mutations_v1",
@@ -43,7 +43,9 @@
     "/api/system/auto-identity",
     "/api/system/boot-identity",
     "/api/version",
-    "/health"
+    "/health",
+    "/v1/read",
+    "/v1/write"
   ],
   "app_routes": [
     "/api/databases",
