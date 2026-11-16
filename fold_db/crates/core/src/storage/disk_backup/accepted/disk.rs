@@ -43,7 +43,7 @@ pub(super) struct Pending {
     pub(super) notes: Vec<PendingNote>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PendingNote {
     pub(super) sequence: u64,
@@ -60,16 +60,16 @@ pub(super) struct PendingNote {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Meta {
-    version: u16,
-    pub(super) sequence: u64,
-    pub(super) mutation_id: String,
-    pub(super) plaintext_sha256: String,
-    pub(super) envelope_sha256: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) authored_at_ms: Option<u64>,
-    pub(super) file_sha256: Option<String>,
-    pub(super) envelope_bytes: u64,
-    pub(super) file_bytes: u64,
+    pub(super) version: u16,
+    #[serde(flatten)]
+    pub(super) note: PendingNote,
+}
+
+impl std::ops::Deref for Meta {
+    type Target = PendingNote;
+    fn deref(&self) -> &Self::Target {
+        &self.note
+    }
 }
 
 #[derive(Default)]

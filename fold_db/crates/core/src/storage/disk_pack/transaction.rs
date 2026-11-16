@@ -9,9 +9,9 @@ use std::{future::Future, pin::Pin, sync::MutexGuard};
 
 mod scope;
 
-pub(crate) use super::{publication, record_warm};
+pub(crate) use super::record_warm;
 pub use scope::PackReadScope;
-pub(crate) use scope::{after_commit, blocked, scope, scope as request_scope, traits};
+pub(crate) use scope::{after_commit, blocked, publication, scope, traits};
 
 type Coord = (String, String);
 type AfterCommit = Pin<Box<dyn Future<Output = StorageResult<()>> + Send>>;

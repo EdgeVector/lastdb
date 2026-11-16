@@ -17,7 +17,7 @@ use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
 use lastdb_model::hex::hex_lower;
 use lastdb_model::portable_mutation::{Position, Stamp, StreamId, StreamProgress};
-use lastdb_model::record_value::{RecordValueError, MAX_RECORD_BYTES};
+use lastdb_model::record_value::RecordValueError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -75,13 +75,7 @@ fn decode_author(bytes: Option<&[u8]>) -> StorageResult<LocalAuthor> {
 }
 
 pub(in crate::storage::format) fn record_value_error(error: &RecordValueError) -> SchemaError {
-    match *error {
-        RecordValueError::TooLarge { bytes } => SchemaError::RecordTooLarge {
-            size: bytes,
-            limit: MAX_RECORD_BYTES,
-        },
-        _ => schema_inv(format!("the record write is refused: {error}")),
-    }
+    schema_inv(format!("the record write is refused: {error}"))
 }
 
 #[derive(Clone)]

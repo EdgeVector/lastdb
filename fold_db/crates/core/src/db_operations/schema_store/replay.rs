@@ -64,15 +64,8 @@ impl SchemaStore {
         replay: Option<&SchemaReplayDrop<'_>>,
         publish: impl FnOnce() -> Result<(), SchemaError>,
     ) -> Result<bool, SchemaError> {
-        for (kind, prefix) in [
-            (Tracking::Age, retention_age_prefix(schema_name)),
-            (Tracking::Latest, retention_age_latest_prefix(schema_name)),
-            (
-                Tracking::Partition,
-                retention_hash_partition_prefix(schema_name),
-            ),
-        ] {
-            let (start, end) = exact_prefix_bounds(&prefix);
+        for kind in Tracking::ALL {
+            let (start, end) = exact_prefix_bounds(&kind.prefix(schema_name));
             let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), SCHEMA_RELEASE_ROWS);
             while let Some((start, end, asked)) = walk.request() {
                 let res = transaction::scope(self.runtime.clone(), async {

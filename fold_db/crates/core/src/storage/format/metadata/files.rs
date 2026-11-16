@@ -11,11 +11,11 @@ use crate::storage::{error::StorageResult, KvMutation, StorageError};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
-use lastdb_model::hex::{hex_decode_array, hex_lower};
+use lastdb_model::hex::{hex_decode_array, sha256_hex};
 use lastdb_model::record_value::{FileMarker, StoredRecord};
 use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -76,7 +76,7 @@ pub(crate) fn seal_row(
             detail,
         }));
     }
-    let sha256 = hex_lower(Sha256::digest(plain));
+    let sha256 = sha256_hex(plain);
     let (key, nonce) = file_key(content_key, &sha256)?;
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(crypto_err)?;
     let ciphertext = cipher
@@ -126,8 +126,7 @@ pub(crate) fn decrypt_file_row(
     let mismatch = || FoldDbError::SecurityError("record file differs from its marker".into());
     let key = verify_row_key(content_key, marker, row).map_err(|_| mismatch())?;
     let plain = decrypt_envelope(&key, row).map_err(crypto_err)?;
-    let valid = plain.len() as u64 == marker.size_bytes
-        && hex_lower(Sha256::digest(&plain)) == marker.sha256;
+    let valid = plain.len() as u64 == marker.size_bytes && sha256_hex(&plain) == marker.sha256;
     valid.then_some(plain).ok_or_else(mismatch)
 }
 

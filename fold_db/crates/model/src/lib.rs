@@ -9,4 +9,4 @@ pub mod schema;
 
 pub use crate::canonical::hex;
 pub use crate::field_key_codec::{field_key_id, record_replacement, record_space};
-pub use crate::keys::{content_limit, kind_partition, limits, storage_policy};
+pub use crate::keys::{content_limit, kind_partition, storage_policy};

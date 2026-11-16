@@ -8,7 +8,7 @@ pub(crate) mod format;
 pub(crate) mod local_file_ref;
 
 pub(crate) use disk_pack::transaction::traits::KvMutation;
-pub use error::{config, config::DatabaseConfig, StorageError};
+pub use error::{config, StorageError};
 pub(crate) use format::{content_key_proof, current_keys};
 
 pub(crate) mod bind {

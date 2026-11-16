@@ -102,11 +102,6 @@ pub mod catalog_types {
         pub fn new(schema: DeclarativeSchemaDefinition, state: SchemaState) -> Self {
             Self { schema, state }
         }
-
-        #[must_use]
-        pub fn name(&self) -> &str {
-            &self.schema.name
-        }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

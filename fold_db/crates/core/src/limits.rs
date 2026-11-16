@@ -146,7 +146,7 @@ pub mod manifest_retention {
         OperatorOverride,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ManifestRetentionPlan {
         pub anchor: String,
         pub current: Option<SchemaRetentionPolicy>,
@@ -155,12 +155,10 @@ pub mod manifest_retention {
         pub shortened: bool,
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ManifestRetentionOutcome {
         pub anchor: String,
         pub status: ManifestRetentionStatus,
-        pub previous: Option<SchemaRetentionPolicy>,
         pub effective: SchemaRetentionPolicy,
-        pub shortened: bool,
     }
 }

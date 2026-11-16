@@ -7,7 +7,7 @@ pub(crate) use super::{
     RETENTION_POLICY_KEY_PREFIX,
 };
 pub(crate) use retention::{
-    retention_age_key, retention_age_latest_key, retention_age_latest_prefix, retention_age_prefix,
+    retention_age_key, retention_age_latest_key, retention_age_prefix,
     retention_hash_partition_prefix, retention_policy_key, SchemaRetentionAgeEntry,
     SchemaRetentionHashPartition, StateChange, StateDelete, StateKey, Tracking,
 };
@@ -51,7 +51,6 @@ use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
 use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -108,10 +107,6 @@ pub(crate) fn release_families(schema: &Schema) -> Result<Vec<ReleaseFamily>, Sc
         });
     }
     Ok(out)
-}
-
-pub(crate) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
-    serde_json::from_slice::<T>(bytes).map_err(|e| e.to_string())
 }
 
 pub(crate) struct SchemaInput<'a> {

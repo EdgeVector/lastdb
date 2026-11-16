@@ -2,9 +2,8 @@
 
 use super::{read_err, Metadata};
 use crate::schema::SchemaError;
-use lastdb_model::hex::hex_lower;
+use lastdb_model::hex::sha256_hex;
 use lastdb_model::portable_mutation::Stamp;
-use sha2::{Digest, Sha256};
 
 type SharedRecordWrite<'a> = (&'a str, Option<(&'a Stamp, &'a str)>);
 
@@ -16,7 +15,7 @@ pub(crate) struct SharedCommentWrite<'a> {
 }
 
 fn key(prefix: &str, address: &str) -> String {
-    format!("{prefix}:{}", hex_lower(Sha256::digest(address)))
+    format!("{prefix}:{}", sha256_hex(address))
 }
 
 fn at_revision(bytes: &[u8], revision: &str) -> Result<Option<String>, SchemaError> {

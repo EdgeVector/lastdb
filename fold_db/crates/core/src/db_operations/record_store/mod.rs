@@ -20,13 +20,13 @@ use crate::storage::format::{
     read::ReadStore,
     records::{self as format, RecordAddress, RecordFormat},
 };
-use futures::{future::BoxFuture, FutureExt};
 use lastdb_model::{
     field_key_codec::FieldKeyCodec,
     record_space::{record_hash_prefix, record_space_uuid},
     record_value::StoredRecord,
 };
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 pub use crate::db_operations::WriterWatch;
@@ -115,15 +115,11 @@ impl RecordStore {
         &self.main_store
     }
 
-    pub async fn flush(&self) -> Result<(), StorageError> {
-        self.format.flush().await
-    }
-
     pub(crate) fn in_write_scope<'a, T: Send + 'a>(
         &'a self,
         work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
-    ) -> BoxFuture<'a, Result<T, SchemaError>> {
-        transaction::scope(self.runtime.clone(), work).boxed()
+    ) -> Pin<Box<dyn Future<Output = Result<T, SchemaError>> + Send + 'a>> {
+        Box::pin(transaction::scope(self.runtime.clone(), work))
     }
 
     pub(super) async fn record_read_scope<T>(
@@ -233,47 +229,44 @@ impl RecordStore {
         &self,
         keys: &[K],
     ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
-        self.record_read_scope(
-            async move {
-                let mut warm = self
-                    .runtime
-                    .warm_records(keys)
+        self.record_read_scope(Box::pin(async move {
+            let mut warm = self
+                .runtime
+                .warm_records(keys)
+                .map_err(|e| invalid(format!("read records: {e}")))?;
+            let mut out = match &mut warm {
+                Some(r) => r.take_found(),
+                None => vec![None; keys.len()],
+            };
+            let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
+            let mut admitted = Vec::new();
+            for chunk in misses.chunks(10_000) {
+                let req = chunk
+                    .iter()
+                    .map(|&at| keys[at].as_ref().as_bytes().to_vec())
+                    .collect();
+                let rows = self
+                    .main_store
+                    .get_many(req)
+                    .await
                     .map_err(|e| invalid(format!("read records: {e}")))?;
-                let mut out = match &mut warm {
-                    Some(r) => r.take_found(),
-                    None => vec![None; keys.len()],
-                };
-                let misses: Vec<usize> = (0..keys.len()).filter(|&at| out[at].is_none()).collect();
-                let mut admitted = Vec::new();
-                for chunk in misses.chunks(10_000) {
-                    let req = chunk
-                        .iter()
-                        .map(|&at| keys[at].as_ref().as_bytes().to_vec())
-                        .collect();
-                    let rows = self
-                        .main_store
-                        .get_many(req)
-                        .await
-                        .map_err(|e| invalid(format!("read records: {e}")))?;
-                    if rows.len() != chunk.len() {
-                        return Err(invalid("the record read batch is incomplete"));
-                    }
-                    for (&at, row) in chunk.iter().zip(rows) {
-                        let Some(bytes) = row else { continue };
-                        let record = Arc::new(reads::decode(&bytes)?);
-                        if warm.is_some() {
-                            admitted.push((at, Arc::clone(&record), bytes.len()));
-                        }
-                        out[at] = Some(record);
-                    }
+                if rows.len() != chunk.len() {
+                    return Err(invalid("the record read batch is incomplete"));
                 }
-                if let Some(read) = &warm {
-                    self.runtime.admit_read_records(read, admitted);
+                for (&at, row) in chunk.iter().zip(rows) {
+                    let Some(bytes) = row else { continue };
+                    let record = Arc::new(reads::decode(&bytes)?);
+                    if warm.is_some() {
+                        admitted.push((at, Arc::clone(&record), bytes.len()));
+                    }
+                    out[at] = Some(record);
                 }
-                Ok(out)
             }
-            .boxed(),
-        )
+            if let Some(read) = &warm {
+                self.runtime.admit_read_records(read, admitted);
+            }
+            Ok(out)
+        }))
         .await
     }
 

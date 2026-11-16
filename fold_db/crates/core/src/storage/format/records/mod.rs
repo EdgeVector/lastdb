@@ -82,10 +82,6 @@ impl RecordFormat {
         self.issuer.admit_local(file)
     }
 
-    pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.runtime.flush().await
-    }
-
     pub(crate) async fn applied_deletes(
         &self,
         keys: &[&RecordAddress],

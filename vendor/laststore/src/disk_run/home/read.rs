@@ -1,13 +1,9 @@
 //! Published roots, file-handle snapshots, stopped-home readers, and point reads.
 
-use super::manifest::{Manifest, RunFile};
-use super::{
-    invalid, open_nofollow, read_descriptor, require_path, run_key, RunHome, CURRENT, LOCK, RUNS,
-    RUN_HOME_MARKER,
-};
+use super::manifest::{Manifest, RunFile, CURRENT};
+use super::{invalid, lock_and_load, open_nofollow, run_key, RunHome, RUNS, RUN_HOME_MARKER};
 use crate::disk_run::{Found, MetadataMemo, RunReader};
 use crate::{Error, Result};
-use rustix::fs::FlockOperation;
 use std::fs::File;
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -184,35 +180,8 @@ impl RunRead {
 
     /// Open one existing CURRENT without the cleanup performed by `RunHome::open`.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
-        let root = root.canonicalize()?;
-        let lock = open_nofollow(&root.join(LOCK))?;
-        if !lock.metadata()?.is_file() {
-            return Err(invalid("disk run snapshot: LOCK is not a file"));
-        }
-        match rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => require_path(&root, &lock)?,
-            Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
-                return Err(Error::HomeBusy(
-                    "disk run snapshot: another owner holds the home".into(),
-                ))
-            }
-            Err(e) => return Err(std::io::Error::from(e).into()),
-        }
-        let id = read_descriptor(&root.join(RUN_HOME_MARKER))?;
-        let manifest = Arc::new(Manifest::load(&root, key, id)?);
-        Self::build(manifest, *key, Arc::new(lock), budget)
-    }
-
-    /// Bytes retained by this call's manifest, reader slots and opened metadata.
-    pub fn retained_bytes(&self) -> u64 {
-        self.manifest.retained_bytes()
-            + self.metadata.retained_bytes
-            + (self.runs.capacity() * size_of::<ReadSlot>()) as u64
-    }
-
-    /// Generation of the held CURRENT.
-    pub fn generation(&self) -> u64 {
-        self.manifest.generation
+        let (_, _, lock, manifest) = lock_and_load(root, key, false)?;
+        Self::build(Arc::new(manifest), *key, Arc::new(lock), budget)
     }
 
     /// Complete commits in the held CURRENT.

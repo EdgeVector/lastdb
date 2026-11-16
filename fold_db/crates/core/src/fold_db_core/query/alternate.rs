@@ -5,7 +5,7 @@ use crate::alternate_keys::{self, AlternateEntry};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::operations::SortOrder;
 use crate::schema::types::{Query, QueryCursor, Schema, SchemaError};
-use sha2::{Digest, Sha256};
+use lastdb_model::hex::sha256_hex;
 
 impl QueryExecutor {
     pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
@@ -76,13 +76,9 @@ impl QueryExecutor {
             &name,
             &filter,
         );
-        let comparison = format!(
-            "ak2:{:x}",
-            Sha256::digest(
-                serde_json::to_vec(&spec)
-                    .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
-            )
-        );
+        let spec_bytes = serde_json::to_vec(&spec)
+            .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?;
+        let comparison = format!("ak2:{}", sha256_hex(spec_bytes));
         let after = parse_alternate_cursor(cursor, &comparison)?;
         let mut entries = self
             .db_ops

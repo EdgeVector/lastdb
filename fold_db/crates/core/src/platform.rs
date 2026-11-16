@@ -23,7 +23,7 @@ pub mod clock {
         u64::try_from(since_epoch().as_millis()).unwrap_or(u64::MAX)
     }
 
-    pub fn unix_nanos() -> u64 {
+    pub(crate) fn unix_nanos() -> u64 {
         u64::try_from(since_epoch().as_nanos()).unwrap_or(u64::MAX)
     }
 

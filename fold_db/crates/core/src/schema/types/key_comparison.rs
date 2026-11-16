@@ -1,11 +1,11 @@
 //! Explicit fallible key comparison, canonical range/filter codecs, and cursor bindings.
 
+use lastdb_model::hex::sha256_hex;
 use lastdb_model::schema::types::field::{HashRangeFilter, KeyWindow};
 use lastdb_model::schema::types::schema::DeclarativeSchemaType;
 use lastdb_model::schema::types::{FieldValueType, KeyValue, Schema, SchemaError};
 use schema_types::field_range_profile::FieldRangeProfile;
 pub use schema_types::key_comparison::RangeKeyComparison;
-use sha2::{Digest, Sha256};
 use std::{cmp::Ordering, future::Future, sync::Arc};
 
 tokio::task_local! {
@@ -53,7 +53,7 @@ impl KeyComparisonContext {
             owner_app_id: schema.owner_app_id.clone(),
             schema_type: schema.schema_type.clone(),
             record_keys: keys.clone(),
-            identity: format!("kc1:{:x}", Sha256::digest(bytes)),
+            identity: format!("kc1:{}", sha256_hex(bytes)),
             range,
             profile,
         })
@@ -89,7 +89,7 @@ impl KeyComparisonContext {
         let bytes = serde_json::to_vec(&(&self.identity, request)).map_err(|_| {
             SchemaError::InvalidData("cannot encode cursor comparison context".into())
         })?;
-        Ok(format!("qc1:{:x}", Sha256::digest(bytes)))
+        Ok(format!("qc1:{}", sha256_hex(bytes)))
     }
 
     pub async fn run<T, E: From<SchemaError>>(

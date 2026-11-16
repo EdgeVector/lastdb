@@ -4,7 +4,7 @@ use super::disk::Note;
 use crate::crypto::envelope::encrypt_envelope;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::storage::error::{StorageError, StorageResult};
-use lastdb_model::hex::hex_lower;
+use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::record_value::{FileMarker, InlineFile};
 use serde::Serialize;
 use serde_json::Value;
@@ -38,7 +38,7 @@ pub(super) struct Body<'a> {
     contribution: Option<ContributionSection<'a>>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub(super) struct FileSection<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     content_sha256: Option<&'a str>,
@@ -53,7 +53,7 @@ pub(super) struct FileSection<'a> {
     cleared: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub(super) struct InlineSection<'a> {
     cleared: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,7 +62,7 @@ pub(super) struct InlineSection<'a> {
     data: Option<&'a str>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub(super) struct ContributionSection<'a> {
     definition_id: &'a str,
     writer: &'a str,
@@ -86,10 +86,6 @@ pub(super) fn schema_id(name: &str, tag: &str) -> String {
     hasher.update([0]);
     hasher.update(tag.as_bytes());
     format!("s{}", &hex_lower(hasher.finalize())[..40])
-}
-
-pub(super) fn sha256_hex(bytes: &[u8]) -> String {
-    hex_lower(Sha256::digest(bytes))
 }
 
 pub(super) fn action_name(kind: MutationType) -> &'static str {
@@ -123,7 +119,7 @@ pub(super) struct RecordParts<'a> {
     pub contribution: Option<ContributionSection<'a>>,
 }
 
-pub(super) fn seal(content_key: &[u8; 32], body: &impl Serialize) -> StorageResult<Note> {
+pub(super) fn seal(content_key: &[u8; 32], body: &Body<'_>) -> StorageResult<Note> {
     let plain = cloud_backup_protocol::v2::hash::canonical_bytes(body)
         .map_err(|_| StorageError::SerializationError("accepted body is not canonical".into()))?;
     if plain.len() > BODY_MAX {
@@ -134,9 +130,13 @@ pub(super) fn seal(content_key: &[u8; 32], body: &impl Serialize) -> StorageResu
     let plaintext_sha256 = sha256_hex(&plain);
     let envelope = encrypt_envelope(content_key, &plain)
         .map_err(|_| StorageError::EncryptionError("accepted envelope seal failed".into()))?;
-    let mutation_id = mutation_id_of(body)?;
+    if !mutation_id_ok(body.mutation_id) {
+        return Err(StorageError::InvalidOperation(
+            "accepted mutation id is not a durable name".into(),
+        ));
+    }
     Ok(Note {
-        mutation_id,
+        mutation_id: body.mutation_id.to_owned(),
         plaintext_sha256,
         envelope,
         authored_at_ms: None,
@@ -184,19 +184,6 @@ pub(super) fn inline_clear() -> InlineSection<'static> {
     }
 }
 
-fn mutation_id_of(body: &impl Serialize) -> StorageResult<String> {
-    let value = serde_json::to_value(body)
-        .map_err(|_| StorageError::SerializationError("accepted body is not canonical".into()))?;
-    value
-        .get("mutation_id")
-        .and_then(Value::as_str)
-        .filter(|id| mutation_id_ok(id))
-        .map(str::to_string)
-        .ok_or_else(|| {
-            StorageError::InvalidOperation("accepted mutation id is not a durable name".into())
-        })
-}
-
 pub(super) fn record_body<'a>(mutation: &'a Mutation, parts: &'a RecordParts<'a>) -> Body<'a> {
     Body {
         version: 1,
@@ -207,40 +194,11 @@ pub(super) fn record_body<'a>(mutation: &'a Mutation, parts: &'a RecordParts<'a>
         key: Some(&mutation.key_value),
         fields: Some(&parts.fields),
         alternates: Some(&mutation.alternates),
-        file: parts.file.as_ref().map(file_ref),
-        inline_file: parts.inline_file.as_ref().map(inline_ref),
+        file: parts.file,
+        inline_file: parts.inline_file,
         definition_id: parts.definition_id,
         definition: None,
-        contribution: parts.contribution.as_ref().map(contribution_ref),
-    }
-}
-
-fn file_ref<'a>(section: &'a FileSection<'a>) -> FileSection<'a> {
-    FileSection {
-        content_sha256: section.content_sha256,
-        sealed_sha256: section.sealed_sha256,
-        size: section.size,
-        name: section.name,
-        media_type: section.media_type,
-        cleared: section.cleared,
-    }
-}
-
-fn inline_ref<'a>(section: &'a InlineSection<'a>) -> InlineSection<'a> {
-    InlineSection {
-        cleared: section.cleared,
-        marker: section.marker,
-        data: section.data,
-    }
-}
-
-fn contribution_ref<'a>(section: &'a ContributionSection<'a>) -> ContributionSection<'a> {
-    ContributionSection {
-        definition_id: section.definition_id,
-        writer: section.writer,
-        receipt_sha256: section.receipt_sha256,
-        intent_sha256: section.intent_sha256,
-        schema_scope: section.schema_scope,
+        contribution: parts.contribution,
     }
 }
 

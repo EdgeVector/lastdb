@@ -84,7 +84,7 @@ impl MutationManager {
             return Ok(());
         }
         let runtime = self.db_ops.native_runtime();
-        transaction::request_scope(Arc::clone(&runtime), async {
+        transaction::scope(Arc::clone(&runtime), async {
             let mut addresses = Vec::with_capacity(items.len());
             for (schema, key, _, _) in items {
                 let address = match key {
@@ -188,13 +188,7 @@ impl MutationManager {
         key: &KeyValue,
     ) -> Result<String, SchemaError> {
         let schema = self.schema_manager.require_schema_metadata(schema)?;
-        let profile = schema
-            .require_record_keys()?
-            .primary
-            .range_profile()
-            .map_err(SchemaError::InvalidData)?;
-        let mut key = key.clone();
-        crate::schema::types::key_comparison::canonical_key(profile, &mut key)?;
+        let key = Self::canonical_primary_key(&schema, key)?;
         self.db_ops.records().record_key(&schema, &key)
     }
 

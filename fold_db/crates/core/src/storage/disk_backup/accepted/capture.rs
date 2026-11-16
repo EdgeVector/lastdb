@@ -5,7 +5,7 @@ use super::disk::Note;
 use crate::schema::types::{FileWrite, LocalFileReference, Mutation, Schema};
 use crate::storage::disk_pack::{self, transaction, PackRuntime};
 use crate::storage::error::{StorageError, StorageResult};
-use lastdb_model::hex::hex_lower;
+use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::record_value::{FileMarker, InlineWrite};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -162,7 +162,7 @@ fn owned_row<'a>(
     crate::storage::format::records::require_row(content_key, marker, row)
         .map_err(|_| invalid("accepted file row does not match its marker"))?;
     let row = row.to_vec();
-    let sealed = body::sha256_hex(&row);
+    let sealed = sha256_hex(&row);
     Ok(External {
         present: true,
         cleared: false,

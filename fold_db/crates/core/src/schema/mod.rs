@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 pub use crate::limits::manifest_retention::{
-    self, ManifestRetention, ManifestRetentionOutcome, ManifestRetentionPlan,
-    ManifestRetentionStatus,
+    self, ManifestRetention, ManifestRetentionPlan, ManifestRetentionStatus,
 };
 pub use crate::schema::types::catalog_types::{
     RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
@@ -17,12 +16,15 @@ pub use crate::schema::types::catalog_types::{
 pub use crate::schema::types::{Schema, SchemaError};
 pub use lastdb_model::schema::logical_rules::{require_logical_filter, require_logical_layout};
 
-pub mod mutation_author {
+pub(crate) mod mutation_author {
     use crate::crypto::security::{Ed25519KeyPair, KeyUtils};
     use crate::schema::types::{author_clock::mutation_author_canonical_bytes, Mutation};
 
     #[must_use]
-    pub fn sign_mutation_author_clock(mutation: &Mutation, keypair: &Ed25519KeyPair) -> String {
+    pub(crate) fn sign_mutation_author_clock(
+        mutation: &Mutation,
+        keypair: &Ed25519KeyPair,
+    ) -> String {
         KeyUtils::signature_to_base64(&keypair.sign(&mutation_author_canonical_bytes(mutation)))
     }
 }
@@ -105,7 +107,7 @@ impl SchemaCore {
             .collect())
     }
 
-    pub fn is_schema_blocked(&self, schema_name: &str) -> Result<bool, SchemaError> {
+    pub(crate) fn is_schema_blocked(&self, schema_name: &str) -> Result<bool, SchemaError> {
         if let Some(s) = publication::get::<CachedSchema>(
             &self.db_ops.native_runtime(),
             self.catalog_id(),
@@ -122,7 +124,7 @@ impl SchemaCore {
             == SchemaState::Blocked)
     }
 
-    pub fn schema_and_state(
+    pub(crate) fn schema_and_state(
         &self,
         schema_name: &str,
     ) -> Result<Option<(Schema, SchemaState)>, SchemaError> {

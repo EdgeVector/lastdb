@@ -6,6 +6,7 @@ use crate::storage::disk_pack::transaction::{self, traits::YieldedScan};
 use crate::storage::disk_pack::{
     run_blocking, PackKvStore, PackRuntime, StorageError, StorageResult,
 };
+use lastdb_model::schema::types::field::FilterUtils;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
@@ -21,19 +22,6 @@ fn decode_json_rows<T: DeserializeOwned>(rows: KvRows) -> JsonRows<T> {
             parse_json(&key, &v).map(|val| (key, val))
         })
         .collect()
-}
-
-fn prefix_end(prefix: &str) -> Vec<u8> {
-    let bump = |(idx, ch): (usize, char)| {
-        let next = u32::from(ch) + 1;
-        char::from_u32(if next == 0xd800 { 0xe000 } else { next })
-            .map(|c| format!("{}{c}", &prefix[..idx]).into_bytes())
-    };
-    prefix
-        .char_indices()
-        .rev()
-        .find_map(bump)
-        .unwrap_or_else(|| vec![255])
 }
 
 fn utf8_non_b64<'a>(
@@ -86,7 +74,9 @@ impl PackKvStore {
             "reserved native ids require exact-key reads",
         )?;
         let err = Some("native prefix result requires a bounded continuation");
-        self.bounded_rows(start.as_bytes().to_vec(), prefix_end(start), 10_000, err)
+        let end =
+            FilterUtils::create_prefix_end(start).map_or_else(|_| vec![255], String::into_bytes);
+        self.bounded_rows(start.as_bytes().to_vec(), end, 10_000, err)
             .await
     }
 

@@ -11,11 +11,11 @@ use crate::schema::types::{field::HashRangeFilter, KeyValue, SchemaError};
 use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
+use lastdb_model::hex::sha256_hex;
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::MAX_RECORD_BYTES;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 pub const HOME_FORMAT: u32 = 15;
 pub const RECORD_NODE_BYTES: &[u8] = b"format=15\nhome=disk-run\ncas=disk-cas\n";
@@ -126,7 +126,7 @@ impl AlternateAddress {
     ) -> Result<Self, SchemaError> {
         let prefix = alternate_range_key(codec, field_key, key)?;
         Ok(Self {
-            encoded: format!("{prefix}\0{:x}", Sha256::digest(primary.encoded.as_bytes())),
+            encoded: format!("{prefix}\0{}", sha256_hex(&primary.encoded)),
         })
     }
 

@@ -5,10 +5,7 @@ use sha2::Sha256;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
-pub use at_rest::{seal_at_rest_raw, AT_REST_ENC_BINARY_PREFIX};
-pub use envelope::{
-    decrypt_envelope, decrypt_envelope_with_aad, encrypt_envelope, encrypt_envelope_with_aad,
-};
+pub use envelope::decrypt_envelope;
 
 #[derive(Debug, Error)]
 pub enum CryptoError {
@@ -176,9 +173,9 @@ pub mod at_rest {
 }
 
 pub mod security {
+    use aes_gcm::aead::OsRng;
     use base64::{engine::general_purpose, Engine as _};
     use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-    use rand::rngs::OsRng;
     use thiserror::Error;
 
     #[derive(Error, Debug)]

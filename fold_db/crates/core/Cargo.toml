@@ -25,14 +25,11 @@ cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
 # Core utilities
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-rand = { workspace = true }
-tempfile = { workspace = true }
 tracing = { workspace = true }
 
 # Async runtime
 # `rt` is required by `tokio::task::spawn_blocking` (CPU-bound work off the reactor).
 tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt"] }
-futures = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
