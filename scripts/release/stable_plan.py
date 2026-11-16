@@ -22,10 +22,14 @@ APPS = ("brain", "lastsecrets", "search")
 HOUR = 3600
 
 
-def app_sources():
-    from stable_app_publish import catalog
+def surface():
     # ci-required keeps this file equal to the Rust constants (scripts/lints/api_surface.py).
-    api_version = json.loads(Path("lastdb_node/api-surface.json").read_text())["api_version"]
+    return json.loads(Path("lastdb_node/api-surface.json").read_text())
+
+
+def listed_apps(api_version):
+    """The newest listed commit of each app in the signed stable list for one API version."""
+    from stable_app_publish import catalog
     outbox = re.search(r"pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = ([0-9]+);",
                        Path("lastdb_node/src/version.rs").read_text())
     if outbox is None:
@@ -41,8 +45,26 @@ def app_sources():
         entries = [row for row in listing["apps"] if row.get("app_id") == app and row.get("status") == "listed"
                    and row.get("source") == f"https://github.com/EdgeVector/{app}.git"
                    and row.get("outbox_format_version") in (None, int(outbox[1]))]
-        result[app] = (max(entries, key=lambda row: row["published_at"])["sha"] if entries
-                       else api(f"repos/EdgeVector/{app}/commits/main")["sha"])
+        if entries:
+            result[app] = max(entries, key=lambda row: row["published_at"])["sha"]
+    return result
+
+
+def app_sources():
+    listed = listed_apps(surface()["api_version"])
+    return {app: listed.get(app) or api(f"repos/EdgeVector/{app}/commits/main")["sha"] for app in APPS}
+
+
+def installed_app_sources(current):
+    """App commits that users can still have installed: every complete signed
+    list from MIN_SUPPORTED_API_VERSION up to API_VERSION that differs from
+    the apps this run already proves."""
+    versions = surface()
+    result = {}
+    for api_version in range(versions["min_supported_api_version"], versions["api_version"] + 1):
+        listed = listed_apps(api_version)
+        if len(listed) == len(APPS) and listed != current and listed not in result.values():
+            result[str(api_version)] = listed
     return result
 
 
@@ -89,6 +111,8 @@ def make(output):
             "epoch": int(_capture(["git", "show", "-s", "--format=%ct", source])),
             "run_url": f"https://github.com/EdgeVector/lastdb/actions/runs/{os.environ['GITHUB_RUN_ID']}",
             "apps": app_sources()}
+    # A PR build must still serve the apps that the supported API range lists.
+    plan["installed_apps"] = {} if publish else installed_app_sources(plan["apps"])
     marker = f"<!-- lastdb-stable:v1 source={source} "
     rows = api(f"repos/{TAP}/releases?per_page=100")
     skip = publish and any(not row["draft"] and not row["prerelease"]
@@ -136,6 +160,31 @@ def prove_compatibility(plan_path, bundles, output):
         apps = prove(node, plan, output)
     finally:
         node.close()
+    installed = {}
+    for api_version, sources in plan.get("installed_apps", {}).items():
+        # A fresh generated home for each older list: the real app commits
+        # that users installed run their own operations against this build.
+        older = output / f"api-{api_version}"
+        older.mkdir()
+        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older,
+                         plan["version"], enable_search=True)
+        try:
+            unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
+            operations(node)
+            installed[api_version] = prove(node, {**plan, "apps": sources}, older, declare=False)
+        except Exception as error:
+            raise RuntimeError(
+                f"The apps in the signed stable list for API {api_version} do not work against this "
+                f"build ({error}). Keep the socket interface compatible, or raise "
+                "MIN_SUPPORTED_API_VERSION in lastdb_node/src/version.rs above "
+                f"{api_version} and run python3 scripts/lints/api_surface.py --write.") from error
+        finally:
+            node.close()
+    write_json(output / "installed-app-compatibility.json", {
+        "schema": "lastdb.installed.app.compatibility.v1", "source": plan["source"],
+        "run_url": plan["run_url"], "api_version": observed["api_version"],
+        "min_supported_api_version": observed.get("min_supported_api_version"),
+        "lists": installed, "complete": True})
     write_json(output / "app-compatibility.json", {
         "schema": "lastdb.app.compatibility.proof.v1", "source": plan["source"],
         "run_url": plan["run_url"], "lastdb_source": plan["source"], "lastdb_build": plan["version"],

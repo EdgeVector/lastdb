@@ -20,6 +20,10 @@ on:
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/**'
+      # A socket surface or interface version change: prove that the apps in
+      # every supported signed list still operate against the PR build.
+      - 'lastdb_node/api-surface.json'
+      - 'lastdb_node/src/version.rs'
 
 permissions:
   contents: read
@@ -224,8 +228,10 @@ jobs:
           name: stable-app-compatibility-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/app-compatibility/app-compatibility.json
+            ${{ runner.temp }}/app-compatibility/installed-app-compatibility.json
             ${{ runner.temp }}/app-compatibility/*.declaration.json
             ${{ runner.temp }}/app-compatibility/*.log
+            ${{ runner.temp }}/app-compatibility/api-*/*.log
           if-no-files-found: error
           retention-days: 14
 
