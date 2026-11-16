@@ -167,15 +167,26 @@ def resume_instruction(run_id, number):
             f"-f mode=resume-cleanup -f original_run_id={run_id} -f original_run_attempt={number}")
 
 
-def _status(attempt, token):
+def _request_prior_attempt(action, attempt, token):
     for _ in range(3):
-        status, reply = _broker("status", attempt.identity(), token=token)
+        status, reply = _broker(action, attempt.identity(), token=token)
         if status != 503:
             break
         time.sleep(2)
+    return status, reply
+
+
+def _reconcile_prior_attempt(attempt, token):
+    operation = "status"
+    status, reply = _request_prior_attempt(operation, attempt, token)
     if status == 404 and reply == ATTEMPT_MISSING:
-        return None
-    _require_success(status, reply, "status")
+        # Status only observes absence. Retirement verifies the terminal attempt
+        # and seals it against a late provision before reporting no account.
+        operation = "retire"
+        status, reply = _request_prior_attempt(operation, attempt, token)
+        if status == 404 and reply == ATTEMPT_MISSING:
+            return None
+    _require_success(status, reply, operation)
     scope, phase, _wait, _released = _progress(reply, attempt, historical=True)
     return scope, phase
 
@@ -189,9 +200,13 @@ def require_prior_retired(attempt, summary):
     require(token is not None, "snapshot_attempt_oidc_service")
     prior = [RunAttempt(attempt.run_id, str(i)) for i in range(1, number)]
     with ThreadPoolExecutor(max_workers=STATUS_WORKERS) as pool:
-        states = list(pool.map(lambda previous: _status(previous, token), prior))
-    pending = [(previous, state[0][1]) for previous, state in zip(prior, states, strict=True)
-               if state is not None and state[1] != "complete"]
+        states = list(pool.map(lambda previous: _reconcile_prior_attempt(previous, token), prior))
+    pending = []
+    for previous, state in zip(prior, states, strict=True):
+        if state is None:
+            summary(f"Sealed prior snapshot run {previous.run_id} attempt {previous.attempt} without an account.")
+        elif state[1] != "complete":
+            pending.append((previous, state[0][1]))
     for previous, database in pending:
         summary(f"Earlier snapshot attempt owns an unretired database {database}. Finish cleanup before retrying:")
         summary(resume_instruction(previous.run_id, previous.attempt))
