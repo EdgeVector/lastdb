@@ -15,7 +15,6 @@ sys.dont_write_bytecode = True
 from lastdb import LastDB, SocialError
 from app import SocialApp
 from people import People
-from server import choose_database, run_server
 from sharing import Sharing, read_invitation
 
 
@@ -62,11 +61,6 @@ def parser():
     actions.add_parser("declare", help="Declare the private Person schema")
     actions.add_parser("show-records", help="List private contacts without their contact codes")
     actions.add_parser("check", help="Check the running LastDB for Social compatibility")
-    launch = actions.add_parser("open", help="Open Social's local browser interface")
-    launch.add_argument("--no-browser", action="store_true")
-    launch_target = launch.add_mutually_exclusive_group()
-    launch_target.add_argument("--database")
-    launch_target.add_argument("--sharing-request", help="Review a saved app sharing request")
     actions.add_parser("list-circles", help="List reusable circle IDs and names")
     actions.add_parser("request-sharing", help="Save a JSON declaration from stdin for owner review")
     status = actions.add_parser("sharing-status", help="Read the status of a saved app request")
@@ -83,7 +77,6 @@ def parser():
     selection = pick.add_mutually_exclusive_group()
     selection.add_argument("--database")
     selection.add_argument("--cancel", action="store_true")
-    selection.add_argument("--choose", action="store_true", help="Ask the user to select a database in the browser")
     create = actions.add_parser("create-db", help="Create a named shareable database")
     create.add_argument("--whole-database", action="store_true",
                         help="Share all schemas with circle-based write grants")
@@ -155,8 +148,6 @@ def run(args, node):
         spec = {"name": args.spec, "version": args.version}
         if args.cancel:
             return None
-        if args.choose:
-            return choose_database(node, spec, args.intent)
         if args.session:
             if not args.database:
                 raise SocialError("--session requires an explicit database selection")
@@ -188,9 +179,6 @@ def main():
     try:
         args = parser().parse_args()
         node = resolve_node(args)
-        if args.action == "open":
-            run_server(node, not args.no_browser, args.database, args.sharing_request)
-            return 0
         result = run(args, node)
         print(json.dumps(result, sort_keys=True))
     except (SocialError, OSError, HTTPException, subprocess.SubprocessError, ValueError, KeyError) as error:

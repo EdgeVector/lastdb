@@ -147,20 +147,6 @@
       "owner_app_id": "social-graph"
     },
     {
-      "name": "SharingRequestIndexProgress",
-      "descriptive_name": "Sharing request index progress",
-      "purpose_statement": "Saved progress for importing the previous Social request records.",
-      "schema_type": "Hash",
-      "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
-      "fields": ["cursor", "complete"],
-      "field_types": { "cursor": "String", "complete": "Boolean" },
-      "field_descriptions": {
-        "cursor": "LastDB key-list continuation for the next import page.",
-        "complete": "Whether Social has indexed all saved proposals from before the upgrade."
-      },
-      "owner_app_id": "social-graph"
-    },
-    {
       "name": "DatabaseSetup",
       "descriptive_name": "Database setup",
       "purpose_statement": "Progress for a database provisioned from a named Social setup.",

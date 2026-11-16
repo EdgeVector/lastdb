@@ -98,14 +98,6 @@ class SocialApp:
             result.update(circles=self.circles.describe(database_id), schemas=self.circles.schemas(database_id))
         return result
 
-    def set_circles(self, args):
-        database = self.selected(args["databaseId"])
-        if database.get("sharingMode") != "whole_database" or not can_manage_sharing(database):
-            raise SocialError("circles require an owned whole-database share")
-        with self.circles.lock():
-            return self.circles.set(database["id"], args["expectedRevision"], args["circles"],
-                                    args.get("restore", []))
-
     def circle_invitation(self, args):
         database = self.selected(args["databaseId"])
         if database.get("sharingMode") != "whole_database" or not can_manage_sharing(database):

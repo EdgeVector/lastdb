@@ -29,14 +29,8 @@ class ReusableCircles:
         definition = self.node.declare_private("CircleDirectory")
         record = self.node.get_record(SCHEMA, KEY)
         data = json.loads(record["fields"]["directory"]) if record else {"circles": []}
-        # Older versions require the legacy key before any edit or replay.
-        # Saving only pendingDatabases prevents them from replaying these operations.
-        legacy_pending = data.pop("pending", [])
-        data.setdefault("pendingDatabases", legacy_pending)
-        operations = data.setdefault("operations", {})
-        previous = data.pop("operation", None)
-        if previous:
-            operations.setdefault(previous["databaseId"], previous)
+        data.setdefault("pendingDatabases", [])
+        data.setdefault("operations", {})
         return definition, record, data
 
     def save(self, definition, record, data, remove_request=None):
@@ -73,8 +67,7 @@ class ReusableCircles:
             return self.edit_locked(args, apply=apply)
 
     def edit_locked(self, args, *, apply=False, operation=None, remove_request=None):
-        if not self.node.has_named_grants():
-            raise SocialError("reusable circles need a LastDB build with grants by schema name")
+        self.node.require_named_grants()
         definition, record, data = self.load()
         prior, pending = data["circles"], set(data["pendingDatabases"])
         retrying = "circle" not in args and operation is None
