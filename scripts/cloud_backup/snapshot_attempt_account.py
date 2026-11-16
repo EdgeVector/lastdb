@@ -1,5 +1,6 @@
 """Provision and retire one signed DEV snapshot CI attempt."""
 
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
 import os
@@ -8,7 +9,8 @@ import time
 from urllib.parse import parse_qsl, urlsplit
 import uuid
 
-from snapshot_cleanup import CLEANUP_BUDGET, GRANT_TTL_MS, SnapshotOwner, released_bytes
+from snapshot_cleanup import (CLEANUP_BUDGET, DATABASE_PREFIXES, GRANT_TTL_MS, RunAttempt,
+                              SnapshotOwner, released_bytes)
 from support import (CREDENTIALS_FILE, OperationError, decode_json, dev_endpoint, private_file,
                      read_json, require, stable, write_private)
 
@@ -16,11 +18,13 @@ from support import (CREDENTIALS_FILE, OperationError, decode_json, dev_endpoint
 ROOT = "/api/cloud/backups/v2/dev-snapshot-proof"
 AUDIENCE = "lastdb-dev-snapshot"
 MAX_REPLY = 2_000_000
+MAX_PRIOR_ATTEMPTS = 50
+STATUS_WORKERS = 8
 ATTEMPT_MISSING = {"error": "snapshot_proof_attempt_missing"}
 ATTEMPT_ACTIVE = {"error": "snapshot_proof_attempt_active"}
 BROKER_REFUSALS = {"snapshot_proof_scope", "snapshot_proof_attempt", "snapshot_proof_body",
                    "snapshot_proof_identity", "snapshot_proof_conflict", "snapshot_proof_integrity",
-                   "snapshot_proof_inspect_through"}
+                   "snapshot_proof_inspect_through", "snapshot_proof_database_version"}
 
 
 def _request(host, method, path, token, value=None):
@@ -70,10 +74,11 @@ def _oidc():
     return token
 
 
-def _broker(action, value):
+def _broker(action, value, *, token=None):
     # Obtain a fresh GitHub token for each operation. The upload-grant drain can
     # outlive the short-lived token first issued to the workflow.
-    token = _oidc()
+    if token is None:
+        token = _oidc()
     if token is None:
         return 503, None
     return _request(urlsplit(dev_endpoint()).hostname, "POST", f"{ROOT}/{action}", token, value)
@@ -88,12 +93,14 @@ def _require_success(status, response, operation):
         raise OperationError(f"snapshot_attempt_{operation}", service_field=detail)
 
 
-def _binding(reply, attempt):
-    require(isinstance(reply, dict) and reply.get("database_id") == attempt.database, "snapshot_attempt_database")
+def _binding(reply, attempt, *, historical=False):
+    databases = {attempt.database_for(version) for version in DATABASE_PREFIXES} if historical else {attempt.database}
+    require(isinstance(reply, dict) and isinstance(reply.get("database_id"), str)
+            and reply["database_id"] in databases, "snapshot_attempt_database")
     account = reply.get("account_id")
     require(isinstance(account, str) and re.fullmatch(r"[0-9a-f]{32}", account)
             and reply.get("account_generation") == "1", "snapshot_attempt_scope")
-    return account
+    return account, reply["database_id"]
 
 
 def _private_value(path, cap):
@@ -121,7 +128,7 @@ def provision(programs, root, attempt):
     device = str(uuid.uuid4())
     # The product's native enrollment reads this exact local UUID before signup.
     write_private(home / ".native_backup_device_id", device.encode("ascii"))
-    request = {"public_key": key.public.hex(), "device_id": device}
+    request = {"public_key": key.public.hex(), "device_id": device, "database_id_version": attempt.database_version}
     for _ in range(4):
         status, reply = _broker("provision", request)
         if status != 503:
@@ -129,7 +136,7 @@ def provision(programs, root, attempt):
         time.sleep(2)
     _require_success(status, reply, "provision")
     require(isinstance(reply, dict) and set(reply) == {"account_id", "account_generation", "database_id"}
-            and _binding(reply, attempt) == account, "snapshot_attempt_provision")
+            and _binding(reply, attempt) == (account, attempt.database), "snapshot_attempt_provision")
     connected = programs.command(home, ["backup", "connect", "--env", "dev", "--json"], timeout=60)
     require(connected.get("ok") is True and connected.get("account_id") == account
             and connected.get("registration_attempted") is True and connected.get("credentials_saved") is True,
@@ -142,8 +149,8 @@ def provision(programs, root, attempt):
     return SnapshotOwner(key, reply["account_generation"], phrase, api_key)
 
 
-def _progress(reply, attempt):
-    account = _binding(reply, attempt)
+def _progress(reply, attempt, *, historical):
+    scope = _binding(reply, attempt, historical=historical)
     require(set(reply) == {"phase", "account_id", "account_generation", "database_id", "retry_after_ms", "released_bytes"},
             "snapshot_attempt_progress")
     phase = reply["phase"]
@@ -152,13 +159,49 @@ def _progress(reply, attempt):
     require(phase in ("open", "retiring", "complete") and type(wait) is int and 0 <= wait <= GRANT_TTL_MS
             and (phase == "retiring" or wait == 0) and (phase == "complete" or released == 0),
             "snapshot_attempt_progress")
-    return account, phase, wait, released
+    return scope, phase, wait, released
 
 
-def retire(attempt, summary, *, expect_charge):
+def resume_instruction(run_id, number):
+    return ("gh workflow run snapshot-roundtrip-dev.yml -R EdgeVector/lastdb --ref main "
+            f"-f mode=resume-cleanup -f original_run_id={run_id} -f original_run_attempt={number}")
+
+
+def _status(attempt, token):
+    for _ in range(3):
+        status, reply = _broker("status", attempt.identity(), token=token)
+        if status != 503:
+            break
+        time.sleep(2)
+    if status == 404 and reply == ATTEMPT_MISSING:
+        return None
+    _require_success(status, reply, "status")
+    scope, phase, _wait, _released = _progress(reply, attempt, historical=True)
+    return scope, phase
+
+
+def require_prior_retired(attempt, summary):
+    number = int(attempt.attempt)
+    require(number - 1 <= MAX_PRIOR_ATTEMPTS, "snapshot_attempt_history_bound")
+    if number == 1:
+        return
+    token = _oidc()
+    require(token is not None, "snapshot_attempt_oidc_service")
+    prior = [RunAttempt(attempt.run_id, str(i)) for i in range(1, number)]
+    with ThreadPoolExecutor(max_workers=STATUS_WORKERS) as pool:
+        states = list(pool.map(lambda previous: _status(previous, token), prior))
+    pending = [(previous, state[0][1]) for previous, state in zip(prior, states, strict=True)
+               if state is not None and state[1] != "complete"]
+    for previous, database in pending:
+        summary(f"Earlier snapshot attempt owns an unretired database {database}. Finish cleanup before retrying:")
+        summary(resume_instruction(previous.run_id, previous.attempt))
+    require(not pending, "snapshot_attempt_prior_retirement_required")
+
+
+def retire(attempt, summary, *, expect_charge, historical=False):
     deadline = time.monotonic() + CLEANUP_BUDGET
-    account = None
-    target = {"run_id": attempt.run_id, "run_attempt": attempt.attempt}
+    scope = None
+    target = attempt.identity()
     for _ in range(128):
         if time.monotonic() >= deadline:
             break
@@ -167,20 +210,23 @@ def retire(attempt, summary, *, expect_charge):
             time.sleep(2)
             continue
         if status == 404 and reply == ATTEMPT_MISSING:
-            require(not expect_charge and account is None, "snapshot_attempt_missing_charge")
+            require(not expect_charge and scope is None, "snapshot_attempt_missing_charge")
             summary("snapshot_account=not_provisioned")
             return
         if status == 409 and reply == ATTEMPT_ACTIVE:
             raise OperationError("snapshot_attempt_original_active")
         _require_success(status, reply, "retirement")
-        current, phase, wait, released = _progress(reply, attempt)
-        require(account is None or account == current, "snapshot_attempt_retirement_scope")
-        account = current
+        current, phase, wait, released = _progress(reply, attempt, historical=historical)
+        require(scope is None or scope == current, "snapshot_attempt_retirement_scope")
+        account, database = current
         if phase == "complete":
             require(not expect_charge or released > 0, "snapshot_attempt_missing_charge")
-            summary(f"snapshot_account=retired account_id={account} database_id={attempt.database} released_bytes={released}")
+            summary(f"snapshot_account=retired account_id={account} database_id={database} released_bytes={released}")
             return
         require(phase == "retiring", "snapshot_attempt_retirement_phase")
+        if scope is None:
+            summary(f"snapshot_account=retiring account_id={account} database_id={database}")
+        scope = current
         time.sleep(min(max(1, wait / 1000), max(0, deadline - time.monotonic())))
     raise OperationError("snapshot_attempt_retirement_incomplete")
 

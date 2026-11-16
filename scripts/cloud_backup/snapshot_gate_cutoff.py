@@ -257,13 +257,13 @@ def catch_up(private, programs, call, database, read_storage, api_key, source, p
     return final_head, expected_records
 
 
-def run_native_cutoff(programs, root, guard, owner, *, require_automatic):
+def run_native_cutoff(programs, root, owner, *, require_automatic):
     import private_recovery as private
     from run import post
 
     attempt = current_attempt()
     read_storage = partial(inspect_attempt, attempt, through=SNAPSHOT_THROUGH)
-    database = guard.allow_stream(attempt.database)
+    database = attempt.database
     summary(f"database_id={database}")
     endpoint = dev_endpoint()
 

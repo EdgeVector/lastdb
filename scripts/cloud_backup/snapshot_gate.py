@@ -17,12 +17,14 @@ import sys
 import tempfile
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(SCRIPTS / "cloud_backup"), str(SCRIPTS / "mutation_log_load")]
 
+import guard as legacy_guard  # noqa: E402
 from programs import Programs  # noqa: E402
-from snapshot_attempt_account import provision, retire  # noqa: E402
+from snapshot_attempt_account import provision, require_prior_retired, resume_instruction, retire  # noqa: E402
 from snapshot_cleanup import RunAttempt, current_attempt, load_owner  # noqa: E402
-from snapshot_gate_aws import cleanup, load_guard, require_native_dispatch, summary  # noqa: E402
+from snapshot_gate_aws import cleanup, require_native_dispatch, summary  # noqa: E402
 from snapshot_gate_cutoff import run_native_cutoff  # noqa: E402
 from snapshot_gate_roundtrip import run_gate  # noqa: E402
 from support import OperationError, child_environment, decode_json, dev_endpoint, failure, require  # noqa: E402
@@ -84,7 +86,7 @@ def _proof_result(reply, target):
     return (steps[0].get("conclusion") if steps else None), disposable
 
 
-def verified_attempt(run_id, attempt_number):
+def verified_attempt(run_id, attempt_number, *, terminal=True):
     require(os.environ.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
             "snapshot_resume_protected_workflow")
     target = RunAttempt(run_id, attempt_number)
@@ -102,8 +104,9 @@ def verified_attempt(run_id, attempt_number):
             and isinstance(run.get("head_repository"), dict)
             and run["head_repository"].get("full_name") == REPOSITORY,
             "snapshot_resume_original_scope")
-    require(run.get("status") == "completed" and bool(run.get("conclusion")),
-            "snapshot_resume_original_not_terminal")
+    if terminal:
+        require(run.get("status") == "completed" and bool(run.get("conclusion")),
+                "snapshot_resume_original_not_terminal")
     revision = run.get("head_sha")
     require(isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision),
             "snapshot_resume_original_revision")
@@ -111,25 +114,59 @@ def verified_attempt(run_id, attempt_number):
     return target, revision, proof, disposable
 
 
+def output(name, value):
+    path = os.environ.get("GITHUB_OUTPUT")
+    require(path, "snapshot_workflow_output")
+    with open(path, "a", encoding="ascii") as stream:
+        stream.write(f"{name}={value}\n")
+
+
 def resume_cleanup(command):
     require(len(sys.argv) == 4, "arguments")
     attempt, revision, proof, disposable = verified_attempt(sys.argv[2], sys.argv[3])
     summary(
         f"original_run={attempt.run_id} original_attempt={attempt.attempt} "
-        f"original_source={revision} database_id={attempt.database}"
+        f"original_source={revision}" + ("" if disposable else f" database_id={attempt.database}")
     )
     if command == "resolve-resume":
-        output = os.environ.get("GITHUB_OUTPUT")
-        require(output, "snapshot_resume_output")
-        with open(output, "a", encoding="ascii") as stream:
-            stream.write(f"legacy={'false' if disposable else 'true'}\n")
+        output("legacy", "false" if disposable else "true")
     elif command == "resume-legacy-cleanup":
         require(not disposable, "snapshot_resume_disposable_attempt")
-        cleanup(load_guard(), attempt, load_owner(), expect_charge=proof == "success", resume=True,
+        cleanup(legacy_guard, attempt, load_owner(), expect_charge=proof == "success", resume=True,
                 proof_skipped=proof == "skipped")
     else:
         require(disposable, "snapshot_resume_legacy_attempt")
-        retire(attempt, summary, expect_charge=proof == "success")
+        retire(attempt, summary, expect_charge=proof == "success", historical=True)
+
+
+def retire_gate():
+    require(len(sys.argv) == 2, "arguments")
+    current = current_attempt()
+    proof_attempt = os.environ.get("SNAPSHOT_PROOF_ATTEMPT", "")
+    expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
+    target = None
+    try:
+        if proof_attempt:
+            selected = RunAttempt(current.run_id, proof_attempt, current.database_version)
+            require(int(proof_attempt) <= int(current.attempt), "snapshot_retire_future_attempt")
+            target = selected
+        inherited = target is not None and target.attempt != current.attempt
+        if inherited or (target is None and current.attempt != "1"):
+            number = target.attempt if inherited else current.attempt
+            _, revision, proof, disposable = verified_attempt(current.run_id, number, terminal=inherited)
+            require(disposable and revision == os.environ.get("GITHUB_SHA"), "snapshot_retire_original_scope")
+            require(not expect_charge or proof == "success", "snapshot_retire_original_proof")
+            expect_charge = expect_charge or proof == "success"
+        target = target or current
+        summary(f"Retiring snapshot run {target.run_id} attempt {target.attempt}.")
+        retire(target, summary, expect_charge=expect_charge, historical=inherited)
+        output("attempt", target.attempt)
+    except OperationError:
+        if target is None:
+            summary(f"Find the attempt that ran the import at https://github.com/{REPOSITORY}/actions/runs/{current.run_id}.")
+        summary("If cleanup is incomplete, resume the original terminal attempt:")
+        summary(resume_instruction(current.run_id, target.attempt if target else "ATTEMPT"))
+        raise
 
 
 def main():
@@ -149,13 +186,7 @@ def main():
         resume_cleanup(command)
         return
     if command == "retire":
-        require(len(sys.argv) == 2, "arguments")
-        attempt = current_attempt()
-        proof_attempt = os.environ.get("SNAPSHOT_PROOF_ATTEMPT", "")
-        require(not proof_attempt or proof_attempt == attempt.attempt, "snapshot_retire_rerun_all_jobs")
-        expect_charge = os.environ.get("REQUIRE_RELEASED_SNAPSHOT_BYTES") == "true"
-        require(not expect_charge or proof_attempt == attempt.attempt, "snapshot_retire_proof_attempt")
-        retire(attempt, summary, expect_charge=expect_charge)
+        retire_gate()
         return
     parser_args = sys.argv[2:]
     require_automatic = native and parser_args[-1:] == ["--require-automatic"]
@@ -170,14 +201,14 @@ def main():
         for name in ("os-home", "tmp"):
             (root / name).mkdir(mode=0o700)
         programs = Programs(Path(parser_args[1]).resolve(strict=True), parser_args[3], child_environment(root))
-        guard = load_guard()
         attempt = current_attempt()
+        require_prior_retired(attempt, summary)
         owner = provision(programs, root, attempt)
         summary(f"snapshot_account=provisioned account_id={owner.account} database_id={attempt.database}")
         if native:
-            run_native_cutoff(programs, root, guard, owner, require_automatic=require_automatic)
+            run_native_cutoff(programs, root, owner, require_automatic=require_automatic)
         else:
-            run_gate(programs, root, guard, owner)
+            run_gate(programs, root, owner)
 
 
 if __name__ == "__main__":

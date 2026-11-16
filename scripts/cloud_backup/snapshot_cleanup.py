@@ -24,7 +24,12 @@ SNAPSHOT_DEV_ACCOUNT = "f0fa35067ce1bb7cda7810ca96a100df"
 GRANT_TTL_MS = 900_000
 CLEANUP_BUDGET = 1_200
 DECIMAL = re.compile(r"0|[1-9][0-9]{0,19}")
-DATABASE_PREFIX = "c1da11d0-0000-4000-8000-"
+LEGACY_DATABASE_VERSION = 1
+DISPOSABLE_DATABASE_VERSION = 2
+DATABASE_PREFIXES = {
+    LEGACY_DATABASE_VERSION: "c1da11d0-0000-4000-8000-",
+    DISPOSABLE_DATABASE_VERSION: "c1da11d1-0000-4000-8000-",
+}
 
 
 @dataclass(frozen=True, repr=False)
@@ -45,6 +50,7 @@ class SnapshotOwner:
 class RunAttempt:
     run_id: str
     attempt: str
+    database_version: int = LEGACY_DATABASE_VERSION
 
     def __post_init__(self):
         require(re.fullmatch(r"[1-9][0-9]{0,18}", self.run_id)
@@ -52,15 +58,22 @@ class RunAttempt:
 
     @property
     def database(self):
+        return self.database_for(self.database_version)
+
+    def database_for(self, version):
         material = f"{self.run_id}:{self.attempt}".encode("ascii")
-        return DATABASE_PREFIX + hashlib.sha256(material).hexdigest()[:12]
+        return DATABASE_PREFIXES[version] + hashlib.sha256(material).hexdigest()[:12]
+
+    def identity(self):
+        return {"run_id": self.run_id, "run_attempt": self.attempt}
 
     def fields(self):
-        return {"database_id": self.database, "run_id": self.run_id, "run_attempt": self.attempt}
+        return {"database_id": self.database, **self.identity()}
 
 
 def current_attempt():
-    return RunAttempt(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+    return RunAttempt(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                      DISPOSABLE_DATABASE_VERSION)
 
 
 def load_owner():
@@ -96,10 +109,10 @@ def start_tracking(call, attempt):
     require(result == {"database_id": attempt.database, "tracking": True}, "snapshot_tracking")
 
 
-def register_and_track(guard, attempt, owner):
+def register_and_track(attempt, owner):
     from run import post
 
-    database = guard.allow_stream(attempt.database)
+    database = attempt.database
     endpoint = dev_endpoint()
 
     def call(operation, fields):
@@ -126,7 +139,6 @@ def released_bytes(value):
 
 
 def cleanup_objects(guard, attempt, owner, summary, *, expect_charge, receipt_only=False):
-    # Imports use snapshot_gate.load_guard's mutation_log_load path.
     from run import post
 
     require(os.environ.get("GITHUB_ACTIONS") == "true"
