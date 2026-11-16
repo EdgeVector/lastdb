@@ -69,9 +69,10 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   const baseArgs = ['--data-dir', dataDir];
   if (lastdbPath !== undefined) baseArgs.push('--lastdb', lastdbPath);
 
-  function run(action: string, args: string[], input?: unknown): Promise<unknown> {
+  function run(command: string[], args: string[], input?: unknown): Promise<unknown> {
+    const action = command.join(' ');
     return new Promise((resolve, reject) => {
-      const child = execFile(socialPath, [...baseArgs, action, ...args], {
+      const child = execFile(socialPath, [...baseArgs, ...command, ...args], {
         timeout: 180_000,
         maxBuffer: 1024 * 1024,
       }, (error, stdout, stderr) => {
@@ -97,7 +98,7 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
   return {
     /** List the owner's reusable circle labels and stable IDs. */
     async listCircles(): Promise<{ id: string; name: string }[]> {
-      const value = await run('list-circles', []);
+      const value = await run(['circle', 'list'], []);
       if (!Array.isArray(value) || !value.every((item: unknown): item is { id: string; name: string } =>
         isObject(item) && typeof item['id'] === 'string' && typeof item['name'] === 'string')) {
         throw new UnexpectedResponseError('Social returned an invalid circle list', 0, null);
@@ -105,9 +106,9 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
       return value.map(({ id, name }) => ({ id, name }));
     },
 
-    /** Save a declaration for approval in Social. Retry with the same UUID and change. */
+    /** Save a declaration for the owner to approve with `social request approve`. Retry with the same UUID and change. */
     async requestSharing(request: SocialSharingRequest): Promise<SocialSharingStatus> {
-      const receipt = parseSharingStatus(await run('request-sharing', [], request), request.requestId);
+      const receipt = parseSharingStatus(await run(['request', 'submit'], [], request), request.requestId);
       if (receipt.databaseId !== request.change.databaseId) {
         throw new UnexpectedResponseError('Social returned sharing status for a different database', 0, null);
       }
@@ -116,17 +117,17 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
 
     /** Read the outcome using the UUID assigned when the app proposed the change. */
     async getSharingStatus(requestId: string): Promise<SocialSharingStatus> {
-      return parseSharingStatus(await run('sharing-status', ['--', requestId]), requestId);
+      return parseSharingStatus(await run(['request', 'status'], ['--', requestId]), requestId);
     },
 
     /** Create a named database using Social's original filtered sharing format. */
     async createDatabase(name: string): Promise<ListedDatabase> {
-      return parseListedDatabase(await run('create-db', ['--', name]));
+      return parseListedDatabase(await run(['db', 'create'], ['--filtered', '--', name]));
     },
 
     /** Create an empty named whole-database share for an app's own schemas. */
     async createSharedDatabase(name: string): Promise<ListedDatabase> {
-      const database = parseListedDatabase(await run('create-db', ['--whole-database', '--', name]));
+      const database = parseListedDatabase(await run(['db', 'create'], ['--', name]));
       if (database.sharingMode !== 'whole_database') {
         throw new UnexpectedResponseError('Social did not create a whole-database share', 0, null);
       }
@@ -136,10 +137,11 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
     /** Open a versioned database setup using Social's catalog. */
     async setupDatabase(request: SocialSetupRequest): Promise<SocialDatabaseSetup> {
       const args = [`--setup=${request.setupName}`, `--version=${request.requiredVersion ?? 1}`];
-      if (request.localName !== undefined) args.push(`--name=${request.localName}`);
-      if (request.databaseId !== undefined) args.push(`--database=${request.databaseId}`);
-      if (request.finishExisting) args.push('--finish-existing');
-      return parseSetup(await run('setup-database', args), request);
+      if (request.localName !== undefined) {
+        return parseSetup(await run(['db', 'create'], [...args, '--', request.localName]), request);
+      }
+      if (request.finishExisting) args.push('--finish');
+      return parseSetup(await run(['db', 'verify'], [...args, '--', request.databaseId]), request);
     },
 
     /** Omit contactPath when Social already remembers the verified recipient. */
@@ -148,16 +150,14 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
       nodeKey: string;
       contactPath?: string;
     }): Promise<SocialInvitation> {
-      const args = [`--database=${database}`, `--user=${recipient.name}`, `--node-key=${recipient.nodeKey}`];
+      const args = [`--name=${recipient.name}`];
       if (recipient.contactPath !== undefined) args.push(`--contact=${recipient.contactPath}`);
-      return parseInvitation(await run('add', args));
+      return parseInvitation(await run(['invite'], [...args, '--', database, recipient.nodeKey]));
     },
 
     /** Seal an invitation for a verified contact with an existing whole-database grant. */
     async sealInvitation(databaseId: string, nodeKey: string): Promise<SocialInvitation> {
-      const result = parseInvitation(await run(
-        'seal-invitation', [`--database=${databaseId}`, `--node-key=${nodeKey}`],
-      ));
+      const result = parseInvitation(await run(['invite'], ['--', databaseId, nodeKey]));
       if (result.databaseId !== databaseId) {
         throw new UnexpectedResponseError('Social returned an invitation for a different database', 0, null);
       }
@@ -172,7 +172,7 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
     ): Promise<ListedDatabase> {
       const args = [`--publisher=${publisherKey}`];
       if (name !== undefined) args.push(`--name=${name}`);
-      const database = parseListedDatabase(await run('accept', args, invitation));
+      const database = parseListedDatabase(await run(['db', 'accept'], args, invitation));
       if (database.id !== invitation.databaseId) {
         throw new UnexpectedResponseError('Social accepted a different database', 0, null);
       }
@@ -181,7 +181,7 @@ export function socialClient({ dataDir, socialPath = 'social', lastdbPath }: Soc
 
     /** Revoke a person's grant and return the applied revision. */
     async revokeAccess(database: string, nodeKey: string): Promise<string> {
-      const result = await run('remove', [`--database=${database}`, `--node-key=${nodeKey}`]);
+      const result = await run(['grant', 'revoke'], ['--apply', '--', database, nodeKey]);
       if (!isObject(result) || typeof result['revision'] !== 'string' || result['state'] !== 'revoked'
         || result['nodeKey'] !== nodeKey || typeof result['databaseId'] !== 'string') {
         throw new UnexpectedResponseError('Social returned an invalid revoke receipt', 0, null);

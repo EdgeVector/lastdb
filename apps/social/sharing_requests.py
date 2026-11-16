@@ -9,7 +9,7 @@ from uuid import UUID
 from lastdb import LastDBError, SCHEMAS, SocialError, record_mutation
 from circles import DIGEST
 from request_index import RequestIndex
-from reusable_circles import encoded
+from reusable_circles import confirm, encoded
 
 
 SCHEMA = "social-graph/SharingRequest"
@@ -105,24 +105,36 @@ class SharingRequests:
             _, _, data = self.load(request_id)
         return status(declaration, data.get("receipt"))
 
-    def preview(self, request_id, review=None, token=None):
+    def preview(self, request_id, review=None):
         with self.reusable.circles.lock():
-            _, _, data = self.load(request_id)
-            if not data:
-                raise SocialError("sharing request does not exist")
-            request = data["declaration"]
-            _, _, directory = self.reusable.load()
-            active = directory["operations"].get(request["change"]["databaseId"])
-            if "receipt" in data or (active and active["requestId"] == request_id):
-                return self.status(request_id)
-            edit, operation, label = self.edit(request, directory, review)
-            if token is None:
-                result = self.reusable.edit_locked(edit, operation=operation)
-                return {**status(request), **result, "subjectName": label}
-            self.archive(active)
-            self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation,
-                                      remove_request=self.index.remove(request_id))
+            return self.review(request_id, review)
+
+    def approve(self, request_id, review=None, token=None):
+        """Apply the proposal exactly as its preview shows it, under one lock."""
+        with self.reusable.circles.lock():
+            preview = self.review(request_id, review)
+            if "token" not in preview:
+                return preview
+            confirm(preview, token)
+            return self.review(request_id, review, preview["token"])
+
+    def review(self, request_id, review, token=None):
+        _, _, data = self.load(request_id)
+        if not data:
+            raise SocialError("sharing request does not exist")
+        request = data["declaration"]
+        _, _, directory = self.reusable.load()
+        active = directory["operations"].get(request["change"]["databaseId"])
+        if "receipt" in data or (active and active["requestId"] == request_id):
             return self.status(request_id)
+        edit, operation, label = self.edit(request, directory, review)
+        if token is None:
+            result = self.reusable.edit_locked(edit, operation=operation)
+            return {**status(request), **result, "subjectName": label}
+        self.archive(active)
+        self.reusable.edit_locked({**edit, "token": token}, apply=True, operation=operation,
+                                  remove_request=self.index.remove(request_id))
+        return self.status(request_id)
 
     def decline(self, request_id):
         with self.reusable.circles.lock():

@@ -162,8 +162,8 @@ console.log(batch.count, batch.operations, batch.recordRevisions);
 Import `socialClient` from the same SDK as `connect`. It invokes the installed
 Social app. Social manages verified contacts, reusable circles, and invitations.
 `connect` and `select` use the LastDB data API for schemas, records, and files.
-Use Social 0.3.0 or later for the whole-database helpers and point both clients
-at the same LastDB home. The publisher needs a connected ExeMem account.
+Use Social 0.8.0 or later, which is a command-line tool with `social NOUN VERB`
+commands, and point both clients at the same LastDB home. The publisher needs a connected ExeMem account.
 
 ### Share an app's own database
 
@@ -185,10 +185,11 @@ const trips = root.select(database.id);
 await trips.declareSchema(tripSchema);
 ```
 
-Open Social on the publisher's device to add verified contacts and link a
-circle to the database. Choose read-only access or the schemas that circle
-can write, then preview and apply the change. Use `social --data-dir HOME open --database ID`
-to go directly to the database. After Social confirms the grant, the app can
+The owner runs Social on the publisher's device to add verified contacts and
+link a circle to the database, for example
+`social circle set Family --members Ana --link family-trips=read`. The command
+prints the resulting access. Adding `--apply` makes the change. Use
+`social db show ID` to see the database's roster. After Social confirms the grant, the app can
 get a sealed receipt with `await social.sealInvitation(database.id, anaVerifiedKey)`.
 The caller delivers the receipt to Ana. Keep sealed receipts out of logs.
 
@@ -214,7 +215,7 @@ can manage access in Social or revoke a recipient with
 
 ### Propose circle sharing
 
-With Social 0.5.0, choose a circle from `await social.listCircles()` and
+Choose a circle from `await social.listCircles()` and
 submit a declaration. Use one stable UUID for the request and its retries.
 
 ```ts
@@ -232,11 +233,11 @@ const request = await social.requestSharing({
 });
 ```
 
-Open the owner review with `social open --sharing-request <requestId>`
+The owner reviews the proposal with `social request show <requestId>` and
+decides with `social request approve <requestId>` or `social request decline <requestId>`,
 using the same LastDB home. The app can fetch the result with
 `social.getSharingStatus(request.requestId)`. Status is
-`awaitingApproval`, `pending`, `needsReview`, or `confirmed`. Social 0.6.0
-can also return `declined` when the owner declines. Retrying the same request
+`awaitingApproval`, `pending`, `needsReview`, `confirmed`, or `declined`. Retrying the same request
 UUID returns that outcome. When confirmed, use the existing invitation method
 for a new recipient. Use `writeSchemas` in place of a preset to suggest the
 app's canonical schema names. The owner can later edit membership in Social
@@ -273,8 +274,8 @@ schemas. Setup version 1 requires the catalog's schema shapes and leaves
 schema upgrades to an explicit owner operation. Use the same circle and
 invitation flow as for an app-owned share.
 
-Social 0.4.0 and a LastDB build with retryable whole-database creation
-resume interrupted provisioning by the original local name. An owner can
+A LastDB build with retryable whole-database creation
+resumes interrupted provisioning by the original local name. An owner can
 choose an existing incomplete setup by its ID and pass `finishExisting: true`
 to install missing schemas after checking compatibility.
 

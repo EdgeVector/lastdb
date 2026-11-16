@@ -62,9 +62,14 @@ class ReusableCircles:
         except (SocialError, OSError, HTTPException):
             return None
 
-    def edit(self, args, *, apply=False):
+    def change(self, args, *, apply=False, token=None):
+        """Preview one edit under the lock, and apply that same preview when asked."""
         with self.circles.lock():
-            return self.edit_locked(args, apply=apply)
+            preview = self.edit_locked(args)
+            if not apply:
+                return {**preview, "applied": False}
+            confirm(preview, token)
+            return {**self.edit_locked({**args, "token": preview["token"]}, apply=True), "applied": True}
 
     def edit_locked(self, args, *, apply=False, operation=None, remove_request=None):
         self.node.require_named_grants()
@@ -247,6 +252,20 @@ class ReusableCircles:
             return {**row, "revision": result["revision"], "status": "confirmed"}
         except (SocialError, OSError, HTTPException) as error:
             return {**row, "error": str(error), "status": "pending"}
+
+
+def confirm(preview, token):
+    """Refuse to apply a preview that moved or that still has outside grants to resolve."""
+    if token not in (None, preview["token"]):
+        raise SocialError("sharing changed since the preview; review the changes again")
+    names = preview.get("contactNames", {})
+    unresolved = [f'--resolve {row["name"]}:{names.get(item["nodeKey"], item["nodeKey"])}=keep|social'
+                  for row in preview["databases"] for item in row.get("conflicts", [])]
+    if unresolved:
+        raise SocialError("grants changed outside Social; rerun with " + " ".join(unresolved))
+    blocked = [f'{row["name"]}: {row["error"]}' for row in preview["databases"] if "error" in row]
+    if blocked:
+        raise SocialError("; ".join(blocked))
 
 
 def impact(plan):

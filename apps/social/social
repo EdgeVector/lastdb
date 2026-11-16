@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Remember people and share databases from the selected LastDB home."""
 
-import argparse
 from http.client import HTTPException
-import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,178 +9,29 @@ import sys
 
 sys.dont_write_bytecode = True
 
-from lastdb import LastDB, SocialError
 from app import SocialApp
-from people import People
-from sharing import Sharing, read_invitation
-
-
-def remove(sharing, people, args):
-    database = sharing.owned(args.database)
-    if args.node_key:
-        node_key = args.node_key
-    else:
-        sharing.resume_pending(database["id"])
-        config = sharing.configuration(database["id"])
-        keys = [row["nodeKey"] for row in config["members"]]
-        contacts = people.by_keys(keys)
-        matches = [key for key, person in contacts.items() if person["display_name"] == args.user]
-        if len(matches) != 1:
-            raise SocialError(f"expected one matching contact for {args.user} on {args.database}")
-        node_key = matches[0]
-    revision = sharing.update_member(database["id"], node_key, False)
-    return {"databaseId": database["id"], "revision": revision, "nodeKey": node_key, "state": "revoked"}
-
-
-def list_grants(sharing, people, selector):
-    configs = sharing.all_configurations(selector)
-    keys = [row["nodeKey"] for config in configs for row in config.get("members", [])]
-    contacts = people.by_keys(keys)
-    rows = []
-    for config in configs:
-        database = {"database": config["name"], "databaseId": config["databaseId"]}
-        if "status" in config:
-            rows.append({**database, "status": config["status"]})
-            continue
-        for member in config["members"]:
-            if member["state"] == "active":
-                key = member["nodeKey"]
-                rows.append({**database, **member, "user": contacts.get(key, {}).get("display_name", key)})
-    return rows
-
-
-def parser():
-    command = argparse.ArgumentParser(description=__doc__)
-    home = os.environ.get("LASTDB_HOME")
-    command.add_argument("--data-dir", required=not home, default=home, type=Path)
-    command.add_argument("--lastdb", type=Path)
-    actions = command.add_subparsers(dest="action", required=True)
-    actions.add_parser("declare", help="Declare the private Person schema")
-    actions.add_parser("show-records", help="List private contacts without their contact codes")
-    actions.add_parser("check", help="Check the running LastDB for Social compatibility")
-    actions.add_parser("list-circles", help="List reusable circle IDs and names")
-    actions.add_parser("request-sharing", help="Save a JSON declaration from stdin for owner review")
-    status = actions.add_parser("sharing-status", help="Read the status of a saved app request")
-    status.add_argument("request_id")
-    remember = actions.add_parser("remember", help="Save a verified contact without sharing a database")
-    remember.add_argument("--user", required=True)
-    remember.add_argument("--node-key", required=True)
-    remember.add_argument("--contact", required=True, type=Path)
-    pick = actions.add_parser("pick-database", help="List matching databases or select an exact database ID")
-    pick.add_argument("--spec", required=True)
-    pick.add_argument("--version", required=True, type=int)
-    pick.add_argument("--intent", required=True, choices=("read", "write"))
-    pick.add_argument("--session", action="store_true", help="Issue an owner-approved data session for the selected database")
-    selection = pick.add_mutually_exclusive_group()
-    selection.add_argument("--database")
-    selection.add_argument("--cancel", action="store_true")
-    create = actions.add_parser("create-db", help="Create a named shareable database")
-    create.add_argument("--whole-database", action="store_true",
-                        help="Share all schemas with circle-based write grants")
-    create.add_argument("name")
-    setup = actions.add_parser("setup-database", help="Create or verify a named Social setup")
-    setup.add_argument("--setup", required=True)
-    setup.add_argument("--version", type=int, default=1)
-    target = setup.add_mutually_exclusive_group(required=True)
-    target.add_argument("--name", help="Name for a database provisioned by Social")
-    target.add_argument("--database", help="Verify a database by its exact ID")
-    setup.add_argument("--finish-existing", action="store_true",
-                       help="Install missing setup schemas in the owned database selected by ID")
-    add = actions.add_parser("add", help="Grant reader access and return a sealed invitation as JSON")
-    add.add_argument("--user", required=True)
-    add.add_argument("--node-key", required=True, help="Independently verified recipient node key")
-    add.add_argument("--contact", type=Path, help="Contact file for a new or updated contact")
-    add.add_argument("--database", required=True)
-    seal = actions.add_parser("seal-invitation", help="Seal an invitation for an existing whole-database grant")
-    seal.add_argument("--database", required=True, help="Exact database ID")
-    seal.add_argument("--node-key", required=True, help="Verified node key from Social's contacts")
-    revoke = actions.add_parser("remove", help="Revoke a person's access")
-    who = revoke.add_mutually_exclusive_group(required=True)
-    who.add_argument("--user")
-    who.add_argument("--node-key")
-    revoke.add_argument("--database", required=True)
-    for name in ("list", "grants"):
-        show = actions.add_parser(name, help="Read applied access from ExeMem")
-        show.add_argument("--database")
-    accept = actions.add_parser("accept", help="Read the invitation receipt on stdin and open it")
-    accept.add_argument("--publisher", required=True, help="Independently verified publisher node key")
-    accept.add_argument("--name", help="Local database name")
-    return command
-
-
-def resolve_node(args):
-    executable = args.lastdb or shutil.which("lastdb")
-    if not executable:
-        raise SocialError("supply --lastdb or put lastdb on PATH")
-    return LastDB(args.data_dir, Path(executable))
-
-
-def run(args, node):
-    people = People(node)
-    sharing = Sharing(node, people)
-    if args.action == "create-db":
-        return sharing.create(args.name, whole=args.whole_database)
-    if args.action in ("list-circles", "request-sharing", "sharing-status"):
-        requests = SocialApp(node).sharing_requests
-        if args.action == "list-circles":
-            return requests.circles()
-        if args.action == "sharing-status":
-            return requests.status(args.request_id)
-        raw = sys.stdin.buffer.read(16385)
-        if not 0 < len(raw) <= 16384:
-            raise SocialError("provide a sharing declaration within 16 KiB")
-        request = json.loads(raw)
-        if not isinstance(request, dict):
-            raise SocialError("provide a sharing declaration")
-        return requests.submit(request)
-    if args.action == "setup-database":
-        target = {"localName": args.name} if args.name is not None else {"databaseId": args.database}
-        return SocialApp(node).setup_database(
-            {"setupName": args.setup, "requiredVersion": args.version,
-             "finishExisting": args.finish_existing, **target})
-    if args.action == "remember":
-        return SocialApp(node).remember_file(args.node_key, args.user, args.contact)
-    if args.action == "pick-database":
-        app = SocialApp(node)
-        spec = {"name": args.spec, "version": args.version}
-        if args.cancel:
-            return None
-        if args.session:
-            if not args.database:
-                raise SocialError("--session requires an explicit database selection")
-            return app.approve_pick(spec, args.intent, args.database)
-        return app.pick(spec, args.intent, args.database) if args.database else app.picker(spec, args.intent)
-    if args.action == "add":
-        return sharing.invite(args.database, args.user, args.node_key, args.contact)
-    if args.action == "seal-invitation":
-        return SocialApp(node).circle_invitation({"databaseId": args.database, "nodeKey": args.node_key})
-    if args.action == "remove":
-        return remove(sharing, people, args)
-    if args.action == "grants":
-        return sharing.all_configurations(args.database)
-    if args.action == "list":
-        return list_grants(sharing, people, args.database)
-    if args.action == "accept":
-        return sharing.accept(read_invitation(sys.stdin.buffer), args.publisher, args.name)
-    if args.action == "declare":
-        return {"definitionId": people.declare()}
-    if args.action == "check":
-        node.require_sessions()
-        return {"ready": True}
-    if args.action == "show-records":
-        return [{key: value for key, value in row.items() if key != "contact_code"}
-                for row in people.all()]
+from cli import parser
+from commands import HANDLERS
+from lastdb import LastDB, SocialError
+from output import emit
 
 
 def main():
+    args = parser().parse_args()
     try:
-        args = parser().parse_args()
-        node = resolve_node(args)
-        result = run(args, node)
-        print(json.dumps(result, sort_keys=True))
+        executable = args.lastdb or shutil.which("lastdb")
+        if not executable:
+            raise SocialError("supply --lastdb or put lastdb on PATH")
+        app = SocialApp(LastDB(args.data_dir, Path(executable)))
+        command = " ".join(filter(None, (args.noun, getattr(args, "verb", None))))
+        result = HANDLERS[command](app, args)
     except (SocialError, OSError, HTTPException, subprocess.SubprocessError, ValueError, KeyError) as error:
-        print(f"social: {error}", file=sys.stderr)
+        detail = str(error)
+        if isinstance(error, OSError) and not error.filename:
+            detail = f"could not reach LastDB in {args.data_dir} ({error})"
+        print(f"social: {' '.join(detail.split())}", file=sys.stderr)
         return 1
+    emit(result, args.json, sys.stdout)
     return 0
 
 

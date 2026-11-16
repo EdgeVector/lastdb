@@ -5,7 +5,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
-from urllib.parse import urlencode
 
 from lastdb import LastDBError, SocialError
 
@@ -25,16 +24,6 @@ class People:
 
     def declare(self):
         return self.node.declare_private("Person")
-
-    def import_contact(self, node_key, display_name, contact_code):
-        if not isinstance(display_name, str) or not (1 <= len(display_name.strip()) <= 100):
-            raise SocialError("enter a contact name of 1 to 100 characters")
-        if not isinstance(contact_code, str) or not (1 <= len(contact_code.strip()) <= 512):
-            raise SocialError("enter the LastDB contact code")
-        if not isinstance(node_key, str) or len(node_key) != 64:
-            raise SocialError("enter the verified node key")
-        verified = self.node.verify_saved_contact(contact_code.strip(), node_key)
-        return self.remember(node_key, display_name.strip(), verified["contactCode"])
 
     def remember(self, node_key, display_name, contact_code):
         definition = self.declare()
@@ -83,22 +72,6 @@ class People:
                 raise SocialError("LastDB could not read a contact")
             people.extend(row["fields"] for row in item["response"]["results"])
         return people
-
-    def all(self):
-        self.declare()
-        cursor = None
-        while True:
-            params = {"schema": PERSON_SCHEMA, "limit": 64}
-            if cursor is not None:
-                params["cursor"] = cursor
-            page = self.node.call("GET", "/api/list?" + urlencode(params))["list"]
-            if page["keys"]:
-                yield from self.read_batch([key["hash"] for key in page["keys"]])
-            if not page["has_more"]:
-                return
-            cursor = page.get("next_cursor")
-            if not cursor:
-                raise SocialError("LastDB omitted the next contact cursor")
 
     def index(self, person_id, definition=None):
         if definition is None:
