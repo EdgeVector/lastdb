@@ -24,16 +24,14 @@ HOUR = 3600
 
 def app_sources():
     from stable_app_publish import catalog
-    text = Path("lastdb_node/src/lastdb_uds/uds_router.rs").read_text()
-    match = re.search(r"pub const API_VERSION: u32 = ([0-9]+);", text)
-    if match is None:
-        raise ValueError("The source has no definite API version")
+    # ci-required keeps this file equal to the Rust constants (scripts/lints/api_surface.py).
+    api_version = json.loads(Path("lastdb_node/api-surface.json").read_text())["api_version"]
     outbox = re.search(r"pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = ([0-9]+);",
                        Path("lastdb_node/src/version.rs").read_text())
     if outbox is None:
         raise ValueError("The source has no definite outbox interface")
     try:
-        listing = catalog(int(match[1]))
+        listing = catalog(api_version)
     except HTTPError as error:
         if error.code not in (403, 404):
             raise

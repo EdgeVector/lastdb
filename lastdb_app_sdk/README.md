@@ -2,8 +2,8 @@
 
 The runtime SDK for LastDB apps. A dependency-free TypeScript client over a
 node's Unix-socket `/api/*` surface: connect, verify protocol `API_VERSION`
-compatibility (`LASTDB_SDK_API_VERSION = 34`, minimum supported node protocol
-`LASTDB_MIN_SUPPORTED_API_VERSION = 29`), and run keyed reads, single and batch
+compatibility (`LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`,
+generated from the node source), and run keyed reads, single and batch
 conditional mutations, record file/blob operations, membership lists, named
 databases, and short-lived scoped database sessions.
 

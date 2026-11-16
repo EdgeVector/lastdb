@@ -99,6 +99,16 @@ jobs:
           tree: HEAD
       - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition, statics)
         run: bash scripts/ci/mini-gate-step.sh "Source lints" -- python3 scripts/lints/source_lints.py
+      - name: API surface vs API_VERSION
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          args=(--check)
+          if [ -n "${BASE_SHA:-}" ] && ! [[ "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            args+=(--base "$BASE_SHA")
+          fi
+          bash scripts/ci/mini-gate-step.sh "API surface vs API_VERSION" -- python3 scripts/lints/api_surface.py "${args[@]}"
       - name: cargo fmt --check
         run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
       - name: Record counter writer-boundary lint
