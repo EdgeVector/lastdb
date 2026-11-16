@@ -86,7 +86,7 @@ def _proof_result(reply, target):
     return (steps[0].get("conclusion") if steps else None), disposable
 
 
-def verified_attempt(run_id, attempt_number, *, terminal=True):
+def verified_attempt(run_id, attempt_number):
     require(os.environ.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
             "snapshot_resume_protected_workflow")
     target = RunAttempt(run_id, attempt_number)
@@ -104,9 +104,8 @@ def verified_attempt(run_id, attempt_number, *, terminal=True):
             and isinstance(run.get("head_repository"), dict)
             and run["head_repository"].get("full_name") == REPOSITORY,
             "snapshot_resume_original_scope")
-    if terminal:
-        require(run.get("status") == "completed" and bool(run.get("conclusion")),
-                "snapshot_resume_original_not_terminal")
+    require(run.get("status") == "completed" and bool(run.get("conclusion")),
+            "snapshot_resume_original_not_terminal")
     revision = run.get("head_sha")
     require(isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision),
             "snapshot_resume_original_revision")
@@ -150,22 +149,25 @@ def retire_gate():
             selected = RunAttempt(current.run_id, proof_attempt, current.database_version)
             require(int(proof_attempt) <= int(current.attempt), "snapshot_retire_future_attempt")
             target = selected
-        inherited = target is not None and target.attempt != current.attempt
-        if inherited or (target is None and current.attempt != "1"):
-            number = target.attempt if inherited else current.attempt
-            _, revision, proof, disposable = verified_attempt(current.run_id, number, terminal=inherited)
+        else:
+            # GitHub can show a reused job under a later attempt number.
+            require(current.attempt == "1", "snapshot_retire_missing_original_attempt")
+            target = current
+        inherited = target.attempt != current.attempt
+        if inherited:
+            _, revision, proof, disposable = verified_attempt(target.run_id, target.attempt)
             require(disposable and revision == os.environ.get("GITHUB_SHA"), "snapshot_retire_original_scope")
             require(not expect_charge or proof == "success", "snapshot_retire_original_proof")
             expect_charge = expect_charge or proof == "success"
-        target = target or current
         summary(f"Retiring snapshot run {target.run_id} attempt {target.attempt}.")
         retire(target, summary, expect_charge=expect_charge, historical=inherited)
         output("attempt", target.attempt)
     except OperationError:
         if target is None:
-            summary(f"Find the attempt that ran the import at https://github.com/{REPOSITORY}/actions/runs/{current.run_id}.")
+            summary(f"Open https://github.com/{REPOSITORY}/actions/runs/{current.run_id} and find the attempt "
+                    "that originally ran the import. Replace ORIGINAL_ATTEMPT in the command below.")
         summary("If cleanup is incomplete, resume the original terminal attempt:")
-        summary(resume_instruction(current.run_id, target.attempt if target else "ATTEMPT"))
+        summary(resume_instruction(current.run_id, target.attempt if target else "ORIGINAL_ATTEMPT"))
         raise
 
 
