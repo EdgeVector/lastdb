@@ -321,7 +321,7 @@ def check_restored(programs, destination, database_id, digest, numbers, account)
     note(numbers, "live_write", "ok")
 
 
-def run_gate(programs, root, guard, owner):
+def run_gate(programs, root, owner):
     numbers = {}
     attempt = current_attempt()
     database_id = attempt.database
@@ -350,7 +350,7 @@ def run_gate(programs, root, guard, owner):
             and connected.get("account_id") == owner.account,
             "dev_connection",
         )
-        register_and_track(guard, attempt, owner)
+        register_and_track(attempt, owner)
         node.start(sign_in=False)
         upload(programs, node, database_id, numbers)
         tail_started = time.monotonic()

@@ -45,15 +45,6 @@ def require_native_dispatch():
     )
 
 
-def load_guard():
-    load_dir = str(Path(__file__).resolve().parents[1] / "mutation_log_load")
-    if load_dir not in sys.path:
-        sys.path.insert(0, load_dir)
-    import guard
-
-    return guard
-
-
 def aws(guard, operation, payload):
     try:
         return guard.aws_dynamodb(operation, payload)

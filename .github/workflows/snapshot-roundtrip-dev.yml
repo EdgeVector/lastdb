@@ -16,6 +16,8 @@ name: Snapshot round trip
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=native-cutoff -f require_automatic=true
 # Resume cleanup for one completed attempt without building or uploading:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main -f mode=resume-cleanup -f original_run_id=RUN -f original_run_attempt=ATTEMPT
+# Re-run failed jobs can reuse a successful import and retire its exact account.
+# A fresh proof requires all prior accounts from the same run to be retired.
 #
 # After checking out lastdb, that client and this round trip are:
 #   python3 scripts/release/published_client.py --out-dir DIR
@@ -189,21 +191,26 @@ jobs:
     needs: snapshot-operation
     if: always() && needs.snapshot-operation.result != 'skipped' && github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     concurrency:
-      group: snapshot-attempt-${{ github.run_id }}-${{ github.run_attempt }}
+      group: snapshot-attempt-${{ github.run_id }}-${{ needs.snapshot-operation.outputs.attempt || github.run_attempt }}
       queue: max
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
+      actions: read
       contents: read
       id-token: write
+    outputs:
+      attempt: ${{ steps.receipt.outputs.attempt }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Retire provider bytes, metadata, and the exact account
+        id: receipt
         env:
+          SNAPSHOT_GITHUB_TOKEN: ${{ github.token }}
           SNAPSHOT_PROOF_ATTEMPT: ${{ needs.snapshot-operation.outputs.attempt }}
           REQUIRE_RELEASED_SNAPSHOT_BYTES: ${{ needs.snapshot-operation.result == 'success' }}
         run: python3 scripts/cloud_backup/snapshot_gate.py retire
@@ -217,20 +224,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
-      - name: Require a successful import and retirement for this attempt
+      - name: Require a successful import and retirement from the same original attempt
         env:
           PROOF: ${{ needs.snapshot-operation.result }}
           RETIREMENT: ${{ needs.snapshot-retirement.result }}
           PROOF_ATTEMPT: ${{ needs.snapshot-operation.outputs.attempt }}
+          RETIREMENT_ATTEMPT: ${{ needs.snapshot-retirement.outputs.attempt }}
         run: |
           set -euo pipefail
           printf 'Snapshot operation: %s\nAccount retirement: %s\n' "$PROOF" "$RETIREMENT"
           test "$PROOF" = success
           test "$RETIREMENT" = success
-          if [ "$PROOF_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]; then
-            echo 'Rerun all jobs to create a fresh snapshot account proof for this attempt.' >&2
+          if [[ ! "$PROOF_ATTEMPT" =~ ^[1-9][0-9]{0,4}$ || "$PROOF_ATTEMPT" != "$RETIREMENT_ATTEMPT" ]]; then
+            echo 'The product and retirement results must come from the same original attempt.' >&2
             exit 1
           fi
+          printf 'Verified original snapshot attempt %s\n' "$PROOF_ATTEMPT"
 
   snapshot-resume-origin:
     name: Verify the earlier snapshot attempt
