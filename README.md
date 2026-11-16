@@ -6,6 +6,11 @@ Existing homes move by a copy into a fresh home, not by an in-place conversion.
 
 Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
 
+Every record write also appends one entry to a numbered list of changed keys, in the same transaction.
+An entry holds a number, the schema, the record key, and a delete flag. It holds no values.
+An app reads `GET /api/changes?after=N&limit=L&schema=A`, keeps the returned `id` and `through`, and reads the records by key.
+LastDB keeps the newest 250,000 entries and no state for a reader. When `gap` is true or `id` differs, the app rebuilds from key pages.
+
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
 `schema_service` (schema registry), shared host/identity crates,

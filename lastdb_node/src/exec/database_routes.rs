@@ -233,6 +233,9 @@ fn is_scoped_operation(route: DataRoute) -> bool {
     is_database_operation(route)
         || matches!(
             route,
-            DataRoute::SeedSystemSchema | DataRoute::DeclareSchema | DataRoute::DropSchema
+            DataRoute::SeedSystemSchema
+                | DataRoute::DeclareSchema
+                | DataRoute::DropSchema
+                | DataRoute::Changes
         )
 }

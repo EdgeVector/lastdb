@@ -4,6 +4,7 @@ pub mod record_store;
 pub mod schema_store;
 pub mod search_index;
 
+pub use crate::storage::format::metadata::{Change, ChangePage, CHANGES_PAGE};
 pub use record_store::{RecordDeleteLedgerEntry, RecordStore};
 pub use schema_store::SchemaStore;
 
@@ -183,6 +184,19 @@ impl DbOperations {
 
     pub(crate) fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    /// Read the changes list after `after` from one committed view.
+    pub async fn changes_after(
+        &self,
+        after: u64,
+        limit: usize,
+        schemas: &[String],
+    ) -> Result<ChangePage, SchemaError> {
+        self.read_scope()
+            .await?
+            .run_result(self.metadata.changes_after(after, limit, schemas))
+            .await
     }
 
     pub fn native_runtime(&self) -> Arc<PackRuntime> {

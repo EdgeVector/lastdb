@@ -57,7 +57,7 @@ fn batch_size(host: &Host, b: &Backlog, pace_batch: usize, is_delete: bool) -> u
         .rev()
         .find(|&k| {
             let chunk_ops = k.div_ceil(64).saturating_mul(b.fields + 8);
-            let ops = k * b.fields * op_f + chunk_ops + k * (b.alternates + 2);
+            let ops = k * b.fields * op_f + chunk_ops + k * (b.alternates + 4);
             let reads = k * b.fields * rd_f + chunk_ops + k * (b.alternates * 4 + 2);
             ops <= limit && reads <= 40_000 && k * b.alternates <= MAX_ALTERNATE_ENTRIES
         })
