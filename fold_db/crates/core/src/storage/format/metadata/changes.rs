@@ -1,12 +1,13 @@
 //! Numbered list of changed record keys, staged with the records it names.
 //!
-//! Every record write appends one entry in its own native transaction. A
+//! Every record write appends one entry in its own native transaction, with
+//! the same read and the same staged batch as its local stamp. A
 //! reader keeps the last number it handled and asks for the entries after it.
 //! The list holds keys only; a reader gets values with a read by key.
 
-use super::{decode_author, read_err, schema_inv, Metadata, LOCAL_AUTHOR_KEY};
+use super::{decode_author, read_err, Metadata, LOCAL_AUTHOR_KEY};
 use crate::schema::types::{KeyValue, SchemaError};
-use crate::storage::StorageError;
+use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::hex::sha256_hex;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +17,7 @@ pub const CHANGES_KEEP: u64 = 250_000;
 pub const CHANGES_PAGE: usize = 500;
 
 // `-` sorts before `:`, so the head row stays outside the entry range.
-const HEAD_KEY: &str = "changes-head";
+pub(super) const HEAD_KEY: &str = "changes-head";
 const ENTRY_PREFIX: &str = "changes:";
 const ENTRY_END: &str = "changes;";
 
@@ -50,62 +51,58 @@ fn entry_key(seq: u64) -> String {
     format!("{ENTRY_PREFIX}{seq:020}")
 }
 
-fn stage_err(error: StorageError) -> SchemaError {
-    match error {
-        StorageError::WriteResourceLimit { detail } => SchemaError::WriteResourceLimit { detail },
-        other => schema_inv(format!("stage changes: {other}")),
+/// One record a write changes: its schema, its key, and whether the write deletes it.
+pub(crate) type ChangedKey<'a> = (&'a str, &'a KeyValue, bool);
+
+pub(super) fn parse_head(bytes: Option<&[u8]>) -> StorageResult<u64> {
+    let Some(bytes) = bytes else {
+        return Ok(0);
+    };
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .ok_or_else(|| StorageError::invalid("the changes head is not a number"))
+}
+
+/// Add one entry per changed record after `head`, the trim of the entry that
+/// leaves the kept window, and the new head. The caller stages `rows` in the
+/// records' native write scope, which holds the writer gate, so numbers
+/// follow commit order.
+pub(super) fn append_rows(
+    mut head: u64,
+    records: &[ChangedKey<'_>],
+    rows: &mut Vec<(String, Option<Vec<u8>>)>,
+) -> StorageResult<()> {
+    for &(schema, key, deleted) in records {
+        head = head
+            .checked_add(1)
+            .ok_or_else(|| StorageError::invalid("the changes list is out of numbers"))?;
+        let change = Change {
+            seq: head,
+            schema: schema.to_owned(),
+            hash: key.hash.clone(),
+            range: key.range.clone(),
+            deleted,
+        };
+        let bytes = serde_json::to_vec(&change)
+            .map_err(|e| StorageError::SerializationError(format!("encode change: {e}")))?;
+        rows.push((entry_key(head), Some(bytes)));
+        if head > CHANGES_KEEP {
+            rows.push((entry_key(head - CHANGES_KEEP), None));
+        }
     }
+    rows.push((HEAD_KEY.to_owned(), Some(head.to_string().into_bytes())));
+    Ok(())
 }
 
 impl Metadata {
     async fn changes_head(&self) -> Result<u64, SchemaError> {
-        let Some(bytes) = self
+        let bytes = self
             .store
             .get(HEAD_KEY.as_bytes())
             .await
-            .map_err(read_err)?
-        else {
-            return Ok(0);
-        };
-        std::str::from_utf8(&bytes)
-            .ok()
-            .and_then(|text| text.parse().ok())
-            .ok_or_else(|| read_err("the changes head is not a number"))
-    }
-
-    /// Append one entry per changed record in the caller's native write scope.
-    /// The scope holds the writer gate, so numbers follow commit order.
-    pub(crate) async fn stage_changes(
-        &self,
-        schema: &str,
-        records: &[(&KeyValue, bool)],
-    ) -> Result<(), SchemaError> {
-        self.require_scope().map_err(stage_err)?;
-        if records.is_empty() {
-            return Ok(());
-        }
-        let mut head = self.changes_head().await?;
-        let mut rows = Vec::with_capacity(records.len() * 2 + 1);
-        for &(key, deleted) in records {
-            head = head
-                .checked_add(1)
-                .ok_or_else(|| schema_inv("the changes list is out of numbers"))?;
-            let change = Change {
-                seq: head,
-                schema: schema.to_owned(),
-                hash: key.hash.clone(),
-                range: key.range.clone(),
-                deleted,
-            };
-            let bytes = serde_json::to_vec(&change)
-                .map_err(|e| schema_inv(format!("encode change: {e}")))?;
-            rows.push((entry_key(head), Some(bytes)));
-            if head > CHANGES_KEEP {
-                rows.push((entry_key(head - CHANGES_KEEP), None));
-            }
-        }
-        rows.push((HEAD_KEY.to_owned(), Some(head.to_string().into_bytes())));
-        self.stage(rows).await.map_err(stage_err)
+            .map_err(read_err)?;
+        parse_head(bytes.as_deref()).map_err(read_err)
     }
 
     /// Read the entries after `after`. Call inside one read scope so the head

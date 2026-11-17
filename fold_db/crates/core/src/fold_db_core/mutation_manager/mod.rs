@@ -209,8 +209,16 @@ impl MutationManager {
                 }
                 let revision = self.prepare_mutation_author_clocks(&mut mutations).await?;
                 let ops = count_commit_ops(&mutations);
-                let schemas: Vec<&str> = mutations.iter().map(|m| m.schema_name.as_str()).collect();
-                let stamps = self.db_ops.metadata().stage_local_stamps(&schemas).await?;
+                let listed: Vec<_> = mutations
+                    .iter()
+                    .zip(&keys)
+                    .map(|(m, key)| {
+                        let deleted =
+                            matches!(m.mutation_type, MutationType::Delete | MutationType::Purge);
+                        (m.schema_name.as_str(), key, deleted)
+                    })
+                    .collect();
+                let stamps = self.db_ops.metadata().stage_local_stamps(&listed).await?;
                 let revs = mutations
                     .iter()
                     .zip(&stamps)
@@ -266,15 +274,6 @@ impl MutationManager {
             .records()
             .format
             .stage_records(schema, changes)
-            .await?;
-        let listed: Vec<_> = changed
-            .iter()
-            .zip(&outcomes)
-            .map(|(r, &(live, _, _))| (r.key, !live))
-            .collect();
-        self.db_ops
-            .metadata()
-            .stage_changes(&schema.name, &listed)
             .await?;
         let live = changed
             .iter()
