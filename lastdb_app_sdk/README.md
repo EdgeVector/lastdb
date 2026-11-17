@@ -307,6 +307,7 @@ An app started by the LastDB launcher runs on the app socket. The launcher sets
 `LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP_SESSION` to the app's
 session, and these three methods send the session with every request. The app
 socket serves only these three methods, so a restricted app uses no older one.
+
 Pass `database` on a read, a mutation, or `changes` to name a database. These
 methods do not copy the database chosen by `select`. A database-session header
 already on the client is still sent; the app API selects its database from
