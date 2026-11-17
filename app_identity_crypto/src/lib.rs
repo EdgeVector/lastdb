@@ -12,6 +12,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod access;
+
+pub use access::{Access, KNOWN_EXTENSIONS};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 
 const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
@@ -195,6 +198,9 @@ pub struct ListEntry {
     /// `public` (the default when absent) or `private`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<String>,
+    /// The LastDB access the app declares. Listings from before API 37 carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<Access>,
 }
 
 impl ListEntry {
@@ -209,6 +215,9 @@ impl ListEntry {
         }
         if let Some(audience) = &self.audience {
             fields["audience"] = json!(audience);
+        }
+        if let Some(access) = &self.access {
+            fields["access"] = json!(access);
         }
         fields
     }
@@ -298,6 +307,7 @@ impl InterfaceList {
                     .audience
                     .as_deref()
                     .is_some_and(|v| v != "public" && v != "private")
+                || entry.access.as_ref().is_some_and(|a| !a.well_formed())
             {
                 return Err("registry list has an invalid or duplicate app entry".into());
             }

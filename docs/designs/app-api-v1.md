@@ -122,6 +122,37 @@ A refusal is an HTTP status with one body shape:
 
 The code is for the program. The message is for people and can change.
 
+## Access declaration
+
+An app published to the registry states the LastDB access it asks for. The
+developer writes it in the manifest:
+
+```
+"access": { "read": ["notes/Note", "notes/Tag"], "write": ["notes/Note"], "extensions": ["changes"] }
+```
+
+`lastdb app publish` looks each schema up on the running node and replaces the
+name with a pair: the name and the definition ID of the version the node holds.
+That is the version the developer built against. The result goes into the
+listing, under the publisher signature:
+
+```
+"access": { "read": { "notes/Note": "9f2c…", "notes/Tag": "41ab…" },
+            "write": { "notes/Note": "9f2c…" },
+            "extensions": ["changes"] }
+```
+
+- Access is per schema, not per field. A read returns the whole record.
+- `read` and `write` are independent. A schema on `write` alone cannot be read.
+- An extension is a plain name with no version.
+- Install shows the declaration with the install steps and asks the owner
+  again when a later listing changes either.
+- Install refuses a listing that names an extension this build does not have.
+- An app that is not published declares nothing.
+
+The declaration is recorded and shown. It is not enforced until the app socket
+exists.
+
 ## Not built yet
 
 - A `file` path on a `create` or a `replace`, and a file path on a read.

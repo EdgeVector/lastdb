@@ -129,6 +129,54 @@ fn require_held_schemas_listed(
     })
 }
 
+/// Turn the manifest's access block into the listing's: each schema name gains
+/// the definition ID of the version the running node holds, which is the one
+/// the developer built against.
+fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
+    let names = |key: &str| -> Result<Vec<String>, String> {
+        decl.get(key)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("manifest `access.{key}` must be a list"))?
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("manifest `access.{key}` entries must be strings"))
+            })
+            .collect()
+    };
+    let (read, write, extensions) = (names("read")?, names("write")?, names("extensions")?);
+    let path = "/api/schemas?include_definition_ids=true";
+    let held = get_path_retry(socket, path, Duration::from_secs(30))
+        .and_then(|raw| parse_json_response(&raw, "GET /api/schemas"))?;
+    let rows = held.get("data").unwrap_or(&held)["schemas"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let versions = |list: &[String]| -> Result<Value, String> {
+        list.iter()
+            .map(|name| {
+                rows.iter()
+                    .find(|r| r["name"].as_str() == Some(name.as_str()))
+                    .and_then(|r| r["definition_id"].as_str())
+                    .map(|id| (name.clone(), json!(id)))
+                    .ok_or_else(|| {
+                        format!("access names schema '{name}', but the running node holds no versioned definition of it")
+                    })
+            })
+            .collect::<Result<serde_json::Map<String, Value>, String>>()
+            .map(Value::Object)
+    };
+    let access =
+        json!({"read": versions(&read)?, "write": versions(&write)?, "extensions": extensions});
+    let parsed: app_identity_crypto::Access =
+        serde_json::from_value(access.clone()).map_err(|e| format!("manifest `access`: {e}"))?;
+    if !parsed.well_formed() {
+        return Err("manifest `access` has an invalid schema name or extension name".into());
+    }
+    Ok(access)
+}
+
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .arg("-C")
@@ -182,6 +230,9 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
         "app_id": app_id, "app_version": ver, "source": source, "sha": sha,
         "channel": channel, "api_version": api_version, "lastdb_build": build
     });
+    if let Some(decl) = m.get("access") {
+        payload["access"] = declared_access(&sock, decl)?;
+    }
     if m.get("outbox_format_version").is_some() {
         payload["outbox_format_version"] = json!(outbox);
     }
