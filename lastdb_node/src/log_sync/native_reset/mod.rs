@@ -33,7 +33,6 @@ pub(super) fn supports(host: &Host, ready: &Ready) -> bool {
             host.owned.registered_store(&ready.database_id),
             Ok(crate::host::owned::ResolvedStore::Owner)
         )
-        && !fold_db::db_operations::search_index::queue_policy::enabled()
 }
 
 pub(super) async fn prepare(

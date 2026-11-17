@@ -23,8 +23,6 @@ Current state, in short:
   home, so its bytes are also inside the encrypted run file blocks.
 - All data keys come from the plaintext `identity.key` seed (owner-only file
   permissions). A person who obtains the seed can derive every data key.
-- With Search on, searchable field values go to the Search inbox as plain JSON
-  outside the run files.
 
 ## Key invariants
 

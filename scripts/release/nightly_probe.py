@@ -33,14 +33,13 @@ FIELDS = ["bucket", "id", "body"]
 
 
 class OwnedNode:
-    def __init__(self, directory, output, version, enable_search=False):
+    def __init__(self, directory, output, version):
         self.root = directory.resolve()
         self.uid, self.inode = os.getuid(), self.root.stat().st_ino
         self.home, self.binaries = self.root / "home", self.root / "bin"
         self.socket = self.home / "data" / "folddb.sock"
         self.output, self.version = output, version
         self.process, self.log = None, None
-        self.enable_search = enable_search
         try:
             for path in (self.home, self.binaries, self.root / "os-home", self.root / "tmp"):
                 path.mkdir(mode=0o700)
@@ -73,8 +72,6 @@ class OwnedNode:
             raise RuntimeError("The owned daemon is already active")
         self.log = (self.output / "node.log").open("a")
         argv = [str(self.binaries / "lastdbd"), "--data-dir", str(self.home), "--socket-path", str(self.socket)]
-        if self.enable_search:
-            argv.append("--enable-search")
         self.process = subprocess.Popen(argv, env=self.environment, stdin=subprocess.DEVNULL,
                                         stdout=self.log, stderr=self.log)
 

@@ -171,18 +171,12 @@ pub(super) async fn open(
     let keys = content_keys(&node_seed, id)?;
     std::fs::create_dir_all(&data)
         .map_err(|error| format!("create owned database dir: {error}"))?;
-    let inbox = root.join("search-inbox");
-    std::fs::create_dir_all(&inbox)
-        .map_err(|error| format!("create owned search inbox: {error}"))?;
-    fold_db::db_operations::search_index::queue_policy::prepare(&inbox)
-        .map_err(|error| format!("owned search queue preparation failed: {error}"))?;
     fold_db::fold_db_core::factory::create_fold_db_with_options(
         &DatabaseConfig::local(data),
         &keys,
         signer,
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            search_outbox_inbox: Some(inbox),
             // Owned siblings are shareable. Capture starts here, before cloud enrollment.
             capture_accepted: true,
             capture_initial_snapshot: false,

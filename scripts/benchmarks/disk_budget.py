@@ -15,8 +15,7 @@ PERCENT = 10
 FLOOR = 64 * 1024
 CASES = (*GROWTH_CASES, "delete")
 MEASURES = ("stored_record_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
-            "max_disk_to_logical_ratio", "search_queue_bytes", "search_queue_payload_bytes",
-            "search_queue_files", "other_home_bytes", "whole_home_disk_bytes",
+            "max_disk_to_logical_ratio", "other_home_bytes", "whole_home_disk_bytes",
             "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent",
             "starting_stored_record_bytes", "starting_live_records", "deleted_records")
 
@@ -67,14 +66,6 @@ def verify_deleted(workload):
             raise ValueError("A deleted key still returns data")
 
 
-def require_search_off(node, output, phase):
-    status, _, _ = node.call("/api/db/native-status")
-    search = status.get("search")
-    save(output / f"disk-search-{phase}.json", search)
-    if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
-        raise ValueError("The disk budget requires a daemon that reports Search off without a status error")
-
-
 def logical_storage(node):
     report = node.call("/api/db/schemas")[0]["schema_storage"]
     validate_logical(report)
@@ -102,9 +93,6 @@ def metrics(points):
     retained = max(worst["disk_breakdown"]["database"].values())
     return {"stored_record_bytes": last["logical_storage"]["total_logical_bytes"],
             "retained_disk_bytes": max(breakdown["database"].values()),
-            "search_queue_bytes": max(breakdown["search_queue"].values()),
-            "search_queue_payload_bytes": breakdown["search_queue"]["logical_bytes"],
-            "search_queue_files": breakdown["search_queue_files"],
             "other_home_bytes": max(breakdown["other_home"].values()),
             "whole_home_disk_bytes": max(breakdown["whole_home"].values()),
             "limit_logical_bytes": logical, "limit_database_bytes": retained,
@@ -129,14 +117,12 @@ class DiskBudgetWorkload(GrowthWorkload):
                     arguments=self.node.arguments, record_protocol=True)
         try:
             node.start()
-            require_search_off(node, output, "before")
             if node.home_format() != self.node.home_format():
                 raise ValueError("The delete case requires the home format of the main corpus")
             workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)
             workload.case_names = ("delete",)
             GrowthWorkload.run(workload)
             save(output / "disk-format.json", {"marker": (node.home / "data" / "laststore-pack-node-v1").read_text()})
-            require_search_off(node, output, "after")
             self.cases.update(workload.cases)
         finally:
             node.close()
@@ -217,8 +203,6 @@ def validate(case, result, recipe):
                               for name in ("total_logical_bytes", "total_records")):
                 raise ValueError("Deleted records did not reduce the logical data and the record count")
         validate_breakdown(point["disk_breakdown"])
-        if point["disk_breakdown"]["search_queue_files"] != 0:
-            raise ValueError(f"{case}: the disk budget requires an empty Search queue")
         if point["disk"] != point["disk_breakdown"]["whole_home"]:
             raise ValueError(f"{case}: the whole-home totals differ")
         if (set(point["disk"]) != {"logical_bytes", "allocated_bytes"}
@@ -246,7 +230,7 @@ def validate(case, result, recipe):
 
 
 def advisories(base, candidate):
-    return [name for name in ("retained_disk_bytes", "search_queue_bytes")
+    return [name for name in ("retained_disk_bytes",)
             if candidate[name] - base[name] >= FLOOR and candidate[name] >= base[name] * (1 + PERCENT / 100)]
 
 
@@ -258,28 +242,26 @@ def render(comparison):
                  for name, divisor, unit in (("stored_record_bytes", 2**20, ""), ("retained_disk_bytes", 2**20, ""),
                                              ("disk_to_logical_ratio", 1, "×"), ("max_disk_to_logical_ratio", 1, "×"))]
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
-    lines.extend(["", "| Case | Search queue MiB, base → candidate | Queue files, base → candidate | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
-                  "|---|---:|---:|---:|---:|"])
+    lines.extend(["", "| Case | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
+                  "|---|---:|---:|"])
     for case, item in comparison.items():
         cells = [" → ".join(f"{item[label][name] / divisor:.3f}" for label in ("baseline", "candidate"))
-                 for name, divisor in (("search_queue_bytes", 2**20), ("search_queue_files", 1),
-                                       ("other_home_bytes", 2**20), ("whole_home_disk_bytes", 2**20))]
+                 for name, divisor in (("other_home_bytes", 2**20), ("whole_home_disk_bytes", 2**20))]
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines.extend(["", "The ceiling is 1.5× logical bytes. Equality is within the budget.",
                   "Logical bytes use GET /api/db/schemas, the same measure as lastdb admin storage inventory --by-schema: "
                   "the stored record values of the home.",
                   "Database disk is the greater of file lengths and allocated blocks under data/.",
-                  "The Search queue includes apps/search/inbox/; other home files and the whole home remain explicit.",
+                  "Other home files and the whole home remain explicit.",
                   "Each category retains both file lengths and allocated blocks; its raw totals add exactly to the whole home.",
                   "Each checkpoint follows durable flush and verified keyed reads, then three stable seconds, with a 90-second deadline.",
                   "The v2 format uses its default automatic run merges. This run does not force compaction or measure transient disk peaks.",
-                  "Search is explicitly off before and after each run; every checkpoint requires an empty Search queue.",
                   "This is one baseline/candidate pair with no repeat. The maximum includes every settled candidate checkpoint.",
                   "Any candidate checkpoint above 1.5× fails benchmark-complete and blocks merge after this single pass.",
                   "The cap is total database size, not an additional allowance. Deletes use the remaining logical bytes.",
                   "The delete case starts in a fresh home, reaches at least 10 MiB logical on PRs and nightly, then deletes 75% of its keys.",
-                  "A database or Search queue increase of at least 10% and 64 KiB produces an advisory from this pass.",
-                  "Equality passes. Relative database and Search queue growth remains advisory.",
+                  "A database increase of at least 10% and 64 KiB produces an advisory from this pass.",
+                  "Equality passes. Relative database growth remains advisory.",
                   "The absolute limit fails even if the baseline also exceeds it; this does not prove PR causation.",
                   "The generated v2 workload supplies a guard for this data shape, not a measurement of the primary.", ""])
     return "\n".join(lines)

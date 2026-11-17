@@ -13,7 +13,7 @@ use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
 use crate::schema::{SchemaError, SchemaState};
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::PackRuntime;
 use crate::storage::format::metadata::SharedCommentWrite;
 
 /// The same record version expressed in local and publisher terms.
@@ -224,18 +224,6 @@ impl MutationManager {
                 .schemas()
                 .record_schema_retention_hash_partitions(schema_name, &keys)
                 .await?;
-        }
-        if let Some(batch) = crate::db_operations::search_index::build_index_change_batch(
-            schema_name,
-            &schema,
-            mutations.iter().map(|a| &a.mutation),
-            &keys,
-        ) {
-            let inbox = self.search_outbox_inbox.clone();
-            transaction::after_commit(runtime, async move {
-                crate::db_operations::search_index::deliver_outbox(inbox, &batch)
-                    .map_err(|e| crate::storage::StorageError::BackendError(e.to_string()))
-            })?;
         }
         Ok(())
     }

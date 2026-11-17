@@ -236,9 +236,6 @@ def prove_apps(node, plan, output, declare=True):
             if run(["get", "ci-release-qualification"], "get", retain_output=False).strip() != value:
                 raise RuntimeError("LastSecrets did not return the acknowledged value")
         else:
-            inbox = node.home / "apps/search/inbox"
-            if not inbox.is_dir() or not any(path.suffix == ".json" for path in inbox.iterdir()):
-                raise RuntimeError("Database writes produced no real Search delivery")
             run(["init", "--last-db-home", str(node.home)], "init")
             drained = json.loads(run(["drain", "--last-db-home", str(node.home)], "drain"))
             hits = json.loads(run(["query", "CI stable qualification record", "--json", "--last-db-home", str(node.home)], "query"))
@@ -273,7 +270,7 @@ def prove_compatibility(plan_path, bundles, output):
     validate_bundle(bundles, target, plan)
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"])
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         observed = operations(node)
@@ -284,7 +281,7 @@ def prove_compatibility(plan_path, bundles, output):
     for api_version, sources in plan.get("installed_apps", {}).items():
         older = output / f"api-{api_version}"
         older.mkdir()
-        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older, plan["version"], enable_search=True)
+        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older, plan["version"])
         try:
             unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
             operations(node)
@@ -319,7 +316,7 @@ def qualify_release(plan_path, bundles, output):
     target = "x86_64-unknown-linux-gnu"
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"])
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         version = operations(node)

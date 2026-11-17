@@ -70,7 +70,6 @@ pub(super) async fn freeze(host: &Host, log: &CloudLog, cursor: u64) -> Result<O
         || log.scope.account_id.as_str() != host.user_hash
         || log.environment() != environment
         || cursor != session::load_cursor(&host.home, log.database_id())?
-        || fold_db::db_operations::search_index::queue_policy::enabled()
     {
         return Err(
             "native recovery needs the active personal database and local download position".into(),
@@ -239,7 +238,6 @@ pub async fn install_prepared_native_recovery(home: &Path) -> Result<bool, Strin
     }
     let bail = || stale(home, &stage_home).map(|()| false);
     if identity_matches(home, &journal.origin).is_err()
-        || fold_db::db_operations::search_index::queue_policy::enabled()
         || session::load_cursor(home, journal.origin.database_id.as_str())? != journal.origin.cursor
     {
         return bail();

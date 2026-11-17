@@ -24,9 +24,6 @@ on:
       resource_only:
         type: boolean
         default: false
-      search_queue:
-        type: boolean
-        default: true
       baseline_workers:
         type: string
         default: "0"
@@ -57,10 +54,9 @@ jobs:
       fail-fast: false
       matrix:
         lane: >-
-          ${{ fromJSON(format('["disk", "growth"{0}{1}{2}]',
+          ${{ fromJSON(format('["disk", "growth"{0}{1}]',
               !inputs.resource_only && ', "speed"' || '',
-              !inputs.resource_only && inputs.writer16 && ', "writers"' || '',
-              inputs.search_queue && ', "search"' || '')) }}
+              !inputs.resource_only && inputs.writer16 && ', "writers"' || '')) }}
     env:
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
@@ -208,14 +204,6 @@ jobs:
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
-
-      - name: Measure default-off Search and a full queue without a consumer
-        if: matrix.lane == 'search' && inputs.search_queue
-        run: |
-          timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
-            --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" --candidate-revision "${{ inputs.candidate }}" \
-            --driver-revision "${{ inputs.driver }}" \
-            --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue"
 
       - name: Capture native phases in separate generated homes
         if: matrix.lane == 'speed' && inputs.investigation

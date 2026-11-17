@@ -10,7 +10,6 @@ import hashlib, json, os, re, signal, sys, threading, time
 from pathlib import Path
 from statistics import mean, median
 
-from disk_budget import require_search_off
 from node import Node, file_hash, publish_summary, save
 from phases import capture_phases
 from process_counters import counter_delta, read_counters
@@ -92,7 +91,6 @@ class Writers:
             return rows
 
         status = self.node.call("/api/status")[0]["status"]
-        require_search_off(self.node, self.node.output, name)
         with ThreadPoolExecutor(max_workers=clients) as pool:
             futures = [pool.submit(worker, client) for client in range(clients)]
             before = {"daemon": read_counters(self.node.process.pid), "client": read_counters(os.getpid())}
@@ -195,12 +193,11 @@ def measure_home(args, label, pair):
     directory = args.output / f"pair-{pair}-{label}"
     directory.mkdir()
     node = Node(binary, revision, directory,
-                environment={"LASTDB_SEARCH_ENABLED": "0", "LASTDBD_STDIO_LOG_ROTATION": "1"}, record_protocol=True)
+                environment={"LASTDBD_STDIO_LOG_ROTATION": "1"}, record_protocol=True)
     home = {"label": label, "pair": pair, "revision": revision,
             "directory": directory.name, "complete": False, "cases": []}
     try:
         node.start()
-        require_search_off(node, directory, "before")
         writes = Writers(node)
         writes.seed()
         home["cases"].append(writes.measure("ordinary-16", 16))
@@ -211,7 +208,6 @@ def measure_home(args, label, pair):
             node.start()
             writes.verify()
             home["cases"].append(writes.measure("native-16", 16))
-        require_search_off(node, directory, "after")
         if node.call("/api/db/native-status")[0]["native_disk"].get("writer_failed") is not False:
             raise ValueError("The native writer is unhealthy")
     finally:
@@ -228,7 +224,7 @@ def render_report(output):
     lines = ["# Paired 16-writer comparison", "",
              f"Driver: `{data['driver_revision']}`. Each fresh home has {data['records']} generated records.",
              "Six fresh homes form three alternating base/candidate pairs on this runner.",
-             "Every client owns different keys in one schema and one hash. Search is off.",
+             "Every client owns different keys in one schema and one hash.",
              "Each case completes 2,048 single-record durable RPCs and verifies the final values.",
              "The final pair also records native phases after a restart. Native latency is separate from the ordinary comparison.",
              "All phase averages cover complete foreground storage work; nested preparation stages overlap.",
@@ -297,7 +293,7 @@ def main():
                 for label in ("baseline", "candidate")}
     manifest = {"complete": False, "driver_revision": args.driver_revision, "host": host_details(), "records": RECORDS,
                 "pairs": 3, "requests_per_case": 2048, "clients": 16, "batch_records": 1, "schema": "GitHubBenchmark",
-                "hash": "generated", "search_enabled": False, "programs": programs, "homes": [],
+                "hash": "generated", "programs": programs, "homes": [],
                 "scope": "Three alternating pairs; separate final-pair native capture"}
     signal.signal(signal.SIGTERM, interrupted)
     try:

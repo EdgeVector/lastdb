@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-from disk_budget import DiskBudgetWorkload, require_search_off
+from disk_budget import DiskBudgetWorkload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 from node import Node, file_hash, save
 from phases import collect_native_phases
@@ -25,17 +25,14 @@ def measure(binary, revision, recipe, output, workers):
     node, error = None, None
     started = time.monotonic()
     try:
-        environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
         node = Node(binary, revision, output,
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=workers,
-                    environment=environment, record_protocol=True)
+                    environment={}, record_protocol=True)
         node.start()
         save(output / "home-format.json", {"format": node.home_format()})
         if recipe.get("disk_budget"):
-            require_search_off(node, output, "before")
             DiskBudgetWorkload(node, recipe, output).run()
             save(output / "disk-format.json", {"marker": (node.home / "data" / "laststore-pack-node-v1").read_text()})
-            require_search_off(node, output, "after")
         elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:
@@ -97,9 +94,9 @@ def recipe_for(args):
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
             recipe["growth"] = {**recipe["growth"], "delete_target_bytes": 10 * 2**20}
-            recipe.update(disk_budget=True, search_enabled=False, pairs=1,
+            recipe.update(disk_budget=True, pairs=1,
                           writes="durable batches; flush at each checkpoint; default automatic run merges",
-                          disk="database data/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
+                          disk="database data/ only for the 1.5x ratio; other home files and the whole home stay separate; three stable seconds",
                           logical="GET /api/db/schemas total_logical_bytes; the stored record values of the home")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs

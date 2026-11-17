@@ -102,9 +102,7 @@ jobs:
           cd "$TEST_HOME"
           
           # Start daemon in background
-          search_flags=()
-          case '${{ matrix.app }}' in search|lastseek) search_flags+=(--enable-search) ;; esac
-          lastdbd --data-dir "$LASTDB_HOME" "${search_flags[@]}" > "$PROOF_DIR/lastdbd-startup.log" 2>&1 &
+          lastdbd --data-dir "$LASTDB_HOME" > "$PROOF_DIR/lastdbd-startup.log" 2>&1 &
           LASTDBD_PID=$!
           echo "LASTDBD_PID=$LASTDBD_PID" >> "$GITHUB_ENV"
           
@@ -334,8 +332,8 @@ jobs:
           # Check LastDB status after operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-lastsecrets.txt"
 
-      - name: Produce Search delivery with real database writes
-        if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true'
+      - name: Write a brain record for Search
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install
@@ -345,7 +343,7 @@ jobs:
           bun "$source_dir/src/cli.ts" get ci-app-delivery --type concept > "$PROOF_DIR/delivery-record.txt"
           grep -q 'CI app delivery record' "$PROOF_DIR/delivery-record.txt"
 
-      # === lastseek (Outbox) ===
+      # === lastseek ===
       - name: Set up lastseek dependencies
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
@@ -357,19 +355,18 @@ jobs:
           # Install binary
           cp target/release/lastseek "$HOME/.cargo/bin/" || cp target/release/lastseek /usr/local/bin/
 
-      - name: Consume real LastDB delivery with lastseek
+      - name: Record the lastseek version
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
           lastseek --version | tee "$PROOF_DIR/lastseek-version.txt"
-          lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" | tee "$PROOF_DIR/lastseek-ingest-test.txt"
 
-      # === Search (Outbox) ===
+      # === Search ===
       - name: Use the registry-installed Search command
         if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: command -v search
 
-      - name: Index real LastDB delivery with Search
+      - name: Initialize Search against the LastDB home
         if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
@@ -455,8 +452,8 @@ jobs:
                 DETAILS="- LastSecrets init: $(test -f lastsecrets-init.log && echo OK || echo FAILED); read/write: $($PASSED && echo OK || echo FAILED)"
                 ;;
               lastseek)
-                test -f lastseek-ingest-test.txt && PASSED=true
-                DETAILS="- lastseek build: $(test -f lastseek-build.log && echo OK || echo FAILED); ingest: $($PASSED && echo OK || echo FAILED)"
+                test -f lastseek-version.txt && PASSED=true
+                DETAILS="- lastseek build: $(test -f lastseek-build.log && echo OK || echo FAILED); version: $($PASSED && echo OK || echo FAILED)"
                 ;;
               search)
                 test -f search-drain-test.txt && PASSED=true
