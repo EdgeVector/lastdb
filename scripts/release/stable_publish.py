@@ -14,7 +14,6 @@ import time
 
 from nightly_package import TARGETS, digest, document, validate_bundle
 from nightly_plan import _capture, wait_gates
-from stable_app_publish import require_apps
 from stable_plan import APPS, TAP, api, load
 
 
@@ -31,7 +30,6 @@ def qualification(folder, plan):
         raise ValueError("The full one-hour qualification is incomplete")
     for app in APPS:
         if (result["apps"][app].get("complete") is not True
-                or result["apps"][app].get("installed_from_registry") is not True
                 or result["apps"][app]["sha"] != plan["apps"][app]):
             raise ValueError("App qualification differs from the frozen source")
     return result
@@ -163,7 +161,7 @@ def tap_pr(plan, commit):
                 raise ValueError("The existing stable branch differs; refuse to overwrite it")
         pr = api(f"repos/{TAP}/pulls", "POST", {"head": branch, "base": "main",
                  "title": "LastDB " + plan["version"] + " — qualified stable release",
-                 "body": "Promote the matched CLI and daemon after the full one-hour CI qualification and signed app compatibility gate.\n\n"
+                 "body": "Promote the matched CLI and daemon after the full one-hour CI qualification and the app compatibility proof.\n\n"
                          + "Source: " + plan["source"] + "\n\nValidation: " + plan["run_url"]
                          + "\n\nUpdate version, URL, and checksum in each formula, declaring openssl@3 when absent. The primary is unchanged."})
     if pr.get("merged_at"):
@@ -211,8 +209,7 @@ def main():
             raise ValueError("The native packages report different interfaces")
     provenance(args.bundles, args.proof, plan)
     wait_gates(plan, wait_seconds=0)
-    registry = require_apps(proof)
-    metadata = {"schema": "lastdb.stable.release.v1", "plan": plan, "qualification": proof, "registry": registry}
+    metadata = {"schema": "lastdb.stable.release.v1", "plan": plan, "qualification": proof}
     (args.bundles / "stable.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     hashes = {path.name: digest(path) for path in args.bundles.iterdir()}
     (args.bundles / "SHA256SUMS.txt").write_text("".join(f"{value}  {name}\n" for name, value in sorted(hashes.items())))

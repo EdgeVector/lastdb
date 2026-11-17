@@ -126,12 +126,25 @@ programs.
 Keep all other test targets retired. No local LastDB builds, benchmarks, or
 runtime proofs. No primary upgrade, restart, reset, copy, or backup change.
 
-Tom extended this on 2026-11-03: "automate publishing the signed app compatibility
-records for new API versions too ... Keep everything in CI and leave my primary
-unchanged." This also authorizes `scripts/release/stable_app_publish.py`
-and `.github/workflows/app-compatibility-publish.yml`. CI must run the apps and validate their
-unsigned declarations before its separate KMS identity publishes them. The real
-registry installs and the full one-hour qualification remain required.
+Tom decided on 2026-11-16 to stop CI publication of app listings. The client
+installs an app from any signed list in its supported API range, so a new
+LastDB API number does not need a new listing. A CI republication also carries
+no `access` declaration, which the installer refuses for an app that ran
+restricted. The stable release does not call `POST /v1/ci/apps` or
+`POST /v1/ci/authorize`. `scripts/release/stable_app_publish.py` and
+`.github/workflows/app-compatibility-publish.yml` are removed.
+
+The compatibility proof stays. Job `app-compatibility` in
+`.github/workflows/stable-release.yml` runs
+`scripts/release/stable_plan.py compatibility`, and the one-hour qualification
+still has to pass before a Homebrew promotion. The release reads signed lists
+to choose which app commits to prove. It does not write listings.
+
+Listings already signed by the former CI publisher key stay valid. An owner
+can still publish over one of those listings with the owner key. That rule is
+`authorized_transition` in
+`lastdb_node/src/bin/lastdb/app_registry_index/mod.rs`, and the pinned CI
+publisher keys stay in `lastdb_node/environments.json`.
 
 ### Scoped extension: signed snapshot round trip (Tom, 2026-11-13)
 
