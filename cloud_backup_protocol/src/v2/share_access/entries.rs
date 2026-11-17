@@ -303,7 +303,13 @@ impl MemberListResponse {
             }
             last = Some(&entry.node_public_key);
         }
-        if self.next.as_ref().is_some_and(|next| Some(next) != last) {
+        // The cursor is the last row the service read. That row can be one
+        // with no entry, so it is at or after the last entry of the page.
+        if self
+            .next
+            .as_ref()
+            .is_some_and(|next| last.is_some_and(|key| next < key))
+        {
             return Err(ProtocolError::invalid("share.member_list.next"));
         }
         Ok(())
