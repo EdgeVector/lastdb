@@ -86,6 +86,12 @@ jobs:
           
           # Add built binaries to PATH
           echo "$(pwd)/target/debug" >> "$GITHUB_PATH"
+
+          # An app that declares LastDB access gets command links that point
+          # at ~/.local/bin/lastdb, the launcher. A real install has lastdb
+          # there; this job builds it, so link the built one into place.
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$(pwd)/target/debug/lastdb" "$HOME/.local/bin/lastdb"
           
           # Create proof directory
           mkdir -p "$TEST_HOME/proof"
@@ -272,9 +278,6 @@ jobs:
           
           # Schema registration check is optional - just note it in logs
           echo "LastSecrets schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/lastsecrets-schemas.txt"
-        env:
-          # LastSecrets reads socket path from this env var
-          LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Run LastSecrets health checks
         if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
@@ -330,9 +333,6 @@ jobs:
           
           # Check LastDB status after operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-lastsecrets.txt"
-        env:
-          # LastSecrets reads socket path from this env var
-          LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Produce Search delivery with real database writes
         if: (matrix.app == 'search' || matrix.app == 'lastseek') && env.SKIP_APP != 'true'

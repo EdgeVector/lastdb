@@ -230,27 +230,17 @@ directly.
 - The launcher asks the node for an app session with the lists from the app's
   signed listing, and starts the app's program with `LASTDB_SOCKET_PATH` set to
   the app socket and `LASTDB_APP_SESSION` set to the session.
-- On macOS the program runs inside a sandbox profile. The profile denies the
-  LastDB home, every other installed app's files, every socket in the home
-  other than the app socket, reading other processes, and signalling them.
-  The app's own install tree stays readable. The folder that holds all installed
-  apps can be stat'ed, so a path into the app's own tree resolves, but it cannot
-  be listed.
-- The profile denies every write. An app writes only inside its own data
-  folder, `<apps root>/<app>/data`, which the launcher creates and names in
-  `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app cannot write a config
-  file, a command, or anything else of the owner's.
-- macOS does not let a process that already runs in a sandbox profile apply a
-  second one. When the launcher itself is started from inside a profile, for
-  example from an agent's sandboxed shell, it starts the app without its own
-  profile. The app inherits the caller's profile and cannot leave it, so it
-  reaches no more of the machine than its caller does. It still gets only the
-  app socket and a session. The caller's profile, not the launcher, then decides
-  whether the app can write its data folder.
+- The declaration exists to record which app uses which schema (Tom,
+  2026-11-17). The node serves an app only the schemas it declared, so the
+  record stays true. Confining an installed app on the owner's machine is not a
+  goal: the launcher applies no sandbox, on any platform. An earlier macOS
+  sandbox profile was removed. It could not nest inside a caller's own
+  profile, and it kept apps that act on the machine from declaring at all.
+- The launcher creates the app's own data folder, `<apps root>/<app>/data`,
+  and names it in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps its
+  config and state there by convention.
 - An app that ran restricted stays restricted. Install refuses a later version
   whose listing declares no LastDB access.
-- On other platforms no sandbox tool is chosen yet. The app still gets only the
-  app socket and a session, which holds an app that does not try to get around it.
 - An app that declares no LastDB access is linked and started as before.
 - A command name belongs to one installed app. Install refuses a name that
   another installed app lists, and refuses to replace a path in `~/.local/bin`
@@ -263,12 +253,7 @@ directly.
 
 - A path for a file that is only in the cloud or that LastDB holds as bytes. Nothing fetches one file from the cloud on a read yet.
 - Removing a record's file while keeping the record.
-- The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
-- A sandbox tool for platforms other than macOS.
-- Install steps and the install probe run outside the profile.
-- The profile does not limit the network, or what an app reads among the
-  owner's other files.
 - A limit on which databases an app may name.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
 - The older routes under `/api` stay until the apps move to these two.
