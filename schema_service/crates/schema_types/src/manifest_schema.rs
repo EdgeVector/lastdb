@@ -98,7 +98,7 @@ fn prepare(entry: &Value, label: &str) -> Result<Option<Expanded>, String> {
 fn expanded_fields(label: &str, fields: &Map<String, Value>) -> Result<Expanded, String> {
     let mut order: Vec<&str> = fields.keys().map(String::as_str).collect();
     order.sort_unstable();
-    let mut maps = Default::default();
+    let mut maps = FieldMaps::default();
     for name in &order {
         let Some(spec) = fields.get(*name).and_then(Value::as_object) else {
             return Err(format!(
