@@ -7,8 +7,8 @@ use fold_db::schema::types::{
     cas::CasExpectation, mutation::ContributionAdmission, operations::Operation, Mutation,
     MutationType,
 };
+use fold_db::STANDARD_COMMENT_SCHEMA;
 use mutation_log::Entry;
-use schema_types::STANDARD_COMMENT_SCHEMA;
 use sha2::{Digest as _, Sha256};
 use std::sync::Arc;
 
@@ -212,7 +212,7 @@ async fn check_record_write(
         return Ok(false);
     }
     if standard_comment {
-        let author = hex::encode(Sha256::digest(writer.as_bytes()));
+        let author = fold_db::hex::sha256_hex(writer.as_bytes());
         mutation
             .record_fields
             .insert("author_id".into(), author.into());

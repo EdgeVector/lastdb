@@ -2,29 +2,24 @@
 
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::{FileMarker, StoredRecord};
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use tracing::info;
 
 use crate::db_operations::{DbOperations, SchemaRecordKey, SchemaRecordKeysReport};
 use crate::error::FoldDbError;
-use crate::schema::types::{KeyValue, SchemaError};
-use crate::schema::SchemaCore;
-use crate::storage::current_keys::families::record_file_path;
-use crate::storage::StorageError;
+use crate::schema::{types::KeyValue, types::SchemaError, SchemaCore};
+use crate::storage::{current_keys::families::record_file_path, StorageError};
 
 pub mod factory {
     //! Native local FoldDB construction and at-rest encryption binding.
 
-    use crate::crypto::ContentCipherKey;
+    use crate::crypto::E2eKeys;
     use crate::db_operations::DbOperations;
     use crate::error::{FoldDbError, FoldDbResult};
     use crate::fold_db_core::FoldDB;
     use crate::security::Ed25519KeyPair;
-    use crate::storage::config::DatabaseConfig;
-    use crate::storage::disk_pack::PackNamespacedStore;
-    use std::path::PathBuf;
-    use std::sync::Arc;
+    use crate::storage::{config::DatabaseConfig, disk_pack::PackNamespacedStore};
+    use std::{path::PathBuf, sync::Arc};
 
     /// Local construction inputs.
     #[derive(Default)]
@@ -46,7 +41,7 @@ pub mod factory {
     )]
     pub async fn create_fold_db_with_options(
         config: &DatabaseConfig,
-        e2e_keys: &ContentCipherKey,
+        e2e_keys: &E2eKeys,
         signer: Arc<Ed25519KeyPair>,
         options: FoldDbOptions,
     ) -> FoldDbResult<Arc<FoldDB>> {
@@ -116,9 +111,7 @@ impl FoldDB {
                 .await
                 .map_err(|e| StorageError::IoError(std::io::Error::other(e.to_string())))?,
         );
-        if !options.offline_maintenance {
-            db_ops.native_runtime().begin_serving();
-        }
+        db_ops.native_runtime().begin_serving();
         let query_executor = QueryExecutor::new(&db_ops, Arc::clone(&schema_manager));
         info!("Created QueryExecutor for query operations");
         db_ops
@@ -138,9 +131,7 @@ impl FoldDB {
             options.track_shared_record_revisions,
         ));
         info!("Created MutationManager for mutation operations");
-        if !options.offline_maintenance {
-            info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
-        }
+        info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
         Ok(Self {
             schema_manager,
             db_ops,

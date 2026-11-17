@@ -1,7 +1,7 @@
 //! Native local storage modules, error surface, and internal format capabilities.
 
 pub mod disk_backup;
-pub mod disk_cleanup;
+pub(crate) mod disk_cleanup;
 pub mod disk_pack;
 pub mod error;
 pub(crate) mod format;

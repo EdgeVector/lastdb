@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use fold_db::access::peer_cred::read_peer_credential;
 use fold_db::access::PeerCredVerdict;
 
-pub mod uds_http;
-pub mod uds_router;
+pub(crate) mod uds_http;
+pub(crate) mod uds_router;
 
 use uds_router::{bind_socket_listener, record_fd_exhaustion};
 pub use uds_router::{
@@ -100,7 +100,7 @@ impl UdsSocket {
                 continue;
             }
             match read_peer_credential(stream.as_raw_fd()).map(|c| c.evaluate(owner_uid)) {
-                Ok(PeerCredVerdict::SameUser { .. }) => on_accept(stream),
+                Ok(PeerCredVerdict::SameUser) => on_accept(stream),
                 Ok(PeerCredVerdict::ForeignUser {
                     peer_uid,
                     owner_uid,

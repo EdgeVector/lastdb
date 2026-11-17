@@ -50,10 +50,10 @@ where
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        let cat = match meta.target() {
-            "lastdb_node::cloud" => "cloud",
-            "observability::crash" => "panic_report",
-            _ => "daemon",
+        let cat = if meta.target() == "lastdb_node::cloud" {
+            "cloud"
+        } else {
+            "daemon"
         };
         write!(w, "timestamp={ts} severity={} category={cat}", meta.level())?;
         if meta.target() == "lastdbd" {

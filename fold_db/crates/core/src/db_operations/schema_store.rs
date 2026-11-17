@@ -45,7 +45,10 @@ impl SchemaStore {
         }
     }
 
-    pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
+    pub(crate) async fn get_schema(
+        &self,
+        schema_name: &str,
+    ) -> Result<Option<Schema>, SchemaError> {
         let Some(bytes) = self.schemas_store.get(schema_name.as_bytes()).await? else {
             return Ok(None);
         };

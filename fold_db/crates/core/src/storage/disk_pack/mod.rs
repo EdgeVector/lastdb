@@ -2,17 +2,15 @@
 
 use super::error::{StorageError, StorageResult};
 use crate::resident::CoreWarmSet;
-use crate::storage::disk_cleanup::CleanupJob;
-use crate::storage::format::CREATION_INTENT;
+use crate::storage::{disk_cleanup::CleanupJob, format::CREATION_INTENT};
 use lastdb_model::storage_policy::native_read::EAGER_WORK_BYTES;
 use laststore::disk_run::home::{HomeMutation, ReadBudget, RunHomeDiagnostics};
 use laststore::space::{SpacePolicy, SpaceReservation};
 use serde::Serialize;
 use std::fs::{self, File};
-use std::io::ErrorKind;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::{io::ErrorKind, time::Duration, time::Instant};
 use tokio::runtime::{Handle, RuntimeFlavor};
 
 mod kv;
@@ -31,11 +29,11 @@ pub use crate::storage::disk_cleanup::{
 };
 pub use crate::storage::format::{HOME_FORMAT, NODE_MARKER, RECORD_NODE_BYTES};
 pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
-pub use physical::NativeDiskStatus;
 pub(crate) use physical::CAS_COLLECTION;
-pub use run_commit::NativeFlushReceipt;
-pub use run_node::{CAS_DIR, RUN_DIR};
-pub use transaction::PackReadScope;
+pub use {
+    physical::NativeDiskStatus, run_commit::NativeFlushReceipt, run_node::CAS_DIR,
+    run_node::RUN_DIR, transaction::PackReadScope,
+};
 
 #[derive(Serialize)]
 pub struct NativeStorageDiagnostics {
@@ -101,18 +99,18 @@ impl PackRuntime {
         &self,
         inventory: bool,
     ) -> StorageResult<Option<NativeStorageDiagnostics>> {
-        if !std::env::var("LASTDB_SNAPSHOT_TIMING")
-            .is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on"))
-        {
+        let timing = std::env::var("LASTDB_SNAPSHOT_TIMING");
+        if !timing.is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on")) {
             return Ok(None);
         }
         if inventory && !self.queue.lock().expect("native queue").requests.is_empty() {
-            return Err(StorageError::invalid(
-                "inventory requires a checkpoint without accepted writes",
-            ));
+            let msg = "inventory requires a checkpoint without accepted writes";
+            return Err(StorageError::invalid(msg));
         }
-        let main = Arc::clone(&self.physical.home);
-        let cas = Arc::clone(&self.physical.cas);
+        let (main, cas) = (
+            Arc::clone(&self.physical.home),
+            Arc::clone(&self.physical.cas),
+        );
         tokio::task::spawn_blocking(move || {
             let deadline = Instant::now() + Duration::from_secs(60);
             Ok(Some(NativeStorageDiagnostics {
@@ -140,17 +138,15 @@ impl PackRuntime {
             return Ok(());
         }
         if transaction::PendingBatch::current(self).is_some() {
-            return Err(creation_refusal(
-                "current creation needs its own durable transaction",
-            ));
+            let msg = "current creation needs its own durable transaction";
+            return Err(creation_refusal(msg));
         }
         let (gate, runtime) = (self.enter_write().await, Arc::clone(self));
         run_blocking(move || {
             let _gate = gate;
             if runtime.requires_recovery() {
-                return Err(creation_refusal(
-                    "current creation requires a snapshot reopen",
-                ));
+                let msg = "current creation requires a snapshot reopen";
+                return Err(creation_refusal(msg));
             }
             if runtime.fresh_initialization_pending() {
                 runtime.mark_accepted_born(runtime.physical.current_root().frontier())?;
@@ -189,7 +185,7 @@ pub(in crate::storage) fn creation_refusal(message: &str) -> StorageError {
 }
 
 #[derive(Clone)]
-pub struct PackNamespacedStore {
+pub(crate) struct PackNamespacedStore {
     pub(in crate::storage) runtime: Arc<PackRuntime>,
 }
 

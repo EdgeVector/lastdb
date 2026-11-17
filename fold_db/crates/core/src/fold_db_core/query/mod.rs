@@ -27,10 +27,6 @@ pub struct QueryExecutor {
     pub(super) schema_manager: Arc<SchemaCore>,
 }
 
-pub mod query_executor {
-    pub use super::AlternatePage;
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RecordMetadata {
     pub source_file_name: Option<String>,
@@ -78,7 +74,7 @@ impl Record {
 }
 
 impl QueryExecutor {
-    pub fn new(db_ops: &Arc<DbOperations>, schema_manager: Arc<SchemaCore>) -> Self {
+    pub(crate) fn new(db_ops: &Arc<DbOperations>, schema_manager: Arc<SchemaCore>) -> Self {
         Self {
             db_ops: Arc::clone(db_ops),
             schema_manager,

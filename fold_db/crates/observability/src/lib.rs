@@ -2,7 +2,7 @@
 
 use once_cell::sync::OnceCell;
 use serde_json::{json, Map, Value};
-use std::{collections::HashSet, fmt, io, time::SystemTime, time::UNIX_EPOCH};
+use std::{fmt, io, time::SystemTime, time::UNIX_EPOCH};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -21,12 +21,6 @@ pub mod crash {
     }
     pub fn install_private_panic_hook() {
         std::panic::set_hook(Box::new(|_| write_panic_marker()));
-    }
-}
-
-pub mod propagation {
-    pub fn inject_w3c<T>(builder: T) -> T {
-        builder
     }
 }
 
@@ -160,12 +154,6 @@ mod error_imp {
     }
 
     fn sanitize(src: &SentryEvent<'_>) -> SentryEvent<'static> {
-        let cat = match src.tags.get("crash_kind").map(String::as_str) {
-            Some("panic") => "panic",
-            Some("startup_failed") => "startup_failed",
-            Some("unclean_exit") => "unclean_exit",
-            _ => "application_error",
-        };
         let env_tag = src.environment.as_deref().filter(|v| {
             "production|development|prod|dev|staging"
                 .split('|')
@@ -174,15 +162,15 @@ mod error_imp {
         SentryEvent {
             level: src.level,
             platform: "native".into(),
-            message: Some(format!("Application fault: {cat}")),
-            fingerprint: vec!["private_fault".into(), cat.into()].into(),
+            message: Some("Application fault: application_error".into()),
+            fingerprint: vec!["private_fault".into(), "application_error".into()].into(),
             release: src
                 .release
                 .as_deref()
                 .and_then(numeric_version)
                 .map(|v| v.to_owned().into()),
             environment: env_tag.map(|v| v.to_owned().into()),
-            tags: fault_tags(cat),
+            tags: fault_tags(),
             ..SentryEvent::default()
         }
     }
@@ -193,14 +181,14 @@ mod error_imp {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || (dash && b == b'-'))
     }
 
-    fn fault_tags(cat: &str) -> BTreeMap<String, String> {
+    fn fault_tags() -> BTreeMap<String, String> {
         let env_if = |key: &str, ok: fn(&str) -> bool| {
             let r = env::var(key).ok()?;
             let v = r.trim();
             ok(v).then(|| v.to_owned())
         };
         let mut tags = BTreeMap::from([
-            ("fault_category".into(), cat.into()),
+            ("fault_category".into(), "application_error".into()),
             ("os".into(), env::consts::OS.into()),
         ]);
         if let Some(&s) = LAMBDA_SERVICE_NAME.get().filter(|s| is_ident(s, false)) {
@@ -254,14 +242,8 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let (error_layer, _sentry) = layers::error::build_error_layer().unzip();
-    let extra = std::env::var("OBS_REDACT_EXTRA").unwrap_or_default();
-    let deny_list = "auth_token,auth.token,password,api_key,api.key,secret,email,phone,ssn"
-        .split(',')
-        .chain(extra.split(',').map(str::trim).filter(|s| !s.is_empty()))
-        .map(str::to_owned)
-        .collect();
     let fmt_layer = tracing_subscriber::fmt::layer()
-        .event_format(RedactingFormat(deny_list))
+        .event_format(RedactingFormat)
         .with_writer(writer);
     let sub = Registry::default()
         .with(env_filter)
@@ -272,7 +254,7 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     Ok(ObsGuard { _sentry, _worker })
 }
 
-struct RedactingFormat(HashSet<String>);
+struct RedactingFormat;
 
 impl<S, N> FormatEvent<S, N> for RedactingFormat
 where
@@ -287,7 +269,7 @@ where
     ) -> fmt::Result {
         let meta = event.metadata();
         let level = *meta.level();
-        let mut vis = JsonFieldVisitor(&self.0, None, Map::new());
+        let mut vis = JsonFieldVisitor(None, Map::new());
         event.record(&mut vis);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -303,41 +285,47 @@ where
             "time_unix_nano": nanos.to_string(),
             "severity_text": level.as_str(),
             "severity_number": sev,
-            "body": vis.1.unwrap_or_default(),
+            "body": vis.0.unwrap_or_default(),
             "target": meta.target(),
         });
         let map = obj.as_object_mut().expect("json object");
         if let Some(span) = ctx.lookup_current() {
             map.insert("span".into(), Value::from(span.name()));
         }
-        if !vis.2.is_empty() {
-            map.insert("attributes".into(), Value::Object(vis.2));
+        if !vis.1.is_empty() {
+            map.insert("attributes".into(), Value::Object(vis.1));
         }
         writeln!(writer, "{obj}")
     }
 }
 
-struct JsonFieldVisitor<'a>(&'a HashSet<String>, Option<String>, Map<String, Value>);
+struct JsonFieldVisitor(Option<String>, Map<String, Value>);
 
-impl JsonFieldVisitor<'_> {
+impl JsonFieldVisitor {
     fn put(&mut self, f: &Field, v: Value) {
         let k = f.name();
         if k == "message" {
-            self.1 = Some(v.as_str().map_or_else(|| v.to_string(), str::to_owned));
+            self.0 = Some(v.as_str().map_or_else(|| v.to_string(), str::to_owned));
         } else {
-            self.2.insert(
-                k.into(),
-                if self.0.contains(k) {
-                    "<redacted>".into()
-                } else {
-                    v
-                },
+            let redacted = matches!(
+                k,
+                "auth_token"
+                    | "auth.token"
+                    | "password"
+                    | "api_key"
+                    | "api.key"
+                    | "secret"
+                    | "email"
+                    | "phone"
+                    | "ssn"
             );
+            self.1
+                .insert(k.into(), if redacted { "<redacted>".into() } else { v });
         }
     }
 }
 
-impl Visit for JsonFieldVisitor<'_> {
+impl Visit for JsonFieldVisitor {
     fn record_str(&mut self, f: &Field, v: &str) {
         self.put(f, Value::from(v));
     }

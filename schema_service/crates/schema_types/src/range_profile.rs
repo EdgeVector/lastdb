@@ -1,7 +1,7 @@
 //! Range storage profiles, typed range comparisons, field hashes, and portable IDs.
 
 use crate::{DeclarativeSchemaDefinition, FieldValueType};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 #[derive(Serialize)]
@@ -11,16 +11,6 @@ struct FieldHashInput<'a> {
     #[serde(rename = "type")]
     field_type: &'a FieldValueType,
     version: u32,
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
-    }
-    out
 }
 
 #[must_use]
@@ -39,11 +29,10 @@ pub fn compute_field_hash(
         version,
     })
     .expect("FieldHashInput serialization is infallible");
-    hex_lower(&Sha256::digest(&payload))
+    format!("{:x}", Sha256::digest(&payload))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortableSchemaId(String);
 
 impl PortableSchemaId {
@@ -68,7 +57,6 @@ impl PortableSchemaId {
         {
             return Err("schema catalog identity does not match its declaration".into());
         }
-        def.normalize_wire();
         def.ensure_field_hashes();
         let val =
             serde_json::to_value(&def).map_err(|_| "cannot encode portable schema definition")?;
@@ -77,23 +65,12 @@ impl PortableSchemaId {
         let mut digest = Sha256::new();
         digest.update(b"lastdb:portable-schema-definition:v1\0");
         digest.update(bytes);
-        Ok(Self(hex_lower(&digest.finalize())))
+        Ok(Self(format!("{:x}", digest.finalize())))
     }
 
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-impl TryFrom<String> for PortableSchemaId {
-    type Error = String;
-    fn try_from(v: String) -> Result<Self, Self::Error> {
-        if is_digest(&v) {
-            Ok(Self(v))
-        } else {
-            Err("portable schema ID must be a lowercase SHA-256".into())
-        }
     }
 }
 
@@ -123,7 +100,7 @@ pub mod field_range_profile {
     }
 
     impl RangeStorageProfile {
-        pub fn typed(field_type: &FieldValueType) -> Result<Self, String> {
+        fn typed(field_type: &FieldValueType) -> Result<Self, String> {
             match ordered_type(field_type)? {
                 FieldValueType::String => Ok(Self::StringUtf8V1),
                 FieldValueType::Integer => Ok(Self::IntegerI64V1),
@@ -134,7 +111,7 @@ pub mod field_range_profile {
             }
         }
 
-        pub fn encode_value(self, api: &str) -> Result<String, String> {
+        fn encode_value(self, api: &str) -> Result<String, String> {
             match self {
                 Self::StringUtf8V1 => Ok(api.to_owned()),
                 Self::IntegerI64V1 => api
@@ -151,7 +128,7 @@ pub mod field_range_profile {
             }
         }
 
-        pub fn decode_value(self, stored: &str) -> Result<String, String> {
+        fn decode_value(self, stored: &str) -> Result<String, String> {
             match self {
                 Self::StringUtf8V1 => Ok(stored.to_owned()),
                 Self::IntegerI64V1 => {
@@ -196,7 +173,7 @@ pub mod field_range_profile {
     }
 
     impl FieldRangeProfile {
-        pub fn for_field_type(range: Option<&FieldValueType>) -> Result<Self, String> {
+        pub(crate) fn for_field_type(range: Option<&FieldValueType>) -> Result<Self, String> {
             range.map_or(Ok(Self::EmptyV1), |ty| {
                 RangeStorageProfile::typed(ty).map(|scalar| Self::TypedV1 { scalar })
             })

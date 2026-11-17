@@ -1,12 +1,12 @@
 //! Database operations coordinator, storage reports, writer watch, and page scopes.
 
-pub mod record_store;
-pub mod schema_store;
+pub(crate) mod record_store;
+pub(crate) mod schema_store;
 pub mod search_index;
 
 pub use crate::storage::format::metadata::{Change, ChangePage, CHANGES_PAGE};
 pub use record_store::{RecordDeleteLedgerEntry, RecordStore};
-pub use schema_store::SchemaStore;
+pub use schema_store::{RetentionFloors, SchemaStore};
 
 pub mod alternate_keys {
     pub use crate::storage::format::records::{AlternateEntry, MAX_ALTERNATE_ENTRIES};
@@ -152,7 +152,7 @@ pub struct DbOperations {
 
 impl DbOperations {
     /// Bind one concrete format with the node key.
-    pub async fn from_namespaced_store_with_content_and_field_keys(
+    pub(crate) async fn from_namespaced_store_with_content_and_field_keys(
         store: PackNamespacedStore,
         node_key: [u8; 32],
     ) -> Result<Self, StorageError> {
@@ -209,7 +209,7 @@ impl DbOperations {
     }
 
     pub async fn flush(&self) -> Result<(), SchemaError> {
-        Ok(self.metadata.flush().await?)
+        Ok(self.runtime.flush().await?)
     }
 
     pub async fn schema_storage_report(&self) -> Result<SchemaStorageReport, FoldDbError> {
@@ -341,19 +341,14 @@ tokio::task_local! {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PageEnd {
-    pub resume: Option<PageResume>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PageResume {
-    Key(KeyValue),
+    pub resume: Option<KeyValue>,
 }
 
 pub(crate) fn page_can_resume() -> bool {
     PAGE_END.try_with(|_| ()).is_ok()
 }
 
-pub(crate) fn note_page_resume(resume: PageResume) {
+pub(crate) fn note_page_resume(resume: KeyValue) {
     let _ = PAGE_END.try_with(|end| end.borrow_mut().resume = Some(resume));
 }
 

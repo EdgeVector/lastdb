@@ -131,14 +131,7 @@ pub(super) fn get_record(
         .get("schema")
         .cloned()
         .ok_or("response missing schema field")?;
-    let has = |p| {
-        schema
-            .pointer(p)
-            .and_then(Value::as_str)
-            .is_some_and(|s| !s.is_empty())
-    };
-    if (schema["schema_type"].as_str() == Some("HashRange")
-        || (has("/key/range_field") && has("/key/hash_field")))
+    if schema["schema_type"].as_str() == Some("HashRange")
         && key_range.is_none_or(|s| s.trim().is_empty())
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
@@ -259,7 +252,7 @@ fn hydrate_record_file(
     );
     let resp = request_with_timeout_bytes(&target.socket, &req, admin_handler_timeout())?;
     let bytes = split_http_200(&resp, "record hydration")?;
-    if bytes.len() as u64 != size || hex::encode(Sha256::digest(bytes)) != digest {
+    if bytes.len() as u64 != size || fold_db::hex::hex_lower(Sha256::digest(bytes)) != digest {
         return Err("hydrated file differs from the queried record version".into());
     }
     crate::write_new_private_file(out, bytes, "hydration output")?;

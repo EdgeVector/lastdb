@@ -4,8 +4,7 @@ pub mod types;
 
 use crate::db_operations::schema_store::SchemaDrop;
 use crate::storage::disk_pack::transaction::{self, publication};
-use crate::storage::format::metadata::SchemaReplayDrop;
-use crate::storage::StorageError;
+use crate::storage::{format::metadata::SchemaReplayDrop, StorageError};
 use ::schema_types::IdentityRecompute;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -38,7 +37,9 @@ pub struct SchemaCore {
 }
 
 impl SchemaCore {
-    pub async fn new(db_ops: Arc<crate::db_operations::DbOperations>) -> Result<Self, SchemaError> {
+    pub(crate) async fn new(
+        db_ops: Arc<crate::db_operations::DbOperations>,
+    ) -> Result<Self, SchemaError> {
         let schemas = db_ops.schemas().get_all_schemas().await?;
         for schema in schemas.values() {
             require_explicit_record_keys(schema)?;
@@ -276,9 +277,7 @@ impl SchemaCore {
         stamp_identity_for_load(&mut schema, existing.as_ref());
         let refresh = existing.is_some();
         if let Some(stored) = existing {
-            if schema.record_keys != stored.record_keys
-                || schema.alternate_keys != stored.alternate_keys
-            {
+            if schema.record_keys != stored.record_keys {
                 return Err(SchemaError::InvalidData(
                     "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly".into(),
                 ));

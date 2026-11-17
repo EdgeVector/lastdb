@@ -42,13 +42,6 @@ pub mod canonical {
         }
 
         #[must_use]
-        pub fn with_capacity(capacity: usize) -> Self {
-            Self {
-                buf: Vec::with_capacity(capacity),
-            }
-        }
-
-        #[must_use]
         pub fn field(mut self, field: &[u8]) -> Self {
             push_field(&mut self.buf, field);
             self

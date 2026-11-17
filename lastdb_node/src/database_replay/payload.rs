@@ -25,36 +25,36 @@ use super::RestoreError;
 #[serde(deny_unknown_fields)]
 pub struct AcceptedBody {
     /// Body version. Only `1` is accepted.
-    pub version: u16,
+    pub(super) version: u16,
     /// Durable mutation id. A schema id starts with `s`.
-    pub mutation_id: String,
+    pub(super) mutation_id: String,
     /// `record`, `file`, `inline`, `schema`, or `contribution`.
-    pub kind: String,
+    pub(super) kind: String,
     /// `namespace/Name`.
-    pub schema: String,
+    pub(super) schema: String,
     /// `create`, `replace`, `delete`, `purge`, `put`, or `drop`.
-    pub action: String,
+    pub(super) action: String,
     /// Record key. Absent on a schema change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<KeyValue>,
+    pub(super) key: Option<KeyValue>,
     /// Record fields. An empty object is present when the record has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fields: Option<BTreeMap<String, Value>>,
+    pub(super) fields: Option<BTreeMap<String, Value>>,
     /// Alternate keys. A null value clears that alternate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alternates: Option<BTreeMap<String, Option<KeyValue>>>,
+    pub(super) alternates: Option<BTreeMap<String, Option<KeyValue>>>,
     /// External file marker or clear. A sealed row is not these bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<FileSection>,
+    pub(crate) file: Option<FileSection>,
     /// Inline file, at most 64 KiB, standard base64.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) inline_file: Option<InlineSection>,
     /// Schema definition id carried by a record or contribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub definition_id: Option<String>,
+    pub(super) definition_id: Option<String>,
     /// Schema wire JSON. Present only on schema put.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub definition: Option<Value>,
+    pub(super) definition: Option<Value>,
     /// Share contribution admission. Present only for that kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) contribution: Option<ContributionSection>,
@@ -70,21 +70,21 @@ pub struct AcceptedBody {
 pub struct FileSection {
     /// SHA-256 of the plaintext. Absent on a clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_sha256: Option<String>,
+    pub(crate) content_sha256: Option<String>,
     /// Plaintext size. Absent on a clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub(crate) size: Option<u64>,
     /// File name, when the marker has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub(crate) name: Option<String>,
     /// Media type, when the marker has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media_type: Option<String>,
+    pub(crate) media_type: Option<String>,
     /// True when the mutation clears the external file.
-    pub cleared: bool,
+    pub(crate) cleared: bool,
     /// Uploaded envelope address. Absent on a clear and on a local marker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub object: Option<FileObject>,
+    pub(crate) object: Option<FileObject>,
 }
 
 /// Authenticated address of one uploaded file envelope.
@@ -92,9 +92,9 @@ pub struct FileSection {
 #[serde(deny_unknown_fields)]
 pub struct FileObject {
     /// Publisher account that owns the upload receipt.
-    pub scope: CloudScope,
+    pub(crate) scope: CloudScope,
     /// Blob path written on that receipt.
-    pub path: BlobPath,
+    pub(crate) path: BlobPath,
 }
 
 /// Inline file section of an accepted body.
@@ -133,14 +133,14 @@ pub(super) enum Change {
 }
 
 pub(super) struct SchemaChange {
-    pub name: String,
-    pub definition: Option<Schema>,
+    pub(super) name: String,
+    pub(super) definition: Option<Schema>,
 }
 
 pub(super) struct RecordChange {
-    pub mutation: Mutation,
-    pub file: RecordFile,
-    pub inline: Option<InlineWrite>,
+    pub(super) mutation: Mutation,
+    pub(super) file: RecordFile,
+    pub(super) inline: Option<InlineWrite>,
 }
 
 pub(super) enum RecordFile {
@@ -150,12 +150,12 @@ pub(super) enum RecordFile {
 }
 
 pub(super) struct FileFetch {
-    pub marker: FileMarker,
-    pub object: FileObject,
+    pub(super) marker: FileMarker,
+    pub(super) object: FileObject,
 }
 
 /// Parse one canonical accepted body. The bytes must already be open.
-pub fn parse_accepted(bytes: &[u8]) -> Result<AcceptedBody, RestoreError> {
+pub(super) fn parse_accepted(bytes: &[u8]) -> Result<AcceptedBody, RestoreError> {
     let body: AcceptedBody =
         serde_json::from_slice(bytes).map_err(|_| RestoreError::Entry("snapshot entry"))?;
     let again = canonical_bytes(&body).map_err(|_| RestoreError::Entry("snapshot entry"))?;
@@ -215,7 +215,7 @@ fn put_schema(body: &AcceptedBody, definition: &Value) -> Result<SchemaChange, R
     if schema.name != body.schema {
         return Err(RestoreError::Entry("snapshot entry"));
     }
-    let tag = schema.get_identity_hash().map_or("none", String::as_str);
+    let tag = schema.identity_hash.as_deref().unwrap_or("none");
     if schema_id(&body.schema, tag) != body.mutation_id {
         return Err(RestoreError::Entry("mutation id"));
     }
@@ -240,7 +240,7 @@ fn schema_id(name: &str, tag: &str) -> String {
     hasher.update(name.as_bytes());
     hasher.update([0]);
     hasher.update(tag.as_bytes());
-    format!("s{}", hex::encode(&hasher.finalize()[..20]))
+    format!("s{}", fold_db::hex::hex_lower(&hasher.finalize()[..20]))
 }
 
 fn valid_schema(schema: &str, private: bool) -> bool {

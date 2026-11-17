@@ -1,6 +1,6 @@
 //! Wall-clock helpers, mutex recovery, and environment-variable scalar/flag parsers.
 
-pub fn unpoison<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn unpoison<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

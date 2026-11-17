@@ -24,13 +24,11 @@ pub enum CryptoError {
 pub type CryptoResult<T> = Result<T, CryptoError>;
 
 #[derive(Clone, Zeroize, zeroize::ZeroizeOnDrop)]
-pub struct ContentCipherKey {
+pub struct E2eKeys {
     encryption_key: [u8; 32],
 }
 
-pub type E2eKeys = ContentCipherKey;
-
-impl ContentCipherKey {
+impl E2eKeys {
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> CryptoResult<Self> {
         if *seed == [0u8; 32] {
             return Err(CryptoError::KeyError("Ed25519 seed is empty".into()));
