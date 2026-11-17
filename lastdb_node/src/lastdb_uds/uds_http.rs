@@ -310,7 +310,7 @@ pub enum Received {
     BodyTooLarge,
 }
 
-fn http_refusal(err: HttpErr) -> Option<(u16, &'static str)> {
+fn http_refusal(err: &HttpErr) -> Option<(u16, &'static str)> {
     match err {
         HttpErr::Silent => None,
         HttpErr::Bad => Some((400, "Bad Request")),
@@ -320,7 +320,7 @@ fn http_refusal(err: HttpErr) -> Option<(u16, &'static str)> {
     }
 }
 
-fn refuse_http(stream: &mut UnixStream, err: HttpErr) -> io::Result<Received> {
+fn refuse_http(stream: &mut UnixStream, err: &HttpErr) -> io::Result<Received> {
     let Some((status, reason)) = http_refusal(err) else {
         return Ok(Received::Finished);
     };
@@ -340,7 +340,7 @@ pub fn receive_connection(
     ) {
         Ok(req) => Ok(Received::Ready(req, AccessContext::owner(owner))),
         Err(HttpErr::BodyLarge) if policy.defer_oversize => Ok(Received::BodyTooLarge),
-        Err(err) => refuse_http(stream, err),
+        Err(err) => refuse_http(stream, &err),
     }
 }
 
