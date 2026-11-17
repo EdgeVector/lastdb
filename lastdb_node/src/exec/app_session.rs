@@ -83,13 +83,13 @@ pub(in crate::exec) fn issue_route(
         } = body.access;
         host.app_sessions
             .register(AppGrant::new(body.app, read, write, extensions, data_dir))
-            .map_err(register_error)?;
+            .map_err(|error| register_error(&error))?;
         Ok(json!({ "session": app }))
     })();
     render(result, ctx)
 }
 
-fn register_error(error: RegisterError) -> HostError {
+fn register_error(error: &RegisterError) -> HostError {
     match error {
         RegisterError::Invalid => HostError::new(400, "invalid app grant"),
         RegisterError::Limit => HostError::new(503, "app grant limit reached"),
