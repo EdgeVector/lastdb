@@ -79,7 +79,7 @@ pub struct SchemaAdviceResponse {
     pub findings: Vec<AdviceFinding>,
 }
 
-/// A currently listed, normalized definition paired with one of its signed listings.
+/// One normalized definition from a publisher schema push, with the listing that push was checked against.
 pub struct CatalogSchema<'a> {
     pub definition: &'a DeclarativeSchemaDefinition,
     pub app_id: &'a str,
@@ -90,7 +90,7 @@ pub struct CatalogSchema<'a> {
 }
 
 impl SchemaAdviceResponse {
-    /// Add up to three public schema examples using distinctly named matching fields.
+    /// Add up to three schema examples using distinctly named matching fields.
     pub fn add_catalog_examples<'a>(
         &mut self,
         request: &SchemaAdviceRequest,

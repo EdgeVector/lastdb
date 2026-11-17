@@ -19,7 +19,7 @@ no user-installable binary, Homebrew formula, or local HTTP dev server.
 | ---------------------- | --------------------------------------------------------------------------------------------------------- |
 | `crates/schema_types`  | Shared declarative schema types, key layouts, and portable schema definitions consumed by `fold_db`.      |
 | `crates/core`          | Pure deterministic canonical field vocabulary, field-name policy, and `POST /v1/advice/schema` engine.    |
-| `crates/server_lambda` | AWS Lambda handler serving `/v1/health`, `/v1/fields/vocabulary`, and `POST /v1/advice/schema`.           |
+| `crates/server_lambda` | AWS Lambda handler serving `/v1/health`, `/v1/fields/vocabulary`, `POST /v1/advice/schema`, and `POST /v1/schemas`. |
 
 ## HTTP surface
 
@@ -28,18 +28,25 @@ no user-installable binary, Homebrew formula, or local HTTP dev server.
 | GET    | `/health`, `/v1/health` | Liveness probe                                                   |
 | GET    | `/v1/fields/vocabulary` | Read the curated canonical field vocabulary                      |
 | POST   | `/v1/advice/schema`     | Field advice and similar published schemas for a draft           |
+| POST   | `/v1/schemas`           | Register one listed app's schema definitions for one channel     |
 
-## Public app catalog
+## Published schemas
 
-An EventBridge invocation refreshes a private catalog object every five
-minutes. The reader verifies registry lists and publisher statements, fetches
-public GitHub manifests by exact commit, and uses LastDB's owned schema
-normalization. Active listings supply advice examples. The stored manifest
-definitions retain their commit identity when a listing disappears.
+`lastdb app publish` pushes the app's schema definitions in the same command.
+`POST /v1/schemas` checks the body, reads the signed registry list for that
+channel and API version, checks the commit and publisher key, verifies the
+publisher signature, and stores the definitions. The statement the publisher
+signs is built by `schema_push_statement` in `app_identity_crypto`.
 
-Advice reports the catalog as `current`, `stale`, or `unavailable`. Field
-advice uses the bundled vocabulary in all three states. A `similar_schema`
-finding includes the schema identity and its app, commit, channel and API
+The catalog object is `schema-catalog-v2/catalog.json` in the private bucket.
+One record per app and channel replaces the previous record for that pair.
+A conditional write uses the object's ETag, and a conflict re-reads and
+retries. Advice reads the object through a 60 second cache.
+
+The catalog status is `current` when that read succeeds, including when the
+object does not exist yet, and `unavailable` when the read fails. Field
+advice uses the bundled vocabulary in both states. A `similar_schema`
+finding includes the schema identity and its app, commit, channel, and API
 version.
 
 ## Verify vocabulary locally in CI

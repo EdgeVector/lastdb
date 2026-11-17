@@ -11,12 +11,19 @@ use reqwest::{Client, Response};
 
 use super::Image;
 
-const KEY: &str = "advisory-catalog-v1/catalog.json";
+// Publishers write this object. The retired `advisory-catalog-v1/catalog.json`
+// feed image is not read or converted.
+const KEY: &str = "schema-catalog-v2/catalog.json";
 const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 
 pub(super) struct Store {
     url: String,
     region: String,
+}
+
+pub(super) enum WriteOutcome {
+    Stored,
+    Conflict,
 }
 
 pub(super) async fn bounded_body(mut response: Response, limit: usize) -> Result<Vec<u8>, String> {
@@ -174,28 +181,28 @@ impl Store {
         client: &Client,
         image: &Image,
         etag: Option<&str>,
-    ) -> Result<(), String> {
+        timeout: Duration,
+    ) -> Result<WriteOutcome, String> {
         let body = serde_json::to_vec(image).map_err(|_| "catalog image could not be encoded")?;
         if body.len() > MAX_IMAGE_BYTES {
             return Err("catalog image exceeds the configured byte limit".into());
         }
-        let request = signed_request(
+        let mut request = signed_request(
             client,
             &self.region,
             &self.url,
             Method::PUT,
             Some((body, etag)),
         )?;
+        *request.timeout_mut() = Some(timeout);
         let response = client
             .execute(request)
             .await
             .map_err(|_| "catalog storage write failed")?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "catalog storage write returned HTTP {}",
-                response.status()
-            ));
+        match response.status() {
+            status if status.is_success() => Ok(WriteOutcome::Stored),
+            StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT => Ok(WriteOutcome::Conflict),
+            status => Err(format!("catalog storage write returned HTTP {status}")),
         }
-        Ok(())
     }
 }
