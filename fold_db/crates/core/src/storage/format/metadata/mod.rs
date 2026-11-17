@@ -210,7 +210,8 @@ impl Metadata {
     }
 
     /// Stamp each changed record and append its entry to the changes list.
-    /// One read and one staged batch serve both.
+    /// The stamp's sequence is the entry's number, so one read and one staged
+    /// batch serve both.
     pub(crate) async fn stage_local_stamps(
         &self,
         records: &[ChangedKey<'_>],
@@ -223,16 +224,12 @@ impl Metadata {
             .duration_since(UNIX_EPOCH)
             .map_err(invalid_author)
             .and_then(|d| u64::try_from(d.as_millis()).map_err(invalid_author))?;
-        let keys = vec![
-            LOCAL_AUTHOR_KEY.as_bytes().to_vec(),
-            changes::HEAD_KEY.as_bytes().to_vec(),
-        ];
-        let found = self.store.get_many(keys).await?;
-        let [author, head] = found.as_slice() else {
-            return Err(invalid_author("incomplete local stream read"));
-        };
-        let mut state = decode_author(author.as_deref())?;
-        let head = changes::parse_head(head.as_deref())?;
+        let mut state = decode_author(
+            self.store
+                .get(LOCAL_AUTHOR_KEY.as_bytes())
+                .await?
+                .as_deref(),
+        )?;
         let mut stamps = Vec::with_capacity(records.len());
         for _ in records {
             let sequence = state
@@ -259,9 +256,9 @@ impl Metadata {
         if bytes.len() > MAX_LOCAL_AUTHOR_BYTES {
             return Err(invalid_author("local stream state exceeds its bound"));
         }
-        let mut rows = Vec::with_capacity(records.len() * 2 + 2);
+        let mut rows = Vec::with_capacity(records.len() * 2 + 1);
         rows.push((LOCAL_AUTHOR_KEY.to_owned(), Some(bytes)));
-        changes::append_rows(head, records, &mut rows)?;
+        changes::append_rows(&stamps, records, &mut rows)?;
         self.stage(rows).await.map(|()| stamps)
     }
 

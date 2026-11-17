@@ -1,14 +1,16 @@
 //! Numbered list of changed record keys, staged with the records it names.
 //!
-//! Every record write appends one entry in its own native transaction, with
-//! the same read and the same staged batch as its local stamp. A
-//! reader keeps the last number it handled and asks for the entries after it.
-//! The list holds keys only; a reader gets values with a read by key.
+//! Every record write already takes the next number of the local author
+//! stream. The list reuses that number: one entry row per changed record, in
+//! the same staged batch as the stream row, and no row of its own to count.
+//! A reader keeps the last number it handled and asks for the entries after
+//! it. The list holds keys only; a reader gets values with a read by key.
 
 use super::{decode_author, read_err, Metadata, LOCAL_AUTHOR_KEY};
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::hex::sha256_hex;
+use lastdb_model::portable_mutation::{Stamp, StreamId};
 use serde::{Deserialize, Serialize};
 
 /// Newest entries kept. The write that adds entry N deletes entry N - KEEP.
@@ -16,15 +18,13 @@ pub const CHANGES_KEEP: u64 = 250_000;
 /// Most entries one read examines.
 pub const CHANGES_PAGE: usize = 500;
 
-// `-` sorts before `:`, so the head row stays outside the entry range.
-pub(super) const HEAD_KEY: &str = "changes-head";
-const ENTRY_PREFIX: &str = "changes:";
-const ENTRY_END: &str = "changes;";
+/// One record a write changes: its schema, its key, and whether the write deletes it.
+pub(crate) type ChangedKey<'a> = (&'a str, &'a KeyValue, bool);
 
 /// One changed record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    /// Starts at 1 and rises by one per changed record, in commit order.
+    /// Rises by one per changed record, in commit order.
     pub seq: u64,
     pub schema: String,
     pub hash: Option<String>,
@@ -33,7 +33,7 @@ pub struct Change {
 }
 
 /// One read of the list.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangePage {
     /// Changes when a restore replaces this database. A reader that saved a
     /// different value rebuilds.
@@ -47,64 +47,51 @@ pub struct ChangePage {
     pub changes: Vec<Change>,
 }
 
-fn entry_key(seq: u64) -> String {
-    format!("{ENTRY_PREFIX}{seq:020}")
+/// The stored row. The key carries the number.
+#[derive(Serialize, Deserialize)]
+struct Row {
+    s: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    h: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    r: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    d: bool,
 }
 
-/// One record a write changes: its schema, its key, and whether the write deletes it.
-pub(crate) type ChangedKey<'a> = (&'a str, &'a KeyValue, bool);
-
-pub(super) fn parse_head(bytes: Option<&[u8]>) -> StorageResult<u64> {
-    let Some(bytes) = bytes else {
-        return Ok(0);
-    };
-    std::str::from_utf8(bytes)
-        .ok()
-        .and_then(|text| text.parse().ok())
-        .ok_or_else(|| StorageError::invalid("the changes head is not a number"))
+// A restore starts a new stream whose numbers start again, so the stream is
+// part of the key. Entries of an earlier stream are never read.
+fn entry_key(stream: &StreamId, seq: u64) -> String {
+    format!("changes:{stream}:{seq:020}")
 }
 
-/// Add one entry per changed record after `head`, the trim of the entry that
-/// leaves the kept window, and the new head. The caller stages `rows` in the
-/// records' native write scope, which holds the writer gate, so numbers
-/// follow commit order.
+/// Add one entry per changed record, numbered by its stamp, and the trim of
+/// the entry that leaves the kept window. The caller stages `rows` in the
+/// records' native write scope with the stream row.
 pub(super) fn append_rows(
-    mut head: u64,
+    stamps: &[Stamp],
     records: &[ChangedKey<'_>],
     rows: &mut Vec<(String, Option<Vec<u8>>)>,
 ) -> StorageResult<()> {
-    for &(schema, key, deleted) in records {
-        head = head
-            .checked_add(1)
-            .ok_or_else(|| StorageError::invalid("the changes list is out of numbers"))?;
-        let change = Change {
-            seq: head,
-            schema: schema.to_owned(),
-            hash: key.hash.clone(),
-            range: key.range.clone(),
-            deleted,
+    for (stamp, &(schema, key, deleted)) in stamps.iter().zip(records) {
+        let (stream, seq) = (&stamp.position.source_stream, stamp.position.sequence);
+        let row = Row {
+            s: schema.to_owned(),
+            h: key.hash.clone(),
+            r: key.range.clone(),
+            d: deleted,
         };
-        let bytes = serde_json::to_vec(&change)
+        let bytes = serde_json::to_vec(&row)
             .map_err(|e| StorageError::SerializationError(format!("encode change: {e}")))?;
-        rows.push((entry_key(head), Some(bytes)));
-        if head > CHANGES_KEEP {
-            rows.push((entry_key(head - CHANGES_KEEP), None));
+        rows.push((entry_key(stream, seq), Some(bytes)));
+        if seq > CHANGES_KEEP {
+            rows.push((entry_key(stream, seq - CHANGES_KEEP), None));
         }
     }
-    rows.push((HEAD_KEY.to_owned(), Some(head.to_string().into_bytes())));
     Ok(())
 }
 
 impl Metadata {
-    async fn changes_head(&self) -> Result<u64, SchemaError> {
-        let bytes = self
-            .store
-            .get(HEAD_KEY.as_bytes())
-            .await
-            .map_err(read_err)?;
-        parse_head(bytes.as_deref()).map_err(read_err)
-    }
-
     /// Read the entries after `after`. Call inside one read scope so the head
     /// and the entries come from the same committed view.
     pub(crate) async fn changes_after(
@@ -118,14 +105,12 @@ impl Metadata {
             .get(LOCAL_AUTHOR_KEY.as_bytes())
             .await
             .map_err(read_err)?;
-        // A restore starts a new author stream, so the id changes with it.
-        let stream = decode_author(author.as_deref()).map_err(read_err)?.stream;
-        let id = sha256_hex(format!("changes:{stream}"));
-        let head = self.changes_head().await?;
+        let author = decode_author(author.as_deref()).map_err(read_err)?;
+        let (stream, head) = (author.stream, author.progress.applied_through);
         let oldest = head.saturating_sub(CHANGES_KEEP).saturating_add(1);
         let gap = after > head || after.saturating_add(1) < oldest;
         let mut page = ChangePage {
-            id,
+            id: sha256_hex(format!("changes:{stream}")),
             head,
             through: after,
             gap,
@@ -135,25 +120,37 @@ impl Metadata {
         if gap || limit == 0 || after == head {
             return Ok(page);
         }
+        let prefix = format!("changes:{stream}:");
         let rows = self
             .store
-            .scan_items_in_range_paged::<Change>(
-                &entry_key(after.saturating_add(1)),
-                ENTRY_END,
+            .scan_items_in_range_paged::<Row>(
+                &entry_key(&stream, after.saturating_add(1)),
+                &format!("changes:{stream};"),
                 limit,
             )
             .await
             .map_err(read_err)?;
+        let full = rows.len() == limit;
+        for (key, row) in rows {
+            let seq = key
+                .strip_prefix(&prefix)
+                .and_then(|digits| digits.parse().ok())
+                .ok_or_else(|| read_err("a changes entry has an invalid key"))?;
+            page.through = seq;
+            if schemas.is_empty() || schemas.contains(&row.s) {
+                page.changes.push(Change {
+                    seq,
+                    schema: row.s,
+                    hash: row.h,
+                    range: row.r,
+                    deleted: row.d,
+                });
+            }
+        }
         // A short page reached the end of the list.
-        page.through = match rows.last() {
-            Some((_, last)) if rows.len() == limit => last.seq,
-            _ => head,
-        };
-        page.changes = rows
-            .into_iter()
-            .map(|(_, change)| change)
-            .filter(|change| schemas.is_empty() || schemas.contains(&change.schema))
-            .collect();
+        if !full {
+            page.through = head;
+        }
         Ok(page)
     }
 }
