@@ -1,5 +1,6 @@
 //! Registry-owned app trees, atomic activation, and retained rollback versions.
 
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
@@ -229,8 +230,9 @@ fn apply_links(
     home: &Path,
     r: &ManagedReceipt,
     p: &InstallPlan,
+    owned: &HashSet<String>,
 ) -> Result<(), String> {
-    managed_manifest::install(root, p, r.listing.access.is_some())?;
+    managed_manifest::install(root, p, r.listing.access.is_some(), owned)?;
     if !r.inactive {
         steps(
             &root.join("current/source"),
@@ -245,16 +247,19 @@ fn apply_links(
 fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> Result<(), String> {
     let old = fs::read_link(root.join("current")).ok();
     let plan = InstallPlan::load(&version.join("source"), &new.app_id)?;
+    let owned = super::command_names::owned_commands(root, &new.app_id)?;
+    let restricted = new.listing.access.is_some();
+    super::command_names::ensure_available(root, &new.app_id, &plan, restricted, &owned)?;
     let snap = managed_manifest::snapshot(&plan)?;
     managed_manifest::flip(&root.join("current"), version)?;
     if let Err(error) =
-        apply_links(root, home, new, &plan).and_then(|()| verify(root, Some(home), new))
+        apply_links(root, home, new, &plan, &owned).and_then(|()| verify(root, Some(home), new))
     {
         if let Some(ref target) = old {
             managed_manifest::flip(&root.join("current"), target)?;
             let old_r = receipt(&root.join("current"))?;
             let old_p = InstallPlan::load(&root.join("current/source"), &old_r.app_id)?;
-            apply_links(root, home, &old_r, &old_p)?;
+            apply_links(root, home, &old_r, &old_p, &owned)?;
         } else {
             let _ = fs::remove_file(root.join("current"));
         }

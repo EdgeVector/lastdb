@@ -33,20 +33,35 @@ pub fn resolve(app: &str, command: &str) -> Result<Launch, String> {
 
 /// The app that owns the command name `command` and declares LastDB access.
 /// An app that declares none is started directly and is not listed here.
+/// Two restricted apps listing one name is ambiguous: nothing is started.
 pub fn restricted_owner(command: &str) -> Option<String> {
     let entries = std::fs::read_dir(managed::apps_root().ok()?).ok()?;
-    entries.flatten().find_map(|entry| {
-        let app = entry.file_name().to_str()?.to_owned();
+    let mut owner = None;
+    for entry in entries.flatten() {
+        let Some(app) = entry.file_name().into_string().ok() else {
+            continue;
+        };
         if !valid_app_id(&app) {
-            return None;
+            continue;
         }
         let current = entry.path().join("current");
         // Only an app that declares access is run restricted.
-        let _declared = managed::receipt(&current).ok()?.listing.access?;
-        let plan = InstallPlan::load(&current.join("source"), &app).ok()?;
-        plan.links
-            .iter()
-            .any(|link| link.command == command)
-            .then_some(app)
-    })
+        let Ok(receipt) = managed::receipt(&current) else {
+            continue;
+        };
+        if receipt.listing.access.is_none() {
+            continue;
+        }
+        let Ok(plan) = InstallPlan::load(&current.join("source"), &app) else {
+            continue;
+        };
+        if !plan.links.iter().any(|link| link.command == command) {
+            continue;
+        }
+        if owner.is_some() {
+            return None;
+        }
+        owner = Some(app);
+    }
+    owner
 }
