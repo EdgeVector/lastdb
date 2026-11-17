@@ -82,6 +82,8 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - `path` is null for a file that LastDB holds as bytes in its home and not as a reference.
 
 
+## Extensions
+
 Read and write are the core. Anything more is an extension that an app asks for
 by name, so a new feature does not raise a version.
 
@@ -178,8 +180,7 @@ socket exists.
 - Removing a record's file while keeping the record.
 - The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
-- An app naming its extensions in its manifest, the installer checking them, and
-  the limit of `changes` to the schemas an app declared.
+- The limit of `changes` to the schemas an app declared.
 - The app socket, the sandbox profile and the per-app schema check. Until they
   exist, these routes serve every caller of the owner socket as the owner.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
