@@ -14,10 +14,11 @@ import sys
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import send_unix_request  # noqa: E402
-from record_runs import FIELDS, RANGED, definition, refused, require, system_seed  # noqa: E402
+from record_runs import (  # noqa: E402
+    FIELDS, MISSING_DATABASE, RANGED, definition, held, refused, require, system_seed,
+)
 
 BY_ID, BY_BUCKET = "AppApiById", "AppApiByBucket"
-MISSING_DATABASE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
 def read(node, *reads):
@@ -51,10 +52,6 @@ def replace(name, bucket, value, revision):
 
 def delete(schema, key, revision):
     return {"schema": schema, "op": "delete", "key": key, "revision": revision}
-
-
-def held(record):
-    return {field: value for field, value in record.items() if value is not None}
 
 
 def stored(node, name, schema=BY_ID, database=None):
@@ -255,7 +252,6 @@ def extension_names(node):
 
 
 def exercise(node):
-    require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     extension_names(node)
     system_seed(node, definition(BY_ID, "Hash", FIELDS, {"by_bucket": RANGED}))
     system_seed(node, definition(BY_BUCKET, "HashRange", FIELDS))
@@ -269,7 +265,6 @@ def exercise(node):
 
 def named_database(node, database):
     """A database identifier on an item reads and writes that database, not personal."""
-    require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     write(node, by_id("app-api", "b1", "named", schema="RecordById", database=database))
     require(value_of(node, "app-api", schema="RecordById", database=database) == "named",
             "a named database did not return its record")

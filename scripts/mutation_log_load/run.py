@@ -10,6 +10,8 @@ cleanup failure cannot replace the load's status.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,15 +34,104 @@ from guard import (DEV_TABLE, GuardError, allow_endpoint, allow_region_environme
                    batch_delete_keys, database_id_for_run, iter_partition_keys,
                    load_endpoints, load_partitions, refuse_prod_environment, writes_partition)
 from harness import NoRedirect  # noqa: E402
-from node_auth import TokenError, authorization  # noqa: E402
 
 
 REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
+DEV_ENVIRONMENT = "dev"
+MEMBER_LIST_REVISION = "0"
+AUTHORITY_DOMAIN = b"lastdb:share:node-read-authority:v1"
+HEADER_LIMIT = 4096
 STEADY_MS = 3 * 60 * 1000
 WRITER_LEVELS = ("5", "20", "100")
 LEVELS = (*WRITER_LEVELS, "all", "private")
 PRELIMINARY_LABEL = "finished 10-append run"
 SCALE_LABEL = "3-minute scale run"
+
+
+class TokenError(Exception):
+    """The token does not match the server rule."""
+
+
+class NodeKey:
+    def __init__(self, private):
+        self.private = private
+        self.public = private.public_key().public_bytes_raw()
+
+    @classmethod
+    def generate(cls):
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        return cls(Ed25519PrivateKey.generate())
+
+    @classmethod
+    def from_seed(cls, seed):
+        if len(seed) != 32:
+            raise TokenError("key")
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        return cls(Ed25519PrivateKey.from_private_bytes(seed))
+
+    def sign(self, message):
+        return self.private.sign(message)
+
+
+def account_id(public_key):
+    if len(public_key) != 32:
+        raise TokenError("key")
+    return hashlib.sha256(public_key).digest()[:16].hex()
+
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _canonical(value):
+    """RFC 8785 for the strings, integers, arrays, and objects this digest uses."""
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, list):
+            return b"[" + b",".join(_canonical(item) for item in value) + b"]"
+        if isinstance(value, dict):
+            return b"{" + b",".join(_canonical(k) + b":" + _canonical(value[k]) for k in sorted(value)) + b"}"
+        raise TokenError("canonical")
+    return str(value).encode("ascii")
+
+
+def _authority_digest(covered):
+    canonical = _canonical(covered)
+    framed = (
+        len(AUTHORITY_DOMAIN).to_bytes(4, "big") + AUTHORITY_DOMAIN
+        + len(canonical).to_bytes(8, "big") + canonical
+    )
+    return hashlib.sha256(framed).hexdigest()
+
+
+def authorization(key, path, database_id, issued_at_ms, body, account_generation):
+    """Sign a live DEV LastDBNode bearer token for an owned stream."""
+    nonce = os.urandom(32).hex()
+    if not isinstance(body, bytes) or not isinstance(account_generation, str):
+        raise TokenError("body")
+    if not account_generation.isdigit() or (account_generation.startswith("0") and account_generation != "0"):
+        raise TokenError("account")
+    issued = str(int(issued_at_ms))
+    public = key.public.hex()
+    stream = {
+        "scope": {"account_generation": account_generation, "account_id": account_id(key.public)},
+        "stream_id": database_id,
+    }
+    covered = [
+        2, database_id, stream, "POST", path, hashlib.sha256(body).hexdigest(),
+        issued, nonce, MEMBER_LIST_REVISION, public, DEV_ENVIRONMENT,
+    ]
+    digest = _authority_digest(covered)
+    token_json = json.dumps({
+        "version": 2, "environment": DEV_ENVIRONMENT, "database_id": database_id,
+        "stream": stream, "method": "POST", "path": path, "issued_at_ms": issued,
+        "nonce": nonce, "member_list_revision": MEMBER_LIST_REVISION, "node_public_key": public,
+    }, separators=(",", ":")).encode("utf-8")
+    header = "LastDBNode " + _b64url(token_json) + "." + _b64url(key.sign(digest.encode("ascii")))
+    if len(header.encode("ascii")) > HEADER_LIMIT:
+        raise TokenError("header")
+    return header
 
 
 class Scenario:
@@ -81,7 +172,7 @@ def post(endpoint, key, database_id, method, path, body, api_key, account_genera
     if method != "POST":
         raise GuardError("method")
     issued = time.time_ns() // 1_000_000
-    header, _encoded = authorization(
+    header = authorization(
         key, path, database_id, issued, body, account_generation)
     headers = {"Authorization": header, "Content-Type": "application/json"}
     if path.endswith("/create-database"):

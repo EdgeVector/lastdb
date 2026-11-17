@@ -48,7 +48,7 @@ SURFACE = "lastdb_node/api-surface.json"
 SDK_GENERATED = "lastdb_app_sdk/src/apiVersion.generated.ts"
 
 ROUTE_LITERAL = re.compile(r'"(/health|/api/[A-Za-z0-9_/-]*|/v1/[A-Za-z0-9_/-]*)"')
-SDK_ROUTE_LITERAL = re.compile(r"'(/api/[A-Za-z0-9_/-]*)'")
+SDK_ROUTE_LITERAL = re.compile(r"'((?:/api|/v1)/[A-Za-z0-9_/-]*)'")
 EXTENSION_PREFIX = "/v1/x/"
 
 
@@ -84,12 +84,16 @@ def norm(route):
 
 
 def scoped(route):
-    """The database-scoped form of an `/api/<path>` route."""
-    return "/api/databases/{database}/" + route[len("/api/"):]
+    """The database-scoped form of an `/api/<path>` route, or None."""
+    return "/api/databases/{database}/" + route[len("/api/"):] if route.startswith("/api/") else None
 
 
-def served(route, routes):
-    return route in routes or scoped(route) in routes
+def served(route, routes, extensions=()):
+    return (
+        route in routes
+        or scoped(route) in routes
+        or (route.startswith(EXTENSION_PREFIX) and route[len(EXTENSION_PREFIX):] in extensions)
+    )
 
 
 def node_routes(app_routes):
@@ -104,7 +108,7 @@ def node_routes(app_routes):
     # A route served only under a database scope appears in the source without
     # the `/api/` prefix. Record the ones the SDK uses in their scoped form.
     for route in app_routes:
-        if route not in routes and f'"{route[len("/api/"):]}"' in source:
+        if route.startswith("/api/") and route not in routes and f'"{route[len("/api/"):]}"' in source:
             routes.add(scoped(route))
     return sorted(routes), extensions
 
@@ -213,7 +217,9 @@ def main():
     errors = []
     if surface["min_supported_api_version"] > surface["api_version"]:
         errors.append("MIN_SUPPORTED_API_VERSION is above API_VERSION")
-    missing = sorted(r for r in surface["app_routes"] if not served(r, surface["routes"]))
+    missing = sorted(
+        r for r in surface["app_routes"] if not served(r, surface["routes"], surface["extensions"])
+    )
     if missing:
         errors.append("the SDK names routes the node does not serve: " + ", ".join(missing))
     reported = extensions_json()

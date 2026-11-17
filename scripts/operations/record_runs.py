@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness import conditioned, mutation as native_mutation  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
+MISSING_DATABASE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 # More deleted records under one hash than one request may examine.
 RUN = 12_000
 BATCH = 500
@@ -47,6 +48,10 @@ def require(value, message):
 
 def ids(rows):
     return [row["fields"]["id"] for row in rows]
+
+
+def held(record):
+    return {field: value for field, value in record.items() if value is not None}
 
 
 def refused(call, words):
@@ -143,11 +148,11 @@ def range_reads(node):
     return pages
 
 
-def listed_hashes(node, schema):
+def listed_hashes(node, schema, limit=500):
     """Every live primary hash of `schema` via paged GET /api/list."""
     keys, cursor = [], None
     for _ in range(MAX_PAGES):
-        target = f"/api/list?schema={schema}&limit=500"
+        target = f"/api/list?schema={schema}&limit={limit}"
         if cursor:
             target += "&cursor=" + urllib.parse.quote(cursor, safe="")
         page = node.call(target)[0]["list"]
@@ -232,13 +237,13 @@ def ledger(node):
     return node.call("/api/db/delete-ledger")[0]["delete_ledger"]["entries"]
 
 
-def dropped_rows(node):
-    """Every live record of RecordDrop, by key list and by its alternate key."""
-    listed = listed_hashes(node, "RecordDrop")
-    page = node.call("/api/query", {"schema_name": "RecordDrop",
-                                    "filter": {"HashKey": "bd"}, "key_name": "by_bucket",
+def bucket_rows(node, schema, bucket):
+    """Every live record of `schema`, by key list and by its `by_bucket` alternate key."""
+    listed = listed_hashes(node, schema)
+    page = node.call("/api/query", {"schema_name": schema,
+                                    "filter": {"HashKey": bucket}, "key_name": "by_bucket",
                                     "limit": 1_000})[0]
-    require(not page.get("has_more"), "the alternate read of RecordDrop was truncated")
+    require(not page.get("has_more"), f"the alternate read of {schema} was truncated")
     return listed, ids(page["results"])
 
 
@@ -254,13 +259,13 @@ def drop_release(node):
         "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
     require(len(primary["results"]) == DROP_RECORDS - 10,
             f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
-    listed, alternate = dropped_rows(node)
+    listed, alternate = bucket_rows(node, "RecordDrop", "bd")
     require(len(listed) == len(alternate) == DROP_RECORDS - 10,
             f"RecordDrop holds {len(listed)} listed and {len(alternate)} alternate records before the drop")
     reply = node.call("/api/schemas/drop", {"schema": "RecordDrop", "must_exist": True})[0]
     require(reply["existed"], "the schema drop did not find RecordDrop: " + repr(reply))
     system_seed(node, DROPPED)
-    listed, alternate = dropped_rows(node)
+    listed, alternate = bucket_rows(node, "RecordDrop", "bd")
     require(listed == [] and alternate == [],
             f"the schema installed again after its drop holds {len(listed)} listed and "
             f"{len(alternate)} alternate records")
@@ -271,7 +276,7 @@ def drop_release(node):
     refused(lambda: system_seed(node, changed), ["alternate"])
     write(node, [mutation("RecordDrop", {"hash": "d0001"},
                           {"id": "d0001", "bucket": "fresh", "value": "new"}, "create")])
-    listed, alternate = dropped_rows(node)
+    listed, alternate = bucket_rows(node, "RecordDrop", "bd")
     require(listed == ["d0001"] and alternate == [],
             f"a new record after the drop reads as {listed} by list and {alternate} under the old bucket")
     body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
@@ -301,15 +306,6 @@ def race_writer(node, stop, outcome):
                 return
 
 
-def race_rows(node):
-    """Every live record of RecordRace, by key list and by its alternate key."""
-    listed = listed_hashes(node, "RecordRace")
-    page = node.call("/api/query", {"schema_name": "RecordRace",
-                                    "filter": {"HashKey": "race"}, "key_name": "by_bucket",
-                                    "limit": 1_000})[0]
-    return listed, ids(page["results"])
-
-
 def drop_race(node):
     """A write during a schema drop is refused, and the drop leaves no record of the schema."""
     names = [f"r{number:05d}" for number in range(RACE_RECORDS)]
@@ -336,7 +332,7 @@ def drop_race(node):
     require(reply["existed"], "the schema drop did not find RecordRace: " + repr(reply))
     require(outcome["blocked"] >= 1, "no write met the drop while it ran: " + repr(outcome))
     system_seed(node, RACED)
-    listed, alternate = race_rows(node)
+    listed, alternate = bucket_rows(node, "RecordRace", "race")
     require(listed == [] and alternate == [],
             f"the drop left {len(listed)} listed and {len(alternate)} alternate records of a "
             f"writer that wrote during it: {outcome}")

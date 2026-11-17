@@ -38,6 +38,16 @@ def bucket(number):
     return HASH if number < SPREAD_BASE else f"spread-{number % SPREAD_HASHES:02d}"
 
 
+def benchmark_schema():
+    return {
+        "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
+        "schema_type": "HashRange",
+        "record_keys": {"primary": {"kind": "hash_range", "range_type": "String"}, "alternates": {}},
+        "fields": FIELDS, "field_types": dict.fromkeys(FIELDS, "String"),
+        "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS},
+    }
+
+
 def fields(number, revision):
     title = f"record-{number}-{revision}"
     return {"bucket": bucket(number), "id": key(number), "title": title,
@@ -111,11 +121,7 @@ class Workload:
         self.raw = gzip.open(output / "samples.jsonl.gz", "wt")
 
     def seed(self):
-        schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-                  "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-                  "fields": FIELDS, "field_types": {field: "String" for field in FIELDS},
-                  "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
-        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": benchmark_schema()})
         for start in range(0, self.recipe["records"], 128):
             numbers = list(range(start, min(start + 128, self.recipe["records"])))
             result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))

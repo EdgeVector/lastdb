@@ -13,14 +13,8 @@ HEAVY_JOB = "full_workspace_check"
 REPO_ROOT = File.expand_path("../..", __dir__)
 
 # Resolve the workspace member set. `cargo metadata --no-deps` does not build
-# anything, so this stays cheap enough for the required gate. The env override
-# accepts an explicit workspace member set instead of the manifest metadata.
+# anything, so this stays cheap enough for the required gate.
 def workspace_members
-  override = ENV["HEAVY_CLIPPY_LINT_MEMBERS"]
-  unless override.nil? || override.strip.empty?
-    return override.split(/[,\s]+/).reject(&:empty?).sort
-  end
-
   stdout, stderr, status = Open3.capture3(
     "cargo", "metadata", "--no-deps", "--format-version", "1",
     chdir: REPO_ROOT
@@ -31,8 +25,7 @@ def workspace_members
   end
 
   meta = JSON.parse(stdout)
-  ids = meta.fetch("workspace_members", []).to_set rescue nil
-  ids ||= meta.fetch("workspace_members", [])
+  ids = meta.fetch("workspace_members", [])
   meta.fetch("packages", [])
       .select { |p| ids.include?(p["id"]) }
       .map { |p| p["name"] }
@@ -105,7 +98,7 @@ paths.each do |path|
     next
   end
 
-  doc = YAML.safe_load(File.read(full), alias_dependencies: true) rescue YAML.load(File.read(full))
+  doc = YAML.safe_load(File.read(full), aliases: true)
   jobs = doc.is_a?(Hash) ? doc.fetch("jobs", {}) : {}
   if jobs.empty?
     errors << "#{path}: no jobs"
@@ -120,8 +113,8 @@ paths.each do |path|
 
   invocations = clippy_invocations(heavy_job)
   if invocations.empty?
-    errors << "#{path}: no `cargo clippy` invocation at all — this workflow is " \
-              "the only linter for most of the workspace"
+    errors << "#{path}: no `cargo clippy` invocation at all — `#{HEAVY_JOB}` is " \
+              "the required Clippy lane for the workspace"
     next
   end
 
@@ -133,11 +126,10 @@ paths.each do |path|
 
         #{uncovered.join("\n        ")}
 
-      The required Mini gate only lints `-p lastdb_node --lib --bins`, so a
-      package this lane does not select has no linter in the repo. If an
-      `--exclude` was added to the bulk step, add a matching off-lane
-      `cargo clippy -p <pkg>` step in the same workflow (that is how the two
-      ONNX force-enablers stay covered). Do not drop coverage silently.
+      `#{HEAVY_JOB}` is the required Clippy lane for the workspace, so a
+      package it skips has no Clippy coverage in CI. If an `--exclude` was
+      added to the bulk step, add a matching `cargo clippy -p <pkg> ... -- -D warnings`
+      step in `#{HEAVY_JOB}`. Do not drop coverage silently.
     MSG
   end
 
@@ -149,8 +141,7 @@ paths.each do |path|
     end
   end
 
-  # `continue-on-error` turns a red lane into a green one. The lane's whole
-  # problem is already that people can ignore it; do not let the YAML do it.
+  # `continue-on-error` turns a red required lane into a green one.
   { HEAVY_JOB => heavy_job }.each do |name, job|
     if job["continue-on-error"] == true
       errors << "#{path}: job `#{name}` sets continue-on-error: true — a lint " \

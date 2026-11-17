@@ -13,7 +13,7 @@ import {
   RequestRejectedError,
   UnexpectedResponseError,
 } from './errors.js';
-import { parseListResponse, parseQueryResponse } from './responseParsers.js';
+import { parseListResponse, parseQueryResponse, sendJsonObject } from './responseParsers.js';
 import type {
   JsonValue,
   KeyValue,
@@ -117,11 +117,8 @@ export async function executeList(
   if (opts.limit !== undefined) params.set('limit', String(opts.limit));
   if (opts.cursor !== undefined) params.set('cursor', opts.cursor);
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.list, params.toString());
-  const res = await ctx.transport.send('GET', path);
-  if (res.status === 200) {
-    return { ...parseListResponse(res.body, opts.keyName), schema: schemaName };
-  }
-  throw mapDataError('list', res.status, res.body, ctx.appId);
+  const body = await sendJsonObject(ctx.transport, 'GET', path, 'list', ctx.appId);
+  return { ...parseListResponse(body, opts.keyName), schema: schemaName };
 }
 
 /** Point lookup of a single record by primary `HashKey` or `HashRangeKey`. */
@@ -146,13 +143,10 @@ export async function executeQuery(
   filter: QueryFilter = {},
 ): Promise<QueryResult> {
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.query);
-  const res = await ctx.transport.send('POST', path, {
+  const body = await sendJsonObject(ctx.transport, 'POST', path, 'query', ctx.appId, {
     body: buildQueryBody(schemaName, filter),
   });
-  if (res.status === 200) {
-    return { ...parseQueryResponse(res.body), schema: schemaName };
-  }
-  throw mapDataError('query', res.status, res.body, ctx.appId);
+  return { ...parseQueryResponse(body), schema: schemaName };
 }
 
 /** `POST /api/queries/batch` — read several independent keyed queries in one request. */
@@ -167,11 +161,10 @@ export async function executeQueryBatch(
   for (let start = 0; start < ready.length; start += QUERY_BATCH_MAX_ITEMS) {
     const chunk = ready.slice(start, start + QUERY_BATCH_MAX_ITEMS);
     const queries = chunk.map(({ item }) => buildQueryBody(item.schemaName, item.filter ?? {}));
-    const res = await ctx.transport.send('POST', path, { body: { queries } });
-    if (res.status !== 200) {
-      throw mapDataError('query batch', res.status, res.body, ctx.appId);
-    }
-    for (const [entry, reply] of pairBatchReplies(chunk, res.body)) {
+    const body = await sendJsonObject(ctx.transport, 'POST', path, 'query batch', ctx.appId, {
+      body: { queries },
+    });
+    for (const [entry, reply] of pairBatchReplies(chunk, body)) {
       outcomes[entry.index] = parseBatchItemOutcome(ctx, entry, reply);
     }
   }

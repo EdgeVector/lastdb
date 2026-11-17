@@ -17,7 +17,7 @@ import {
   TransportError,
   UnexpectedResponseError,
 } from './errors.js';
-import { isNonEmptyString, isObject } from './responseParsers.js';
+import { isHex64, isNonEmptyString, isObject, sendJsonObject } from './responseParsers.js';
 import type {
   JsonValue,
   MutationBatchItem,
@@ -32,7 +32,6 @@ import type {
   ShareSubmissionStatus,
 } from './types.js';
 
-const REVISION_HEX = /^[0-9a-f]{64}$/;
 const UUID_LOWERCASE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -59,15 +58,16 @@ export async function executeShareSubmissionStatus(
   if (ctx.databasePath === null || !isMutationId(mutationId)) {
     throw new RequestRejectedError('invalid_request', 'submission status needs a received database and mutation UUID');
   }
-  const reply = await ctx.transport.send(
-    'POST', scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.shareSubmissionStatus),
-    { body: { mutationId } },
+  const body = await sendJsonObject(
+    ctx.transport,
+    'POST',
+    scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.shareSubmissionStatus),
+    'submission status',
+    ctx.appId,
+    { body: { mutationId }, redactBody: true },
   );
-  if (reply.status !== 200) {
-    throw mapDataError('submission status', reply.status, reply.body, ctx.appId);
-  }
-  if (isObject(reply.body) && reply.body['mutation_id'] === mutationId) {
-    const status = reply.body['status'];
+  if (body['mutation_id'] === mutationId) {
+    const status = body['status'];
     if (status === 'submitted' || status === 'published' || status === 'discarded' || status === 'unknown') {
       return { mutationId, status };
     }
@@ -105,9 +105,8 @@ export function parseCommittedMutation(rawBody: unknown): MutationResult {
   if (!isObject(rawBody)) {
     throw new UnexpectedResponseError('mutation returned a non-object body', 200, rawBody);
   }
-  const recordRevision =
-    typeof rawBody['record_revision'] === 'string' ? rawBody['record_revision'] : '';
-  if (!REVISION_HEX.test(recordRevision)) {
+  const recordRevision = rawBody['record_revision'];
+  if (!isHex64(recordRevision)) {
     throw new UnexpectedResponseError('mutation returned no record revision', 200, rawBody);
   }
   const result: MutationResult = {
@@ -203,9 +202,11 @@ export async function executeMutateBatch(
   };
   if (options.convergence !== undefined) body.convergence = options.convergence;
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.mutationBatch);
-  const res = await ctx.transport.send('POST', path, { body, timeoutMs: options.timeoutMs });
-  if (res.status === 200) return parseMutationBatchResult(res.body, items.length);
-  throw mapDataError('mutation batch', res.status, res.body, ctx.appId);
+  const reply = await sendJsonObject(ctx.transport, 'POST', path, 'mutation batch', ctx.appId, {
+    body,
+    timeoutMs: options.timeoutMs,
+  });
+  return parseMutationBatchResult(reply, items.length);
 }
 
 function parseNonNegInt(value: unknown, label: string, raw: unknown): number {
@@ -253,7 +254,7 @@ function parseMutationBatchResult(
   }
   const recordRevisions: Record<string, string> = {};
   for (const [id, rev] of Object.entries(rawRevs)) {
-    if (typeof rev !== 'string' || !REVISION_HEX.test(rev)) {
+    if (!isHex64(rev)) {
       throw new UnexpectedResponseError('mutation batch returned an invalid record revision', 200, rawBody);
     }
     recordRevisions[id] = rev;

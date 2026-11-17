@@ -34,7 +34,7 @@ class MetadataError(RuntimeError):
             raise ValueError("The metadata exit code is invalid")
         if http_status is not None and (type(http_status) is not int or not 100 <= http_status <= 599):
             raise ValueError("The metadata HTTP status is invalid")
-        self.exit_code, self.http_status = exit_code, http_status
+        self.http_status = http_status
         suffix = f" (HTTP {http_status})" if http_status is not None else ""
         super().__init__(f"A nightly metadata command failed with exit code {exit_code}{suffix}")
 

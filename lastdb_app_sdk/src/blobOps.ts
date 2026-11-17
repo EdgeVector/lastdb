@@ -11,7 +11,14 @@ import {
 import { mapDataError, RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { buildMutationOperation, parseCommittedMutation } from './mutationOps.js';
 import { normalizeRecordKeyInput } from './readOps.js';
-import { isNonEmptyString, isObject, parseFileMarker } from './responseParsers.js';
+import {
+  isHex64,
+  isNonEmptyString,
+  isObject,
+  parseFileMarker,
+  sendJsonObject,
+} from './responseParsers.js';
+import type { TransportSendOptions } from './transport.js';
 import type {
   CreateMutationOp,
   FileMarker,
@@ -24,7 +31,6 @@ import type {
 const FILE_BLOB_METADATA_LENGTH_HEADER = 'X-LastDB-File-Blob-Metadata-Length';
 const FILE_SHA256_HEADER = 'x-lastdb-file-sha256';
 const FILE_SIZE_HEADER = 'x-lastdb-file-size';
-const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /** Mutations eligible for `putBlob` (`create` or complete `replace`). */
 export type PutBlobMutationOp = CreateMutationOp | ReplaceMutationOp;
@@ -163,42 +169,36 @@ export async function executePutBlob(
     if (request.localPath.trim().length === 0) {
       throw new RequestRejectedError('invalid_request', 'put-blob localPath must not be empty');
     }
-    const res = await ctx.transport.send('POST', path, {
+    const body = await sendJsonObject(ctx.transport, 'POST', path, 'put blob', ctx.appId, {
       body: { ...meta, local_path: request.localPath },
       timeoutMs: request.timeoutMs,
     });
-    if (res.status === 200) return parsePutBlobResult(res.body);
-    throw mapDataError('put blob', res.status, res.body, ctx.appId);
+    return parsePutBlobResult(body);
   }
 
   const fileBytes = toBuffer(request.bytes);
-  const res =
+  const sendOpts: TransportSendOptions =
     ctx.transport.supportsBinaryBody === true
-      ? await sendRawPutBlob(ctx, path, meta, fileBytes, request.timeoutMs)
-      : await ctx.transport.send('POST', path, {
-          body: { ...meta, bytes_b64: fileBytes.toString('base64') },
-          timeoutMs: request.timeoutMs,
-        });
-  if (res.status === 200) return parsePutBlobResult(res.body);
-  throw mapDataError('put blob', res.status, res.body, ctx.appId);
+      ? buildRawPutBlobOptions(meta, fileBytes, request.timeoutMs)
+      : { body: { ...meta, bytes_b64: fileBytes.toString('base64') }, timeoutMs: request.timeoutMs };
+  const body = await sendJsonObject(ctx.transport, 'POST', path, 'put blob', ctx.appId, sendOpts);
+  return parsePutBlobResult(body);
 }
 
-function sendRawPutBlob(
-  ctx: ClientContext,
-  path: string,
+function buildRawPutBlobOptions(
   meta: Record<string, unknown>,
   fileBytes: Buffer,
   timeoutMs: number | undefined,
-) {
+): TransportSendOptions {
   const metaJson = Buffer.from(JSON.stringify(meta), 'utf8');
-  return ctx.transport.send('POST', path, {
+  return {
     headers: {
       'content-type': 'application/octet-stream',
       [FILE_BLOB_METADATA_LENGTH_HEADER]: String(metaJson.byteLength),
     },
     body: Buffer.concat([metaJson, fileBytes]),
     timeoutMs,
-  });
+  };
 }
 
 function parsePutBlobResult(rawBody: unknown): PutBlobResult {
@@ -211,7 +211,7 @@ function parsePutBlobResult(rawBody: unknown): PutBlobResult {
   }
   const mutationId = rawBody['mutation_id'];
   const recordRevision = rawBody['record_revision'];
-  if (!isNonEmptyString(mutationId) || typeof recordRevision !== 'string' || !SHA256_HEX.test(recordRevision)) {
+  if (!isNonEmptyString(mutationId) || !isHex64(recordRevision)) {
     throw new UnexpectedResponseError('put-blob returned invalid mutation coordinates', 200, rawBody);
   }
   const rawThumb = rawBody['thumbnail'];
@@ -250,8 +250,7 @@ export async function executeFetchBlob(
     const sizeHeader = res.headers[FILE_SIZE_HEADER];
     const sizeBytes = sizeHeader !== undefined ? Number(sizeHeader) : NaN;
     if (
-      typeof sha256 !== 'string' ||
-      !SHA256_HEX.test(sha256) ||
+      !isHex64(sha256) ||
       !Number.isSafeInteger(sizeBytes) ||
       sizeBytes !== res.bytes.byteLength
     ) {
@@ -264,9 +263,11 @@ export async function executeFetchBlob(
     return { bytes: res.bytes, sha256, sizeBytes };
   }
 
-  const res = await ctx.transport.send('POST', path, { body, timeoutMs: options.timeoutMs });
-  if (res.status !== 200) throw mapDataError('fetch blob', res.status, res.body, ctx.appId);
-  return parseJsonFetchedBlob(res.body);
+  const reply = await sendJsonObject(ctx.transport, 'POST', path, 'fetch blob', ctx.appId, {
+    body,
+    timeoutMs: options.timeoutMs,
+  });
+  return parseJsonFetchedBlob(reply);
 }
 
 function parseJsonFetchedBlob(rawBody: unknown): FetchedBlob {
@@ -318,7 +319,9 @@ export async function executeDeleteBlob(
   };
   if (options.placement !== undefined) body.placement = options.placement;
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.deleteBlob);
-  const res = await ctx.transport.send('POST', path, { body, timeoutMs: options.timeoutMs });
-  if (res.status === 200) return parseCommittedMutation(res.body);
-  throw mapDataError('delete blob', res.status, res.body, ctx.appId);
+  const reply = await sendJsonObject(ctx.transport, 'POST', path, 'delete blob', ctx.appId, {
+    body,
+    timeoutMs: options.timeoutMs,
+  });
+  return parseCommittedMutation(reply);
 }

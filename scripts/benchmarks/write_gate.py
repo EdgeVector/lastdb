@@ -14,8 +14,8 @@ from disk_budget import require_search_off
 from node import Node, file_hash, publish_summary, save
 from phases import capture_phases
 from process_counters import counter_delta, read_counters
-from run import host_details
-from workload import FIELDS, HASH, SCHEMA, Workload, describe, encoded, fields, key
+from run import host_details, interrupted
+from workload import FIELDS, HASH, SCHEMA, Workload, benchmark_schema, describe, encoded, fields, key
 
 RECORDS = 100000
 
@@ -33,11 +33,7 @@ class Writers:
                 "fields_and_values": value if create else {n: value[n] for n in ("title", "body")}}
 
     def seed(self):
-        definition = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-                      "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-                      "fields": FIELDS, "field_types": {f: "String" for f in FIELDS},
-                      "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
-        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
+        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": benchmark_schema()})
         actual = self.node.call(f"/api/schema/{SCHEMA}")[0]["schema"]
         if len(set(actual["field_hashes"].values())) != len(FIELDS):
             raise ValueError("Benchmark schema must have distinct canonical fields")
@@ -143,16 +139,19 @@ def totals(events):
             for name in sorted(names)}
 
 
-def native_events(directory, cases):
+def diagnostics(directory, cases):
     path = directory / "node.log"
     if path.stat().st_size > 256 * 2**20:
         raise ValueError("The investigation log exceeds its 256 MiB bound")
-    events = []
+    events, snapshots = [], []
     with path.open() as source:
         for line in source:
-            for marker in ("LASTDB_SNAPSHOT_TIMING ", "LASTDB_WRITE_REQUEST_TIMING "):
-                if marker in line:
-                    events.append(json.loads(line.split(marker, 1)[1]))
+            if "LASTDB_SNAPSHOT_TIMING " in line:
+                parsed = json.loads(line.split("LASTDB_SNAPSHOT_TIMING ", 1)[1])
+                events.append(parsed)
+                snapshots.append(parsed)
+            elif "LASTDB_WRITE_REQUEST_TIMING " in line:
+                events.append(json.loads(line.split("LASTDB_WRITE_REQUEST_TIMING ", 1)[1]))
     for case in cases:
         if not case["native_timing"]:
             continue
@@ -178,23 +177,12 @@ def native_events(directory, cases):
                           "scope_phases": summarize(scopes), "commit_phases": summarize(commits),
                           "commit_mean_us": mean(c["total_us"] for c in commits),
                           "commit_slots_include_background": True, "scope_phase_totals_overlap": False}
-        save(directory / f"{case['name']}.json", case)
-
-
-def diagnostics(directory, cases):
-    native_events(directory, cases)
-    events = [json.loads(line.split("LASTDB_SNAPSHOT_TIMING ", 1)[1])
-              for line in (directory / "node.log").open() if "LASTDB_SNAPSHOT_TIMING " in line]
-    for case in cases:
-        if not case["native_timing"]:
-            continue
-        first, last = case["case_started_unix_us"], case["case_ended_unix_us"]
-        selected = [e for e in events if first <= e["started_us"] <= e["ended_us"] <= last]
-        prepare = [e for e in selected if e["kind"] == "prepare"]
+        snap_selected = [e for e in snapshots if first <= e["started_us"] <= e["ended_us"] <= last]
+        prepare = [e for e in snap_selected if e["kind"] == "prepare"]
         if len(prepare) < case["requests"]:
             raise ValueError("Logical preparation records do not cover all measured calls")
         case["preparation"] = {"records": len(prepare), "phases": summarize(prepare), "counts": totals(prepare)}
-        reuse = [e for e in selected if e["kind"] == "write_reads"]
+        reuse = [e for e in snap_selected if e["kind"] == "write_reads"]
         if reuse and len(reuse) < case["requests"]:
             raise ValueError("Private write reuse records are incomplete")
         case["write_reads"] = {"records": len(reuse), "counts": totals(reuse),
@@ -277,10 +265,6 @@ def render_report(output):
     return "\n".join(lines + detail) + "\n"
 
 
-def _interrupt(_signum, _frame):
-    raise KeyboardInterrupt("The paired writer comparison received an interruption")
-
-
 def main():
     if sys.argv[1:2] == ["report"]:
         parser = argparse.ArgumentParser(prog="write_gate.py report", description=__doc__)
@@ -315,7 +299,7 @@ def main():
                 "pairs": 3, "requests_per_case": 2048, "clients": 16, "batch_records": 1, "schema": "GitHubBenchmark",
                 "hash": "generated", "search_enabled": False, "programs": programs, "homes": [],
                 "scope": "Three alternating pairs; separate final-pair native capture"}
-    signal.signal(signal.SIGTERM, _interrupt)
+    signal.signal(signal.SIGTERM, interrupted)
     try:
         for pair in range(3):
             for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):

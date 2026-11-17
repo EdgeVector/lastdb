@@ -9,7 +9,7 @@ import {
   type ClientContext,
 } from './databases.js';
 import { mapDataError, NodeTooOldError, UnexpectedResponseError } from './errors.js';
-import { isObject } from './responseParsers.js';
+import { isHex64, isObject, sendJsonObject } from './responseParsers.js';
 import type { JsonValue, NodeVersion } from './types.js';
 
 /** One schema entry from `GET /api/schemas` or `GET /api/schema/<name>`. */
@@ -47,8 +47,6 @@ export interface DeclareSchemaResult {
   identityHash: string | null;
   resolution: string | null;
 }
-
-const DEFINITION_ID_PATTERN = /^[0-9a-f]{64}$/;
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
@@ -163,7 +161,7 @@ export function rememberSchemaDefinition(
   schemaName: string,
   definitionId: string,
 ): void {
-  if (!DEFINITION_ID_PATTERN.test(definitionId)) {
+  if (!isHex64(definitionId)) {
     throw new UnexpectedResponseError(
       'definition id must be a lowercase SHA-256',
       0,
@@ -175,11 +173,14 @@ export function rememberSchemaDefinition(
 
 /** `GET /api/version` — client↔node compatibility handshake. */
 export async function executeVersion(ctx: ClientContext): Promise<NodeVersion> {
-  const res = await ctx.transport.send('GET', LASTDB_API_ROUTES.version);
-  if (res.status !== 200) {
-    throw mapDataError('version', res.status, res.body, ctx.appId);
-  }
-  return parseNodeVersion(res.body);
+  const body = await sendJsonObject(
+    ctx.transport,
+    'GET',
+    LASTDB_API_ROUTES.version,
+    'version',
+    ctx.appId,
+  );
+  return parseNodeVersion(body);
 }
 
 /** Verify that the connected node reports `api_version >= required`. */
@@ -224,25 +225,21 @@ export async function executeDeclareSchema(
   request: DeclareSchemaRequest,
 ): Promise<DeclareSchemaResult> {
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.schemasDeclare);
-  const res = await ctx.transport.send('POST', path, { body: request });
-  if (res.status !== 200) {
-    throw mapDataError('declare schema', res.status, res.body, ctx.appId);
-  }
-  if (!isObject(res.body)) {
-    throw new UnexpectedResponseError('declare schema returned a non-object body', 200, res.body);
-  }
-  const definitionId = res.body['definition_id'];
-  const schemaName = res.body['schema'];
+  const body = await sendJsonObject(ctx.transport, 'POST', path, 'declare schema', ctx.appId, {
+    body: request,
+  });
+  const definitionId = body['definition_id'];
+  const schemaName = body['schema'];
   if (
     typeof definitionId !== 'string' ||
     typeof schemaName !== 'string' ||
     schemaName.length === 0
   ) {
-    throw new UnexpectedResponseError('declare returned no definition id', 200, res.body);
+    throw new UnexpectedResponseError('declare returned no definition id', 200, body);
   }
   rememberSchemaDefinition(ctx.definitionIds, schemaName, definitionId);
-  const identity = res.body['identity_hash'];
-  const resolution = res.body['resolution'];
+  const identity = body['identity_hash'];
+  const resolution = body['resolution'];
   return {
     schemaName,
     definitionId,
@@ -254,11 +251,8 @@ export async function executeDeclareSchema(
 /** `GET /api/schemas` (or database-scoped equivalent). */
 export async function executeListSchemas(ctx: ClientContext): Promise<LoadedSchema[]> {
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.schemas);
-  const res = await ctx.transport.send('GET', path);
-  if (res.status === 200) {
-    return parseSchemaListResponse(res.body);
-  }
-  throw mapDataError('schemas list', res.status, res.body, ctx.appId);
+  const body = await sendJsonObject(ctx.transport, 'GET', path, 'schemas list', ctx.appId);
+  return parseSchemaListResponse(body);
 }
 
 /** `GET /api/schema/<encoded>` (or database-scoped equivalent). Returns `null` on `404`. */

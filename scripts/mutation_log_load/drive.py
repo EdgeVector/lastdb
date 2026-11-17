@@ -12,8 +12,8 @@ from faults import (
     RetriesExhausted, already_created, backoff_seconds, capacity_finding,
     is_contention, is_duplicate, is_throttle, quiet_backoff_seconds, retry_action,
 )
-from finish import (READS, RouteError, _device, audit_log, check_success,
-                    finding_text, path_for, request_for, tier_report, verify_after_cap)
+from finish import (READS, RouteError, audit_log, check_success, device_name,
+                    finding_text, path_for, request_for, tier_report)
 
 
 APPENDS = 10
@@ -182,7 +182,7 @@ class Session:
         self.contention_unresolved += 1
         if operation != "append" or "seq" not in fields:
             return
-        device = fields.get("device_id") or _device(self.device_prefix, fields["index"])
+        device = fields.get("device_id") or device_name(self.device_prefix, fields["index"])
         self.unresolved.append((device, fields["seq"]))
 
     def _pause(self, tries):
@@ -241,7 +241,7 @@ class Session:
         self.stop.set()
 
     def _note_append(self, fields):
-        device = fields.get("device_id") or _device(self.device_prefix, fields["index"])
+        device = fields.get("device_id") or device_name(self.device_prefix, fields["index"])
         with self._lock:
             self.accepted.setdefault(device, set()).add(fields["seq"])
 
@@ -281,10 +281,19 @@ def _exhausted(session):
     return session.contention_unresolved or session.throttle_unresolved
 
 
+def _verify_after_cap(session):
+    """A write already exhausted. Read the log before the budget stop wins."""
+    try:
+        audit_log(session)
+    except (LoadError, RouteError, RetriesExhausted, CapExceeded):
+        return "error"
+    return "scaling" if session.no_partial_writes else "error"
+
+
 def _over_cap(session, spec):
     """The cap loses to a correctness failure and to a scaling finding."""
     if _exhausted(session) and not session.audited:
-        return verify_after_cap(session)
+        return _verify_after_cap(session)
     if _exhausted(session) and not session.no_partial_writes:
         return "error"
     if _exhausted(session) or _capacity(session, spec):

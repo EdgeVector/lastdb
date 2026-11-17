@@ -24,7 +24,6 @@ class Field:
 class Variant:
     name: str
     wire: str
-    kind: str
     fields: list[Field] = field(default_factory=list)
     other: bool = False
 
@@ -34,14 +33,12 @@ class TypeDef:
     path: str
     kind: str
     deny: bool = False
-    transparent: bool = False
     repr: str = "struct"
     tag: str | None = None
     content: str | None = None
     fields: list[Field] = field(default_factory=list)
     variants: list[Variant] = field(default_factory=list)
     alias: str | None = None
-    alias_of: str | None = None
     custom: str | None = None
     de_note: str | None = None
     other_ok: bool = False
@@ -186,13 +183,13 @@ def materialize(rec: dict, by_name: dict[str, str], consts: dict[str, str]) -> T
     flags = rec["flags"]
     if rec["kind"] == "type_item":
         enc = encode(rec["alias"], by_name, consts)
-        return TypeDef(path=rec["path"], kind="alias", alias=enc[3:-1].split(",")[0] if enc.startswith("ty(") and enc.endswith(")") else enc, alias_of=enc, repr="alias")
+        return TypeDef(path=rec["path"], kind="alias", alias=enc[3:-1].split(",")[0] if enc.startswith("ty(") and enc.endswith(")") else enc, repr="alias")
     ef = lambda r: Field(name=r["name"], wire=r["wire"], encoded=encode(r["ty"], by_name, consts), skip=r["flags"]["skip"], default=r["flags"]["default"], flatten=r["flags"]["flatten"])
     fields = [ef(r) for r in rec["raw_fields"]]
-    variants = [Variant(name=r["name"], wire=r["wire"], kind=r["kind"], other=r["other"], fields=[ef(i) for i in r["fields"]]) for r in rec["raw_variants"]]
+    variants = [Variant(name=r["name"], wire=r["wire"], other=r["other"], fields=[ef(i) for i in r["fields"]]) for r in rec["raw_variants"]]
     kind = "enum" if rec["kind"] == "enum_item" else ("scalar" if rec["kind"] == "macro" else "struct")
     rname = ("transparent" if flags["transparent"] else "untagged" if flags["untagged"] else "adjacent" if flags["tag"] and flags["content"] else "internal" if flags["tag"] else "external" if kind == "enum" else "string" if kind == "scalar" else "newtype" if len(fields) == 1 and fields[0].name.startswith("_") else "tuple" if fields and all(f.name.startswith("_") for f in fields) else "unit" if not fields and kind == "struct" else "struct")
-    return TypeDef(path=rec["path"], kind=kind, deny=flags["deny"], transparent=flags["transparent"] or rname in {"transparent", "newtype"}, repr=rname, tag=flags["tag"], content=flags["content"], fields=fields, variants=variants, other_ok=any(v.other for v in variants), note=rec.get("note", ""))
+    return TypeDef(path=rec["path"], kind=kind, deny=flags["deny"], repr=rname, tag=flags["tag"], content=flags["content"], fields=fields, variants=variants, other_ok=any(v.other for v in variants), note=rec.get("note", ""))
 
 
 def build_exports(modules: dict[str, dict], by_name: dict[str, str]) -> dict[str, dict[str, str]]:

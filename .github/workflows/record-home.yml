@@ -1,7 +1,7 @@
 name: Record home product proof
 
 # Required on every PR, main push and manual CI run, including docs-only changes.
-# Share/Files operations run against fresh generated homes without cloud secrets.
+# Record, inline/blob file, App API, and named-database operations run on fresh generated homes without cloud secrets.
 # Authenticated multi-device sync and restore have their own accepted-main DEV lane.
 # A copied home with a wrong or older node marker must fail open.
 on:
@@ -25,7 +25,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: Swatinem/rust-cache@v2
@@ -63,7 +63,7 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Result: $RESULT"
             echo "Fresh generated home only. No primary access, local build, or benchmark."
-            echo "Daemon scope: named Files import, list and save, owner direct create/replace/delete, database addressing, and refusal of retired Share commands."
+            echo "Daemon scope: conditional record writes, alternate keys, warm set, TTL retention, schema drop, and inline/blob files."
             echo "App API: POST /v1/read and POST /v1/write with list bodies, create only when absent, replace and delete only at the read revision, keys only, cursors, a database identifier, the one error shape, a file as a path on write and on read, and the changes extension at POST /v1/x/changes."
             echo "Named databases: create owned siblings beside personal, keep their ids across the daemon restart, and isolate one key across personal and those siblings."
             echo "Format refusal: a copied home with altered node-marker bytes, and one whose marker claims an older format, must fail open with the unsupported-format error."
@@ -72,23 +72,3 @@ jobs:
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
             echo "Expiration: 7 days after this run."
           } >> "$GITHUB_STEP_SUMMARY"
-
-  report:
-    name: Record home proof result
-    needs:
-      - records
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require executed Share and record operations
-        env:
-          RECORDS: ${{ needs.records.result }}
-        run: |
-          set -euo pipefail
-          echo "Records and Share operations: $RECORDS"
-          if [ "$RECORDS" != success ]; then
-            echo "::error::The mandatory fresh-home Share and record operations did not pass"
-            exit 1
-          fi
-          echo "Fresh-home Share and record operations passed for $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"

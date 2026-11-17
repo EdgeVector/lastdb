@@ -59,12 +59,6 @@ on:
       - 'scripts/cloud_backup/**'
       - 'scripts/release/published_client.py'
       - 'scripts/release/nightly_package.py'
-      - 'lastdb_node/**'
-      - 'fold_db/**'
-      - 'vendor/laststore/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
 
 permissions:
   contents: read
@@ -104,7 +98,7 @@ jobs:
       - name: Check the operational recipe syntax
         run: |
           python3 -m py_compile scripts/harness.py scripts/cloud_backup/*.py
-          python3 -m py_compile scripts/release/published_client.py
+          python3 -m py_compile scripts/release/published_client.py scripts/release/nightly_package.py
 
   build-client:
     name: Build
@@ -141,7 +135,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Install the signed recipe dependency
-        run: python3 -m pip install --quiet cryptography==41.0.7
+        run: python3 -m pip install --quiet cryptography==46.0.3
       - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build-client.outputs.artifact }}
@@ -284,7 +278,7 @@ jobs:
             "$ORIGINAL_RUN_ID" "$ORIGINAL_RUN_ATTEMPT"
       - name: Install the historical signed cleanup dependency
         if: needs.snapshot-resume-origin.outputs.legacy == 'true'
-        run: python3 -m pip install --quiet cryptography==41.0.7
+        run: python3 -m pip install --quiet cryptography==46.0.3
       - name: Assume the DEV mutation-log cleanup role for a historical attempt
         if: needs.snapshot-resume-origin.outputs.legacy == 'true'
         uses: aws-actions/configure-aws-credentials@v4

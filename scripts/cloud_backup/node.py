@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run only the exact CI executable pair and own one Mini daemon."""
 
 from __future__ import annotations
@@ -191,7 +190,7 @@ class OwnedNode:
         self.account = account
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
-        self.clean_stops, self.forced = 0, False
+        self.clean_stops = 0
         self.isolated_copy = isolated_copy
         require(len(str(self.socket).encode()) + len(".tmp") < 104, "socket_path_size")
 
@@ -288,6 +287,6 @@ class OwnedNode:
     def cleanup_stop(self):
         if self.process is None:
             return
-        self.forced = stop_process(self.process, timeout=210, kill_timeout=10) or self.forced
+        stop_process(self.process, timeout=210, kill_timeout=10)
         self.process = None
         self.disconnect()

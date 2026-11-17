@@ -5,6 +5,8 @@
  * catch-all "request failed".
  */
 
+import type { JsonValue } from './types.js';
+
 /** Base class for every error this SDK raises. */
 export class LastDbError extends Error {
   constructor(message: string) {
@@ -229,7 +231,8 @@ function casConflictMessage(detail: CasConflictDetail): string {
   return `CAS conflict${where}: the row changed since the expected precondition${values}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** Whether a value is a non-array JSON object. */
+export function isObject(value: unknown): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -247,12 +250,12 @@ function authenticationRequiredReason(body: {
 
 function casConflictDetailOf(body: unknown): CasConflictDetail {
   const detail: CasConflictDetail = {};
-  if (!isRecord(body)) return detail;
+  if (!isObject(body)) return detail;
   if (typeof body['schema'] === 'string') detail.schema = body['schema'];
   if (typeof body['key'] === 'string') detail.key = body['key'];
   if (typeof body['expected'] === 'string') detail.expected = body['expected'];
   if (typeof body['actual'] === 'string' || body['actual'] === null) {
-    detail.actual = body['actual'] as string | null;
+    detail.actual = body['actual'];
   }
   if (typeof body['message'] === 'string') detail.message = body['message'];
   return detail;
@@ -260,7 +263,7 @@ function casConflictDetailOf(body: unknown): CasConflictDetail {
 
 function extractErrorMessage(body: unknown, fallback: string): string {
   if (typeof body === 'string' && body.trim().length > 0) return body.trim();
-  if (isRecord(body)) {
+  if (isObject(body)) {
     for (const field of ['message', 'reason', 'error']) {
       const candidate = body[field];
       if (typeof candidate === 'string' && candidate.length > 0) return candidate;
@@ -276,7 +279,7 @@ export function mapDataError(
   body: unknown,
   appId: string,
 ): Error {
-  const b = (isRecord(body) ? body : {}) as {
+  const b = (isObject(body) ? body : {}) as {
     kind?: string;
     code?: string;
     error?: string;

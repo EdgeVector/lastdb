@@ -113,7 +113,7 @@ def _private_value(path, cap):
 
 
 def provision(programs, root, attempt):
-    from node_auth import NodeKey, account_id
+    from run import NodeKey, account_id
 
     home = root / "enrollment"
     phrase_path = home / "recovery-phrase.txt"

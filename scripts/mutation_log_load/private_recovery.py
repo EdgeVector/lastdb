@@ -4,14 +4,15 @@ from contextlib import contextmanager
 import json, os, socket, sys, tempfile, time
 from pathlib import Path
 
-_SCRIPTS = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(_SCRIPTS), str(_SCRIPTS / "cloud_backup")]
+_HERE = Path(__file__).resolve().parent
+_SCRIPTS = _HERE.parent
+sys.path[:0] = [str(_HERE), str(_SCRIPTS), str(_SCRIPTS / "cloud_backup")]
 
 from drive import LoadError  # noqa: E402
 from finish import ROOT, decimal  # noqa: E402
 from harness import create, key as record_key, replace_row as replace  # noqa: E402
 from node import OwnedNode, Programs  # noqa: E402
-from node_auth import NodeKey, account_id  # noqa: E402
+from run import NodeKey, account_id  # noqa: E402
 from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure, read_json,  # noqa: E402
                      require, retry, running, summary, write_private)
 

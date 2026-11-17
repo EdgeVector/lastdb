@@ -77,11 +77,11 @@ def require_search_off(node, output, phase):
 
 def logical_storage(node):
     report = node.call("/api/db/schemas")[0]["schema_storage"]
-    validate_logical(report, node.home_format())
+    validate_logical(report)
     return report
 
 
-def validate_logical(report, _home_format):
+def validate_logical(report):
     """A home stores one record per key. Its logical bytes are the stored record values."""
     rows = report["per_schema"]
     if (not rows or report["total_logical_bytes"] != report["total_record_bytes"]
@@ -204,7 +204,7 @@ def validate(case, result, recipe):
                     else recipe["records"] * (1 + number if case == "insert" else 1))
         if point["round"] != number or point["live_records"] != expected:
             raise ValueError(f"{case}: invalid disk checkpoint count")
-        validate_logical(point["logical_storage"], point["home_format"])
+        validate_logical(point["logical_storage"])
         if point["home_format"] != points[0]["home_format"]:
             raise ValueError(f"{case}: the home format changed between checkpoints")
         if case == "delete":

@@ -29,7 +29,6 @@ TARGETS = {
 INDEX = "nightly.json"
 SUMS = "SHA256SUMS.txt"
 MAX_FILE = 512 * 1024 ** 2
-MAX_BINARY_BYTES = MAX_FILE
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -73,7 +72,7 @@ def validate_pair(directory, version):
         path = (directory / name).absolute()
         if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
             raise ValueError(f"The release lacks a regular executable {name}")
-        if not 0 < path.stat().st_size <= MAX_BINARY_BYTES:
+        if not 0 < path.stat().st_size <= MAX_FILE:
             raise ValueError(f"The release executable {name} exceeds its size limit")
         if binary_version(path) != version:
             raise ValueError(f"The release executable {name} has a different version")
@@ -124,7 +123,7 @@ def package_bundle(target, bin_dir, out_dir, git_oid, version, epoch, *, nightly
     validate_architecture(bin_dir, target)
     archive = out_dir / f"lastdb-{target}.tar.gz"
     archive_pair(archive, bin_dir, binaries, epoch)
-    if archive.stat().st_size > MAX_BINARY_BYTES:
+    if archive.stat().st_size > MAX_FILE:
         raise ValueError("The archive exceeds the 512 MiB release asset limit")
     system, architecture = TARGETS[target]
     write_json(out_dir / f"lastdb-{target}.manifest.json", {
@@ -259,7 +258,7 @@ def prepare(folder, plan):
     (folder / INDEX).write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
     files = sorted(names() - {SUMS})
     (folder / SUMS).write_text("".join(f"{digest(folder / name)}  {name}\n" for name in files))
-    validate(folder, plan)
+    return validate(folder, plan)
 
 
 def validate(folder, plan):

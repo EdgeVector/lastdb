@@ -33,56 +33,21 @@ env:
 
 jobs:
   build_test:
-    name: fmt + clippy (lastdb_node Mini lane)
+    name: fmt + source lints
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Install ripgrep
-        uses: EdgeVector/.github/install-ripgrep@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
       - name: Install Rust
         run: |
-          rustup toolchain install --profile minimal --component clippy,rustfmt
+          rustup toolchain install --profile minimal --component rustfmt
           rustup show active-toolchain
-      - name: Cache cargo and target (build_test)
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: fmt-clippy
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Select required Rust clippy scope
-        id: required-clippy-plan
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          if [ -z "${BASE_SHA:-}" ] || [ -z "${HEAD_SHA:-}" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
-            ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
-          if [ -z "$merge_base" ]; then
-            ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git diff --name-only "$merge_base" "$HEAD_SHA" \
-            | ruby scripts/ci/required-clippy-plan.rb --github-output "$GITHUB_OUTPUT"
-          echo "Required clippy mode: $(tail -n 4 "$GITHUB_OUTPUT" | tr '\n' ' ')"
-      - name: Bootstrap Mini-gate step state
-        run: |
-          set -euo pipefail
-          state_dir="${RUNNER_TEMP:-/tmp}/mini-gate"
-          mkdir -p "$state_dir"
-          date +%s >"$state_dir/job_started_at_epoch"
-          echo "unknown-pre-instrumented-step" >"$state_dir/last_step"
-          echo "MINI_GATE_STATE_DIR=$state_dir" >>"$GITHUB_ENV"
       - name: Python script syntax
         env:
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/python-script-pycache
         run: >-
-          bash scripts/ci/mini-gate-step.sh "Python script syntax" --
           python3 -m py_compile
           scripts/lints/*.py
           scripts/lints/protocol_pin/*.py
@@ -97,8 +62,8 @@ jobs:
         uses: EdgeVector/.github/no-build-artifacts@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:
           tree: HEAD
-      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition, statics)
-        run: bash scripts/ci/mini-gate-step.sh "Source lints" -- python3 scripts/lints/source_lints.py
+      - name: Source lints (egress, redaction, byte slice, spawn, URLs, edition, statics, model purity)
+        run: python3 scripts/lints/source_lints.py
       - name: API surface vs API_VERSION
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -108,37 +73,24 @@ jobs:
           if [ -n "${BASE_SHA:-}" ] && ! [[ "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             args+=(--base "$BASE_SHA")
           fi
-          bash scripts/ci/mini-gate-step.sh "API surface vs API_VERSION" -- python3 scripts/lints/api_surface.py "${args[@]}"
+          python3 scripts/lints/api_surface.py "${args[@]}"
       - name: cargo fmt --check
-        run: bash scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
       - name: Record counter writer-boundary lint
-        run: bash scripts/ci/mini-gate-step.sh "Store writer-boundary lint" -- python3 scripts/lints/lint-store-writers.py
-      - name: Model purity lint
-        run: bash scripts/ci/mini-gate-step.sh "Model purity lint" -- bash scripts/ci/model-purity-lint.sh
+        run: python3 scripts/lints/lint-store-writers.py
       - name: Module layer check
         uses: EdgeVector/.github/layer-check@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:
           crates: fold_db/crates/model fold_db/crates/core lastdb_node
       - name: Heavy clippy workspace-coverage lint
-        run: bash scripts/ci/mini-gate-step.sh "Heavy clippy workspace-coverage lint" -- ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
-      - name: cargo clippy (path-selected required lane)
-        if: steps.required-clippy-plan.outputs.run_clippy == 'true'
-        env:
-          CARGO_BUILD_JOBS: "2"
-          CLIPPY_FAMILY: ${{ steps.required-clippy-plan.outputs.family }}
-          CLIPPY_MODE: ${{ steps.required-clippy-plan.outputs.mode }}
-        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (${CLIPPY_MODE}:${CLIPPY_FAMILY})" -- ruby scripts/ci/required-clippy-plan.rb --run "$CLIPPY_FAMILY"
-      - name: cargo clippy (domain & schema libs)
-        env:
-          CARGO_BUILD_JOBS: "2"
-        run: bash scripts/ci/mini-gate-step.sh "clippy domain & schema libs" -- cargo clippy --locked -p schema_service_core -p mutation_log --lib -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+        run: ruby scripts/lints/lint-heavy-clippy-workspace-coverage.rb
 
   lastdb_app_sdk_check:
     name: lastdb_app_sdk typecheck + lint + build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Check Node/npm toolchain
         run: |
           node --version
@@ -164,9 +116,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-      - name: Install ripgrep
-        uses: EdgeVector/.github/install-ripgrep@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
+        uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install --profile minimal --component clippy,rustfmt
@@ -181,6 +131,10 @@ jobs:
           ulimit -n 8192 || true
           cargo clippy --workspace --lib --bins --locked \
             -- -D warnings
+      - name: cargo clippy (domain & schema libs)
+        run: >-
+          cargo clippy --locked -p schema_service_core -p mutation_log --lib
+          -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
       - name: Build schema_service_server_lambda and verify its seed vocabulary
         run: |
           set -euo pipefail
@@ -199,7 +153,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Enforce source diff size and allow policy
@@ -207,14 +161,14 @@ jobs:
         with:
           base: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
           head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
-          extensions: .rs,.py
+          extensions: .rs,.py,.ts
 
   secret_scan:
     name: secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Scan tracked text files for secrets
         uses: EdgeVector/.github/secret-scan@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
 
@@ -227,7 +181,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install Rust
         run: |
           rustup toolchain install --profile minimal
@@ -259,7 +213,7 @@ jobs:
       contents: read
       checks: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Wait for the installed-app proof when the surface changed
@@ -277,7 +231,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - name: Install tree-sitter
