@@ -27,7 +27,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub use crate::db_operations::WriterWatch;
 pub(crate) use format::RecordChange;
 pub use format::RecordDeleteLedgerEntry;
 

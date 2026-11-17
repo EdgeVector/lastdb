@@ -51,7 +51,7 @@ impl PackRuntime {
         })
     }
 
-    pub(in crate::storage) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
+    pub(crate) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
         if PendingBatch::current(self).is_none() {
             self.wait_for_queue(self.seal_queue()).await?;
         }
