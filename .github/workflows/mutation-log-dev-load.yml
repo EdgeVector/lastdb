@@ -93,7 +93,7 @@ jobs:
           aws-region: us-west-2
           role-session-name: mutation-log-load-${{ github.run_id }}
       - name: Install the signed recipe dependency
-        run: python3 -m pip install --quiet cryptography==41.0.7
+        run: python3 -m pip install --quiet cryptography==46.0.3
       - name: Run signed DEV load or private recovery
         id: load
         continue-on-error: true

@@ -15,11 +15,12 @@ import uuid
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import conditioned, mutation  # noqa: E402
-from record_runs import FIELDS, RANGED, definition, refused, require, system_seed  # noqa: E402
+from record_runs import (  # noqa: E402
+    FIELDS, MISSING_DATABASE, RANGED, definition, refused, require, system_seed,
+)
 
 
 def prepare(node, cli, output):
-    require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     require(read_value(node, None) == "v3", "personal key one changed before named databases")
     refuse(node, {"name": "personal"}, "invalid database name")
     refuse(node, {"name": "notes", "kind": "personal",
@@ -57,8 +58,7 @@ def prepare(node, cli, output):
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
-    missing = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-    refused(lambda: read_value(node, missing), "database is not registered")
+    refused(lambda: read_value(node, MISSING_DATABASE), "database is not registered")
     saved = {
         "personal_id": personal_id,
         "notes_id": notes["id"],
@@ -88,7 +88,7 @@ def check(node, cli, output):
     cli_read(node, cli, "social-family", "family")
     cli_read(node, cli, "personal", "v3")
     cli_read(node, cli, "notes", "owner-only")
-    wrong = run_cli(node, cli, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    wrong = run_cli(node, cli, MISSING_DATABASE)
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector read personal data: " + wrong.stderr)
     check_cli_operations(node, cli, output, saved["notes_id"])
@@ -209,6 +209,6 @@ def check_cli_operations(node, cli, output, database_id):
     got = run_cmd(node, cli, "--db", database_id, "get", "RecordById", "--key-hash", "cli-op", "--json")
     require(got.returncode == 0 and json.loads(got.stdout)["results"][0]["fields"]["value"] == "via-cli",
             "selected database read missed CLI mutation: " + got.stderr)
-    wrong = run_cmd(node, cli, "--db", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "mutate", "--request-file", str(request))
+    wrong = run_cmd(node, cli, "--db", MISSING_DATABASE, "mutate", "--request-file", str(request))
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)

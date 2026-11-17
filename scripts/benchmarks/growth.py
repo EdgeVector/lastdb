@@ -7,7 +7,7 @@ import threading
 import time
 
 from node import save
-from workload import FIELDS, SCHEMA, Workload, read_request, validate_read, write_request
+from workload import Workload, benchmark_schema, read_request, validate_read, write_request
 
 PROFILES = {
     "standard": {"records": 512, "rounds": 3, "idle_seconds": 1},
@@ -131,11 +131,7 @@ class GrowthWorkload:
                 "compacted_allocated_disk_bytes": after["database"]["allocated_bytes"], "compaction": receipt}
 
     def seed(self):
-        schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-                  "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-                  "fields": FIELDS, "field_types": {field: "String" for field in FIELDS},
-                  "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
-        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": benchmark_schema()})
         self.write(0, self.live_records, "growth-seed", True)
 
     def measure(self, case):

@@ -320,8 +320,7 @@ def main():
     elif args.command == "publish":
         result = publish(plan, args.assets)
     else:
-        prepare(args.assets, plan)
-        result = {"source": plan["source"], "hashes": validate(args.assets, plan)}
+        result = {"source": plan["source"], "hashes": prepare(args.assets, plan)}
     print(json.dumps(result, indent=2, sort_keys=True))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:

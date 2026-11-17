@@ -215,7 +215,7 @@ def _seen(entries):
     return found
 
 
-def _device(prefix, index):
+def device_name(prefix, index):
     return "{0}-d{1}".format(prefix, index)
 
 
@@ -229,7 +229,7 @@ def request_for(session, operation, fields, limit):
             "database_id": database, "kind": "shareable", "spec": {"name": "social", "version": 1},
         })
     if operation == "append":
-        device = fields.get("device_id") or _device(session.device_prefix, fields["index"])
+        device = fields.get("device_id") or device_name(session.device_prefix, fields["index"])
         return request_body(operation, {
             "database_id": database, "device_id": device,
             "entries": [{"authored_at_ms": fields["authored_at_ms"], "namespace": "social",
@@ -287,17 +287,6 @@ def audit_log(session):
         session.in_logcheck = False
         session.quiet = False
     session.audited = True
-
-
-def verify_after_cap(session):
-    """A write already exhausted. Read the log before the budget stop wins."""
-    from cost import CapExceeded
-    from drive import LoadError
-    try:
-        audit_log(session)
-    except (LoadError, RouteError, RetriesExhausted, CapExceeded):
-        return "error"
-    return "scaling" if session.no_partial_writes else "error"
 
 
 def finding_text(session, spec):

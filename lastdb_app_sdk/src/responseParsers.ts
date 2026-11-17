@@ -1,6 +1,7 @@
 /** Parsers that validate node query and record response bodies into typed SDK results. */
 
-import { UnexpectedResponseError } from './errors.js';
+import { isObject, mapDataError, UnexpectedResponseError } from './errors.js';
+import type { Transport, TransportSendOptions } from './transport.js';
 import type {
   FileMarker,
   JsonValue,
@@ -15,13 +16,46 @@ import type {
   RowFields,
 } from './types.js';
 
-/** Whether a value is a non-array JSON object. */
-export function isObject(v: unknown): v is Record<string, JsonValue> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
+export { isObject };
+
+const HEX64_PATTERN = /^[0-9a-f]{64}$/;
+
+export function isHex64(value: unknown): value is string {
+  return typeof value === 'string' && HEX64_PATTERN.test(value);
 }
 
 export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** Send a JSON request, map non-200 errors, and require a JSON object reply. */
+export async function sendJsonObject(
+  transport: Transport,
+  method: 'GET' | 'POST',
+  path: string,
+  verb: string,
+  appId: string,
+  options?: TransportSendOptions & { redactBody?: boolean },
+): Promise<Record<string, JsonValue>> {
+  const { redactBody, ...sendOptions } = options ?? {};
+  const hasSendOpts =
+    sendOptions.headers !== undefined ||
+    sendOptions.body !== undefined ||
+    sendOptions.timeoutMs !== undefined;
+  const res = hasSendOpts
+    ? await transport.send(method, path, sendOptions)
+    : await transport.send(method, path);
+  if (res.status !== 200) {
+    throw mapDataError(verb, res.status, res.body, appId);
+  }
+  if (!isObject(res.body)) {
+    throw new UnexpectedResponseError(
+      `${verb} returned a non-object body`,
+      200,
+      redactBody ? null : res.body,
+    );
+  }
+  return res.body;
 }
 
 function parseListKeys(values: unknown, body: unknown): ListRecordKey[] {
@@ -144,7 +178,7 @@ function parseQueryRow(raw: unknown): QueryRow {
 }
 
 function parseRevision(value: unknown, raw: unknown): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
+  if (!isHex64(value)) {
     throw new UnexpectedResponseError('query returned no record revision', 200, raw);
   }
   return value;
@@ -194,8 +228,7 @@ export function parseFileMarker(
   raw: unknown,
 ): FileMarker {
   if (
-    typeof file['sha256'] !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(file['sha256']) ||
+    !isHex64(file['sha256']) ||
     typeof file['size_bytes'] !== 'number' ||
     !Number.isSafeInteger(file['size_bytes']) ||
     file['size_bytes'] < 0

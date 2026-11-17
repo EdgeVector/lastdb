@@ -14,9 +14,10 @@ import sys
 import time
 import urllib.error
 
-_SCRIPTS = str(Path(__file__).resolve().parents[1])
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, _SCRIPTS)
+_SCRIPTS = Path(__file__).resolve().parents[1]
+for _p in (str(_SCRIPTS / "mutation_log_load"), str(_SCRIPTS)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from harness import summary_line  # noqa: E402
 from support import DECIMAL, OperationError, dev_endpoint, load_dev_owner, require  # noqa: E402
@@ -46,7 +47,7 @@ class SnapshotOwner:
 
     @property
     def account(self):
-        from node_auth import account_id
+        from run import account_id
         return account_id(self.key.public)
 
 

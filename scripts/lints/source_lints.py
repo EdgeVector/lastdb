@@ -2,9 +2,9 @@
 """Run source lints across workspace crates in a single pass.
 
 Replaces the legacy shell suite (tracing-egress, redaction, byte-slice,
-spawn-instrument, no-hardcoded-urls, workspace-edition-inheritance, and
-schema-core-statics) while discovering workspace crates dynamically from
-Cargo.toml `[workspace].members`.
+spawn-instrument, no-hardcoded-urls, workspace-edition-inheritance,
+schema-core-statics, and model-purity) while discovering workspace crates
+dynamically from Cargo.toml `[workspace].members`.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 EGRESS_RE = re.compile(r"reqwest::(?:Client|ClientBuilder)::(?:new|default|builder)\(\)")
@@ -30,6 +31,15 @@ SPAWN_OK_RE = re.compile(r"\.instrument\(|\.in_current_span\(\)|// lint:spawn-ba
 CHAR_LIT_RE = re.compile(r"^'(?:\\.|[^'\\])'")
 STATICS_RAW_RE = re.compile(r"static\s+mut|lazy_static")
 STATICS_CODE_RE = re.compile(r"\b(?:OnceLock|LazyLock)\b")
+MODEL_ALLOWED_DEPS = ("base64", "hmac", "schema_types", "serde", "serde_json", "sha2")
+MODEL_PURITY_RE = re.compile(
+    r"\btokio\b|\bfutures\b|std::(?:fs|net|env|process|thread)\b|\benv::var"
+    r"|(?:SystemTime|Instant|Utc|Local)::now|\bunix_nanos\b"
+    r"|new_v4|\brand::|thread_rng|OsRng|getrandom"
+    r"|OnceLock|LazyLock|OnceCell|lazy_static|static mut|task_local|thread_local"
+    r"|^\s*(?:pub(?:\([^)]*\))?\s+)?static\s+[A-Za-z_]"
+    r"|\btracing::|\blog::|\bprintln!|\beprintln!|\bdbg!"
+)
 ALLOW_URL_PREFIXES = (
     "lastdb_node/environments.json",
     "target/",
@@ -160,8 +170,8 @@ def _scan_line(
             )
     if ISOLATED_RE.search(line) and not _has_override(lines, i, "lint:redaction-ok"):
         errs["redact"].append(
-            f"ERROR: {rel}:{lineno} — query-filter value Debug-emitted without isolated-namespace redaction\n    {line}\n"
-            "    Route it through fold_db::app_isolation::redact_debug_if_isolated(&schema_name, &filter)"
+            f"ERROR: {rel}:{lineno} — query-filter, key, or payload value Debug-emitted without redaction\n    {line}\n"
+            "    Omit raw filter/key/payload Debug values from tracing, or wrap sensitive identifiers in redact!() / redact_id!()"
         )
     if BYTE_SLICE_RE.search(line) and not _has_override(lines, i, "lint:byte-slice-ok"):
         errs["slice"].append(f"ERROR: {rel}:{lineno} — UTF-8-unsafe byte-index slice on a string\n    {line}")
@@ -183,7 +193,7 @@ def _check_src_trees(files: list[tuple[str, list[str]]], num_trees: int) -> bool
             _scan_line(rel, lines, i, counts, errs)
     summaries = (
         ("egress", f"lint-tracing-egress: ok — all {counts[0]} reqwest construction sites in {num_trees} src tree(s) are classified."),
-        ("redact", f"lint-redaction: ok — no unredacted sensitive-field tracing call sites in {num_trees} src tree(s)."),
+        ("redact", f"lint-redaction: ok — no unredacted sensitive-field or query-filter tracing call sites in {num_trees} src tree(s)."),
         ("slice", f"lint-byte-slice: ok — no UTF-8-unsafe byte-index slice sites in {num_trees} src tree(s)."),
         ("spawn", f"lint-spawn-instrument: ok — all {counts[1]} tokio::spawn(async) sites in {num_trees} src tree(s) are instrumented or explicitly marked."),
     )
@@ -276,8 +286,45 @@ def _check_schema_core_statics(repo: Path) -> bool:
         print("\n".join(hits), file=sys.stderr)
         print("FAIL: schema_service/crates/core must not use static mut, lazy_static, OnceLock, or LazyLock", file=sys.stderr)
         return False
-    print("OK: schema_service/crates/core has no static mut or lazy_static")
+    print("OK: schema_service/crates/core has no static mut, lazy_static, OnceLock, or LazyLock")
     return True
+
+
+def _check_model_purity(repo: Path) -> bool:
+    src = repo / "fold_db/crates/model/src"
+    manifest = repo / "fold_db/crates/model/Cargo.toml"
+    if not src.is_dir() or not manifest.is_file():
+        print(f"FAIL: model crate not found under {repo}/fold_db/crates/model", file=sys.stderr)
+        return False
+    hits = [
+        f"{path.relative_to(repo).as_posix()}:{idx}:{line}"
+        for path in sorted(src.rglob("*.rs"))
+        for idx, line in enumerate(path.read_text("utf-8", "replace").splitlines(), 1)
+        if not line.lstrip().startswith("//") and MODEL_PURITY_RE.search(line)
+    ]
+    ok = True
+    if hits:
+        print("FAIL: behavior markers in the model crate source:", file=sys.stderr)
+        print("\n".join(hits), file=sys.stderr)
+        print("Move the behavior to fold_db (core): pass the time, id or signer value as an argument.", file=sys.stderr)
+        ok = False
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    tables = [data, *(t for t in data.get("target", {}).values() if isinstance(t, dict))]
+    for tbl in tables:
+        for section, kind in (
+            ("dependencies", "normal"), ("dev-dependencies", "dev"), ("dev_dependencies", "dev"),
+            ("build-dependencies", "build"), ("build_dependencies", "build"),
+        ):
+            for name in tbl.get(section, {}):
+                if kind != "normal":
+                    print(f"FAIL: model manifest lists a {kind} dependency '{name}'; the model has no tests or build scripts", file=sys.stderr)
+                    ok = False
+                elif name not in MODEL_ALLOWED_DEPS:
+                    print(f"FAIL: model dependency '{name}' is outside the pure allowlist ({' '.join(MODEL_ALLOWED_DEPS)})", file=sys.stderr)
+                    ok = False
+    if ok:
+        print(f"OK: lastdb_model has no behavior markers and only pure dependencies ({' '.join(MODEL_ALLOWED_DEPS)})")
+    return ok
 
 
 def main() -> int:
@@ -289,6 +336,7 @@ def main() -> int:
     ok = _check_no_hardcoded_urls(repo, tracked) and ok
     ok = _check_edition_inheritance(repo, tracked) and ok
     ok = _check_schema_core_statics(repo) and ok
+    ok = _check_model_purity(repo) and ok
     if not ok:
         print("ERROR: one or more source lints failed", file=sys.stderr)
         return 1

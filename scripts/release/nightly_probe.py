@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 from nightly_package import (
-    MAX_BINARY_BYTES, TARGETS, digest, open_executable_pair, validate_architecture,
+    MAX_FILE, TARGETS, digest, open_executable_pair, validate_architecture,
     validate_pair, write_json,
 )
 
@@ -137,7 +137,7 @@ def unpack(bundle, manifest, directory, expected_version, source):
             or manifest.get("version") != expected_version or manifest.get("target") not in TARGETS):
         raise ValueError("The package manifest has a different source, version, or target")
     artifact = manifest["artifact"]
-    if (not 0 < bundle.stat().st_size <= MAX_BINARY_BYTES or artifact["file"] != bundle.name
+    if (not 0 < bundle.stat().st_size <= MAX_FILE or artifact["file"] != bundle.name
             or artifact["sha256"] != digest(bundle) or artifact["size"] != bundle.stat().st_size):
         raise ValueError("The package bytes differ from the bundle manifest")
     with open_executable_pair(bundle) as (archive, members):

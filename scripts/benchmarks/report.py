@@ -19,7 +19,7 @@ NATIVE_CASES = ("insert/1", "update/1", "update/128", "concurrent-write/1", "con
 
 
 def suspects(comparison, kind):
-    if kind in ("growth", "disk"):
+    if kind == "growth":
         return {(case, name) for case, item in comparison.items() for name in item["advisories"]}
     return {(case, name) for case, item in comparison.items()
             for name, limit in (("p95_ms", 20), ("requests_per_second", -20))
@@ -60,8 +60,8 @@ def confirm(output, manifest, comparison, compare_fn, kind, status):
 def _fmt_pair(pair, kind, metric=""):
     if metric.endswith("_ratio"):
         return " → ".join(f"{pair[label]:.3f}×" for label in ("baseline", "candidate"))
-    divisor = 2**20 if kind in ("growth", "disk") else 1
-    unit = " MiB" if kind in ("growth", "disk") else ""
+    divisor = 2**20 if kind == "growth" else 1
+    unit = " MiB" if kind == "growth" else ""
     return " → ".join(f"{pair[label] / divisor:.3f}" for label in ("baseline", "candidate")) + unit
 
 

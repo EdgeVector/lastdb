@@ -334,12 +334,11 @@ def _main():
 
 __all__ = [
     "CREDENTIALS_FILE", "FORMAT", "HOME_FORMAT", "NODE_MARKER", "NoRedirect",
-    "SOCKET_OPERATIONS", "SOCKET_REFUSALS", "UnixConnection", "append_step_summary",
-    "classify_socket_refusal", "clean_local_cargo_packages", "conditioned", "coordinate",
-    "create", "file_sha256", "key", "marker_format", "mutation", "poll_until",
-    "read_records", "read_shutdown_receipt", "replace_row", "save_json",
-    "send_unix_request", "source_constant", "stop_process", "summary_line",
-    "verify_shutdown_receipt", "write_private",
+    "UnixConnection", "append_step_summary", "classify_socket_refusal",
+    "clean_local_cargo_packages", "conditioned", "create", "file_sha256", "key",
+    "marker_format", "mutation", "poll_until", "read_shutdown_receipt",
+    "replace_row", "save_json", "send_unix_request", "source_constant",
+    "stop_process", "summary_line", "verify_shutdown_receipt", "write_private",
 ]
 
 if __name__ == "__main__":

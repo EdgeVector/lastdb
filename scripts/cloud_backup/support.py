@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Private, bounded I/O and BIP39 seed decoding for DEV cloud backup operations."""
 
 from __future__ import annotations
@@ -135,7 +134,7 @@ def load_dev_owner(expected_account, *, pop_env=False, exact_baseline_keys=False
     mut = str(Path(__file__).resolve().parents[1] / "mutation_log_load")
     if mut not in sys.path:
         sys.path.insert(0, mut)
-    from node_auth import NodeKey, account_id
+    from run import NodeKey, account_id
 
     read_env = os.environ.pop if pop_env else os.environ.get
     phrase = read_env("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode("utf-8", errors="surrogatepass")

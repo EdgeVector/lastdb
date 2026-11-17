@@ -51,12 +51,12 @@ def stored_growth(nbytes):
     return max(body, ENTRY_ROW_BYTES) + ROW_OVERHEAD_BYTES + ACCEPTED_FACT_BYTES
 
 
-def load_reads(main_bytes, sub_bytes):
+def load_reads(main_bytes):
     """Reads for one #778 load of the main partition and ``{id}#sub``."""
-    return read_units(main_bytes) + read_units(sub_bytes) + 1
+    return read_units(main_bytes) + 2
 
 
-def recheck_hold(partition_bytes, sub_bytes):
+def recheck_hold(partition_bytes):
     """Worst case for a quiet logcheck of this partition.
 
     One pass is a head, one list per 90 entries, and one extra list. The
@@ -67,7 +67,7 @@ def recheck_hold(partition_bytes, sub_bytes):
     per_entry = ENTRY_ROW_BYTES + ROW_OVERHEAD_BYTES
     pages = -(-max(partition_bytes, 0) // (per_entry * LIST_LIMIT))
     loads = 2 * MAX_CONTENTION_TRIES * (1 + pages + 1)
-    reads = loads * load_reads(partition_bytes, sub_bytes)
+    reads = loads * load_reads(partition_bytes)
     usd = reads * READ_USD + loads * (LAMBDA_REQUEST_USD + LAMBDA_DURATION_USD)
     return reads, usd
 
@@ -80,7 +80,6 @@ class Ledger:
         self.write_units = 0
         self.stored_bytes = 0
         self.partition_bytes = 0
-        self.sub_bytes = 0
         self._lock = threading.Lock()
 
     def estimate(self):
@@ -104,7 +103,7 @@ class Ledger:
         return self._stamp(built, self.partition_bytes)
 
     def _stamp(self, projected, partition):
-        reads, usd = recheck_hold(partition, self.sub_bytes)
+        reads, usd = recheck_hold(partition)
         projected["recheck_reserve_reads"] = reads
         projected["recheck_reserve_usd"] = usd
         return projected
@@ -122,7 +121,7 @@ class Ledger:
                 writes += max(1, (size + 1023) // 1024)
                 stored += size
         else:
-            reads += load_reads(partition, self.sub_bytes) * attempts
+            reads += load_reads(partition) * attempts
             if kind == "write":
                 writes += MUTATING_WRITE_UNITS * attempts
                 if grow is None:

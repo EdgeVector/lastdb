@@ -3,8 +3,8 @@
  * catalog, creation, spec binding, and session issuance.
  */
 
-import { mapDataError, RequestRejectedError, UnexpectedResponseError } from './errors.js';
-import { isObject } from './responseParsers.js';
+import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
+import { isObject, sendJsonObject } from './responseParsers.js';
 import type { Transport } from './transport.js';
 import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
@@ -53,7 +53,7 @@ export interface ClientContext {
 const DATABASE_SELECTOR_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** True when `value` matches `lastdbd`'s `valid_selector` grammar (`[A-Za-z0-9_-]{1,64}`). */
-export function isValidDatabaseSelector(value: string): boolean {
+function isValidDatabaseSelector(value: string): boolean {
   return DATABASE_SELECTOR_PATTERN.test(value);
 }
 
@@ -147,14 +147,11 @@ export async function listNodeDatabases(
   transport: Transport,
   appId = 'lastdb-sdk',
 ): Promise<ListedDatabase[]> {
-  const res = await transport.send('GET', LASTDB_API_ROUTES.databases);
-  if (res.status !== 200) {
-    throw mapDataError('database list', res.status, res.body, appId);
+  const body = await sendJsonObject(transport, 'GET', LASTDB_API_ROUTES.databases, 'database list', appId);
+  if (!Array.isArray(body['databases'])) {
+    throw new UnexpectedResponseError('database list returned no databases array', 200, body);
   }
-  if (!isObject(res.body) || !Array.isArray(res.body['databases'])) {
-    throw new UnexpectedResponseError('database list returned no databases array', 200, res.body);
-  }
-  return res.body['databases'].map(parseListedDatabase);
+  return body['databases'].map(parseListedDatabase);
 }
 
 /** `POST /api/databases` on the owner socket. */
@@ -163,15 +160,15 @@ export async function createNodeDatabase(
   request: CreateDatabaseRequest,
   appId = 'lastdb-sdk',
 ): Promise<ListedDatabase> {
-  const body = buildCreateBody(request);
-  const res = await transport.send('POST', LASTDB_API_ROUTES.databases, { body });
-  if (res.status !== 200) {
-    throw mapDataError('database create', res.status, res.body, appId);
-  }
-  if (!isObject(res.body)) {
-    throw new UnexpectedResponseError('database create returned a non-object body', 200, res.body);
-  }
-  return parseListedDatabase(res.body['database']);
+  const body = await sendJsonObject(
+    transport,
+    'POST',
+    LASTDB_API_ROUTES.databases,
+    'database create',
+    appId,
+    { body: buildCreateBody(request) },
+  );
+  return parseListedDatabase(body['database']);
 }
 
 /** `POST /api/databases/spec` — bind or clear the versioned spec of an owned database. */
@@ -185,20 +182,15 @@ export async function bindNodeDatabaseSpec(
   if (spec !== null && !validSpec(spec)) {
     throw new RequestRejectedError('invalid_request', 'invalid spec binding');
   }
-  const res = await transport.send('POST', LASTDB_API_ROUTES.databasesSpec, {
-    body: { id: databaseId, spec },
-  });
-  if (res.status !== 200) {
-    throw mapDataError('database bind spec', res.status, res.body, appId);
-  }
-  if (!isObject(res.body)) {
-    throw new UnexpectedResponseError(
-      'database bind spec returned a non-object body',
-      200,
-      res.body,
-    );
-  }
-  return parseListedDatabase(res.body['database']);
+  const body = await sendJsonObject(
+    transport,
+    'POST',
+    LASTDB_API_ROUTES.databasesSpec,
+    'database bind spec',
+    appId,
+    { body: { id: databaseId, spec } },
+  );
+  return parseListedDatabase(body['database']);
 }
 
 /**
@@ -218,17 +210,16 @@ export async function issueNodeDatabaseSession(
       'database session intent must be read or write',
     );
   }
-  const res = await transport.send('POST', LASTDB_API_ROUTES.databasesSession, {
-    body: { databaseId, intent },
-  });
-  if (res.status !== 200) {
-    throw mapDataError('database session', res.status, res.body, appId);
-  }
-  if (!isObject(res.body)) {
-    throw new UnexpectedResponseError('database session returned a non-object body', 200, null);
-  }
-  const session = res.body['session'];
-  const expiresInSeconds = res.body['expiresInSeconds'];
+  const body = await sendJsonObject(
+    transport,
+    'POST',
+    LASTDB_API_ROUTES.databasesSession,
+    'database session',
+    appId,
+    { body: { databaseId, intent }, redactBody: true },
+  );
+  const session = body['session'];
+  const expiresInSeconds = body['expiresInSeconds'];
   if (
     typeof session !== 'string' ||
     session.length === 0 ||

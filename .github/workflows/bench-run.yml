@@ -76,7 +76,7 @@ jobs:
           echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark driver from the workflow revision
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.driver }}
           path: driver
@@ -96,7 +96,7 @@ jobs:
           BUILD_CONTEXT: ${{ needs.build.outputs.context }}
           BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
         run: |
-          python3 driver/scripts/benchmarks/programs.py unpack \
+          python3 driver/scripts/benchmarks/build.py unpack \
             --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/benchmark-build/programs.tar.gz"
 
       - name: Check corpus space after both programs are ready

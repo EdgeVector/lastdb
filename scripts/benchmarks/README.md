@@ -445,7 +445,7 @@ The workload has no cloud, external file blobs, or crash-recovery phase.
 
 ### Whole-record protocol adapter
 
-Benchmark drivers explicitly opt into `record_protocol.py`. Operational
+Benchmark drivers explicitly opt into `RecordProtocol` in `node.py` (`record_protocol=True`). Operational
 proofs do not use this adapter.
 Current declarations carry explicit key definitions. Partial-edit benchmark
 workloads perform a batched client read, edit the complete record, and condition

@@ -172,10 +172,9 @@ def _take_type(mod: dict, node, pending: list) -> None:
                 vpend = []
                 vname = child.child_by_field_name("name").text.decode()
                 vbody = child.child_by_field_name("body")
-                vkind = "struct" if vbody is not None and vbody.type == "field_declaration_list" else ("tuple" if vbody is not None else "unit")
                 rec["raw_variants"].append({
                     "name": vname, "wire": vflags["rename"] or rename_ident(vname, flags.get("rename_all")),
-                    "kind": vkind, "fields": _fields(vbody, None) if vbody else [], "other": vflags["other"],
+                    "fields": _fields(vbody, None) if vbody else [], "other": vflags["other"],
                 })
             elif child.type not in {"line_comment", "block_comment", ",", "{", "}"}:
                 vpend = []

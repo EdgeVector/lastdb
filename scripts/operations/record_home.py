@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import sys
 import time
-import urllib.parse
 import uuid
 
 _OPS = Path(__file__).resolve().parent
@@ -18,7 +17,7 @@ from harness import (  # noqa: E402
 )
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 from record_runs import (  # noqa: E402
-    FIELDS, RANGED, definition, ids, ledger, refused, require, system_seed,
+    FIELDS, RANGED, definition, held, ids, ledger, listed_hashes, refused, require, system_seed,
 )
 
 # Long enough that a record rewritten at three quarters of its age is still
@@ -56,7 +55,7 @@ def one(node, key):
     rows = query(node, "RecordById", {"HashKey": key})
     require(len(rows) == 1, f"RecordById {key} returned {len(rows)} rows")
     # A field that the record does not hold reads as absent or null.
-    return {field: value for field, value in rows[0]["fields"].items() if value is not None}
+    return held(rows[0]["fields"])
 
 
 def hash_records(node):
@@ -158,16 +157,7 @@ def preconditions(node):
 
 
 def listing(node):
-    keys, cursor = [], None
-    for _ in range(10):
-        target = "/api/list?schema=RecordById&limit=1"
-        if cursor:
-            target += "&cursor=" + urllib.parse.quote(cursor, safe="")
-        page = node.call(target)[0]["list"]
-        keys.extend(item["hash"] for item in page["keys"])
-        cursor = page.get("next_cursor")
-        if not page["has_more"]:
-            break
+    keys = listed_hashes(node, "RecordById", limit=1)
     require(sorted(keys) == ["four", "one", "three", "two"], "the key list differs: " + repr(keys))
     print("Record key list with a cursor passed", flush=True)
 
