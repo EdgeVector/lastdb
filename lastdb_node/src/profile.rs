@@ -299,14 +299,14 @@ pub mod endpoints {
         }
     }
 
-    pub(crate) fn schema_service_url() -> String {
+    pub fn schema_service_url() -> String {
         let env_url = std::env::var("FOLD_SCHEMA_SERVICE_URL")
             .ok()
             .filter(|u| !u.trim().is_empty());
         env_url.unwrap_or_else(|| schema_service_url_for(Environment::from_env()).to_string())
     }
 
-    pub(crate) const fn schema_service_url_for(env: Environment) -> &'static str {
+    pub const fn schema_service_url_for(env: Environment) -> &'static str {
         match env {
             Environment::Dev => gen::DEV_SCHEMA_SERVICE,
             Environment::Prod => gen::PROD_SCHEMA_SERVICE,

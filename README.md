@@ -11,6 +11,8 @@ An entry holds a number, the schema, the record key, and a delete flag. It holds
 An app reads `GET /api/changes?after=N&limit=L&schema=A`, keeps the returned `id` and `through`, and reads the records by key.
 LastDB keeps the newest 250,000 entries and no state for a reader. When `gap` is true or `id` differs, the app rebuilds from key pages.
 
+The app API is defined in `lastdb_node/app-api.json`.
+
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
 `schema_service` (schema registry), shared host/identity crates,

@@ -7,6 +7,7 @@ generated from the node source), and run keyed reads, single and batch
 conditional mutations, record file/blob operations, membership lists, named
 databases, and short-lived scoped database sessions. `read`, `write`, and
 `changes` call the app API. The older methods still work.
+Those shapes are defined in `lastdb_node/app-api.json`.
 
 ## Install a build of the SDK
 

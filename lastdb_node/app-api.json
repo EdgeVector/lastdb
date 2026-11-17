@@ -1,0 +1,579 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LastDB app API",
+    "version": "37",
+    "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
+  },
+  "x-lastdb-extensions-carry-version": false,
+  "x-lastdb-app-socket-max-body-bytes": 8388608,
+  "x-lastdb-limits": {
+    "reads_per_request": 64,
+    "read_page_default": 100,
+    "read_page_cap": 1000,
+    "changes_page_default": 500,
+    "changes_page_cap": 500,
+    "changes_kept": 250000,
+    "manifest_access_entries": 256
+  },
+  "x-lastdb-launcher-environment": {
+    "LASTDB_SOCKET_PATH": "Absolute path of the app socket, apps.sock, under the node home.",
+    "LASTDB_APP_SESSION": "Session token. The app sends it as the X-LastDB-App-Session header.",
+    "LASTDB_APP_DATA": "The app data directory. It stays in place across an upgrade.",
+    "TMPDIR": "Temporary directory the launcher creates at LASTDB_APP_DATA/tmp."
+  },
+  "security": [
+    {},
+    {"appSession": []}
+  ],
+  "paths": {
+    "/v1/read": {
+      "post": {
+        "operationId": "read",
+        "summary": "Read records or keys. Each item returns its own result or its own error.",
+        "security": [{}, {"appSession": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ReadRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per read, in order. An item error is inside this body, not an HTTP error.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ReadReply"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "507": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/write": {
+      "post": {
+        "operationId": "write",
+        "summary": "Apply conditional mutations. The list commits all or nothing.",
+        "security": [{}, {"appSession": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/WriteRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The list is on disk. revisions follows request order.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/WriteResult"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "507": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/v1/x/changes": {
+      "post": {
+        "operationId": "changes",
+        "summary": "Read the numbered list of changed record keys. This extension has no version.",
+        "security": [{}, {"appSession": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/ChangesRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A page of change entries, or a head with no entries.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/ChangesReply"}
+              }
+            }
+          },
+          "400": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "500": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"},
+          "507": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "appSession": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-LastDB-App-Session",
+        "description": "Required on the app socket. The token is 64 hexadecimal characters (32 random bytes). Any other length or a non-hex token is permission_denied. The owner socket does not require this header. The root security list allows either socket."
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Whole-request refusal. Status 422 is returned as 400, 401 as 403, and 423 and 429 as 503. Status 500 replaces message with \"internal error\". Status 507 stays 507 and its code is internal.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/ErrorEnvelope"}
+          }
+        }
+      }
+    },
+    "schemas": {
+      "DatabaseName": {
+        "type": "string",
+        "description": "1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found. /v1 does not serve a received database."
+      },
+      "SchemaName": {
+        "type": "string",
+        "description": "Schema name. On the app socket the name must be exact. On the owner socket a loose form can resolve. An empty name is refused on changes."
+      },
+      "KeyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Primary or alternate key on a request. hash and range may be omitted. A null field is accepted. A keyed read requires a non-empty hash.",
+        "properties": {
+          "hash": {"type": ["string", "null"]},
+          "range": {"type": ["string", "null"]}
+        }
+      },
+      "Key": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hash", "range"],
+        "description": "Key on a reply. Both fields are present. Each is a string or null. A key-list hash is a string, possibly empty. A key-list range is null when the record has no range.",
+        "properties": {
+          "hash": {"type": ["string", "null"]},
+          "range": {"type": ["string", "null"]}
+        }
+      },
+      "RangeAll": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hash"],
+        "description": "Every record under one hash.",
+        "properties": {
+          "hash": {"type": "string"}
+        }
+      },
+      "RangePrefix": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hash", "prefix"],
+        "description": "Ranges under one hash that start with prefix.",
+        "properties": {
+          "hash": {"type": "string"},
+          "prefix": {"type": "string"}
+        }
+      },
+      "RangeBounds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hash", "start", "end"],
+        "description": "Ranges under one hash from start through end.",
+        "properties": {
+          "hash": {"type": "string"},
+          "start": {"type": "string"},
+          "end": {"type": "string"}
+        }
+      },
+      "Range": {
+        "description": "One of the three range forms. Any other combination is invalid_request on that read item. JSON null for prefix, start, or end is treated as absent by the parser and is not one of these forms.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/RangeAll"},
+          {"$ref": "#/components/schemas/RangePrefix"},
+          {"$ref": "#/components/schemas/RangeBounds"}
+        ]
+      },
+      "ReadItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema"],
+        "description": "A read names exactly one of key or range. keys_only with neither lists the schema keys, and that list takes no via and no file. Other combinations parse and return invalid_request on that item. A key list rejects limit 0. A keyed read accepts limit 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. A key-list cursor is a storage key. A keyed-read cursor is URL-safe base64 with no padding. Both are opaque strings.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "key": {"$ref": "#/components/schemas/KeyInput"},
+          "range": {"$ref": "#/components/schemas/Range"},
+          "via": {
+            "type": "string",
+            "description": "Alternate key name. Omit it to use the primary key."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Page size. Omit it for 100. Values above 1000 are capped at 1000."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque token from next_cursor of the previous page."
+          },
+          "keys_only": {
+            "type": "boolean",
+            "description": "Return keys instead of records. Omit it for false."
+          },
+          "file": {
+            "type": "boolean",
+            "description": "When true, each record file includes path. Omit it for false."
+          }
+        }
+      },
+      "ReadRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reads"],
+        "properties": {
+          "reads": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "description": "At least one read and at most 64. An empty list or a longer list is HTTP 400.",
+            "items": {"$ref": "#/components/schemas/ReadItem"}
+          }
+        }
+      },
+      "FieldValues": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Field names and JSON values defined by the schema. This file cannot list them."
+      },
+      "FileInfo": {
+        "type": "object",
+        "required": ["name", "media_type", "size", "local"],
+        "description": "Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this session has no data folder to place them. Other properties are allowed.",
+        "properties": {
+          "name": {"type": ["string", "null"]},
+          "media_type": {"type": ["string", "null"]},
+          "size": {"type": "integer", "minimum": 0},
+          "local": {"type": ["string", "null"]},
+          "path": {"type": ["string", "null"]}
+        }
+      },
+      "Record": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "revision", "record", "file"],
+        "description": "One record. file is null when the record has no file.",
+        "properties": {
+          "key": {"$ref": "#/components/schemas/Key"},
+          "revision": {"type": "string"},
+          "record": {"$ref": "#/components/schemas/FieldValues"},
+          "file": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/FileInfo"}
+            ]
+          }
+        }
+      },
+      "ReadRecordsPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["records", "next_cursor"],
+        "properties": {
+          "records": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Record"}
+          },
+          "next_cursor": {
+            "type": ["string", "null"],
+            "description": "Null when this is the last page. Otherwise an opaque cursor."
+          }
+        }
+      },
+      "ReadKeysPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keys", "next_cursor"],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Key"}
+          },
+          "next_cursor": {
+            "type": ["string", "null"],
+            "description": "Null when this is the last page. A schema key list uses a storage key. A keyed read uses URL-safe base64."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["code", "message"],
+        "description": "code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON.",
+        "x-lastdb-status-codes": {
+          "400": "invalid_request. Status 422 is returned as 400.",
+          "403": "permission_denied. Status 401 is returned as 403.",
+          "404": "not_found",
+          "409": "conflict",
+          "413": "too_large",
+          "500": "internal. message is replaced with \"internal error\".",
+          "503": "busy. Status 423 and 429 are returned as 503.",
+          "507": "internal. The status stays 507 and the storage message is kept."
+        },
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "permission_denied",
+              "not_found",
+              "conflict",
+              "too_large",
+              "busy",
+              "internal"
+            ]
+          },
+          "message": {"type": "string"},
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based position of the mutation this write refusal concerns. Omitted when the refusal is not about one mutation."
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["exists", "absent", "revision"],
+            "description": "Why a write condition failed. exists: a create found a record. absent: a replace or a delete found none. revision: the record is at another revision. The message is mutation <index>: followed by one sentence for that reason, or the sentence alone when index is omitted."
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["error"],
+        "properties": {
+          "error": {"$ref": "#/components/schemas/Error"}
+        }
+      },
+      "ReadResult": {
+        "description": "A records page, a keys page, or one item error.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/ReadRecordsPage"},
+          {"$ref": "#/components/schemas/ReadKeysPage"},
+          {"$ref": "#/components/schemas/ErrorEnvelope"}
+        ]
+      },
+      "ReadReply": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["results"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "description": "One entry per request item, in order.",
+            "items": {"$ref": "#/components/schemas/ReadResult"}
+          }
+        }
+      },
+      "FileLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "description": "A regular file outside the LastDB home. The request carries no bytes. A path the node cannot link is invalid_request, and the message does not say whether the path exists.",
+        "properties": {
+          "path": {"type": "string"},
+          "name": {"type": "string"},
+          "media_type": {"type": "string"}
+        }
+      },
+      "AlternateValue": {
+        "description": "An alternate address, or null to clear that alternate on create or replace.",
+        "oneOf": [
+          {"type": "null"},
+          {"$ref": "#/components/schemas/KeyInput"}
+        ]
+      },
+      "Alternates": {
+        "type": "object",
+        "additionalProperties": {"$ref": "#/components/schemas/AlternateValue"},
+        "description": "Alternate key name to a key. Names come from the schema, so they are not listed here. A delete must send an empty object or omit the field; the node loads the stored alternates."
+      },
+      "WriteItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "op", "key"],
+        "description": "create carries a record and no revision. replace carries a record and the revision it replaces. delete carries the revision it deletes, no record, no file, and no alternates. The node refuses a list that breaks those rules with HTTP 400 and sets error.index. A condition that does not hold is HTTP 409. reason is exists, absent, or revision.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "op": {
+            "type": "string",
+            "enum": ["create", "replace", "delete"]
+          },
+          "key": {"$ref": "#/components/schemas/KeyInput"},
+          "record": {"$ref": "#/components/schemas/FieldValues"},
+          "alternates": {"$ref": "#/components/schemas/Alternates"},
+          "revision": {"type": "string"},
+          "file": {"$ref": "#/components/schemas/FileLink"}
+        }
+      },
+      "WriteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mutations"],
+        "description": "Every mutation names the same database. The list commits all or nothing. An empty list is HTTP 400.",
+        "properties": {
+          "mutations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/components/schemas/WriteItem"}
+          }
+        }
+      },
+      "WriteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["written", "revisions"],
+        "properties": {
+          "written": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The number of mutations committed. Equal to the length of revisions."
+          },
+          "revisions": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The new revision of each mutation, in request order.",
+            "items": {"type": "string"}
+          }
+        }
+      },
+      "ChangeEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["seq", "schema", "key", "deleted"],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rises by one per changed record, in commit order."
+          },
+          "schema": {"type": "string"},
+          "key": {"$ref": "#/components/schemas/Key"},
+          "deleted": {"type": "boolean"}
+        }
+      },
+      "ChangesRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "after defaults to 0, not to the oldest kept entry. The node keeps the newest 250000 entries. The oldest kept number is head - 250000 + 1, and at least 1. gap is true when after is above head, or when after + 1 is below that oldest number. When head is greater than 250000, after 0 is a gap and the reply has no entries. limit defaults to 500 and a larger value is capped at 500. limit 0 returns the head and no entries. An empty schemas list means every schema on the owner socket, and only the schemas the app declared it reads on the app socket. An app that declared no read schema gets permission_denied. An empty schema name is invalid_request.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Return entries numbered above this value. Omit it for 0."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Most entries to examine. Omit it for 500. Values above 500 are capped at 500."
+          },
+          "schemas": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Schema names to keep. Omit it or send an empty array for the default filter described above."
+          }
+        }
+      },
+      "ChangesReply": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "head", "through", "gap", "changes"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "sha256 hex of changes:<stream>. It changes when a restore replaces the database."
+          },
+          "head": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Newest number in the list. Zero means no entry."
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Last number this read examined. The reader saves it as after on the next read."
+          },
+          "gap": {"type": "boolean"},
+          "changes": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ChangeEntry"}
+          }
+        }
+      },
+      "ManifestNameList": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {"type": "string"}
+      },
+      "ManifestAccess": {
+        "type": "object",
+        "required": ["read", "write", "extensions"],
+        "description": "The access block a developer writes in the app manifest. Publish reads these three arrays and ignores any other key. A schema name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. A name that breaks those rules fails publish with one generic message. The schema entry itself is not defined here.",
+        "properties": {
+          "read": {
+            "$ref": "#/components/schemas/ManifestNameList",
+            "description": "Schema names the app reads."
+          },
+          "write": {
+            "$ref": "#/components/schemas/ManifestNameList",
+            "description": "Schema names the app writes."
+          },
+          "extensions": {
+            "$ref": "#/components/schemas/ManifestNameList",
+            "description": "Extension names the app calls. The list is not limited to changes. Install refuses a name this build cannot grant. The only name it grants is changes."
+          }
+        }
+      },
+      "DefinitionMap": {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+        "description": "Schema name to the definition id of the one version the app was built against. At most 256 entries. A name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. A definition id is 64 lowercase hex characters."
+      },
+      "ListingAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["read", "write", "extensions"],
+        "description": "The access block on the signed listing. Publish replaces each schema name with that name and its definition id. Unknown keys are rejected.",
+        "properties": {
+          "read": {"$ref": "#/components/schemas/DefinitionMap"},
+          "write": {"$ref": "#/components/schemas/DefinitionMap"},
+          "extensions": {
+            "type": "array",
+            "maxItems": 256,
+            "description": "Extension names. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. Unknown names fail install. The only granted name is changes.",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}
