@@ -207,7 +207,7 @@ impl Host {
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
             database_sessions: DatabaseSessions::default(),
-            app_sessions: app_sessions::AppSessions::open(&data_dir),
+            app_sessions: app_sessions::AppSessions::open(&home.join("data")),
         })
     }
 
