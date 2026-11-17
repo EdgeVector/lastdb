@@ -1,14 +1,25 @@
 /**
  * The LastDB runtime app client facade.
  *
- * Wraps the node's Unix-socket `/api/*` data plane and delegates handshake,
- * schema, keyed read, mutation, blob, and database-session operations to
- * focused domain modules.
+ * Wraps the node's Unix-socket data plane and delegates handshake, schema,
+ * keyed read, mutation, blob, and database-session operations to focused
+ * domain modules. `read`, `write`, and `changes` call the app API (`/v1`).
  */
 
 import { existsSync } from 'node:fs';
 
 import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
+import {
+  executeAppChanges,
+  executeAppRead,
+  executeAppWrite,
+  type AppApiChangesOptions,
+  type AppApiChangesResult,
+  type AppApiMutation,
+  type AppApiRead,
+  type AppApiReadResult,
+  type AppApiWriteResult,
+} from './appApi.js';
 import {
   executeDeleteBlob,
   executeFetchBlob,
@@ -208,6 +219,24 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   /** Read the outcome of one submission made by this receiving LastDB node. */
   getShareSubmissionStatus(mutationId: string): Promise<Types.ShareSubmissionStatus> {
     return executeShareSubmissionStatus(this.context, mutationId);
+  }
+
+  /**
+   * `POST /v1/read` — one result per read, in order.
+   * A per-item error is returned, not thrown. Does not use this client's `/api` database path.
+   */
+  read(reads: readonly AppApiRead[]): Promise<AppApiReadResult[]> {
+    return executeAppRead(this.context, reads);
+  }
+
+  /** `POST /v1/write` — commit a list of conditional mutations after the write is on disk. */
+  write(mutations: readonly AppApiMutation[]): Promise<AppApiWriteResult> {
+    return executeAppWrite(this.context, mutations);
+  }
+
+  /** `POST /v1/x/changes` — changed record keys after a saved position. */
+  changes(options: AppApiChangesOptions = {}): Promise<AppApiChangesResult> {
+    return executeAppChanges(this.context, options);
   }
 
   /** `POST /api/db/put-blob` — attach or replace a record's blob, inline, or local-path file. */

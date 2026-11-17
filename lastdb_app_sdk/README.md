@@ -1,16 +1,17 @@
 # @lastdb/app-sdk
 
 The runtime SDK for LastDB apps. A dependency-free TypeScript client over a
-node's Unix-socket `/api/*` surface: connect, verify protocol `API_VERSION`
+node's Unix socket. The `/api/*` methods connect, verify protocol `API_VERSION`
 compatibility (`LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`,
 generated from the node source), and run keyed reads, single and batch
 conditional mutations, record file/blob operations, membership lists, named
-databases, and short-lived scoped database sessions.
+databases, and short-lived scoped database sessions. `read`, `write`, and
+`changes` call the app API. The older methods still work.
 
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.14.0.tgz
+npm install /path/to/lastdb-app-sdk-0.15.0.tgz
 ```
 
 Build a tarball from this directory with `npm ci`, `npm run build`, and
@@ -298,6 +299,54 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
   `issueDatabaseSession(id, intent)`, `openDatabaseSession(id, intent)`,
   `select(id, { databaseSession? })` — named database and scoped session helpers.
 
+## App API
+
+`read`, `write`, and `changes` call the app API. The older methods still work.
+Pass `database` on a read, a mutation, or `changes` to name a database. These
+methods do not copy the database chosen by `select`. A database-session header
+already on the client is still sent; the app API selects its database from
+the JSON body.
+
+- `read(reads)` posts `{ reads }` to `POST /v1/read` and returns one result per
+  read, in order. A result is `{ records, next_cursor }`, `{ keys, next_cursor }`
+  when the read sets `keys_only: true`, or `{ error: { code, message } }`. A
+  per-item error is returned. It is not thrown. Each read names `schema` and
+  exactly one of `key` or `range`, and may set `via`, `limit`, `cursor`,
+  `file: true`, and `keys_only: true`.
+- `write(mutations)` posts `{ mutations }` to `POST /v1/write` and returns
+  `{ written, revisions }` after the write is on disk. `create` carries
+  `record` and optional `alternates` and `file`. `replace` adds `revision`.
+  `delete` carries `revision` only. `file` is `{ path, name?, media_type? }`,
+  a path on disk, not bytes. Every mutation in one list names the same database.
+- `changes({ after?, limit?, schemas?, database? })` posts that object to
+  `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
+
+A non-200 reply throws `AppApiError` with `status`, `code`, and `message`
+from `{ "error": { "code", "message" } }`.
+
+```ts
+const [page] = await db.read([
+  { schema: 'notes/Note', key: { hash: 'n1', range: null } },
+]);
+if (page !== undefined && 'records' in page) {
+  const current = page.records[0];
+  if (current !== undefined) {
+    const saved = await db.write([
+      {
+        schema: 'notes/Note',
+        op: 'replace',
+        key: current.key,
+        revision: current.revision,
+        record: { ...current.record, title: 'updated' },
+      },
+    ]);
+    console.log(saved.written, saved.revisions);
+  }
+}
+const feed = await db.changes({ after: 1200, schemas: ['notes/Note'] });
+console.log(feed.head, feed.gap, feed.changes);
+```
+
 ## Typed Errors
 
 - `NodeTooOldError` — `GET /api/version` reported a lower `api_version` than
@@ -313,6 +362,9 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
 - `QueryPaginationError` — `queryAll` detected stalled pagination or a count
   mismatch.
 - `ShareSubmissionUncertainError` — uncertain Share submission upload outcome.
+- `AppApiError` — non-200 reply from `read`, `write`, or `changes`, with
+  `.status`, `.code`, and `.message`. A per-item read error is a result, not
+  this class.
 - `TransportError` / `UnexpectedResponseError` — socket/timeout failure or
   unmodeled HTTP status.
 
