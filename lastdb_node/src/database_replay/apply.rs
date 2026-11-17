@@ -231,15 +231,8 @@ impl RecordReplay<'_> {
             }
             if pending.is_some() {
                 if !manager
-                    .stage_replay_candidate(mutation.clone(), &self.stamp)
+                    .apply_replay_candidate(mutation.clone(), &self.stamp, settles_local)
                     .await?
-                {
-                    return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
-                }
-                if settles_local
-                    && !manager
-                        .apply_replay_baseline(schema, key, &self.stamp)
-                        .await?
                 {
                     return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
                 }
@@ -278,8 +271,9 @@ impl RecordReplay<'_> {
         if let Some(saved) = manager.deferred_replay_record(schema, key).await? {
             match self.prior.take() {
                 Some((loaded, stamp, mutation)) if loaded == saved && stamp == *winner => {
-                    if manager.stage_replay_candidate(mutation, winner).await?
-                        && manager.apply_replay_baseline(schema, key, winner).await?
+                    if manager
+                        .apply_replay_candidate(mutation, winner, true)
+                        .await?
                     {
                         return Ok(());
                     }

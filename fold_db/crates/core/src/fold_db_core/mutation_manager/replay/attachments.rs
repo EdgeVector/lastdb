@@ -1,6 +1,8 @@
 //! Prepare complete attachment slots without exposing a deferred record.
 
 use super::{
+    candidate::same_content,
+    records::as_mutation,
     state::{file_path, invalid},
     MutationManager,
 };
@@ -38,6 +40,7 @@ impl MutationManager {
         context: &AttachmentContext<'_>,
         mutation: &Mutation,
         next: &mut StoredRecord,
+        save_file: bool,
     ) -> Result<Pins, SchemaError> {
         let inline = match (&next.inline_file, &mutation.inline_write) {
             (Some(marker), Some(InlineWrite::Put(file))) if marker == &file.marker => {
@@ -53,7 +56,9 @@ impl MutationManager {
             (None, None | Some(InlineWrite::Clear)) => None,
             _ => return Err(invalid("inline candidate differs from its write")),
         };
-        let file_ref = self.candidate_file(context, mutation, next).await?;
+        let file_ref = self
+            .candidate_file(context, mutation, next, save_file)
+            .await?;
         Ok(Pins { inline, file_ref })
     }
 
@@ -84,6 +89,7 @@ impl MutationManager {
         context: &AttachmentContext<'_>,
         mutation: &Mutation,
         next: &mut StoredRecord,
+        save_file: bool,
     ) -> Result<Option<Vec<u8>>, SchemaError> {
         let format = &self.db_ops.records().format;
         let Some(marker) = next.file.clone() else {
@@ -102,7 +108,9 @@ impl MutationManager {
                         .or_else(|| Some(next.stamp.position.clone()));
                     let path = file_path(context.address, Some(next))?
                         .ok_or_else(|| invalid("file version missing"))?;
-                    replay_pin::put_cas_row(format, &path, row).await?;
+                    if save_file {
+                        replay_pin::put_cas_row(format, &path, row).await?;
+                    }
                     return Ok(None);
                 }
                 AdmittedBody::Local {
@@ -231,6 +239,60 @@ impl MutationManager {
             Some(marker) => InlineWrite::Put(self.saved_inline(context, marker).await?),
             None => InlineWrite::Clear,
         });
+        Ok(())
+    }
+
+    /// An immediately settled entry already owns its admitted file payload. Pass it
+    /// straight to the record writer instead of staging and then copying a large row.
+    pub(super) async fn settle_candidate(
+        &self,
+        context: &AttachmentContext<'_>,
+        original: &Mutation,
+        record: Option<&StoredRecord>,
+        pins: &Pins,
+    ) -> Result<(), SchemaError> {
+        let unchanged = same_content(context.live, record);
+        let mut mutation = as_mutation(
+            &original.schema_name,
+            original.key_value.clone(),
+            record.cloned(),
+        );
+        if let Some(record) = record {
+            if let Some(write) = &original.file_write {
+                mutation.file.clone_from(&record.file);
+                mutation.file_write = Some(write.clone());
+            } else if let Some(marker) = &record.file {
+                let bytes = self.winning_file(context, record).await?;
+                if !unchanged {
+                    mutation.file = Some(marker.clone());
+                    mutation.file_write = Some(
+                        self.db_ops
+                            .records()
+                            .format
+                            .seal_record_file(
+                                &bytes,
+                                marker.name.clone(),
+                                marker.media_type.clone(),
+                            )
+                            .map_err(invalid)?,
+                    );
+                }
+            } else {
+                mutation.file_write = Some(FileWrite::Clear);
+            }
+            mutation.inline_write = Some(match &record.inline_file {
+                Some(marker) => InlineWrite::Put(inline_row(
+                    pins.inline
+                        .as_deref()
+                        .ok_or_else(|| invalid("inline candidate missing"))?,
+                    marker,
+                )?),
+                None => InlineWrite::Clear,
+            });
+        }
+        if !unchanged {
+            self.apply_replay_record(mutation).await?;
+        }
         Ok(())
     }
 }

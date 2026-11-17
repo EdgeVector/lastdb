@@ -13,11 +13,12 @@ use lastdb_model::portable_mutation::{Position, Stamp, StreamId};
 use lastdb_model::record_value::StoredRecord;
 
 impl MutationManager {
-    /// Save the complete confirmed winner without changing the optimistic visible record.
-    pub async fn stage_replay_candidate(
+    /// Save the confirmed winner, or install it directly when the local queue settles.
+    pub async fn apply_replay_candidate(
         &self,
         mut mutation: Mutation,
         stamp: &ReplayStamp,
+        settle: bool,
     ) -> Result<bool, SchemaError> {
         self.db_ops.metadata().require_replay_scope()?;
         let schema = self.load_schema_for_delta(&mutation.schema_name).await?;
@@ -69,11 +70,16 @@ impl MutationManager {
                 return Err(invalid("this record requires a file"));
             }
             let pins = self
-                .candidate_attachments(&context, &mutation, &mut record)
+                .candidate_attachments(&context, &mutation, &mut record, !settle)
                 .await?;
             validate_record(&record)?;
             (Some(record), pins)
         };
+        if settle {
+            self.settle_candidate(&context, &mutation, record.as_ref(), &pins)
+                .await?;
+            return Ok(true);
+        }
         let next = Baseline {
             stamp: Some(stamp.clone()),
             record,
@@ -176,7 +182,7 @@ fn prepare_candidate(
     Ok(())
 }
 
-fn same_content(left: Option<&StoredRecord>, right: Option<&StoredRecord>) -> bool {
+pub(super) fn same_content(left: Option<&StoredRecord>, right: Option<&StoredRecord>) -> bool {
     match (left, right) {
         (None, None) => true,
         (Some(a), Some(b)) => {
