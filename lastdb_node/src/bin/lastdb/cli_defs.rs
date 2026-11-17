@@ -166,6 +166,13 @@ pub(crate) enum AppCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Start a command of an installed app with an app session, on the app socket.
+    Run {
+        app_id: String,
+        command: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
     Publish(PublishArgs),
     List {
         #[arg(value_name = "APP")]

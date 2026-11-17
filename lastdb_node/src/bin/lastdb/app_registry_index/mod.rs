@@ -7,6 +7,7 @@ use std::time::Duration;
 use app_identity_crypto::{key_id, verifying_key_from_base64, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
+pub mod launch;
 pub mod managed;
 mod managed_manifest;
 

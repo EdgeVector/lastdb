@@ -6,6 +6,7 @@ mod admin_cmds;
 mod app_cmds;
 #[path = "lastdb/app_registry_index/mod.rs"]
 mod app_registry_index;
+mod app_run;
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;
 #[path = "lastdb/cloud_cmds.rs"]
@@ -84,6 +85,10 @@ fn main() {
         }
         observability::crash::write_panic_marker();
     }));
+    if let Some(error) = app_run::run_if_app_command() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
     if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error}");
         std::process::exit(1);
