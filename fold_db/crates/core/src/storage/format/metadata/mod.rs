@@ -3,13 +3,15 @@
 mod changes;
 mod files;
 mod replay;
+mod replay_attach;
 
 pub(crate) use changes::ChangedKey;
 pub use changes::{Change, ChangePage, CHANGES_PAGE};
 pub(crate) use files::{decrypt_file_row, require_row, seal_row};
 pub(in crate::storage::format) use files::{encode_files, FileChange};
 pub use replay::ReplayStamp;
-pub(crate) use replay::{ReplayTarget, SchemaReplayDrop};
+pub(crate) use replay::{record_key, ReplayTarget, SchemaReplayDrop};
+pub(crate) use replay_attach::{file_ref_key, index_key, inline_key, ReplayCapture};
 
 use super::METADATA_NAMESPACE;
 use crate::schema::types::{MutationAuthorClockState, SchemaError};

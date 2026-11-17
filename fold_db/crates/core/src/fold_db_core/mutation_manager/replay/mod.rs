@@ -1,6 +1,9 @@
 //! Signed-log replay clock, local pending markers, and schema-level replay coordination.
 
+mod attachments;
+mod candidate;
 mod records;
+mod state;
 
 use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};
@@ -10,6 +13,7 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::format::metadata::ReplayTarget;
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 impl MutationManager {
@@ -39,9 +43,9 @@ impl MutationManager {
         addresses: &[RecordAddress],
         mutations: &[AuthoredMutation],
         preimages: &[Option<Arc<StoredRecord>>],
-    ) -> Result<(), SchemaError> {
+    ) -> Result<BTreeSet<String>, SchemaError> {
         if !accepted::capture_enabled(runtime) {
-            return Ok(());
+            return Ok(BTreeSet::new());
         }
         let mut targets: Vec<_> = addresses
             .iter()
@@ -60,7 +64,9 @@ impl MutationManager {
             ));
         }
         let metadata = self.db_ops.metadata();
-        self.stage_replay_baselines(addresses, preimages).await?;
+        let keep = self
+            .stage_replay_baselines(schema, addresses, preimages)
+            .await?;
         metadata.stage_local_replay_targets(targets).await?;
         metadata
             .stage_pending_replay_attachments(
@@ -73,7 +79,8 @@ impl MutationManager {
                     })
                     .map(|((address, _), _)| address.as_str()),
             )
-            .await
+            .await?;
+        Ok(keep)
     }
 
     /// Protect old, already committed spool items before submitting their unchanged bodies.

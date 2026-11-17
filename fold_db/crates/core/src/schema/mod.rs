@@ -235,6 +235,10 @@ impl SchemaCore {
             );
         }
         self.db_ops
+            .metadata()
+            .release_schema_replay_pins(schema_name)
+            .await?;
+        self.db_ops
             .schemas()
             .drop_reserved_schema(schema_name, replay, || {
                 self.publish_catalog(schema_name.to_owned(), None, SchemaState::Available)

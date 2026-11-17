@@ -242,6 +242,7 @@ impl RecordFormat {
         &self,
         schema: &Schema,
         changes: Vec<RecordChange>,
+        keep: &BTreeSet<String>,
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         let missing = changes
@@ -251,7 +252,7 @@ impl RecordFormat {
             return Err(inv("this record requires a file"));
         }
         let (main, files, written) = encode_batch(schema, changes, &self.content_key)?;
-        let (puts, deletes, refs) = encode_files(&self.issuer, &self.content_key, files)?;
+        let (puts, deletes, refs) = encode_files(&self.issuer, &self.content_key, files, keep)?;
         self.main.batch_mutate(main).await?;
         if !puts.is_empty() {
             self.cas().await?.batch_mutate(puts).await?;
