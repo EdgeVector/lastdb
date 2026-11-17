@@ -4,8 +4,6 @@ Use one schema with named alternate keys when several keys must find the same re
 Keep canonical field definition reuse separate from mutable record values.
 Existing homes move by a copy into a fresh home, not by an in-place conversion.
 
-Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
-
 Every record write also appends one entry to a numbered list of changed keys, in the same transaction.
 An entry holds a number, the schema, the record key, and a delete flag. It holds no values.
 An app reads `GET /api/changes?after=N&limit=L&schema=A`, keeps the returned `id` and `through`, and reads the records by key.

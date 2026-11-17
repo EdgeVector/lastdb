@@ -300,16 +300,13 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
 
 async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {
     let keys = content_keys(&host.home, id)?;
-    let (data, inbox) = store_dirs(&host.home, id)?;
-    fold_db::db_operations::search_index::queue_policy::prepare(&inbox)
-        .map_err(|_| ShareCacheError::Unavailable)?;
+    let data = store_dirs(&host.home, id)?;
     fold_db::fold_db_core::factory::create_fold_db_with_options(
         &DatabaseConfig::local(data),
         &keys,
         Arc::clone(&host.keypair),
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            search_outbox_inbox: Some(inbox),
             capture_accepted: false,
             capture_initial_snapshot: false,
             track_shared_record_revisions: whole_database,
@@ -330,15 +327,13 @@ fn content_keys(home: &Path, id: &Id) -> Result<E2eKeys> {
     Ok(keys)
 }
 
-fn store_dirs(home: &Path, id: &Id) -> Result<(PathBuf, PathBuf)> {
+fn store_dirs(home: &Path, id: &Id) -> Result<PathBuf> {
     let home = home
         .canonicalize()
         .map_err(|_| ShareCacheError::Unavailable)?;
     let entry = home.join(MANAGED_SHARE_DIRECTORY).join(id.as_str());
     private_directory(&entry, false)?;
     let data = entry.join("log");
-    let inbox = entry.join("search-inbox");
     private_directory(&data, true)?;
-    private_directory(&inbox, true)?;
-    Ok((data, inbox))
+    Ok(data)
 }

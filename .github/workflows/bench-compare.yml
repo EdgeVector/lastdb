@@ -21,10 +21,6 @@ on:
         description: Measure resource growth only with the selected profile
         type: boolean
         default: false
-      search_queue:
-        description: Also measure optional Search (candidate must support --enable-search)
-        type: boolean
-        default: false
       investigation:
         description: Capture native phases in a separate generated-data pass
         type: boolean
@@ -77,7 +73,6 @@ jobs:
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ inputs.profile }}
       resource_only: ${{ inputs.resource_only }}
-      search_queue: ${{ inputs.search_queue }}
       investigation: ${{ inputs.investigation }}
       writer16: ${{ inputs.writer16 }}
       baseline_workers: ${{ inputs.baseline_workers }}

@@ -6,7 +6,6 @@ mod write_records;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -70,7 +69,6 @@ pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
     pub(super) schema_manager: Arc<SchemaCore>,
     pub(super) writer_id: String,
-    pub(super) search_outbox_inbox: Option<PathBuf>,
     track_shared_record_revisions: bool,
 }
 
@@ -79,14 +77,12 @@ impl MutationManager {
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
         writer_id: String,
-        search_outbox_inbox: Option<PathBuf>,
         track_shared_record_revisions: bool,
     ) -> Self {
         Self {
             db_ops,
             schema_manager,
             writer_id,
-            search_outbox_inbox,
             track_shared_record_revisions,
         }
     }

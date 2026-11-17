@@ -17,7 +17,7 @@ from report import confirm, confirmation_lines, notices
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
             "memory_growth_bytes_per_round", "disk_before_compaction_bytes", "compacted_disk_bytes",
             "disk_growth_bytes", "disk_growth_bytes_per_round", "compacted_disk_bytes_per_record",
-            "search_queue_bytes", "whole_home_disk_bytes", "other_home_bytes")
+            "whole_home_disk_bytes", "other_home_bytes")
 ALLOCATED_MEASURES = ("allocated_disk_before_compaction_bytes", "compacted_allocated_disk_bytes",
                       "allocated_disk_growth_bytes", "allocated_disk_growth_bytes_per_round",
                       "compacted_allocated_disk_bytes_per_record")
@@ -151,11 +151,11 @@ def render(output, manifest, comparison):
         lines.append(f"| {case} | {pair(item, 'allocated_disk_before_compaction_bytes')} | "
                      f"{pair(item, name)} | {delta} | {pair(item, 'compacted_allocated_disk_bytes_per_record', 1)} | "
                      f"{pair(item, 'allocated_disk_growth_bytes')} | {pair(item, 'allocated_disk_growth_bytes_per_round')} |")
-    lines.extend(["", "| Case | Search queue MiB, base → candidate | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
-                  "|---|---:|---:|---:|"])
+    lines.extend(["", "| Case | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
+                  "|---|---:|---:|"])
     for case, item in comparison.items():
-        lines.append(f"| {case} | {pair(item, 'search_queue_bytes')} | {pair(item, 'other_home_bytes')} | {pair(item, 'whole_home_disk_bytes')} |")
-    lines.extend(["", "Database figures include data/. Search delivery files stay separate under apps/search/inbox/.",
+        lines.append(f"| {case} | {pair(item, 'other_home_bytes')} | {pair(item, 'whole_home_disk_bytes')} |")
+    lines.extend(["", "Database figures include data/. Other home files and the whole home stay in their own columns.",
                   "Every checkpoint records file lengths and allocated blocks for each category and the whole home.",
                   "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
                   "Each checkpoint requires a durable flush. A v2 home has no explicit compaction.",
@@ -179,18 +179,13 @@ def render(output, manifest, comparison):
 
 def compare_disk_budget(output, manifest):
     recipe = manifest["recipe"]
-    if recipe.get("disk_budget") is not True or recipe.get("search_enabled") is not False or recipe.get("pairs") != 1:
-        raise ValueError("The disk budget requires one pair with Search off")
+    if recipe.get("disk_budget") is not True or recipe.get("pairs") != 1:
+        raise ValueError("The disk budget requires one pair")
     values = {label: {} for label in ("baseline", "candidate")}
     for run in manifest["runs"]:
         if not run["complete"]:
             raise ValueError("A disk budget measurement did not complete")
         directory = output / run["directory"]
-        for corpus in (directory, directory / "delete"):
-            for phase in ("before", "after"):
-                search = json.loads((corpus / f"disk-search-{phase}.json").read_text())
-                if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
-                    raise ValueError("The disk budget does not establish Search off in both homes")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(disk_budget.CASES):
             raise ValueError("The disk budget cases differ from the recipe")
