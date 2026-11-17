@@ -96,6 +96,14 @@ impl MutationManager {
                 } else {
                     None
                 };
+                if let Some(marker) = record.as_ref().and_then(|r| r.inline_file.as_ref()) {
+                    super::attachments::inline_row(
+                        inline_row
+                            .as_deref()
+                            .ok_or_else(|| invalid("inline preimage missing"))?,
+                        marker,
+                    )?;
+                }
                 let baseline = Baseline {
                     stamp: capture.winner,
                     record,

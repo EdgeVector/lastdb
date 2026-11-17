@@ -23,7 +23,7 @@ pub(super) struct Pins {
     pub file_ref: Option<Vec<u8>>,
 }
 
-fn inline_row(bytes: &[u8], marker: &FileMarker) -> Result<InlineFile, SchemaError> {
+pub(super) fn inline_row(bytes: &[u8], marker: &FileMarker) -> Result<InlineFile, SchemaError> {
     let file = InlineFile::decode(bytes).map_err(invalid)?;
     if file.marker != *marker {
         return Err(invalid("inline pin differs from its marker"));
@@ -142,6 +142,11 @@ impl MutationManager {
             self.winning_file(context, next).await?;
             return Ok(None);
         }
+        if let Some(live) = context.live.filter(|r| r.file.as_ref() == Some(&marker)) {
+            self.read_live_file(context.address, live).await?;
+            next.file_version.clone_from(&live.file_version);
+            return Ok(None);
+        }
         Err(invalid("winning file bytes are missing"))
     }
 
@@ -165,12 +170,37 @@ impl MutationManager {
             .map(std::str::from_utf8)
             .transpose()
             .map_err(invalid)?;
-        replay_pin::read_winning_bytes(
+        let saved_bytes = replay_pin::read_winning_bytes(
             &self.db_ops.records().format,
             context.address,
             version,
             marker,
             reference,
+        )
+        .await;
+        if saved_bytes.is_err() {
+            if let Some(live) = context.live.filter(|r| r.file.as_ref() == Some(marker)) {
+                return self.read_live_file(context.address, live).await;
+            }
+        }
+        saved_bytes
+    }
+
+    async fn read_live_file(
+        &self,
+        address: &str,
+        live: &StoredRecord,
+    ) -> Result<Vec<u8>, SchemaError> {
+        replay_pin::read_winning_bytes(
+            &self.db_ops.records().format,
+            address,
+            live.file_version
+                .as_ref()
+                .ok_or_else(|| invalid("live file version missing"))?,
+            live.file
+                .as_ref()
+                .ok_or_else(|| invalid("live file marker missing"))?,
+            None,
         )
         .await
     }

@@ -35,7 +35,7 @@ impl MutationManager {
             Some(saved) => saved.record.as_ref(),
             None if deleted => None,
             // Older text-only pending writes did not alter either attachment slot.
-            None if baseline.is_none() && !capture.pending_attachment => live,
+            None if !capture.pending_attachment => live,
             None if mutation.file_write.is_some() && mutation.inline_write.is_some() => None,
             None => return Ok(false),
         };
