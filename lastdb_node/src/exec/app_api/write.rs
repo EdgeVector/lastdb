@@ -5,11 +5,13 @@
 //! is still at it. A mutation whose condition does not hold refuses the list.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
 use fold_db::access::AccessContext;
 use fold_db::record_replacement::RecordTarget;
+use fold_db::record_value::FileMarker;
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType, Query};
+use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -17,6 +19,7 @@ use super::{bad, fail, in_database, ok};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
+use crate::exec::schema_routes::resolve_schema_name;
 use crate::exec::wire::QueryRequest;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
@@ -43,6 +46,28 @@ struct WriteItem {
     alternates: Alternates,
     #[serde(default)]
     revision: Option<String>,
+    #[serde(default)]
+    file: Option<FileLink>,
+}
+
+/// A link to a file on disk that the caller can read. No bytes pass through
+/// the request, and LastDB keeps a reference in place of a copy.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileLink {
+    path: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    media_type: Option<String>,
+}
+
+/// A file reference to remember once its record is committed.
+struct LinkedFile {
+    schema: String,
+    key: KeyValue,
+    path: PathBuf,
+    marker: FileMarker,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -69,6 +94,7 @@ async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
     let database = items.first().and_then(|item| item.database.clone());
     in_database(database.as_deref(), host, async {
         let mut mutations = Vec::with_capacity(items.len());
+        let mut linked = Vec::new();
         for mut item in items {
             // A delete names every address of its record. The caller holds the
             // revision; the node holds the alternate addresses.
@@ -77,9 +103,19 @@ async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
             } else {
                 std::mem::take(&mut item.alternates)
             };
-            mutations.push(build(item, alternates));
+            let link = item.file.take();
+            let mut mutation = build(item, alternates);
+            if let Some(link) = link {
+                linked.push(link_file(host, &mut mutation, link).await?);
+            }
+            mutations.push(mutation);
         }
         let receipt = commit_mutations(host, mutations).await?;
+        for file in &linked {
+            host.records()
+                .remember_local_file(&file.schema, &file.key, &file.path, &file.marker)
+                .await?;
+        }
         let revisions: Vec<Value> = receipt
             .mutation_ids
             .iter()
@@ -106,6 +142,7 @@ fn parse(body: &[u8]) -> Result<Vec<WriteItem>, HostError> {
             Op::Create => Err("a create carries a record and no revision"),
             Op::Replace if record && revision => Ok(()),
             Op::Replace => Err("a replace carries a record and the revision it replaces"),
+            Op::Delete if item.file.is_some() => Err("a delete carries no file"),
             Op::Delete if !record && revision && item.alternates.is_empty() => Ok(()),
             Op::Delete => Err("a delete carries the revision it deletes and no record"),
         };
@@ -150,6 +187,38 @@ async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, 
             "the key names more than one record; a hash and range schema needs key.range",
         )),
     }
+}
+
+/// Describe the linked file, set it on the mutation, and return what to
+/// remember after the commit. The file stays where it is.
+async fn link_file(
+    host: &Host,
+    mutation: &mut Mutation,
+    link: FileLink,
+) -> Result<LinkedFile, HostError> {
+    let records = host.records();
+    let write = records
+        .db_ops()
+        .records()
+        .reference_local_file(Path::new(&link.path), link.name, link.media_type)
+        .await
+        .map_err(|error| bad(format!("file {}: {error}", link.path)))?;
+    let FileWrite::LocalPath(reference) = &write else {
+        return Err(HostError::internal(
+            "a local file reference is a local path",
+        ));
+    };
+    let (marker, path) = (reference.marker().clone(), reference.path().to_path_buf());
+    let schema = resolve_schema_name(host, &mutation.schema_name)?
+        .unwrap_or_else(|| mutation.schema_name.clone());
+    mutation.file = Some(marker.clone());
+    mutation.file_write = Some(write);
+    Ok(LinkedFile {
+        schema,
+        key: mutation.key_value.clone(),
+        path,
+        marker,
+    })
 }
 
 fn build(item: WriteItem, alternates: Alternates) -> Mutation {

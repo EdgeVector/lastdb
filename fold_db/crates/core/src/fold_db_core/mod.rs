@@ -91,6 +91,7 @@ pub mod factory {
     }
 }
 
+pub mod file_paths;
 pub mod mutation_manager;
 pub mod query;
 
