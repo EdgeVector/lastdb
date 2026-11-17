@@ -11,7 +11,8 @@
 //! last saw.
 
 use super::{
-    account_key_matches, Ed25519Signature, ShareMemberRole, ShareMemberState, ShareWriteScope,
+    account_key_matches, Ed25519Signature, ShareEnvironment, ShareMemberRole, ShareMemberState,
+    ShareWriteScope,
 };
 use crate::v2::{limits, Stream, Version};
 use crate::{input_digest, DecimalU64, Digest, ProtocolError};
@@ -38,6 +39,9 @@ pub const MEMBER_LIST_PAGE_MAX: usize = 200;
 pub struct MemberEntry {
     /// Protocol version. V2 serializes this field as the JSON integer 2.
     pub version: Version,
+    /// `dev` or `prod`. The signature covers this value, so an entry signed
+    /// for one realm is not an entry in the other.
+    pub environment: ShareEnvironment,
     /// Shared database. `stream_id` is the database id.
     pub stream: Stream,
     /// Ed25519 node identity of the member, lowercase hex.
@@ -111,7 +115,8 @@ impl MemberEntry {
             }
             return Ok(());
         };
-        if self.stream != previous.stream
+        if self.environment != previous.environment
+            || self.stream != previous.stream
             || self.node_public_key != previous.node_public_key
             || self.publisher_public_key != previous.publisher_public_key
         {
@@ -136,8 +141,8 @@ impl MemberEntry {
 
     /// Domain-separated SHA-256 of the entry with the signature removed.
     ///
-    /// The canonical body is a JSON array, in order: `version`, `stream`,
-    /// `node_public_key`, `role`, `state`, `write_schemas`, `sequence`,
+    /// The canonical body is a JSON array, in order: `version`, `environment`,
+    /// `stream`, `node_public_key`, `role`, `state`, `write_schemas`, `sequence`,
     /// `publisher_public_key`, `signed_at_ms`. `state` is always present in
     /// the array, and `write_schemas` is `null` when absent. Framing is a
     /// big-endian u32 domain length, the UTF-8 domain
@@ -149,6 +154,7 @@ impl MemberEntry {
             SHARE_MEMBER_ENTRY_DOMAIN,
             &(
                 &self.version,
+                self.environment,
                 &self.stream,
                 &self.node_public_key,
                 self.role,
@@ -178,7 +184,7 @@ pub struct MemberSetRequest {
 }
 
 impl MemberSetRequest {
-    /// Check the count, the order, and that every entry names this stream and one publisher.
+    /// Check the count, the order, and that every entry names this stream, one realm, and one publisher.
     ///
     /// This does not verify signatures and does not compare with stored entries.
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -192,10 +198,13 @@ impl MemberSetRequest {
         {
             return Err(ProtocolError::invalid("share.members.order"));
         }
-        let publisher = &self.entries[0].publisher_public_key;
+        let first = &self.entries[0];
         for entry in &self.entries {
             entry.validate()?;
-            if entry.stream != self.stream || &entry.publisher_public_key != publisher {
+            if entry.stream != self.stream
+                || entry.environment != first.environment
+                || entry.publisher_public_key != first.publisher_public_key
+            {
                 return Err(ProtocolError::invalid("share.grant.identity"));
             }
         }
