@@ -297,7 +297,6 @@ fn parse_manifest(
             }
             let mut schema: DeclarativeSchemaDefinition = serde_json::from_value(value)
                 .map_err(|_| "manifest contains an invalid schema declaration")?;
-            schema.normalize_wire();
             schema
                 .normalize_owned_declaration("app_id", &entry.app_id)
                 .map_err(|_| "manifest contains a schema that LastDB would refuse")?;

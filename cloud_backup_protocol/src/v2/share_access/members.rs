@@ -1,9 +1,44 @@
 //! Publisher-signed member list for one shared database stream.
 
-use super::{account_key_matches, Ed25519Signature, SHARE_MEMBER_LIST_UPDATE_DOMAIN};
+use super::account_key_matches;
+use crate::primitives::exact_lower_hex;
 use crate::v2::{limits, Stream, Version};
 use crate::{input_digest, DecimalU64, Digest, Id, ProtocolError};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+const SHARE_MEMBER_LIST_UPDATE_DOMAIN: &str = "lastdb:share:member-list-update:v1";
+const SIGNATURE_HEX_LEN: usize = 128;
+
+/// Lowercase hex encoding of a 64-byte Ed25519 signature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Ed25519Signature(String);
+
+impl Ed25519Signature {
+    /// Borrow the 128-character hex text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for Ed25519Signature {
+    type Error = ProtocolError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if exact_lower_hex(&value, SIGNATURE_HEX_LEN) {
+            Ok(Self(value))
+        } else {
+            Err(ProtocolError::invalid("share.signature"))
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Ed25519Signature {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_from(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
 
 /// What one node key may do. A key has one role. v1 does not rotate keys.
 ///
@@ -152,7 +187,6 @@ impl MemberListUpdate {
     /// This does not verify the signature and does not limit how many members
     /// the set contains.
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
         if self.revision.get() == 0 {
             return Err(ProtocolError::invalid("share.member_list.revision"));
         }
@@ -230,9 +264,8 @@ pub struct MemberListReadRequest {
 }
 
 impl MemberListReadRequest {
-    /// Check the stream and the encoded size. The request carries no members.
+    /// Check the encoded size. The request carries no members.
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
@@ -256,7 +289,6 @@ impl MemberListReadResponse {
     /// Require the same stream as the request, and an update exactly at `revision`.
     pub fn validate_for(&self, request: &MemberListReadRequest) -> Result<(), ProtocolError> {
         request.validate()?;
-        self.stream.validate()?;
         if self.stream != request.stream {
             return Err(ProtocolError::invalid("share.member_list.read.stream"));
         }

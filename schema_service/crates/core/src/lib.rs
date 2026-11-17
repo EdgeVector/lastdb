@@ -33,30 +33,14 @@ pub struct DataClassification {
     pub data_domain: String,
 }
 
-impl<'de> Deserialize<'de> for DataClassification {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            sensitivity_level: u8,
-            data_domain: String,
-        }
-        let helper = Helper::deserialize(deserializer)?;
-        Self::new(helper.sensitivity_level, helper.data_domain).map_err(serde::de::Error::custom)
-    }
-}
-
 impl DataClassification {
     /// Create a validated [`DataClassification`] with trimmed `data_domain`.
-    pub fn new(sensitivity_level: u8, data_domain: impl Into<String>) -> Result<Self, String> {
+    pub(crate) fn new(sensitivity_level: u8, data_domain: &str) -> Result<Self, String> {
         if sensitivity_level > MAX_SENSITIVITY_LEVEL {
             return Err(format!(
                 "sensitivity_level {sensitivity_level} exceeds maximum {MAX_SENSITIVITY_LEVEL} (Highly Restricted)"
             ));
         }
-        let data_domain = data_domain.into();
         let trimmed = data_domain.trim();
         if trimmed.is_empty() {
             return Err("data_domain must not be empty".to_string());
@@ -69,7 +53,7 @@ impl DataClassification {
 
     /// Human-readable name for this sensitivity level.
     #[must_use]
-    pub const fn sensitivity_name(&self) -> &'static str {
+    pub(crate) const fn sensitivity_name(&self) -> &'static str {
         match self.sensitivity_level {
             0 => "Public",
             1 => "Internal",
@@ -82,26 +66,20 @@ impl DataClassification {
 }
 
 /// A canonical field entry in the standard field vocabulary.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct CanonicalField {
     pub(crate) description: String,
     pub(crate) field_type: FieldValueType,
     /// Field identity version (`name+description+type+version` -> `field_hash`).
-    #[serde(default = "default_field_version")]
     pub(crate) version: u32,
     /// Code validation policy version. Excluded from field identity hashes.
-    #[serde(default)]
     pub(crate) name_policy_version: u32,
     /// Usual data classification label for this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) classification: Option<DataClassification>,
     /// Optional interest category for discovery.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) interest_category: Option<String>,
-}
-
-const fn default_field_version() -> u32 {
-    1
 }
 
 impl CanonicalField {
@@ -254,14 +232,9 @@ fn validate_insert(
     field: &CanonicalField,
 ) -> Result<(), String> {
     validate_new_field_name(name)?;
-    if field.name_policy_version != NAME_POLICY_VERSION {
+    if field.description.trim().is_empty() {
         return Err(format!(
-            "invalid_canonical_policy: '{name}' requires name policy {NAME_POLICY_VERSION}"
-        ));
-    }
-    if field.description.trim().is_empty() || field.version == 0 {
-        return Err(format!(
-            "canonical_field_definition_conflict: '{name}' requires a description and a positive identity version"
+            "canonical_field_definition_conflict: '{name}' requires a description"
         ));
     }
     if field.description.len() > 4096 || words(&field.description).len() < 3 {
@@ -269,13 +242,13 @@ fn validate_insert(
             "invalid_canonical_description: '{name}' requires a specific description of 3 or more words, at most 4096 bytes"
         ));
     }
-    if existing.get(name).is_some_and(|stored| stored != field) {
+    if existing.contains_key(name) {
         return Err(format!(
             "canonical_field_conflict: '{name}' already has another definition; reset it explicitly before replacement"
         ));
     }
     for (other_name, other) in existing {
-        if other_name != name && same_description(&other.description, &field.description) {
+        if same_description(&other.description, &field.description) {
             return Err(format!(
                 "canonical_field_reuse_required: '{name}' duplicates '{other_name}'; reuse that concept or describe a distinct subject and property"
             ));

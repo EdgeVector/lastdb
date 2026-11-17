@@ -1,17 +1,37 @@
-//! Successor rules for a publisher-signed member list.
+//! Successor rules and route authorization for a publisher-signed member list.
 //!
 //! The signed document is the whole member set. A revoked key stays on that
 //! set until a later revision marks it active and sets `regrant`.
 
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
-    NodeReadToken, ShareHttpMethod, ShareMember, ShareMemberRole, ShareMemberState,
-    SignedRequestTarget, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_DELIVERY_SNAPSHOT_PATH,
-    MUTATION_LOG_INBOX_LIST_PATH, MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH,
-    SHARE_MEMBER_LIST_READ_PATH,
+    NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMember, ShareMemberRole,
+    ShareMemberState, SignedDatabase, MUTATION_LOG_DELIVERY_OBJECT_PATH,
+    MUTATION_LOG_DELIVERY_SNAPSHOT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
+    MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
 use std::cmp::Ordering;
+
+const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
+    "/api/cloud/backups/v2/mutation-log/create-database";
+const MUTATION_LOG_ACCESS_PATH: &str = "/api/cloud/backups/v2/mutation-log/access";
+
+/// HTTP target of one signed request, plus the stored signed state if any.
+///
+/// `path` is the raw request path. The body octets are not here. The caller
+/// hashed those octets with `NodeReadToken::digest` before this call.
+#[derive(Clone, Copy, Debug)]
+pub struct SignedRequestTarget<'a> {
+    /// Realm this service is.
+    pub environment: ShareEnvironment,
+    /// Method the service received.
+    pub method: ShareHttpMethod,
+    /// Raw path the service received, including `/api`.
+    pub path: &'a str,
+    /// Stored native database. Absent while the database is open.
+    pub access: Option<&'a SignedDatabase>,
+}
 
 /// What a node key may do with the current member list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +52,51 @@ pub enum MemberListReadView {
     Document,
     /// Authorized caller. Return [`MemberListRevision`] and no members.
     RevisionOnly,
+}
+
+/// Authorize the first signed create, or an equal native retry.
+///
+/// The body signature is already checked. Success writes only in the service
+/// transaction that inserts the native row. A refusal writes nothing.
+pub fn authorize_native_create(
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_post(
+        target.method,
+        target.path,
+        MUTATION_LOG_CREATE_DATABASE_PATH,
+    )?;
+    token.require_target(target.environment, target.method, target.path)?;
+    if token.database_id != token.stream.stream_id {
+        return Err(ProtocolError::unauthorized("share.node_read.scope"));
+    }
+    require_publisher_key(token)?;
+    if let Some(state) = target.access {
+        state.bind(token, target.environment)
+    } else if token.member_list_revision.get() != 0 {
+        Err(ProtocolError::invalid("share.create.revision"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Authorize a body-signed status read. A stale revision does not reject it.
+///
+/// Success is not log access.
+pub fn authorize_access_read(
+    current: &MemberListReadResponse,
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_post(target.method, target.path, MUTATION_LOG_ACCESS_PATH)?;
+    token.require_target(target.environment, target.method, target.path)?;
+    bind_request_scope(token, current)?;
+    authorize(current, &token.node_public_key)?;
+    if let Some(state) = target.access {
+        state.bind(token, target.environment)?;
+    }
+    Ok(())
 }
 
 pub(super) fn validate_successor(
@@ -69,7 +134,6 @@ pub fn authorize(
     current: &MemberListReadResponse,
     node: &Digest,
 ) -> Result<ShareAccess, ProtocolError> {
-    current.stream.validate()?;
     if let Some(update) = &current.update {
         update.validate()?;
         if update.stream != current.stream || update.revision != current.revision {
@@ -90,7 +154,7 @@ pub fn authorize(
     }
 }
 
-pub(super) fn bind_request_scope(
+fn bind_request_scope(
     token: &NodeReadToken,
     current: &MemberListReadResponse,
 ) -> Result<(), ProtocolError> {
@@ -103,7 +167,7 @@ pub(super) fn bind_request_scope(
 /// Authorize a mutation-log request against the current grant.
 ///
 /// The signature check and the nonce spend happen before this call. They are
-/// not the grant check. The database must already be native or committed.
+/// not the grant check. The database must already be native.
 /// The signed revision must be the stored revision. The member-list read does
 /// not use this function.
 pub fn authorize_request(
@@ -133,7 +197,7 @@ pub fn authorize_request(
 
 /// Choose the member-list read body.
 ///
-/// The database must already be native or committed. A stale revision does not
+/// The database must already be native. A stale revision does not
 /// reject this route. Only a publisher who named the stored revision receives
 /// the member document. Every other authorized node receives the revision
 /// alone. An unauthorized node receives neither.
@@ -163,6 +227,19 @@ fn require_signed(
         return Err(ProtocolError::unauthorized("share.cutover.required"));
     };
     state.bind(token, target.environment)
+}
+
+fn require_publisher_key(token: &NodeReadToken) -> Result<(), ProtocolError> {
+    account_key_matches(&token.node_public_key, &token.stream.scope.account_id)
+        .map_err(|_| ProtocolError::unauthorized("share.create.publisher"))
+}
+
+fn require_post(method: ShareHttpMethod, path: &str, expected: &str) -> Result<(), ProtocolError> {
+    if method == ShareHttpMethod::Post && path == expected {
+        Ok(())
+    } else {
+        Err(ProtocolError::invalid("share.node_read.route"))
+    }
 }
 
 fn is_mutation_log_path(path: &str) -> bool {

@@ -13,11 +13,8 @@ pub struct CloudScope {
 }
 
 impl CloudScope {
-    /// Reject an account id that is not 32 characters.
+    /// Validate the account scope. `AccountId` enforces 32-character lowercase hex on construction.
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.account_id.as_str().len() != 32 {
-            return Err(ProtocolError::invalid("cloud_scope.account_id"));
-        }
         Ok(())
     }
 }

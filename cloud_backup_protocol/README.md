@@ -15,12 +15,11 @@ The domain string is `lastdb:share:node-read-authority:v1`.
 A revoked member stays on the signed member list until a later revision sets `regrant`.
 The signing key is the node key. DEV and PROD use the same mutation-log paths.
 `NodeReadToken::digest` hashes the raw body octets and the service realm.
-Data routes use `authorize_request` once the database is native or committed.
+Data routes use `authorize_request` once the database is native.
 Native create is only `POST /api/cloud/backups/v2/mutation-log/create-database`.
 That request authorizes and creates the database in one transaction, with no migration evidence.
-The LastDB client does not post `POST /api/cloud/backups/v2/mutation-log/cutover`.
 The member-list read uses `member_list_read_view`.
-A node-key revoke covers every device of that key. The body-less proof remains only while that database is open.
+A node-key revoke covers every device of that key.
 Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.
 
 Whole-database sharing depends on separate published and pending logs and

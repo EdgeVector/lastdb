@@ -19,9 +19,6 @@ const ACCESS_CONTROL_ALLOW_METHODS: &str = "GET, POST, OPTIONS";
 const ACCESS_CONTROL_ALLOW_HEADERS: &str = "Content-Type";
 const MAX_REQUEST_BODY_BYTES: usize = 128 * 1024;
 
-type HandlerResult<T> = Result<T, Result<Response<Body>, Error>>;
-type RouteResult = Option<Result<Response<Body>, Error>>;
-
 pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>, Error> {
     Response::builder()
         .status(status)
@@ -40,30 +37,29 @@ fn payload_too_large() -> Result<Response<Body>, Error> {
     json_error(413, "Request body exceeds 128 KiB limit")
 }
 
-fn typed_json_body<T>(event: &Request, error: &str) -> HandlerResult<T>
-where
-    T: DeserializeOwned,
-{
-    let raw = match event.body() {
+fn typed_json_body<T: DeserializeOwned>(
+    event: &Request,
+    error: &str,
+) -> Result<T, Result<Response<Body>, Error>> {
+    let parsed = match event.body() {
         Body::Text(s) => {
             if s.len() > MAX_REQUEST_BODY_BYTES {
                 return Err(payload_too_large());
             }
-            s.clone()
+            serde_json::from_str(s)
         }
         Body::Binary(b) => {
             if b.len() > MAX_REQUEST_BODY_BYTES {
                 return Err(payload_too_large());
             }
-            String::from_utf8_lossy(b).into_owned()
+            serde_json::from_slice(b)
         }
         Body::Empty => return Err(json_error(400, "Request body is empty")),
     };
-    serde_json::from_str(&raw)
-        .map_err(|parse_error| json_error(400, &format!("{error}: {parse_error}")))
+    parsed.map_err(|parse_error| json_error(400, &format!("{error}: {parse_error}")))
 }
 
-fn dispatch_stateless(method: &str, path: &str) -> RouteResult {
+fn dispatch_stateless(method: &str, path: &str) -> Option<Result<Response<Body>, Error>> {
     match (method, path) {
         ("GET", "/health" | "/v1/health") => Some(json_response(
             200,
