@@ -127,11 +127,11 @@ pub(in crate::log_sync) async fn apply(
     };
     // One signed entry, read under the member lock. The size of the member
     // set does not change what this check costs.
-    let (lock, entry) = lock_member(&host.home, database, &node)
+    let (lock, stored) = lock_member(&host.home, database, &node)
         .await
         .map_err(|_| "member configuration is unavailable")?;
     let Some(member) =
-        entry.filter(|entry| entry.is_active() && entry.role == ShareMemberRole::Submit)
+        stored.filter(|stored| stored.is_active() && stored.role == ShareMemberRole::Submit)
     else {
         return Ok(Discarded);
     };
