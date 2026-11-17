@@ -193,7 +193,14 @@ jobs:
           set -euo pipefail
           # The first-party install manifests and their source commits were
           # reviewed for this CI flow. Required installs never fall back.
-          lastdb app install '${{ matrix.app }}' --channel "$REGISTRY_CHANNEL" --accept-install \
+          # LastSeek's post-install requires local embedder model files. This
+          # job builds that source and records its version, so the install stays
+          # inactive and does not run that post-install.
+          install_args=(--channel "$REGISTRY_CHANNEL" --accept-install)
+          if [ '${{ matrix.app }}' = lastseek ]; then
+            install_args+=(--inactive)
+          fi
+          lastdb app install '${{ matrix.app }}' "${install_args[@]}" \
             2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
           active="$LASTDB_APPS_ROOT/${{ matrix.app }}/current"
           test -d "$active/source"
@@ -372,7 +379,13 @@ jobs:
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
-          lastseek --version | tee "$PROOF_DIR/lastseek-version.txt"
+          # Use the binary this job built. The registry command link is a
+          # launcher, and an inactive install does not run LastSeek's model check.
+          built="$HOME/.cargo/bin/lastseek"
+          if [ ! -x "$built" ]; then
+            built=/usr/local/bin/lastseek
+          fi
+          "$built" --version | tee "$PROOF_DIR/lastseek-version.txt"
 
       # === Search ===
       - name: Use the registry-installed Search command
