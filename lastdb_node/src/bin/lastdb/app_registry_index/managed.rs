@@ -147,7 +147,7 @@ fn stage_version(
     let source = stage.join("source");
     managed_manifest::clone_source(&source, entry)?;
     let plan = InstallPlan::load(&source, &entry.app_id)?;
-    let hash = plan.consent_hash(entry.access.as_ref())?;
+    let hash = plan.consent_hash()?;
     if prior.is_some_and(|r| {
         r.publisher != entry.publisher_key && !super::authorized_transition(r, resolution)
     }) {
@@ -155,12 +155,8 @@ fn stage_version(
     }
     if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != inactive) && !accept_install {
         let pretty = serde_json::to_string_pretty(&plan).map_err(str_err)?;
-        let access = match &entry.access {
-            Some(a) => serde_json::to_string_pretty(a).map_err(str_err)?,
-            None => "none declared".to_string(),
-        };
         eprintln!(
-            "Install consent for {} (publisher {}): {pretty}\nLastDB access: {access}",
+            "Install consent for {} (publisher {}): {pretty}",
             entry.app_id, entry.publisher_key
         );
         return Err("review install instructions and repeat with --accept-install".into());
@@ -201,7 +197,7 @@ pub fn verify(
 ) -> Result<(), String> {
     let src = root.join("current/source");
     let plan = InstallPlan::load(&src, &current.app_id)?;
-    if plan.consent_hash(current.listing.access.as_ref())? != current.consent_hash {
+    if plan.consent_hash()? != current.consent_hash {
         return Err("install manifest changed since consent".into());
     }
     managed_manifest::verify(root, &plan)?;

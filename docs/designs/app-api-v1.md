@@ -163,13 +163,14 @@ listing, under the publisher signature:
 - Access is per schema, not per field. A read returns the whole record.
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
 - An extension is a plain name with no version.
-- Install shows the declaration with the install steps and asks the owner
-  again when a later listing changes either.
+- Declaring is the permission. Nobody approves the declaration: install does
+  not show it for consent, and a listing that changes it does not ask the
+  owner again. The owner still approves the install steps.
 - Install refuses a listing that names an extension this build does not have.
 - An app that is not published declares nothing.
 
-The declaration is recorded and shown. It is not enforced until the app socket
-exists.
+The declaration is recorded with the install. It is not enforced until the app
+socket exists.
 
 ## Not built yet
 

@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{str_err, ListEntry};
-use app_identity_crypto::Access;
 
 const fn default_timeout() -> u64 {
     30
@@ -117,14 +116,11 @@ impl InstallPlan {
         Ok(plan)
     }
 
-    /// The owner consents to the install steps and, when the listing declares
-    /// one, to its LastDB access. A listing with no declaration keeps the hash
-    /// it had before declarations existed.
-    pub(super) fn consent_hash(&self, access: Option<&Access>) -> Result<String, String> {
-        let mut val = serde_json::to_value(self).map_err(str_err)?;
-        if let Some(access) = access {
-            val = serde_json::json!({ "install": val, "access": access });
-        }
+    /// The owner consents to the install steps. The LastDB access a listing
+    /// declares is not part of the consent: declaring it is the permission,
+    /// and nobody approves it.
+    pub(super) fn consent_hash(&self) -> Result<String, String> {
+        let val = serde_json::to_value(self).map_err(str_err)?;
         let bytes = app_identity_crypto::canonicalize(&val).map_err(str_err)?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
