@@ -76,8 +76,10 @@ pub(in crate::exec) async fn commit_mutations(
     host: &Host,
     mut mutations: Vec<Mutation>,
 ) -> Result<ResidentCommitReceipt, HostError> {
-    for mutation in &mut mutations {
-        stamp_and_validate(host, mutation).await?;
+    for (index, mutation) in mutations.iter_mut().enumerate() {
+        stamp_and_validate(host, mutation)
+            .await
+            .map_err(|error| error.at(index))?;
     }
     run_core_commit(host, mutations, "Write failed").await
 }
