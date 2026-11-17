@@ -26,8 +26,9 @@ pub const SHARE_MEMBER_GET_PATH: &str = "/api/cloud/backups/v2/share/members/get
 /// Complete HTTP path for a publisher's paged read of every member entry.
 pub const SHARE_MEMBER_LIST_PATH: &str = "/api/cloud/backups/v2/share/members/list";
 
-/// Most entries in one [`MemberSetRequest`]. The service commits them together.
-pub const MEMBER_SET_MAX: usize = 99;
+/// Most entries in one [`MemberSetRequest`]. The service commits them in one
+/// transaction of 100 writes, beside its own two.
+pub const MEMBER_SET_MAX: usize = 98;
 /// Most entries in one [`MemberListResponse`] page.
 pub const MEMBER_LIST_PAGE_MAX: usize = 200;
 
