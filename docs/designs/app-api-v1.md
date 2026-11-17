@@ -199,9 +199,26 @@ A node serves two sockets in its data directory.
   `schemas` filter it returns all of those.
 - The owner socket is not limited by any of this.
 
-The app socket does not yet stop an app that connects to the owner socket
-instead. That needs the launcher and the sandbox profile, which deny an app the
-owner socket.
+## The launcher
+
+An installed app that declares LastDB access is started by the launcher, not
+directly.
+
+- The installer points each of the app's command links at the `lastdb` command.
+  Called under the app's command name, `lastdb` finds the app that owns the
+  name and starts it. `lastdb app run <app> <command> [args]` does the same by name.
+- The launcher asks the node for an app session with the lists from the app's
+  signed listing, and starts the app's program with `LASTDB_SOCKET_PATH` set to
+  the app socket and `LASTDB_APP_SESSION` set to the session.
+- On macOS the program runs inside a sandbox profile. The profile denies the
+  LastDB home, every other installed app's files, every socket in the home
+  other than the app socket, reading other processes, and signalling them.
+  The app's own install tree stays readable.
+- On other platforms no sandbox tool is chosen yet. The app still gets only the
+  app socket and a session, which holds an app that does not try to get around it.
+- An app that declares no LastDB access is linked and started as before.
+- A program the owner starts by hand is not restricted. Only apps from the
+  registry are.
 
 ## Not built yet
 
@@ -209,8 +226,9 @@ owner socket.
 - Removing a record's file while keeping the record.
 - The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
-- The launcher that starts an installed app with a session, and the sandbox
-  profile that denies it the owner socket.
+- A sandbox tool for platforms other than macOS.
+- Install steps and the install probe run outside the profile.
+- The profile does not limit the network or the owner's other files.
 - A limit on which databases an app may name.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
 - The older routes under `/api` stay until the apps move to these two.

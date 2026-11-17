@@ -200,7 +200,7 @@ pub fn verify(
     if plan.consent_hash()? != current.consent_hash {
         return Err("install manifest changed since consent".into());
     }
-    managed_manifest::verify(root, &plan)?;
+    managed_manifest::verify(root, &plan, current.listing.access.is_some())?;
     managed_manifest::verify_git_source(&src, &current.sha)?;
     if let Some(home) = active_home.filter(|_| !current.inactive) {
         steps(&src, home, &current.app_id, &plan.probe)?;
@@ -223,7 +223,7 @@ fn apply_links(
     r: &ManagedReceipt,
     p: &InstallPlan,
 ) -> Result<(), String> {
-    managed_manifest::install(root, p)?;
+    managed_manifest::install(root, p, r.listing.access.is_some())?;
     if !r.inactive {
         steps(
             &root.join("current/source"),

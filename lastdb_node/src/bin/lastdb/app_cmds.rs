@@ -62,6 +62,11 @@ fn load_catalog(
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
+        AppCommand::Run {
+            app_id,
+            command,
+            args,
+        } => Err(crate::app_run::run(&home, &app_id, &command, args)),
         AppCommand::Rollback { app_id, .. } => {
             print_pretty_json(&host::rollback(&app_id, &home)?);
             Ok(())

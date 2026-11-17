@@ -231,21 +231,37 @@ pub(super) fn flip(link: &Path, target: &Path) -> Result<(), String> {
     })
 }
 
-pub(super) fn install(root: &Path, plan: &InstallPlan) -> Result<(), String> {
+/// Where a command link points. An app that declares LastDB access is started
+/// by the launcher, so its links point at the `lastdb` command, which runs
+/// the app restricted when it is called under the app's command name.
+fn link_target(src: &Path, bin: &Path, link: &InstallLink, restricted: bool) -> PathBuf {
+    if restricted {
+        bin.join("lastdb")
+    } else {
+        src.join(&link.source)
+    }
+}
+
+pub(super) fn install(root: &Path, plan: &InstallPlan, restricted: bool) -> Result<(), String> {
     let (src, bin) = (root.join("current/source"), bin_root()?);
     validate_sources(&src, plan)?;
     fs::create_dir_all(&bin).map_err(str_err)?;
     for l in &plan.links {
-        flip(&bin_link_path(&bin, &l.command)?, &src.join(&l.source))?;
+        flip(
+            &bin_link_path(&bin, &l.command)?,
+            &link_target(&src, &bin, l, restricted),
+        )?;
     }
     Ok(())
 }
 
-pub(super) fn verify(root: &Path, plan: &InstallPlan) -> Result<(), String> {
+pub(super) fn verify(root: &Path, plan: &InstallPlan, restricted: bool) -> Result<(), String> {
     let (src, bin) = (root.join("current/source"), bin_root()?);
     validate_sources(&src, plan)?;
     for l in &plan.links {
-        if fs::read_link(bin.join(&l.command)).map_err(str_err)? != src.join(&l.source) {
+        if fs::read_link(bin.join(&l.command)).map_err(str_err)?
+            != link_target(&src, &bin, l, restricted)
+        {
             return Err(format!("command link drift: {}", l.command));
         }
     }
