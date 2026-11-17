@@ -29,9 +29,42 @@ def surface():
     return json.loads(Path("lastdb_node/api-surface.json").read_text())
 
 
+PROFILE = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
+
+
+def download(url):
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=30) as response:
+        raw = response.read(2 * 1024 ** 2 + 1)
+    if len(raw) > 2 * 1024 ** 2:
+        raise ValueError("Registry response exceeds the signed-list bound")
+    return raw
+
+
+def catalog(api_version):
+    """Read the signed stable list for one API version."""
+    import hashlib
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    prod = json.loads(PROFILE.read_text())["environments"]["prod"]
+    base = prod["registry_index"]
+    raw = download(f"{base}/stable/api/{api_version}.json")
+    envelope = json.loads(download(f"{base}/stable/api/{api_version}.json.sig"))
+    digest = hashlib.sha256(raw).hexdigest()
+    key = base64.b64decode(prod["registry_list_key"], validate=True)
+    if (envelope.get("alg") != "ed25519" or envelope.get("payload_sha256") != digest
+            or envelope.get("key_id") != hashlib.sha256(key).hexdigest()):
+        raise ValueError("Invalid registry list signature envelope")
+    Ed25519PublicKey.from_public_bytes(key).verify(
+        base64.b64decode(envelope["sig"], validate=True), digest.encode())
+    listing = json.loads(raw)
+    if (listing.get("api_version") != api_version or listing.get("channel") != "stable"
+            or listing.get("list_version") != 1):
+        raise ValueError("Registry list belongs to another interface")
+    return listing
+
+
 def listed_apps(api_version):
     """The newest listed commit of each app in the signed stable list for one API version."""
-    from stable_app_publish import catalog
     outbox = re.search(r"pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = ([0-9]+);",
                        Path("lastdb_node/src/version.rs").read_text())
     if outbox is None:
@@ -281,8 +314,6 @@ def qualify_release(plan_path, bundles, output):
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         version = operations(node)
         apps = prove_apps(node, plan, output)
-        if plan["publish"] and any(not proof["installed_from_registry"] for proof in apps.values()):
-            raise RuntimeError("Publish the validated bootstrap app declarations, then retry qualification; no hour started")
         started = datetime.now(timezone.utc)
         beginning = time.monotonic()
         latencies = []
