@@ -3,28 +3,21 @@ import json
 
 from harness import send_unix_request
 from record_runs import held, require
+import v1_records as v1
 
 BY_ID, BY_BUCKET = "AppApiById", "AppApiByBucket"
 
 
 def read(node, *reads):
-    return node.call("/v1/read", {"reads": list(reads)})[0]["results"]
+    return v1.read_items(node, reads)
 
 
 def write(node, *mutations):
-    reply = node.call("/v1/write", {"mutations": list(mutations)})[0]
-    require(reply["written"] == len(mutations) == len(reply["revisions"]),
-            "a write did not report one revision for each mutation: " + repr(reply))
-    return reply["revisions"]
+    return v1.write_items(node, mutations)["revisions"]
 
 
 def create(schema, key, record, alternates=None, database=None):
-    item = {"schema": schema, "op": "create", "key": key, "record": record}
-    if alternates is not None:
-        item["alternates"] = alternates
-    if database is not None:
-        item["database"] = database
-    return item
+    return v1.create_item(schema, key, record, alternates=alternates, database=database)
 
 
 def by_id(name, bucket, value, schema=BY_ID, database=None):
@@ -37,14 +30,11 @@ def replace(name, bucket, value, revision):
 
 
 def delete(schema, key, revision):
-    return {"schema": schema, "op": "delete", "key": key, "revision": revision}
+    return v1.delete_item(schema, key, revision)
 
 
 def stored(node, name, schema=BY_ID, database=None):
-    item = {"schema": schema, "key": {"hash": name}}
-    if database is not None:
-        item["database"] = database
-    records = read(node, item)[0]["records"]
+    records = read(node, v1.point(schema, {"hash": name}, database=database))[0]["records"]
     require(len(records) <= 1, f"{schema} {name} returned {len(records)} records")
     return records[0] if records else None
 

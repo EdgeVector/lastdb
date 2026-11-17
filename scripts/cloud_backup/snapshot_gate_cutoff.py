@@ -13,7 +13,7 @@ _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
-from harness import create, key as record_key, replace_row as replace  # noqa: E402
+import v1_records as v1  # noqa: E402
 from node import OwnedNode  # noqa: E402
 from snapshot_attempt_account import inspect as inspect_attempt  # noqa: E402
 from snapshot_gate import (NEWER_THAN_SNAPSHOT, auto_reclaim_preimage, automatic_floor,  # noqa: E402
@@ -95,16 +95,15 @@ def write_offline_tail(private, call, peer, database, current_head):
         )
         private.replace_record(peer, database, private.PEER_LATER, first_offline)
         rows = private.read_rows(peer, database, [first_offline])[0]
-        require(len(rows) == 1 and rows[0]["fields"] == first_offline, "private_native_peer_first_edit")
-        mutations = [replace(private.SCHEMA, rows[0], private.LAGGING_LOCAL)]
-        mutations.extend(create(private.SCHEMA, record_key(fields["id"]), fields) for fields in OFFLINE_RECORDS)
-        reply = peer.call(f"/api/databases/{database}/mutations/batch", {"mutations": mutations})
-        require(
-            reply["ok"] is True
-            and reply["durability"] == "durable"
-            and reply["operations"] == {"created": 2, "updated": 1, "deleted": 0, "total": 3},
-            "private_native_peer_tail_durable",
-        )
+        require(len(rows) == 1 and rows[0]["record"] == first_offline, "private_native_peer_first_edit")
+        mutations = [v1.replace_item(
+            private.SCHEMA, {"hash": rows[0]["key"]["hash"]}, private.LAGGING_LOCAL,
+            rows[0]["revision"], database=database)]
+        mutations.extend(
+            v1.create_item(private.SCHEMA, {"hash": fields["id"]}, fields, database=database)
+            for fields in OFFLINE_RECORDS)
+        reply = v1.write_items(peer, mutations)
+        require(reply["written"] == 3 and len(reply["revisions"]) == 3, "private_native_peer_tail_durable")
         private.expect_records(
             peer, database, [private.LAGGING_LOCAL, *OFFLINE_RECORDS], "private_native_peer_pending_data"
         )

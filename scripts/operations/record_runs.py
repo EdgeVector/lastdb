@@ -10,10 +10,9 @@ from pathlib import Path
 import sys
 import threading
 import time
-import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness import conditioned, mutation as native_mutation  # noqa: E402
+import v1_records as v1  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
 MISSING_DATABASE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -47,7 +46,7 @@ def require(value, message):
 
 
 def ids(rows):
-    return [row["fields"]["id"] for row in rows]
+    return [row["record"]["id"] for row in rows]
 
 
 def held(record):
@@ -92,14 +91,24 @@ def install(node):
 
 
 def mutation(schema, key, values, operation):
-    alternates = ({"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
-                  if schema in ("RecordDrop", "RecordRace") and operation not in ("delete", "purge") else {})
-    return native_mutation(schema, key, values, operation, alternates=alternates)
+    """A /v1 write item. Replace and delete omit revision; write() reads it."""
+    item_key = v1.key_input(key)
+    alternates = None
+    if schema in ("RecordDrop", "RecordRace") and operation not in ("delete", "purge") and values:
+        alternates = {"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
+    if operation == "create":
+        return v1.create_item(schema, item_key, values, alternates=alternates)
+    if operation == "delete":
+        return {"schema": schema, "op": "delete", "key": item_key}
+    item = {"schema": schema, "op": "replace", "key": item_key, "record": values}
+    if alternates:
+        item["alternates"] = alternates
+    return item
 
 
 def write(node, mutations):
     for start in range(0, len(mutations), BATCH):
-        node.call("/api/mutations/batch", {"mutations": conditioned(node, mutations[start:start + BATCH])})
+        v1.commit(node, mutations[start:start + BATCH])
 
 
 def deleted_run(node):
@@ -111,26 +120,25 @@ def deleted_run(node):
                  for key in keys[1:-1]])
 
 
-def drain(read, body, limit, cursor=None):
-    """Every page of one read from `cursor`: its rows, its page count and its short pages."""
-    rows, short = [], 0
+def drain(node, schema, span, limit):
+    """Every page of one range read: its rows, its page count and its short pages."""
+    rows, short, cursor = [], 0, None
     for count in range(1, MAX_PAGES + 1):
-        page = read({**body, "limit": limit, **({"cursor": cursor} if cursor else {})})
-        rows.extend(page["results"])
-        if not page["has_more"]:
-            require(page.get("next_cursor") is None, "the last page has a cursor")
-            return rows, count, short
-        short += len(page["results"]) < limit
+        page = v1.read_items(node, [v1.range_read(schema, span, limit=limit, cursor=cursor)])[0]
+        rows.extend(page["records"])
         following = page.get("next_cursor")
-        require(following and following != cursor,
+        if following is None:
+            return rows, count, short
+        short += len(page["records"]) < limit
+        require(following != cursor,
                 "a page before the last has no cursor or did not move it: " + repr(following))
         cursor = following
-    raise RuntimeError(f"the read did not end in {MAX_PAGES} pages: {body}")
+    raise RuntimeError(f"the read did not end in {MAX_PAGES} pages: {schema} {span}")
 
 
 def range_reads(node):
     body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
-    rows, pages, short = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
+    rows, pages, short = drain(node, "RecordRun", {"hash": "run"}, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the range read past deleted records differs: " + repr(ids(rows)))
     require(pages >= 2, "the range proof did not exercise its cursor")
@@ -149,18 +157,15 @@ def range_reads(node):
 
 
 def listed_hashes(node, schema, limit=500):
-    """Every live primary hash of `schema` via paged GET /api/list."""
+    """Every live primary hash of `schema`, one keys_only page at a time."""
     keys, cursor = [], None
     for _ in range(MAX_PAGES):
-        target = f"/api/list?schema={schema}&limit={limit}"
-        if cursor:
-            target += "&cursor=" + urllib.parse.quote(cursor, safe="")
-        page = node.call(target)[0]["list"]
+        page = v1.read_items(node, [v1.key_list(schema, limit=limit, cursor=cursor)])[0]
         keys.extend(item["hash"] for item in page["keys"])
         cursor = page.get("next_cursor")
-        if not page["has_more"]:
+        if cursor is None:
             return keys
-    raise RuntimeError(f"/api/list for {schema} did not finish in {MAX_PAGES} pages")
+    raise RuntimeError(f"the key list for {schema} did not finish in {MAX_PAGES} pages")
 
 
 def opaque_keys(node):
@@ -172,21 +177,19 @@ def opaque_keys(node):
     listed = sorted(listed_hashes(node, "RecordNoKey"))
     require(listed == ["n0", "n1", "n3", "n4"],
             "the key list of a schema with no key field differs: " + repr(listed))
-    rows = node.call("/api/query", {"schema_name": "RecordNoKey",
-                                    "filter": {"HashRangeKeys": [[name, ""] for name in names]}})[0]["results"]
-    values = sorted(row["fields"]["value"] for row in rows)
+    rows = v1.flat_records(v1.read_all(node, [v1.point("RecordNoKey", {"hash": name}) for name in names]))
+    values = sorted(row["record"]["value"] for row in rows)
     require(values == ["n0", "n1", "n3", "n4"],
             "the keyed batch read of a schema with no key field differs: " + repr(values))
-    require(all(row["key"]["hash"] == row["fields"]["value"] for row in rows),
+    require(all(row["key"]["hash"] == row["record"]["value"] for row in rows),
             "a record lost its independently stored API key")
 
 
 def wait_gone(node, keys, message, seconds=SWEEP_SECONDS):
     """Wait until the TTL sweep erased every one of `keys` under the hash "aged"."""
-    body = {"schema_name": "RecordAged",
-            "filter": {"HashRangeKeys": [["aged", key] for key in keys]}}
+    reads = [v1.point("RecordAged", {"hash": "aged", "range": key}) for key in keys]
     deadline = time.time() + seconds
-    while node.call("/api/query", body)[0]["results"]:
+    while v1.flat_records(v1.read_all(node, reads)):
         require(time.time() < deadline, message)
         time.sleep(1)
 
@@ -240,11 +243,9 @@ def ledger(node):
 def bucket_rows(node, schema, bucket):
     """Every live record of `schema`, by key list and by its `by_bucket` alternate key."""
     listed = listed_hashes(node, schema)
-    page = node.call("/api/query", {"schema_name": schema,
-                                    "filter": {"HashKey": bucket}, "key_name": "by_bucket",
-                                    "limit": 1_000})[0]
-    require(not page.get("has_more"), f"the alternate read of {schema} was truncated")
-    return listed, ids(page["results"])
+    page = v1.read_items(node, [v1.range_read(schema, {"hash": bucket}, via="by_bucket", limit=1_000)])[0]
+    require(page.get("next_cursor") is None, f"the alternate read of {schema} was truncated")
+    return listed, ids(page["records"])
 
 
 def drop_release(node):
@@ -255,10 +256,10 @@ def drop_release(node):
     write(node, [mutation("RecordDrop", {"hash": name}, {"id": name, "bucket": "bd", "value": name + "-2"}, "replace")
                  for name in names[:10]])
     write(node, [mutation("RecordDrop", {"hash": name}, {}, "delete") for name in names[-10:]])
-    primary = node.call("/api/query", {"schema_name": "RecordDrop",
-        "filter": {"HashRangeKeys": [[name, ""] for name in names]}, "limit": DROP_RECORDS})[0]
-    require(len(primary["results"]) == DROP_RECORDS - 10,
-            f"RecordDrop keyed read returned {len(primary['results'])} records before the drop")
+    primary = v1.flat_records(v1.read_all(
+        node, [v1.point("RecordDrop", {"hash": name}) for name in names]))
+    require(len(primary) == DROP_RECORDS - 10,
+            f"RecordDrop keyed read returned {len(primary)} records before the drop")
     listed, alternate = bucket_rows(node, "RecordDrop", "bd")
     require(len(listed) == len(alternate) == DROP_RECORDS - 10,
             f"RecordDrop holds {len(listed)} listed and {len(alternate)} alternate records before the drop")
@@ -279,8 +280,7 @@ def drop_release(node):
     listed, alternate = bucket_rows(node, "RecordDrop", "bd")
     require(listed == ["d0001"] and alternate == [],
             f"a new record after the drop reads as {listed} by list and {alternate} under the old bucket")
-    body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
-    rows, _, _ = drain(lambda request: node.call("/api/query", request)[0], body, LIMIT)
+    rows, _, _ = drain(node, "RecordRun", {"hash": "run"}, LIMIT)
     require(ids(rows) == ["a-first", "z-last"], "the drop of RecordDrop changed RecordRun: " + repr(ids(rows)))
 
 
@@ -293,13 +293,13 @@ def race_writer(node, stop, outcome):
         batch = [mutation("RecordRace", {"hash": name}, {"id": name, "bucket": "race", "value": name},
                           "create") for name in names]
         try:
-            node.call("/api/mutations/batch", {"mutations": batch})
+            v1.write_items(node, batch)
             outcome["written"] += 1
         except RuntimeError as error:
             text = str(error)
             if "blocked" in text:
                 outcome["blocked"] += 1
-            elif "not found" in text.lower():
+            elif "not found" in text.lower() or "no schema is named" in text.lower():
                 outcome["missing"] += 1
             else:
                 outcome["other"].append(text[:400])
