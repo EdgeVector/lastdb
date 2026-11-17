@@ -1,251 +1,192 @@
-//! Member routes. The API key is not attached. Success is the ack JSON.
+//! Signed member entry requests to the storage service.
 
-use super::pending;
-use super::successor::SignedUpdate;
-use super::{authorization, read_body, MemberAck, PublisherSession};
-use crate::cloud_backup_client::read_bounded_bytes;
+use super::{entries, PublisherSession};
+use crate::cloud_backup_client::{authorization_post, read_bounded_bytes, PathPostTarget};
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadResponse, MemberListRevision, SHARE_MEMBER_LIST_READ_PATH,
-    SHARE_MEMBER_LIST_UPDATE_PATH,
+    MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
+    MemberSetRequest, MemberSetResponse, MEMBER_SET_MAX, SHARE_MEMBER_GET_PATH,
+    SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH,
 };
-use cloud_backup_protocol::{DecimalU64, ErrorCode, ProtocolError};
+use cloud_backup_protocol::v2::Version;
+use cloud_backup_protocol::{Digest, Id, ProtocolError};
 use reqwest::Url;
-use serde::Deserialize;
-use std::path::Path;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+const UNCONFIRMED: &str = "member service did not answer";
+/// Entry bytes in one write. The request limit is 256 KiB.
+const SET_BYTES: usize = 200 * 1024;
 
-pub(super) async fn read_document(
+/// The stored entry of one member and the database's member write count.
+pub(super) async fn get(
     session: &PublisherSession,
     database_id: &str,
-) -> Result<MemberListReadResponse, String> {
-    match read_at(session, database_id, 0).await? {
-        ReadBody::Document(document) => Ok(document),
-        ReadBody::Revision(revision) => read_named(session, database_id, revision).await,
-    }
-}
-
-pub(super) async fn commit(
-    session: &PublisherSession,
-    home: &Path,
-    database_id: &str,
-    signed: &SignedUpdate,
-) -> Result<MemberAck, String> {
-    finish(session, home, database_id, &signed.body, signed.revision).await
-}
-
-pub(super) async fn post_saved(
-    session: &PublisherSession,
-    home: &Path,
-    database_id: &str,
-    body: &[u8],
-) -> Result<MemberAck, String> {
-    let revision = signed_revision(body)?;
-    finish(session, home, database_id, body, revision).await
-}
-
-async fn read_named(
-    session: &PublisherSession,
-    database_id: &str,
-    revision: MemberListRevision,
-) -> Result<MemberListReadResponse, String> {
-    if revision.database_id.as_str() != database_id {
-        return Err("share.grant.identity".into());
-    }
-    match read_at(session, database_id, revision.revision.get()).await? {
-        ReadBody::Document(document) => Ok(document),
-        ReadBody::Revision(_) => Err("member list read was not acknowledged".into()),
-    }
-}
-
-async fn read_at(
-    session: &PublisherSession,
-    database_id: &str,
-    revision: u64,
-) -> Result<ReadBody, String> {
-    let body = read_body(session, database_id)?;
-    let authorization = authorization(session, &body, database_id, revision)?;
-    let reply = post(
-        session,
-        SHARE_MEMBER_LIST_READ_PATH,
-        &body,
-        Some(authorization),
-        "member list read was not acknowledged",
-    )
-    .await?;
-    parse_read(&reply)
-}
-
-async fn finish(
-    session: &PublisherSession,
-    home: &Path,
-    database_id: &str,
-    body: &[u8],
-    revision: u64,
-) -> Result<MemberAck, String> {
-    let reply = match post(
-        session,
-        SHARE_MEMBER_LIST_UPDATE_PATH,
-        body,
-        None,
-        "member update was not acknowledged",
-    )
-    .await
-    {
-        Ok(reply) => reply,
-        Err(error) => return Err(error),
+    node: &Digest,
+) -> Result<(u64, Option<MemberEntry>), String> {
+    let request = MemberGetRequest {
+        version: Version::V2,
+        stream: entries::stream(session, database_id)?,
+        node_public_key: node.clone(),
     };
-    match classify_update(&reply, revision) {
-        UpdateClass::Ack(revision) => acknowledged(home, database_id, revision),
-        UpdateClass::Refused(field) => {
-            clear_pending(home, database_id)?;
-            Err(field)
+    let reply: MemberGetResponse =
+        signed(session, database_id, SHARE_MEMBER_GET_PATH, &request).await?;
+    reply.validate_for(&request).map_err(|error| error.field)?;
+    if let Some(entry) = &reply.entry {
+        entries::verify(session, database_id, entry)?;
+    }
+    Ok((reply.revision.get(), reply.entry))
+}
+
+/// Every stored entry, in key order, and the member write count.
+pub(super) async fn list(
+    session: &PublisherSession,
+    database_id: &str,
+) -> Result<(u64, Vec<MemberEntry>), String> {
+    let mut all = Vec::new();
+    let mut after = None;
+    loop {
+        let request = MemberListRequest {
+            version: Version::V2,
+            stream: entries::stream(session, database_id)?,
+            after: after.clone(),
+        };
+        let reply: MemberListResponse =
+            signed(session, database_id, SHARE_MEMBER_LIST_PATH, &request).await?;
+        reply.validate_for(&request).map_err(|error| error.field)?;
+        for entry in &reply.entries {
+            entries::verify(session, database_id, entry)?;
         }
-        UpdateClass::Retryable(detail) => Err(detail),
-        UpdateClass::Unknown => Err("member update was not acknowledged".into()),
+        all.extend(reply.entries);
+        match reply.next {
+            Some(next) if after.as_ref().is_none_or(|previous| previous < &next) => {
+                after = Some(next);
+            }
+            Some(_) => return Err(UNCONFIRMED.into()),
+            None => return Ok((reply.revision.get(), all)),
+        }
     }
 }
 
-fn acknowledged(home: &Path, database_id: &str, revision: u64) -> Result<MemberAck, String> {
-    clear_pending(home, database_id)?;
-    Ok(MemberAck {
-        database_id: database_id.to_owned(),
-        revision,
-        unchanged: false,
-    })
+/// Write signed entries. Returns the member write count after the last one.
+///
+/// A request carries at most [`MEMBER_SET_MAX`] entries and is atomic. More
+/// entries go as several requests, in key order.
+pub(super) async fn set(
+    session: &PublisherSession,
+    database_id: &str,
+    mut signed_entries: Vec<MemberEntry>,
+) -> Result<u64, String> {
+    signed_entries.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
+    let mut revision = 0;
+    let mut chunk: Vec<MemberEntry> = Vec::new();
+    let mut bytes = 0usize;
+    for entry in signed_entries {
+        let size = serde_json::to_vec(&entry)
+            .map_err(|_| "cannot encode member update")?
+            .len();
+        // A request has a count limit and a size limit. An entry with a long
+        // write scope is large, so both bound a chunk.
+        if !chunk.is_empty() && (chunk.len() == MEMBER_SET_MAX || bytes + size > SET_BYTES) {
+            revision = send(session, database_id, std::mem::take(&mut chunk)).await?;
+            bytes = 0;
+        }
+        bytes += size;
+        chunk.push(entry);
+    }
+    if !chunk.is_empty() {
+        revision = send(session, database_id, chunk).await?;
+    }
+    Ok(revision)
 }
 
-fn clear_pending(home: &Path, database_id: &str) -> Result<(), String> {
-    pending::remove(home, database_id)
-        .map_err(|_| "pending member update could not be cleared".into())
+async fn send(
+    session: &PublisherSession,
+    database_id: &str,
+    entries: Vec<MemberEntry>,
+) -> Result<u64, String> {
+    let request = MemberSetRequest {
+        version: Version::V2,
+        stream: entries::stream(session, database_id)?,
+        entries,
+    };
+    request.validate().map_err(|error| error.field)?;
+    let body = serde_json::to_vec(&request).map_err(|_| "cannot encode member update")?;
+    let reply: MemberSetResponse = post(session, SHARE_MEMBER_SET_PATH, &body, None).await?;
+    Ok(reply.revision.get())
 }
 
-async fn post(
+async fn signed<Request: serde::Serialize, Reply: DeserializeOwned>(
+    session: &PublisherSession,
+    database_id: &str,
+    path: &'static str,
+    request: &Request,
+) -> Result<Reply, String> {
+    let body = serde_json::to_vec(request).map_err(|_| "cannot encode member request")?;
+    let database = Id::try_from(database_id.to_owned())
+        .map_err(|_| "database registry is unavailable".to_string())?;
+    let authorization = authorization_post(
+        &session.signer,
+        PathPostTarget {
+            scope: &session.scope,
+            database_id: &database,
+            environment: session.environment,
+            path,
+        },
+        &body,
+        0,
+        fold_db::clock::unix_millis(),
+    )?;
+    post(session, path, &body, Some(authorization)).await
+}
+
+async fn post<Reply: DeserializeOwned>(
     session: &PublisherSession,
     path: &str,
     body: &[u8],
     authorization: Option<String>,
-    failure: &'static str,
 ) -> Result<Reply, String> {
-    let failed = || failure.to_owned();
     let mut request = session
         .http
-        .post(endpoint(&session.origin, path)?)
+        .post(endpoint(&session.origin, path))
         .timeout(TIMEOUT)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body.to_vec());
     if let Some(authorization) = authorization {
         request = request.header(reqwest::header::AUTHORIZATION, authorization);
     }
-    let response = request.send().await.map_err(|_| failed())?;
+    let response = request.send().await.map_err(|_| UNCONFIRMED)?;
     let status = response.status().as_u16();
     let bytes = read_bounded_bytes(response, CONTROL_JSON_MAX_BYTES)
         .await
-        .map_err(|_| failed())?;
-    Ok(Reply { status, bytes })
-}
-
-fn endpoint(origin: &Url, path: &str) -> Result<Url, String> {
-    let mut url = origin.clone();
-    url.set_path(path);
-    url.set_query(None);
-    url.set_fragment(None);
-    Ok(url)
-}
-
-fn parse_read(reply: &Reply) -> Result<ReadBody, String> {
-    if (200..300).contains(&reply.status) {
-        if let Ok(document) = serde_json::from_slice::<MemberListReadResponse>(&reply.bytes) {
-            return Ok(ReadBody::Document(document));
-        }
-        if let Ok(revision) = serde_json::from_slice::<MemberListRevision>(&reply.bytes) {
-            return Ok(ReadBody::Revision(revision));
-        }
-        return Err("member list read was not acknowledged".into());
+        .map_err(|_| UNCONFIRMED)?;
+    if (200..300).contains(&status) {
+        return serde_json::from_slice(&bytes).map_err(|_| UNCONFIRMED.into());
     }
-    if crate::cloud::is_payment_subscription_error(reply.status, &reply.bytes) {
+    if crate::cloud::is_payment_subscription_error(status, &bytes) {
         return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
     }
-    Err(failure(&reply.bytes).map_or_else(
-        || "member list read was not acknowledged".into(),
-        |error| format_protocol_error(&error),
-    ))
+    Err(serde_json::from_slice::<ProtocolError>(&bytes)
+        .map_or_else(|_| UNCONFIRMED.into(), |error| refusal(&error)))
 }
 
-fn classify_update(reply: &Reply, expected: u64) -> UpdateClass {
-    if (200..300).contains(&reply.status) {
-        return match serde_json::from_slice::<AckBody>(&reply.bytes) {
-            Ok(ack) if ack.committed && ack.revision.get() == expected => {
-                UpdateClass::Ack(expected)
-            }
-            _ => UpdateClass::Unknown,
-        };
-    }
-    if crate::cloud::is_payment_subscription_error(reply.status, &reply.bytes) {
-        return UpdateClass::Refused(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
-    }
-    match failure(&reply.bytes) {
-        Some(error) if definitive(error.code) => {
-            UpdateClass::Refused(format_protocol_error(&error))
-        }
-        Some(error) => UpdateClass::Retryable(crate::cloud::format_protocol_error(&error)),
-        None => UpdateClass::Unknown,
-    }
-}
-
-fn format_protocol_error(error: &ProtocolError) -> String {
+/// Keep the field of a refusal a caller acts on. A stale sequence is a
+/// revision conflict: another write for that member arrived first.
+fn refusal(error: &ProtocolError) -> String {
     match error.field.as_str() {
-        "share.grant.revision"
-        | "share.grant.identity"
-        | "share.grant.personal"
-        | "mutation_log.transaction" => error.field.clone(),
+        "share.member.sequence" => "share.grant.revision".into(),
+        "share.grant.identity" | "share.grant.personal" | "mutation_log.transaction" => {
+            error.field.clone()
+        }
         _ => crate::cloud::format_protocol_error(error),
     }
 }
 
-fn failure(bytes: &[u8]) -> Option<ProtocolError> {
-    serde_json::from_slice(bytes).ok()
-}
-
-fn definitive(code: ErrorCode) -> bool {
-    matches!(
-        code,
-        ErrorCode::InvalidInput
-            | ErrorCode::Unauthorized
-            | ErrorCode::NotFound
-            | ErrorCode::ResourceLimit
-            | ErrorCode::IdentityConflict
-    )
-}
-
-fn signed_revision(body: &[u8]) -> Result<u64, String> {
-    let update: cloud_backup_protocol::v2::share_access::MemberListUpdate =
-        serde_json::from_slice(body).map_err(|_| "pending member update is unreadable")?;
-    Ok(update.revision.get())
-}
-
-enum ReadBody {
-    Document(MemberListReadResponse),
-    Revision(MemberListRevision),
-}
-
-enum UpdateClass {
-    Ack(u64),
-    Refused(String),
-    Retryable(String),
-    Unknown,
-}
-
-struct Reply {
-    status: u16,
-    bytes: Vec<u8>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AckBody {
-    revision: DecimalU64,
-    committed: bool,
+fn endpoint(origin: &Url, path: &str) -> Url {
+    let mut url = origin.clone();
+    url.set_path(path);
+    url.set_query(None);
+    url.set_fragment(None);
+    url
 }

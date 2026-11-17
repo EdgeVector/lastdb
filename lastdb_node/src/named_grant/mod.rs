@@ -1,21 +1,17 @@
 //! Publisher grant, revoke, and invitation sealing for one named database.
 
 mod config;
+mod entries;
 mod exchange;
-mod pending;
-mod successor;
+mod lock;
 
 use crate::cloud::load_connected_home_context;
-use crate::cloud_backup_client::{
-    authorization_post, build_shared_http_client, GuestReadPermission, PathPostTarget,
-};
+use crate::cloud_backup_client::{build_shared_http_client, GuestReadPermission};
 use crate::host::owned;
 use crate::profile::endpoints::Environment;
 use crate::share_invitation::{self, ShareContact};
-use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, ShareEnvironment, ShareMemberState, SHARE_MEMBER_LIST_READ_PATH,
-};
-use cloud_backup_protocol::v2::{Stream, Version};
+use cloud_backup_protocol::v2::share_access::ShareEnvironment;
+use cloud_backup_protocol::v2::Stream;
 use cloud_backup_protocol::{CloudScope, Digest, Id};
 use fold_db::security::Ed25519KeyPair;
 use reqwest::Url;
@@ -23,7 +19,7 @@ use std::path::Path;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub(crate) use config::{lock_applied, read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use config::{lock_member, read_config, set_config, ConfigError, ConfigUpdate};
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,7 +32,7 @@ pub(crate) enum MemberIntent {
     Revoke,
 }
 
-/// Service acknowledgement of one member row.
+/// Service acknowledgement of one member entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MemberAck {
     pub(crate) database_id: String,
@@ -100,22 +96,26 @@ pub(crate) async fn update_member(
     if entry.whole_database() && matches!(intent, MemberIntent::Submit { .. }) {
         return Err("whole-database writers require a configured schema scope".into());
     }
-    let _lock = pending::lock(home, &entry.id)?;
+    let _lock = lock::hold(home, &entry.id)?;
     let session = PublisherSession::open(home).await?;
     if &session.publisher == node {
         return Err("share.members.publisher".into());
     }
-    if let Some(saved) = pending::load(home, &entry.id)? {
-        return pending::retry(home, &session, &entry.id, node, intent, saved).await;
-    }
-    let document = exchange::read_document(&session, &entry.id).await?;
-    successor::require_stream(&document, &session, &entry.id)?;
-    if let Some(ack) = successor::unchanged(&document, &entry.id, node, intent)? {
-        return Ok(ack);
-    }
-    let signed = successor::sign(&session, &document, node, intent)?;
-    pending::store(home, &entry.id, node, intent, &signed.body)?;
-    exchange::commit(&session, home, &entry.id, &signed).await
+    let (revision, current) = exchange::get(&session, &entry.id, node).await?;
+    let Some(grant) = entries::member_step(current.as_ref(), intent)? else {
+        return Ok(MemberAck {
+            database_id: entry.id,
+            revision,
+            unchanged: true,
+        });
+    };
+    let signed = entries::sign(&session, &entry.id, node, current.as_ref(), grant)?;
+    let revision = exchange::set(&session, &entry.id, vec![signed]).await?;
+    Ok(MemberAck {
+        database_id: entry.id,
+        revision,
+        unchanged: false,
+    })
 }
 
 /// Seal this database's AES key to `contact`. Opens a fresh publisher session.
@@ -145,22 +145,12 @@ pub(crate) async fn issue_invitation(
         ));
     }
     let entry = owned::find_shareable(home, database_id).map_err(ConfigError::Invalid)?;
-    let _lock = pending::lock(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
-    if pending::load(home, database_id)
-        .map_err(|_| ConfigError::Unconfirmed)?
-        .is_some()
-    {
-        return Err(ConfigError::Pending);
-    }
-    let session = PublisherSession::open(home)
+    let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
+    let session = config::open(home).await?;
+    let (_, granted) = exchange::get(&session, database_id, expected_key)
         .await
         .map_err(|e| config::unconfirmed_or_payment(&e))?;
-    let document = config::read(&session, database_id).await?;
-    if !document.update.as_ref().is_some_and(|update| {
-        update.members.iter().any(|member| {
-            &member.node_public_key == expected_key && member.state == ShareMemberState::Active
-        })
-    }) {
+    if !granted.is_some_and(|entry| entry.is_active()) {
         return Err(ConfigError::Invalid("recipient has no active grant".into()));
     }
     seal_invitation(&session, &entry, &contact, lifetime_hours).map_err(ConfigError::Invalid)
@@ -204,39 +194,4 @@ fn seal_invitation(
         return Err("sealed share invitation exceeds its size limit".into());
     }
     Ok(sealed)
-}
-
-fn read_body(session: &PublisherSession, database_id: &str) -> Result<Vec<u8>, String> {
-    let request = MemberListReadRequest {
-        version: Version::V2,
-        stream: Stream {
-            scope: session.scope.clone(),
-            stream_id: Id::try_from(database_id.to_owned())
-                .map_err(|_| "database registry is unavailable")?,
-        },
-    };
-    request.validate().map_err(|error| error.field)?;
-    serde_json::to_vec(&request).map_err(|_| "cannot encode member list read".into())
-}
-
-fn authorization(
-    session: &PublisherSession,
-    body: &[u8],
-    database_id: &str,
-    revision: u64,
-) -> Result<String, String> {
-    let database_id = Id::try_from(database_id.to_owned())
-        .map_err(|_| "database registry is unavailable".to_string())?;
-    authorization_post(
-        &session.signer,
-        PathPostTarget {
-            scope: &session.scope,
-            database_id: &database_id,
-            environment: session.environment,
-            path: SHARE_MEMBER_LIST_READ_PATH,
-        },
-        body,
-        revision,
-        fold_db::clock::unix_millis(),
-    )
 }
