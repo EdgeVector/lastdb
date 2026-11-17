@@ -74,6 +74,8 @@ jobs:
             args+=(--base "$BASE_SHA")
           fi
           python3 scripts/lints/api_surface.py "${args[@]}"
+      - name: App API SDK types
+        run: python3 scripts/lints/app_api_types.py --check
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
       - name: Record counter writer-boundary lint

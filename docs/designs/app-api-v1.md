@@ -132,7 +132,7 @@ POST /v1/x/changes
                  "key": { "hash": "design-x", "range": null }, "deleted": false } ] }
 ```
 
-- `after` is the last number the app handled. Without it the read starts at the oldest kept entry.
+- `after` is the last number the app handled. Omit it and the read starts at 0. The node keeps the newest 250000 entries. When the head is past that window, `after` 0 makes `gap` true and the reply has no entries.
 - `limit` is at most 500. Zero reads `head` only.
 - `schemas` is optional. Without it the read returns every schema.
 - An entry holds no record values. The app reads the changed records through `/v1/read`.

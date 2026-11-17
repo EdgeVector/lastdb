@@ -212,15 +212,46 @@
           {"$ref": "#/components/schemas/RangeBounds"}
         ]
       },
-      "ReadItem": {
+      "ReadByKey": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["schema"],
-        "description": "A read names exactly one of key or range. keys_only with neither lists the schema keys, and that list takes no via and no file. Other combinations parse and return invalid_request on that item. A key list rejects limit 0. A keyed read accepts limit 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. A key-list cursor is a storage key. A keyed-read cursor is URL-safe base64 with no padding. Both are opaque strings.",
+        "required": ["schema", "key"],
+        "description": "A read by one key. A keyed read accepts limit 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. The cursor is URL-safe base64 with no padding.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "schema": {"$ref": "#/components/schemas/SchemaName"},
           "key": {"$ref": "#/components/schemas/KeyInput"},
+          "via": {
+            "type": "string",
+            "description": "Alternate key name. Omit it to use the primary key."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Page size. Omit it for 100. Values above 1000 are capped at 1000."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque token from next_cursor of the previous page."
+          },
+          "keys_only": {
+            "type": "boolean",
+            "description": "Return keys instead of records. Omit it for false."
+          },
+          "file": {
+            "type": "boolean",
+            "description": "When true, each record file includes path. Omit it for false."
+          }
+        }
+      },
+      "ReadByRange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "range"],
+        "description": "A read by one of the three range forms. A range read accepts limit 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. The cursor is URL-safe base64 with no padding.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
           "range": {"$ref": "#/components/schemas/Range"},
           "via": {
             "type": "string",
@@ -244,6 +275,71 @@
             "description": "When true, each record file includes path. Omit it for false."
           }
         }
+      },
+      "ReadKeyList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "keys_only"],
+        "description": "Lists the primary keys of the schema. The node returns invalid_request on that item inside HTTP 200 when limit is 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. The cursor is a storage key. via and file are not properties of this form. The node also returns that item error when a key list sets them.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "keys_only": {
+            "type": "boolean",
+            "enum": [true],
+            "description": "Must be true. This form lists primary keys."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Page size. Omit it for 100. Values above 1000 are capped at 1000. Zero is invalid_request on this item."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque storage key from next_cursor of the previous page."
+          }
+        }
+      },
+      "ReadWithoutKey": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema"],
+        "description": "No key and no range, and keys_only is absent or false. The node accepts this shape and returns invalid_request on that item inside HTTP 200. A read of records still names a key or a range.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "via": {
+            "type": "string",
+            "description": "Alternate key name. With no key and no range the node returns invalid_request on this item."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Page size. This form does not run a read."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque token. This form does not run a read."
+          },
+          "keys_only": {
+            "type": "boolean",
+            "enum": [false],
+            "description": "Must be false when present. Omit it for the same item error."
+          },
+          "file": {
+            "type": "boolean",
+            "description": "When set with no key and no range, the node returns invalid_request on this item."
+          }
+        }
+      },
+      "ReadItem": {
+        "description": "One read. A key and a range together match none of these forms. The node still parses that combination and returns invalid_request on that item inside HTTP 200. A key list that also sets via or file does the same and also matches none of these forms. A keyed cursor is URL-safe base64 with no padding. A key-list cursor is a storage key. Both are opaque strings.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/ReadByKey"},
+          {"$ref": "#/components/schemas/ReadByRange"},
+          {"$ref": "#/components/schemas/ReadKeyList"},
+          {"$ref": "#/components/schemas/ReadWithoutKey"}
+        ]
       },
       "ReadRequest": {
         "type": "object",
@@ -415,24 +511,62 @@
         "additionalProperties": {"$ref": "#/components/schemas/AlternateValue"},
         "description": "Alternate key name to a key. Names come from the schema, so they are not listed here. A delete must send an empty object or omit the field; the node loads the stored alternates."
       },
-      "WriteItem": {
+      "WriteCreate": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["schema", "op", "key"],
-        "description": "create carries a record and no revision. replace carries a record and the revision it replaces. delete carries the revision it deletes, no record, no file, and no alternates. The node refuses a list that breaks those rules with HTTP 400 and sets error.index. A condition that does not hold is HTTP 409. reason is exists, absent, or revision.",
+        "required": ["schema", "op", "key", "record"],
+        "description": "A create. It carries a record and no revision. A revision on a create is HTTP 400.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "schema": {"$ref": "#/components/schemas/SchemaName"},
-          "op": {
-            "type": "string",
-            "enum": ["create", "replace", "delete"]
-          },
+          "op": {"type": "string", "enum": ["create"]},
+          "key": {"$ref": "#/components/schemas/KeyInput"},
+          "record": {"$ref": "#/components/schemas/FieldValues"},
+          "alternates": {"$ref": "#/components/schemas/Alternates"},
+          "file": {"$ref": "#/components/schemas/FileLink"}
+        }
+      },
+      "WriteReplace": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "op", "key", "record", "revision"],
+        "description": "A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "op": {"type": "string", "enum": ["replace"]},
           "key": {"$ref": "#/components/schemas/KeyInput"},
           "record": {"$ref": "#/components/schemas/FieldValues"},
           "alternates": {"$ref": "#/components/schemas/Alternates"},
           "revision": {"type": "string"},
           "file": {"$ref": "#/components/schemas/FileLink"}
         }
+      },
+      "WriteDelete": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "op", "key", "revision"],
+        "description": "A delete. It carries the revision it deletes, no record, and no file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, or a non-empty alternates object is HTTP 400.",
+        "properties": {
+          "database": {"$ref": "#/components/schemas/DatabaseName"},
+          "schema": {"$ref": "#/components/schemas/SchemaName"},
+          "op": {"type": "string", "enum": ["delete"]},
+          "key": {"$ref": "#/components/schemas/KeyInput"},
+          "revision": {"type": "string"},
+          "alternates": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Omit this field or send an empty object. A non-empty object is HTTP 400."
+          }
+        }
+      },
+      "WriteItem": {
+        "description": "One mutation: a create, a replace, or a delete. The node refuses a list that breaks those shapes with HTTP 400 and sets error.index. A condition that does not hold is HTTP 409. reason is exists, absent, or revision.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/WriteCreate"},
+          {"$ref": "#/components/schemas/WriteReplace"},
+          {"$ref": "#/components/schemas/WriteDelete"}
+        ]
       },
       "WriteRequest": {
         "type": "object",

@@ -9,17 +9,15 @@
 import { existsSync } from 'node:fs';
 
 import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
-import {
-  executeAppChanges,
-  executeAppRead,
-  executeAppWrite,
-  type AppApiChangesOptions,
-  type AppApiChangesResult,
-  type AppApiMutation,
-  type AppApiRead,
-  type AppApiReadResult,
-  type AppApiWriteResult,
-} from './appApi.js';
+import { executeAppChanges, executeAppRead, executeAppWrite } from './appApi.js';
+import type {
+  ChangesReply,
+  ChangesRequest,
+  ReadItem,
+  ReadResult,
+  WriteItem,
+  WriteResult,
+} from './appApi.generated.js';
 import {
   executeDeleteBlob,
   executeFetchBlob,
@@ -225,17 +223,17 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
    * `POST /v1/read` — one result per read, in order.
    * A per-item error is returned, not thrown. Does not use this client's `/api` database path.
    */
-  read(reads: readonly AppApiRead[]): Promise<AppApiReadResult[]> {
+  read(reads: readonly ReadItem[]): Promise<ReadResult[]> {
     return executeAppRead(this.context, reads);
   }
 
   /** `POST /v1/write` — commit a list of conditional mutations after the write is on disk. */
-  write(mutations: readonly AppApiMutation[]): Promise<AppApiWriteResult> {
+  write(mutations: readonly WriteItem[]): Promise<WriteResult> {
     return executeAppWrite(this.context, mutations);
   }
 
   /** `POST /v1/x/changes` — changed record keys after a saved position. */
-  changes(options: AppApiChangesOptions = {}): Promise<AppApiChangesResult> {
+  changes(options: ChangesRequest = {}): Promise<ChangesReply> {
     return executeAppChanges(this.context, options);
   }
 
