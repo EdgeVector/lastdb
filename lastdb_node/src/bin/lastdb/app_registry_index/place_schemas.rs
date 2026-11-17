@@ -1,4 +1,5 @@
-//! Place a restricted app's schemas on the running node at activation.
+//! Place a restricted app's schemas on the running node at activation. The
+//! manifest may list any schema, whichever app first defined it.
 //!
 //! `POST /api/apps/declare-schema` takes one schema. The same definition
 //! already in place is a success, so each manifest entry is posted once
@@ -22,7 +23,7 @@ pub(super) fn place(source: &Path, app_id: &str, home: &Path) -> Result<(), Stri
     let prepared = prepare(source, app_id)?;
     let socket = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     for item in prepared {
-        post_one(&socket, app_id, item)?;
+        post_one(&socket, item)?;
     }
     Ok(())
 }
@@ -61,8 +62,14 @@ fn prepare_one(app_id: &str, entry: &Value) -> Result<PreparedSchema, String> {
     })
 }
 
-fn post_one(socket: &Path, app_id: &str, item: PreparedSchema) -> Result<(), String> {
-    let mut body = serde_json::json!({ "app_id": app_id, "schema": item.schema });
+fn post_one(socket: &Path, item: PreparedSchema) -> Result<(), String> {
+    // The node declares a schema under the namespace in its name, which is
+    // not the installing app's id when the app lists another app's schema.
+    let namespace = item
+        .name
+        .split_once('/')
+        .map_or("", |(namespace, _)| namespace);
+    let mut body = serde_json::json!({ "app_id": namespace, "schema": item.schema });
     if let Some(retention) = item.retention {
         body["retention"] = retention;
     }

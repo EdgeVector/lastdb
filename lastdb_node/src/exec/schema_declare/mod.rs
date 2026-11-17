@@ -34,11 +34,20 @@ enum SchemaSyncIntent {
     CatalogSync,
 }
 
+/// An app may list any schema in its manifest, not only ones under its own
+/// id: schemas are not owned by apps, and a second app that names
+/// `brain/Design` must get the definition Brain itself would place. So a
+/// name that carries a namespace is declared under that namespace. A bare
+/// name is declared under the app's id.
 pub fn normalize_app_manifest_schema(
     app_id: &str,
     schema: DeclarativeSchemaDefinition,
 ) -> Result<DeclarativeSchemaDefinition, String> {
-    normalize_proposal("app_id", app_id, schema, None).map(|p| p.catalog_schema)
+    let namespace = match schema.name.trim().split_once('/') {
+        Some((namespace, _)) => namespace.to_owned(),
+        None => app_id.to_owned(),
+    };
+    normalize_proposal("app_id", &namespace, schema, None).map(|p| p.catalog_schema)
 }
 
 fn normalize_proposal(
