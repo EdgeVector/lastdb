@@ -246,8 +246,17 @@ def changes(node, database=None):
           f"position and gap passed ({database or 'personal'})", flush=True)
 
 
+def extension_names(node):
+    """GET /api/version lists the app API extensions this node serves."""
+    extensions = node.call("/api/version")[0]["extensions"]
+    require(extensions == ["changes"],
+            "GET /api/version did not report extensions [changes]: " + repr(extensions))
+    print("App API extensions: GET /api/version reports [changes]", flush=True)
+
+
 def exercise(node):
     require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
+    extension_names(node)
     system_seed(node, definition(BY_ID, "Hash", FIELDS, {"by_bucket": RANGED}))
     system_seed(node, definition(BY_BUCKET, "HashRange", FIELDS))
     writes(node)

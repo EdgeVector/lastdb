@@ -21,6 +21,7 @@ pub const CLOUD_WAKE_PATH: &str = "/api/cloud/wake";
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
 const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"named_schema_write_grants_v1":true,"whole_database_create_retry_v1":true}"#;
+const EXTENSIONS_JSON: &str = r#"["changes"]"#;
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)
@@ -258,7 +259,7 @@ pub fn health_response(requires_recovery: bool) -> UdsResponse {
         return UdsResponse::new(503, "Service Unavailable", body)
             .with_header("Content-Type", "application/json");
     }
-    json_200(format!("{{\"status\":\"ok\",\"api_version\":{API_VERSION},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{}\"}}", instance_id()))
+    json_200(format!("{{\"status\":\"ok\",\"api_version\":{API_VERSION},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\"}}", instance_id()))
 }
 
 pub fn version_response() -> UdsResponse {
@@ -268,7 +269,7 @@ pub fn version_response() -> UdsResponse {
         crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
         crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
     );
-    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
+    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
 }
 
 pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
