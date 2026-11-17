@@ -240,6 +240,13 @@ directly.
   folder, `<apps root>/<app>/data`, which the launcher creates and names in
   `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app cannot write a config
   file, a command, or anything else of the owner's.
+- macOS does not let a process that already runs in a sandbox profile apply a
+  second one. When the launcher itself is started from inside a profile, for
+  example from an agent's sandboxed shell, it starts the app without its own
+  profile. The app inherits the caller's profile and cannot leave it, so it
+  reaches no more of the machine than its caller does. It still gets only the
+  app socket and a session. The caller's profile, not the launcher, then decides
+  whether the app can write its data folder.
 - An app that ran restricted stays restricted. Install refuses a later version
   whose listing declares no LastDB access.
 - On other platforms no sandbox tool is chosen yet. The app still gets only the

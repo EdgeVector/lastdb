@@ -93,6 +93,15 @@ fn restricted(
     app_socket: &Path,
     app_data: &Path,
 ) -> Command {
+    // macOS refuses a second profile on a process that already runs in one
+    // (`sandbox_apply: Operation not permitted`), so an app started from a
+    // sandboxed caller, such as an agent's shell, could never start. The
+    // caller's profile is inherited and cannot be left, so the app still
+    // gets no more of the machine than its caller has; it gets the app
+    // socket and a session as always.
+    if caller_is_sandboxed() {
+        return Command::new(&launch.program);
+    }
     let mut child = Command::new("/usr/bin/sandbox-exec");
     child
         .arg("-p")
@@ -102,6 +111,24 @@ fn restricted(
         ))
         .arg(&launch.program);
     child
+}
+
+/// Whether this process already runs inside a macOS sandbox profile.
+#[cfg(target_os = "macos")]
+fn caller_is_sandboxed() -> bool {
+    extern "C" {
+        // From libSystem. With no operation it answers whether the process
+        // is sandboxed at all.
+        fn sandbox_check(
+            pid: libc::pid_t,
+            operation: *const libc::c_char,
+            kind: libc::c_int,
+            ...
+        ) -> libc::c_int;
+    }
+    // SAFETY: a null operation is the documented "is it sandboxed" query; the
+    // call reads no memory of ours.
+    unsafe { sandbox_check(libc::getpid(), std::ptr::null(), 0) != 0 }
 }
 
 /// No sandbox tool is chosen for this platform yet. The app still gets only
