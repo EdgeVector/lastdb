@@ -17,6 +17,11 @@ import type { JsonValue } from './types.js';
 
 export { AppApiError } from './appApiError.js';
 
+/** Reply from `POST /api/apps/register`. `app` is the app id. There is no expiry. */
+export interface AppRegistration {
+  app: string;
+}
+
 const READ_PATH = '/v1/read';
 const WRITE_PATH = '/v1/write';
 const CHANGES_PATH = '/v1/x/changes';
@@ -30,8 +35,8 @@ function listed(value: string, options: readonly string[]): boolean {
 }
 
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {
-  const session = process.env.LASTDB_APP_SESSION; // set by the launcher for a restricted app
-  const opts = session ? { body, headers: { 'X-LastDB-App-Session': session } } : { body };
+  const app = process.env.LASTDB_APP; // the app id, set by the launcher
+  const opts = app ? { body, headers: { 'X-LastDB-App': app } } : { body };
   const res = await ctx.transport.send('POST', path, opts);
   if (res.status !== 200) throw appApiFailure(res.status, res.body);
   return res.body;

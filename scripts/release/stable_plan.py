@@ -21,7 +21,7 @@ from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
 from stable_place import place_manifest_schemas
 
 TAP = "EdgeVector/homebrew-lastdb"
-APPS = ("brain", "lastsecrets", "search")
+APPS = ("brain", "lastsecrets")
 HOUR = 3600
 
 
@@ -202,7 +202,7 @@ def prove_apps(node, plan, output, declare=True):
                    "LASTDB_APPS_ROOT": str(node.root / "managed-apps"),
                    "LASTSECRETS_SOCKET_PATH": str(node.socket), "LASTDB_SOCKET_PATH": str(node.socket)}
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-                 "ACTIONS_RUNTIME_TOKEN", "LASTDB_APP_SESSION"):
+                 "ACTIONS_RUNTIME_TOKEN", "LASTDB_APP"):
         environment.pop(name, None)
     results = {}
     for app in APPS:
@@ -213,7 +213,7 @@ def prove_apps(node, plan, output, declare=True):
         link = next(item for item in manifest["install"]["links"] if item["command"] == app)
         # An access manifest no longer declares schemas in init. Place them on
         # the owner socket and run the program itself. The installed command
-        # link would start the launcher, which sets the app socket and a session.
+        # link would start the launcher, which sets the app socket and the app id.
         restricted = isinstance(manifest.get("access"), dict)
         if restricted:
             place_manifest_schemas(node, manifest)
@@ -228,25 +228,13 @@ def prove_apps(node, plan, output, declare=True):
             run(["put", "ci-release-qualification", "--type", "concept"], "put", value)
             if value not in run(["get", "ci-release-qualification", "--type", "concept"], "get"):
                 raise RuntimeError("Brain did not return the acknowledged record")
-        elif app == "lastsecrets":
+        else:
             run(["init"], "init")
             value = "generated-nonsecret-ci-value"
             run(["put", "ci-release-qualification", "--label", "CI qualification", "--provider", "ci",
                  "--purpose", "release", "--env", "dev", "--value-stdin"], "put", value)
             if run(["get", "ci-release-qualification"], "get", retain_output=False).strip() != value:
                 raise RuntimeError("LastSecrets did not return the acknowledged value")
-        else:
-            inbox = node.home / "apps/search/inbox"
-            if not inbox.is_dir() or not any(path.suffix == ".json" for path in inbox.iterdir()):
-                raise RuntimeError("Database writes produced no real Search delivery")
-            run(["init", "--last-db-home", str(node.home)], "init")
-            drained = json.loads(run(["drain", "--last-db-home", str(node.home)], "drain"))
-            hits = json.loads(run(["query", "CI stable qualification record", "--json", "--last-db-home", str(node.home)], "query"))
-            if (drained.get("ok") is not True or not any(
-                    hit.get("schema_name") == "brain/Concept" and hit.get("key_hash") == "ci-release-qualification"
-                    and "CI stable qualification record" in hit.get("text", "") for hit in hits.get("hits", []))):
-                raise RuntimeError("Search did not query the real database changes")
-            run(["status", "--last-db-home", str(node.home)], "status")
         if not declare:
             results[app] = {"sha": plan["apps"][app], "installed_from_registry": installed, "complete": True}
             continue
@@ -273,7 +261,7 @@ def prove_compatibility(plan_path, bundles, output):
     validate_bundle(bundles, target, plan)
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"])
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         observed = operations(node)
@@ -284,7 +272,7 @@ def prove_compatibility(plan_path, bundles, output):
     for api_version, sources in plan.get("installed_apps", {}).items():
         older = output / f"api-{api_version}"
         older.mkdir()
-        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older, plan["version"], enable_search=True)
+        node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), older, plan["version"])
         try:
             unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
             operations(node)
@@ -319,7 +307,7 @@ def qualify_release(plan_path, bundles, output):
     target = "x86_64-unknown-linux-gnu"
     bundle = bundles / f"lastdb-{target}.tar.gz"
     manifest = document(bundles / f"lastdb-{target}.manifest.json")
-    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"], enable_search=True)
+    node = OwnedNode(Path(tempfile.mkdtemp(prefix="ldb-rel-", dir="/tmp")), output, plan["version"])
     try:
         unpack(bundle, manifest, node.binaries, plan["version"], plan["source"])
         version = operations(node)

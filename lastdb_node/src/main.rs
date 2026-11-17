@@ -27,8 +27,6 @@ struct Cli {
     data_dir: Option<PathBuf>,
     #[arg(long)]
     socket_path: Option<PathBuf>,
-    #[arg(long)]
-    enable_search: bool,
 }
 
 fn spawn_background(
@@ -226,9 +224,6 @@ fn run() -> Result<(), String> {
         let _ = writeln!(std::io::stderr().lock(), "lastdbd: invalid_arguments");
         std::process::exit(2);
     });
-    if cli.enable_search {
-        fold_db::db_operations::search_index::queue_policy::enable_for_process();
-    }
     let home = host::resolve_home(cli.data_dir)?;
     let warm = fold_db::resident::init_core_warm_bytes_from_env()?;
     if warm != fold_db::resident::DEFAULT_CORE_WARM_BYTES {

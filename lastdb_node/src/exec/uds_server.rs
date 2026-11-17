@@ -8,7 +8,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
 use super::{
-    app_api, app_session, block_on_data_route, block_on_route, database_routes, database_session,
+    app_api, block_on_data_route, block_on_route, calling_app, database_routes, database_session,
     mutation,
 };
 use crate::host::Host;
@@ -170,7 +170,7 @@ impl UdsServer {
             uds_http::Received::Ready(req, ctx) => (req, ctx),
         };
         if self.apps {
-            let response = app_session::serve(&self.handle, &req, &ctx, &self.host);
+            let response = calling_app::serve(&self.handle, &req, &ctx, &self.host);
             return uds_http::finish_connection(&mut stream, &response);
         }
         if !database_session::admit(&req, &self.host) {

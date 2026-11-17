@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 
 pub use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
-pub(crate) mod app_sessions;
+pub(crate) mod app_grants;
 pub(crate) mod cloud_sync;
 mod logging;
 pub(crate) mod owned;
@@ -110,7 +110,7 @@ pub struct Host {
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) database_sessions: DatabaseSessions,
-    pub(crate) app_sessions: app_sessions::AppSessions,
+    pub(crate) app_grants: app_grants::AppGrants,
 }
 
 impl Host {
@@ -163,7 +163,6 @@ impl Host {
         );
         let e2e_keys = E2eKeys::from_ed25519_seed(&seed)
             .map_err(|e| format!("E2E key derivation failed: {e}"))?;
-        let inbox = fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
@@ -172,7 +171,6 @@ impl Host {
         let connected = !signed_restore && (!has_spool || wants_initial) && creds_at_boot;
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            search_outbox_inbox: Some(inbox.clone()),
             capture_accepted: signed_restore || has_spool || connected,
             capture_initial_snapshot: wants_initial && connected,
             track_shared_record_revisions: false,
@@ -185,8 +183,6 @@ impl Host {
         )
         .await
         .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        fold_db::db_operations::search_index::queue_policy::prepare(&inbox)
-            .map_err(|e| format!("Search queue preparation failed: {e}"))?;
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         let cloud_sync = cloud_sync::CloudSyncTracker::from_boot(
@@ -207,7 +203,7 @@ impl Host {
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
             database_sessions: DatabaseSessions::default(),
-            app_sessions: app_sessions::AppSessions::default(),
+            app_grants: app_grants::AppGrants::open(&home.join("data")),
         })
     }
 

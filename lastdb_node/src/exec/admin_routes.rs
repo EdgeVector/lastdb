@@ -11,12 +11,6 @@ use super::wire;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-pub(super) fn search_queue_status(host: &Host) -> Value {
-    fold_db::db_operations::search_index::queue_policy::status(
-        &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home),
-    )
-}
-
 fn require_owner(ctx: &AccessContext, msg: &'static str) -> Result<(), HostError> {
     ctx.is_owner
         .then_some(())
@@ -117,8 +111,7 @@ pub(super) async fn db_native_status(
     let res = async {
         require_owner(ctx, "the native status route is owner-only")?;
         let rt = host.db.db_ops().native_runtime();
-        let mut status =
-            json!({ "native_disk": rt.status_native(), "search": search_queue_status(host) });
+        let mut status = json!({ "native_disk": rt.status_native() });
         if std::env::var("LASTDB_SNAPSHOT_TIMING")
             .is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on"))
         {

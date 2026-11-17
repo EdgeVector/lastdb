@@ -96,7 +96,7 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - `file: null` means the record has no file.
 - `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
 - A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
-- For a file LastDB holds as its own bytes, `local` is null until a copy sits in the calling app's data folder. `path` is null on the owner socket, and on an app session issued without `data`. On the app socket, when the session names that folder, a read with `"file": true` writes the plain bytes to `<data>/files/<content hash>` and returns that path. The folder is mode 0700 and the file is mode 0600. The node writes a temporary name in that folder and renames it into place, and it does not follow a symlink at the destination. A file of that name and size is reused. That reply sets `local` to the same path. A read that does not set `file` to true does not write; it reports `local` only when the file is already there.
+- For a file LastDB holds as its own bytes, `local` is null until a copy sits in the calling app's data folder. `path` is null on the owner socket, and when the grant has no `data`. On the app socket, when the grant names that folder, a read with `"file": true` writes the plain bytes to `<data>/files/<content hash>` and returns that path. The folder is mode 0700 and the file is mode 0600. The node writes a temporary name in that folder and renames it into place, and it does not follow a symlink at the destination. A file of that name and size is reused. That reply sets `local` to the same path. A read that does not set `file` to true does not write; it reports `local` only when the file is already there.
 - The reply has no `cloud` field. The node has no local record of whether this exact file version is in the cloud.
 
 
@@ -175,10 +175,17 @@ developer writes it in the manifest:
 "access": { "read": ["notes/Note", "notes/Tag"], "write": ["notes/Note"], "extensions": ["changes"] }
 ```
 
-`lastdb app publish` looks each schema up on the running node and replaces the
-name with a pair: the name and the definition ID of the version the node holds.
-That is the version the developer built against. The result goes into the
-listing, under the publisher signature:
+An app that works on schemas it cannot name in advance writes `"*"` in place of
+the list, for `read`, for `write`, or for both:
+
+```
+"access": { "read": "*", "write": ["notes/Note"], "extensions": ["changes"] }
+```
+
+`lastdb app publish` looks each named schema up on the running node and replaces
+the name with a pair: the name and the definition ID of the version the node holds.
+That is the version the developer built against. `"*"` stays `"*"`. The result
+goes into the listing, under the publisher signature:
 
 ```
 "access": { "read": { "notes/Note": "9f2c…", "notes/Tag": "41ab…" },
@@ -186,9 +193,19 @@ listing, under the publisher signature:
             "extensions": ["changes"] }
 ```
 
+```
+"access": { "read": "*", "write": { "notes/Note": "9f2c…" }, "extensions": ["changes"] }
+```
+
 - Access is per schema, not per field. A read returns the whole record.
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
-- An extension is a plain name with no version.
+  `"*"` on one side does not grant the other side.
+- An extension is a plain name with no version. `"*"` is not an extension value.
+- `"*"` may appear in a listing only at API version 38 or above. Publish refuses
+  it below that. An older build that cannot parse `"*"` fails to read the whole
+  registry list for that channel and API version, so every app in the list
+  becomes unresolvable to that build. Builds at 37 never read the 38 list.
+- For the map form, the signed access block is the same bytes as before API 38.
 - Declaring is the permission. Nobody approves the declaration: install does
   not show it for consent, and a listing that changes it does not ask the
   owner again. The owner still approves the install steps.
@@ -196,6 +213,11 @@ listing, under the publisher signature:
 - An app that is not published declares nothing.
 
 Install places each schema named in `read` or `write` at the signed definition.
+`"*"` places nothing by itself. Names on the other side are placed as usual.
+A schema the manifest lists that neither side names is not placed. Publish's
+Schema Service push is the schemas the manifest lists, plus the names on a side
+that is a map. A `"*"` side adds none.
+
 The installer reads the node's schemas once. A name already at that definition
 stays, and its retention stays. Otherwise the definition is taken from Schema
 Service (`GET /v1/schemas/<definition id>`, no credentials) when the returned
@@ -206,8 +228,11 @@ retention. A schema the access block does not name is not placed. A listing
 with no access block installs as before. If none of the three supplies the
 signed definition, install fails and the previous version stays active.
 
-The declaration is recorded with the install. It is not enforced until the app
-socket exists.
+The declaration is recorded with the install. The installer registers it when
+that version is activated, and again when a failed activation or a rollback
+restores the previous version. The launcher registers it at each start.
+Registering the same app again replaces its grant. The app socket serves the
+app under the grant the node holds.
 
 ## Schemas at publish
 
@@ -232,32 +257,51 @@ A node serves two sockets in its data directory.
 | Socket | File | Serves |
 |---|---|---|
 | Owner socket | `folddb.sock` | Everything, to the owner and the owner's tools |
-| App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a caller with an app session |
+| App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a registered app |
 
-- The owner issues a session for one app: `POST /api/apps/session` on the owner
-  socket with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
-  `data` is optional. When present it is the absolute path of that app's data
+- The owner registers one app: `POST /api/apps/register` on the owner socket
+  with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
+  `read` and `write` are each a list of schema names or `"*"`. `data` is
+  optional. When present it is the absolute path of that app's data
   directory, a real directory and not a symlink, and outside the LastDB home.
-  The reply holds `session` and `expires_in_seconds` (24 hours). Sessions live in
-  memory and end when the node stops. The data folder is remembered only there.
-- A request on the app socket carries the session in the header `X-LastDB-App-Session`.
-  Without a valid one it is refused with `permission_denied`.
+  The reply holds `app`, set to the app id. It does not hold
+  `expires_in_seconds`. The node keeps one grant per app id: the `read` and
+  `write` grants, the `extensions` list, and the data folder when `data` was
+  sent. The same app registered again replaces that grant. A grant has no lifetime.
+- The grants are one file, `app-grants.json`, in the data directory beside the
+  sockets. The file is mode 0600. The node writes a temporary file and renames
+  it into place when a grant changes, and loads the file at start. A missing
+  or unreadable file means no grants, and that is not an error. The file is
+  not a database file. Backup and cloud sync do not copy it. It holds
+  `{ "version": 1, "apps": { "<app id>": { "read": [...], "write": "*", "extensions": [...], "data": "<path>" } } }`.
+  `read` and `write` are a list of names or the string `"*"`. The file version
+  stays 1. An older node deserializes those fields as name lists, so `"*"`
+  fails the file instead of looking like an empty list. A higher version would
+  make that node reject every file, including grants that only name schemas.
+  `data` is omitted when the grant has no data folder. The node keeps at most
+  256 apps. Each name list holds at most 256 names. A schema name is at most
+  128 bytes and an extension name at most 40. The file is at most 1 MiB.
+- A request on the app socket carries the app id in the header
+  `X-LastDB-App`. An app id the node has no grant for is refused with
+  `permission_denied`. An app id is a plain app name, checked with the same
+  rule the launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
-- A read names only a schema in the session's `read` list, a write only one in
-  its `write` list, and an extension only one in its `extensions` list. Anything
-  else is `permission_denied`. A read refusal is per item; a write refusal
-  refuses the list.
-- The name must be the declared name exactly, and it must be the exact name of a
-  schema on the node. A loose spelling that the owner socket would resolve is
-  `not_found` here. An undeclared name is still `permission_denied`.
-- An app holds at most four live sessions. A fifth replaces that app's oldest,
-  so an app that starts on every command cannot use up the node's sessions.
+- A read names only a schema the app's `read` grant allows, a write only one
+  its `write` grant allows, and an extension only one in its `extensions` list.
+  `"*"` allows every schema on that side. Anything else is `permission_denied`.
+  A read refusal is per item; a write refusal refuses the list.
+- The name must be the exact name of a schema on the node. A loose spelling
+  that the owner socket would resolve is `not_found` here. An undeclared name
+  is still `permission_denied`. `"*"` does not add a schema directory. The app
+  socket still serves only `/v1/read`, `/v1/write`, and `/v1/x/<name>`.
 - The app socket has its own four workers and its own request budget. Load on
   it can delay only other requests on the app socket, never the owner socket.
 - A request body on the app socket is at most 8 MiB. A larger one answers
   `too_large`.
-- `changes` returns only entries for schemas in the `read` list. Without a
-  `schemas` filter it returns all of those.
+- `changes` returns entries for schemas the `read` grant allows. Without a
+  `schemas` filter, a named grant returns all of those names, and `"*"` returns
+  entries for every schema. A `schemas` filter still limits the entries. An
+  app whose read grant names nothing gets `permission_denied`.
 - The owner socket is not limited by any of this.
 
 ## The launcher
@@ -268,9 +312,15 @@ directly.
 - The installer points each of the app's command links at the `lastdb` command.
   Called under the app's command name, `lastdb` finds the app that owns the
   name and starts it. `lastdb app run <app> <command> [args]` does the same by name.
-- The launcher asks the node for an app session with the lists from the app's
-  signed listing, and starts the app's program with `LASTDB_SOCKET_PATH` set to
-  the app socket and `LASTDB_APP_SESSION` set to the session.
+- The launcher registers the app with the lists from the app's signed listing,
+  and starts the app's program with `LASTDB_SOCKET_PATH` set to the app socket
+  and `LASTDB_APP` set to the app id. Install steps do not receive
+  `LASTDB_APP`. The launcher still needs the node: if it cannot reach the owner
+  socket, it does not start the app.
+- On activation, and on rollback, the installer registers that version's
+  access, so a process that is already running is served under the new lists
+  at once. If activation fails and the previous version is restored, the
+  previous access is registered again.
 - The declaration exists to record which app uses which schema (Tom,
   2026-11-17). The node serves an app only the schemas it declared, so the
   record stays true. Confining an installed app on the owner's machine is not a
@@ -278,7 +328,7 @@ directly.
   sandbox profile was removed. It could not nest inside a caller's own
   profile, and it kept apps that act on the machine from declaring at all.
 - The launcher creates the app's own data folder, `<apps root>/<app>/data`,
-  before it asks for the session, and passes that folder as `data`. It also
+  before it registers the app, and passes that folder as `data`. It also
   names the folder in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps
   its config and state there by convention.
 - An app that ran restricted stays restricted. Install refuses a later version
@@ -293,7 +343,7 @@ directly.
 
 ## Not built yet
 
-- A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the session names the app's data folder.
+- A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the grant names the app's data folder.
 - Removing a record's file while keeping the record.
 - A received (shared) database as a `database` value.
 - A limit on which databases an app may name.

@@ -19,13 +19,12 @@ pub mod factory {
     use crate::fold_db_core::FoldDB;
     use crate::security::Ed25519KeyPair;
     use crate::storage::{config::DatabaseConfig, disk_pack::PackNamespacedStore};
-    use std::{path::PathBuf, sync::Arc};
+    use std::sync::Arc;
 
     /// Local construction inputs.
     #[derive(Default)]
     pub struct FoldDbOptions {
         pub offline_maintenance: bool,
-        pub search_outbox_inbox: Option<PathBuf>,
         /// Capture the accepted publication stream for an owned database.
         pub capture_accepted: bool,
         /// Preserve the original native root before a personal home starts cloud capture.
@@ -127,7 +126,6 @@ impl FoldDB {
             Arc::clone(&db_ops),
             Arc::clone(&schema_manager),
             writer_id,
-            options.search_outbox_inbox,
             options.track_shared_record_revisions,
         ));
         info!("Created MutationManager for mutation operations");

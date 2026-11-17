@@ -45,8 +45,9 @@ async fn changes(host: &Host, body: &[u8]) -> Result<Value, HostError> {
     if request.schemas.iter().any(String::is_empty) {
         return Err(bad("a schema name must not be empty"));
     }
-    // An app sees only the schemas it declared it reads. Without a filter it
-    // gets all of those, and never the whole list.
+    // An app sees the schemas its read grant allows. Without a filter, a named
+    // grant returns those names, and `"*"` returns every schema. An empty named
+    // grant is refused. The owner socket has no grant and returns every schema.
     if request.schemas.is_empty() {
         if let Some(declared) = declared_reads() {
             if declared.is_empty() {

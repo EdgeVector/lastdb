@@ -2,8 +2,9 @@
 //!
 //! For one name: the node already holds that definition, or Schema Service
 //! returns it, or the manifest entry hashes to the signed id. The node
-//! decides whether a later declare is a compatible change. A schema the
-//! access block does not name is not placed.
+//! decides whether a later declare is a compatible change. `"*"` names no
+//! schema, so it places nothing by itself. A schema the access block does
+//! not name is not placed.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -58,12 +59,17 @@ pub(super) fn place(
 
 fn signed_pairs(access: &Access) -> Result<BTreeMap<String, String>, String> {
     let mut pairs = BTreeMap::new();
-    for (name, id) in access.read.iter().chain(access.write.iter()) {
-        if let Some(previous) = pairs.insert(name.clone(), id.clone()) {
-            if previous.as_str() != id.as_str() {
-                return Err(format!(
-                    "schema '{name}' is signed to two definition ids ({previous} and {id})"
-                ));
+    for side in [access.read.named(), access.write.named()]
+        .into_iter()
+        .flatten()
+    {
+        for (name, id) in side {
+            if let Some(previous) = pairs.insert(name.clone(), id.clone()) {
+                if previous.as_str() != id.as_str() {
+                    return Err(format!(
+                        "schema '{name}' is signed to two definition ids ({previous} and {id})"
+                    ));
+                }
             }
         }
     }

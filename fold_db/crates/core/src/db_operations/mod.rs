@@ -2,7 +2,6 @@
 
 pub(crate) mod record_store;
 pub(crate) mod schema_store;
-pub mod search_index;
 
 pub use crate::storage::format::metadata::{Change, ChangePage, CHANGES_PAGE};
 pub use record_store::{RecordDeleteLedgerEntry, RecordStore};

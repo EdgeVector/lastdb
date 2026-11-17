@@ -1,8 +1,7 @@
-//! The folder an app session may receive a held file into.
+//! The folder an app grant may receive a held file into.
 //!
-//! The launcher names it when it asks for the session. A session without one
-//! writes nothing. The path is remembered only in the session, which lives in
-//! memory.
+//! The launcher names it when it registers the app. A grant without one
+//! writes nothing. The path is part of the grant and is stored with it.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};

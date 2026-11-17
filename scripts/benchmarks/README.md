@@ -30,7 +30,7 @@ Each ordinary case completes 2,048 single-record durable writes and verifies the
 The final pair also records native clocks after a restart; instrumented latency stays separate from the ordinary comparison.
 The summary compares median P95 and throughput, and retains logical preparation phases and actual read/decode counts.
 Candidate-only write-read-reuse counters remain explicit; absent baseline instrumentation is unreported.
-Search stays off. All generated daemons stop and their owned homes are removed.
+All generated daemons stop and their owned homes are removed.
 Speed changes remain advisory. Required standard speed, growth, disk/delete and upload checks still run.
 The additional job uses the same source revisions and programs, without another build or local operation.
 
@@ -49,8 +49,7 @@ The daily/manual cloud backup operation owns account-wide cleanup and source-fre
 PR edits to titles or descriptions do not repeat a benchmark.
 
 One build job prepares the exact candidate and baseline programs.
-Independent hosted jobs measure speed, resource growth, the Search queue, and the absolute disk/delete cap.
-The optional Search queue case runs beside resource growth and uses its own verified artifact.
+Independent hosted jobs measure speed, resource growth, and the absolute disk/delete cap.
 They use the same verified programs. Each suite compares both versions on its own machine.
 A speed timeout or failure cannot cancel or skip the disk/delete job.
 All required jobs and their verified uploads must complete before `benchmark-complete` passes.
@@ -251,7 +250,6 @@ CI repeats the resource suite once when a measure crosses both limits.
 Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
 Each resource pass has a 40-minute limit. Its independent job has a 130-minute limit.
-The optional Search queue pass has a separate job and keeps its 30-minute operation limit.
 Raw results stay under `resource-growth/` in the growth job artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
@@ -291,20 +289,17 @@ Every delete needs a durable acknowledgement. Checkpoints verify remaining value
 The record bytes and the live record count must decrease after each delete round.
 Each delete checkpoint also records a bounded, complete inventory of current storage collections.
 The inventory follows the size sample and does not alter the measured bytes.
-The artifact retains delete-case memory samples, Search state, ownership, and cleanup records under `delete/` in each program's result directory.
+The artifact retains delete-case memory samples, ownership, and cleanup records under `delete/` in each program's result directory.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
 The isolated size pass enables native counters and records physical published, stale, held, and temporary file totals at each checkpoint.
 It does not request explicit cleanup. Read and write speed measurements keep their normal settings.
-This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search off before and after each run.
-Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
-Historical programs that lack the Search-off status cannot satisfy this required size pass.
 
 The ratio is retained disk bytes divided by record bytes:
 
 - Database disk uses the greater of file lengths and allocated blocks under `data/`.
-  The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
+  Other home files and the whole home stay in their own columns. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: the stored value bytes of the live records (`total_record_bytes`).
   Tombstones stay out. The report names this value `stored_record_bytes`.
   This is the same measure as `lastdb admin storage inventory --by-schema` and the existing disk-v2 node proof.
@@ -315,11 +310,11 @@ The ratio is retained disk bytes divided by record bytes:
 The required ceiling is **1.5×**. Equality is within the budget.
 This is total database size. For example, 10 MiB of records permits at most 15 MiB of database files.
 After deletes, the denominator is the logical data that remains.
-CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
+CI also notes a final database increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
 Any candidate checkpoint above 1.5× fails the report step and the required `benchmark-complete` check after one pass.
 CI retains the measurements and verified upload even when this limit fails. The failure blocks merge.
-Relative database and Search queue growth stays advisory, with a notice from this single size pass.
+Relative database growth stays advisory, with a notice from this single size pass.
 Invalid measurements, an unstable checkpoint, and failed uploads also block `benchmark-complete`.
 The absolute limit fails even when the base also exceeds 1.5×. This states current excess, not PR causation.
 
@@ -327,22 +322,7 @@ The result stays under `disk-budget/` in the independent disk job’s verified a
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
 Do not compare these ratios with a different workload.
 
-### Optional Search queue growth
-
-Search delivery is off by default. `lastdbd --enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
-The live queue has a default cap of 64 MiB of batch file lengths and 4,096 files.
-At capacity, delivery stops with a durable rebuild marker. Database writes continue.
-
-Each measured run also compares default-off and explicit enabled modes of the verified candidate.
-Historical manual comparisons opt into `search_queue` only for a candidate that supports the option.
-PRs use 512 records, three full update rounds, two alternating pairs, and a 1 MiB queue cap.
-Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.
-No Search consumer runs. A further full update after reopen verifies writes after saturation.
-The Search job artifact retains the policy status, keyed-value checks, size categories, shutdown and cleanup receipts.
-Only the same limit finding in the first two independent mode runs produces an advisory warning.
-Incomplete measurements fail completion; size findings stay advisory.
-
-The resource-growth disk fields now describe database storage. Separate queue and whole-home columns retain total disk visibility.
+The resource-growth disk fields describe database storage. Other home files and the whole home stay in their own columns.
 Before/after comparisons use the same driver and category rules. Do not compare an older whole-home ratio with the database ratio.
 
 ## Request phases
@@ -399,7 +379,7 @@ The physical request count can include background work. It is not an exclusive c
 ## Results and limits
 
 Open the workflow summary from the PR checks.
-Download `lastdb-benchmarks-speed-*`, `lastdb-benchmarks-growth-*`, `lastdb-benchmarks-disk-*`, or `lastdb-benchmarks-search-*` for each suite.
+Download `lastdb-benchmarks-speed-*`, `lastdb-benchmarks-growth-*`, or `lastdb-benchmarks-disk-*` for each suite.
 The separate `lastdb-benchmark-build-*` artifact retains the shared programs, build context, receipts, and build logs.
 The artifact retains raw samples, read receipts, p50/p95/p99 response times, and requests per second.
 It also retains records per second, sampled daemon memory size, disk growth, and build logs.

@@ -39,7 +39,7 @@ macro_rules! heap_route {
 mod admin_routes;
 mod app_api;
 mod app_data;
-mod app_session;
+mod calling_app;
 mod database_owned;
 mod database_routes;
 mod database_session;
@@ -115,7 +115,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                 let st = json!({
                     "build": { "version": crate::version::build_version() },
                     "process_start_ts": host.process_start_ts, "uptime_secs": up,
-                    "uds": uds, "search": admin_routes::search_queue_status(host),
+                    "uds": uds,
                     "cloud_sync": host.cloud_sync.snapshot(),
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
@@ -168,7 +168,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
-            DataRoute::AppSession => return app_session::issue_route(req, ctx, host),
+            DataRoute::AppRegister => return calling_app::register_route(req, ctx, host),
         };
         fut.await
     })

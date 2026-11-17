@@ -33,7 +33,7 @@ modules = [
 
 [[layer]]
 name = "operations"
-doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, alternate keys, and search outbox."
+doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, and alternate keys."
 modules = [
   "db_operations",
 ]

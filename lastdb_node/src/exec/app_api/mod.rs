@@ -6,7 +6,7 @@ use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::KeyValue;
 use serde_json::{json, Value};
 
-use super::app_session::active_app;
+use super::calling_app::active_app;
 use super::reply::{content_free, json_ok, status_reason, HostError};
 use super::schema_routes::resolve_schema_name;
 use crate::host::owned::ResolvedStore;
@@ -114,11 +114,11 @@ pub(in crate::exec) fn refuse(status: u16, message: &str) -> UdsResponse {
     fail(&HostError::new(status, message))
 }
 
-/// On the app socket an app reads only the schemas it declared it reads.
-/// The owner socket carries no app and is not limited.
+/// On the app socket an app reads a schema only when its grant allows that schema.
+/// `"*"` allows every schema. The owner socket carries no app and is not limited.
 fn require_read(schema: &str) -> Result<(), HostError> {
     match active_app() {
-        Some(app) if !app.read.contains(schema) => Err(HostError::new(
+        Some(app) if !app.read.allows(schema) => Err(HostError::new(
             403,
             format!("the app {} did not declare that it reads {schema}", app.app),
         )),
@@ -140,10 +140,11 @@ fn require_exact_name(host: &Host, name: &str) -> Result<(), HostError> {
     }
 }
 
-/// On the app socket an app writes only the schemas it declared it writes.
+/// On the app socket an app writes a schema only when its grant allows that schema.
+/// `"*"` allows every schema.
 fn require_write(schema: &str) -> Result<(), HostError> {
     match active_app() {
-        Some(app) if !app.write.contains(schema) => Err(HostError::new(
+        Some(app) if !app.write.allows(schema) => Err(HostError::new(
             403,
             format!(
                 "the app {} did not declare that it writes {schema}",
@@ -165,9 +166,14 @@ fn require_extension(name: &str) -> Result<(), HostError> {
     }
 }
 
-/// The schemas the calling app declared it reads. `None` on the owner socket.
+/// Schemas a named read grant limits `changes` to.
+/// `None` means every schema: the owner socket, or a grant of `"*"`.
 fn declared_reads() -> Option<Vec<String>> {
-    active_app().map(|app| app.read.iter().cloned().collect())
+    active_app().and_then(|app| {
+        app.read
+            .names()
+            .map(|names| names.iter().cloned().collect())
+    })
 }
 
 /// Run `future` against the database an item names. Without an identifier the
