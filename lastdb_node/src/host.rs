@@ -19,6 +19,7 @@ use zeroize::Zeroizing;
 
 pub use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 
+pub(crate) mod app_sessions;
 pub(crate) mod cloud_sync;
 mod logging;
 pub(crate) mod owned;
@@ -109,6 +110,7 @@ pub struct Host {
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) database_sessions: DatabaseSessions,
+    pub(crate) app_sessions: app_sessions::AppSessions,
 }
 
 impl Host {
@@ -205,6 +207,7 @@ impl Host {
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
             database_sessions: DatabaseSessions::default(),
+            app_sessions: app_sessions::AppSessions::default(),
         })
     }
 

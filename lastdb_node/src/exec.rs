@@ -38,6 +38,7 @@ macro_rules! heap_route {
 
 mod admin_routes;
 mod app_api;
+mod app_session;
 mod database_owned;
 mod database_routes;
 mod database_session;
@@ -166,6 +167,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
+            DataRoute::AppSession => return app_session::issue_route(req, ctx, host),
         };
         fut.await
     })

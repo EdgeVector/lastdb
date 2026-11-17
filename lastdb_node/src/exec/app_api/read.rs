@@ -7,7 +7,7 @@ use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::{bad, error_value, fail, in_database, key_filter, ok};
+use super::{bad, error_value, fail, in_database, key_filter, ok, require_read};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
@@ -120,6 +120,7 @@ fn filter(item: &ReadItem) -> Result<HashRangeFilter, HostError> {
 }
 
 async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
+    require_read(&item.schema)?;
     let filter = filter(&item)?;
     let cursor = decode_cursor_token(item.cursor.as_deref(), "", "invalid cursor")?;
     let schema = item.schema.clone();

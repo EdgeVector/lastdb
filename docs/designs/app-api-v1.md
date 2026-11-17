@@ -172,6 +172,35 @@ listing, under the publisher signature:
 The declaration is recorded with the install. It is not enforced until the app
 socket exists.
 
+## The app socket
+
+A node serves two sockets in its data directory.
+
+| Socket | File | Serves |
+|---|---|---|
+| Owner socket | `folddb.sock` | Everything, to the owner and the owner's tools |
+| App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a caller with an app session |
+
+- The owner issues a session for one app: `POST /api/apps/session` on the owner
+  socket with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] } }`.
+  The reply holds `session` and `expires_in_seconds` (24 hours). Sessions live in
+  memory and end when the node stops.
+- A request on the app socket carries the session in the header `X-LastDB-App-Session`.
+  Without a valid one it is refused with `permission_denied`.
+- Any route other than the app API answers `not_found` on the app socket.
+- A read names only a schema in the session's `read` list, a write only one in
+  its `write` list, and an extension only one in its `extensions` list. Anything
+  else is `permission_denied`. A read refusal is per item; a write refusal
+  refuses the list.
+- The name must be the declared name exactly.
+- `changes` returns only entries for schemas in the `read` list. Without a
+  `schemas` filter it returns all of those.
+- The owner socket is not limited by any of this.
+
+The app socket does not yet stop an app that connects to the owner socket
+instead. That needs the launcher and the sandbox profile, which deny an app the
+owner socket.
+
 ## Not built yet
 
 - A path for a file that is only in the cloud or that LastDB holds as bytes. Nothing fetches one file from the cloud on a read yet.
@@ -180,7 +209,8 @@ socket exists.
 - A received (shared) database as a `database` value.
 - An app naming its extensions in its manifest, the installer checking them, and
   the limit of `changes` to the schemas an app declared.
-- The app socket, the sandbox profile and the per-app schema check. Until they
-  exist, these routes serve every caller of the owner socket as the owner.
+- The launcher that starts an installed app with a session, and the sandbox
+  profile that denies it the owner socket.
+- A limit on which databases an app may name.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
 - The older routes under `/api` stay until the apps move to these two.

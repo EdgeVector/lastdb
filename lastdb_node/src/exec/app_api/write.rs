@@ -14,7 +14,7 @@ use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, Muta
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{bad, fail, in_database, key_filter, ok};
+use super::{bad, fail, in_database, key_filter, ok, require_write};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
@@ -90,6 +90,9 @@ pub(in crate::exec) async fn write_route(
 
 async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
     let items = parse(body)?;
+    for item in &items {
+        require_write(&item.schema)?;
+    }
     let database = items.first().and_then(|item| item.database.clone());
     in_database(database.as_deref(), host, async {
         let mut mutations = Vec::with_capacity(items.len());

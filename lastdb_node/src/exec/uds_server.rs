@@ -7,7 +7,9 @@ use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
-use super::{block_on_data_route, block_on_route, database_routes, database_session, mutation};
+use super::{
+    app_session, block_on_data_route, block_on_route, database_routes, database_session, mutation,
+};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
@@ -24,6 +26,8 @@ pub struct UdsServer {
     pool: UdsWorkerPool,
     body_budget: Arc<Semaphore>,
     mutation_replies: Arc<Semaphore>,
+    /// True for the server of the app socket.
+    apps: bool,
 }
 
 impl UdsServer {
@@ -40,6 +44,17 @@ impl UdsServer {
             pool,
             body_budget: Arc::new(Semaphore::new(permits)),
             mutation_replies: Arc::new(Semaphore::new(snapshot.workers)),
+            apps: false,
+        }
+    }
+
+    /// The same server for the app socket: it shares the workers, admits only
+    /// a request with an app session, and serves only the app API.
+    #[must_use]
+    pub fn for_apps(&self) -> Self {
+        Self {
+            apps: true,
+            ..self.clone()
         }
     }
 
@@ -104,6 +119,10 @@ impl UdsServer {
         else {
             return Ok(());
         };
+        if self.apps {
+            let response = app_session::serve(&self.handle, &req, &ctx, &self.host);
+            return uds_http::finish_connection(&mut stream, &response);
+        }
         if !database_session::admit(&req, &self.host) {
             let response = UdsResponse::new(403, "Forbidden", b"database session refused".to_vec());
             return uds_http::finish_connection(&mut stream, &response);

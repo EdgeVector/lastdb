@@ -155,8 +155,11 @@ fn serve_node(
     let stop = Arc::new(AtomicBool::new(false));
     let user_stop = Arc::new(AtomicBool::new(false));
     let target_sock = sock_path.unwrap_or_else(|| data_dir.join(lastdb_uds::SOCKET_FILE_NAME));
+    let app_sock = target_sock.with_file_name(lastdb_uds::APP_SOCKET_FILE_NAME);
     let socket = UdsSocket::bind_at(target_sock)
         .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
+    let app_socket = UdsSocket::bind_at(app_sock)
+        .map_err(|e| format!("failed to bind app socket in {}: {e}", data_dir.display()))?;
     let signal_task = spawn_stop_signals(&rt, &stop, &user_stop)?;
     println!("lastdbd serving the owner socket");
     let pool = UdsWorkerPool::from_env();
@@ -169,8 +172,18 @@ fn serve_node(
     );
     let server = UdsServer::new(Arc::clone(&host), rt.handle().clone(), pool.clone());
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
+    let (app_server, app_stop) = (server.for_apps(), Arc::clone(&stop));
+    let app_thread = std::thread::Builder::new()
+        .name("lastdbd-app-socket".into())
+        .spawn(move || {
+            if let Err(error) = app_server.serve(&app_socket, &app_stop) {
+                tracing::error!(error = %error, "app socket accept loop failed");
+            }
+        })
+        .map_err(|e| format!("failed to start the app socket: {e}"))?;
     let accept_err = server.serve(&socket, &stop);
     stop.store(true, Ordering::Release);
+    let _ = app_thread.join();
     signal_task.abort();
     finish_shutdown(rt, home, &host, &pool, tasks, accept_err)?;
     drop(server);
