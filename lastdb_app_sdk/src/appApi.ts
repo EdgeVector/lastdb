@@ -154,7 +154,9 @@ function appApiFailure(status: number, body: unknown): AppApiError {
 }
 
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {
-  const res = await ctx.transport.send('POST', path, { body });
+  const session = process.env.LASTDB_APP_SESSION; // set by the launcher for a restricted app
+  const opts = session ? { body, headers: { 'X-LastDB-App-Session': session } } : { body };
+  const res = await ctx.transport.send('POST', path, opts);
   if (res.status !== 200) throw appApiFailure(res.status, res.body);
   return res.body;
 }
