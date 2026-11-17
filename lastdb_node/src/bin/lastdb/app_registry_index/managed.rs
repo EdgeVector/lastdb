@@ -129,10 +129,10 @@ fn stage_version(
         return Err("managed activation requires the pinned registry key".into());
     }
     if let Some(access) = &entry.access {
-        let unknown = access.unknown_features();
+        let unknown = access.unknown_extensions();
         if !unknown.is_empty() {
             return Err(format!(
-                "app '{}' asks for LastDB features this node does not have: {}",
+                "app '{}' names app API extensions this node does not have: {}",
                 entry.app_id,
                 unknown.join(", ")
             ));

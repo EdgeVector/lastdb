@@ -145,7 +145,7 @@ fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
             })
             .collect()
     };
-    let (read, write, features) = (names("read")?, names("write")?, names("features")?);
+    let (read, write, extensions) = (names("read")?, names("write")?, names("extensions")?);
     let path = "/api/schemas?include_definition_ids=true";
     let held = get_path_retry(socket, path, Duration::from_secs(30))
         .and_then(|raw| parse_json_response(&raw, "GET /api/schemas"))?;
@@ -168,11 +168,11 @@ fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
             .map(Value::Object)
     };
     let access =
-        json!({"read": versions(&read)?, "write": versions(&write)?, "features": features});
+        json!({"read": versions(&read)?, "write": versions(&write)?, "extensions": extensions});
     let parsed: app_identity_crypto::Access =
         serde_json::from_value(access.clone()).map_err(|e| format!("manifest `access`: {e}"))?;
     if !parsed.well_formed() {
-        return Err("manifest `access` has an invalid schema name or feature name".into());
+        return Err("manifest `access` has an invalid schema name or extension name".into());
     }
     Ok(access)
 }

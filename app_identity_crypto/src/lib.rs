@@ -14,7 +14,7 @@ use thiserror::Error;
 
 mod access;
 
-pub use access::{Access, KNOWN_FEATURES};
+pub use access::{Access, KNOWN_EXTENSIONS};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 
 const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;

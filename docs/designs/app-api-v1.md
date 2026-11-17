@@ -90,7 +90,7 @@ An app published to the registry states the LastDB access it asks for. The
 developer writes it in the manifest:
 
 ```
-"access": { "read": ["notes/Note", "notes/Tag"], "write": ["notes/Note"], "features": ["changes"] }
+"access": { "read": ["notes/Note", "notes/Tag"], "write": ["notes/Note"], "extensions": ["changes"] }
 ```
 
 `lastdb app publish` looks each schema up on the running node and replaces the
@@ -101,15 +101,15 @@ listing, under the publisher signature:
 ```
 "access": { "read": { "notes/Note": "9f2c…", "notes/Tag": "41ab…" },
             "write": { "notes/Note": "9f2c…" },
-            "features": ["changes"] }
+            "extensions": ["changes"] }
 ```
 
 - Access is per schema, not per field. A read returns the whole record.
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
-- A feature is a plain name with no version. `changes` is `GET /api/changes`.
+- An extension is a plain name with no version.
 - Install shows the declaration with the install steps and asks the owner
   again when a later listing changes either.
-- Install refuses a listing that names a feature this build does not have.
+- Install refuses a listing that names an extension this build does not have.
 - An app that is not published declares nothing.
 
 The declaration is recorded and shown. It is not enforced until the app socket
