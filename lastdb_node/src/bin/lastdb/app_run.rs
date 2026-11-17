@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use crate::app_registry_index::launch;
 
-const SESSION_TIMEOUT: Duration = Duration::from_secs(5);
+const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// When this program was started under the command name of a restricted app
 /// (its command link points here), run that app and never return. `None`
@@ -86,18 +86,18 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
         &lastdb_node::lastdb_uds::socket_path(&node_data),
         "/api/apps/session",
         &body,
-        SESSION_TIMEOUT,
+        REGISTER_TIMEOUT,
     )?;
-    let reply = crate::uds_client::parse_json_response(&raw, "app session")?;
-    let session = reply
-        .get("session")
+    let reply = crate::uds_client::parse_json_response(&raw, "app registration")?;
+    let app_id = reply
+        .get("app")
         .and_then(Value::as_str)
-        .ok_or("the node returned no app session")?;
+        .ok_or("the node returned no app id")?;
     let app_socket = node_data.join(lastdb_node::lastdb_uds::APP_SOCKET_FILE_NAME);
     let mut child = Command::new(&launch.program);
     child
         .env("LASTDB_SOCKET_PATH", &app_socket)
-        .env("LASTDB_APP_SESSION", session)
+        .env("LASTDB_APP", app_id)
         .env("LASTDB_APP_DATA", &app_data)
         .env("TMPDIR", &temp)
         .env_remove("FOLDDB_SOCKET_PATH");

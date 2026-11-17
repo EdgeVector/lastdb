@@ -11,9 +11,9 @@ import type { JsonValue, KeyValue, RowFields } from './types.js';
 
 export { AppApiError } from './appApiError.js';
 
-/** Reply from `POST /api/apps/session`. `session` is the app id. There is no expiry. */
-export interface AppSession {
-  session: string;
+/** Reply from `POST /api/apps/session`. `app` is the app id. There is no expiry. */
+export interface AppRegistration {
+  app: string;
 }
 
 const READ_PATH = '/v1/read';
@@ -142,8 +142,8 @@ function invalid(message: string, body: unknown): UnexpectedResponseError {
 }
 
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {
-  const session = process.env.LASTDB_APP_SESSION; // the app id, set by the launcher
-  const opts = session ? { body, headers: { 'X-LastDB-App-Session': session } } : { body };
+  const app = process.env.LASTDB_APP; // the app id, set by the launcher
+  const opts = app ? { body, headers: { 'X-LastDB-App': app } } : { body };
   const res = await ctx.transport.send('POST', path, opts);
   if (res.status !== 200) throw appApiFailure(res.status, res.body);
   return res.body;

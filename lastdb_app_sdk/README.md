@@ -305,9 +305,9 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
 `read`, `write`, and `changes` call the app API. The older methods still work.
 
 An app started by the LastDB launcher runs on the app socket. The launcher sets
-`LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP_SESSION` to the app id.
-These three methods send that value as `X-LastDB-App-Session` with every
-request. `POST /api/apps/session` answers `{ session }` where `session` is the
+`LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP` to the app id.
+These three methods send that value as `X-LastDB-App` with every
+request. `POST /api/apps/session` answers `{ app }` where `app` is the
 app id. The reply has no `expires_in_seconds`. The node keeps one grant per
 app id, with no expiry, and replaces it when the same app is registered again.
 The app socket serves only these three methods, so a restricted app uses no

@@ -1,7 +1,7 @@
 //! App grants. The owner registers one app on the owner socket. The value in
-//! `X-LastDB-App-Session` is the app id. The app socket admits only a request
-//! that names a registered app, serves it only the app API, and holds it to
-//! the grant.
+//! `X-LastDB-App` is the app id. The app socket admits only a request that
+//! names a registered app, serves it only the app API, and holds it to the
+//! grant.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -12,13 +12,13 @@ use serde_json::json;
 
 use super::app_api;
 use super::reply::{render, HostError};
-use crate::host::app_sessions::{AppGrant, RegisterError};
+use crate::host::app_grants::{AppGrant, RegisterError};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
 
-const HEADER: &str = "X-LastDB-App-Session";
-const MAX_ISSUE_BODY: usize = 256 * 1024;
+const HEADER: &str = "X-LastDB-App";
+const MAX_REGISTER_BODY: usize = 256 * 1024;
 
 tokio::task_local! {
     static ACTIVE_APP: Arc<AppGrant>;
@@ -31,7 +31,7 @@ pub(in crate::exec) fn active_app() -> Option<Arc<AppGrant>> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct IssueBody {
+struct RegisterBody {
     app: String,
     #[serde(default)]
     access: AccessBody,
@@ -52,8 +52,8 @@ struct AccessBody {
 }
 
 /// `POST /api/apps/session` on the owner socket: register one app.
-/// The reply's `session` is the app id. There is no expiry.
-pub(in crate::exec) fn issue_route(
+/// The reply's `app` is the app id. There is no expiry.
+pub(in crate::exec) fn register_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -62,10 +62,10 @@ pub(in crate::exec) fn issue_route(
         if !ctx.is_owner {
             return Err(HostError::new(403, "the owner registers an app"));
         }
-        if req.body.len() > MAX_ISSUE_BODY {
+        if req.body.len() > MAX_REGISTER_BODY {
             return Err(HostError::new(413, "app registration request is too large"));
         }
-        let body: IssueBody = serde_json::from_slice(&req.body).map_err(|error| {
+        let body: RegisterBody = serde_json::from_slice(&req.body).map_err(|error| {
             HostError::new(400, format!("invalid app registration request: {error}"))
         })?;
         if !app_identity_crypto::valid_app_id(&body.app) {
@@ -81,10 +81,10 @@ pub(in crate::exec) fn issue_route(
             write,
             extensions,
         } = body.access;
-        host.app_sessions
+        host.app_grants
             .register(AppGrant::new(body.app, read, write, extensions, data_dir))
             .map_err(|error| register_error(&error))?;
-        Ok(json!({ "session": app }))
+        Ok(json!({ "app": app }))
     })();
     render(result, ctx)
 }
@@ -106,7 +106,7 @@ pub(in crate::exec) fn serve(
 ) -> UdsResponse {
     let Some(grant) = req
         .header(HEADER)
-        .and_then(|app_id| host.app_sessions.get(app_id))
+        .and_then(|app_id| host.app_grants.get(app_id))
     else {
         return app_api::refuse(403, "the app socket needs a registered app");
     };

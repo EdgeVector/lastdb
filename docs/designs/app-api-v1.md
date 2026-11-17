@@ -96,7 +96,7 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - `file: null` means the record has no file.
 - `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
 - A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
-- For a file LastDB holds as its own bytes, `local` is null until a copy sits in the calling app's data folder. `path` is null on the owner socket, and on an app session issued without `data`. On the app socket, when the session names that folder, a read with `"file": true` writes the plain bytes to `<data>/files/<content hash>` and returns that path. The folder is mode 0700 and the file is mode 0600. The node writes a temporary name in that folder and renames it into place, and it does not follow a symlink at the destination. A file of that name and size is reused. That reply sets `local` to the same path. A read that does not set `file` to true does not write; it reports `local` only when the file is already there.
+- For a file LastDB holds as its own bytes, `local` is null until a copy sits in the calling app's data folder. `path` is null on the owner socket, and when the grant has no `data`. On the app socket, when the grant names that folder, a read with `"file": true` writes the plain bytes to `<data>/files/<content hash>` and returns that path. The folder is mode 0700 and the file is mode 0600. The node writes a temporary name in that folder and renames it into place, and it does not follow a symlink at the destination. A file of that name and size is reused. That reply sets `local` to the same path. A read that does not set `file` to true does not write; it reports `local` only when the file is already there.
 - The reply has no `cloud` field. The node has no local record of whether this exact file version is in the cloud.
 
 
@@ -241,7 +241,7 @@ A node serves two sockets in its data directory.
   with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
   `data` is optional. When present it is the absolute path of that app's data
   directory, a real directory and not a symlink, and outside the LastDB home.
-  The reply holds `session`, set to the app id. It does not hold
+  The reply holds `app`, set to the app id. It does not hold
   `expires_in_seconds`. The node keeps one grant per app id: the `read`,
   `write` and `extensions` lists, and the data folder when `data` was sent.
   The same app registered again replaces that grant. A grant has no lifetime.
@@ -255,7 +255,7 @@ A node serves two sockets in its data directory.
   256 apps. Each list holds at most 256 names. A schema name is at most 128
   bytes and an extension name at most 40. The file is at most 1 MiB.
 - A request on the app socket carries the app id in the header
-  `X-LastDB-App-Session`. An app id the node has no grant for is refused with
+  `X-LastDB-App`. An app id the node has no grant for is refused with
   `permission_denied`. An app id is a plain app name, checked with the same
   rule the launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
@@ -284,8 +284,8 @@ directly.
   name and starts it. `lastdb app run <app> <command> [args]` does the same by name.
 - The launcher registers the app with the lists from the app's signed listing,
   and starts the app's program with `LASTDB_SOCKET_PATH` set to the app socket
-  and `LASTDB_APP_SESSION` set to the app id. The header and the variable keep
-  those names. The launcher still needs the node: if it cannot reach the owner
+  and `LASTDB_APP` set to the app id. Install steps do not receive
+  `LASTDB_APP`. The launcher still needs the node: if it cannot reach the owner
   socket, it does not start the app.
 - On activation, and on rollback, the installer registers that version's
   access, so a process that is already running is served under the new lists
@@ -313,7 +313,7 @@ directly.
 
 ## Not built yet
 
-- A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the session names the app's data folder.
+- A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the grant names the app's data folder.
 - Removing a record's file while keeping the record.
 - A received (shared) database as a `database` value.
 - A limit on which databases an app may name.

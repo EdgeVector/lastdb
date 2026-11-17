@@ -81,9 +81,9 @@ struct Store {
 }
 
 /// The grants the node is serving. Keyed by app id.
-pub(crate) struct AppSessions(Mutex<Store>);
+pub(crate) struct AppGrants(Mutex<Store>);
 
-impl AppSessions {
+impl AppGrants {
     /// Load grants from `data_dir`. A missing or unreadable file is no grants.
     pub(crate) fn open(data_dir: &Path) -> Self {
         let path = data_dir.join(GRANTS_FILE);

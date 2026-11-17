@@ -25,7 +25,7 @@ export type {
   AppApiRecord,
   AppApiReplace,
   AppApiWriteResult,
-  AppSession,
+  AppRegistration,
 } from './appApi.js';
 
 export { parseQueryResponse } from './responseParsers.js';

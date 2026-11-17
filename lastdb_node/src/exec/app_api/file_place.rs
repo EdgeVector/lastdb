@@ -1,7 +1,7 @@
 //! Where a record's file is on this device, for one `/v1/read` reply.
 //!
 //! Reporting `local` does not create a file. Asking for `path` writes a file
-//! only when the app session names a data folder and LastDB holds the bytes.
+//! only when the calling app's grant names a data folder and LastDB holds the bytes.
 
 use std::path::Path;
 
@@ -10,7 +10,7 @@ use fold_db::schema::types::KeyValue;
 use serde_json::Value;
 
 use super::super::app_data;
-use super::super::app_session::active_app;
+use super::super::calling_app::active_app;
 use super::super::reply::HostError;
 use super::super::schema_routes::resolve_schema_name;
 use crate::host::Host;

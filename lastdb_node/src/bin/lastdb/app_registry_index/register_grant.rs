@@ -31,7 +31,7 @@ pub(super) fn register(home: &Path, receipt: &ManagedReceipt) -> Result<(), Stri
     let raw =
         crate::uds_client::post_json_with_timeout(&socket, "/api/apps/session", &body, TIMEOUT)?;
     let reply = crate::uds_client::parse_json_response(&raw, "app access")?;
-    if reply.get("session").and_then(Value::as_str) != Some(receipt.app_id.as_str()) {
+    if reply.get("app").and_then(Value::as_str) != Some(receipt.app_id.as_str()) {
         return Err(format!(
             "the node did not register app '{}'",
             receipt.app_id

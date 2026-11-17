@@ -166,8 +166,8 @@ def files(node):
     place = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) / f"app-api-place-{os.getpid()}"
     data = place / "exercise" / "data"
     data.mkdir(parents=True, mode=0o700)
-    token = node.call("/api/apps/session", {"app": "exercise", "access": {"read": [BY_ID], "write": [], "extensions": []}, "data": str(data)})[0]["session"]
-    headers = {"Content-Type": "application/json", "X-LastDB-App-Session": token}
+    app_id = node.call("/api/apps/session", {"app": "exercise", "access": {"read": [BY_ID], "write": [], "extensions": []}, "data": str(data)})[0]["app"]
+    headers = {"Content-Type": "application/json", "X-LastDB-App": app_id}
     status, raw, _, _, _ = send_unix_request(
         Path(node.socket).with_name("apps.sock"), "POST", "/v1/read",
         {"reads": [{"schema": BY_ID, "key": {"hash": "filed"}}]}, headers)
@@ -228,26 +228,26 @@ def app_socket(node):
     """The app socket serves only the app API, to a registered app, within what the app declared."""
     sock = Path(node.socket).with_name("apps.sock")
 
-    def session(read, write, extensions):
+    def register_app(read, write, extensions):
         access = {"read": read, "write": write, "extensions": extensions}
         reply = node.call("/api/apps/session", {"app": "exercise", "access": access})[0]
-        require(reply.get("session") == "exercise" and "expires_in_seconds" not in reply,
-                "the session reply is not the app id without an expiry: " + repr(reply))
-        return reply["session"]
+        require(reply.get("app") == "exercise" and "expires_in_seconds" not in reply,
+                "the registration reply is not the app id without an expiry: " + repr(reply))
+        return reply["app"]
 
-    def call(token, path, body=None):
+    def call(app_id, path, body=None):
         headers = {"Content-Type": "application/json"}
-        if token is not None:
-            headers["X-LastDB-App-Session"] = token
+        if app_id is not None:
+            headers["X-LastDB-App"] = app_id
         status, raw, _, _, _ = send_unix_request(sock, "GET" if body is None else "POST", path, body, headers)
         return status, json.loads(raw)
 
-    def refused(token, path, body, status, code):
-        got, reply = call(token, path, body)
+    def refused(app_id, path, body, status, code):
+        got, reply = call(app_id, path, body)
         require(got == status and reply["error"]["code"] == code,
                 f"the app socket did not refuse {path} with {status} {code}: {got} {reply!r}")
 
-    plain = session([BY_ID], [BY_BUCKET], [])
+    plain = register_app([BY_ID], [BY_BUCKET], [])
     reads = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}},
                        {"schema": BY_BUCKET, "key": {"hash": "bk", "range": "a"}}]}
     status, reply = call(plain, "/v1/read", reads)
@@ -266,7 +266,7 @@ def app_socket(node):
     refused(None, "/v1/read", reads, 403, "permission_denied")
     refused("0" * 64, "/v1/read", reads, 403, "permission_denied")
 
-    follower = session([BY_ID], [], ["changes"])
+    follower = register_app([BY_ID], [], ["changes"])
     head = changed(node, limit=0)["head"]
     write(node, create(BY_BUCKET, {"hash": "sock", "range": "2"}, {"id": "2", "bucket": "sock", "value": "v"}),
           by_id("sock-follow", "b1", "v"))
@@ -279,23 +279,23 @@ def app_socket(node):
     page = read(node, {"schema": loose, "key": {"hash": "dup"}})[0]
     require(loose != BY_ID and len(page.get("records") or []) == 1,
             "no loose form of the seeded schema resolves on the owner socket: " + repr(page))
-    folded = session([loose], [], [])
+    folded = register_app([loose], [], [])
     status, reply = call(folded, "/v1/read", {"reads": [{"schema": loose, "key": {"hash": "dup"}}]})
     require(status == 200 and reply["results"][0].get("error", {}).get("code") == "not_found",
             f"a loose schema name on the app socket was not not_found: {status} {reply!r}")
-    print("App socket: only the app API, only with an app session, only the declared "
+    print("App socket: only the app API, only with a registered app, only the declared "
           "schemas and extensions, and only an exact schema name", flush=True)
 
     access = {"read": [BY_ID], "write": [], "extensions": []}
     other = node.call("/api/apps/session", {"app": "other", "access": access})[0]
     limited = node.call("/api/apps/session", {"app": "limited", "access": access})[0]
-    require(other.get("session") == "other" and "expires_in_seconds" not in other,
-            "the session reply is not the app id without an expiry: " + repr(other))
-    require(limited.get("session") == "limited",
+    require(other.get("app") == "other" and "expires_in_seconds" not in other,
+            "the registration reply is not the app id without an expiry: " + repr(other))
+    require(limited.get("app") == "limited",
             "a second app was not registered under its id: " + repr(limited))
     for _ in range(5):
         again = node.call("/api/apps/session", {"app": "limited", "access": access})[0]
-        require(again.get("session") == "limited" and "expires_in_seconds" not in again,
+        require(again.get("app") == "limited" and "expires_in_seconds" not in again,
                 "registering an app again returned another value: " + repr(again))
     one = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]}
     status, reply = call("limited", "/v1/read", one)
