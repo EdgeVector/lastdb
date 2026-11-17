@@ -306,7 +306,7 @@ pub mod endpoints {
         env_url.unwrap_or_else(|| schema_service_url_for(Environment::from_env()).to_string())
     }
 
-    pub(crate) const fn schema_service_url_for(env: Environment) -> &'static str {
+    pub const fn schema_service_url_for(env: Environment) -> &'static str {
         match env {
             Environment::Dev => gen::DEV_SCHEMA_SERVICE,
             Environment::Prod => gen::PROD_SCHEMA_SERVICE,

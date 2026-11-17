@@ -50,23 +50,10 @@ pub(in crate::exec) fn list_schemas(
     let Some(rows) = rows else {
         return content_free(500, "Internal Server Error");
     };
-    let rows = if query_flag(&req.target, "include_definition_ids") {
-        let Ok(schemas) = mgr.get_schemas() else {
-            return content_free(500, "Internal Server Error");
-        };
-        rows.into_iter()
-            .map(|mut row| {
-                let id = row
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .and_then(|name| schemas.get(name))
-                    .and_then(|schema| crate::log_sync::schema_id(schema).ok());
-                row["definition_id"] = json!(id);
-                row
-            })
-            .collect()
-    } else {
-        rows
+    // `include_definitions` is the wire form `schema.to_wire()`, the bytes
+    // `PortableSchemaId::from_catalog` hashes. The list entry is not that form.
+    let Some(rows) = attach_wire(&req.target, host, rows) else {
+        return content_free(500, "Internal Server Error");
     };
     let newer = mgr.schemas_with_newer_identity_algo().unwrap_or_default();
     json_ok(&envelope(
@@ -78,6 +65,31 @@ pub(in crate::exec) fn list_schemas(
         }),
         ctx.user_id.as_str(),
     ))
+}
+
+fn attach_wire(target: &str, host: &Host, mut rows: Vec<Value>) -> Option<Vec<Value>> {
+    let ids = query_flag(target, "include_definition_ids");
+    let defs = query_flag(target, "include_definitions");
+    if !ids && !defs {
+        return Some(rows);
+    }
+    let schemas = host.records().schema_manager().get_schemas().ok()?;
+    for row in &mut rows {
+        let schema = row
+            .get("name")
+            .and_then(Value::as_str)
+            .and_then(|name| schemas.get(name));
+        if ids {
+            let id = schema.and_then(|schema| crate::log_sync::schema_id(schema).ok());
+            row["definition_id"] = json!(id);
+        }
+        if defs {
+            row["definition"] = schema.map_or(Value::Null, |schema| {
+                serde_json::to_value(schema.to_wire()).unwrap_or(Value::Null)
+            });
+        }
+    }
+    Some(rows)
 }
 
 fn get_schema_value(host: &Host, name: &str) -> Result<Value, HostError> {

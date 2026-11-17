@@ -17,6 +17,11 @@ from harness import send_unix_request  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS, MISSING_DATABASE, RANGED, definition, held, refused, require, system_seed,
 )
+import app_api_schema  # noqa: E402
+import benchmarks.node as _bench_node  # noqa: E402
+import record_app_api_calls  # noqa: E402
+
+app_api_schema.install(sys.modules[__name__], _bench_node, record_app_api_calls)
 
 from record_app_api_calls import (  # noqa: E402
     BY_BUCKET, BY_ID, by_id, conflict, create, delete, error_body, read, replace, stored, value_of, write,

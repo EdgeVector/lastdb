@@ -14,6 +14,8 @@ use std::time::Duration;
 
 #[path = "publish_credentials.rs"]
 mod publish_credentials;
+#[path = "schema_push.rs"]
+mod schema_push;
 
 type SchemaIdentity = (String, Option<String>, Option<String>);
 
@@ -294,7 +296,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
             publish_credentials::post_publish(&url, api_key, source, &payload),
         )
     };
-    let response = match publish_credentials::resolve_publish_api_key(
+    let mut response = match publish_credentials::resolve_publish_api_key(
         home,
         input,
         home_env,
@@ -307,7 +309,18 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
             post(api_key, "connected ExeMem account")
         }),
     }?;
+    let note = schema_push::register(&mut schema_push::Request {
+        home,
+        env: target_env,
+        input,
+        key: &key,
+        payload: &payload,
+        response: &mut response,
+    });
     print_pretty_json(&response);
+    if let Some(line) = note {
+        println!("{line}");
+    }
     (response["status"].as_str() == Some("listed"))
         .then_some(())
         .ok_or_else(|| "registry did not list the app".into())
