@@ -213,7 +213,9 @@ def deletes(node):
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
     require(one(node, "four") == {"id": "four", "bucket": "b5"}, "recreate brought back deleted content")
     refused(lambda: v1.write_items(node, [request]), "HTTP 409")
-    fresh = v1.create_item("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"})
+    fresh = v1.create_item(
+        "RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"},
+        alternates={"by_bucket": {"hash": "b9", "range": "five"}})
     refused(lambda: v1.write_items(node, [request, fresh]), "HTTP 409")
     require(absent(node, "five"), "a refused batch published its other record")
     accepted = v1.write_items(node, [fresh])
