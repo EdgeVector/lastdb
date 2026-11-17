@@ -17,6 +17,9 @@ the surface changed against the base revision without the required version
 change:
 
   * any added or removed route or capability requires a higher API_VERSION;
+  * an app API extension, a route under `/v1/x/`, is listed by name and is
+    not a route for these rules: adding one changes no version, and removing
+    one is refused, because an installed app that names it can no longer run;
   * a removed capability, or a removed route that the base SDK used, also
     requires MIN_SUPPORTED_API_VERSION == API_VERSION, because a client built
     for an older version can no longer work.
@@ -44,6 +47,7 @@ SDK_GENERATED = "lastdb_app_sdk/src/apiVersion.generated.ts"
 
 ROUTE_LITERAL = re.compile(r'"(/health|/api/[A-Za-z0-9_/-]*|/v1/[A-Za-z0-9_/-]*)"')
 SDK_ROUTE_LITERAL = re.compile(r"'(/api/[A-Za-z0-9_/-]*)'")
+EXTENSION_PREFIX = "/v1/x/"
 
 
 def constant(path, name):
@@ -75,17 +79,20 @@ def served(route, routes):
 
 
 def node_routes(app_routes):
+    """The served routes, and the names of the app API extensions."""
     routes, source = set(), ""
     for directory in SERVER_DIRS:
         for path in sorted((ROOT / directory).rglob("*.rs")):  # walk-ok: two repo source dirs
             source += path.read_text()
-    routes.update(norm(r) for r in ROUTE_LITERAL.findall(source))
+    found = {norm(r) for r in ROUTE_LITERAL.findall(source)}
+    extensions = sorted(r[len(EXTENSION_PREFIX):] for r in found if r.startswith(EXTENSION_PREFIX))
+    routes.update(r for r in found if not r.startswith(EXTENSION_PREFIX))
     # A route served only under a database scope appears in the source without
     # the `/api/` prefix. Record the ones the SDK uses in their scoped form.
     for route in app_routes:
         if route not in routes and f'"{route[len("/api/"):]}"' in source:
             routes.add(scoped(route))
-    return sorted(routes)
+    return sorted(routes), extensions
 
 
 def sdk_routes():
@@ -98,11 +105,13 @@ def sdk_routes():
 
 def current_surface():
     app_routes = sdk_routes()
+    routes, extensions = node_routes(app_routes)
     return {
         "api_version": constant(ROUTER, "API_VERSION"),
         "min_supported_api_version": constant(VERSION, "MIN_SUPPORTED_API_VERSION"),
         "capabilities": capabilities(),
-        "routes": node_routes(app_routes),
+        "routes": routes,
+        "extensions": extensions,
         "app_routes": app_routes,
     }
 
@@ -151,6 +160,12 @@ def compare(base, now):
         errors.append(
             f"the socket surface changed but API_VERSION is still {api}; "
             f"set API_VERSION to {base_api + 1} in {ROUTER}:\n    " + "\n    ".join(changes)
+        )
+    removed = sorted(set(base.get("extensions", [])) - set(now["extensions"]))
+    if removed:
+        errors.append(
+            "an app API extension was removed; an installed app that names it can no longer run. "
+            "Keep serving it: " + ", ".join(removed)
         )
     lost = set(base["routes"]) - set(now["routes"])
     gone = {r for r in base["app_routes"] if r in lost or scoped(r) in lost}
@@ -205,7 +220,8 @@ def main():
         return 1
     print(f"api-surface: OK api_version={surface['api_version']} "
           f"min_supported={surface['min_supported_api_version']} "
-          f"routes={len(surface['routes'])} capabilities={len(surface['capabilities'])}")
+          f"routes={len(surface['routes'])} capabilities={len(surface['capabilities'])} "
+          f"extensions={len(surface['extensions'])}")
     return 0
 
 

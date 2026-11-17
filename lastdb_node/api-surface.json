@@ -48,6 +48,9 @@
     "/v1/read",
     "/v1/write"
   ],
+  "extensions": [
+    "changes"
+  ],
   "app_routes": [
     "/api/databases",
     "/api/databases/accept",

@@ -10,9 +10,11 @@ use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
 use crate::lastdb_uds::uds_router::valid_selector;
 
+mod changes;
 mod read;
 mod write;
 
+pub(in crate::exec) use changes::changes_route;
 pub(in crate::exec) use read::read_route;
 pub(in crate::exec) use write::write_route;
 
