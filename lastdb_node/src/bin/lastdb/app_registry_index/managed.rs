@@ -128,6 +128,13 @@ fn stage_version(
     if !resolution.trust.starts_with("pinned:") {
         return Err("managed activation requires the pinned registry key".into());
     }
+    // A publisher cannot take an app out of its restriction with a later version.
+    if prior.is_some_and(|r| r.listing.access.is_some()) && entry.access.is_none() {
+        return Err(format!(
+            "app '{}' runs restricted; a version that declares no LastDB access is refused",
+            entry.app_id
+        ));
+    }
     if let Some(access) = &entry.access {
         let unknown = access.unknown_extensions();
         if !unknown.is_empty() {

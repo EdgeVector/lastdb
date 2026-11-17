@@ -75,7 +75,9 @@ A file is a path in and a path out. No file bytes pass through the app API.
 
 - A `create` or a `replace` can carry a `file` with the path of a file the caller can read. `name` and `media_type` are optional.
 - LastDB keeps a reference to the file where it is and makes no local copy. The bytes go up at cloud upload.
-- A path inside the LastDB home is refused.
+- A path inside the LastDB home is refused, through any symlink. That covers the
+  key file and every database in the home. Every file that cannot be linked gets
+  the same answer.
 - A `replace` without a `file` keeps the record's file.
 - Every record in a read reply has `file`: null, or its `name`, `media_type` and `size`.
 - A read item with `"file": true` also gets `path`. When the original is gone or has another size, that read item answers `not_found`.
@@ -214,6 +216,12 @@ directly.
   LastDB home, every other installed app's files, every socket in the home
   other than the app socket, reading other processes, and signalling them.
   The app's own install tree stays readable.
+- The profile denies every write. An app writes only inside its own data
+  folder, `<apps root>/<app>/data`, which the launcher creates and names in
+  `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app cannot write a config
+  file, a command, or anything else of the owner's.
+- An app that ran restricted stays restricted. Install refuses a later version
+  whose listing declares no LastDB access.
 - On other platforms no sandbox tool is chosen yet. The app still gets only the
   app socket and a session, which holds an app that does not try to get around it.
 - An app that declares no LastDB access is linked and started as before.
@@ -228,7 +236,8 @@ directly.
 - A received (shared) database as a `database` value.
 - A sandbox tool for platforms other than macOS.
 - Install steps and the install probe run outside the profile.
-- The profile does not limit the network or the owner's other files.
+- The profile does not limit the network, or what an app reads among the
+  owner's other files.
 - A limit on which databases an app may name.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
 - The older routes under `/api` stay until the apps move to these two.
