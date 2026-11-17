@@ -195,6 +195,17 @@ listing, under the publisher signature:
 - Install refuses a listing that names an extension this build does not have.
 - An app that is not published declares nothing.
 
+Install places each schema named in `read` or `write` at the signed definition.
+The installer reads the node's schemas once. A name already at that definition
+stays, and its retention stays. Otherwise the definition is taken from Schema
+Service (`GET /v1/schemas/<definition id>`, no credentials) when the returned
+definition hashes to the signed id. A miss, a timeout, or a hash that does not
+match falls through to the manifest entry of that name, with no warning. The
+manifest entry is used only when it hashes to the signed id, and it keeps its
+retention. A schema the access block does not name is not placed. A listing
+with no access block installs as before. If none of the three supplies the
+signed definition, install fails and the previous version stays active.
+
 The declaration is recorded with the install. It is not enforced until the app
 socket exists.
 

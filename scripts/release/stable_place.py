@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Place one restricted app's manifest schemas on the owner socket.
 
-The installer posts each manifest entry once and does not read the node first
-(`lastdb_node/src/bin/lastdb/app_registry_index/place_schemas.rs`):
+The release harness posts every manifest entry. It does not call Schema
+Service. The node declares a schema under the namespace in its name, which
+is not the installing app when the entry names another app's schema. A bare
+name is declared under the installing app id.
 
     POST /api/apps/declare-schema
-    {"app_id": <app id>, "schema": <entry with retention removed>}
+    {"app_id": <namespace>, "schema": <entry with retention removed>}
 
-When the entry has `retention`, that value sits beside `schema`. The node
-names the schema `<app id>/<name>`. The same definition already in place
-succeeds.
+When the entry has `retention`, that value sits beside `schema`. The same
+definition already in place succeeds.
 
 A `fields` object is rewritten into the stored field list before the post.
 That rewrite matches `schema_types::expand_manifest_schema`. An array
@@ -54,6 +55,13 @@ def place_manifest_schemas(node, manifest):
         _place_one(node, app_id, entry)
 
 
+def _namespace(name, app_id):
+    """Namespace in the schema name, or the installing app id when the name is bare."""
+    if isinstance(name, str) and "/" in name:
+        return name.split("/", 1)[0]
+    return app_id
+
+
 def _place_one(node, app_id, entry):
     if not isinstance(entry, dict):
         raise RuntimeError("schema declaration is not an object")
@@ -61,7 +69,7 @@ def _place_one(node, app_id, entry):
     name = schema.get("name") or "<unnamed>"
     retention = schema.pop("retention", None)
     schema = expand_manifest_schema(schema)
-    body = {"app_id": app_id, "schema": schema}
+    body = {"app_id": _namespace(schema.get("name"), app_id), "schema": schema}
     if retention is not None:
         body["retention"] = retention
     try:
