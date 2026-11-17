@@ -41,9 +41,8 @@ pub fn restricted_owner(command: &str) -> Option<String> {
             return None;
         }
         let current = entry.path().join("current");
-        if managed::receipt(&current).ok()?.listing.access.is_none() {
-            return None;
-        }
+        // Only an app that declares access is run restricted.
+        let _declared = managed::receipt(&current).ok()?.listing.access?;
         let plan = InstallPlan::load(&current.join("source"), &app).ok()?;
         plan.links
             .iter()
