@@ -27,7 +27,7 @@ use super::http::{Endpoint, Proof};
 use super::run::{self, Ready};
 use super::session;
 use super::turn::{self, Pause};
-use super::{SyncRole, SyncState};
+use super::SyncState;
 
 const MEMBER_LIMIT: usize = 65_536;
 
@@ -185,10 +185,7 @@ fn receiver_state(
         return None;
     }
     let cursor = session::load_cursor(home, database_id.as_str()).ok()?;
-    Some(SyncState {
-        role: SyncRole::Reader,
-        cursor,
-    })
+    Some(SyncState { cursor })
 }
 
 pub(super) async fn revision(log: &CloudLog) -> Option<u64> {

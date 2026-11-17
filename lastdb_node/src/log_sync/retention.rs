@@ -5,7 +5,32 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::Path;
 
-use super::{blob_retention, cloud::CloudLog, index_history::personal_log, snapshot::transport};
+use crate::cloud::load_connected_home_context;
+use crate::host::owned::registered_databases;
+
+use super::{blob_retention, cloud::CloudLog, http, session, snapshot::transport};
+
+async fn personal_log(home: &Path, selector: &str) -> Result<(Id, CloudLog), String> {
+    let database = registered_databases(home)
+        .into_iter()
+        .find(|db| {
+            !db.native && db.kind == "personal" && (db.id == selector || selector == "personal")
+        })
+        .ok_or("select personal or its exact database id in this home")?;
+    let database = Id::try_from(database.id).map_err(|error| error.to_string())?;
+    let ctx = load_connected_home_context(home, None).await?;
+    let device = session::saved_device_id(home)?.ok_or("home has no existing sync device id")?;
+    let endpoint = http::Endpoint::open(ctx.api_url, ctx.env.as_str())?;
+    let log = CloudLog::open_offline(
+        endpoint,
+        ctx.scope,
+        database.clone(),
+        &device,
+        ctx.keypair,
+        ctx.env.as_str(),
+    )?;
+    Ok((database, log))
+}
 
 const MAX_BATCHES: u8 = 128;
 const RECLAIM_BATCH: u64 = 8;

@@ -1,6 +1,6 @@
 use crate::{
-    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, StoredEntry,
-    SubmissionStatus, Writer, APPEND_BATCH_LIMIT,
+    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, StoredEntry, Writer,
+    APPEND_BATCH_LIMIT,
 };
 
 /// Result of an append that did not fail.
@@ -22,26 +22,6 @@ pub enum AppendOutcome {
 }
 
 impl LogState {
-    pub(crate) fn begin_append(&self, writer: &Writer) -> Result<Self, LogError> {
-        self.authorize_append(writer)?;
-        if self.inflight.contains(writer) {
-            return Err(LogError::AppendInFlight);
-        }
-        let mut next = self.clone();
-        next.inflight.insert(writer.clone());
-        Ok(next)
-    }
-
-    pub(crate) fn finish_append(&self, writer: &Writer) -> Result<Self, LogError> {
-        if !self.inflight.contains(writer) {
-            return Err(LogError::AppendNotOpen);
-        }
-        self.authorize_append(writer)?;
-        let mut next = self.clone();
-        next.inflight.remove(writer);
-        Ok(next)
-    }
-
     fn authorize_append(&self, writer: &Writer) -> Result<(), LogError> {
         let allowed = match &self.kind {
             DatabaseKind::Personal => crate::read::holds_owner(self, &writer.key),
@@ -79,7 +59,7 @@ impl LogState {
     /// is a duplicate. The next value is accepted. A higher value is a gap.
     /// An exact re-append is a duplicate once in total. A different payload
     /// on a stored submission is [`LogError::Conflict`].
-    pub(crate) fn append(
+    pub fn append(
         &self,
         batch: &AppendBatch,
         policy: &BoundPolicy,
@@ -115,9 +95,6 @@ fn check_batch(
     state.authorize_append(&batch.writer)?;
     for entry in &batch.entries {
         check_entry(state, batch, entry, policy)?;
-    }
-    if !state.inflight.contains(&batch.writer) {
-        return Err(LogError::AppendNotOpen);
     }
     Ok(())
 }
@@ -198,7 +175,6 @@ fn confirm_repeats(state: &LogState, batch: &AppendBatch, last: u64) -> Result<(
 }
 
 fn confirm_repeat(state: &LogState, entry: &Entry) -> Result<(), LogError> {
-    check_submission_status(state, &entry.writer, entry.writer_seq)?;
     match stored_entry(state, &entry.writer, entry.writer_seq) {
         Some(stored) if same_content(&stored.entry, entry) => Ok(()),
         None if entry.writer_seq <= trimmed_tip(state, &entry.writer) => Ok(()),
@@ -211,21 +187,6 @@ fn stored_entry<'a>(state: &'a LogState, writer: &Writer, seq: u64) -> Option<&'
         .entries
         .iter()
         .find(|stored| stored.entry.writer == *writer && stored.entry.writer_seq == seq)
-}
-
-fn check_submission_status(
-    state: &LogState,
-    writer: &Writer,
-    writer_seq: u64,
-) -> Result<(), LogError> {
-    let Some(record) = state.submission_records.get(&(writer.clone(), writer_seq)) else {
-        return Ok(());
-    };
-    let SubmissionStatus::Expired = record.status;
-    Err(LogError::SubmissionExpired {
-        writer: writer.clone(),
-        writer_seq,
-    })
 }
 
 fn trimmed_tip(state: &LogState, writer: &Writer) -> u64 {
@@ -279,7 +240,6 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     if &entry.writer.key != publisher {
         return Err(LogError::InvalidEntry);
     }
-    check_submission_status(state, &from.writer, from.writer_seq)?;
     let Some(stored) = stored_entry(state, &from.writer, from.writer_seq) else {
         return Err(LogError::UnknownSubmission);
     };

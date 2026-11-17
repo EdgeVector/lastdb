@@ -102,7 +102,6 @@ mod error_imp {
             send_default_pii: false,
             attach_stacktrace: false,
             max_breadcrumbs: 0,
-            auto_session_tracking: false,
             before_send: Some(Arc::new(|ev| Some(sanitize(&ev)))),
             ..sentry::ClientOptions::default()
         };

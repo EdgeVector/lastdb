@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::host::Host;
 
 use super::http::{self, Endpoint, Proof};
-use super::{account, paths, restore, wire, SyncOutcome, SyncState};
+use super::{account, paths, wire, SyncOutcome, SyncState};
 
 #[derive(Serialize)]
 struct WriterTipRequest<'a> {
@@ -162,24 +162,11 @@ impl CloudLog {
     }
 
     pub(crate) async fn drive_once(&self, state: SyncState) -> Result<SyncOutcome, LogError> {
-        match self.list_async(state.cursor).await {
-            Ok(page) => Ok(SyncOutcome {
-                entries: page.entries,
-                cursor: page.next,
-            }),
-            Err(LogError::CursorExpired { .. }) => {
-                let through = restore::recover(self, state.role, state.cursor).await?;
-                match self.list_async(through).await {
-                    Ok(page) => Ok(SyncOutcome {
-                        entries: page.entries,
-                        cursor: page.next,
-                    }),
-                    Err(LogError::CursorExpired { .. }) => Err(LogError::SnapshotRequired),
-                    Err(error) => Err(error),
-                }
-            }
-            Err(error) => Err(error),
-        }
+        let page = self.list_async(state.cursor).await?;
+        Ok(SyncOutcome {
+            entries: page.entries,
+            cursor: page.next,
+        })
     }
 
     pub(super) async fn head_async(&self) -> Result<Option<ScopedHead>, LogError> {

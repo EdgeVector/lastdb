@@ -60,9 +60,6 @@ pub const MUTATION_LOG_BLOB_BYTES_PATH: &str = "/api/cloud/backups/v2/mutation-l
 /// Read or publish the reference to a client-uploaded encrypted snapshot.
 pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
-/// Read a signed snapshot manifest or part.
-pub const MUTATION_LOG_DELIVERY_SNAPSHOT_PATH: &str =
-    "/api/cloud/backups/v2/mutation-log/delivery/snapshot";
 /// Read one signed ciphertext range of a record file.
 pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/object";
@@ -121,33 +118,6 @@ impl NativeDatabase {
             database_id,
         }
     }
-}
-
-/// Signed state of one database. Open is the absence of this value.
-///
-/// This enum is not the TLS body. Send [`NativeDatabase`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SignedDatabase {
-    /// Spec stored at create. No evidence digest.
-    Native(NativeDatabase),
-}
-
-impl SignedDatabase {
-    /// Database this state names.
-    #[must_use]
-    pub fn database_id(&self) -> &Id {
-        match self {
-            Self::Native(native) => &native.database_id,
-        }
-    }
-
-    /// Realm this state names.
-    #[must_use]
-    pub fn environment(&self) -> ShareEnvironment {
-        match self {
-            Self::Native(native) => native.environment,
-        }
-    }
 
     /// Reject a state for another database or realm.
     pub fn bind(
@@ -155,7 +125,7 @@ impl SignedDatabase {
         token: &NodeReadToken,
         service: ShareEnvironment,
     ) -> Result<(), ProtocolError> {
-        if self.database_id() != &token.database_id || self.environment() != service {
+        if self.database_id != token.database_id || self.environment != service {
             return Err(ProtocolError::unauthorized("share.cutover.identity"));
         }
         Ok(())
@@ -164,7 +134,7 @@ impl SignedDatabase {
 
 /// Authenticated response while the database is still open.
 ///
-/// This is not a [`SignedDatabase`].
+/// This is not a [`NativeDatabase`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenDatabase {

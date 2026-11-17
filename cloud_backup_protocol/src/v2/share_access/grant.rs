@@ -5,9 +5,8 @@
 
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
-    NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMember, ShareMemberRole,
-    ShareMemberState, SignedDatabase, MUTATION_LOG_DELIVERY_OBJECT_PATH,
-    MUTATION_LOG_DELIVERY_SNAPSHOT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
+    NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMember, ShareMemberRole,
+    ShareMemberState, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
     MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
 };
 use crate::{Digest, ProtocolError};
@@ -30,7 +29,7 @@ pub struct SignedRequestTarget<'a> {
     /// Raw path the service received, including `/api`.
     pub path: &'a str,
     /// Stored native database. Absent while the database is open.
-    pub access: Option<&'a SignedDatabase>,
+    pub access: Option<&'a NativeDatabase>,
 }
 
 /// What a node key may do with the current member list.
@@ -252,7 +251,6 @@ fn is_mutation_log_path(path: &str) -> bool {
             | MUTATION_LOG_INBOX_LIST_PATH
             | MUTATION_LOG_INBOX_SETTLE_PATH
             | MUTATION_LOG_SNAPSHOT_BYTES_PATH
-            | MUTATION_LOG_DELIVERY_SNAPSHOT_PATH
             | MUTATION_LOG_DELIVERY_OBJECT_PATH
     )
 }

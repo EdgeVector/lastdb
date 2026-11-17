@@ -15,7 +15,7 @@ use super::accepted;
 use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
 use super::turn::{self, Pause};
-use super::{contributions, http, session, wire, SyncOutcome, SyncRole, SyncState};
+use super::{contributions, http, session, wire, SyncOutcome, SyncState};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -94,7 +94,7 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
                     Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
                         return apply_contiguous(host, ready, after, page).await;
                     }
-                    Ok(_) | Err(LogError::CursorExpired { .. } | LogError::SnapshotRequired) => {}
+                    Ok(_) | Err(LogError::CursorExpired { .. }) => {}
                     Err(error) => {
                         tracing::warn!(target: "lastdbd::log_sync", %error, "retained log read failed");
                         return ready
@@ -109,8 +109,13 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
                     }
                 };
             }
-            Err(LogError::CursorExpired { .. }) => {}
             Err(error) => {
+                if matches!(error, LogError::CursorExpired { .. }) {
+                    turn::warn_once(
+                        &SNAPSHOT_WARNED,
+                        "snapshot restore stopped before this database could advance",
+                    );
+                }
                 tracing::warn!(target: "lastdbd::log_sync", %error, "pull failed");
                 return ready.download_failed(host, format!("cloud pull failed: {error}"));
             }
@@ -119,10 +124,7 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
     let outcome = match ready.log.drive_once(ready.state).await {
         Ok(pulled) => pulled,
         Err(error) => {
-            if matches!(
-                error,
-                LogError::CursorExpired { .. } | LogError::SnapshotRequired
-            ) {
+            if matches!(error, LogError::CursorExpired { .. }) {
                 turn::warn_once(
                     &SNAPSHOT_WARNED,
                     "snapshot restore stopped before this database could advance",
@@ -195,10 +197,7 @@ pub(super) fn opened_state(
         return Err("device id was refused".into());
     }
     let cursor = session::load_cursor(home, database_id.as_str())?;
-    Ok(SyncState {
-        role: SyncRole::Owner,
-        cursor,
-    })
+    Ok(SyncState { cursor })
 }
 
 async fn drain_inbox(host: &Host, log: &CloudLog) -> Result<(), String> {

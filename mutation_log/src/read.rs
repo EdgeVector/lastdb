@@ -61,7 +61,8 @@ impl LogState {
         }
     }
 
-    pub(crate) fn grant(
+    /// Allow a principal to read or append.
+    pub fn grant(
         &self,
         caller: &PrincipalId,
         principal: PrincipalId,
@@ -96,7 +97,8 @@ impl LogState {
         }
     }
 
-    pub(crate) fn head_for(
+    /// Read the last entry visible to a principal.
+    pub fn head_for(
         &self,
         reader: &PrincipalId,
         policy: &BoundPolicy,
@@ -107,7 +109,7 @@ impl LogState {
         Ok(scoped_head(self, reader, policy))
     }
 
-    /// List after the caller's position using the last persisted trim boundary.
+    /// List visible entries after the caller's position.
     pub fn list_retained(
         &self,
         reader: &PrincipalId,
@@ -120,14 +122,6 @@ impl LogState {
         }
         if !self.reader_allowed(reader) {
             return Err(LogError::Unauthorized);
-        }
-        if after < self.trimmed_through {
-            return Err(LogError::CursorExpired {
-                snapshot_through: self
-                    .snapshot
-                    .as_ref()
-                    .map_or(0, |cut| cut.through_delivery_seq),
-            });
         }
         Ok(page(self, reader, after, limit, policy))
     }

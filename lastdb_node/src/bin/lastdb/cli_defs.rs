@@ -207,8 +207,6 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
-    /// Record acceptance for older edits without removing them from the cloud log.
-    IndexLogHistory(BackupIndexLogHistoryArgs),
     /// Inspect or reclaim cloud log entries covered by a personal recovery snapshot.
     Reclaim(BackupReclaimArgs),
     /// Queue a direct encrypted snapshot of the selected database.
