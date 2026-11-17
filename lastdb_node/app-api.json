@@ -669,7 +669,8 @@
         "items": {"type": "string"}
       },
       "AllSchemas": {
-        "const": "*",
+        "type": "string",
+        "enum": ["*"],
         "description": "Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version."
       },
       "ManifestSchemaSide": {
