@@ -118,9 +118,6 @@ After you publish or update a PR, read its comments, reviews, and CI results.
 Fix the required changes and check again. Continue until the PR merges or closes.
 Do not end the work at publication or at green CI with unresolved review comments.
 
-> NEVER `--all-features` in a sandbox/cloud run (network model downloads).
-> See the build and CI record below.
-
 ## Code size limits (CI-enforced on the lines you change)
 
 Write Rust so that small, focused files and functions are the default. CI job

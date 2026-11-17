@@ -79,7 +79,7 @@ impl LogState {
     /// is a duplicate. The next value is accepted. A higher value is a gap.
     /// An exact re-append is a duplicate once in total. A different payload
     /// on a stored submission is [`LogError::Conflict`].
-    pub fn append(
+    pub(crate) fn append(
         &self,
         batch: &AppendBatch,
         policy: &BoundPolicy,

@@ -151,9 +151,6 @@ fn connect_received(
     if stream.stream_id != share.id {
         return Err("registered invitation stream does not match the database".into());
     }
-    stream
-        .validate()
-        .map_err(|_| "registered invitation stream was refused")?;
     let (label, api_url) = profile_service(share.environment());
     let endpoint = Endpoint::open(api_url, label)?;
     CloudLog::open(LogOpen {

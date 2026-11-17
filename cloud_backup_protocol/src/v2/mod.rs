@@ -1,15 +1,19 @@
 //! Generic byte backup transport. Pure wire validation; no I/O or admission.
 //! Native formats, recovery keys and client completeness stay with the client.
 
-use crate::{AccountId, CloudScope, Digest, Id, ProtocolError, Text};
+use crate::{AccountId, CloudScope, DecimalU64, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod share_access;
-pub mod transfer;
+
+/// Temporary presigned object upload grants.
+pub mod transfer {
+    pub use super::UploadGrant;
+}
 
 /// Record blob objects at client-derived paths.
 pub mod blobs {
-    pub use super::{BlobPath, MAX_BLOB_SEGMENT_BYTES};
+    pub use super::BlobPath;
 }
 
 /// Advisory account context read wire types.
@@ -19,13 +23,9 @@ pub mod context {
 
 /// Commitment domains starting with `lastdb:cloud-byte-backup:` and ending with `:v2`.
 pub mod hash {
+    pub use crate::canonical_bytes;
     use crate::{Digest, ProtocolError};
     use serde::Serialize;
-
-    /// RFC 8785 bytes of `value`. Fails as invalid JSON if serialization or canonicalization fails.
-    pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtocolError> {
-        crate::canonical_json_bytes(value, "v2.json", "v2.canonical_json")
-    }
 
     /// SHA-256 of a length-prefixed V2 domain and the canonical body.
     pub fn input<T: Serialize>(domain: &'static str, value: &T) -> Result<Digest, ProtocolError> {
@@ -52,8 +52,8 @@ pub mod limits {
     pub const MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES: u64 = 1024 * 1024;
 
     /// Reject canonical JSON of `value` larger than `maximum`.
-    pub fn encoded<T: Serialize>(value: &T, maximum: u64) -> Result<(), ProtocolError> {
-        let bytes = super::hash::canonical_bytes(value)?;
+    pub(crate) fn encoded<T: Serialize>(value: &T, maximum: u64) -> Result<(), ProtocolError> {
+        let bytes = crate::canonical_bytes(value)?;
         if bytes.len() as u64 > maximum {
             return Err(ProtocolError::limit("v2.encoded_bytes"));
         }
@@ -68,11 +68,6 @@ pub struct Version;
 impl Version {
     /// The only V2 value. It serializes as the JSON integer 2.
     pub const V2: Self = Self;
-    /// Return `2`.
-    #[must_use]
-    pub const fn get(self) -> u8 {
-        2
-    }
 }
 
 impl Serialize for Version {
@@ -92,8 +87,28 @@ impl<'de> Deserialize<'de> for Version {
     }
 }
 
-/// Maximum bytes of one path segment (space, write id).
-pub const MAX_BLOB_SEGMENT_BYTES: usize = 128;
+/// Temporary upload authority for a signed conditional PUT with an exact `Content-Length`.
+/// Never save this URL in a durable record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadGrant {
+    /// Temporary upload URL. Do not store it on a durable record.
+    pub url: Text<8192>,
+    /// Unix epoch milliseconds when this grant expires. Zero is rejected.
+    pub expires_ms: DecimalU64,
+}
+
+impl UploadGrant {
+    /// Reject a zero expiry or oversized JSON.
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        if self.expires_ms.get() == 0 {
+            return Err(ProtocolError::invalid("upload_grant.expires_ms"));
+        }
+        limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
+    }
+}
+
+const MAX_BLOB_SEGMENT_BYTES: usize = 128;
 
 /// The client-derived location of one record blob version.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -147,13 +162,6 @@ pub struct Stream {
     pub stream_id: Id,
 }
 
-impl Stream {
-    /// Validate the account scope.
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.scope.validate()
-    }
-}
-
 /// Immutable provider destination without any client file-kind meaning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -190,12 +198,9 @@ pub struct ContextReadRequest {
 }
 
 impl ContextReadRequest {
-    /// Reject a bad destination list, an account id that is not 32 characters, or oversized JSON.
+    /// Reject a bad destination list or oversized JSON.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         validate_destinations(&self.required_destinations)?;
-        if self.account_id.as_str().len() != 32 {
-            return Err(ProtocolError::invalid("v2.context.account_id"));
-        }
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
