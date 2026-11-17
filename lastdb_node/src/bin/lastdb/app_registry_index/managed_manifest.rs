@@ -49,6 +49,10 @@ pub(super) struct InstallPlan {
     pub links: Vec<InstallLink>,
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Manifest access lists. Left out of the consent hash: a manifest that
+    /// declares nothing keeps the hash it had before this block existed.
+    #[serde(default, skip)]
+    pub access: Option<super::manifest_access::ManifestAccess>,
 }
 
 fn relative(path: &str) -> Result<PathBuf, String> {
@@ -114,6 +118,7 @@ impl InstallPlan {
         if !plan.requires.iter().all(|a| super::valid_app_id(a)) {
             return Err("invalid required app".into());
         }
+        plan.access = super::manifest_access::ManifestAccess::from_manifest(&val)?;
         Ok(plan)
     }
 

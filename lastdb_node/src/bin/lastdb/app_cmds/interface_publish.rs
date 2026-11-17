@@ -133,19 +133,7 @@ fn require_held_schemas_listed(
 /// the definition ID of the version the running node holds, which is the one
 /// the developer built against.
 fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
-    let names = |key: &str| -> Result<Vec<String>, String> {
-        decl.get(key)
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("manifest `access.{key}` must be a list"))?
-            .iter()
-            .map(|v| {
-                v.as_str()
-                    .map(str::to_string)
-                    .ok_or_else(|| format!("manifest `access.{key}` entries must be strings"))
-            })
-            .collect()
-    };
-    let (read, write, extensions) = (names("read")?, names("write")?, names("extensions")?);
+    let declared = registry::ManifestAccess::parse_block(decl)?;
     let path = "/api/schemas?include_definition_ids=true";
     let held = get_path_retry(socket, path, Duration::from_secs(30))
         .and_then(|raw| parse_json_response(&raw, "GET /api/schemas"))?;
@@ -167,8 +155,9 @@ fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
             .collect::<Result<serde_json::Map<String, Value>, String>>()
             .map(Value::Object)
     };
-    let access =
-        json!({"read": versions(&read)?, "write": versions(&write)?, "extensions": extensions});
+    let read = versions(&declared.reads)?;
+    let write = versions(&declared.writes)?;
+    let access = json!({"read": read, "write": write, "extensions": declared.extensions});
     let parsed: app_identity_crypto::Access =
         serde_json::from_value(access.clone()).map_err(|e| format!("manifest `access`: {e}"))?;
     if !parsed.well_formed() {

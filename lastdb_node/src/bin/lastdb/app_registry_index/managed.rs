@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::managed_manifest::{self, steps, InstallPlan};
+use super::manifest_access::{self, ManifestAccess};
 use super::{str_err, ListEntry, Resolution, RECEIPT_FILE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,9 @@ pub struct ManagedReceipt {
     pub inactive: bool,
     pub installed_at: String,
     pub listing: ListEntry,
+    /// Manifest `access` lists. Old receipts omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<ManifestAccess>,
 }
 
 pub fn apps_root() -> Result<PathBuf, String> {
@@ -81,6 +85,7 @@ pub fn install(
     if let Some(c) = prior.as_ref().filter(|r| {
         r.sha == entry.sha && r.inactive == inactive && r.publisher == entry.publisher_key
     }) {
+        manifest_access::require_declared_extensions(home, &entry.app_id, c.access.as_ref())?;
         verify_or_restore(&root, home, c)?;
         return Ok(c.clone());
     }
@@ -147,6 +152,7 @@ fn stage_version(
     let source = stage.join("source");
     managed_manifest::clone_source(&source, entry)?;
     let plan = InstallPlan::load(&source, &entry.app_id)?;
+    manifest_access::require_declared_extensions(home, &entry.app_id, plan.access.as_ref())?;
     let hash = plan.consent_hash(entry.access.as_ref())?;
     if prior.is_some_and(|r| {
         r.publisher != entry.publisher_key && !super::authorized_transition(r, resolution)
@@ -188,6 +194,7 @@ fn stage_version(
         inactive,
         installed_at: chrono::Utc::now().to_rfc3339(),
         listing: entry.clone(),
+        access: plan.access,
     };
     let raw = serde_json::to_vec_pretty(&new).map_err(str_err)?;
     fs::write(stage.join(RECEIPT_FILE), raw).map_err(str_err)?;

@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod managed;
 mod managed_manifest;
+mod manifest_access;
+
+pub(crate) use manifest_access::ManifestAccess;
 
 pub(crate) use crate::uds_client::running_node;
 pub use app_identity_crypto::{

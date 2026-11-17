@@ -339,7 +339,12 @@ fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), Str
                 };
                 let act = std::fs::read_link(root.join("current")).ok();
                 let pri = std::fs::read_link(root.join("previous")).ok();
-                rows.push(json!({"app": app, "state": state, "installed_release": r.sha, "active_release": act, "prior_release": pri, "probe": probe, "receipt": r}));
+                let access = r.access.clone();
+                let mut row = json!({"app": app, "state": state, "installed_release": r.sha, "active_release": act, "prior_release": pri, "probe": probe, "receipt": r});
+                if let Some(access) = access {
+                    row["access"] = json!(access);
+                }
+                rows.push(row);
             }
             Err(error) => {
                 failed = true;

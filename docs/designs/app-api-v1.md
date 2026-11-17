@@ -141,16 +141,14 @@ The code is for the program. The message is for people and can change.
 ## Access declaration
 
 An app published to the registry states the LastDB access it asks for. The
-developer writes it in the manifest:
+developer writes the lists in the manifest. See "Declaring access in the
+manifest" below.
 
-```
-"access": { "read": ["notes/Note", "notes/Tag"], "write": ["notes/Note"], "extensions": ["changes"] }
-```
-
-`lastdb app publish` looks each schema up on the running node and replaces the
-name with a pair: the name and the definition ID of the version the node holds.
-That is the version the developer built against. The result goes into the
-listing, under the publisher signature:
+`lastdb app publish` looks each schema in `reads` and `writes` up on the
+running node and replaces the name with a pair: the name and the definition
+ID of the version the node holds. That is the version the developer built
+against. The result goes into the listing, under the publisher signature.
+The listing keys stay `read` and `write`:
 
 ```
 "access": { "read": { "notes/Note": "9f2c…", "notes/Tag": "41ab…" },
@@ -159,15 +157,42 @@ listing, under the publisher signature:
 ```
 
 - Access is per schema, not per field. A read returns the whole record.
-- `read` and `write` are independent. A schema on `write` alone cannot be read.
+- `read` and `write` on the listing are independent. A schema on `write` alone cannot be read.
 - An extension is a plain name with no version.
-- Install shows the declaration with the install steps and asks the owner
+- Install shows the signed declaration with the install steps and asks the owner
   again when a later listing changes either.
 - Install refuses a listing that names an extension this build does not have.
-- An app that is not published declares nothing.
+- A listing from before this, and an app that declares nothing, carries no signed access.
 
-The declaration is recorded and shown. It is not enforced until the app socket
-exists.
+The signed declaration is not enforced until the app socket exists.
+
+## Declaring access in the manifest
+
+The manifest may carry this block. A manifest without it installs as before.
+Declaring is the permission. The check of each read and write at run time is
+not built yet.
+
+```json
+"access": {
+  "reads": ["notes/Note", "brain/Reference"],
+  "writes": ["notes/Note"],
+  "extensions": ["changes"]
+}
+```
+
+- `reads` and `writes` name schemas as `<app id>/<Name>`. The app id is an
+  installer app id: lowercase letters, digits and `-`, 1 to 40 characters.
+  The name starts with a letter, then letters, digits, `_`, `.` or `-`.
+  The whole schema name is at most 128 characters. An empty string or a
+  duplicate in one list is refused.
+- `extensions` are lowercase words, `[a-z][a-z0-9_]*`, at most 40 characters.
+  Anything else is refused, including a duplicate.
+- A key inside `access` other than these three is refused. A missing list means none.
+- Install and upgrade, when the block names an extension, read `extensions`
+  from `GET /api/version`. A reply with no such field means the node has none.
+  If one is missing, install stops. The message names it and says to upgrade LastDB.
+- The three lists are stored on the install receipt, `lastdb-app-install.json`.
+  `lastdb app status` prints that receipt, and the same lists beside it.
 
 ## Not built yet
 
@@ -175,8 +200,7 @@ exists.
 - Removing a record's file while keeping the record.
 - The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
-- An app naming its extensions in its manifest, the installer checking them, and
-  the limit of `changes` to the schemas an app declared.
+- The limit of `changes` to the schemas an app declared.
 - The app socket, the sandbox profile and the per-app schema check. Until they
   exist, these routes serve every caller of the owner socket as the owner.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
