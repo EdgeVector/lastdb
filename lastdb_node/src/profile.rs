@@ -299,7 +299,7 @@ pub mod endpoints {
         }
     }
 
-    pub(crate) fn schema_service_url() -> String {
+    pub fn schema_service_url() -> String {
         let env_url = std::env::var("FOLD_SCHEMA_SERVICE_URL")
             .ok()
             .filter(|u| !u.trim().is_empty());

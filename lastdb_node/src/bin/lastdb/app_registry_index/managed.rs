@@ -257,8 +257,8 @@ fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> R
     super::command_names::ensure_available(root, &new.app_id, &plan, restricted, &owned)?;
     let snap = managed_manifest::snapshot(&plan)?;
     managed_manifest::flip(&root.join("current"), version)?;
-    let declared = if restricted {
-        super::place_schemas::place(&version.join("source"), &new.app_id, home)
+    let declared = if let Some(access) = &new.listing.access {
+        super::place_schemas::place(&version.join("source"), &new.app_id, home, access)
     } else {
         Ok(())
     };
