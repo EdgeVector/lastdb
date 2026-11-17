@@ -17,7 +17,7 @@ import type { JsonValue } from './types.js';
 
 export { AppApiError } from './appApiError.js';
 
-/** Reply from `POST /api/apps/session`. `app` is the app id. There is no expiry. */
+/** Reply from `POST /api/apps/register`. `app` is the app id. There is no expiry. */
 export interface AppRegistration {
   app: string;
 }

@@ -21,15 +21,15 @@ pub(super) fn register(home: &Path, receipt: &ManagedReceipt) -> Result<(), Stri
     let body = json!({
         "app": receipt.app_id,
         "access": {
-            "read": access.read.keys().collect::<Vec<_>>(),
-            "write": access.write.keys().collect::<Vec<_>>(),
+            "read": access.read.registration_value(),
+            "write": access.write.registration_value(),
             "extensions": &access.extensions,
         },
         "data": data,
     });
     let socket = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     let raw =
-        crate::uds_client::post_json_with_timeout(&socket, "/api/apps/session", &body, TIMEOUT)?;
+        crate::uds_client::post_json_with_timeout(&socket, "/api/apps/register", &body, TIMEOUT)?;
     let reply = crate::uds_client::parse_json_response(&raw, "app access")?;
     if reply.get("app").and_then(Value::as_str) != Some(receipt.app_id.as_str()) {
         return Err(format!(

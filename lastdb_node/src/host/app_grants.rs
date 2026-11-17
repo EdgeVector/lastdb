@@ -15,6 +15,10 @@ use crate::profile::private_fs;
 /// File name beside `folddb.sock` and `apps.sock`.
 pub(crate) const GRANTS_FILE: &str = "app-grants.json";
 
+/// File grammar. Stays 1. `"*"` does not deserialize as a name list, so an
+/// older node rejects a file that contains it. It does not read that side as
+/// an empty list. A higher version would make that node reject every file
+/// this node writes, including grants that only name schemas.
 const VERSION: u32 = 1;
 const MAX_APPS: usize = 256;
 const MAX_NAMES: usize = 256;
@@ -23,13 +27,37 @@ const MAX_EXTENSION_NAME: usize = 40;
 const MAX_DATA_LEN: usize = 4096;
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 
-/// What one app may do on the app socket: the lists it registered, and its
+/// Schemas one side of a grant allows. `All` is the registration value `"*"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SchemaGrant {
+    Names(BTreeSet<String>),
+    All,
+}
+
+impl SchemaGrant {
+    pub(crate) fn allows(&self, schema: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Names(names) => names.contains(schema),
+        }
+    }
+
+    /// `None` when this side allows every schema.
+    pub(crate) fn names(&self) -> Option<&BTreeSet<String>> {
+        match self {
+            Self::All => None,
+            Self::Names(names) => Some(names),
+        }
+    }
+}
+
+/// What one app may do on the app socket: the grants it registered, and its
 /// data folder when the owner named one.
 #[derive(Debug, Clone)]
 pub(crate) struct AppGrant {
     pub(crate) app: String,
-    pub(crate) read: BTreeSet<String>,
-    pub(crate) write: BTreeSet<String>,
+    pub(crate) read: SchemaGrant,
+    pub(crate) write: SchemaGrant,
     pub(crate) extensions: BTreeSet<String>,
     pub(crate) data_dir: Option<PathBuf>,
 }
@@ -37,8 +65,8 @@ pub(crate) struct AppGrant {
 impl AppGrant {
     pub(crate) fn new(
         app: String,
-        read: BTreeSet<String>,
-        write: BTreeSet<String>,
+        read: SchemaGrant,
+        write: SchemaGrant,
         extensions: BTreeSet<String>,
         data_dir: Option<PathBuf>,
     ) -> Self {
@@ -58,11 +86,20 @@ pub(crate) enum RegisterError {
     Store,
 }
 
+/// A name list, or the string `"*"`. Untagged, so a list serializes as a list.
+/// An older node expects a list and rejects the string instead of seeing no names.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum StoredSchemas {
+    Names(BTreeSet<String>),
+    All(String),
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredGrant {
-    read: BTreeSet<String>,
-    write: BTreeSet<String>,
+    read: StoredSchemas,
+    write: StoredSchemas,
     extensions: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     data: Option<String>,
@@ -130,10 +167,17 @@ impl AppGrants {
 
 fn grant_ok(grant: &AppGrant) -> bool {
     app_identity_crypto::valid_app_id(&grant.app)
-        && names_ok(&grant.read, schema_name)
-        && names_ok(&grant.write, schema_name)
+        && schemas_ok(&grant.read)
+        && schemas_ok(&grant.write)
         && names_ok(&grant.extensions, extension_name)
         && data_ok(grant.data_dir.as_deref())
+}
+
+fn schemas_ok(schemas: &SchemaGrant) -> bool {
+    match schemas {
+        SchemaGrant::All => true,
+        SchemaGrant::Names(names) => names_ok(names, schema_name),
+    }
 }
 
 fn names_ok(names: &BTreeSet<String>, accept: fn(&str) -> bool) -> bool {
@@ -176,13 +220,20 @@ fn encode(grants: &BTreeMap<String, Arc<AppGrant>>) -> Option<Vec<u8>> {
 
 fn stored_from(grant: &AppGrant) -> StoredGrant {
     StoredGrant {
-        read: grant.read.clone(),
-        write: grant.write.clone(),
+        read: stored_schemas(&grant.read),
+        write: stored_schemas(&grant.write),
         extensions: grant.extensions.clone(),
         data: grant
             .data_dir
             .as_ref()
             .and_then(|path| path.to_str().map(str::to_owned)),
+    }
+}
+
+fn stored_schemas(schemas: &SchemaGrant) -> StoredSchemas {
+    match schemas {
+        SchemaGrant::All => StoredSchemas::All(app_identity_crypto::ALL_SCHEMAS.to_owned()),
+        SchemaGrant::Names(names) => StoredSchemas::Names(names.clone()),
     }
 }
 
@@ -224,10 +275,20 @@ fn decode(bytes: &[u8]) -> Option<BTreeMap<String, Arc<AppGrant>>> {
 fn accept_stored(app: String, stored: StoredGrant) -> Option<AppGrant> {
     let grant = AppGrant {
         app,
-        read: stored.read,
-        write: stored.write,
+        read: schemas_from(stored.read)?,
+        write: schemas_from(stored.write)?,
         extensions: stored.extensions,
         data_dir: stored.data.map(PathBuf::from),
     };
     grant_ok(&grant).then_some(grant)
+}
+
+fn schemas_from(stored: StoredSchemas) -> Option<SchemaGrant> {
+    match stored {
+        StoredSchemas::All(marker) if marker == app_identity_crypto::ALL_SCHEMAS => {
+            Some(SchemaGrant::All)
+        }
+        StoredSchemas::All(_) => None,
+        StoredSchemas::Names(names) => Some(SchemaGrant::Names(names)),
+    }
 }

@@ -1,5 +1,5 @@
 //! The app launcher. An installed app that declares LastDB access starts
-//! here, on the app socket. The node serves it only the schemas it declared,
+//! here, on the app socket. The node serves it the schemas its grant allows,
 //! which keeps the record of which app uses which schema true. Nothing
 //! confines the program on the machine.
 
@@ -76,15 +76,15 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
     let body = json!({
         "app": app,
         "access": {
-            "read": access.read.keys().collect::<Vec<_>>(),
-            "write": access.write.keys().collect::<Vec<_>>(),
+            "read": access.read.registration_value(),
+            "write": access.write.registration_value(),
             "extensions": access.extensions,
         },
         "data": data_text,
     });
     let raw = crate::uds_client::post_json_with_timeout(
         &lastdb_node::lastdb_uds::socket_path(&node_data),
-        "/api/apps/session",
+        "/api/apps/register",
         &body,
         REGISTER_TIMEOUT,
     )?;

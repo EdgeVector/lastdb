@@ -15,7 +15,7 @@ use thiserror::Error;
 mod access;
 mod schema_push;
 
-pub use access::{Access, KNOWN_EXTENSIONS};
+pub use access::{Access, SchemaSet, ALL_SCHEMAS, ALL_SCHEMAS_API_VERSION, KNOWN_EXTENSIONS};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 pub use schema_push::{schema_push_statement, verify_schema_push};
 

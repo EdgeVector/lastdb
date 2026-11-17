@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::app_api;
 use super::reply::{render, HostError};
-use crate::host::app_grants::{AppGrant, RegisterError};
+use crate::host::app_grants::{AppGrant, RegisterError, SchemaGrant};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
@@ -40,18 +40,42 @@ struct RegisterBody {
     data: Option<String>,
 }
 
+/// A list of schema names, or the string `"*"`. A missing field is an empty list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NameList {
+    Names(BTreeSet<String>),
+    All(String),
+}
+
+impl Default for NameList {
+    fn default() -> Self {
+        Self::Names(BTreeSet::new())
+    }
+}
+
+impl NameList {
+    fn into_grant(self) -> Result<SchemaGrant, HostError> {
+        match self {
+            Self::All(marker) if marker == app_identity_crypto::ALL_SCHEMAS => Ok(SchemaGrant::All),
+            Self::All(_) => Err(HostError::new(400, "invalid app grant")),
+            Self::Names(names) => Ok(SchemaGrant::Names(names)),
+        }
+    }
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AccessBody {
     #[serde(default)]
-    read: BTreeSet<String>,
+    read: NameList,
     #[serde(default)]
-    write: BTreeSet<String>,
+    write: NameList,
     #[serde(default)]
     extensions: BTreeSet<String>,
 }
 
-/// `POST /api/apps/session` on the owner socket: register one app.
+/// `POST /api/apps/register` on the owner socket: register one app.
 /// The reply's `app` is the app id. There is no expiry.
 pub(in crate::exec) fn register_route(
     req: &UdsRequest,
@@ -82,7 +106,13 @@ pub(in crate::exec) fn register_route(
             extensions,
         } = body.access;
         host.app_grants
-            .register(AppGrant::new(body.app, read, write, extensions, data_dir))
+            .register(AppGrant::new(
+                body.app,
+                read.into_grant()?,
+                write.into_grant()?,
+                extensions,
+                data_dir,
+            ))
             .map_err(|error| register_error(&error))?;
         Ok(json!({ "app": app }))
     })();
