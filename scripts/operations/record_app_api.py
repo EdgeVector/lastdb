@@ -176,6 +176,43 @@ def refusals(node):
     print("App API refusals: each read has its own error, and a refusal has one shape", flush=True)
 
 
+def files(node):
+    """A file is a path in and a path out. No bytes pass through the app API."""
+    folder = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) / f"app-api-files-{os.getpid()}"
+    folder.mkdir(mode=0o700)
+    original = folder / "whiteboard.txt"
+    original.write_bytes(b"app api file by path\n" * 64)
+    link = {"path": str(original), "name": "whiteboard.txt", "media_type": "text/plain"}
+    with_path = lambda name: read(node, {"schema": BY_ID, "key": {"hash": name}, "file": True})[0]
+    first = write(node, {**by_id("filed", "b8", "v1"), "file": link})[0]
+    plain = stored(node, "filed")["file"]
+    require(plain == {"name": "whiteboard.txt", "media_type": "text/plain", "size": original.stat().st_size},
+            "a read did not report the linked file: " + repr(plain))
+    linked = with_path("filed")["records"][0]["file"]
+    require(linked == {**plain, "path": str(original)}, "a read did not return the file's path: " + repr(linked))
+    second = write(node, replace("filed", "b8", "v2", first))[0]
+    require(value_of(node, "filed") == "v2" and with_path("filed")["records"][0]["file"] == linked,
+            "a replace without a file dropped the record's file")
+    require(stored(node, "dup")["file"] is None and with_path("dup")["records"][0]["file"] is None,
+            "a record without a file reported one")
+    for item in [{**by_id("nofile", "b8", "v"), "file": {"path": str(folder / "absent.bin")}},
+                 {**by_id("nofile", "b8", "v"), "file": {"path": str(node.home / "data" / "laststore-pack-node-v1")}},
+                 {**by_id("nofile", "b8", "v"), "file": {"path": str(original), "bytes_b64": "QQ=="}},
+                 {**delete(BY_ID, {"hash": "filed"}, second), "file": link}]:
+        status, reply = error_body(node, "/v1/write", {"mutations": [item]})
+        require(status == 400 and reply["error"]["code"] == "invalid_request",
+                f"a file link that cannot be used was not refused: {status} {reply!r}")
+    require(value_of(node, "nofile") is None, "a refused file write wrote its record")
+    original.unlink()
+    lost = with_path("filed")
+    require(lost.get("error", {}).get("code") == "not_found", "a missing original was not reported: " + repr(lost))
+    require(stored(node, "filed")["file"] == plain, "a read without a path failed for a missing original")
+    write(node, delete(BY_ID, {"hash": "filed"}, second))
+    folder.rmdir()
+    print("App API files: a path on create, the same path on read, kept across a replace, "
+          "refused inside the node home, and reported when the original is gone", flush=True)
+
+
 def changed(node, **body):
     return node.call("/v1/x/changes", body)[0]
 
@@ -217,6 +254,7 @@ def exercise(node):
     deletes(node)
     ranges(node)
     refusals(node)
+    files(node)
     changes(node)
 
 

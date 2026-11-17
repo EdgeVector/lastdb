@@ -202,6 +202,29 @@ pub(crate) fn remember(
     )
 }
 
+/// The referenced path of a record file, and whether a regular file of the
+/// recorded size is still there. The bytes are not read, so a same-size edit
+/// is seen only by a reader that checks the hash.
+pub(crate) fn referenced_path(
+    runtime: &PackRuntime,
+    cas_key: &str,
+    marker: &FileMarker,
+) -> StorageResult<Option<(PathBuf, bool)>> {
+    let entry = {
+        let _guard = catalog_lock(runtime)?;
+        load(&sidecar_path(runtime)?.0)?.files.remove(cas_key)
+    };
+    let Some(entry) = entry else { return Ok(None) };
+    if entry.sha256 != marker.sha256 || entry.size_bytes != marker.size_bytes {
+        return Err(invalid(
+            "local file reference does not match its record marker",
+        ));
+    }
+    let path = PathBuf::from(&entry.path);
+    let intact = fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == entry.size_bytes);
+    Ok(Some((path, intact)))
+}
+
 pub(crate) async fn read_referenced(
     runtime: &PackRuntime,
     cas_key: &str,

@@ -64,7 +64,23 @@ Every write carries a condition, so two writers cannot overwrite each other with
 
 A read returns each record's `revision` beside its key.
 
-## Extensions
+## Files
+
+A file is a path in and a path out. No file bytes pass through the app API.
+
+```
+{ "schema": "notes/Note", "op": "create", "key": { "hash": "n5" }, "record": { … },
+  "file": { "path": "/Users/me/Pictures/whiteboard.jpg", "name": "whiteboard.jpg", "media_type": "image/jpeg" } }
+```
+
+- A `create` or a `replace` can carry a `file` with the path of a file the caller can read. `name` and `media_type` are optional.
+- LastDB keeps a reference to the file where it is and makes no local copy. The bytes go up at cloud upload.
+- A path inside the LastDB home is refused.
+- A `replace` without a `file` keeps the record's file.
+- Every record in a read reply has `file`: null, or its `name`, `media_type` and `size`.
+- A read item with `"file": true` also gets `path`. When the original is gone or has another size, that read item answers `not_found`.
+- `path` is null for a file that LastDB holds as bytes in its home and not as a reference.
+
 
 Read and write are the core. Anything more is an extension that an app asks for
 by name, so a new feature does not raise a version.
@@ -124,7 +140,9 @@ The code is for the program. The message is for people and can change.
 
 ## Not built yet
 
-- A `file` path on a `create` or a `replace`, and a file path on a read.
+- A path for a file that is only in the cloud or that LastDB holds as bytes. Nothing fetches one file from the cloud on a read yet.
+- Removing a record's file while keeping the record.
+- The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
 - An app naming its extensions in its manifest, the installer checking them, and
   the limit of `changes` to the schemas an app declared.
