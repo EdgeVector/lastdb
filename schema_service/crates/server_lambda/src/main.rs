@@ -1,8 +1,9 @@
 //! Advisory Schema Service Lambda handler.
 //!
 //! Serves `/v1/health` (`/health`), `/v1/fields/vocabulary`,
-//! `POST /v1/advice/schema`, and `POST /v1/schemas`. Advice reads the curated
-//! vocabulary and the schemas publishers push.
+//! `POST /v1/advice/schema`, `POST /v1/schemas`, and
+//! `GET /v1/schemas/<definition_id>`. Advice reads the curated vocabulary and
+//! the schemas publishers push. A definition read returns the stored object.
 
 #![allow(clippy::result_large_err)]
 
@@ -27,6 +28,21 @@ pub(crate) fn json_response(status: u16, body: &Value) -> Result<Response<Body>,
         .header("Access-Control-Allow-Methods", ACCESS_CONTROL_ALLOW_METHODS)
         .header("Access-Control-Allow-Headers", ACCESS_CONTROL_ALLOW_HEADERS)
         .body(Body::from(body.to_string()))
+        .map_err(|e| Error::from(format!("Failed to build response: {e}")))
+}
+
+pub(crate) fn json_bytes_response(
+    status: u16,
+    body: Vec<u8>,
+    cache_control: &str,
+) -> Result<Response<Body>, Error> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .header("Cache-Control", cache_control)
+        .header("Access-Control-Allow-Methods", ACCESS_CONTROL_ALLOW_METHODS)
+        .header("Access-Control-Allow-Headers", ACCESS_CONTROL_ALLOW_HEADERS)
+        .body(Body::Binary(body))
         .map_err(|e| Error::from(format!("Failed to build response: {e}")))
 }
 
@@ -79,7 +95,8 @@ fn dispatch_stateless(method: &str, path: &str) -> Option<Result<Response<Body>,
                     "GET /v1/health": "Health check",
                     "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
                     "POST /v1/advice/schema": "Advice for one draft schema declaration (read-only, never blocks)",
-                    "POST /v1/schemas": "Register one listed app's schema definitions for one channel"
+                    "POST /v1/schemas": "Register one listed app's schema definitions for one channel",
+                    "GET /v1/schemas/{definition_id}": "Read one schema definition by its definition id"
                 }
             }),
         )),
@@ -141,6 +158,9 @@ async fn function_handler(
 
     if method == "POST" && path == catalog::SCHEMAS_PATH {
         return catalog::register_schemas(catalog.as_deref(), &event).await;
+    }
+    if let ("GET", Some(id)) = (method, catalog::definition_id(path)) {
+        return catalog::read_definition(catalog.as_deref(), id).await;
     }
 
     dispatch_with_state(&state, catalog.as_deref(), &event).await
