@@ -15,7 +15,8 @@ POST /v1/read
     { "schema": "notes/Note", "key": { "hash": "n1" } },
     { "schema": "notes/Tag",  "range": { "hash": "work" }, "limit": 100, "keys_only": true },
     { "schema": "notes/Note", "via": "by_author", "range": { "hash": "tom" } },
-    { "database": "work", "schema": "notes/Note", "key": { "hash": "n1" } }
+    { "database": "work", "schema": "notes/Note", "key": { "hash": "n1" } },
+    { "schema": "notes/Note", "keys_only": true, "limit": 100 }
 ] }
 
 200
@@ -23,17 +24,23 @@ POST /v1/read
     { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "record": { … } } ], "next_cursor": null },
     { "keys": [ … ], "next_cursor": "b3f1…" },
     { "records": [ … ], "next_cursor": null },
-    { "error": { "code": "not_found", "message": "…" } }
+    { "error": { "code": "not_found", "message": "…" } },
+    { "keys": [ { "hash": "n1", "range": null }, … ], "next_cursor": "7a09…" }
 ] }
 ```
 
-- A read names a schema and exactly one of `key` or `range`. A scan does not exist.
+- A read of records names a schema and exactly one of `key` or `range`. A scan of records does not exist.
 - `key` is one record: `hash`, and `range` when the schema has one.
 - `range` is the records under one `hash`: all of them, those with a `prefix`,
   or those from `start` up to `end`.
 - `via` reads through a named alternate key. The reply holds the primary keys.
 - `limit` bounds a page. `next_cursor` is an opaque string; send it back as `cursor`.
 - `keys_only` returns keys without records.
+- A `keys_only` read with neither `key` nor `range` lists the primary keys of the
+  schema's records (Tom, 2026-11-17). A page holds 100 keys unless `limit` says
+  otherwise, and at most 1000. Follow `next_cursor` until it is null for all of
+  them. It takes no `via` and no `file`. An app that keeps something derived
+  from a schema uses it to build and to rebuild.
 - `database` selects a database. Without it the read uses the personal database.
 - Each read gets its own result or its own error, in order. One list holds at most 64 reads.
 

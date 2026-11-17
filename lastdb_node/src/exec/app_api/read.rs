@@ -11,13 +11,15 @@ use super::{
     bad, error_value, fail, in_database, key_filter, ok, require_exact_name, require_read,
 };
 use crate::exec::query::{execute_query, QueryResponseFormat};
-use crate::exec::reply::HostError;
+use crate::exec::reply::{map_host_err, HostError};
 use crate::exec::schema_routes::resolve_schema_name;
 use crate::exec::wire::{decode_cursor_token, encode_cursor_token, QueryRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 const MAX_READS: usize = 64;
+const KEY_LIST_DEFAULT: usize = 100;
+const KEY_LIST_MAX: usize = 1000;
 const CONCURRENT_READS: usize = 4;
 
 #[derive(Deserialize)]
@@ -121,8 +123,50 @@ fn filter(item: &ReadItem) -> Result<HashRangeFilter, HostError> {
     }
 }
 
+/// Every primary key of a schema, a page at a time. Only keys leave without a
+/// key or a hash: a read of records still names one.
+async fn list_keys(host: &Host, item: ReadItem) -> Result<Value, HostError> {
+    if !item.keys_only {
+        return Err(bad(
+            "a read of records names a key or a range; only keys_only lists a schema",
+        ));
+    }
+    if item.via.is_some() || item.file {
+        return Err(bad("a key list takes no via and no file"));
+    }
+    let limit = match item.limit {
+        Some(0) => return Err(bad("limit must be at least 1")),
+        Some(limit) => limit.min(KEY_LIST_MAX),
+        None => KEY_LIST_DEFAULT,
+    };
+    let (schema, cursor) = (item.schema, item.cursor);
+    in_database(item.database.as_deref(), host, async {
+        require_exact_name(host, &schema)?;
+        let canonical = resolve_schema_name(host, &schema)?
+            .ok_or_else(|| HostError::new(404, format!("no schema is named {schema}")))?;
+        let report = host
+            .records()
+            .list_schema_record_keys(&schema, &canonical, limit, cursor.as_deref(), None)
+            .await
+            .map_err(|error| map_host_err("key list failed", error))?;
+        let keys: Vec<Value> = report
+            .keys
+            .iter()
+            .map(|key| {
+                let range = (!key.range.is_empty()).then_some(key.range.as_str());
+                json!({ "hash": key.hash, "range": range })
+            })
+            .collect();
+        Ok(json!({ "keys": keys, "next_cursor": report.next_cursor }))
+    })
+    .await
+}
+
 async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     require_read(&item.schema)?;
+    if item.key.is_none() && item.range.is_none() {
+        return list_keys(host, item).await;
+    }
     let filter = filter(&item)?;
     let cursor = decode_cursor_token(item.cursor.as_deref(), "", "invalid cursor")?;
     let schema = item.schema.clone();

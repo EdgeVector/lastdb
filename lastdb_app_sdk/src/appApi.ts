@@ -42,10 +42,11 @@ interface AppApiReadBase {
   file?: boolean;
 }
 
-/** One item of `POST /v1/read`. Names `schema` and exactly one of `key` or `range`. */
+/** One item of POST /v1/read: schema plus key or range; keys_only with neither lists the schema's keys. */
 export type AppApiRead =
   | (AppApiReadBase & { key: KeyValue; range?: never })
-  | (AppApiReadBase & { range: AppApiRange; key?: never });
+  | (AppApiReadBase & { range: AppApiRange; key?: never })
+  | (AppApiReadBase & { keys_only: true; key?: never; range?: never; via?: never; file?: never });
 
 /** File facts on a read record. `path` is set only when the read set `file: true`. */
 export interface AppApiFile {
