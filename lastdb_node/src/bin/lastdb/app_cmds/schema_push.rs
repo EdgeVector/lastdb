@@ -68,6 +68,8 @@ fn try_attempt(push: &Request<'_>) -> Result<Attempt, String> {
     crate::block_on("schema push", post_signed(push, schemas)).map(Attempt::Registered)
 }
 
+/// Manifest schemas, plus each name on a side of `access` that is a map.
+/// `"*"` is not a map, so that side adds no names.
 fn schema_names(input: &PublishArgs, app_id: &str, payload: &Value) -> Result<Vec<String>, String> {
     let bytes = std::fs::read(&input.manifest).map_err(|_| "cannot read the app manifest")?;
     let manifest: Value = serde_json::from_slice(&bytes).map_err(|_| "app manifest is not JSON")?;
@@ -92,6 +94,7 @@ fn push_unique(names: &mut Vec<String>, name: String) {
     }
 }
 
+/// Keys of one access side when that side is a map. `"*"` contributes none.
 fn access_map<'a>(payload: &'a Value, side: &str) -> Option<&'a Map<String, Value>> {
     payload
         .get("access")

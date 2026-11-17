@@ -308,7 +308,7 @@ export interface ChangeEntry {
   deleted: boolean;
 }
 
-/** after defaults to 0, not to the oldest kept entry. The node keeps the newest 250000 entries. The oldest kept number is head - 250000 + 1, and at least 1. gap is true when after is above head, or when after + 1 is below that oldest number. When head is greater than 250000, after 0 is a gap and the reply has no entries. limit defaults to 500 and a larger value is capped at 500. limit 0 returns the head and no entries. An empty schemas list means every schema on the owner socket, and only the schemas the app declared it reads on the app socket. An app that declared no read schema gets permission_denied. An empty schema name is invalid_request. */
+/** after defaults to 0, not to the oldest kept entry. The node keeps the newest 250000 entries. The oldest kept number is head - 250000 + 1, and at least 1. gap is true when after is above head, or when after + 1 is below that oldest number. When head is greater than 250000, after 0 is a gap and the reply has no entries. limit defaults to 500 and a larger value is capped at 500. limit 0 returns the head and no entries. An empty schemas list means every schema on the owner socket. On the app socket it means every schema when the app's read grant is *, and only the named schemas otherwise. An app whose read grant names nothing gets permission_denied. A schemas filter still limits the entries. An empty schema name is invalid_request. */
 export interface ChangesRequest {
   database?: DatabaseName;
   /** Return entries numbered above this value. Omit it for 0. Integer. Minimum 0. */
@@ -333,13 +333,19 @@ export interface ChangesReply {
 /** Maximum items 256. */
 export type ManifestNameList = string[];
 
-/** The access block a developer writes in the app manifest. Publish reads these three arrays and ignores any other key. A schema name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. A name that breaks those rules fails publish with one generic message. The schema entry itself is not defined here. */
+/** Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version. */
+export type AllSchemas = '*';
+
+/** Schema names the app asks for, or * for every schema. */
+export type ManifestSchemaSide = AllSchemas | ManifestNameList;
+
+/** The access block a developer writes in the app manifest. Publish reads read, write, and extensions and ignores any other key. read and write are each a list of schema names or the string *. A schema name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. A name that breaks those rules fails publish with one generic message. The schema entry itself is not defined here. */
 export interface ManifestAccess {
-  /** Schema names the app reads. */
-  read: ManifestNameList;
-  /** Schema names the app writes. */
-  write: ManifestNameList;
-  /** Extension names the app calls. The list is not limited to changes. Install refuses a name this build cannot grant. The only name it grants is changes. */
+  /** Schemas the app reads. * means every schema and names none. */
+  read: ManifestSchemaSide;
+  /** Schemas the app writes. * means every schema and names none. It does not grant read. */
+  write: ManifestSchemaSide;
+  /** Extension names the app calls. The list is not limited to changes. Install refuses a name this build cannot grant. The only name it grants is changes. * is not a value here. */
   extensions: ManifestNameList;
   [key: string]: unknown;
 }
@@ -349,10 +355,15 @@ export interface DefinitionMap {
   [key: string]: string;
 }
 
-/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. Unknown keys are rejected. */
+/** Schema name to definition id, or * for every schema. The map form is the same JSON object as before API version 38. */
+export type ListingSchemaSide = AllSchemas | DefinitionMap;
+
+/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. A listing may carry * only at API version 38 or above. Unknown keys are rejected. */
 export interface ListingAccess {
-  read: DefinitionMap;
-  write: DefinitionMap;
+  /** Schemas the app reads, or * for every schema. */
+  read: ListingSchemaSide;
+  /** Schemas the app writes, or * for every schema. */
+  write: ListingSchemaSide;
   /** Extension names. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. Unknown names fail install. The only granted name is changes. Maximum items 256. */
   extensions: string[];
 }

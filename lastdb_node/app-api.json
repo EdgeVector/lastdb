@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "37",
+    "version": "38",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -617,7 +617,7 @@
       "ChangesRequest": {
         "type": "object",
         "additionalProperties": false,
-        "description": "after defaults to 0, not to the oldest kept entry. The node keeps the newest 250000 entries. The oldest kept number is head - 250000 + 1, and at least 1. gap is true when after is above head, or when after + 1 is below that oldest number. When head is greater than 250000, after 0 is a gap and the reply has no entries. limit defaults to 500 and a larger value is capped at 500. limit 0 returns the head and no entries. An empty schemas list means every schema on the owner socket, and only the schemas the app declared it reads on the app socket. An app that declared no read schema gets permission_denied. An empty schema name is invalid_request.",
+        "description": "after defaults to 0, not to the oldest kept entry. The node keeps the newest 250000 entries. The oldest kept number is head - 250000 + 1, and at least 1. gap is true when after is above head, or when after + 1 is below that oldest number. When head is greater than 250000, after 0 is a gap and the reply has no entries. limit defaults to 500 and a larger value is capped at 500. limit 0 returns the head and no entries. An empty schemas list means every schema on the owner socket. On the app socket it means every schema when the app's read grant is *, and only the named schemas otherwise. An app whose read grant names nothing gets permission_denied. A schemas filter still limits the entries. An empty schema name is invalid_request.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "after": {
@@ -668,22 +668,34 @@
         "maxItems": 256,
         "items": {"type": "string"}
       },
+      "AllSchemas": {
+        "type": "string",
+        "enum": ["*"],
+        "description": "Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version."
+      },
+      "ManifestSchemaSide": {
+        "description": "Schema names the app asks for, or * for every schema.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/AllSchemas"},
+          {"$ref": "#/components/schemas/ManifestNameList"}
+        ]
+      },
       "ManifestAccess": {
         "type": "object",
         "required": ["read", "write", "extensions"],
-        "description": "The access block a developer writes in the app manifest. Publish reads these three arrays and ignores any other key. A schema name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. A name that breaks those rules fails publish with one generic message. The schema entry itself is not defined here.",
+        "description": "The access block a developer writes in the app manifest. Publish reads read, write, and extensions and ignores any other key. read and write are each a list of schema names or the string *. A schema name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. An extension name is 1 to 40 characters of lowercase ASCII letters, digits, or underscore. A name that breaks those rules fails publish with one generic message. The schema entry itself is not defined here.",
         "properties": {
           "read": {
-            "$ref": "#/components/schemas/ManifestNameList",
-            "description": "Schema names the app reads."
+            "$ref": "#/components/schemas/ManifestSchemaSide",
+            "description": "Schemas the app reads. * means every schema and names none."
           },
           "write": {
-            "$ref": "#/components/schemas/ManifestNameList",
-            "description": "Schema names the app writes."
+            "$ref": "#/components/schemas/ManifestSchemaSide",
+            "description": "Schemas the app writes. * means every schema and names none. It does not grant read."
           },
           "extensions": {
             "$ref": "#/components/schemas/ManifestNameList",
-            "description": "Extension names the app calls. The list is not limited to changes. Install refuses a name this build cannot grant. The only name it grants is changes."
+            "description": "Extension names the app calls. The list is not limited to changes. Install refuses a name this build cannot grant. The only name it grants is changes. * is not a value here."
           }
         }
       },
@@ -692,14 +704,27 @@
         "additionalProperties": {"type": "string"},
         "description": "Schema name to the definition id of the one version the app was built against. At most 256 entries. A name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. A definition id is 64 lowercase hex characters."
       },
+      "ListingSchemaSide": {
+        "description": "Schema name to definition id, or * for every schema. The map form is the same JSON object as before API version 38.",
+        "oneOf": [
+          {"$ref": "#/components/schemas/AllSchemas"},
+          {"$ref": "#/components/schemas/DefinitionMap"}
+        ]
+      },
       "ListingAccess": {
         "type": "object",
         "additionalProperties": false,
         "required": ["read", "write", "extensions"],
-        "description": "The access block on the signed listing. Publish replaces each schema name with that name and its definition id. Unknown keys are rejected.",
+        "description": "The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. A listing may carry * only at API version 38 or above. Unknown keys are rejected.",
         "properties": {
-          "read": {"$ref": "#/components/schemas/DefinitionMap"},
-          "write": {"$ref": "#/components/schemas/DefinitionMap"},
+          "read": {
+            "$ref": "#/components/schemas/ListingSchemaSide",
+            "description": "Schemas the app reads, or * for every schema."
+          },
+          "write": {
+            "$ref": "#/components/schemas/ListingSchemaSide",
+            "description": "Schemas the app writes, or * for every schema."
+          },
           "extensions": {
             "type": "array",
             "maxItems": 256,

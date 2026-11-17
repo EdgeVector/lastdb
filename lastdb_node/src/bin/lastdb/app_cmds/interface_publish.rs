@@ -133,52 +133,109 @@ fn require_held_schemas_listed(
     })
 }
 
+enum ManifestSide {
+    All,
+    Names(Vec<String>),
+}
+
 /// Turn the manifest's access block into the listing's: each schema name gains
 /// the definition ID of the version the running node holds, which is the one
-/// the developer built against.
-fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
-    let names = |key: &str| -> Result<Vec<String>, String> {
-        decl.get(key)
-            .and_then(Value::as_array)
-            .ok_or_else(|| format!("manifest `access.{key}` must be a list"))?
-            .iter()
-            .map(|v| {
-                v.as_str()
-                    .map(str::to_string)
-                    .ok_or_else(|| format!("manifest `access.{key}` entries must be strings"))
-            })
-            .collect()
+/// the developer built against. `"*"` stays `"*"`.
+fn declared_access(socket: &Path, decl: &Value, api_version: u32) -> Result<Value, String> {
+    let read = manifest_side(decl, "read")?;
+    let write = manifest_side(decl, "write")?;
+    let extensions = manifest_list(decl, "extensions")?;
+    let wide = matches!(read, ManifestSide::All) || matches!(write, ManifestSide::All);
+    let min = app_identity_crypto::ALL_SCHEMAS_API_VERSION;
+    if wide && api_version < min {
+        return Err(format!(
+            "manifest access uses \"*\", which a listing may carry only at API version \
+             {min} or above (this listing is {api_version}); an older build that cannot \
+             parse \"*\" fails to read the whole registry list for that channel and API version"
+        ));
+    }
+    let rows = schema_rows(socket)?;
+    let access = json!({
+        "read": side_value(&read, &rows)?,
+        "write": side_value(&write, &rows)?,
+        "extensions": extensions,
+    });
+    let parsed: app_identity_crypto::Access =
+        serde_json::from_value(access.clone()).map_err(|e| format!("manifest `access`: {e}"))?;
+    if parsed.well_formed() {
+        Ok(access)
+    } else {
+        Err("manifest `access` has an invalid schema name or extension name".into())
+    }
+}
+
+fn manifest_side(decl: &Value, key: &str) -> Result<ManifestSide, String> {
+    let Some(value) = decl.get(key) else {
+        return Err(format!(
+            "manifest `access.{key}` must be a list of schema names or \"*\""
+        ));
     };
-    let (read, write, extensions) = (names("read")?, names("write")?, names("extensions")?);
+    if value.as_str() == Some(app_identity_crypto::ALL_SCHEMAS) {
+        return Ok(ManifestSide::All);
+    }
+    let Some(items) = value.as_array() else {
+        return Err(format!(
+            "manifest `access.{key}` must be a list of schema names or \"*\""
+        ));
+    };
+    let names = items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("manifest `access.{key}` entries must be strings"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ManifestSide::Names(names))
+}
+
+fn manifest_list(decl: &Value, key: &str) -> Result<Vec<String>, String> {
+    decl.get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("manifest `access.{key}` must be a list"))?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("manifest `access.{key}` entries must be strings"))
+        })
+        .collect()
+}
+
+fn schema_rows(socket: &Path) -> Result<Vec<Value>, String> {
     let path = "/api/schemas?include_definition_ids=true";
     let held = get_path_retry(socket, path, Duration::from_secs(30))
         .and_then(|raw| parse_json_response(&raw, "GET /api/schemas"))?;
-    let rows = held.get("data").unwrap_or(&held)["schemas"]
+    Ok(held.get("data").unwrap_or(&held)["schemas"]
         .as_array()
         .cloned()
-        .unwrap_or_default();
-    let versions = |list: &[String]| -> Result<Value, String> {
-        list.iter()
-            .map(|name| {
-                rows.iter()
-                    .find(|r| r["name"].as_str() == Some(name.as_str()))
-                    .and_then(|r| r["definition_id"].as_str())
-                    .map(|id| (name.clone(), json!(id)))
-                    .ok_or_else(|| {
-                        format!("access names schema '{name}', but the running node holds no versioned definition of it")
-                    })
-            })
-            .collect::<Result<serde_json::Map<String, Value>, String>>()
-            .map(Value::Object)
+        .unwrap_or_default())
+}
+
+fn side_value(side: &ManifestSide, rows: &[Value]) -> Result<Value, String> {
+    let ManifestSide::Names(names) = side else {
+        return Ok(json!(app_identity_crypto::ALL_SCHEMAS));
     };
-    let access =
-        json!({"read": versions(&read)?, "write": versions(&write)?, "extensions": extensions});
-    let parsed: app_identity_crypto::Access =
-        serde_json::from_value(access.clone()).map_err(|e| format!("manifest `access`: {e}"))?;
-    if !parsed.well_formed() {
-        return Err("manifest `access` has an invalid schema name or extension name".into());
-    }
-    Ok(access)
+    names
+        .iter()
+        .map(|name| {
+            rows.iter()
+                .find(|row| row["name"].as_str() == Some(name.as_str()))
+                .and_then(|row| row["definition_id"].as_str())
+                .map(|id| (name.clone(), json!(id)))
+                .ok_or_else(|| {
+                    format!(
+                        "access names schema '{name}', but the running node holds no versioned definition of it"
+                    )
+                })
+        })
+        .collect::<Result<serde_json::Map<String, Value>, String>>()
+        .map(Value::Object)
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
@@ -235,7 +292,7 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
         "channel": channel, "api_version": api_version, "lastdb_build": build
     });
     if let Some(decl) = m.get("access") {
-        payload["access"] = declared_access(&sock, decl)?;
+        payload["access"] = declared_access(&sock, decl, api_version)?;
     }
     if m.get("outbox_format_version").is_some() {
         payload["outbox_format_version"] = json!(outbox);
