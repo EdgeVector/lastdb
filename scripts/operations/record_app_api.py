@@ -114,8 +114,26 @@ def deletes(node):
     conflict(node, delete(BY_ID, {"hash": "one"}, revision))
     write(node, by_id("one", "b3", "back"))
     require(value_of(node, "one") == "back", "a create after a delete differs")
-    print("App API deletes: delete at the read revision, refusal at another, and create after delete passed",
-          flush=True)
+    same_delete_refusal(node)
+    print("App API deletes: delete at the read revision, one refusal for an absent key "
+          "and a wrong revision, and create after delete passed", flush=True)
+
+
+def same_delete_refusal(node):
+    """A delete of an absent key and a delete at a wrong revision are one answer."""
+    revision = stored(node, "dup")["revision"]
+
+    def body(mutation):
+        status, raw, _, _, _ = send_unix_request(
+            node.socket, "POST", "/v1/write", {"mutations": [mutation]},
+            {"Content-Type": "application/json"})
+        return status, raw
+
+    absent = body(delete(BY_ID, {"hash": "no-such-record"}, revision))
+    wrong = body(delete(BY_ID, {"hash": "dup"}, "0" * len(revision)))
+    require(absent[0] == 409 and absent == wrong and b'"conflict"' in absent[1],
+            "a delete of an absent key and a delete at a wrong revision differed: "
+            + repr(absent) + " " + repr(wrong))
 
 
 def ranges(node):
@@ -300,8 +318,34 @@ def app_socket(node):
     require(status == 200 and got == [(BY_ID, "sock-follow")],
             f"changes on the app socket was not limited to the declared schemas: {status} {page!r}")
     refused(follower, "/v1/x/changes", {"after": head, "schemas": [BY_BUCKET]}, 403, "permission_denied")
-    print("App socket: only the app API, only with an app session, and only the declared "
-          "schemas and extensions", flush=True)
+    loose = BY_ID.lower()
+    page = read(node, {"schema": loose, "key": {"hash": "dup"}})[0]
+    require(loose != BY_ID and len(page.get("records") or []) == 1,
+            "no loose form of the seeded schema resolves on the owner socket: " + repr(page))
+    folded = session([loose], [], [])
+    status, reply = call(folded, "/v1/read", {"reads": [{"schema": loose, "key": {"hash": "dup"}}]})
+    require(status == 200 and reply["results"][0].get("error", {}).get("code") == "not_found",
+            f"a loose schema name on the app socket was not not_found: {status} {reply!r}")
+    print("App socket: only the app API, only with an app session, only the declared "
+          "schemas and extensions, and only an exact schema name", flush=True)
+
+    access = {"read": [BY_ID], "write": [], "extensions": []}
+    kept = node.call("/api/apps/session", {"app": "other", "access": access})[0]["session"]
+    burst = [
+        node.call("/api/apps/session", {"app": "limited", "access": access})[0]["session"]
+        for _ in range(5)
+    ]
+    one = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]}
+    refused(burst[0], "/v1/read", one, 403, "permission_denied")
+    status, reply = call(burst[4], "/v1/read", one)
+    require(status == 200 and len(reply["results"][0]["records"]) == 1,
+            f"the fifth session for one app did not read: {status} {reply!r}")
+    status, reply = call(kept, "/v1/read", one)
+    require(status == 200 and len(reply["results"][0]["records"]) == 1,
+            f"a session for another app, issued before those five, did not read: {status} {reply!r}")
+    print("App socket: a fifth session for one app replaces its oldest, "
+          "and another app's session stays", flush=True)
+
     # Larger than APP_MAX_BODY_LEN in lastdb_node/src/exec/uds_server.rs.
     oversized = b'{"reads":[]}' + b" " * (8 * 1024 * 1024)
     status, raw, _, _, _ = send_unix_request(
