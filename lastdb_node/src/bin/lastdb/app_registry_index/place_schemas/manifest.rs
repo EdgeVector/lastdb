@@ -1,6 +1,7 @@
 //! Manifest schema entries, after the field-object expansion and the
 //! normalization declare already applies.
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -72,12 +73,15 @@ pub(super) fn load(source: &Path, app_id: &str) -> Result<Catalog, String> {
 }
 
 fn put(entries: &mut BTreeMap<String, Slot>, name: String, slot: Slot) {
-    if entries.contains_key(&name) {
-        let message = format!("lists '{name}' more than once");
-        entries.insert(name, Slot::Bad(message));
-        return;
+    match entries.entry(name) {
+        Entry::Occupied(mut entry) => {
+            let label = entry.key().clone();
+            entry.insert(Slot::Bad(format!("lists '{label}' more than once")));
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(slot);
+        }
     }
-    entries.insert(name, slot);
 }
 
 fn declared_name(app_id: &str, raw_name: &str) -> String {

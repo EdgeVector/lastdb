@@ -31,7 +31,11 @@ async fn fetch_one(signed_id: &str) -> Result<DeclarativeSchemaDefinition, Strin
         .connect_timeout(TIMEOUT)
         .build()
         .map_err(|_| "client unavailable".to_owned())?;
-    let response = client.get(url).send().await.map_err(miss_from_transport)?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| miss_from_transport(&error))?;
     let status = response.status();
     if status.as_u16() == 404 {
         return Err("returned 404".into());
@@ -80,7 +84,7 @@ fn hex_id(value: &str) -> bool {
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn miss_from_transport(error: reqwest::Error) -> String {
+fn miss_from_transport(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "timed out".to_owned()
     } else if error.is_connect() {
