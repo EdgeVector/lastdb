@@ -82,6 +82,8 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - `path` is null for a file that LastDB holds as bytes in its home and not as a reference.
 
 
+## Extensions
+
 Read and write are the core. Anything more is an extension that an app asks for
 by name, so a new feature does not raise a version.
 
@@ -207,8 +209,6 @@ owner socket.
 - Removing a record's file while keeping the record.
 - The check of a file path against an app's sandbox profile.
 - A received (shared) database as a `database` value.
-- An app naming its extensions in its manifest, the installer checking them, and
-  the limit of `changes` to the schemas an app declared.
 - The launcher that starts an installed app with a session, and the sandbox
   profile that denies it the owner socket.
 - A limit on which databases an app may name.
