@@ -302,6 +302,7 @@ a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
 ## App API
 
 `read`, `write`, and `changes` call the app API. The older methods still work.
+Those shapes are defined in `lastdb_node/app-api.json`.
 
 An app started by the LastDB launcher runs on the app socket. The launcher sets
 `LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP_SESSION` to the app's

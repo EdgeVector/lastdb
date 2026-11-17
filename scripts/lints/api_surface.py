@@ -27,7 +27,12 @@ change:
     for an older version can no longer work.
 
 Limit: this is a source check of route strings and capability names. It does
-not see a change in request keys or in the meaning of a reply.
+not see a change in request keys or in the meaning of a reply. It does check
+that lastdb_node/app-api.json lists exactly the app API paths this node
+serves: every route in `routes` that starts with `/v1/`, and `/v1/x/<name>`
+for each name in `extensions`. `app_routes` is the SDK `/api` list and is not
+part of that file. `info.version` must equal `api_version`. The record-home
+operation checks the bodies.
 """
 
 import argparse
@@ -45,6 +50,7 @@ VERSION = "lastdb_node/src/version.rs"
 SERVER_DIRS = ("lastdb_node/src/lastdb_uds", "lastdb_node/src/exec")
 SDK_ROUTES = "lastdb_app_sdk/src/databases.ts"
 SURFACE = "lastdb_node/api-surface.json"
+APP_API = "lastdb_node/app-api.json"
 SDK_GENERATED = "lastdb_app_sdk/src/apiVersion.generated.ts"
 
 ROUTE_LITERAL = re.compile(r'"(/health|/api/[A-Za-z0-9_/-]*|/v1/[A-Za-z0-9_/-]*)"')
@@ -198,6 +204,43 @@ def compare(base, now):
     return errors, changes
 
 
+def app_api_paths(surface):
+    """Paths the OpenAPI file must list: /v1 routes plus /v1/x/<extension>."""
+    paths = {route for route in surface["routes"] if route.startswith("/v1/")}
+    paths.update(EXTENSION_PREFIX + name for name in surface["extensions"])
+    return paths
+
+
+def app_api_errors(surface):
+    """The OpenAPI file matches the served app API paths and api_version.
+
+    `app_routes` is the SDK list of `/api` routes. The app socket does not
+    serve those, so they are not required in the OpenAPI file. `--write` does
+    not rewrite the file.
+    """
+    file = ROOT / APP_API
+    if not file.is_file():
+        return [f"{APP_API} is missing"]
+    try:
+        spec = json.loads(file.read_text())
+    except json.JSONDecodeError as error:
+        return [f"{APP_API} is not JSON: {error}"]
+    declared = set((spec.get("paths") or {}))
+    expected = app_api_paths(surface)
+    errors = []
+    missing = sorted(expected - declared)
+    extra = sorted(declared - expected)
+    if missing:
+        errors.append(f"{APP_API} omits app API paths: " + ", ".join(missing))
+    if extra:
+        errors.append(f"{APP_API} has paths the node does not serve: " + ", ".join(extra))
+    version = str((spec.get("info") or {}).get("version"))
+    api = str(surface["api_version"])
+    if version != api:
+        errors.append(f"{APP_API} info.version is {version}; api_version is {api}")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -212,9 +255,12 @@ def main():
         for path, text in outputs.items():
             (ROOT / path).write_text(text)
             print(f"api-surface: wrote {path}")
-        return 0
+        errors = app_api_errors(surface)
+        for error in errors:
+            print(f"api-surface: FAIL {error}", file=sys.stderr)
+        return 1 if errors else 0
 
-    errors = []
+    errors = app_api_errors(surface)
     if surface["min_supported_api_version"] > surface["api_version"]:
         errors.append("MIN_SUPPORTED_API_VERSION is above API_VERSION")
     missing = sorted(
@@ -247,7 +293,8 @@ def main():
     print(f"api-surface: OK api_version={surface['api_version']} "
           f"min_supported={surface['min_supported_api_version']} "
           f"routes={len(surface['routes'])} capabilities={len(surface['capabilities'])} "
-          f"extensions={len(surface['extensions'])}")
+          f"extensions={len(surface['extensions'])} "
+          f"app_api={len(app_api_paths(surface))}")
     return 0
 
 

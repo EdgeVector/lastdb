@@ -1,5 +1,8 @@
 # The app API: one read, one write
 
+The explicit definitions are in `lastdb_node/app-api.json`.
+When this document and that file differ, the file wins.
+
 Status: the interface is decided (Tom, 2026-11-16). This document describes
 what `lastdbd` serves today and names what is not built yet.
 
