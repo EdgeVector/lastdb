@@ -39,11 +39,12 @@ export type AppApiRead =
   | (AppApiReadBase & { range: AppApiRange; key?: never })
   | (AppApiReadBase & { keys_only: true; key?: never; range?: never; via?: never; file?: never });
 
-/** File facts on a read record. `path` is set only when the read set `file: true`. */
+/** File facts on a read record. `local` is the path on this device, or null. `path` is set only when the read set `file: true`. */
 export interface AppApiFile {
   name: string | null;
   media_type: string | null;
   size: number;
+  local: string | null;
   path?: string | null;
 }
 
@@ -227,13 +228,11 @@ function parseKey(value: JsonValue | undefined, body: unknown): KeyValue {
     range: typeof range === 'string' ? range : null,
   };
 }
-
 function parseCursor(value: JsonValue | undefined, body: unknown): string | null {
   if (value === null) return null;
   if (typeof value === 'string') return value;
   throw invalid('app API returned an invalid cursor', body);
 }
-
 function optionalText(value: JsonValue | undefined, body: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value === 'string') return value;
@@ -247,13 +246,14 @@ function parseFile(value: JsonValue | undefined, body: unknown): AppApiFile | nu
     throw invalid('app API returned an invalid file', body);
   }
   const path = value['path'];
-  if (path !== undefined && path !== null && typeof path !== 'string') {
-    throw invalid('app API returned an invalid file', body);
-  }
+  const local = value['local'];
+  if (path !== undefined && path !== null && typeof path !== 'string') throw invalid('app API returned an invalid file', body);
+  if (typeof local !== 'string' && local !== null) throw invalid('app API returned an invalid file', body);
   const file: AppApiFile = {
     name: optionalText(value['name'], body),
     media_type: optionalText(value['media_type'], body),
     size: value['size'],
+    local: typeof local === 'string' ? local : null,
   };
   if (path !== undefined) file.path = typeof path === 'string' ? path : null;
   return file;

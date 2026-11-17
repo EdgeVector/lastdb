@@ -15,6 +15,7 @@ use crate::lastdb_uds::uds_http::UdsResponse;
 use crate::lastdb_uds::uds_router::valid_selector;
 
 mod changes;
+mod file_place;
 mod read;
 mod refusal;
 mod write;

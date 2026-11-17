@@ -89,9 +89,12 @@ A file is a path in and a path out. No file bytes pass through the app API.
   key file and every database in the home. Every file that cannot be linked gets
   the same answer.
 - A `replace` without a `file` keeps the record's file.
-- Every record in a read reply has `file`: null, or its `name`, `media_type` and `size`.
-- A read item with `"file": true` also gets `path`. When the original is gone or has another size, that read item answers `not_found`.
-- `path` is null for a file that LastDB holds as bytes in its home and not as a reference.
+- Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`.
+- `file: null` means the record has no file.
+- `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
+- A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
+- For a file LastDB holds as its own bytes, `local` is null until a copy sits in the calling app's data folder. `path` is null on the owner socket, and on an app session issued without `data`. On the app socket, when the session names that folder, a read with `"file": true` writes the plain bytes to `<data>/files/<content hash>` and returns that path. The folder is mode 0700 and the file is mode 0600. The node writes a temporary name in that folder and renames it into place, and it does not follow a symlink at the destination. A file of that name and size is reused. That reply sets `local` to the same path. A read that does not set `file` to true does not write; it reports `local` only when the file is already there.
+- The reply has no `cloud` field. The node has no local record of whether this exact file version is in the cloud.
 
 
 ## Extensions
@@ -202,9 +205,11 @@ A node serves two sockets in its data directory.
 | App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a caller with an app session |
 
 - The owner issues a session for one app: `POST /api/apps/session` on the owner
-  socket with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] } }`.
+  socket with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
+  `data` is optional. When present it is the absolute path of that app's data
+  directory, a real directory and not a symlink, and outside the LastDB home.
   The reply holds `session` and `expires_in_seconds` (24 hours). Sessions live in
-  memory and end when the node stops.
+  memory and end when the node stops. The data folder is remembered only there.
 - A request on the app socket carries the session in the header `X-LastDB-App-Session`.
   Without a valid one it is refused with `permission_denied`.
 - Any route other than the app API answers `not_found` on the app socket.
@@ -243,8 +248,9 @@ directly.
   sandbox profile was removed. It could not nest inside a caller's own
   profile, and it kept apps that act on the machine from declaring at all.
 - The launcher creates the app's own data folder, `<apps root>/<app>/data`,
-  and names it in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps its
-  config and state there by convention.
+  before it asks for the session, and passes that folder as `data`. It also
+  names the folder in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps
+  its config and state there by convention.
 - An app that ran restricted stays restricted. Install refuses a later version
   whose listing declares no LastDB access.
 - An app that declares no LastDB access is linked and started as before.
@@ -257,7 +263,7 @@ directly.
 
 ## Not built yet
 
-- A path for a file that is only in the cloud or that LastDB holds as bytes. Nothing fetches one file from the cloud on a read yet.
+- A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the session names the app's data folder.
 - Removing a record's file while keeping the record.
 - A received (shared) database as a `database` value.
 - A limit on which databases an app may name.

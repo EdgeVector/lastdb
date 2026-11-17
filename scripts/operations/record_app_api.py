@@ -18,77 +18,9 @@ from record_runs import (  # noqa: E402
     FIELDS, MISSING_DATABASE, RANGED, definition, held, refused, require, system_seed,
 )
 
-BY_ID, BY_BUCKET = "AppApiById", "AppApiByBucket"
-
-
-def read(node, *reads):
-    return node.call("/v1/read", {"reads": list(reads)})[0]["results"]
-
-
-def write(node, *mutations):
-    reply = node.call("/v1/write", {"mutations": list(mutations)})[0]
-    require(reply["written"] == len(mutations) == len(reply["revisions"]),
-            "a write did not report one revision for each mutation: " + repr(reply))
-    return reply["revisions"]
-
-
-def create(schema, key, record, alternates=None, database=None):
-    item = {"schema": schema, "op": "create", "key": key, "record": record}
-    if alternates is not None:
-        item["alternates"] = alternates
-    if database is not None:
-        item["database"] = database
-    return item
-
-
-def by_id(name, bucket, value, schema=BY_ID, database=None):
-    return create(schema, {"hash": name}, {"id": name, "bucket": bucket, "value": value},
-                  {"by_bucket": {"hash": bucket, "range": name}}, database)
-
-
-def replace(name, bucket, value, revision):
-    return {**by_id(name, bucket, value), "op": "replace", "revision": revision}
-
-
-def delete(schema, key, revision):
-    return {"schema": schema, "op": "delete", "key": key, "revision": revision}
-
-
-def stored(node, name, schema=BY_ID, database=None):
-    item = {"schema": schema, "key": {"hash": name}}
-    if database is not None:
-        item["database"] = database
-    records = read(node, item)[0]["records"]
-    require(len(records) <= 1, f"{schema} {name} returned {len(records)} records")
-    return records[0] if records else None
-
-
-def value_of(node, name, **options):
-    row = stored(node, name, **options)
-    return held(row["record"]).get("value") if row else None
-
-
-def error_body(node, path, body):
-    status, raw, _, _, _ = send_unix_request(
-        node.socket, "POST", path, body, {"Content-Type": "application/json"})
-    return status, json.loads(raw)
-
-
-def conflict(node, *mutations, index=None, reason=None):
-    status, reply = error_body(node, "/v1/write", {"mutations": list(mutations)})
-    error = reply["error"]
-    require(status == 409 and error["code"] == "conflict",
-            f"a write whose condition does not hold was not refused: {status} {reply!r}")
-    if index is None:
-        return
-    sentence = {
-        "exists": "a record already holds the key",
-        "absent": "no record holds the key",
-        "revision": "the record is at another revision",
-    }[reason]
-    require(error.get("index") == index and error.get("reason") == reason
-            and error.get("message") == f"mutation {index}: {sentence}",
-            f"a refused write named the wrong mutation: {reply!r}")
+from record_app_api_calls import (  # noqa: E402
+    BY_BUCKET, BY_ID, by_id, conflict, create, delete, error_body, read, replace, stored, value_of, write,
+)
 
 
 def writes(node):
@@ -202,7 +134,8 @@ def files(node):
     with_path = lambda name: read(node, {"schema": BY_ID, "key": {"hash": name}, "file": True})[0]
     first = write(node, {**by_id("filed", "b8", "v1"), "file": link})[0]
     plain = stored(node, "filed")["file"]
-    require(plain == {"name": "whiteboard.txt", "media_type": "text/plain", "size": original.stat().st_size},
+    require(plain == {"name": "whiteboard.txt", "media_type": "text/plain",
+                      "size": original.stat().st_size, "local": str(original)},
             "a read did not report the linked file: " + repr(plain))
     linked = with_path("filed")["records"][0]["file"]
     require(linked == {**plain, "path": str(original)}, "a read did not return the file's path: " + repr(linked))
@@ -223,7 +156,22 @@ def files(node):
     original.unlink()
     lost = with_path("filed")
     require(lost.get("error", {}).get("code") == "not_found", "a missing original was not reported: " + repr(lost))
-    require(stored(node, "filed")["file"] == plain, "a read without a path failed for a missing original")
+    gone = stored(node, "filed")["file"]
+    require(gone == {**plain, "local": None}, "a read without a path failed for a missing original")
+    place = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) / f"app-api-place-{os.getpid()}"
+    data = place / "exercise" / "data"
+    data.mkdir(parents=True, mode=0o700)
+    token = node.call("/api/apps/session", {"app": "exercise", "access": {"read": [BY_ID], "write": [], "extensions": []}, "data": str(data)})[0]["session"]
+    headers = {"Content-Type": "application/json", "X-LastDB-App-Session": token}
+    status, raw, _, _, _ = send_unix_request(
+        Path(node.socket).with_name("apps.sock"), "POST", "/v1/read",
+        {"reads": [{"schema": BY_ID, "key": {"hash": "filed"}}]}, headers)
+    placed = json.loads(raw)["results"][0]["records"][0]["file"]
+    require(status == 200 and placed == gone and not (data / "files").exists(),
+            "an app read wrote a file or reported another local path: " + repr(placed))
+    data.rmdir()
+    data.parent.rmdir()
+    place.rmdir()
     write(node, delete(BY_ID, {"hash": "filed"}, second))
     folder.rmdir()
     print("App API files: a path on create, the same path on read, kept across a replace, "

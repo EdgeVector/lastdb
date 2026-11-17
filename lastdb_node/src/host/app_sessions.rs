@@ -3,6 +3,7 @@
 //! A new session replaces that app's oldest once that number is full.
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -25,6 +26,9 @@ pub(crate) struct AppGrant {
     pub(crate) read: BTreeSet<String>,
     pub(crate) write: BTreeSet<String>,
     pub(crate) extensions: BTreeSet<String>,
+    /// The app's data folder, when the owner named one. Absent keeps a held
+    /// file's path null. Not stored on disk.
+    pub(crate) data_dir: Option<PathBuf>,
     expires: Instant,
 }
 
@@ -34,12 +38,14 @@ impl AppGrant {
         read: BTreeSet<String>,
         write: BTreeSet<String>,
         extensions: BTreeSet<String>,
+        data_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             app,
             read,
             write,
             extensions,
+            data_dir,
             expires: Instant::now() + APP_SESSION_LIFETIME,
         }
     }

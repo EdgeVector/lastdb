@@ -49,7 +49,30 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
     let access = launch.receipt.listing.access.as_ref().ok_or_else(|| {
         format!("app '{app}' declares no LastDB access; start {command} directly")
     })?;
-    let data = home.join("data");
+    let node_data = home.join("data");
+    // The app's own folder for its files. It outlives an upgrade, because
+    // versions sit beside it and not inside it. Create it before the session
+    // so the node can check the directory it will later write into.
+    let app_data = crate::app_registry_index::managed::app_root(app)?.join("data");
+    let data_text = app_data.to_str().ok_or_else(|| {
+        format!(
+            "the app data folder must be an absolute path: {}",
+            app_data.display()
+        )
+    })?;
+    if !app_data.is_absolute() {
+        return Err(format!(
+            "the app data folder must be an absolute path: {data_text}"
+        ));
+    }
+    if std::fs::symlink_metadata(&app_data)
+        .is_ok_and(|meta| meta.file_type().is_symlink() || !meta.is_dir())
+    {
+        return Err("the app data folder must be a directory and not a symlink".into());
+    }
+    let temp = app_data.join("tmp");
+    std::fs::create_dir_all(&temp)
+        .map_err(|error| format!("could not create {}: {error}", temp.display()))?;
     let body = json!({
         "app": app,
         "access": {
@@ -57,9 +80,10 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
             "write": access.write.keys().collect::<Vec<_>>(),
             "extensions": access.extensions,
         },
+        "data": data_text,
     });
     let raw = crate::uds_client::post_json_with_timeout(
-        &lastdb_node::lastdb_uds::socket_path(&data),
+        &lastdb_node::lastdb_uds::socket_path(&node_data),
         "/api/apps/session",
         &body,
         SESSION_TIMEOUT,
@@ -69,13 +93,7 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
         .get("session")
         .and_then(Value::as_str)
         .ok_or("the node returned no app session")?;
-    let app_socket = data.join(lastdb_node::lastdb_uds::APP_SOCKET_FILE_NAME);
-    // The app's own folder for its files. It outlives an upgrade, because
-    // versions sit beside it and not inside it.
-    let app_data = crate::app_registry_index::managed::app_root(app)?.join("data");
-    let temp = app_data.join("tmp");
-    std::fs::create_dir_all(&temp)
-        .map_err(|error| format!("could not create {}: {error}", temp.display()))?;
+    let app_socket = node_data.join(lastdb_node::lastdb_uds::APP_SOCKET_FILE_NAME);
     let mut child = Command::new(&launch.program);
     child
         .env("LASTDB_SOCKET_PATH", &app_socket)
