@@ -195,6 +195,22 @@ listing, under the publisher signature:
 The declaration is recorded with the install. It is not enforced until the app
 socket exists.
 
+## Schemas at publish
+
+`lastdb app publish` sends schema definitions to Schema Service after the
+registry lists the app. The set is every schema the manifest lists, plus every
+schema in `access.read` and `access.write`. Each definition is the wire form
+the running node holds, read in one request.
+
+Schema Service accepts the push only for an app the registry lists with the
+same commit and the same publisher key. It keeps each definition under the
+definition id computed from that wire form. A private app is not pushed.
+`--prepare` sends nothing.
+
+A failed push prints a warning. The app stays listed. With `--json`, the
+registry JSON gains a `schema_service` member (`registered` or `error`) and
+the command prints no extra line on stdout.
+
 ## The app socket
 
 A node serves two sockets in its data directory.
