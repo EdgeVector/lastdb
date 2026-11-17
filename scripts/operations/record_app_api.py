@@ -329,6 +329,23 @@ def app_socket(node):
     print("App socket: only the app API, only with an app session, only the declared "
           "schemas and extensions, and only an exact schema name", flush=True)
 
+    access = {"read": [BY_ID], "write": [], "extensions": []}
+    kept = node.call("/api/apps/session", {"app": "other", "access": access})[0]["session"]
+    burst = [
+        node.call("/api/apps/session", {"app": "limited", "access": access})[0]["session"]
+        for _ in range(5)
+    ]
+    one = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]}
+    refused(burst[0], "/v1/read", one, 403, "permission_denied")
+    status, reply = call(burst[4], "/v1/read", one)
+    require(status == 200 and len(reply["results"][0]["records"]) == 1,
+            f"the fifth session for one app did not read: {status} {reply!r}")
+    status, reply = call(kept, "/v1/read", one)
+    require(status == 200 and len(reply["results"][0]["records"]) == 1,
+            f"a session for another app, issued before those five, did not read: {status} {reply!r}")
+    print("App socket: a fifth session for one app replaces its oldest, "
+          "and another app's session stays", flush=True)
+
 
 def exercise(node):
     extension_names(node)
