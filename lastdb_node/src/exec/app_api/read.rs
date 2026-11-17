@@ -7,7 +7,9 @@ use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::{bad, error_value, fail, in_database, key_filter, ok, require_read};
+use super::{
+    bad, error_value, fail, in_database, key_filter, ok, require_exact_name, require_read,
+};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
@@ -141,6 +143,7 @@ async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     };
     let (keys_only, with_paths) = (item.keys_only, item.file);
     in_database(item.database.as_deref(), host, async {
+        require_exact_name(host, &schema)?;
         let page = execute_query(host, request).await?;
         let mut out = shape(&page, keys_only)?;
         if with_paths && !keys_only {
