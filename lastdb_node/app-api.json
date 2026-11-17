@@ -18,20 +18,20 @@
   },
   "x-lastdb-launcher-environment": {
     "LASTDB_SOCKET_PATH": "Absolute path of the app socket, apps.sock, under the node home.",
-    "LASTDB_APP_SESSION": "Session token. The app sends it as the X-LastDB-App-Session header.",
+    "LASTDB_APP": "The app id. The app sends it as the X-LastDB-App header.",
     "LASTDB_APP_DATA": "The app data directory. It stays in place across an upgrade.",
     "TMPDIR": "Temporary directory the launcher creates at LASTDB_APP_DATA/tmp."
   },
   "security": [
     {},
-    {"appSession": []}
+    {"app": []}
   ],
   "paths": {
     "/v1/read": {
       "post": {
         "operationId": "read",
         "summary": "Read records or keys. Each item returns its own result or its own error.",
-        "security": [{}, {"appSession": []}],
+        "security": [{}, {"app": []}],
         "requestBody": {
           "required": true,
           "content": {
@@ -64,7 +64,7 @@
       "post": {
         "operationId": "write",
         "summary": "Apply conditional mutations. The list commits all or nothing.",
-        "security": [{}, {"appSession": []}],
+        "security": [{}, {"app": []}],
         "requestBody": {
           "required": true,
           "content": {
@@ -97,7 +97,7 @@
       "post": {
         "operationId": "changes",
         "summary": "Read the numbered list of changed record keys. This extension has no version.",
-        "security": [{}, {"appSession": []}],
+        "security": [{}, {"app": []}],
         "requestBody": {
           "required": true,
           "content": {
@@ -129,11 +129,11 @@
   },
   "components": {
     "securitySchemes": {
-      "appSession": {
+      "app": {
         "type": "apiKey",
         "in": "header",
-        "name": "X-LastDB-App-Session",
-        "description": "Required on the app socket. The token is 64 hexadecimal characters (32 random bytes). Any other length or a non-hex token is permission_denied. The owner socket does not require this header. The root security list allows either socket."
+        "name": "X-LastDB-App",
+        "description": "Required on the app socket. The value is the app id. An app id the node has no grant for is permission_denied. The owner socket does not require this header. The root security list allows either socket."
       }
     },
     "responses": {
@@ -363,7 +363,7 @@
       "FileInfo": {
         "type": "object",
         "required": ["name", "media_type", "size", "local"],
-        "description": "Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this session has no data folder to place them. Other properties are allowed.",
+        "description": "Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this app has no data folder to place them. Other properties are allowed.",
         "properties": {
           "name": {"type": ["string", "null"]},
           "media_type": {"type": ["string", "null"]},

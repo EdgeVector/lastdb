@@ -178,7 +178,7 @@ export interface FieldValues {
   [key: string]: unknown;
 }
 
-/** Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this session has no data folder to place them. Other properties are allowed. */
+/** Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this app has no data folder to place them. Other properties are allowed. */
 export interface FileInfo {
   name: string | null;
   media_type: string | null;

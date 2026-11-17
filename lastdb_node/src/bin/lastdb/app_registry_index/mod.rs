@@ -13,6 +13,7 @@ pub mod managed;
 mod managed_manifest;
 mod managed_steps;
 mod place_schemas;
+mod register_grant;
 
 pub(crate) use crate::uds_client::running_node;
 pub use app_identity_crypto::{

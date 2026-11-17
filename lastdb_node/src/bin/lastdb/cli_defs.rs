@@ -169,7 +169,7 @@ pub(crate) enum AppCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Start a command of an installed app with an app session, on the app socket.
+    /// Start a command of an installed app on the app socket.
     Run {
         app_id: String,
         command: String,
