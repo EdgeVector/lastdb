@@ -197,14 +197,29 @@ fn bin_link_path(bin: &Path, command: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-fn bin_root() -> Result<PathBuf, String> {
+pub(super) fn bin_root() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or("HOME is required")?;
     Ok(PathBuf::from(home).join(".local/bin"))
+}
+
+fn plain_command_name(command: &str) -> Result<(), String> {
+    if command.is_empty()
+        || command.len() > 64
+        || command.contains('/')
+        || command.starts_with('.')
+        || command.starts_with('-')
+    {
+        return Err(format!(
+            "command '{command}' is not a plain file name of at most 64 bytes"
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_sources(source: &Path, plan: &InstallPlan) -> Result<(), String> {
     let source = fs::canonicalize(source).map_err(str_err)?;
     for link in &plan.links {
+        plain_command_name(&link.command)?;
         if matches!(
             link.command.as_str(),
             "lastdb" | "lastdbd" | "folddb" | "host-track"
@@ -242,11 +257,17 @@ fn link_target(src: &Path, bin: &Path, link: &InstallLink, restricted: bool) -> 
     }
 }
 
-pub(super) fn install(root: &Path, plan: &InstallPlan, restricted: bool) -> Result<(), String> {
+pub(super) fn install(
+    root: &Path,
+    plan: &InstallPlan,
+    restricted: bool,
+    owned: &HashSet<String>,
+) -> Result<(), String> {
     let (src, bin) = (root.join("current/source"), bin_root()?);
     validate_sources(&src, plan)?;
     fs::create_dir_all(&bin).map_err(str_err)?;
     for l in &plan.links {
+        super::command_names::ensure_replaceable(&bin, root, &l.command, restricted, owned)?;
         flip(
             &bin_link_path(&bin, &l.command)?,
             &link_target(&src, &bin, l, restricted),
