@@ -153,6 +153,7 @@ pub enum DataRoute {
     CloudWake,
     V1Read,
     V1Write,
+    V1Changes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,6 +221,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/queries/batch" => Some(("POST", QueryBatch)),
         "/v1/read" => Some(("POST", V1Read)),
         "/v1/write" => Some(("POST", V1Write)),
+        "/v1/x/changes" => Some(("POST", V1Changes)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),
         _ if path

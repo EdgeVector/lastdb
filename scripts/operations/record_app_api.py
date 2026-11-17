@@ -176,6 +176,39 @@ def refusals(node):
     print("App API refusals: each read has its own error, and a refusal has one shape", flush=True)
 
 
+def changed(node, **body):
+    return node.call("/v1/x/changes", body)[0]
+
+
+def changes(node, database=None):
+    """The changes extension: the numbered list of changed record keys, read with a JSON body."""
+    scope = {} if database is None else {"database": database}
+    schema = BY_ID if database is None else "RecordById"
+    start = changed(node, limit=0, **scope)
+    require(start["changes"] == [] and isinstance(start["head"], int), "a head-only read returned entries")
+    first = write(node, by_id("feed", "b7", "v1", schema=schema, database=database))[0]
+    write(node, {**delete(schema, {"hash": "feed"}, first), **scope})
+    page = changed(node, after=start["head"], schemas=[schema], **scope)
+    got = [(entry["key"]["hash"], entry["deleted"]) for entry in page["changes"]]
+    require(got == [("feed", False), ("feed", True)], "the changed keys differ: " + repr(page))
+    require(page["id"] == start["id"] and page["gap"] is False
+            and page["through"] >= page["changes"][-1]["seq"] > start["head"],
+            "the changes page does not follow the head it was read after: " + repr(page))
+    require(changed(node, after=page["through"], schemas=[schema], **scope)["changes"] == [],
+            "a read after the saved position returned an entry again")
+    if database is None:
+        require(changed(node, after=start["head"], schemas=[BY_BUCKET])["changes"] == [],
+                "a schema filter returned another schema's entries")
+        require(changed(node, after=page["head"] + 1000)["gap"] is True,
+                "a position past the head did not report a gap")
+        for body in [{"after": 0, "where": []}, {"schemas": [""]}, {"after": -1}]:
+            status, reply = error_body(node, "/v1/x/changes", body)
+            require(status == 400 and reply["error"]["code"] == "invalid_request",
+                    f"/v1/x/changes {body!r} was not refused in the one error shape: {status} {reply!r}")
+    print("App API changes extension: head, entries with keys in commit order, schema filter, "
+          f"position and gap passed ({database or 'personal'})", flush=True)
+
+
 def exercise(node):
     require(os.environ.get("GITHUB_ACTIONS") == "true", "run this product exercise in CI")
     system_seed(node, definition(BY_ID, "Hash", FIELDS, {"by_bucket": RANGED}))
@@ -184,6 +217,7 @@ def exercise(node):
     deletes(node)
     ranges(node)
     refusals(node)
+    changes(node)
 
 
 def named_database(node, database):
@@ -194,4 +228,5 @@ def named_database(node, database):
             "a named database did not return its record")
     require(value_of(node, "app-api", schema="RecordById") is None,
             "a write to a named database reached personal")
+    changes(node, database)
     print("App API database identifier: a write and a read reached the named database only", flush=True)

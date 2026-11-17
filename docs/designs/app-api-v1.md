@@ -64,6 +64,44 @@ Every write carries a condition, so two writers cannot overwrite each other with
 
 A read returns each record's `revision` beside its key.
 
+## Extensions
+
+Read and write are the core. Anything more is an extension that an app asks for
+by name, so a new feature does not raise a version.
+
+- An extension has a name, one lowercase word, and no version beside it.
+- It is served at `POST /v1/x/<name>` with a JSON body.
+- It uses the same error shape as the core and the same optional `database` field.
+- Adding an extension changes no version number. `scripts/lints/api_surface.py`
+  lists extensions by name in `lastdb_node/api-surface.json` and refuses the
+  removal of one.
+- An extension is frozen once an app in the registry names it. A change that
+  would break those apps is a new name beside the old one.
+
+### changes
+
+LastDB keeps one numbered list of changed record keys for each database. An app
+that keeps something derived from records remembers the last number it handled
+and asks for everything newer.
+
+```
+POST /v1/x/changes
+{ "after": 1200, "limit": 500, "schemas": ["brain/Design"] }
+
+200
+{ "id": "9f3c…", "head": 1234, "through": 1210, "gap": false,
+  "changes": [ { "seq": 1201, "schema": "brain/Design",
+                 "key": { "hash": "design-x", "range": null }, "deleted": false } ] }
+```
+
+- `after` is the last number the app handled. Without it the read starts at the oldest kept entry.
+- `limit` is at most 500. Zero reads `head` only.
+- `schemas` is optional. Without it the read returns every schema.
+- An entry holds no record values. The app reads the changed records through `/v1/read`.
+- The app saves `through` as its new position. When `id` differs from the one it
+  saved, or `gap` is true, it rebuilds from key pages.
+- `GET /api/changes` is the same list for the owner, with query parameters.
+
 ## Errors
 
 A refusal is an HTTP status with one body shape:
@@ -88,6 +126,8 @@ The code is for the program. The message is for people and can change.
 
 - A `file` path on a `create` or a `replace`, and a file path on a read.
 - A received (shared) database as a `database` value.
+- An app naming its extensions in its manifest, the installer checking them, and
+  the limit of `changes` to the schemas an app declared.
 - The app socket, the sandbox profile and the per-app schema check. Until they
   exist, these routes serve every caller of the owner socket as the owner.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.

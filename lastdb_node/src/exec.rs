@@ -166,6 +166,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::CloudWake => return cloud_wake(req, ctx, host),
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
+            DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
         };
         fut.await
     })
