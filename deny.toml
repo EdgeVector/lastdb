@@ -24,7 +24,14 @@ yanked = "deny"
 # anchoring dep. Delete an ignore when cargo-deny reports it as
 # `advisory-not-detected`: a dead ignore would hide the same advisory if the
 # crate came back.
-ignore = []
+ignore = [
+  # chrono 0.4.44 <- fold_db, lastdb_node, schema_types. RUSTSEC-2026-0543
+  # (published 2026-11-17) says the crate is unmaintained; it names no
+  # vulnerability and no fixed version exists. The way out is to move the
+  # three crates to jiff or time, which is its own change. Remove this line
+  # when chrono leaves Cargo.lock.
+  "RUSTSEC-2026-0543",
+]
 
 # ---------------------------------------------------------------------------
 # Licenses — workspace policy: permissive only.
