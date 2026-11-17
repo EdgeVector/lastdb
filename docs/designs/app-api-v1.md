@@ -91,6 +91,8 @@ by name, so a new feature does not raise a version.
 - Adding an extension changes no version number. `scripts/lints/api_surface.py`
   lists extensions by name in `lastdb_node/api-surface.json` and refuses the
   removal of one.
+- A node lists the extensions it has in `extensions` on `GET /api/version`.
+  An installer reads that list.
 - An extension is frozen once an app in the registry names it. A change that
   would break those apps is a new name beside the old one.
 

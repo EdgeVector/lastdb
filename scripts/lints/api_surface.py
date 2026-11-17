@@ -3,7 +3,7 @@
 
 The Rust constants are the only hand-edited interface version numbers:
 
-  lastdb_node/src/lastdb_uds/uds_router.rs   API_VERSION, CAPABILITIES_JSON
+  lastdb_node/src/lastdb_uds/uds_router.rs   API_VERSION, CAPABILITIES_JSON, EXTENSIONS_JSON
   lastdb_node/src/version.rs                 MIN_SUPPORTED_API_VERSION
 
 This script derives two committed files from the source:
@@ -19,7 +19,9 @@ change:
   * any added or removed route or capability requires a higher API_VERSION;
   * an app API extension, a route under `/v1/x/`, is listed by name and is
     not a route for these rules: adding one changes no version, and removing
-    one is refused, because an installed app that names it can no longer run;
+    one is refused, because an installed app that names it can no longer run.
+    `EXTENSIONS_JSON` must name exactly those extensions; edit that constant
+    when this check says it does not;
   * a removed capability, or a removed route that the base SDK used, also
     requires MIN_SUPPORTED_API_VERSION == API_VERSION, because a client built
     for an older version can no longer work.
@@ -63,6 +65,18 @@ def capabilities():
     if match is None:
         raise SystemExit(f"api-surface: {ROUTER} has no CAPABILITIES_JSON raw string")
     return sorted(name for name, on in json.loads(match[1]).items() if on is True)
+
+
+def extensions_json():
+    """The names in `EXTENSIONS_JSON`, in the order the node reports them."""
+    text = (ROOT / ROUTER).read_text()
+    match = re.search(r'const EXTENSIONS_JSON: &str = r#"(.*?)"#;', text, re.S)
+    if match is None:
+        raise SystemExit(f"api-surface: {ROUTER} has no EXTENSIONS_JSON raw string")
+    names = json.loads(match[1])
+    if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+        raise SystemExit(f"api-surface: EXTENSIONS_JSON in {ROUTER} is not a JSON array of names")
+    return names
 
 
 def norm(route):
@@ -202,6 +216,12 @@ def main():
     missing = sorted(r for r in surface["app_routes"] if not served(r, surface["routes"]))
     if missing:
         errors.append("the SDK names routes the node does not serve: " + ", ".join(missing))
+    reported = extensions_json()
+    if reported != surface["extensions"]:
+        errors.append(
+            "EXTENSIONS_JSON does not name exactly the served /v1/x/ routes "
+            f"{json.dumps(surface['extensions'])}; edit EXTENSIONS_JSON in {ROUTER}"
+        )
     for path, text in outputs.items():
         file = ROOT / path
         if not file.is_file() or file.read_text() != text:
