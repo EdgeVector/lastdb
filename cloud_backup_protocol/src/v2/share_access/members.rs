@@ -102,7 +102,8 @@ impl ShareWriteScope {
         }
     }
 
-    fn validate(&self) -> Result<bool, ProtocolError> {
+    /// Check the order and names. True when the scope permits at least one schema.
+    pub(super) fn validate(&self) -> Result<bool, ProtocolError> {
         match self {
             Self::Selected(ids) if ids.windows(2).any(|pair| pair[0] >= pair[1]) => {
                 Err(ProtocolError::invalid("share.members.write_schemas.order"))
