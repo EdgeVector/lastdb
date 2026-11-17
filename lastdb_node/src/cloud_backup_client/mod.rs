@@ -13,9 +13,11 @@ use tokio::sync::OwnedSemaphorePermit;
 mod guest_permission;
 mod signed_blob;
 
-pub(crate) use guest_permission::{authorization_post, PathPostTarget};
-pub use guest_permission::{GuestReadPermission, ShareEnvironment};
-pub use signed_blob::{canonical_backup_endpoint, BlobUploadTarget, SignedBlobClient};
+pub(crate) use guest_permission::{
+    authorization_post, GuestReadPermission, PathPostTarget, ShareEnvironment,
+};
+pub(crate) use signed_blob::BlobUploadTarget;
+pub use signed_blob::{canonical_backup_endpoint, SignedBlobClient};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 type TransportResult<T> = Result<T, BackupTransportError>;

@@ -4,6 +4,7 @@
 //! stays on the node signature.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
@@ -12,12 +13,37 @@ use fold_db::security::Ed25519KeyPair;
 use mutation_log::LogError;
 use reqwest::Url;
 
+use crate::cloud::load_connected_home_context;
 use crate::cloud_backup_client::{
     authorization_post, build_shared_http_client, read_bounded_bytes, PathPostTarget,
 };
+use crate::host::Host;
 use crate::profile::endpoints::{exemem_api_url_for, Environment};
 
 use super::wire;
+
+pub(in crate::log_sync) mod paths {
+    pub(crate) const CREATE: &str = "/api/cloud/backups/v2/mutation-log/create-database";
+    pub(crate) const ACCESS: &str = "/api/cloud/backups/v2/mutation-log/access";
+    pub(crate) const APPEND: &str = "/api/cloud/backups/v2/mutation-log/append";
+    pub(crate) const HEAD: &str = "/api/cloud/backups/v2/mutation-log/head";
+    pub(crate) const LIST: &str = "/api/cloud/backups/v2/mutation-log/list";
+    pub(in crate::log_sync) const SETTLE_SUBMISSIONS: &str =
+        "/api/cloud/backups/v2/mutation-log/settle-submissions";
+    pub(crate) use cloud_backup_protocol::v2::share_access::MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT;
+}
+
+/// Publisher account scope from the saved connection. Receivers do not call this.
+pub(in crate::log_sync) async fn publisher_scope(
+    host: &Host,
+) -> Result<(CloudScope, Endpoint, &'static str), String> {
+    let ctx = load_connected_home_context(&host.home, Some(Arc::clone(&host.keypair))).await?;
+    if ctx.account_id.as_str() != host.user_hash {
+        return Err("node account id does not match the node key".into());
+    }
+    let endpoint = Endpoint::open(ctx.api_url, ctx.env.as_str())?.load_owner_key(&host.home);
+    Ok((ctx.scope, endpoint, ctx.env.as_str()))
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum Proof {
@@ -158,7 +184,7 @@ impl Endpoint {
         if matches!(request.proof, Proof::SelfAccess) {
             http_request = http_request.header("X-LastDB-Self-Access", "1");
         }
-        if request.path == super::paths::CREATE {
+        if request.path == paths::CREATE {
             let Some(key) = &self.owner_key else {
                 return Err(LogError::UnexpectedOutcome);
             };

@@ -1,18 +1,17 @@
 //! `POST /v1/read`: a list of keyed reads, each with its own result or error.
 
-use base64::Engine as _;
 use fold_db::access::AccessContext;
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{KeyValue, Query, QueryCursor};
+use fold_db::schema::types::{KeyValue, Query};
 use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::{bad, error_value, fail, in_database, ok};
+use super::{bad, error_value, fail, in_database, key_filter, ok};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
-use crate::exec::wire::QueryRequest;
+use crate::exec::wire::{decode_cursor_token, encode_cursor_token, QueryRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -97,17 +96,7 @@ fn parse(body: &[u8]) -> Result<Vec<ReadItem>, HostError> {
 
 fn filter(item: &ReadItem) -> Result<HashRangeFilter, HostError> {
     match (&item.key, &item.range) {
-        (Some(key), None) => {
-            let hash = key
-                .hash
-                .clone()
-                .filter(|hash| !hash.is_empty())
-                .ok_or_else(|| bad("key.hash is required"))?;
-            Ok(match key.range.clone() {
-                Some(range) => HashRangeFilter::HashRangeKey { hash, range },
-                None => HashRangeFilter::HashKey(hash),
-            })
-        }
+        (Some(key), None) => key_filter(key),
         (None, Some(range)) => {
             let hash = range.hash.clone();
             match (&range.prefix, &range.start, &range.end) {
@@ -130,28 +119,9 @@ fn filter(item: &ReadItem) -> Result<HashRangeFilter, HostError> {
     }
 }
 
-fn decode_cursor(raw: Option<&str>) -> Result<Option<QueryCursor>, HostError> {
-    raw.map(|encoded| {
-        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(encoded)
-            .map_err(|_| bad("invalid cursor"))?;
-        serde_json::from_slice::<QueryCursor>(&bytes).map_err(|_| bad("invalid cursor"))
-    })
-    .transpose()
-}
-
-fn encode_cursor(next: &Value) -> Result<Value, HostError> {
-    if next.is_null() {
-        return Ok(Value::Null);
-    }
-    serde_json::to_vec(next)
-        .map(|bytes| Value::String(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)))
-        .map_err(|_| HostError::internal("cursor encoding failed"))
-}
-
 async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     let filter = filter(&item)?;
-    let cursor = decode_cursor(item.cursor.as_deref())?;
+    let cursor = decode_cursor_token(item.cursor.as_deref(), "", "invalid cursor")?;
     let schema = item.schema.clone();
     let mut query = Query::new_with_filter(item.schema, Some(filter));
     query.key_name = item.via;
@@ -244,6 +214,7 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
             .collect();
         out.insert("records".into(), Value::Array(records));
     }
-    out.insert("next_cursor".into(), encode_cursor(&page["next_cursor"])?);
+    let next = encode_cursor_token(&page["next_cursor"], "", "cursor encoding failed")?;
+    out.insert("next_cursor".into(), json!(next));
     Ok(Value::Object(out))
 }

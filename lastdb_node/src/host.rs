@@ -23,10 +23,7 @@ pub(crate) mod cloud_sync;
 mod logging;
 pub(crate) mod owned;
 mod recovery;
-pub use cloud_sync::{
-    BlockedDelivery, CloudSyncStatus, DatabaseSyncStatus, DownloadSyncStatus, ReplayBlockReason,
-    UploadSyncStatus,
-};
+pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
@@ -52,7 +49,7 @@ impl DatabaseSessions {
         }
         let mut random = [0u8; 32];
         OsRng.fill_bytes(&mut random);
-        let token = hex::encode(random);
+        let token = fold_db::hex::hex_lower(random);
         let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         sessions.insert(
             key,
@@ -213,6 +210,25 @@ impl Host {
 
     pub fn public_key(&self) -> String {
         self.keypair.public_key_base64()
+    }
+
+    /// Flush signed-log receiver stores before the owned sibling stores.
+    pub async fn shutdown_received_databases(&self) -> Result<(), String> {
+        let stores: Vec<Arc<FoldDB>> = {
+            let mut open = self.received.lock().await;
+            open.drain().map(|(_, store)| store).collect()
+        };
+        let mut failed = false;
+        for store in stores {
+            if store.shutdown().await.is_err() {
+                failed = true;
+            }
+        }
+        if failed {
+            Err("received database shutdown flush failed".into())
+        } else {
+            Ok(())
+        }
     }
 }
 

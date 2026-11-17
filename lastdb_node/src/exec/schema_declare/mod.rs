@@ -143,13 +143,7 @@ async fn dispatch_declare(
     let (runtime, reused, checked) = load_owned(host, d, layout.as_ref(), install_if_missing)
         .await
         .map_err(conflict)?;
-    let cat_id = d
-        .catalog_schema
-        .identity_hash
-        .as_deref()
-        .ok_or_else(|| HostError::new(409, "declared schema has no catalog identity"))?;
-    let def_id = schema_types::PortableSchemaId::from_catalog(cat_id, d.catalog_schema.to_wire())
-        .map_err(conflict)?;
+    let def_id = crate::log_sync::schema_id(&d.catalog_schema).map_err(conflict)?;
     let mut payload = json!({
         "app_id": d.namespace, "namespace": d.namespace,
         "schema": d.local_schema_id, "schema_name": d.local_schema_id,

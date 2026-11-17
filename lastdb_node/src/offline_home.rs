@@ -16,7 +16,7 @@ pub const DIR_FLAGS: OFlags = OFlags::RDONLY.union(OFlags::DIRECTORY).union(SAFE
 type DirectoryResult<T> = io::Result<T>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct DirInode(pub u64, pub u64);
+pub struct DirInode(u64, u64);
 
 impl DirInode {
     pub fn of_dir(path: &Path) -> io::Result<Self> {
@@ -30,13 +30,13 @@ impl DirInode {
         Ok(Self(meta.dev(), meta.ino()))
     }
 
-    pub fn of_file(file: &File) -> io::Result<Self> {
+    pub(crate) fn of_file(file: &File) -> io::Result<Self> {
         let meta = file.metadata()?;
         Ok(Self(meta.dev(), meta.ino()))
     }
 
     #[must_use]
-    pub fn same_device(self, other: Self) -> bool {
+    pub(crate) fn same_device(self, other: Self) -> bool {
         self.0 == other.0
     }
 
@@ -103,7 +103,7 @@ fn decode_seed(raw: &[u8]) -> Result<Zeroizing<[u8; 32]>, String> {
         .map_err(|_| "home identity.key must contain exactly 32 bytes".into())
 }
 
-pub fn read_home_identity_seed(home: &Path) -> Result<Option<Zeroizing<[u8; 32]>>, String> {
+pub(crate) fn read_home_identity_seed(home: &Path) -> Result<Option<Zeroizing<[u8; 32]>>, String> {
     const PRIV_ERR: &str = "home identity.key must be a private owner file";
     const LIM_ERR: &str = "home identity.key exceeds 32 bytes";
     read_private_named(&home.join(IDENTITY_KEY_FILE), 32, PRIV_ERR, LIM_ERR)
@@ -261,7 +261,7 @@ impl Directory {
         })
     }
 
-    pub fn check(&self) -> DirectoryResult<()> {
+    pub(crate) fn check(&self) -> DirectoryResult<()> {
         disk(eq_fd(&self.file, &Self::open(&self.path)?.file))?
             .then_some(())
             .ok_or_else(|| io::Error::other(CHANGED_ERR))

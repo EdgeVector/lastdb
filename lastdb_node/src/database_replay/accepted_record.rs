@@ -230,8 +230,5 @@ fn mutation_from(
 }
 
 fn hex_32(text: &str) -> Result<[u8; 32], RestoreError> {
-    hex::decode(text)
-        .ok()
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(RestoreError::Entry("snapshot entry"))
+    fold_db::hex::hex_decode_array(text).ok_or(RestoreError::Entry("snapshot entry"))
 }

@@ -70,7 +70,7 @@ pub(super) fn inventory(cut: &DatabaseSnapshot) -> Result<Vec<FileEntry>, String
 }
 
 pub(super) fn digest(hash: Sha256) -> Result<Digest, String> {
-    Digest::try_from(hex::encode(hash.finalize())).map_err(|error| error.to_string())
+    Digest::try_from(fold_db::hex::hex_lower(hash.finalize())).map_err(|error| error.to_string())
 }
 
 pub(super) fn validate(files: &[FileEntry]) -> Result<(), String> {

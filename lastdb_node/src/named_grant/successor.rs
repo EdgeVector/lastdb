@@ -38,10 +38,8 @@ pub(super) fn require_stream(
         }
         let key = app_identity_crypto::VerifyingKey::from_bytes(&session.signer.public_key_bytes())
             .map_err(|_| "share.grant.identity")?;
-        let signature = hex::decode(update.signature.as_str())
-            .ok()
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or("share.signature")?;
+        let signature =
+            fold_db::hex::hex_decode_array(update.signature.as_str()).ok_or("share.signature")?;
         let digest = update.digest().map_err(|error| error.field)?;
         app_identity_crypto::verify(&key, &signature, digest.as_str().as_bytes())
             .map_err(|_| "share.signature")?;
@@ -124,8 +122,8 @@ pub(super) fn sign_members(
         .map_err(|error| error.field)?;
     let digest = update.digest().map_err(|error| error.field)?;
     let signature = session.signer.sign(digest.as_str().as_bytes()).to_bytes();
-    update.signature =
-        Ed25519Signature::try_from(hex::encode(signature)).map_err(|_| "share.signature")?;
+    update.signature = Ed25519Signature::try_from(fold_db::hex::hex_lower(signature))
+        .map_err(|_| "share.signature")?;
     let body = serde_json::to_vec(&update).map_err(|_| "cannot encode member update")?;
     Ok(SignedUpdate { body, revision })
 }

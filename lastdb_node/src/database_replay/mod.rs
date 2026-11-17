@@ -22,8 +22,8 @@ mod page;
 mod payload;
 mod types;
 
-pub use payload::{AcceptedBody, FileObject, FileSection};
-pub use types::{IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest};
+pub(crate) use payload::{AcceptedBody, FileObject, FileSection};
+pub(crate) use types::{IncorporatedFrom, RestoreError, SnapshotEntry, SnapshotFileRequest};
 
 pub(crate) use owned::replay_owned;
 pub(crate) use page::DeliveredEntry;
@@ -35,8 +35,8 @@ use std::sync::Arc;
 use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::FoldDB;
 
+use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
-use crate::Host;
 
 /// Apply one signed log page into its registered store.
 ///

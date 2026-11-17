@@ -25,7 +25,8 @@ use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 use source::{capture_block, legacy_pending, read_page, LocalUpload, PublishPolicy};
 
 use super::cloud::CloudLog;
-use super::retry::{self, Seal};
+use super::http::paths;
+use super::session::retry::{self, Seal};
 use super::{upload, wire};
 
 pub(super) fn take_payment_hold(database_id: &str) -> bool {
@@ -113,7 +114,7 @@ async fn send_page(
         return Ok(());
     };
     let first = match first {
-        Item::Publish { sequence, .. } | Item::Withheld { sequence, .. } => *sequence,
+        Item::Publish { sequence, .. } | Item::Withheld { sequence } => *sequence,
     };
     let after = first.checked_sub(1).ok_or("invalid local spool position")?;
     let Some(upload) = LocalUpload::open(runtime, log, after).await? else {
@@ -125,7 +126,7 @@ async fn send_page(
     let mut through = after;
     for item in &page.items {
         through = match item {
-            Item::Withheld { sequence, .. } => *sequence,
+            Item::Withheld { sequence } => *sequence,
             Item::Publish {
                 sequence,
                 mutation_id,
@@ -297,7 +298,7 @@ async fn append_entries(
         }
         let Ok((status, reply)) = log
             .post_status_limit(
-                super::paths::APPEND,
+                paths::APPEND,
                 body,
                 super::http::Proof::Data,
                 super::http::JSON_LIMIT,

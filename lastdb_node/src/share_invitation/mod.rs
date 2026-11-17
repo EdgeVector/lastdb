@@ -40,10 +40,10 @@ impl std::error::Error for ShareInvitationError {}
 pub type Result<T> = std::result::Result<T, ShareInvitationError>;
 
 /// The independently encrypted publication key and its bound read permission.
-pub struct OpenedShareInvitation {
-    pub permission: GuestReadPermission,
-    pub publication_key: Zeroizing<[u8; 32]>,
-    pub spec: Option<crate::profile::PublicationSpec>,
+pub(crate) struct OpenedShareInvitation {
+    pub(crate) permission: GuestReadPermission,
+    pub(crate) publication_key: Zeroizing<[u8; 32]>,
+    pub(crate) spec: Option<crate::profile::PublicationSpec>,
     pub(crate) inbox_key: Option<PublicKey>,
 }
 
@@ -117,7 +117,7 @@ pub(crate) fn seal(
 
 impl ShareRecipient {
     /// Open the invitation for this identity and an independently pinned publisher.
-    pub fn open(
+    pub(crate) fn open(
         &self,
         sealed: &[u8],
         expected_publisher: &Digest,
@@ -205,9 +205,7 @@ impl ShareRecipient {
         if permission.publisher_public_key() != expected_publisher {
             return Err(ShareInvitationError("share invitation publisher differs"));
         }
-        let publisher: [u8; 32] = hex::decode(expected_publisher.as_str())
-            .ok()
-            .and_then(|bytes| bytes.try_into().ok())
+        let publisher: [u8; 32] = fold_db::hex::hex_decode_array(expected_publisher.as_str())
             .ok_or(ShareInvitationError("invalid share invitation publisher"))?;
         verify_signature(&publisher, signature, &signing_bytes(version, body))?;
         if check_expiry {

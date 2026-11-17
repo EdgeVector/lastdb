@@ -36,7 +36,6 @@ allow = [
   "MIT",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
-  "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
   "Unicode-3.0",
@@ -46,9 +45,6 @@ allow = [
   # webpki-roots / webpki-root-certs use CDLA-Permissive-2.0 (Mozilla CA
   # bundle redistribution license — permissive, allows commercial use).
   "CDLA-Permissive-2.0",
-  # xxhash-rust ships under the Boost Software License (permissive,
-  # MIT-ish — explicit attribution + warranty disclaimer).
-  "BSL-1.0",
 ]
 exceptions = [
   # Per-crate license exceptions go here only after legal review, e.g.:
@@ -65,10 +61,10 @@ ignore = true
 # ---------------------------------------------------------------------------
 [bans]
 # Promote to "deny" in a follow-up after the existing duplicates listed
-# in the PR description are unified. Today's lockfile has ~70 duplicates
-# (mostly the windows-sys 0.48 vs 0.52 vs 0.59 split and the hashbrown
-# 0.12/0.14/0.15/0.16 fan-out) — most are transitive and not trivially
-# unifiable.
+# in the PR description are unified. Today's lockfile has ~31 duplicates
+# across 27 crate families (mostly the windows-sys 0.52/0.60/0.61 and
+# rand 0.8/0.9/0.10 / getrandom 0.2/0.3/0.4 splits) — most are transitive
+# and not trivially unifiable.
 multiple-versions = "warn"
 wildcards = "deny"
 # Workspace path deps inherit a wildcard version by construction

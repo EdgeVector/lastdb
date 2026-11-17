@@ -71,10 +71,10 @@ impl Entry {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Resolved {
+#[derive(Clone)]
+pub(crate) enum ResolvedStore {
     Owner,
-    Owned,
+    Owned(Arc<FoldDB>),
     Absent,
 }
 
@@ -148,45 +148,39 @@ impl Tables {
         Ok(self.read()?.owned.clone())
     }
 
-    pub(crate) fn resolve(
-        &self,
-        selector: &str,
-    ) -> Result<(Resolved, Option<Arc<FoldDB>>), OwnedError> {
+    pub(crate) fn resolve(&self, selector: &str) -> Result<ResolvedStore, OwnedError> {
         let state = self.read()?;
         if selector == state.registry_owner.id
             || state.registry_owner.name.as_deref() == Some(selector)
         {
-            return Ok((Resolved::Owner, None));
+            return Ok(ResolvedStore::Owner);
         }
         if let Some(store) = state.stores.get(selector) {
-            return Ok((Resolved::Owned, Some(Arc::clone(store))));
+            return Ok(ResolvedStore::Owned(Arc::clone(store)));
         }
         let Some(entry) = state
             .owned
             .iter()
             .find(|entry| entry.name.as_deref() == Some(selector))
         else {
-            return Ok((Resolved::Absent, None));
+            return Ok(ResolvedStore::Absent);
         };
         let store = state
             .stores
             .get(&entry.id)
             .cloned()
             .ok_or(OwnedError::Unavailable)?;
-        Ok((Resolved::Owned, Some(store)))
+        Ok(ResolvedStore::Owned(store))
     }
 
-    pub(crate) fn registered_store(
-        &self,
-        database_id: &str,
-    ) -> Result<(Resolved, Option<Arc<FoldDB>>), OwnedError> {
+    pub(crate) fn registered_store(&self, database_id: &str) -> Result<ResolvedStore, OwnedError> {
         let state = self.read()?;
         if state.registry_owner.id == database_id {
-            return Ok((Resolved::Owner, None));
+            return Ok(ResolvedStore::Owner);
         }
         Ok(match state.stores.get(database_id) {
-            Some(store) => (Resolved::Owned, Some(Arc::clone(store))),
-            None => (Resolved::Absent, None),
+            Some(store) => ResolvedStore::Owned(Arc::clone(store)),
+            None => ResolvedStore::Absent,
         })
     }
 

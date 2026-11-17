@@ -1,6 +1,6 @@
 //! Library surface of the minimal `lastdbd` daemon.
 
-pub mod accepted_writes;
+pub(crate) mod accepted_writes;
 pub mod cloud;
 pub mod cloud_backup_client;
 pub(crate) mod database_replay;
@@ -17,5 +17,3 @@ pub(crate) mod registered_share;
 pub(crate) mod share_cache;
 pub mod share_invitation;
 pub mod version;
-
-pub use host::Host;

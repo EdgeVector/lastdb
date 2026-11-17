@@ -5,8 +5,7 @@ use app_identity_crypto::SigningKey;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use lastdb_node::cloud_backup_client::build_shared_http_client;
 use lastdb_node::profile::endpoints::{
-    environment_for_exemem_api_url, environment_for_registry_api_url, registry_api_url_for,
-    Environment,
+    environment_for_registry_api_url, registry_api_url_for, Environment,
 };
 use serde_json::Value;
 use std::io::{self, Read};
@@ -79,22 +78,6 @@ pub(super) fn publisher_signing_key(
         return lastdb_node::cloud::app_publisher_signing_key(home);
     }
     load_dev_key(&default)
-}
-
-pub(super) fn home_cloud_environment(home: &Path) -> Result<Option<Environment>, String> {
-    let Some(creds) = lastdb_node::cloud::load_saved_credentials(home)? else {
-        return Ok(None);
-    };
-    Ok(environment_for_exemem_api_url(&creds.api_url).or_else(|| {
-        creds
-            .connection
-            .as_ref()
-            .and_then(|c| match c.environment.as_str() {
-                "dev" => Some(Environment::Dev),
-                "prod" => Some(Environment::Prod),
-                _ => None,
-            })
-    }))
 }
 
 fn has_explicit_api_key(input: &PublishArgs) -> bool {

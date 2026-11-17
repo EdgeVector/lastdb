@@ -1,21 +1,36 @@
-//! Stable database handles and receiver `FoldDB` stores for accepted shares.
+//! Stable database handles, node-owned Share bindings, and receiver `FoldDB` stores.
 
 use crate::cloud_backup_client::ShareEnvironment;
 use crate::host::Host;
-use crate::share_cache::{ShareCache, ShareCacheError, MANAGED_SHARE_DIRECTORY};
+use crate::share_cache::{
+    private_directory, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
+    MANAGED_SHARE_DIRECTORY,
+};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::storage::config::DatabaseConfig;
-use serde::Serialize;
-use std::fs::{self, File};
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::ErrorKind;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zeroize::{Zeroize, Zeroizing};
 
-type Result<T> = std::result::Result<T, ShareCacheError>;
+const REGISTRY_LOCK: &str = "registry.lock";
+const MAX_REGISTERED: usize = 32;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ManagedRegistration {
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spec: Option<crate::profile::PublicationSpec>,
+    expires_ms: u64,
+    /// Named-database signed log. Publication shares omit this.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) signed_log: bool,
+}
 
 /// Local database registration. Public JSON contains only identifying and
 /// verification status, never an invitation or contributor authority.
@@ -49,6 +64,159 @@ impl RegisteredShare {
     pub(crate) fn environment(&self) -> ShareEnvironment {
         self.environment
     }
+}
+
+impl ShareCache {
+    fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
+        if !create
+            && matches!(fs::symlink_metadata(root), Err(e) if e.kind() == ErrorKind::NotFound)
+        {
+            return Ok(None);
+        }
+        let home = home.canonicalize()?;
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
+        let recipient = crate::share_invitation::recipient(&home)
+            .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
+        private_directory(&root, create)?;
+        Ok(Some(Self { root, recipient }))
+    }
+
+    fn managed_ids(&self) -> Result<Vec<Id>> {
+        let directory = private_directory(&self.root, false)?;
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let name = entry?
+                .file_name()
+                .into_string()
+                .map_err(|_| ShareCacheError::Invalid("registry entry"))?;
+            if name == REGISTRY_LOCK {
+                continue;
+            }
+            if ids.len() == MAX_REGISTERED {
+                return Err(ShareCacheError::Invalid("registry size"));
+            }
+            ids.push(Id::try_from(name).map_err(|_| ShareCacheError::Invalid("registry entry"))?);
+        }
+        directory
+            .check()
+            .map_err(|_| ShareCacheError::Invalid("registry directory"))?;
+        ids.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        Ok(ids)
+    }
+
+    fn managed_record(&self, id: &Id) -> Result<Option<RegisteredShare>> {
+        let entry = match self.entry(id, false) {
+            Ok(entry) => entry,
+            Err(ShareCacheError::Unavailable) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let _pointer = entry.lock(Lock::PointerRead)?;
+        let (registration, _) = entry.load()?;
+        registration
+            .as_ref()
+            .map(|registration| describe(id, registration))
+            .transpose()
+    }
+
+    /// Sealed registration marked as a signed log.
+    ///
+    /// `expected` is the stable database id. It must equal the invitation stream.
+    /// A mismatch writes nothing.
+    fn register_signed_log(
+        &self,
+        home: &Path,
+        invitation: &[u8],
+        publisher: &Digest,
+        name: Option<&str>,
+        expected: Option<&Id>,
+    ) -> Result<RegisteredShare> {
+        let opened = self.recipient.open(invitation, publisher)?;
+        let id = &opened.permission.stream().stream_id;
+        if expected.is_some_and(|expected| expected.as_str() != id.as_str()) {
+            return Err(ShareCacheError::Invalid("database id"));
+        }
+        let directory = private_directory(&self.root, false)?;
+        let lock = directory
+            .open_lock(REGISTRY_LOCK)
+            .map_err(|_| ShareCacheError::Invalid("registry lock"))?;
+        lock.try_lock().map_err(|_| ShareCacheError::Busy)?;
+        if crate::host::owned::registry_claims(home, id.as_str(), name)
+            .map_err(|()| ShareCacheError::Unavailable)?
+        {
+            return Err(ShareCacheError::Invalid("database selector already in use"));
+        }
+        self.admit_name(id, name)?;
+        let entry = self.entry(id, true)?;
+        let _writer = entry.lock(Lock::Writer)?;
+        let (registration, previous) = entry.load()?;
+        if let Some(registration) = &registration {
+            self.require_management(registration)?;
+        }
+        let mut registration =
+            Registration::with_invitation(registration, &opened, publisher, invitation)?;
+        let state = registration.managed.get_or_insert(ManagedRegistration {
+            name: None,
+            spec: None,
+            expires_ms: 0,
+            signed_log: false,
+        });
+        if let Some(name) = name {
+            state.name = Some(name.to_owned());
+        }
+        if let Some(spec) = opened.spec {
+            if state.spec.as_ref().is_some_and(|current| current != &spec) {
+                return Err(ShareCacheError::Invalid(
+                    "invitation spec differs from this share handle",
+                ));
+            }
+            state.spec = Some(spec);
+        }
+        state.expires_ms = opened.permission.expires_ms();
+        state.signed_log = true;
+        publish(
+            &entry,
+            previous.as_deref().map(Vec::as_slice),
+            &registration,
+        )?;
+        describe(id, &registration)
+    }
+
+    fn admit_name(&self, id: &Id, name: Option<&str>) -> Result<()> {
+        let ids = self.managed_ids()?;
+        if ids.len() == MAX_REGISTERED && !ids.contains(id) {
+            return Err(ShareCacheError::Invalid("registry size"));
+        }
+        if let Some(name) = name {
+            for other in ids.iter().filter(|other| *other != id) {
+                if self
+                    .managed_record(other)?
+                    .is_some_and(|registered| registered.name.as_deref() == Some(name))
+                {
+                    return Err(ShareCacheError::Invalid("name already registered"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
+    let state = registration
+        .managed
+        .as_ref()
+        .filter(|_| &registration.stream.stream_id == id)
+        .ok_or(ShareCacheError::Invalid("managed registration"))?;
+    Ok(RegisteredShare {
+        id: id.clone(),
+        publisher: registration.publisher.clone(),
+        name: state.name.clone(),
+        spec: state.spec.clone(),
+        expires_ms: state.expires_ms,
+        stream: registration.stream.clone(),
+        environment: registration.environment,
+        signed_log: state.signed_log,
+    })
 }
 
 /// Save a verified invitation and stable database handle marked as a signed log.
@@ -130,27 +298,6 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     Ok(store)
 }
 
-impl Host {
-    /// Flush signed-log receiver stores before the owned sibling stores.
-    pub async fn shutdown_received_databases(&self) -> std::result::Result<(), String> {
-        let stores: Vec<Arc<FoldDB>> = {
-            let mut open = self.received.lock().await;
-            open.drain().map(|(_, store)| store).collect()
-        };
-        let mut failed = false;
-        for store in stores {
-            if store.shutdown().await.is_err() {
-                failed = true;
-            }
-        }
-        if failed {
-            Err("received database shutdown flush failed".into())
-        } else {
-            Ok(())
-        }
-    }
-}
-
 async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {
     let keys = content_keys(&host.home, id)?;
     let (data, inbox) = store_dirs(&host.home, id)?;
@@ -188,39 +335,10 @@ fn store_dirs(home: &Path, id: &Id) -> Result<(PathBuf, PathBuf)> {
         .canonicalize()
         .map_err(|_| ShareCacheError::Unavailable)?;
     let entry = home.join(MANAGED_SHARE_DIRECTORY).join(id.as_str());
-    require_private(&entry)?;
+    private_directory(&entry, false)?;
     let data = entry.join("log");
     let inbox = entry.join("search-inbox");
-    ensure_private(&data)?;
-    ensure_private(&inbox)?;
+    private_directory(&data, true)?;
+    private_directory(&inbox, true)?;
     Ok((data, inbox))
-}
-
-fn require_private(path: &Path) -> Result<()> {
-    let meta = fs::symlink_metadata(path).map_err(|_| ShareCacheError::Unavailable)?;
-    private_dir(&meta)
-}
-
-fn ensure_private(path: &Path) -> Result<()> {
-    if fs::symlink_metadata(path).is_err_and(|error| error.kind() == ErrorKind::NotFound) {
-        match fs::DirBuilder::new().mode(0o700).create(path) {
-            Ok(()) => {
-                if let Some(parent) = path.parent() {
-                    let _ = File::open(parent).and_then(|file| file.sync_all());
-                }
-            }
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
-            Err(_) => return Err(ShareCacheError::Unavailable),
-        }
-    }
-    let meta = fs::symlink_metadata(path).map_err(|_| ShareCacheError::Unavailable)?;
-    private_dir(&meta)
-}
-
-fn private_dir(meta: &fs::Metadata) -> Result<()> {
-    if meta.is_dir() && meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o7777 == 0o700 {
-        Ok(())
-    } else {
-        Err(ShareCacheError::Invalid("private directory"))
-    }
 }

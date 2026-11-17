@@ -6,7 +6,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use fold_db::access::AccessContext;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
@@ -38,7 +38,6 @@ macro_rules! heap_route {
 
 mod admin_routes;
 mod app_api;
-mod changes;
 mod database_owned;
 mod database_routes;
 mod database_session;
@@ -136,7 +135,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::MutationBatch => heap_route!(mutation::batch_route, req, ctx, host),
             DataRoute::QueryBatch => heap_route!(query::query_batch_route, req, ctx, host),
             DataRoute::ListRecordKeys => heap_route!(list_keys::list_keys, req, ctx, host),
-            DataRoute::Changes => heap_route!(changes::changes, req, ctx, host),
+            DataRoute::Changes => heap_route!(list_keys::changes, req, ctx, host),
             DataRoute::DeclareSchema => heap_route!(schema_declare::declare_schema, req, ctx, host),
             DataRoute::AppsDeclareSchema => {
                 heap_route!(
@@ -162,8 +161,8 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::DbPutBlob => heap_route!(file_blob::db_put_blob, req, ctx, host),
             DataRoute::DbFetchBlob => heap_route!(file_blob::db_fetch_blob, req, ctx, host),
             DataRoute::DbDeleteBlob => heap_route!(file_blob::db_delete_blob, req, ctx, host),
-            DataRoute::BackupSnapshot => heap_route!(backup_snapshot, req, ctx, host),
-            DataRoute::CloudWake => return cloud_wake(req, ctx, host),
+            DataRoute::BackupSnapshot => heap_route!(admin_routes::backup_snapshot, req, ctx, host),
+            DataRoute::CloudWake => return admin_routes::cloud_wake(req, ctx, host),
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
@@ -188,80 +187,4 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::BootIdentity => Duration::from_secs(1),
         _ => handler_timeout(),
     }
-}
-
-async fn backup_snapshot(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Body {
-        database: String,
-    }
-    let res = async {
-        if !ctx.is_owner {
-            return Err(HostError::new(403, "backup snapshot is owner-only"));
-        }
-        if req.method == "GET" {
-            let db = wire::query_value(&req.target, "database").unwrap_or_default();
-            let nonce = wire::query_value(&req.target, "nonce").unwrap_or_default();
-            if db.is_empty() || nonce.is_empty() {
-                return Err(HostError::new(
-                    400,
-                    "database and nonce query parameters are required",
-                ));
-            }
-            cloud_backup_protocol::Id::try_from(db.clone())
-                .map_err(|e| HostError::new(400, e.to_string()))?;
-            if let Some((through, entries)) =
-                crate::log_sync::snapshot_completed(&host.home, &db, &nonce)
-            {
-                return Ok(json!({
-                    "ready": true,
-                    "snapshot_through": through,
-                    "log_head": through,
-                    "log_entries": entries,
-                }));
-            }
-            return Ok(match crate::log_sync::snapshot_error(&host.home, &db) {
-                Some(error) => json!({ "ready": false, "error": error }),
-                None => json!({ "ready": false }),
-            });
-        }
-        let b: Body = serde_json::from_slice(&req.body)
-            .map_err(|e| HostError::new(400, format!("invalid /api/backup/snapshot body: {e}")))?;
-        let (id, nonce) =
-            crate::log_sync::request_snapshot(&host.home, &b.database).map_err(|e| {
-                let status = if e == "database is not owned by this node" {
-                    404
-                } else if e.starts_with("cannot ") {
-                    503
-                } else {
-                    400
-                };
-                HostError::new(status, e)
-            })?;
-        host.cloud_sync.wake();
-        Ok(json!({ "database_id": id, "nonce": nonce }))
-    }
-    .await;
-    render(res, ctx)
-}
-
-fn cloud_wake(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    let res = (|| {
-        if !ctx.is_owner {
-            return Err(HostError::new(403, "cloud wake is owner-only"));
-        }
-        if !req.body.is_empty()
-            && !serde_json::from_slice::<Map<String, Value>>(&req.body).is_ok_and(|f| f.is_empty())
-        {
-            return Err(HostError::new(
-                400,
-                "invalid /api/cloud/wake body: expected an empty JSON object",
-            ));
-        }
-        crate::log_sync::ensure_wake(&host.home);
-        host.cloud_sync.wake();
-        Ok(json!({}))
-    })();
-    render(res, ctx)
 }

@@ -31,7 +31,7 @@ pub struct ShareRecipient {
 
 impl ShareRecipient {
     /// Derive a separate X25519 key from the recipient's local identity seed.
-    pub fn from_identity_seed(seed: &[u8; 32]) -> Result<Self> {
+    pub(super) fn from_identity_seed(seed: &[u8; 32]) -> Result<Self> {
         let identity = app_identity_crypto::SigningKey::from_bytes(seed);
         let mut key = Zeroizing::new([0u8; 32]);
         Hkdf::<Sha256>::new(None, seed)

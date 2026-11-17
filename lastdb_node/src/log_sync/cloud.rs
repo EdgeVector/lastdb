@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::host::Host;
 
-use super::http::{self, Endpoint, Proof};
-use super::{account, paths, wire, SyncOutcome, SyncState};
+use super::http::{self, paths, Endpoint, Proof};
+use super::{wire, SyncOutcome, SyncState};
 
 #[derive(Serialize)]
 struct WriterTipRequest<'a> {
@@ -55,7 +55,7 @@ impl CloudLog {
     ) -> Result<Self, String> {
         let database_id =
             Id::try_from(database_id.to_owned()).map_err(|_| "database id is not a UUID")?;
-        let (scope, endpoint, environment_label) = account::publisher_scope(host).await?;
+        let (scope, endpoint, environment_label) = http::publisher_scope(host).await?;
         Self::open(LogOpen {
             host,
             endpoint,
@@ -90,7 +90,7 @@ impl CloudLog {
         keypair: Arc<Ed25519KeyPair>,
         environment_label: &'static str,
     ) -> Result<Self, String> {
-        let principal = PrincipalId::new(&hex::encode(keypair.public_key_bytes()))
+        let principal = PrincipalId::new(&fold_db::hex::hex_lower(keypair.public_key_bytes()))
             .map_err(|_| "node key is not a log label")?;
         Ok(Self {
             host: None,

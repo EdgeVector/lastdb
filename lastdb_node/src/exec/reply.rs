@@ -7,6 +7,7 @@ use fold_db::storage::StorageError;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::host::owned::OwnedError;
 use crate::lastdb_uds::uds_http::UdsResponse;
 
 const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 402, 403, 404, 409, 413, 422, 423, 503, 507];
@@ -39,7 +40,7 @@ pub(in crate::exec) fn content_free(status: u16, reason: &'static str) -> UdsRes
     UdsResponse::new(status, reason, reason.as_bytes().to_vec())
 }
 
-const fn status_reason(status: u16) -> &'static str {
+pub(in crate::exec) const fn status_reason(status: u16) -> &'static str {
     match status {
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -87,6 +88,13 @@ impl HostError {
 
     pub(in crate::exec) fn internal(message: impl Into<String>) -> Self {
         Self::new(500, message)
+    }
+}
+
+impl From<OwnedError> for HostError {
+    fn from(error: OwnedError) -> Self {
+        let (status, message) = error.status();
+        Self::new(status, message)
     }
 }
 

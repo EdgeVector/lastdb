@@ -93,12 +93,8 @@ pub(super) fn bind(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRes
 
 pub(super) fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
     let result = (|| {
-        let map_owned = |error: OwnedError| {
-            let (status, msg) = error.status();
-            HostError::new(status, msg)
-        };
-        let owner = host.owned.owner().map_err(map_owned)?;
-        let owned = host.owned.owned_entries().map_err(map_owned)?;
+        let owner = host.owned.owner()?;
+        let owned = host.owned.owned_entries()?;
         let shares = registered_share::list(&host.home)
             .map_err(|_| HostError::new(503, "database registry is unavailable"))?;
         let mut databases = vec![row(&owner)];
@@ -237,8 +233,7 @@ fn share_conflict(
 }
 
 fn fail(error: OwnedError, ctx: &AccessContext) -> UdsResponse {
-    let (status, message) = error.status();
-    error_response(status, message, ctx)
+    render(Err(error.into()), ctx)
 }
 
 fn reserved_binding(spec: &PublicationSpec) -> bool {

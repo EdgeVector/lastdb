@@ -5,7 +5,7 @@ use std::sync::Arc;
 use fold_db::fold_db_core::FoldDB;
 
 use super::*;
-use crate::host::owned::{self, Resolved};
+use crate::host::owned::ResolvedStore;
 use crate::lastdb_uds::uds_router::{self, ControlRoute};
 use crate::lastdb_uds::{split_database_path, DATABASES_PATH};
 use crate::registered_share::{self, RegisteredShare};
@@ -38,9 +38,15 @@ pub(in crate::exec) async fn execute_database_request(
         }
         _ => {}
     }
+    if let Some(selector) = submission_status_selector(req) {
+        return run_submission_status(selector, req, ctx, host).await;
+    }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
     };
+    if path == "submissions/status" {
+        return uds_router::method_not_allowed_response("POST");
+    }
     if let Some(route) = super::database_share::Route::parse(path) {
         return super::database_share::execute(route, req, ctx, host, selector).await;
     }
@@ -108,18 +114,12 @@ pub(in crate::exec) async fn execute_deferred_database_request(
         return content_free(404, "Not Found");
     }
     if let Some(selector) = submission_status_selector(req) {
-        return match resolve_database(selector, ctx, host) {
-            Ok(Selection::Signed(share)) => {
-                with_handler_timeout_budget(
-                    ctx,
-                    handler_timeout(),
-                    super::database_session::submission_status(req, ctx, host, &share),
-                )
-                .await
-            }
-            Ok(_) => error_response(404, "this database has no received submissions", ctx),
-            Err(response) => response,
-        };
+        return with_handler_timeout_budget(
+            ctx,
+            handler_timeout(),
+            run_submission_status(selector, req, ctx, host),
+        )
+        .await;
     }
     if let Some((selector, route)) = split_database_path(&req.target)
         .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
@@ -173,19 +173,31 @@ fn submission_status_selector(req: &UdsRequest) -> Option<&str> {
     (req.method == "POST" && path == "submissions/status").then_some(selector)
 }
 
+async fn run_submission_status(
+    selector: &str,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    match resolve_database(selector, ctx, host) {
+        Ok(Selection::Signed(share)) => {
+            super::database_session::submission_status(req, ctx, host, &share).await
+        }
+        Ok(_) => error_response(404, "this database has no received submissions", ctx),
+        Err(response) => response,
+    }
+}
+
 fn resolve_database(
     selector: &str,
     ctx: &AccessContext,
     host: &Host,
 ) -> Result<Selection, UdsResponse> {
     match host.owned.resolve(selector) {
-        Ok((Resolved::Owner, _)) => Ok(Selection::Owner),
-        Ok((Resolved::Owned, Some(store))) => Ok(Selection::Owned(store)),
-        Ok((Resolved::Owned, None) | (Resolved::Absent, Some(_))) => {
-            Err(error_response(503, "database registry is unavailable", ctx))
-        }
-        Ok((Resolved::Absent, None)) => resolve_share(selector, ctx, host),
-        Err(error) => Err(owned_response(error, ctx)),
+        Ok(ResolvedStore::Owner) => Ok(Selection::Owner),
+        Ok(ResolvedStore::Owned(store)) => Ok(Selection::Owned(store)),
+        Ok(ResolvedStore::Absent) => resolve_share(selector, ctx, host),
+        Err(error) => Err(render(Err(error.into()), ctx)),
     }
 }
 
@@ -206,11 +218,6 @@ fn resolve_share(
         }
         Err(_) => Err(error_response(503, "database registry is unavailable", ctx)),
     }
-}
-
-fn owned_response(error: owned::OwnedError, ctx: &AccessContext) -> UdsResponse {
-    let (status, message) = error.status();
-    error_response(status, message, ctx)
 }
 
 fn is_database_operation(route: DataRoute) -> bool {

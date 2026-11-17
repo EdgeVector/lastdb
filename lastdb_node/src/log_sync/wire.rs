@@ -13,7 +13,7 @@ use mutation_log::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::paths;
+use super::http::paths;
 
 #[derive(Serialize)]
 struct DatabaseBody<'a> {

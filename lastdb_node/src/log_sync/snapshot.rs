@@ -13,7 +13,7 @@ use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGua
 use serde::{Deserialize, Serialize};
 
 use crate::host::{
-    owned::{self, registered_databases, RegisteredDatabase as Database, Resolved},
+    owned::{self, registered_databases, RegisteredDatabase as Database, ResolvedStore},
     Host,
 };
 use fold_db::{crypto::E2eKeys, security::Ed25519KeyPair, storage::StorageError};
@@ -43,14 +43,14 @@ async fn publish(
     nonce: Option<&str>,
 ) -> Result<(), String> {
     let _work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
-    let (resolved, sibling) = host
+    let store = match host
         .owned
         .registered_store(log.database_id())
-        .map_err(|error| error.status().1)?;
-    let store = match (resolved, sibling) {
-        (Resolved::Owner, None) => Arc::clone(&host.db),
-        (Resolved::Owned, Some(store)) => store,
-        _ => return Err("snapshot database is unavailable locally".into()),
+        .map_err(|error| error.status().1)?
+    {
+        ResolvedStore::Owner => Arc::clone(&host.db),
+        ResolvedStore::Owned(store) => store,
+        ResolvedStore::Absent => return Err("snapshot database is unavailable locally".into()),
     };
     let runtime = store.db_ops().native_runtime();
     let through = session::load_cursor(&host.home, log.database_id())?;

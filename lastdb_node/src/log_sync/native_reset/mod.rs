@@ -31,7 +31,7 @@ pub(super) fn supports(host: &Host, ready: &Ready) -> bool {
         && matches!(host.owned.is_private_id(&ready.database_id), Ok(true))
         && matches!(
             host.owned.registered_store(&ready.database_id),
-            Ok((crate::host::owned::Resolved::Owner, _))
+            Ok(crate::host::owned::ResolvedStore::Owner)
         )
         && !fold_db::db_operations::search_index::queue_policy::enabled()
 }

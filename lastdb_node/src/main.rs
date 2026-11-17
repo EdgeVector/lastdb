@@ -12,6 +12,7 @@ use lastdb_node::exec::UdsServer;
 use lastdb_node::host::{self, Host};
 use lastdb_node::lastdb_uds::{self, UdsSocket, UdsWorkerPool};
 use lastdb_node::{cloud, jobs, log_sync};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
@@ -58,7 +59,6 @@ fn spawn_background(
 fn finish_shutdown(
     rt: tokio::runtime::Runtime,
     home: &Path,
-    pid: u32,
     host: &Arc<Host>,
     pool: &UdsWorkerPool,
     tasks: Vec<(&'static str, JoinHandle<()>)>,
@@ -105,7 +105,7 @@ fn finish_shutdown(
     .flatten()
     .collect();
     let res = if errs.is_empty() {
-        host::write_shutdown_flush_receipt(home, pid, host.process_start_ts)
+        host::write_shutdown_flush_receipt(home, std::process::id(), host.process_start_ts)
             .map_err(|e| format!("could not write shutdown flush proof: {e}"))
     } else {
         Err(format!(
@@ -119,23 +119,28 @@ fn finish_shutdown(
     Ok(())
 }
 
-fn register_stop_signals(
+fn spawn_stop_signals(
+    rt: &tokio::runtime::Runtime,
     stop: &Arc<AtomicBool>,
     user_stop: &Arc<AtomicBool>,
-) -> Result<(), String> {
-    for sig in [libc::SIGTERM, libc::SIGINT] {
-        let f = Arc::clone(stop);
-        let u = Arc::clone(user_stop);
-        // SAFETY: the handler only performs async-signal-safe atomic stores.
-        unsafe {
-            signal_hook_registry::register(sig, move || {
-                u.store(true, Ordering::Relaxed);
-                f.store(true, Ordering::Relaxed);
-            })
-        }
+) -> Result<JoinHandle<()>, String> {
+    let _guard = rt.enter();
+    let mut term = signal(SignalKind::terminate())
         .map_err(|e| format!("failed to register signal handler: {e}"))?;
-    }
-    Ok(())
+    let mut intr = signal(SignalKind::interrupt())
+        .map_err(|e| format!("failed to register signal handler: {e}"))?;
+    let (stop, user_stop) = (Arc::clone(stop), Arc::clone(user_stop));
+    Ok(tokio::spawn(
+        async move {
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = intr.recv() => {}
+            }
+            user_stop.store(true, Ordering::Relaxed);
+            stop.store(true, Ordering::Release);
+        }
+        .in_current_span(),
+    ))
 }
 
 fn serve_node(
@@ -143,7 +148,7 @@ fn serve_node(
     home: &Path,
     sock_path: Option<PathBuf>,
 ) -> Result<(), String> {
-    let (data_dir, pid) = (home.join("data"), std::process::id());
+    let data_dir = home.join("data");
     rt.block_on(log_sync::install_prepared_native_recovery(home))?;
     let host = Arc::new(rt.block_on(Host::boot(home))?);
     let reopen = Arc::new(AtomicBool::new(false));
@@ -152,8 +157,8 @@ fn serve_node(
     let target_sock = sock_path.unwrap_or_else(|| data_dir.join(lastdb_uds::SOCKET_FILE_NAME));
     let socket = UdsSocket::bind_at(target_sock)
         .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
+    let signal_task = spawn_stop_signals(&rt, &stop, &user_stop)?;
     println!("lastdbd serving the owner socket");
-    register_stop_signals(&stop, &user_stop)?;
     let pool = UdsWorkerPool::from_env();
     let _ = host.uds_workers.set(pool.clone());
     let s = pool.snapshot();
@@ -166,7 +171,8 @@ fn serve_node(
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
     let accept_err = server.serve(&socket, &stop);
     stop.store(true, Ordering::Release);
-    finish_shutdown(rt, home, pid, &host, &pool, tasks, accept_err)?;
+    signal_task.abort();
+    finish_shutdown(rt, home, &host, &pool, tasks, accept_err)?;
     drop(server);
     drop(host);
     drop(socket);

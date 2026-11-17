@@ -6,14 +6,11 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{KeyValue, SchemaError};
 use sha2::{Digest, Sha256};
 
+use super::apply::{self, RecordFetch, RecordReplay};
 use super::chain::{EntryDecoder, Prepared};
 use super::payload::{Change, RecordChange, RecordFile, SchemaChange};
-use super::{apply, DeliveredEntry, RestoreError, SnapshotEntry};
-use crate::host::ReplayBlockReason;
-use crate::Host;
-
-mod record;
-use record::{RecordFetch, RecordReplay};
+use super::{DeliveredEntry, RestoreError, SnapshotEntry};
+use crate::host::{Host, ReplayBlockReason};
 
 const DETAIL: &str = "owned log entry";
 
@@ -28,7 +25,7 @@ pub(crate) async fn replay_owned(
     if !target.private || !matches!(&target.place, super::Place::Owned(_)) {
         return Err(RestoreError::Scope("owner database store"));
     }
-    let owner = hex::encode(host.keypair.public_key_bytes());
+    let owner = fold_db::hex::hex_lower(host.keypair.public_key_bytes());
     super::page::check_page(database_id, &owner, delivered)?;
     let store = super::open_store(host, database_id, &target).await?;
     let mut replay = OwnerReplay {

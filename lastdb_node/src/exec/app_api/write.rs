@@ -10,12 +10,11 @@ use std::path::{Path, PathBuf};
 use fold_db::access::AccessContext;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::record_value::FileMarker;
-use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{bad, fail, in_database, ok};
+use super::{bad, fail, in_database, key_filter, ok};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
@@ -154,16 +153,7 @@ fn parse(body: &[u8]) -> Result<Vec<WriteItem>, HostError> {
 }
 
 async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, HostError> {
-    let hash = item
-        .key
-        .hash
-        .clone()
-        .filter(|hash| !hash.is_empty())
-        .ok_or_else(|| bad("key.hash is required"))?;
-    let filter = match item.key.range.clone() {
-        Some(range) => HashRangeFilter::HashRangeKey { hash, range },
-        None => HashRangeFilter::HashKey(hash),
-    };
+    let filter = key_filter(&item.key)?;
     let request = QueryRequest {
         query: Query::new_with_filter(item.schema.clone(), Some(filter)),
         limit: Some(2),

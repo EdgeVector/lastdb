@@ -190,7 +190,7 @@ fn classify_update(reply: &Reply, expected: u64) -> UpdateClass {
         Some(error) if definitive(error.code) => {
             UpdateClass::Refused(format_protocol_error(&error))
         }
-        Some(error) => UpdateClass::Retryable(format_code_and_field(&error)),
+        Some(error) => UpdateClass::Retryable(crate::cloud::format_protocol_error(&error)),
         None => UpdateClass::Unknown,
     }
 }
@@ -201,15 +201,7 @@ fn format_protocol_error(error: &ProtocolError) -> String {
         | "share.grant.identity"
         | "share.grant.personal"
         | "mutation_log.transaction" => error.field.clone(),
-        _ => format_code_and_field(error),
-    }
-}
-
-fn format_code_and_field(error: &ProtocolError) -> String {
-    if error.field.is_empty() {
-        format!("{:?}", error.code)
-    } else {
-        format!("{:?} ({})", error.code, error.field)
+        _ => crate::cloud::format_protocol_error(error),
     }
 }
 

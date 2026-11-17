@@ -1,6 +1,7 @@
 //! Request parsing, query-string helpers, and typed I4-safe rejection.
 
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+use base64::Engine as _;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::operations::{MutationConvergence, Operation};
 use fold_db::schema::types::{Mutation, Query, QueryCursor};
@@ -8,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::query::QueryResponseFormat;
-use super::reply::content_free;
+use super::reply::{content_free, HostError};
 
 const LIMIT_REMEDIATION: &str =
     r#""limit": 100    # non-negative integer; prefer "cursor" over "offset""#;
@@ -278,15 +279,61 @@ pub(in crate::exec) fn parse_batch_mutation_body(
         .collect())
 }
 
+pub(in crate::exec) fn decode_cursor_token(
+    raw: Option<&str>,
+    prefix: &str,
+    err_msg: &'static str,
+) -> Result<Option<QueryCursor>, HostError> {
+    raw.map(|enc| {
+        let bytes = enc
+            .strip_prefix(prefix)
+            .and_then(|s| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(s)
+                    .ok()
+            })
+            .ok_or_else(|| HostError::new(400, err_msg))?;
+        serde_json::from_slice(&bytes).map_err(|_| HostError::new(400, err_msg))
+    })
+    .transpose()
+}
+
+pub(in crate::exec) fn encode_cursor_token(
+    next: &Value,
+    prefix: &str,
+    err_msg: &'static str,
+) -> Result<Option<String>, HostError> {
+    if next.is_null() {
+        return Ok(None);
+    }
+    serde_json::to_vec(next)
+        .map(|b| {
+            Some(format!(
+                "{prefix}{}",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
+            ))
+        })
+        .map_err(|_| HostError::internal(err_msg))
+}
+
+pub(in crate::exec) fn query_pairs(target: &str) -> impl Iterator<Item = (&str, String)> {
+    target
+        .split_once('?')
+        .map_or("", |(_, query)| query)
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, raw) = pair.split_once('=').unwrap_or((pair, ""));
+            (key, percent_decode(raw))
+        })
+}
+
 pub(in crate::exec) fn query_flag(target: &str, key: &str) -> bool {
     query_value(target, key).is_some_and(|v| fold_db::env_flag::truthy(&v))
 }
 
 pub(in crate::exec) fn query_value(target: &str, key: &str) -> Option<String> {
-    target.split_once('?')?.1.split('&').find_map(|pair| {
-        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        (k == key).then(|| percent_decode(v))
-    })
+    query_pairs(target).find_map(|(k, v)| (k == key).then_some(v))
 }
 
 pub(in crate::exec) fn percent_decode(raw: &str) -> String {

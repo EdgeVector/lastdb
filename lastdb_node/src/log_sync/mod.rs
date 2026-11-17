@@ -5,7 +5,6 @@
 //! sync loop acknowledges only after the delivered prefix is durable.
 
 mod accepted;
-mod apply;
 mod automatic_retention;
 mod blob_retention;
 mod cloud;
@@ -24,7 +23,22 @@ mod turn;
 mod upload;
 mod wire;
 
+use std::path::{Path, PathBuf};
+
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use cloud_backup_protocol::Digest;
+use fold_db::schema::types::Schema;
+use mutation_log::{Entry, Incorporation, StoredEntry};
+
+use crate::database_replay::{DeliveredEntry, IncorporatedFrom, RestoreError, SnapshotEntry};
+use crate::host::{BlockedDelivery, Host};
+use crate::log_envelope::{IncorporatedRef, LogBinding};
 use crate::profile::private_fs as disk;
+
+use cloud::CloudLog;
+
+const MARKER_LIMIT: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SyncState {
@@ -33,12 +47,42 @@ pub(super) struct SyncState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct SyncOutcome {
-    pub(super) entries: Vec<mutation_log::StoredEntry>,
+    pub(super) entries: Vec<StoredEntry>,
     pub(super) cursor: u64,
 }
 
+pub(crate) enum PagePlan {
+    /// The page was handled through this delivery sequence.
+    Ack(u64),
+    /// Stopped mid-page. Ack only when a delivery sequence was fully handled.
+    Hold(Option<u64>),
+}
+
+pub(super) struct PageFailure {
+    pub(super) message: String,
+    pub(super) blocked: Option<BlockedDelivery>,
+}
+
+impl From<String> for PageFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            blocked: None,
+        }
+    }
+}
+
+impl From<RestoreError> for PageFailure {
+    fn from(error: RestoreError) -> Self {
+        Self {
+            message: error.to_string(),
+            blocked: error.blocked_delivery(),
+        }
+    }
+}
+
 pub(crate) use contributions::{
-    schema_id, status as share_write_status, submit as submit_share_write, validate_write_scopes,
+    status as share_write_status, submit as submit_share_write, validate_write_scopes,
     ContributionError,
 };
 pub use native_reset::install_prepared_native_recovery;
@@ -53,134 +97,182 @@ pub(crate) use snapshot::{
 pub use snapshot::{restore_base as restore_snapshot_base, RestoredBase};
 pub use turn::spawn;
 
-mod account {
-    use std::sync::Arc;
+pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, String> {
+    let id = schema
+        .identity_hash
+        .as_deref()
+        .ok_or("declared schema has no catalog identity")?;
+    let portable = schema_types::PortableSchemaId::from_catalog(id, schema.to_wire())?;
+    Digest::try_from(portable.as_str().to_owned()).map_err(|e| e.to_string())
+}
 
-    use cloud_backup_protocol::CloudScope;
-
-    use crate::cloud::load_connected_home_context;
-    use crate::host::Host;
-
-    use super::http::Endpoint;
-
-    /// Publisher account scope from the saved connection. Receivers do not call this.
-    pub(super) async fn publisher_scope(
-        host: &Host,
-    ) -> Result<(CloudScope, Endpoint, &'static str), String> {
-        let ctx = load_connected_home_context(&host.home, Some(Arc::clone(&host.keypair))).await?;
-        if ctx.account_id.as_str() != host.user_hash {
-            return Err("node account id does not match the node key".into());
+pub(super) async fn apply_page(
+    host: &Host,
+    log: &CloudLog,
+    outcome: &SyncOutcome,
+    publisher: Option<&str>,
+) -> Result<PagePlan, PageFailure> {
+    let entries = &outcome.entries;
+    let cursor = outcome.cursor;
+    if let Some(publisher) = publisher {
+        return received_page(host, log, publisher, entries, cursor)
+            .await
+            .map_err(Into::into);
+    }
+    let owned_private = host
+        .owned
+        .is_private_id(log.database_id())
+        .map_err(|_| "owned database was not resolved".to_owned())?;
+    if owned_private {
+        let delivered: Vec<_> = entries.iter().map(delivered_entry).collect();
+        let mut files = restore::file_source(log.clone());
+        crate::database_replay::replay_owned(
+            host,
+            log.database_id(),
+            Some(log.device().as_str()),
+            &delivered,
+            &mut files,
+        )
+        .await?;
+        blob_retention::record_pulled_personal(host, log, entries)?;
+        return Ok(PagePlan::Ack(cursor));
+    }
+    let mut handled = None;
+    let mut consumed = None;
+    let whole = crate::host::owned::find_shareable(&host.home, log.database_id())
+        .is_ok_and(|entry| entry.whole_database());
+    if whole
+        && entries.iter().any(|stored| {
+            &stored.entry.writer.key == log.principal()
+                && &stored.entry.writer.device != log.device()
+        })
+    {
+        let reason = format!(
+            "Shared database {} has a published write from another publisher device. This device cannot continue shared sync.",
+            log.database_id()
+        );
+        host.cloud_sync.record_error(reason.clone());
+        return Err(reason.into());
+    }
+    for stored in entries {
+        let entry = &stored.entry;
+        if whole && &entry.writer.key != log.principal() {
+            contributions::apply(host, log, entry).await?;
+            consumed = Some(stored.delivery_seq);
+            handled = Some(stored.delivery_seq);
+            continue;
         }
-        let endpoint = Endpoint::open(ctx.api_url, ctx.env.as_str())?.load_owner_key(&host.home);
-        Ok((ctx.scope, endpoint, ctx.env.as_str()))
+        // An owned store may have independent local writes beyond its delivery
+        // cursor. Only acknowledge writes this device already applied here.
+        if entry.database_id.as_str() != log.database_id()
+            || &entry.writer.key != log.principal()
+            || &entry.writer.device != log.device()
+            || !mark_local(host, log.database_id(), entry)?
+        {
+            if let Some(through) = consumed {
+                contributions::settle_legacy(host, log, through).await?;
+            }
+            return Ok(PagePlan::Hold(handled));
+        }
+        handled = Some(stored.delivery_seq);
+    }
+    if let Some(through) = consumed {
+        contributions::settle_legacy(host, log, through).await?;
+    }
+    Ok(PagePlan::Ack(cursor))
+}
+
+fn mark_local(host: &Host, database_id: &str, entry: &Entry) -> Result<bool, String> {
+    let name = format!("{}-{}", entry.writer.device.as_str(), entry.writer_seq);
+    if !session::label_ok(entry.writer.device.as_str()) {
+        return Ok(false);
+    }
+    let marker = marker_path(&host.home, database_id, &name);
+    match disk::read_limited(&marker, MARKER_LIMIT) {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => disk::write_private(&marker, b"1")
+            .map(|()| true)
+            .map_err(|_| "applied marker was not stored".to_owned()),
+        Err(_) => Ok(false),
     }
 }
 
-mod retry {
-    use std::path::{Path, PathBuf};
+async fn received_page(
+    host: &Host,
+    log: &CloudLog,
+    publisher: &str,
+    entries: &[StoredEntry],
+    cursor: u64,
+) -> Result<PagePlan, String> {
+    let delivered: Vec<DeliveredEntry> = entries
+        .iter()
+        .filter(|stored| stored.entry.writer.key.as_str() == publisher)
+        .map(delivered_entry)
+        .collect();
+    let mut files = restore::file_source(log.clone());
+    crate::database_replay::replay_delivered(
+        host,
+        log.database_id(),
+        publisher,
+        &delivered,
+        &mut files,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(PagePlan::Ack(cursor))
+}
 
-    use serde::{Deserialize, Serialize};
-
-    use crate::profile::private_fs as disk;
-
-    const META_LIMIT: usize = 4096;
-    const SEAL_LIMIT: usize = 1024 * 1024 + 4096;
-
-    #[derive(Clone, Serialize, Deserialize)]
-    pub(super) struct Seal {
-        pub writer_seq: u64,
-        pub authored_at_ms: u64,
-        pub namespace: String,
+pub(super) fn delivered_entry(stored: &StoredEntry) -> DeliveredEntry {
+    let entry = &stored.entry;
+    DeliveredEntry {
+        delivery_seq: stored.delivery_seq,
+        database_id: entry.database_id.as_str().to_owned(),
+        entry: SnapshotEntry {
+            accepted_at_ms: stored.accepted_at_ms,
+            writer_key: entry.writer.key.as_str().to_owned(),
+            writer_device: entry.writer.device.as_str().to_owned(),
+            writer_seq: entry.writer_seq,
+            authored_at_ms: entry.authored_at_ms,
+            namespace: entry.namespace.as_str().to_owned(),
+            incorporated_from: entry.incorporated_from.as_ref().map(incorporated_from),
+            payload_b64: URL_SAFE_NO_PAD.encode(&entry.payload),
+        },
     }
+}
 
-    pub(super) fn load(
-        home: &Path,
-        database_id: &str,
-        mutation_id: &str,
-    ) -> Result<Option<(Seal, Vec<u8>)>, ()> {
-        if !crate::profile::valid_label_128(mutation_id) {
-            return Err(());
-        }
-        let Some(meta) = disk::read_limited(&meta_path(home, database_id, mutation_id), META_LIMIT)
-            .map_err(|_| ())?
-        else {
-            return Ok(None);
-        };
-        let seal: Seal = serde_json::from_slice(&meta).map_err(|_| ())?;
-        if seal.writer_seq == 0 || seal.namespace.is_empty() {
-            return Err(());
-        }
-        let Some(bytes) =
-            disk::read_limited(&seal_path(home, database_id, mutation_id), SEAL_LIMIT)
-                .map_err(|_| ())?
-        else {
-            return Err(());
-        };
-        if bytes.is_empty() {
-            return Err(());
-        }
-        Ok(Some((seal, bytes)))
+fn incorporated_from(source: &Incorporation) -> IncorporatedFrom {
+    IncorporatedFrom {
+        writer_key: source.writer.key.as_str().to_owned(),
+        writer_device: source.writer.device.as_str().to_owned(),
+        writer_seq: source.writer_seq,
     }
+}
 
-    pub(super) fn store(
-        home: &Path,
-        database_id: &str,
-        mutation_id: &str,
-        seal: &Seal,
-        envelope: &[u8],
-    ) -> Result<(), ()> {
-        if !crate::profile::valid_label_128(mutation_id)
-            || envelope.is_empty()
-            || seal.writer_seq == 0
-        {
-            return Err(());
-        }
-        let meta = serde_json::to_vec(seal).map_err(|_| ())?;
-        disk::write_private(&seal_path(home, database_id, mutation_id), envelope)
-            .map_err(|_| ())?;
-        disk::write_private(&meta_path(home, database_id, mutation_id), &meta).map_err(|_| ())
+pub(super) fn stored_binding<'a>(database_id: &'a str, stored: &'a StoredEntry) -> LogBinding<'a> {
+    let entry = &stored.entry;
+    LogBinding {
+        database_id,
+        writer_key: entry.writer.key.as_str(),
+        writer_device: entry.writer.device.as_str(),
+        writer_seq: entry.writer_seq,
+        authored_at_ms: entry.authored_at_ms,
+        namespace: entry.namespace.as_str(),
+        incorporated_from: entry
+            .incorporated_from
+            .as_ref()
+            .map(|source| IncorporatedRef {
+                writer_key: source.writer.key.as_str(),
+                writer_device: source.writer.device.as_str(),
+                writer_seq: source.writer_seq,
+            }),
     }
+}
 
-    pub(super) fn store_file(
-        home: &Path,
-        database_id: &str,
-        mutation_id: &str,
-        ciphertext: &[u8],
-    ) -> Result<(), ()> {
-        if !crate::profile::valid_label_128(mutation_id) || ciphertext.is_empty() {
-            return Err(());
-        }
-        disk::write_private(&file_path(home, database_id, mutation_id), ciphertext).map_err(|_| ())
-    }
-
-    pub(super) fn load_file(
-        home: &Path,
-        database_id: &str,
-        mutation_id: &str,
-    ) -> Result<Option<Vec<u8>>, ()> {
-        if !crate::profile::valid_label_128(mutation_id) {
-            return Err(());
-        }
-        let limit = fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES + 4096;
-        let limit = usize::try_from(limit).map_err(|_| ())?;
-        disk::read_limited(&file_path(home, database_id, mutation_id), limit).map_err(|_| ())
-    }
-
-    fn meta_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
-        seal_dir(home, database_id).join(format!("{mutation_id}.json"))
-    }
-
-    fn seal_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
-        seal_dir(home, database_id).join(format!("{mutation_id}.bin"))
-    }
-
-    fn file_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
-        seal_dir(home, database_id).join(format!("{mutation_id}.file"))
-    }
-
-    fn seal_dir(home: &Path, database_id: &str) -> PathBuf {
-        home.join("log-sync").join(database_id).join("seals")
-    }
+fn marker_path(home: &Path, database_id: &str, mutation_id: &str) -> PathBuf {
+    home.join("log-sync")
+        .join(database_id)
+        .join("applied")
+        .join(mutation_id)
 }
 
 mod files {
@@ -218,15 +310,4 @@ mod files {
         }
         Ok(path)
     }
-}
-
-mod paths {
-    pub(crate) const CREATE: &str = "/api/cloud/backups/v2/mutation-log/create-database";
-    pub(crate) const ACCESS: &str = "/api/cloud/backups/v2/mutation-log/access";
-    pub(crate) const APPEND: &str = "/api/cloud/backups/v2/mutation-log/append";
-    pub(crate) const HEAD: &str = "/api/cloud/backups/v2/mutation-log/head";
-    pub(crate) const LIST: &str = "/api/cloud/backups/v2/mutation-log/list";
-    pub(super) const SETTLE_SUBMISSIONS: &str =
-        "/api/cloud/backups/v2/mutation-log/settle-submissions";
-    pub(crate) use cloud_backup_protocol::v2::share_access::MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT;
 }

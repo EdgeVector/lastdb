@@ -7,37 +7,37 @@ use crate::host::{BlockedDelivery, ReplayBlockReason};
 
 /// One sealed log entry ready for replay. `payload_b64` is unpadded URL-safe base64.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-pub struct SnapshotEntry {
-    pub accepted_at_ms: u64,
-    pub writer_key: String,
-    pub writer_device: String,
-    pub writer_seq: u64,
-    pub authored_at_ms: u64,
-    pub namespace: String,
-    pub incorporated_from: Option<IncorporatedFrom>,
-    pub payload_b64: String,
+pub(crate) struct SnapshotEntry {
+    pub(crate) accepted_at_ms: u64,
+    pub(crate) writer_key: String,
+    pub(crate) writer_device: String,
+    pub(crate) writer_seq: u64,
+    pub(crate) authored_at_ms: u64,
+    pub(crate) namespace: String,
+    pub(crate) incorporated_from: Option<IncorporatedFrom>,
+    pub(crate) payload_b64: String,
 }
 
 /// Writer identity an incorporated entry was copied from.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IncorporatedFrom {
-    pub writer_key: String,
-    pub writer_device: String,
-    pub writer_seq: u64,
+pub(crate) struct IncorporatedFrom {
+    pub(crate) writer_key: String,
+    pub(crate) writer_device: String,
+    pub(crate) writer_seq: u64,
 }
 
 /// File bytes fetched with `delivery/object`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SnapshotFileRequest {
-    pub database_id: String,
-    pub scope: CloudScope,
-    pub path: BlobPath,
+pub(crate) struct SnapshotFileRequest {
+    pub(crate) database_id: String,
+    pub(crate) scope: CloudScope,
+    pub(crate) path: BlobPath,
 }
 
 /// Static replay failure. The text is a class, never record bytes or a path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RestoreError {
+pub(crate) enum RestoreError {
     Scope(&'static str),
     Entry(&'static str),
     File(&'static str),

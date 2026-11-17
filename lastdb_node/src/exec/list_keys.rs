@@ -1,16 +1,17 @@
-//! `GET /api/list` primary and alternate record-key listing route and helpers.
+//! `GET /api/list` and `GET /api/changes` record-key listing and change-log routes.
 
-use base64::Engine as _;
 use fold_db::access::AccessContext;
-use fold_db::db_operations::SchemaRecordKey;
+use fold_db::db_operations::{SchemaRecordKey, CHANGES_PAGE};
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::{KeyValue, Query, QueryCursor, Schema};
+use fold_db::schema::types::{KeyValue, Query, Schema};
 use serde_json::{json, Value};
 
 use super::query;
 use super::reply::{map_host_err, render, HostError};
 use super::schema_routes::resolve_schema_name;
-use super::wire::{query_value, QueryRequest};
+use super::wire::{
+    decode_cursor_token, encode_cursor_token, query_pairs, query_value, QueryRequest,
+};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -47,22 +48,6 @@ impl ListRecordKeysRequest {
     }
 }
 
-fn decode_alternate_cursor(raw: Option<&str>) -> Result<Option<QueryCursor>, HostError> {
-    raw.map(|enc| {
-        let bytes = enc
-            .strip_prefix("ak2_")
-            .and_then(|s| {
-                base64::engine::general_purpose::URL_SAFE_NO_PAD
-                    .decode(s)
-                    .ok()
-            })
-            .ok_or_else(|| HostError::new(400, "invalid alternate key-list cursor"))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|_| HostError::new(400, "invalid alternate key-list cursor"))
-    })
-    .transpose()
-}
-
 fn alternate_list_report(
     req: &ListRecordKeysRequest,
     schema: &Schema,
@@ -92,17 +77,11 @@ fn alternate_list_report(
             .collect::<Result<Vec<_>, HostError>>()
     };
     let (keys, primary_keys) = (map_keys("matched_key")?, map_keys("key")?);
-    let next = (!page["next_cursor"].is_null())
-        .then(|| {
-            serde_json::to_vec(&page["next_cursor"]).map(|b| {
-                format!(
-                    "ak2_{}",
-                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
-                )
-            })
-        })
-        .transpose()
-        .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?;
+    let next = encode_cursor_token(
+        &page["next_cursor"],
+        "ak2_",
+        "invalid alternate key-list cursor",
+    )?;
     Ok(json!({
         "schema": req.requested, "schema_id": schema.name, "key_name": name,
         "key_definition": def, "hash_filter": req.hash_filter,
@@ -143,7 +122,11 @@ pub(in crate::exec) async fn list_keys(
                         query: q,
                         limit: Some(r.limit),
                         offset: None,
-                        cursor: decode_alternate_cursor(r.cursor.as_deref())?,
+                        cursor: decode_cursor_token(
+                            r.cursor.as_deref(),
+                            "ak2_",
+                            "invalid alternate key-list cursor",
+                        )?,
                         response_format: query::QueryResponseFormat::Full,
                     };
                     alternate_list_report(&r, &schema, &query::execute_query(host, qreq).await?)
@@ -163,6 +146,82 @@ pub(in crate::exec) async fn list_keys(
             .await
             .map_err(|e| map_host_err("list failed", e))?;
         Ok(json!({ "list": report }))
+    }
+    .await;
+    render(res, ctx)
+}
+
+struct ChangesRequest {
+    after: u64,
+    limit: usize,
+    schemas: Vec<String>,
+}
+
+impl ChangesRequest {
+    fn parse(target: &str) -> Result<Self, &'static str> {
+        let (mut after, mut limit, mut schemas) = (0, CHANGES_PAGE, Vec::new());
+        for (key, value) in query_pairs(target) {
+            match key {
+                "after" => {
+                    after = value
+                        .parse()
+                        .map_err(|_| "after must be a non-negative integer")?;
+                }
+                // Zero reads the head without entries.
+                "limit" => {
+                    limit = value
+                        .parse::<usize>()
+                        .map_err(|_| "limit must be a non-negative integer")?
+                        .min(CHANGES_PAGE);
+                }
+                "schema" if value.is_empty() => return Err("schema must not be empty"),
+                "schema" => schemas.push(value),
+                _ => return Err("unknown changes query parameter"),
+            }
+        }
+        Ok(Self {
+            after,
+            limit,
+            schemas,
+        })
+    }
+}
+
+pub(in crate::exec) async fn changes(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    let res = async {
+        if !ctx.is_owner {
+            return Err(HostError::new(403, "the changes list is owner-only"));
+        }
+        let r = ChangesRequest::parse(&req.target).map_err(|m| HostError::new(400, m))?;
+        // Entries carry the runtime schema name. A name that resolves to no
+        // schema stays as written and matches nothing.
+        let mut schemas = Vec::with_capacity(r.schemas.len());
+        for name in r.schemas {
+            schemas.push(resolve_schema_name(host, &name)?.unwrap_or(name));
+        }
+        let page = host
+            .records()
+            .db_ops()
+            .changes_after(r.after, r.limit, &schemas)
+            .await?;
+        let changes: Vec<Value> = page
+            .changes
+            .iter()
+            .map(|c| {
+                json!({
+                    "seq": c.seq, "schema": c.schema, "hash": c.hash,
+                    "range": c.range, "deleted": c.deleted,
+                })
+            })
+            .collect();
+        Ok(json!({
+            "id": page.id, "head": page.head, "through": page.through,
+            "gap": page.gap, "changes": changes,
+        }))
     }
     .await;
     render(res, ctx)

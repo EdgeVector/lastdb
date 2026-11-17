@@ -1,8 +1,8 @@
 //! Recipient-owned registration store for received Share databases.
-mod managed;
 
 use crate::cloud_backup_client::ShareEnvironment;
 use crate::offline_home::Directory;
+use crate::registered_share::ManagedRegistration;
 use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
@@ -20,8 +20,8 @@ const STATE_BYTES: u64 = 16 * 1024;
 
 /// A stable node-owned registry for received shares.
 pub(crate) struct ShareCache {
-    root: PathBuf,
-    recipient: ShareRecipient,
+    pub(crate) root: PathBuf,
+    pub(crate) recipient: ShareRecipient,
 }
 
 #[derive(Debug)]
@@ -33,21 +33,21 @@ pub(crate) enum ShareCacheError {
     Io,
 }
 
-type Result<T> = std::result::Result<T, ShareCacheError>;
+pub(crate) type Result<T> = std::result::Result<T, ShareCacheError>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Registration {
+pub(crate) struct Registration {
     version: u8,
-    publisher: Digest,
-    stream: Stream,
-    environment: ShareEnvironment,
+    pub(crate) publisher: Digest,
+    pub(crate) stream: Stream,
+    pub(crate) environment: ShareEnvironment,
     content_key: [u8; 32],
     invitation: String,
     #[serde(rename = "active", default, skip_serializing)]
     _retired_active: serde::de::IgnoredAny,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    managed: Option<managed::ManagedRegistration>,
+    pub(crate) managed: Option<ManagedRegistration>,
 }
 
 impl Drop for Registration {
@@ -56,14 +56,14 @@ impl Drop for Registration {
     }
 }
 
-struct Entry {
+pub(crate) struct Entry {
     path: PathBuf,
     directory: Directory,
     key: Zeroizing<[u8; 32]>,
 }
 
 #[derive(Clone, Copy)]
-enum Lock {
+pub(crate) enum Lock {
     Writer,
     PointerRead,
     PointerWrite,
@@ -83,7 +83,7 @@ impl Entry {
         })
     }
 
-    fn load(&self) -> Result<LoadedRegistration> {
+    pub(crate) fn load(&self) -> Result<LoadedRegistration> {
         let invalid = || ShareCacheError::Invalid("registration receipt");
         let previous = self.directory.read(STATE_FILE).map_err(|_| invalid())?;
         let Some(bytes) = &previous else {
@@ -109,7 +109,7 @@ impl Entry {
         Ok(ciphertext)
     }
 
-    fn lock(&self, lock: Lock) -> Result<File> {
+    pub(crate) fn lock(&self, lock: Lock) -> Result<File> {
         let name = match lock {
             Lock::Writer => "refresh.lock",
             Lock::PointerRead | Lock::PointerWrite => "pointer.lock",
@@ -139,7 +139,7 @@ impl Entry {
     }
 }
 
-fn private_directory(path: &Path, create: bool) -> Result<Directory> {
+pub(crate) fn private_directory(path: &Path, create: bool) -> Result<Directory> {
     let mut metadata = fs::symlink_metadata(path);
     if create
         && metadata
@@ -195,7 +195,7 @@ impl ShareCache {
         Ok(opened)
     }
 
-    fn entry(&self, handle: &Id, create: bool) -> Result<Entry> {
+    pub(crate) fn entry(&self, handle: &Id, create: bool) -> Result<Entry> {
         Entry::open(
             &self.root,
             handle,
@@ -204,7 +204,7 @@ impl ShareCache {
         )
     }
 
-    fn require_management(&self, registration: &Registration) -> Result<()> {
+    pub(crate) fn require_management(&self, registration: &Registration) -> Result<()> {
         if registration.managed.is_none() {
             return Err(ShareCacheError::Invalid("registration owner"));
         }
@@ -213,7 +213,7 @@ impl ShareCache {
 }
 
 impl Registration {
-    fn with_invitation(
+    pub(crate) fn with_invitation(
         registration: Option<Self>,
         opened: &OpenedShareInvitation,
         publisher: &Digest,
@@ -248,7 +248,11 @@ impl Registration {
     }
 }
 
-fn publish(entry: &Entry, previous: Option<&[u8]>, registration: &Registration) -> Result<Vec<u8>> {
+pub(crate) fn publish(
+    entry: &Entry,
+    previous: Option<&[u8]>,
+    registration: &Registration,
+) -> Result<Vec<u8>> {
     let _gate = entry.lock(Lock::PointerWrite)?;
     entry.publish(previous, registration)
 }

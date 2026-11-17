@@ -16,7 +16,7 @@ const SCHEME: &str = "LastDBShare";
 const SIGNING_PREFIX: &str = "lastdb-share-permission-v1\n";
 const MAX_HEADER_BYTES: usize = 2048;
 
-pub use cloud_backup_protocol::v2::share_access::ShareEnvironment;
+pub(crate) use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 
 /// Account, database, realm, and raw path of one signed POST.
 #[derive(Clone, Copy)]
@@ -82,7 +82,7 @@ struct Claim {
     public_key: String,
 }
 
-pub struct GuestReadPermission {
+pub(crate) struct GuestReadPermission {
     authorization: Zeroizing<String>,
     stream: Stream,
     environment: ShareEnvironment,
@@ -91,7 +91,7 @@ pub struct GuestReadPermission {
 }
 
 impl GuestReadPermission {
-    pub fn sign(
+    pub(crate) fn sign(
         stream: Stream,
         environment: ShareEnvironment,
         expires_at: &str,
@@ -116,7 +116,7 @@ impl GuestReadPermission {
         Self::parse(&authorization)
     }
 
-    pub fn parse(authorization: &str) -> Result<Self> {
+    pub(crate) fn parse(authorization: &str) -> Result<Self> {
         let (scheme, token) = authorization
             .split_once(' ')
             .filter(|_| authorization.len() <= MAX_HEADER_BYTES)
@@ -148,23 +148,23 @@ impl GuestReadPermission {
         })
     }
 
-    pub fn authorization(&self) -> &str {
+    pub(crate) fn authorization(&self) -> &str {
         &self.authorization
     }
 
-    pub fn stream(&self) -> &Stream {
+    pub(crate) fn stream(&self) -> &Stream {
         &self.stream
     }
 
-    pub fn environment(&self) -> ShareEnvironment {
+    pub(crate) fn environment(&self) -> ShareEnvironment {
         self.environment
     }
 
-    pub fn publisher_public_key(&self) -> &Digest {
+    pub(crate) fn publisher_public_key(&self) -> &Digest {
         &self.publisher_public_key
     }
 
-    pub fn expires_ms(&self) -> u64 {
+    pub(crate) fn expires_ms(&self) -> u64 {
         self.expires_ms
     }
 }

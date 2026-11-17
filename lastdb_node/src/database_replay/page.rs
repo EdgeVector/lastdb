@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use fold_db::fold_db_core::FoldDB;
 use serde::{Deserialize, Serialize};
 
+use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
-use crate::Host;
 
 use super::apply;
 use super::chain as decode;
@@ -49,7 +49,8 @@ pub(super) async fn replay(
     match &target.place {
         super::Place::Received => authorize(host, database_id, publisher)?,
         super::Place::Owned(_)
-            if target.private && publisher == hex::encode(host.keypair.public_key_bytes()) => {}
+            if target.private
+                && publisher == fold_db::hex::hex_lower(host.keypair.public_key_bytes()) => {}
         super::Place::Owned(_) => return Err(RestoreError::Scope("database store")),
     }
     check_page(database_id, publisher, delivered)?;
