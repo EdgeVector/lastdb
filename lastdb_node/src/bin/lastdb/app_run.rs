@@ -98,7 +98,7 @@ fn restricted(
         .arg("-p")
         // Launch leaves the install tree read-only. Only the data folder is writable.
         .arg(crate::app_sandbox::profile(
-            home, app, app_socket, app_data, false,
+            home, app, app_socket, app_data, None,
         ))
         .arg(&launch.program);
     child

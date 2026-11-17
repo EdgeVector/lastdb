@@ -78,7 +78,7 @@ fn command(
         None
     };
     let mut cmd = if let Some(paths) = &paths {
-        sandboxed(&step.argv[0], home, app, paths)?
+        sandboxed(&step.argv[0], source, home, app, paths)?
     } else {
         Command::new(&step.argv[0])
     };
@@ -132,16 +132,23 @@ fn app_paths(home: &Path, app: &str) -> Result<AppPaths, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn sandboxed(program: &str, home: &Path, app: &str, paths: &AppPaths) -> Result<Command, String> {
+fn sandboxed(
+    program: &str,
+    source: &Path,
+    home: &Path,
+    app: &str,
+    paths: &AppPaths,
+) -> Result<Command, String> {
     let mut cmd = Command::new("/usr/bin/sandbox-exec");
     cmd.arg("-p")
-        // Prepare installs dependencies into the app's own install tree.
+        // Prepare installs dependencies into this version's source folder. The
+        // receipt and the current link beside it stay read-only.
         .arg(crate::app_sandbox::profile(
             home,
             app,
             &paths.socket,
             &paths.data,
-            true,
+            Some(source),
         ))
         .arg(program);
     Ok(cmd)
@@ -152,6 +159,7 @@ fn sandboxed(program: &str, home: &Path, app: &str, paths: &AppPaths) -> Result<
 #[cfg(not(target_os = "macos"))]
 fn sandboxed(
     program: &str,
+    _source: &Path,
     _home: &Path,
     _app: &str,
     _paths: &AppPaths,

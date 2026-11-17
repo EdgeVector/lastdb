@@ -1,8 +1,9 @@
 //! The sandbox profile for one restricted app.
 //!
 //! The launcher and the installer both build the profile here, so the two
-//! cannot drift. `install_tree_writable` is false for launch. The install
-//! profile is that same text plus writes inside the app's own install tree.
+//! cannot drift. `install_source` is `None` for launch. The install profile
+//! is that same text plus writes inside the source folder of the version the
+//! step belongs to.
 
 #[cfg(target_os = "macos")]
 use std::path::Path;
@@ -13,15 +14,18 @@ use std::path::Path;
 /// folder. Without that an app could replace a command or a config file of
 /// the owner and run outside the profile the next time that file is used.
 ///
-/// When `install_tree_writable` is set, a prepare step may also write inside
-/// the app's own install tree. Nothing else is added.
+/// When `install_source` is set, an install step may also write inside that
+/// one source folder. Nothing else is added. The rest of the app's install
+/// tree stays read-only: it holds the receipt that says the app is restricted
+/// and the link to the current version, and a step that could write them
+/// could take the app out of its restriction.
 #[cfg(target_os = "macos")]
 pub(crate) fn profile(
     home: &Path,
     app: &str,
     app_socket: &Path,
     app_data: &Path,
-    install_tree_writable: bool,
+    install_source: Option<&Path>,
 ) -> String {
     let quoted = |path: &Path| {
         let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -56,10 +60,11 @@ pub(crate) fn profile(
         "(deny sysctl-read (sysctl-name-prefix \"kern.procargs\"))".to_owned(),
     ]
     .join("\n");
-    if install_tree_writable {
-        let rule = format!("(allow file-write* (subpath {}))", quoted(&own));
-        format!("{base}\n{rule}")
-    } else {
-        base
+    match install_source {
+        Some(source) => {
+            let rule = format!("(allow file-write* (subpath {}))", quoted(source));
+            format!("{base}\n{rule}")
+        }
+        None => base,
     }
 }
