@@ -275,10 +275,11 @@ fn file_marker(file: &Value) -> Value {
 }
 
 fn listed_keys(page: &Value) -> Result<Vec<Value>, String> {
-    page.get("keys")
+    let keys = page
+        .get("keys")
         .and_then(Value::as_array)
-        .ok_or("read response missing keys")
-        .map(|keys| keys.iter().map(listed_key).collect())
+        .ok_or_else(|| "read response missing keys".to_string())?;
+    Ok(keys.iter().map(listed_key).collect())
 }
 
 fn listed_key(key: &Value) -> Value {
