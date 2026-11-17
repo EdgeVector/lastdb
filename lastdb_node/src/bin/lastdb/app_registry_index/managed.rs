@@ -229,7 +229,7 @@ pub fn verify_or_restore(root: &Path, home: &Path, current: &ManagedReceipt) -> 
     Ok(())
 }
 
-fn apply_links(
+pub(super) fn apply_links(
     root: &Path,
     home: &Path,
     r: &ManagedReceipt,
@@ -265,16 +265,9 @@ fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> R
     if let Err(error) = declared
         .and_then(|()| apply_links(root, home, new, &plan, &owned))
         .and_then(|()| verify(root, Some(home), new))
+        .and_then(|()| super::register_grant::register(home, new))
     {
-        if let Some(ref target) = old {
-            managed_manifest::flip(&root.join("current"), target)?;
-            let old_r = receipt(&root.join("current"))?;
-            let old_p = InstallPlan::load(&root.join("current/source"), &old_r.app_id)?;
-            apply_links(root, home, &old_r, &old_p, &owned)?;
-        } else {
-            let _ = fs::remove_file(root.join("current"));
-        }
-        managed_manifest::restore(&snap)?;
+        super::register_grant::undo_activation(root, home, old.as_deref(), &owned, &snap)?;
         return Err(format!(
             "activation failed; restored prior version: {error}"
         ));

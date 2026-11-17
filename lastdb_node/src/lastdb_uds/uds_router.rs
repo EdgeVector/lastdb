@@ -15,7 +15,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 pub const API_VERSION: u32 = 37;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
-/// that holds an app session.
+/// the node has registered by app id.
 pub const APP_SOCKET_FILE_NAME: &str = "apps.sock";
 pub const DATABASES_PATH: &str = "/api/databases";
 pub const DATABASE_SCOPE_PREFIX: &str = "/api/databases/";

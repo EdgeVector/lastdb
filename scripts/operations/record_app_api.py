@@ -220,12 +220,15 @@ def extension_names(node):
 
 
 def app_socket(node):
-    """The app socket serves only the app API, to an app session, within what the app declared."""
+    """The app socket serves only the app API, to a registered app, within what the app declared."""
     sock = Path(node.socket).with_name("apps.sock")
 
     def session(read, write, extensions):
         access = {"read": read, "write": write, "extensions": extensions}
-        return node.call("/api/apps/session", {"app": "exercise", "access": access})[0]["session"]
+        reply = node.call("/api/apps/session", {"app": "exercise", "access": access})[0]
+        require(reply.get("session") == "exercise" and "expires_in_seconds" not in reply,
+                "the session reply is not the app id without an expiry: " + repr(reply))
+        return reply["session"]
 
     def call(token, path, body=None):
         headers = {"Content-Type": "application/json"}
@@ -279,21 +282,26 @@ def app_socket(node):
           "schemas and extensions, and only an exact schema name", flush=True)
 
     access = {"read": [BY_ID], "write": [], "extensions": []}
-    kept = node.call("/api/apps/session", {"app": "other", "access": access})[0]["session"]
-    burst = [
-        node.call("/api/apps/session", {"app": "limited", "access": access})[0]["session"]
-        for _ in range(5)
-    ]
+    other = node.call("/api/apps/session", {"app": "other", "access": access})[0]
+    limited = node.call("/api/apps/session", {"app": "limited", "access": access})[0]
+    require(other.get("session") == "other" and "expires_in_seconds" not in other,
+            "the session reply is not the app id without an expiry: " + repr(other))
+    require(limited.get("session") == "limited",
+            "a second app was not registered under its id: " + repr(limited))
+    for _ in range(5):
+        again = node.call("/api/apps/session", {"app": "limited", "access": access})[0]
+        require(again.get("session") == "limited" and "expires_in_seconds" not in again,
+                "registering an app again returned another value: " + repr(again))
     one = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]}
-    refused(burst[0], "/v1/read", one, 403, "permission_denied")
-    status, reply = call(burst[4], "/v1/read", one)
+    status, reply = call("limited", "/v1/read", one)
     require(status == 200 and len(reply["results"][0]["records"]) == 1,
-            f"the fifth session for one app did not read: {status} {reply!r}")
-    status, reply = call(kept, "/v1/read", one)
+            f"an app registered again did not read: {status} {reply!r}")
+    status, reply = call("other", "/v1/read", one)
     require(status == 200 and len(reply["results"][0]["records"]) == 1,
-            f"a session for another app, issued before those five, did not read: {status} {reply!r}")
-    print("App socket: a fifth session for one app replaces its oldest, "
-          "and another app's session stays", flush=True)
+            f"another app's grant did not stay: {status} {reply!r}")
+    refused("unregistered", "/v1/read", one, 403, "permission_denied")
+    print("App socket: registering an app again keeps that app and another app, "
+          "and an unknown app id is refused", flush=True)
 
     # Larger than APP_MAX_BODY_LEN in lastdb_node/src/exec/uds_server.rs.
     oversized = b'{"reads":[]}' + b" " * (8 * 1024 * 1024)
@@ -306,6 +314,30 @@ def app_socket(node):
     require(len(owner["results"][0]["records"]) == 1,
             "the owner socket did not answer after the app socket refused a large body")
     print("App socket: a body over 8 MiB is refused, and the owner socket still answers",
+          flush=True)
+
+    first = {"read": [BY_ID], "write": [], "extensions": []}
+    second = {"read": [BY_BUCKET], "write": [BY_ID], "extensions": ["changes"]}
+    node.call("/api/apps/session", {"app": "exercise", "access": first})
+    status, reply = call("exercise", "/v1/read", {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]})
+    require(status == 200 and len(reply["results"][0]["records"]) == 1,
+            f"the first registration did not read: {status} {reply!r}")
+    node.call("/api/apps/session", {"app": "exercise", "access": second})
+    status, reply = call("exercise", "/v1/read", {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]})
+    require(status == 200 and reply["results"][0].get("error", {}).get("code") == "permission_denied",
+            f"the latest registration still served the previous read list: {status} {reply!r}")
+    status, reply = call(
+        "exercise", "/v1/read",
+        {"reads": [{"schema": BY_BUCKET, "key": {"hash": "bk", "range": "a"}}]})
+    require(status == 200 and len(reply["results"][0].get("records") or []) == 1,
+            f"the latest read list was not served: {status} {reply!r}")
+    status, reply = call("exercise", "/v1/write", {"mutations": [by_id("latest", "b1", "v")]})
+    require(status == 200 and reply.get("written") == 1,
+            f"the latest write list was not served: {status} {reply!r}")
+    status, reply = call("exercise", "/v1/x/changes", {"limit": 0})
+    require(status == 200 and reply.get("changes") == [],
+            f"the latest extensions list was not served: {status} {reply!r}")
+    print("App socket: the same app registered twice is served under the latest lists",
           flush=True)
 
 

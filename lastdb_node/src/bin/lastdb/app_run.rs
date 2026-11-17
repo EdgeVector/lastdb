@@ -1,7 +1,7 @@
 //! The app launcher. An installed app that declares LastDB access starts
-//! here: with an app session, on the app socket. The node then serves it only
-//! the schemas it declared, which keeps the record of which app uses which
-//! schema true. Nothing confines the program on the machine.
+//! here, on the app socket. The node serves it only the schemas it declared,
+//! which keeps the record of which app uses which schema true. Nothing
+//! confines the program on the machine.
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt as _;
@@ -51,7 +51,7 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
     })?;
     let node_data = home.join("data");
     // The app's own folder for its files. It outlives an upgrade, because
-    // versions sit beside it and not inside it. Create it before the session
+    // versions sit beside it and not inside it. Create it before registration
     // so the node can check the directory it will later write into.
     let app_data = crate::app_registry_index::managed::app_root(app)?.join("data");
     let data_text = app_data.to_str().ok_or_else(|| {

@@ -192,8 +192,11 @@ listing, under the publisher signature:
 - Install refuses a listing that names an extension this build does not have.
 - An app that is not published declares nothing.
 
-The declaration is recorded with the install. It is not enforced until the app
-socket exists.
+The declaration is recorded with the install. The installer registers it when
+that version is activated, and again when a failed activation or a rollback
+restores the previous version. The launcher registers it at each start.
+Registering the same app again replaces its grant. The app socket serves the
+app under the grant the node holds.
 
 ## The app socket
 
@@ -202,26 +205,37 @@ A node serves two sockets in its data directory.
 | Socket | File | Serves |
 |---|---|---|
 | Owner socket | `folddb.sock` | Everything, to the owner and the owner's tools |
-| App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a caller with an app session |
+| App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a registered app |
 
-- The owner issues a session for one app: `POST /api/apps/session` on the owner
-  socket with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
+- The owner registers one app: `POST /api/apps/session` on the owner socket
+  with `{ "app": "notes", "access": { "read": [...], "write": [...], "extensions": [...] }, "data": "<apps root>/notes/data" }`.
   `data` is optional. When present it is the absolute path of that app's data
   directory, a real directory and not a symlink, and outside the LastDB home.
-  The reply holds `session` and `expires_in_seconds` (24 hours). Sessions live in
-  memory and end when the node stops. The data folder is remembered only there.
-- A request on the app socket carries the session in the header `X-LastDB-App-Session`.
-  Without a valid one it is refused with `permission_denied`.
+  The reply holds `session`, set to the app id. It does not hold
+  `expires_in_seconds`. The node keeps one grant per app id: the `read`,
+  `write` and `extensions` lists, and the data folder when `data` was sent.
+  The same app registered again replaces that grant. A grant has no lifetime.
+- The grants are one file, `app-grants.json`, in the data directory beside the
+  sockets. The file is mode 0600. The node writes a temporary file and renames
+  it into place when a grant changes, and loads the file at start. A missing
+  or unreadable file means no grants, and that is not an error. The file is
+  not a database file. Backup and cloud sync do not copy it. It holds
+  `{ "version": 1, "apps": { "<app id>": { "read": [...], "write": [...], "extensions": [...], "data": "<path>" } } }`.
+  `data` is omitted when the grant has no data folder. The node keeps at most
+  256 apps. Each list holds at most 256 names. A schema name is at most 128
+  bytes and an extension name at most 40. The file is at most 1 MiB.
+- A request on the app socket carries the app id in the header
+  `X-LastDB-App-Session`. An app id the node has no grant for is refused with
+  `permission_denied`. An app id is a plain app name, checked with the same
+  rule the launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
-- A read names only a schema in the session's `read` list, a write only one in
+- A read names only a schema in the app's `read` list, a write only one in
   its `write` list, and an extension only one in its `extensions` list. Anything
   else is `permission_denied`. A read refusal is per item; a write refusal
   refuses the list.
 - The name must be the declared name exactly, and it must be the exact name of a
   schema on the node. A loose spelling that the owner socket would resolve is
   `not_found` here. An undeclared name is still `permission_denied`.
-- An app holds at most four live sessions. A fifth replaces that app's oldest,
-  so an app that starts on every command cannot use up the node's sessions.
 - The app socket has its own four workers and its own request budget. Load on
   it can delay only other requests on the app socket, never the owner socket.
 - A request body on the app socket is at most 8 MiB. A larger one answers
@@ -238,9 +252,15 @@ directly.
 - The installer points each of the app's command links at the `lastdb` command.
   Called under the app's command name, `lastdb` finds the app that owns the
   name and starts it. `lastdb app run <app> <command> [args]` does the same by name.
-- The launcher asks the node for an app session with the lists from the app's
-  signed listing, and starts the app's program with `LASTDB_SOCKET_PATH` set to
-  the app socket and `LASTDB_APP_SESSION` set to the session.
+- The launcher registers the app with the lists from the app's signed listing,
+  and starts the app's program with `LASTDB_SOCKET_PATH` set to the app socket
+  and `LASTDB_APP_SESSION` set to the app id. The header and the variable keep
+  those names. The launcher still needs the node: if it cannot reach the owner
+  socket, it does not start the app.
+- On activation, and on rollback, the installer registers that version's
+  access, so a process that is already running is served under the new lists
+  at once. If activation fails and the previous version is restored, the
+  previous access is registered again.
 - The declaration exists to record which app uses which schema (Tom,
   2026-11-17). The node serves an app only the schemas it declared, so the
   record stays true. Confining an installed app on the owner's machine is not a
@@ -248,7 +268,7 @@ directly.
   sandbox profile was removed. It could not nest inside a caller's own
   profile, and it kept apps that act on the machine from declaring at all.
 - The launcher creates the app's own data folder, `<apps root>/<app>/data`,
-  before it asks for the session, and passes that folder as `data`. It also
+  before it registers the app, and passes that folder as `data`. It also
   names the folder in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps
   its config and state there by convention.
 - An app that ran restricted stays restricted. Install refuses a later version

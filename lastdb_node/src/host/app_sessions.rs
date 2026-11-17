@@ -1,35 +1,37 @@
-//! Sessions for apps on the app socket. A session names one installed app and
-//! the schemas and extensions it declared. Each app holds a few live sessions.
-//! A new session replaces that app's oldest once that number is full.
+//! One grant per app id. The app socket names the app by that id.
+//!
+//! Grants live in `app-grants.json` in the data directory, beside the sockets.
+//! The file is not part of the database. A missing or unreadable file means
+//! the node has no grants.
 
-use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
 
-use rand::{rngs::OsRng, RngCore};
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
 
-/// An app can run for a long time, so its session outlives a database session.
-/// The launcher asks for a new one at each start.
-pub(crate) const APP_SESSION_LIFETIME: Duration = Duration::from_secs(24 * 3600);
-const MAX_APP_SESSIONS: usize = 1024;
+use crate::profile::private_fs;
 
-/// An app can have a few processes running at once, for example a command
-/// and a background process.
-const MAX_SESSIONS_PER_APP: usize = 4;
+/// File name beside `folddb.sock` and `apps.sock`.
+pub(crate) const GRANTS_FILE: &str = "app-grants.json";
 
-/// What one app may do on the app socket: exactly what it declared.
-#[derive(Debug)]
+const VERSION: u32 = 1;
+const MAX_APPS: usize = 256;
+const MAX_NAMES: usize = 256;
+const MAX_SCHEMA_NAME: usize = 128;
+const MAX_EXTENSION_NAME: usize = 40;
+const MAX_DATA_LEN: usize = 4096;
+const MAX_FILE_BYTES: usize = 1024 * 1024;
+
+/// What one app may do on the app socket: the lists it registered, and its
+/// data folder when the owner named one.
+#[derive(Debug, Clone)]
 pub(crate) struct AppGrant {
     pub(crate) app: String,
     pub(crate) read: BTreeSet<String>,
     pub(crate) write: BTreeSet<String>,
     pub(crate) extensions: BTreeSet<String>,
-    /// The app's data folder, when the owner named one. Absent keeps a held
-    /// file's path null. Not stored on disk.
     pub(crate) data_dir: Option<PathBuf>,
-    expires: Instant,
 }
 
 impl AppGrant {
@@ -46,87 +48,186 @@ impl AppGrant {
             write,
             extensions,
             data_dir,
-            expires: Instant::now() + APP_SESSION_LIFETIME,
         }
     }
 }
 
-struct Held {
-    grant: Arc<AppGrant>,
-    order: u64,
+pub(crate) enum RegisterError {
+    Invalid,
+    Limit,
+    Store,
 }
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredGrant {
+    read: BTreeSet<String>,
+    write: BTreeSet<String>,
+    extensions: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog {
+    version: u32,
+    apps: BTreeMap<String, StoredGrant>,
+}
+
 struct Store {
-    sessions: HashMap<[u8; 32], Held>,
-    next_order: u64,
+    grants: BTreeMap<String, Arc<AppGrant>>,
+    path: PathBuf,
 }
 
-impl Store {
-    fn drop_expired(&mut self, now: Instant) {
-        self.sessions.retain(|_, held| held.grant.expires > now);
-    }
-
-    /// Drop this app's oldest live session when it already holds the per-app limit.
-    fn drop_oldest_if_full(&mut self, app: &str) {
-        let live = self
-            .sessions
-            .values()
-            .filter(|held| held.grant.app == app)
-            .count();
-        if live < MAX_SESSIONS_PER_APP {
-            return;
-        }
-        let oldest = self
-            .sessions
-            .iter()
-            .filter(|(_, held)| held.grant.app == app)
-            .min_by_key(|(_, held)| held.order)
-            .map(|(key, _)| *key);
-        let Some(key) = oldest else {
-            return;
-        };
-        self.sessions.remove(&key);
-    }
-}
-
-/// Live app sessions, keyed by the hash of the token. Nothing is stored on disk.
-#[derive(Default)]
+/// The grants the node is serving. Keyed by app id.
 pub(crate) struct AppSessions(Mutex<Store>);
 
 impl AppSessions {
-    /// A new token for `grant`, or `None` when the node holds too many sessions.
-    pub(crate) fn issue(&self, grant: AppGrant) -> Option<String> {
-        let mut store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        store.drop_expired(Instant::now());
-        // Free this app's oldest slot before the total cap, so one app cannot fill the store.
-        store.drop_oldest_if_full(&grant.app);
-        if store.sessions.len() >= MAX_APP_SESSIONS {
-            return None;
-        }
-        let mut random = [0u8; 32];
-        OsRng.fill_bytes(&mut random);
-        let token = fold_db::hex::hex_lower(random);
-        let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let order = store.next_order;
-        store.next_order = store.next_order.wrapping_add(1);
-        store.sessions.insert(
-            key,
-            Held {
-                grant: Arc::new(grant),
-                order,
-            },
-        );
-        Some(token)
+    /// Load grants from `data_dir`. A missing or unreadable file is no grants.
+    pub(crate) fn open(data_dir: &Path) -> Self {
+        let path = data_dir.join(GRANTS_FILE);
+        let grants = load(&path);
+        Self(Mutex::new(Store { grants, path }))
     }
 
-    pub(crate) fn get(&self, token: &str) -> Option<Arc<AppGrant>> {
-        if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    /// Replace the grant for this app. The same app id keeps one grant.
+    pub(crate) fn register(&self, grant: AppGrant) -> Result<(), RegisterError> {
+        if !grant_ok(&grant) {
+            return Err(RegisterError::Invalid);
+        }
+        let mut store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let new_app = !store.grants.contains_key(&grant.app);
+        if new_app && store.grants.len() >= MAX_APPS {
+            return Err(RegisterError::Limit);
+        }
+        let mut next = store.grants.clone();
+        next.insert(grant.app.clone(), Arc::new(grant));
+        let bytes = encode(&next).ok_or(RegisterError::Store)?;
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(RegisterError::Limit);
+        }
+        if let Err(error) = private_fs::write_private(&store.path, &bytes) {
+            tracing::warn!(
+                target: "lastdb_node::app_grants",
+                "could not store app grants: {}",
+                error.kind()
+            );
+            return Err(RegisterError::Store);
+        }
+        store.grants = next;
+        Ok(())
+    }
+
+    pub(crate) fn get(&self, app_id: &str) -> Option<Arc<AppGrant>> {
+        if !app_identity_crypto::valid_app_id(app_id) {
             return None;
         }
         let store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        let key: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let held = store.sessions.get(&key)?;
-        (held.grant.expires > Instant::now()).then(|| Arc::clone(&held.grant))
+        store.grants.get(app_id).cloned()
     }
+}
+
+fn grant_ok(grant: &AppGrant) -> bool {
+    app_identity_crypto::valid_app_id(&grant.app)
+        && names_ok(&grant.read, schema_name)
+        && names_ok(&grant.write, schema_name)
+        && names_ok(&grant.extensions, extension_name)
+        && data_ok(grant.data_dir.as_deref())
+}
+
+fn names_ok(names: &BTreeSet<String>, accept: fn(&str) -> bool) -> bool {
+    names.len() <= MAX_NAMES && names.iter().all(|name| accept(name))
+}
+
+fn schema_name(value: &str) -> bool {
+    (1..=MAX_SCHEMA_NAME).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'/' | b'-'))
+}
+
+fn extension_name(value: &str) -> bool {
+    (1..=MAX_EXTENSION_NAME).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+fn data_ok(data: Option<&Path>) -> bool {
+    let Some(path) = data else {
+        return true;
+    };
+    path.to_str()
+        .is_some_and(|text| (1..=MAX_DATA_LEN).contains(&text.len()) && path.is_absolute())
+}
+
+fn encode(grants: &BTreeMap<String, Arc<AppGrant>>) -> Option<Vec<u8>> {
+    let apps = grants
+        .iter()
+        .map(|(app, grant)| (app.clone(), stored_from(grant)))
+        .collect();
+    serde_json::to_vec(&Catalog {
+        version: VERSION,
+        apps,
+    })
+    .ok()
+}
+
+fn stored_from(grant: &AppGrant) -> StoredGrant {
+    StoredGrant {
+        read: grant.read.clone(),
+        write: grant.write.clone(),
+        extensions: grant.extensions.clone(),
+        data: grant
+            .data_dir
+            .as_ref()
+            .and_then(|path| path.to_str().map(str::to_owned)),
+    }
+}
+
+fn load(path: &Path) -> BTreeMap<String, Arc<AppGrant>> {
+    let bytes = match private_fs::read_file_limited(path, MAX_FILE_BYTES, true) {
+        Ok(None) => return BTreeMap::new(),
+        Ok(Some(bytes)) => bytes,
+        Err(error) => {
+            tracing::warn!(
+                target: "lastdb_node::app_grants",
+                "app grants file is unreadable: {}",
+                error.kind()
+            );
+            return BTreeMap::new();
+        }
+    };
+    decode(&bytes).unwrap_or_else(|| {
+        tracing::warn!(
+            target: "lastdb_node::app_grants",
+            "app grants file is unreadable"
+        );
+        BTreeMap::new()
+    })
+}
+
+fn decode(bytes: &[u8]) -> Option<BTreeMap<String, Arc<AppGrant>>> {
+    let catalog: Catalog = serde_json::from_slice(bytes).ok()?;
+    if catalog.version != VERSION || catalog.apps.len() > MAX_APPS {
+        return None;
+    }
+    let mut grants = BTreeMap::new();
+    for (app, stored) in catalog.apps {
+        let grant = accept_stored(app.clone(), stored)?;
+        grants.insert(app, Arc::new(grant));
+    }
+    Some(grants)
+}
+
+fn accept_stored(app: String, stored: StoredGrant) -> Option<AppGrant> {
+    let grant = AppGrant {
+        app,
+        read: stored.read,
+        write: stored.write,
+        extensions: stored.extensions,
+        data_dir: stored.data.map(PathBuf::from),
+    };
+    grant_ok(&grant).then_some(grant)
 }
