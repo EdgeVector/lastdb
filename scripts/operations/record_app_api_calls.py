@@ -9,7 +9,8 @@ BY_ID, BY_BUCKET = "AppApiById", "AppApiByBucket"
 
 
 def read(node, *reads):
-    return v1.read_items(node, reads)
+    # A refused item stays in the page. The app API proof reads that error.
+    return v1.read_items(node, reads, strict=False)
 
 
 def write(node, *mutations):

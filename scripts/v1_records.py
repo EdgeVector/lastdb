@@ -20,8 +20,12 @@ def _item_error(path, index, item):
         raise RuntimeError(f"{path} item {index}: {error}")
 
 
-def read_items(node, items):
-    """POST /v1/read. `items` holds 1 to 64 reads. Raise on an item error."""
+def read_items(node, items, *, strict=True):
+    """POST /v1/read. `items` holds 1 to 64 reads.
+
+    A bad whole reply raises. An item error raises when strict is true.
+    The app API proof sets strict false and reads the error on that item.
+    """
     if not items:
         return []
     if len(items) > READ_LIMIT:
@@ -30,8 +34,9 @@ def read_items(node, items):
     results = body.get("results")
     if not isinstance(results, list) or len(results) != len(items):
         raise RuntimeError(f"/v1/read returned an unexpected reply: {body!r}")
-    for index, item in enumerate(results):
-        _item_error("/v1/read", index, item)
+    if strict:
+        for index, item in enumerate(results):
+            _item_error("/v1/read", index, item)
     return results
 
 
