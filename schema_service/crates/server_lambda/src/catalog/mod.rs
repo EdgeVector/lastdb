@@ -1,12 +1,14 @@
 //! Schemas publishers push for listed apps.
 //!
-//! `POST /v1/schemas` and `POST /v1/advice/schema` share one private,
-//! conditional S3 object. Vocabulary advice does not read that object.
-//! The retired feed object `advisory-catalog-v1/catalog.json` is not read,
-//! written, or converted.
+//! `POST /v1/schemas` checks a push and stores one catalog record per app and
+//! channel, plus one immutable object per definition id. `GET /v1/schemas/<definition_id>`
+//! reads that object with no credentials. `POST /v1/advice/schema` reads the
+//! catalog record. Vocabulary advice does not. The retired feed object
+//! `advisory-catalog-v1/catalog.json` is not read, written, or converted.
 
 mod listing;
 mod push;
+mod read;
 mod storage;
 
 use std::collections::BTreeMap;
@@ -24,6 +26,7 @@ use tokio::sync::Mutex;
 use storage::Store;
 
 pub(crate) use push::{push as register_schemas, SCHEMAS_PATH};
+pub(crate) use read::{definition_id, read_definition};
 
 const IMAGE_VERSION: u32 = 2;
 const CACHE_REFRESH: Duration = Duration::from_secs(60);
@@ -43,6 +46,10 @@ struct AppRecord {
     api_version: u32,
     registered_at: u64,
     definitions: Vec<DeclarativeSchemaDefinition>,
+    /// Schema name to definition id. Records written before this member existed
+    /// omit it; an empty map is the only compatibility allowance.
+    #[serde(default)]
+    definition_ids: BTreeMap<String, String>,
 }
 
 impl Image {

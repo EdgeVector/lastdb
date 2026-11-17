@@ -1,3 +1,9 @@
+//! Private S3 objects for pushed schemas.
+//!
+//! The catalog record is `schema-catalog-v2/catalog.json`. Each definition is
+//! its own immutable object at `schema-catalog-v2/definitions/<definition_id>.json`.
+//! The retired `advisory-catalog-v1/catalog.json` feed image is not read or converted.
+
 use std::time::{Duration, SystemTime};
 
 use aws_credential_types::Credentials;
@@ -11,13 +17,13 @@ use reqwest::{Client, Response};
 
 use super::Image;
 
-// Publishers write this object. The retired `advisory-catalog-v1/catalog.json`
-// feed image is not read or converted.
-const KEY: &str = "schema-catalog-v2/catalog.json";
+const CATALOG_KEY: &str = "schema-catalog-v2/catalog.json";
+const DEFINITION_PREFIX: &str = "schema-catalog-v2/definitions";
 const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DEFINITION_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) struct Store {
-    url: String,
+    endpoint: String,
     region: String,
 }
 
@@ -138,9 +144,13 @@ impl Store {
             return Err("catalog S3 endpoint is invalid".into());
         }
         Ok(Self {
-            url: format!("https://{bucket}.s3.{region}.amazonaws.com/{KEY}"),
+            endpoint: format!("https://{bucket}.s3.{region}.amazonaws.com"),
             region,
         })
+    }
+
+    fn object_url(&self, key: &str) -> String {
+        format!("{}/{key}", self.endpoint)
     }
 
     pub(super) async fn read(
@@ -148,7 +158,8 @@ impl Store {
         client: &Client,
         timeout: Duration,
     ) -> Result<Option<(Image, String)>, String> {
-        let mut request = signed_request(client, &self.region, &self.url, Method::GET, None)?;
+        let url = self.object_url(CATALOG_KEY);
+        let mut request = signed_request(client, &self.region, &url, Method::GET, None)?;
         *request.timeout_mut() = Some(timeout);
         let response = client
             .execute(request)
@@ -187,13 +198,9 @@ impl Store {
         if body.len() > MAX_IMAGE_BYTES {
             return Err("catalog image exceeds the configured byte limit".into());
         }
-        let mut request = signed_request(
-            client,
-            &self.region,
-            &self.url,
-            Method::PUT,
-            Some((body, etag)),
-        )?;
+        let url = self.object_url(CATALOG_KEY);
+        let mut request =
+            signed_request(client, &self.region, &url, Method::PUT, Some((body, etag)))?;
         *request.timeout_mut() = Some(timeout);
         let response = client
             .execute(request)
@@ -205,4 +212,72 @@ impl Store {
             status => Err(format!("catalog storage write returned HTTP {status}")),
         }
     }
+
+    /// Write one definition object. `If-None-Match: *` makes a lost race,
+    /// where the same id already exists, success. The same id is the same bytes.
+    pub(super) async fn put_definition(
+        &self,
+        client: &Client,
+        definition_id: &str,
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<(), String> {
+        if !valid_definition_id(definition_id) {
+            return Err("invalid definition id".into());
+        }
+        if body.len() > MAX_DEFINITION_BYTES {
+            return Err("definition object exceeds the configured byte limit".into());
+        }
+        let url = self.object_url(&format!("{DEFINITION_PREFIX}/{definition_id}.json"));
+        let mut request = signed_request(
+            client,
+            &self.region,
+            &url,
+            Method::PUT,
+            Some((body.to_vec(), None)),
+        )?;
+        *request.timeout_mut() = Some(timeout);
+        let response = client
+            .execute(request)
+            .await
+            .map_err(|_| "definition storage write failed")?;
+        match response.status() {
+            status if status.is_success() => Ok(()),
+            // If-None-Match: * lost the race. The object for this id is already stored.
+            StatusCode::PRECONDITION_FAILED => Ok(()),
+            status => Err(format!("definition storage write returned HTTP {status}")),
+        }
+    }
+
+    /// Read one definition object. Without ListBucket, S3 uses AccessDenied
+    /// for a missing key, so forbidden and not-found are both absence.
+    pub(super) async fn get_definition(
+        &self,
+        client: &Client,
+        definition_id: &str,
+        timeout: Duration,
+    ) -> Result<Option<Vec<u8>>, String> {
+        if !valid_definition_id(definition_id) {
+            return Err("invalid definition id".into());
+        }
+        let url = self.object_url(&format!("{DEFINITION_PREFIX}/{definition_id}.json"));
+        let mut request = signed_request(client, &self.region, &url, Method::GET, None)?;
+        *request.timeout_mut() = Some(timeout);
+        let response = client
+            .execute(request)
+            .await
+            .map_err(|_| "definition storage read failed")?;
+        match response.status() {
+            StatusCode::OK => Ok(Some(bounded_body(response, MAX_DEFINITION_BYTES).await?)),
+            StatusCode::NOT_FOUND | StatusCode::FORBIDDEN => Ok(None),
+            status => Err(format!("definition storage read returned HTTP {status}")),
+        }
+    }
+}
+
+pub(super) fn valid_definition_id(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }

@@ -4,7 +4,7 @@ name = "schema_service_server_lambda"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "AWS Lambda handler for the advisory Schema Service (`GET /v1/health`, `GET /v1/fields/vocabulary`, `POST /v1/advice/schema`, `POST /v1/schemas`)."
+description = "AWS Lambda handler for the advisory Schema Service (`GET /v1/health`, `GET /v1/fields/vocabulary`, `POST /v1/advice/schema`, `POST /v1/schemas`, `GET /v1/schemas/{definition_id}`)."
 
 [[bin]]
 bench = false
