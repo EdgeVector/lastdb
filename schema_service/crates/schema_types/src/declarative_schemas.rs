@@ -1,16 +1,14 @@
 //! Declarative schema definition, catalog identity hashing, and wire codec.
 
 use crate::{
-    compute_field_hash, DeclarativeSchemaType, FieldValueType, KeyConfig, OwnedDeclaration,
-    IDENTITY_HASH_ALGO_VERSION,
+    compute_field_hash, refuses_identity_downgrade, DeclarativeSchemaType, FieldValueType,
+    IdentityRecompute::{self, Recomputed, RefusedDowngrade},
+    OwnedDeclaration, IDENTITY_HASH_ALGO_VERSION as BIN_VER,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-
-const RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION: u32 = 3;
-const FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION: u32 = 2;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(remote = "Self")]
@@ -22,17 +20,11 @@ pub struct DeclarativeSchemaDefinition {
     pub purpose_statement: Option<String>,
     pub schema_type: DeclarativeSchemaType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<KeyConfig>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub alternate_keys: BTreeMap<String, crate::AlternateKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_keys: Option<crate::record_keys::RecordKeys>,
-    #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
+    #[serde(default, skip_serializing_if = "crate::is_false")]
     pub file_required: bool,
     #[serde(default)]
     pub fields: Option<Vec<String>>,
-    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
-    pub hash: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_classifications: HashMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -56,25 +48,83 @@ pub struct DeclarativeSchemaDefinition {
 }
 
 impl DeclarativeSchemaDefinition {
+    pub fn validate_field_name(name: &str) -> Result<(), String> {
+        if matches!(name, "\u{1f}record" | "__record") {
+            let msg = format!("field name {name:?} is reserved and is not supported");
+            return Err(msg);
+        }
+        let bad = |c: char| c.is_whitespace() || c.is_control() || matches!(c, ',' | ':');
+        if name.is_empty() || name.chars().any(bad) {
+            return Err(format!("field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"));
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn get_field_type(&self, name: &str) -> &FieldValueType {
+        self.field_types.get(name).unwrap_or(&FieldValueType::Any)
+    }
+
+    #[must_use]
+    pub fn identity_is_newer_than_binary(&self) -> bool {
+        let ver = self.identity_hash_algo_version;
+        refuses_identity_downgrade(self.identity_hash.as_deref(), ver).is_some()
+    }
+
+    #[must_use = "a refused downgrade must be surfaced, not dropped"]
+    pub fn recompute_identity_hash_unless_newer(&mut self) -> IdentityRecompute {
+        let ver = self.identity_hash_algo_version;
+        if let Some(stored) = refuses_identity_downgrade(self.identity_hash.as_deref(), ver) {
+            return RefusedDowngrade {
+                stored,
+                binary: BIN_VER,
+            };
+        }
+        self.compute_identity_hash();
+        Recomputed
+    }
+
+    pub fn normalize_wire(&mut self) {
+        if self.identity_hash.is_none() && self.owner_app_id.is_some() {
+            self.compute_identity_hash();
+        }
+    }
+
+    pub fn validate_owned_schema(&self) -> Result<(), String> {
+        let Some(keys) = &self.record_keys else {
+            return Err("owned schemas require explicit record_keys".into());
+        };
+        keys.validate()?;
+        if self.schema_type != keys.primary.kind.schema_type() {
+            let msg =
+                "record_keys require one owned Hash/HashRange layout without field-derived keys";
+            return Err(msg.into());
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn alternate_key_revision(&self) -> String {
+        let bytes = self.record_keys.as_ref().map_or_else(
+            || b"[true,{}]".to_vec(),
+            |k| serde_json::to_vec(k).expect("record key declarations serialize"),
+        );
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
     pub fn ensure_field_hashes(&mut self) {
         let mut seen = HashSet::new();
-        let names: Vec<String> = self
-            .fields
-            .iter()
-            .flatten()
-            .chain(self.field_types.keys())
+        let all = self.fields.iter().flatten().chain(self.field_types.keys());
+        let names: Vec<String> = all
             .chain(self.field_descriptions.keys())
             .filter(|n| !self.field_hashes.contains_key(*n) && seen.insert((*n).clone()))
             .cloned()
             .collect();
-        for name in names {
-            let desc = self
-                .field_descriptions
-                .get(&name)
-                .map_or("", String::as_str);
-            let ver = *self.field_versions.entry(name.clone()).or_insert(1);
-            let hash = compute_field_hash(&name, desc, self.get_field_type(&name), ver);
-            self.field_hashes.insert(name, hash);
+        for n in names {
+            let d = self.field_descriptions.get(&n).map_or("", String::as_str);
+            let ver = *self.field_versions.entry(n.clone()).or_insert(1);
+            let hash = compute_field_hash(&n, d, self.get_field_type(&n), ver);
+            self.field_hashes.insert(n, hash);
         }
     }
 
@@ -82,115 +132,87 @@ impl DeclarativeSchemaDefinition {
         if self.file_required && self.record_keys.is_none() {
             return Err("file_required needs explicit record keys".into());
         }
-        let keys = self
-            .key
-            .iter()
-            .flat_map(|k| [k.hash_field.as_deref(), k.range_field.as_deref()])
-            .flatten();
+        let maps = [
+            &self.field_descriptions,
+            &self.field_interest_categories,
+            &self.field_hashes,
+            &self.field_declarations,
+        ];
         for f in self
             .fields
             .iter()
             .flatten()
-            .chain(self.field_classifications.keys())
-            .chain(self.field_descriptions.keys())
-            .chain(self.field_interest_categories.keys())
             .chain(self.field_types.keys())
-            .chain(self.field_hashes.keys())
-            .chain(self.field_declarations.keys())
+            .chain(self.field_classifications.keys())
             .chain(self.field_versions.keys())
-            .map(String::as_str)
-            .chain(keys)
+            .chain(maps.into_iter().flat_map(HashMap::keys))
         {
             Self::validate_field_name(f)?;
         }
-        self.validate_key_field_types()?;
-        if !self.alternate_keys.is_empty() || self.record_keys.is_some() {
+        if self.record_keys.is_some() {
             self.validate_owned_schema()?;
         }
         Ok(())
     }
 
     pub fn compute_identity_hash(&mut self) {
-        let names: Vec<&str> = self
+        let Some(keys) = &self.record_keys else {
+            (self.identity_hash, self.identity_hash_algo_version) = (None, None);
+            return;
+        };
+        let names = self
             .fields
             .iter()
             .flatten()
             .map(String::as_str)
             .collect::<BTreeSet<_>>()
             .into_iter()
-            .collect();
+            .collect::<Vec<_>>();
         let mut hasher = Sha256::new();
         if let Some(app_id) = self.owner_app_id.as_deref().filter(|s| !s.is_empty()) {
             hasher.update(format!("app:{app_id}:").as_bytes());
         }
-        let label = self
-            .descriptive_name
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&self.name);
-        hasher.update(format!("{label}:{}", names.join(",")).as_bytes());
-        if let Some(k) = &self.key {
-            let (hf, rf) = (
-                k.hash_field.as_deref().map_or("", str::trim),
-                k.range_field.as_deref().map_or("", str::trim),
-            );
-            if !hf.is_empty() || !rf.is_empty() {
-                hasher.update(format!(":key:{hf}:{rf}").as_bytes());
-            }
+        let dn = self.descriptive_name.as_deref().filter(|s| !s.is_empty());
+        hasher.update(format!("{}:{}", dn.unwrap_or(&self.name), names.join(",")).as_bytes());
+        let mut hash = Sha256::new();
+        hash.update(b"lastdb:record-schema:v1\0");
+        hash.update(format!("{:x}", hasher.finalize()).as_bytes());
+        hash.update(serde_json::to_vec(keys).expect("record key definitions serialize"));
+        if self.file_required {
+            hash.update(b"\0file-required");
         }
-        let base = format!("{:x}", hasher.finalize());
-        if let Some(keys) = &self.record_keys {
-            let mut hash = Sha256::new();
-            hash.update(b"lastdb:record-schema:v1\0");
-            hash.update(base.as_bytes());
-            hash.update(serde_json::to_vec(keys).expect("record key definitions serialize"));
-            if self.file_required {
-                hash.update(b"\0file-required");
-            }
-            self.identity_hash = Some(format!("{:x}", hash.finalize()));
-            self.identity_hash_algo_version = Some(if self.file_required {
-                IDENTITY_HASH_ALGO_VERSION
-            } else {
-                RECORD_KEYS_IDENTITY_HASH_ALGO_VERSION
-            });
-        } else {
-            self.identity_hash = Some(base);
-            self.identity_hash_algo_version = Some(FIELD_DERIVED_IDENTITY_HASH_ALGO_VERSION);
-        }
+        self.identity_hash = Some(format!("{:x}", hash.finalize()));
+        let ver = if self.file_required { BIN_VER } else { 3 };
+        self.identity_hash_algo_version = Some(ver);
     }
 
     pub fn normalize_owned_declaration(
         &mut self,
-        namespace_label: &str,
-        namespace: &str,
+        ns_label: &str,
+        ns: &str,
     ) -> Result<OwnedDeclaration, String> {
-        let namespace = namespace.trim().to_owned();
+        let namespace = ns.trim().to_owned();
         if namespace.is_empty() || namespace.contains('/') {
-            return Err(format!(
-                "{namespace_label} must be non-empty and must not contain '/'"
-            ));
+            let msg = format!("{ns_label} must be non-empty and must not contain '/'");
+            return Err(msg);
         }
-        let raw_name = self.name.trim();
-        if raw_name.is_empty() {
+        let raw = self.name.trim();
+        if raw.is_empty() {
             return Err("schema.name must be non-empty".into());
         }
-        let local_name = match raw_name.split_once('/') {
-            Some((owner, local)) if owner == namespace && !local.is_empty() => local,
+        let local = match raw.split_once('/') {
+            Some((owner, loc)) if owner == namespace && !loc.is_empty() => loc,
             Some(_) => {
-                return Err(format!(
-                    "schema.name namespace must match request.{namespace_label}"
-                ))
+                let msg = format!("schema.name namespace must match request.{ns_label}");
+                return Err(msg);
             }
-            None => raw_name,
+            None => raw,
         };
-        let local_schema_id = format!("{namespace}/{local_name}");
+        let local_schema_id = format!("{namespace}/{local}");
         self.owner_app_id = Some(namespace.clone());
-        if self
-            .descriptive_name
-            .as_deref()
-            .is_none_or(|n| n.trim().is_empty())
-        {
-            self.descriptive_name = Some(local_name.to_owned());
+        let dn = self.descriptive_name.as_deref();
+        if dn.is_none_or(|n| n.trim().is_empty()) {
+            self.descriptive_name = Some(local.to_owned());
         }
         self.name.clone_from(&local_schema_id);
         self.validate_owned_schema()?;
@@ -213,17 +235,16 @@ impl DeclarativeSchemaDefinition {
         }
         let untyped: Vec<&str> = fields
             .iter()
-            .filter(|f| !self.field_types.contains_key(*f))
             .map(String::as_str)
+            .filter(|&f| !self.field_types.contains_key(f))
             .collect();
-        if untyped.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
+        if !untyped.is_empty() {
+            return Err(format!(
                 "every field needs a type in schema.field_types; these fields have none: {}",
                 untyped.join(", ")
-            ))
+            ));
         }
+        Ok(())
     }
 }
 
@@ -233,12 +254,9 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.descriptive_name == o.descriptive_name
             && self.purpose_statement == o.purpose_statement
             && self.schema_type == o.schema_type
-            && self.key == o.key
-            && self.alternate_keys == o.alternate_keys
             && self.record_keys == o.record_keys
             && self.file_required == o.file_required
             && self.fields == o.fields
-            && self.hash == o.hash
             && self.field_classifications == o.field_classifications
             && self.field_descriptions == o.field_descriptions
             && self.field_interest_categories == o.field_interest_categories
@@ -252,70 +270,63 @@ impl PartialEq for DeclarativeSchemaDefinition {
 }
 
 impl Serialize for DeclarativeSchemaDefinition {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        Self::serialize(self, serializer)
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, s)
     }
 }
 
 impl<'de> Deserialize<'de> for DeclarativeSchemaDefinition {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        decode_definition(Map::<String, Value>::deserialize(deserializer)?)
-            .map_err(serde::de::Error::custom)
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        decode_definition(Map::<String, Value>::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
 
 fn decode_definition(mut map: Map<String, Value>) -> Result<DeclarativeSchemaDefinition, String> {
-    for bad in ["field_key_id", "record_mapper"] {
-        if map.contains_key(bad) {
-            return Err(format!("schema-level '{bad}' is not supported"));
-        }
+    if let Some(k) = ["field_key_id", "record_mapper"]
+        .into_iter()
+        .find(|k| map.contains_key(*k))
+    {
+        return Err(format!("schema-level '{k}' is not supported"));
     }
-    if let Some(raw) = map.remove("fields") {
-        let names = match raw {
-            Value::Null => None,
-            Value::Array(arr) => Some(
-                arr.into_iter()
-                    .map(|v| {
-                        v.as_str()
-                            .map(str::to_owned)
-                            .ok_or("Invalid fields array; expected strings")
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            Value::Object(obj) => {
-                let mut ns: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
-                ns.sort();
-                Some(ns)
-            }
-            _ => return Err("Invalid fields; expected array or object map".into()),
-        };
-        if let Some(ns) = names {
-            map.insert(
-                "fields".into(),
-                Value::Array(ns.into_iter().map(Value::String).collect()),
-            );
+    if map.remove("key").is_some_and(|v| !v.is_null()) {
+        return Err("schema-level 'key' is not supported; use record_keys".into());
+    }
+    let alt = map.remove("alternate_keys");
+    if alt.is_some_and(|v| !v.is_null() && !v.as_object().is_some_and(Map::is_empty)) {
+        return Err("schema-level 'alternate_keys' is not supported; use record_keys".into());
+    }
+    match map.remove("fields") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(arr)) => {
+            let ns: Vec<String> = arr
+                .into_iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .ok_or("Invalid fields array; expected strings")
+                })
+                .collect::<Result<_, _>>()?;
+            map.insert("fields".into(), ns.into());
         }
+        Some(Value::Object(obj)) => {
+            let mut ns: Vec<String> = obj.into_iter().map(|(k, _)| k).collect();
+            ns.sort();
+            map.insert("fields".into(), ns.into());
+        }
+        Some(_) => return Err("Invalid fields; expected array or object map".into()),
     }
     let had_type = map.get("schema_type").is_some_and(|v| !v.is_null());
     if !had_type {
         map.insert("schema_type".into(), Value::String("Single".into()));
     }
-    let mut s =
-        DeclarativeSchemaDefinition::deserialize(Value::Object(map)).map_err(|e| e.to_string())?;
+    let raw = Value::Object(map);
+    let mut s = DeclarativeSchemaDefinition::deserialize(raw).map_err(|e| e.to_string())?;
     if !had_type {
-        s.schema_type = if let Some(keys) = &s.record_keys {
-            keys.primary.kind.schema_type()
-        } else {
-            let (h, r) = s.key.as_ref().map_or((false, false), |k| {
-                (k.hash_field.is_some(), k.range_field.is_some())
-            });
-            match (h, r) {
-                (true, true) => DeclarativeSchemaType::HashRange,
-                (true, false) => DeclarativeSchemaType::Hash,
-                (false, true) => DeclarativeSchemaType::Range,
-                (false, false) => DeclarativeSchemaType::Single,
-            }
-        };
+        let single = DeclarativeSchemaType::Single;
+        s.schema_type = s
+            .record_keys
+            .as_ref()
+            .map_or(single, |k| k.primary.kind.schema_type());
     }
     s.validate_definition()?;
     if s.identity_hash.is_none() && (s.owner_app_id.is_some() || s.file_required) {

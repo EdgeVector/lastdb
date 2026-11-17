@@ -29,7 +29,7 @@ pub fn init_core_warm_bytes_from_env() -> Result<usize, String> {
 }
 
 #[must_use]
-pub fn core_warm_bytes() -> usize {
+pub(crate) fn core_warm_bytes() -> usize {
     CORE_WARM_BYTES_IN_FORCE
         .get()
         .copied()

@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use schema_types::STANDARD_COMMENT_SCHEMA;
+use lastdb_model::STANDARD_COMMENT_SCHEMA;
 
 use super::replace::{
     check_expectation, read_write_preimages, replace_record, require_contribution_definition,

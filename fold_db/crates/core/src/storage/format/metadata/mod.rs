@@ -110,10 +110,6 @@ impl Metadata {
         Self { store, runtime }
     }
 
-    pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.runtime.flush().await
-    }
-
     pub(in crate::storage) async fn fork_restored_author(
         runtime: &Arc<PackRuntime>,
     ) -> StorageResult<()> {

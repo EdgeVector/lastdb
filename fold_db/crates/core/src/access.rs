@@ -20,18 +20,15 @@ impl AccessContext {
 }
 
 pub mod peer_cred {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct PeerCredential {
         uid: u32,
-        pid: Option<i32>,
     }
 
     impl PeerCredential {
         pub fn evaluate(&self, owner_uid: u32) -> PeerCredVerdict {
             if self.uid == owner_uid {
-                PeerCredVerdict::SameUser { pid: self.pid }
+                PeerCredVerdict::SameUser
             } else {
                 PeerCredVerdict::ForeignUser {
                     peer_uid: self.uid,
@@ -41,10 +38,9 @@ pub mod peer_cred {
         }
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "snake_case", tag = "verdict")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PeerCredVerdict {
-        SameUser { pid: Option<i32> },
+        SameUser,
         ForeignUser { peer_uid: u32, owner_uid: u32 },
     }
 
@@ -73,10 +69,7 @@ pub mod peer_cred {
     #[cfg(target_os = "linux")]
     pub fn read_peer_credential(fd: std::os::unix::io::RawFd) -> std::io::Result<PeerCredential> {
         let cred: libc::ucred = getsockopt(fd, libc::SOL_SOCKET, libc::SO_PEERCRED)?;
-        Ok(PeerCredential {
-            uid: cred.uid,
-            pid: Some(cred.pid),
-        })
+        Ok(PeerCredential { uid: cred.uid })
     }
 
     #[cfg(target_os = "macos")]
@@ -88,11 +81,7 @@ pub mod peer_cred {
                 "unexpected xucred version from LOCAL_PEERCRED",
             ));
         }
-        let pid = getsockopt::<libc::pid_t>(fd, libc::SOL_LOCAL, libc::LOCAL_PEERPID).ok();
-        Ok(PeerCredential {
-            uid: cred.cr_uid,
-            pid,
-        })
+        Ok(PeerCredential { uid: cred.cr_uid })
     }
 }
 
@@ -101,14 +90,13 @@ pub mod error {
 
     use crate::schema::types::SchemaError;
     use crate::storage::error::StorageError;
-    use std::{fmt, io};
+    use std::fmt;
 
     #[derive(Debug)]
     pub enum FoldDbError {
         Schema(SchemaError),
         Database(String),
         Config(String),
-        Io(io::Error),
         Serialization(String),
         SecurityError(String),
         InProgress(String),
@@ -120,7 +108,6 @@ pub mod error {
                 Self::Schema(err) => write!(f, "Schema error: {err}"),
                 Self::Database(msg) => write!(f, "Database error: {msg}"),
                 Self::Config(msg) => write!(f, "Configuration error: {msg}"),
-                Self::Io(err) => write!(f, "IO error: {err}"),
                 Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
                 Self::SecurityError(msg) => write!(f, "Security error: {msg}"),
                 Self::InProgress(msg) => write!(f, "operation in progress: {msg}"),
@@ -133,18 +120,6 @@ pub mod error {
     impl From<SchemaError> for FoldDbError {
         fn from(e: SchemaError) -> Self {
             Self::Schema(e)
-        }
-    }
-
-    impl From<io::Error> for FoldDbError {
-        fn from(e: io::Error) -> Self {
-            Self::Io(e)
-        }
-    }
-
-    impl From<serde_json::Error> for FoldDbError {
-        fn from(e: serde_json::Error) -> Self {
-            Self::Serialization(e.to_string())
         }
     }
 

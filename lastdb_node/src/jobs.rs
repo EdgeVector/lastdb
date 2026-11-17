@@ -8,7 +8,7 @@ pub mod ttl_sweep {
     use std::time::{Duration, Instant};
 
     use fold_db::clock::unix_secs;
-    use fold_db::db_operations::{with_query_page_tally, PageResume};
+    use fold_db::db_operations::with_query_page_tally;
     use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
     use fold_db::schema::types::key_comparison::KeyComparisonContext;
     use fold_db::schema::types::schema::DeclarativeSchemaType;
@@ -244,7 +244,7 @@ pub mod ttl_sweep {
                 let (rows, end) =
                     with_query_page_tally(host.db.query_executor().query_window(q, window)).await;
                 let page: Vec<KeyValue> = rows.map_err(|e| e.to_string())?.into_keys().collect();
-                let resume = end.resume.map(|PageResume::Key(k)| k);
+                let resume = end.resume;
                 *leading &= page.is_empty();
                 if let Some(next) = page
                     .iter()

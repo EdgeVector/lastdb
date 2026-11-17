@@ -70,11 +70,7 @@ impl FieldKeyCodec {
         Ok(URL_SAFE_NO_PAD.encode(&mac.finalize().into_bytes()[..16]))
     }
 
-    pub fn storage_range(
-        &self,
-        _field_key_id: &str,
-        api_range: &str,
-    ) -> Result<String, FieldKeyCodecError> {
+    pub fn storage_range(&self, api_range: &str) -> Result<String, FieldKeyCodecError> {
         self.range_profile
             .encode_value(api_range)
             .map_err(FieldKeyCodecError::InvalidRange)
@@ -93,7 +89,7 @@ impl FieldKeyCodec {
         api_range: &str,
     ) -> Result<String, FieldKeyCodecError> {
         let hash = self.storage_hash(field_key_id, api_hash)?;
-        let range = self.storage_range(field_key_id, api_range)?;
+        let range = self.storage_range(api_range)?;
         Ok(format!(
             "{field_key_id}:{}{SEP}{}",
             escape_segment(&hash),
@@ -117,7 +113,7 @@ impl FieldKeyCodec {
         api_range: &str,
     ) -> Result<String, FieldKeyCodecError> {
         let hash = self.storage_hash(space, api_hash)?;
-        let range = self.storage_range(space, api_range)?;
+        let range = self.storage_range(api_range)?;
         Ok(record_space::record_key(space, &hash, &range))
     }
 }

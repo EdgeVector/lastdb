@@ -4,7 +4,7 @@ use super::QueryExecutor;
 use crate::db_operations::record_store::{
     KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey,
 };
-use crate::db_operations::{note_page_resume, page_can_resume, PageResume};
+use crate::db_operations::{note_page_resume, page_can_resume};
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -116,7 +116,7 @@ impl QueryExecutor {
                     resumable && skip == 0,
                     after.as_ref(),
                 )? {
-                    note_page_resume(PageResume::Key(stop));
+                    note_page_resume(stop);
                     break;
                 }
                 return Err(range_limit_err(skip));

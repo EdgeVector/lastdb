@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use fold_db::access::AccessContext;
-use fold_db::db_operations::{PageEnd, PageResume};
+use fold_db::db_operations::PageEnd;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::SortOrder;
@@ -193,14 +193,7 @@ async fn execute_primary_query(
     Ok(if desc && total.is_some() {
         cursor_payload(page, total, (limit, offset), None, None, false)
     } else {
-        cursor_payload(
-            page,
-            total,
-            (limit, offset),
-            end.resume.map(|PageResume::Key(k)| k),
-            binding,
-            true,
-        )
+        cursor_payload(page, total, (limit, offset), end.resume, binding, true)
     })
 }
 

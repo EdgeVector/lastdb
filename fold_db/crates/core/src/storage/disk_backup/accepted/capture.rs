@@ -62,7 +62,7 @@ pub(crate) fn stage_schema_put(
         return Ok(None);
     }
     let wire = schema.to_wire();
-    let tag = wire.get_identity_hash().map_or("none", String::as_str);
+    let tag = wire.identity_hash.as_deref().unwrap_or("none");
     let mutation_id = body::schema_id(name, tag);
     let definition = serde_json::to_value(&wire).map_err(|_| {
         StorageError::SerializationError("accepted schema body is not canonical".into())

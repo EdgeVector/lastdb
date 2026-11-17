@@ -25,21 +25,6 @@ pub use crate::storage::format::metadata::ReplayStamp;
 pub use write_records::SharedRecordRevision;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ResidentDurability {
-    #[default]
-    Durable,
-}
-
-impl ResidentDurability {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Durable => "durable",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitOperations {
     pub created: u64,
     pub updated: u64,
@@ -67,7 +52,6 @@ pub struct ResidentCommitReceipt {
     pub record_revisions: BTreeMap<String, String>,
     pub revision: Option<u64>,
     pub operations: ResidentCommitOperations,
-    pub durability: ResidentDurability,
     pub stages: ResidentCommitStages,
 }
 
@@ -91,7 +75,7 @@ pub struct MutationManager {
 }
 
 impl MutationManager {
-    pub fn new(
+    pub(crate) fn new(
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
         writer_id: String,
@@ -249,7 +233,6 @@ impl MutationManager {
             record_revisions,
             revision,
             operations,
-            durability: ResidentDurability::Durable,
             stages,
         })
     }
@@ -288,13 +271,11 @@ impl MutationManager {
                 .await?;
         }
         let schemas = self.db_ops.schemas();
-        if matches!(
-            schema.schema_type,
-            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single
-        ) && schemas
-            .get_schema_retention_policy(&schema.name)
-            .await?
-            .is_some()
+        if schema.schema_type == DeclarativeSchemaType::Hash
+            && schemas
+                .get_schema_retention_policy(&schema.name)
+                .await?
+                .is_some()
         {
             let (mut ages, mut removed) = (Vec::new(), Vec::new());
             for (rec, &(live, written_at, _)) in changed.iter().zip(&outcomes) {

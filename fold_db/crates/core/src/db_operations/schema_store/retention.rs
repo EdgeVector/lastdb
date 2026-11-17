@@ -157,7 +157,7 @@ impl SchemaStore {
             });
         }
         self.format.delete_states(keys).await?;
-        self.format.flush().await?;
+        self.runtime.flush().await?;
         Ok(())
     }
 
@@ -311,7 +311,7 @@ impl SchemaStore {
                 policy,
             })
             .await?;
-        self.format.flush().await?;
+        self.runtime.flush().await?;
         Ok(())
     }
 }

@@ -1,22 +1,23 @@
-//! Pure wire/domain schema types and field scalar validation.
+//! Pure wire/domain schema types, record key declarations, and field scalar validation.
 
 use chrono::{DateTime, Datelike, NaiveDate, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, fmt};
 
-mod alternate_keys;
 mod declarative_schemas;
 mod range_profile;
 
-pub use alternate_keys::{record_keys, AlternateKey};
 pub use declarative_schemas::DeclarativeSchemaDefinition;
 pub use range_profile::{
     compute_field_hash, field_range_profile, key_comparison, PortableSchemaId,
 };
 
 pub const IDENTITY_HASH_ALGO_VERSION: u32 = 4;
-pub const STANDARD_COMMENT_SCHEMA: &str = "social/Comment";
+
+pub(crate) fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedDeclaration {
@@ -58,13 +59,7 @@ pub enum FieldValueType {
 
 impl FieldValueType {
     pub fn validate(&self, value: &Value) -> Result<(), String> {
-        let chk = |ok: bool, exp: &str| {
-            if ok {
-                Ok(())
-            } else {
-                Err(type_err(exp, value))
-            }
-        };
+        let chk = |ok: bool, exp: &str| ok.then_some(()).ok_or_else(|| type_err(exp, value));
         match self {
             Self::Any => Ok(()),
             Self::Date => {
@@ -186,12 +181,8 @@ pub(crate) fn datetime_nanos(text: &str) -> Result<i128, String> {
 
 fn date_shape(b: &[u8]) -> bool {
     b.len() == 10
-        && b.iter().enumerate().all(|(i, c)| {
-            if matches!(i, 4 | 7) {
-                *c == b'-'
-            } else {
-                c.is_ascii_digit()
-            }
+        && b.iter().enumerate().all(|(i, &c)| {
+            (matches!(i, 4 | 7) && c == b'-') || (!matches!(i, 4 | 7) && c.is_ascii_digit())
         })
 }
 
@@ -201,9 +192,10 @@ fn datetime_shape(b: &[u8]) -> bool {
         || !matches!(b[10], b'T' | b't')
         || b[13] != b':'
         || b[16] != b':'
-        || ![11, 12, 14, 15, 17, 18]
+        || !b[11..19]
             .iter()
-            .all(|&i| b[i].is_ascii_digit())
+            .enumerate()
+            .all(|(i, c)| matches!(i, 2 | 5) || c.is_ascii_digit())
     {
         return false;
     }
@@ -234,71 +226,99 @@ pub enum DeclarativeSchemaType {
     HashRange,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct KeyConfig {
-    pub hash_field: Option<String>,
-    pub range_field: Option<String>,
-}
+pub mod record_keys {
+    use crate::field_range_profile::FieldRangeProfile;
+    use crate::{is_false, DeclarativeSchemaDefinition, DeclarativeSchemaType, FieldValueType};
+    use serde::{Deserialize, Serialize};
+    use std::collections::BTreeMap;
 
-impl DeclarativeSchemaDefinition {
-    pub fn validate_field_name(name: &str) -> Result<(), String> {
-        if matches!(name, "\u{1f}record" | "__record") {
-            return Err(format!(
-                "field name {name:?} is reserved and is not supported"
-            ));
+    const MAX_ALTERNATE_KEYS: usize = 16;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum RecordKeyKind {
+        Hash,
+        HashRange,
+    }
+
+    impl RecordKeyKind {
+        pub(crate) const fn schema_type(self) -> DeclarativeSchemaType {
+            match self {
+                Self::Hash => DeclarativeSchemaType::Hash,
+                Self::HashRange => DeclarativeSchemaType::HashRange,
+            }
         }
-        if name.is_empty()
-            || name
-                .chars()
-                .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ',' | ':'))
-        {
-            return Err(format!(
-                "field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"
-            ));
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordKeyDefinition {
+        pub kind: RecordKeyKind,
+        #[serde(default, skip_serializing_if = "is_false")]
+        pub allow_absent: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub range_type: Option<FieldValueType>,
+    }
+
+    impl RecordKeyDefinition {
+        pub fn range_profile(&self) -> Result<FieldRangeProfile, String> {
+            if matches!(
+                (self.kind, &self.range_type),
+                (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_))
+            ) {
+                FieldRangeProfile::for_field_type(self.range_type.as_ref())
+            } else {
+                Err("hash keys have no range type; hash_range keys require one".into())
+            }
         }
-        Ok(())
-    }
 
-    #[must_use]
-    pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
-        self.field_types
-            .get(field_name)
-            .unwrap_or(&FieldValueType::Any)
-    }
-
-    #[must_use]
-    pub fn identity_is_newer_than_binary(&self) -> bool {
-        refuses_identity_downgrade(
-            self.identity_hash.as_deref(),
-            self.identity_hash_algo_version,
-        )
-        .is_some()
-    }
-
-    #[must_use = "a refused downgrade must be surfaced, not dropped"]
-    pub fn recompute_identity_hash_unless_newer(&mut self) -> IdentityRecompute {
-        if let Some(stored) = refuses_identity_downgrade(
-            self.identity_hash.as_deref(),
-            self.identity_hash_algo_version,
-        ) {
-            return IdentityRecompute::RefusedDowngrade {
-                stored,
-                binary: IDENTITY_HASH_ALGO_VERSION,
-            };
+        pub fn validate_coordinates(
+            &self,
+            hash: Option<&str>,
+            range: Option<&str>,
+        ) -> Result<(), String> {
+            if hash.is_none_or(str::is_empty) {
+                return Err("a record address requires a nonempty hash".into());
+            }
+            if !matches!(
+                (self.kind, range),
+                (RecordKeyKind::Hash, None) | (RecordKeyKind::HashRange, Some(_))
+            ) || range.is_some_and(str::is_empty)
+            {
+                return Err("record address differs from the declared key shape".into());
+            }
+            self.range_profile()?
+                .encode_value(range.unwrap_or_default())
+                .map(|_| ())
         }
-        self.compute_identity_hash();
-        IdentityRecompute::Recomputed
     }
 
-    #[must_use]
-    pub fn get_identity_hash(&self) -> Option<&String> {
-        self.identity_hash.as_ref()
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RecordKeys {
+        pub primary: RecordKeyDefinition,
+        pub alternates: BTreeMap<String, RecordKeyDefinition>,
     }
 
-    pub fn normalize_wire(&mut self) {
-        self.hash = None;
-        if self.identity_hash.is_none() && self.owner_app_id.is_some() {
-            self.compute_identity_hash();
+    impl RecordKeys {
+        pub fn validate(&self) -> Result<(), String> {
+            if self.primary.allow_absent {
+                return Err("a primary key cannot allow an absent address".into());
+            }
+            self.primary.range_profile()?;
+            if self.alternates.len() > MAX_ALTERNATE_KEYS {
+                return Err(format!(
+                    "a schema permits at most {MAX_ALTERNATE_KEYS} alternate keys"
+                ));
+            }
+            for (name, key) in &self.alternates {
+                DeclarativeSchemaDefinition::validate_field_name(name)?;
+                if name == "primary" {
+                    return Err("primary is reserved as an alternate key name".into());
+                }
+                key.range_profile()?;
+            }
+            Ok(())
         }
     }
 }

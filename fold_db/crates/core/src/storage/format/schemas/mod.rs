@@ -126,7 +126,6 @@ pub(crate) fn schema_input<'a>(
     let keys = schema.require_record_keys()?;
     schema
         .validate_definition()
-        .and_then(|()| schema.validate_key_field_types())
         .and_then(|()| keys.validate())
         .map_err(SchemaError::InvalidData)?;
     if schema.file_required {
@@ -169,10 +168,6 @@ impl SchemaFormat {
 
     pub(crate) fn runtime(&self) -> Arc<PackRuntime> {
         Arc::clone(&self.runtime)
-    }
-
-    pub(crate) async fn flush(&self) -> StorageResult<()> {
-        self.runtime.flush().await
     }
 
     pub(crate) async fn put_schema(&self, input: SchemaInput<'_>) -> StorageResult<()> {

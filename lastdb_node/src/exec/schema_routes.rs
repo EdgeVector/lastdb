@@ -337,8 +337,6 @@ pub(super) fn check_owned_local(
             || s.descriptive_name != p.descriptive_name
             || s.schema_type != p.schema_type
             || s.record_keys != p.record_keys
-            || s.key != p.key
-            || s.alternate_keys != p.alternate_keys
             || inst.is_some()
         {
             return Err(BREAKING_CHANGE.into());

@@ -128,7 +128,7 @@ impl RecordStore {
             .await
     }
 
-    pub async fn applied_delete_revision(
+    pub(crate) async fn applied_delete_revision(
         &self,
         schema: &Schema,
         key: &KeyValue,
@@ -160,7 +160,7 @@ impl RecordStore {
         let base = record_hash_prefix(&space, &codec.storage_hash(&space, hash).map_err(invalid)?);
         let stored = |r: &str| {
             codec
-                .storage_range(&space, r)
+                .storage_range(r)
                 .map(|s| format!("{base}{s}"))
                 .map_err(invalid)
         };

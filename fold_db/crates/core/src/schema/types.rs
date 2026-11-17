@@ -114,8 +114,6 @@ pub mod catalog_types {
         pub record_keys: Option<schema_types::record_keys::RecordKeys>,
         pub fields: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub hash: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         pub identity_hash: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         pub owner_app_id: Option<String>,
@@ -131,7 +129,6 @@ pub mod catalog_types {
                 schema_type: s.schema_type.clone(),
                 record_keys: s.record_keys.clone(),
                 fields: s.fields.clone(),
-                hash: s.hash.clone(),
                 identity_hash: s.identity_hash.clone(),
                 owner_app_id: s.owner_app_id.clone(),
                 state,

@@ -129,20 +129,11 @@ impl SchemaStore {
         schema: &Schema,
         live: impl Iterator<Item = &'k KeyValue>,
     ) -> Result<(), SchemaError> {
-        let partitioned = match schema.schema_type {
-            DeclarativeSchemaType::Range => false,
-            DeclarativeSchemaType::HashRange => true,
-            DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => return Ok(()),
-        };
+        if schema.schema_type != DeclarativeSchemaType::HashRange {
+            return Ok(());
+        }
         let keys: Vec<(String, String)> = live
-            .map(|k| {
-                let h = if partitioned {
-                    k.hash.clone().unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                (h, range_of(k).to_owned())
-            })
+            .map(|k| (k.hash.clone().unwrap_or_default(), range_of(k).to_owned()))
             .collect();
         if keys.is_empty() {
             return Ok(());
@@ -163,10 +154,7 @@ impl SchemaStore {
             .get_schema(schema_name)
             .await?
             .ok_or_else(|| SchemaError::NotFound(schema_name.to_owned()))?;
-        if !matches!(
-            schema.schema_type,
-            DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange
-        ) {
+        if schema.schema_type != DeclarativeSchemaType::HashRange {
             return Ok(());
         }
         let profile = schema

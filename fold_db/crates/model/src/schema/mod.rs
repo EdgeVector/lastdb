@@ -11,6 +11,8 @@ pub use crate::keys::{QueryCursor, SortOrder};
 pub use logical_rules::{require_logical_filter, require_logical_layout};
 pub use types::Schema;
 
+pub const STANDARD_COMMENT_SCHEMA: &str = "social/Comment";
+
 #[derive(Debug, Clone, Serialize)]
 pub enum SchemaError {
     NotFound(String),
@@ -216,7 +218,7 @@ pub mod types {
     };
     pub use operations::{MutationType, Operation, Query, SortOrder};
     pub use schema::{DeclarativeSchemaType as SchemaType, Schema};
-    pub use schema_types::{FieldValueType, KeyConfig};
+    pub use schema_types::FieldValueType;
 
     pub mod field {
         use super::key_value::KeyValue;
@@ -330,18 +332,6 @@ pub mod types {
             fn from(mut wire: schema_types::DeclarativeSchemaDefinition) -> Self {
                 wire.normalize_wire();
                 Self { wire }
-            }
-        }
-
-        impl From<&DeclarativeSchemaDefinition> for schema_types::DeclarativeSchemaDefinition {
-            fn from(s: &DeclarativeSchemaDefinition) -> Self {
-                s.to_wire()
-            }
-        }
-
-        impl From<DeclarativeSchemaDefinition> for schema_types::DeclarativeSchemaDefinition {
-            fn from(s: DeclarativeSchemaDefinition) -> Self {
-                s.to_wire()
             }
         }
 

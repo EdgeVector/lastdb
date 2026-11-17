@@ -240,7 +240,7 @@ fn commit_json(r: &ResidentCommitReceipt, extra: Value) -> Value {
             "created": r.operations.created, "updated": r.operations.updated,
             "deleted": r.operations.deleted, "total": r.operations.total(),
         },
-        "durability": r.durability.as_str(),
+        "durability": "durable",
         "resident_stages_us": { "prepare": r.stages.prepare_us, "ack": r.stages.ack_us },
     });
     if let (Some(map), Value::Object(extra_map)) = (base.as_object_mut(), extra) {
