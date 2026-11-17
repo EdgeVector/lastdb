@@ -58,6 +58,9 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `replace` writes only when the record is still at `revision`, the revision the caller read. It carries the complete record.
 - `delete` deletes only when the record is still at `revision`. It carries no record.
 - A mutation whose condition does not hold refuses the whole list with `409 conflict`. The caller reads again and decides.
+- Every such refusal has the same message. A `delete` of a key that holds no
+  record and a `delete` at the wrong revision are the same reply, so a refusal
+  does not say whether a key exists.
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
 - The list is all or nothing. Every mutation in one list names the same database.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
@@ -196,7 +199,15 @@ A node serves two sockets in its data directory.
   its `write` list, and an extension only one in its `extensions` list. Anything
   else is `permission_denied`. A read refusal is per item; a write refusal
   refuses the list.
-- The name must be the declared name exactly.
+- The name must be the declared name exactly, and it must be the exact name of a
+  schema on the node. A loose spelling that the owner socket would resolve is
+  `not_found` here. An undeclared name is still `permission_denied`.
+- An app holds at most four live sessions. A fifth replaces that app's oldest,
+  so an app that starts on every command cannot use up the node's sessions.
+- The app socket has its own four workers and its own request budget. Load on
+  it can delay only other requests on the app socket, never the owner socket.
+- A request body on the app socket is at most 8 MiB. A larger one answers
+  `too_large`.
 - `changes` returns only entries for schemas in the `read` list. Without a
   `schemas` filter it returns all of those.
 - The owner socket is not limited by any of this.
@@ -225,6 +236,10 @@ directly.
 - On other platforms no sandbox tool is chosen yet. The app still gets only the
   app socket and a session, which holds an app that does not try to get around it.
 - An app that declares no LastDB access is linked and started as before.
+- A command name belongs to one installed app. Install refuses a name that
+  another installed app lists, and refuses to replace a path in `~/.local/bin`
+  that this app did not install. A command name is a plain file name of at most
+  64 bytes. When two restricted apps list one name, the launcher starts neither.
 - A program the owner starts by hand is not restricted. Only apps from the
   registry are.
 
