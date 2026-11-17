@@ -4,8 +4,13 @@ use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
 use crate::named_grant::{self, ConfigError, ConfigUpdate, MemberIntent};
 use crate::share_invitation::ShareContact;
-use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::Digest;
+
+/// Size limit of a whole-configuration write. The body names every member,
+/// about 110 bytes each plus any write scope, so this bounds the member set a
+/// single write can name at roughly 100,000. The service has no such bound:
+/// the node sends it only the entries that change, a few at a time.
+const CONFIG_BODY_MAX: u64 = 16 * 1024 * 1024;
 
 pub(super) enum Route {
     Config,
@@ -56,7 +61,7 @@ pub(super) async fn execute(
 }
 
 async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
-    let update: ConfigUpdate = decode(req, CONTROL_JSON_MAX_BYTES)?;
+    let update: ConfigUpdate = decode(req, CONFIG_BODY_MAX)?;
     crate::log_sync::validate_write_scopes(host, entry, &update)?;
     let id = &entry.id;
     let request_id = update.request_id.clone();
