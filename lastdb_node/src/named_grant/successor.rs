@@ -8,9 +8,6 @@ use cloud_backup_protocol::v2::share_access::{
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{DecimalU64, Digest};
 
-/// Service transaction limit: 100 items, minus the head check and the document.
-const MEMBER_LIMIT: usize = 98;
-
 pub(super) struct SignedUpdate {
     pub body: Vec<u8>,
     pub revision: u64,
@@ -99,9 +96,6 @@ pub(super) fn sign_members(
     document: &MemberListReadResponse,
     mut members: Vec<ShareMember>,
 ) -> Result<SignedUpdate, String> {
-    if members.len() > MEMBER_LIMIT {
-        return Err("mutation_log.transaction".into());
-    }
     members.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
     let revision = document
         .revision
