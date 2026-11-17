@@ -1,10 +1,9 @@
-//! Install instructions, step execution, atomic command links, and git source verification.
+//! Install instructions, atomic command links, and git source verification.
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command as ProcessCommand, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command as ProcessCommand;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -124,64 +123,6 @@ impl InstallPlan {
         let bytes = app_identity_crypto::canonicalize(&val).map_err(str_err)?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
-}
-
-pub(super) fn steps(
-    source: &Path,
-    home: &Path,
-    app: &str,
-    list: &[InstallStep],
-) -> Result<(), String> {
-    let pass =
-        "HOME PATH TMPDIR USER LOGNAME SSH_AUTH_SOCK LASTDB_APPS_ROOT LANG LAST_STACK_APPS_OFF";
-    let data = home.join("data");
-    let sock = lastdb_node::lastdb_uds::socket_path(&data);
-    for step in list {
-        let mut cmd = ProcessCommand::new(&step.argv[0]);
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        cmd.args(&step.argv[1..]).current_dir(source).env_clear();
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::from(std::io::stderr()))
-            .stderr(Stdio::inherit());
-        cmd.envs(
-            pass.split_whitespace()
-                .filter_map(|k| Some((k, std::env::var_os(k)?))),
-        );
-        cmd.env("LASTDB_HOME", home).env("LASTDB_DATA_DIR", &data);
-        cmd.env("LASTDB_SOCKET", &sock).env("LASTDB_APP_ID", app);
-        cmd.env("LASTDB_APP_SOURCE_DIR", source)
-            .env("LAST_STACK_SETUP_PRESERVE_SERVICES", "1");
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("cannot run {}: {e}", step.argv[0]))?;
-        let start = Instant::now();
-        loop {
-            if let Some(st) = child.try_wait().map_err(str_err)? {
-                if st.code().is_some_and(|c| step.accept_exit.contains(&c)) {
-                    break;
-                }
-                return Err(format!("install step {} exited {st}", step.argv[0]));
-            }
-            if start.elapsed() >= Duration::from_secs(step.timeout_s) {
-                #[cfg(unix)]
-                let _ = ProcessCommand::new("/bin/kill")
-                    .args(["-KILL", &format!("-{}", child.id())])
-                    .output();
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "install step {} exceeded {} seconds",
-                    step.argv[0], step.timeout_s
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-    Ok(())
 }
 
 fn bin_link_path(bin: &Path, command: &str) -> Result<PathBuf, String> {
