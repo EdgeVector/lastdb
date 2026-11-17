@@ -346,6 +346,19 @@ def app_socket(node):
     print("App socket: a fifth session for one app replaces its oldest, "
           "and another app's session stays", flush=True)
 
+    # Larger than APP_MAX_BODY_LEN in lastdb_node/src/exec/uds_server.rs.
+    oversized = b'{"reads":[]}' + b" " * (8 * 1024 * 1024)
+    status, raw, _, _, _ = send_unix_request(
+        sock, "POST", "/v1/read", oversized, {"Content-Type": "application/json"})
+    reply = json.loads(raw)
+    require(status == 413 and reply["error"]["code"] == "too_large",
+            f"a body over 8 MiB on the app socket was not refused: {status} {reply!r}")
+    owner = node.call("/v1/read", {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}}]})[0]
+    require(len(owner["results"][0]["records"]) == 1,
+            "the owner socket did not answer after the app socket refused a large body")
+    print("App socket: a body over 8 MiB is refused, and the owner socket still answers",
+          flush=True)
+
 
 def exercise(node):
     extension_names(node)

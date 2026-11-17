@@ -10,6 +10,42 @@ pub const MAX_LINE_LEN: usize = 8 * 1024;
 pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 
+/// How far `receive_connection` reads a body, and who answers when it is over.
+#[derive(Clone, Copy)]
+pub struct ReadPolicy {
+    max_body: usize,
+    allow_raw_blob: bool,
+    drain_oversize: bool,
+    defer_oversize: bool,
+}
+
+impl ReadPolicy {
+    /// Owner socket. `max_body` is the non-file limit. A raw file upload keeps
+    /// its own allowance. An oversize body is refused here, without reading it.
+    #[must_use]
+    pub const fn owner(max_body: usize) -> Self {
+        Self {
+            max_body,
+            allow_raw_blob: true,
+            drain_oversize: false,
+            defer_oversize: false,
+        }
+    }
+
+    /// App socket. Every body, including a raw upload, stops at `max_body`.
+    /// The extra bytes are discarded and the caller writes the refusal, so the
+    /// app API can use its own error shape and the client can read it.
+    #[must_use]
+    pub const fn app(max_body: usize) -> Self {
+        Self {
+            max_body,
+            allow_raw_blob: false,
+            drain_oversize: true,
+            defer_oversize: true,
+        }
+    }
+}
+
 const MAX_HEADER_COUNT: usize = 256;
 const UDS_CONN_BUDGET: Duration = Duration::from_secs(10);
 
@@ -92,7 +128,7 @@ fn read_line<R: BufRead>(r: &mut R) -> Result<Option<Vec<u8>>, HttpErr> {
     }
 }
 
-fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, HttpErr> {
+fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<UdsRequest, HttpErr> {
     let line = read_line(&mut reader)?.ok_or(HttpErr::Silent)?;
     let s = std::str::from_utf8(&line).map_err(|_| HttpErr::Bad)?;
     let [method, target, version] = s.split(' ').collect::<Vec<_>>()[..] else {
@@ -131,7 +167,7 @@ fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, HttpErr> {
     {
         return Err(HttpErr::Bad);
     }
-    let body = read_body(&mut reader, &headers, &method, &target)?;
+    let body = read_body(&mut reader, &headers, &method, &target, policy)?;
     Ok(UdsRequest {
         method,
         target,
@@ -140,11 +176,25 @@ fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, HttpErr> {
     })
 }
 
+fn discard_exact(r: &mut impl Read, mut left: usize) -> Result<(), HttpErr> {
+    let mut buf = [0u8; 8192];
+    while left > 0 {
+        let nread = left.min(buf.len());
+        let n = r.read(&mut buf[..nread])?;
+        if n == 0 {
+            return Err(HttpErr::Bad);
+        }
+        left -= n;
+    }
+    Ok(())
+}
+
 fn read_body(
     r: &mut impl Read,
     headers: &[(String, String)],
     method: &str,
     target: &str,
+    policy: &ReadPolicy,
 ) -> Result<Vec<u8>, HttpErr> {
     let put_path = target == "/api/db/put-blob"
         || super::split_database_path(target).is_some_and(|(_, p)| p == "db/put-blob");
@@ -155,10 +205,10 @@ fn read_body(
     let raw_blob = method == "POST"
         && put_path
         && octet.is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
-    let max = if raw_blob {
+    let max = if raw_blob && policy.allow_raw_blob {
         fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
     } else {
-        MAX_BODY_LEN as u64
+        policy.max_body as u64
     };
     let (mut len, mut seen) = (0usize, false);
     for (n, v) in headers {
@@ -171,6 +221,9 @@ fn read_body(
         }
     }
     if len as u64 > max {
+        if policy.drain_oversize {
+            discard_exact(r, len)?;
+        }
         return Err(HttpErr::BodyLarge);
     }
     let mut body = Vec::new();
@@ -251,27 +304,43 @@ fn write_with_budget(
     Ok(())
 }
 
+pub enum Received {
+    Ready(UdsRequest, AccessContext),
+    Finished,
+    BodyTooLarge,
+}
+
+fn http_refusal(err: &HttpErr) -> Option<(u16, &'static str)> {
+    match err {
+        HttpErr::Silent => None,
+        HttpErr::Bad => Some((400, "Bad Request")),
+        HttpErr::Version => Some((505, "HTTP Version Not Supported")),
+        HttpErr::HeadersLarge => Some((431, "Request Header Fields Too Large")),
+        HttpErr::BodyLarge => Some((413, "Payload Too Large")),
+    }
+}
+
+fn refuse_http(stream: &mut UnixStream, err: &HttpErr) -> io::Result<Received> {
+    let Some((status, reason)) = http_refusal(err) else {
+        return Ok(Received::Finished);
+    };
+    finish_connection(stream, &UdsResponse::new(status, reason, reason.into()))?;
+    Ok(Received::Finished)
+}
+
 pub fn receive_connection(
     stream: &mut UnixStream,
     owner: &str,
-) -> io::Result<Option<(UdsRequest, AccessContext)>> {
+    policy: &ReadPolicy,
+) -> io::Result<Received> {
     let r = stream.try_clone()?;
-    match read_request(io::BufReader::new(DeadlineStream(
-        &r,
-        Instant::now() + UDS_CONN_BUDGET,
-    ))) {
-        Ok(req) => Ok(Some((req, AccessContext::owner(owner)))),
-        Err(HttpErr::Silent) => Ok(None),
-        Err(err) => {
-            let (st, reason) = match err {
-                HttpErr::Version => (505, "HTTP Version Not Supported"),
-                HttpErr::HeadersLarge => (431, "Request Header Fields Too Large"),
-                HttpErr::BodyLarge => (413, "Payload Too Large"),
-                HttpErr::Bad | HttpErr::Silent => (400, "Bad Request"),
-            };
-            finish_connection(stream, &UdsResponse::new(st, reason, reason.into()))?;
-            Ok(None)
-        }
+    match read_request(
+        io::BufReader::new(DeadlineStream(&r, Instant::now() + UDS_CONN_BUDGET)),
+        policy,
+    ) {
+        Ok(req) => Ok(Received::Ready(req, AccessContext::owner(owner))),
+        Err(HttpErr::BodyLarge) if policy.defer_oversize => Ok(Received::BodyTooLarge),
+        Err(err) => refuse_http(stream, &err),
     }
 }
 

@@ -280,6 +280,17 @@ impl UdsWorkerPool {
             fold_db::env_flag::var_or("LASTDB_UDS_WORKERS", cpus.saturating_mul(2).clamp(8, 64))
                 .max(1);
         let queue_capacity = fold_db::env_flag::var_or("LASTDB_UDS_QUEUE", 256usize).max(1);
+        Self::start(workers, queue_capacity, "lastdb-uds-worker")
+    }
+
+    /// A pool whose size is fixed in code. The app socket uses one so its
+    /// connections cannot take the workers that serve the owner.
+    #[must_use]
+    pub fn fixed(workers: usize, queue_capacity: usize) -> Self {
+        Self::start(workers.max(1), queue_capacity.max(1), "lastdb-uds-app")
+    }
+
+    fn start(workers: usize, queue_capacity: usize, name: &str) -> Self {
         let inner = Arc::new(PoolInner {
             workers,
             queue_capacity,
@@ -292,7 +303,7 @@ impl UdsWorkerPool {
         for i in 0..workers {
             let pool = Arc::clone(&inner);
             let b = thread::Builder::new()
-                .name(format!("lastdb-uds-worker-{i}"))
+                .name(format!("{name}-{i}"))
                 .stack_size(stack);
             b.spawn(move || {
                 let slot = Arc::new(Slot {
