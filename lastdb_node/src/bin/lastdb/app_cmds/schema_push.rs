@@ -255,15 +255,17 @@ fn signed_body(push: &Request<'_>, schemas: Value) -> Result<Value, String> {
         .map_err(|_| push_failure("cannot build the schema push statement"))?;
     let publisher_sig = BASE64.encode(sign(push.key, &statement));
     let publisher_key = BASE64.encode(push.key.verifying_key().as_bytes());
-    Ok(json!({
-        "app_id": app_id,
-        "channel": channel,
-        "api_version": api_version,
-        "sha": sha,
-        "schemas": schemas,
-        "publisher_key": publisher_key,
-        "publisher_sig": publisher_sig,
-    }))
+    // Move `schemas` in. `json!` only borrows it, so the signed value and the
+    // sent value would be two copies.
+    let mut body = Map::new();
+    body.insert("app_id".into(), Value::String(app_id.to_owned()));
+    body.insert("channel".into(), Value::String(channel.to_owned()));
+    body.insert("api_version".into(), json!(api_version));
+    body.insert("sha".into(), Value::String(sha.to_owned()));
+    body.insert("schemas".into(), schemas);
+    body.insert("publisher_key".into(), Value::String(publisher_key));
+    body.insert("publisher_sig".into(), Value::String(publisher_sig));
+    Ok(Value::Object(body))
 }
 
 fn required_str<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
