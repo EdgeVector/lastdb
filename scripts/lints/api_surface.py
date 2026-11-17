@@ -32,7 +32,8 @@ that lastdb_node/app-api.json lists exactly the app API paths this node
 serves: every route in `routes` that starts with `/v1/`, and `/v1/x/<name>`
 for each name in `extensions`. `app_routes` is the SDK `/api` list and is not
 part of that file. `info.version` must equal `api_version`. The record-home
-operation checks the bodies.
+operation checks the bodies. The SDK types for those bodies are generated
+and checked by scripts/lints/app_api_types.py.
 """
 
 import argparse

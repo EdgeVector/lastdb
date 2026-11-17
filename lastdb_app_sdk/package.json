@@ -1,6 +1,6 @@
 {
   "name": "@lastdb/app-sdk",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Runtime SDK for LastDB apps — connect, query, mutate, manage blobs, and work with named and shared databases.",
   "license": "Apache-2.0",
   "keywords": [

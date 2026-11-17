@@ -7,12 +7,13 @@ generated from the node source), and run keyed reads, single and batch
 conditional mutations, record file/blob operations, membership lists, named
 databases, and short-lived scoped database sessions. `read`, `write`, and
 `changes` call the app API. The older methods still work.
-Those shapes are defined in `lastdb_node/app-api.json`.
+Those shapes are defined in `lastdb_node/app-api.json`. The TypeScript types
+are generated from that file.
 
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.15.0.tgz
+npm install /path/to/lastdb-app-sdk-0.17.0.tgz
 ```
 
 Build a tarball from this directory with `npm ci`, `npm run build`, and
@@ -316,19 +317,41 @@ the JSON body.
 
 - `read(reads)` posts `{ reads }` to `POST /v1/read` and returns one result per
   read, in order. A result is `{ records, next_cursor }`, `{ keys, next_cursor }`
-  when the read sets `keys_only: true`, or `{ error: { code, message } }`. A
-  per-item error is returned. It is not thrown. Each read names `schema` and
+  when the read sets `keys_only: true`, or `{ error: { code, message, index?, reason? } }`.
+  A per-item error is returned. It is not thrown. Each read names `schema` and
   exactly one of `key` or `range`, and may set `via`, `limit`, `cursor`,
   `file: true`, and `keys_only: true`. A read with `keys_only: true` and
   neither `key` nor `range` lists the primary keys of the schema; follow
-  `next_cursor` for the next page.
+  `next_cursor` for the next page. `range` is one of three forms: hash alone,
+  hash plus `prefix`, or hash plus `start` and `end`.
 - `write(mutations)` posts `{ mutations }` to `POST /v1/write` and returns
   `{ written, revisions }` after the write is on disk. `create` carries
-  `record` and optional `alternates` and `file`. `replace` adds `revision`.
-  `delete` carries `revision` only. `file` is `{ path, name?, media_type? }`,
-  a path on disk, not bytes. Every mutation in one list names the same database.
+  `record` and optional `alternates` and `file`, and no `revision`. `replace`
+  adds `revision`. `delete` carries `revision`, and may carry an empty
+  `alternates` object. It carries no `record` and no `file`. `file` is
+  `{ path, name?, media_type? }`, a path on disk, not bytes. Every mutation
+  in one list names the same database.
 - `changes({ after?, limit?, schemas?, database? })` posts that object to
   `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
+  Omit `after` and the read starts at 0.
+
+Version 0.17.0 takes the app API types from `lastdb_node/app-api.json`.
+Regenerate them with `python3 scripts/lints/app_api_types.py --write`.
+CI runs the same script with `--check` and fails when the committed file differs.
+The hand-written `AppApi*` names are removed. Use the schema names:
+`ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`, `ChangeEntry`,
+`ReadResult`, `WriteResult`, `Record`, `FileInfo`, `FileLink`, `Range`,
+`ErrorEnvelope`, `WriteCreate`, `WriteReplace`, and `WriteDelete`.
+`AppApiError` is still the class for a non-200 reply.
+
+A read list holds at most 64 items. A read page defaults to 100 and is capped
+at 1000. A changes page defaults to 500 and is capped at 500. The node keeps
+the newest 250000 change entries. The app socket accepts a body of at most
+8388608 bytes. A manifest access list holds at most 256 names. The constants
+are `APP_API_READS_PER_REQUEST`, `APP_API_READ_PAGE_DEFAULT`,
+`APP_API_READ_PAGE_CAP`, `APP_API_CHANGES_PAGE_DEFAULT`,
+`APP_API_CHANGES_PAGE_CAP`, `APP_API_CHANGES_KEPT`,
+`APP_API_MANIFEST_ACCESS_ENTRIES`, and `APP_API_MAX_BODY_BYTES`.
 
 A non-200 reply throws `AppApiError` with `status`, `code`, and `message`
 from `{ "error": { "code", "message" } }`. A refusal that names one mutation
