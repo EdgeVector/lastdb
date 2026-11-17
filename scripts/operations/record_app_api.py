@@ -201,7 +201,8 @@ def files(node):
     with_path = lambda name: read(node, {"schema": BY_ID, "key": {"hash": name}, "file": True})[0]
     first = write(node, {**by_id("filed", "b8", "v1"), "file": link})[0]
     plain = stored(node, "filed")["file"]
-    require(plain == {"name": "whiteboard.txt", "media_type": "text/plain", "size": original.stat().st_size},
+    require(plain == {"name": "whiteboard.txt", "media_type": "text/plain",
+                      "size": original.stat().st_size, "local": str(original)},
             "a read did not report the linked file: " + repr(plain))
     linked = with_path("filed")["records"][0]["file"]
     require(linked == {**plain, "path": str(original)}, "a read did not return the file's path: " + repr(linked))
@@ -222,7 +223,22 @@ def files(node):
     original.unlink()
     lost = with_path("filed")
     require(lost.get("error", {}).get("code") == "not_found", "a missing original was not reported: " + repr(lost))
-    require(stored(node, "filed")["file"] == plain, "a read without a path failed for a missing original")
+    gone = stored(node, "filed")["file"]
+    require(gone == {**plain, "local": None}, "a read without a path failed for a missing original")
+    place = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True) / f"app-api-place-{os.getpid()}"
+    data = place / "exercise" / "data"
+    data.mkdir(parents=True, mode=0o700)
+    token = node.call("/api/apps/session", {"app": "exercise", "access": {"read": [BY_ID], "write": [], "extensions": []}, "data": str(data)})[0]["session"]
+    headers = {"Content-Type": "application/json", "X-LastDB-App-Session": token}
+    status, raw, _, _, _ = send_unix_request(
+        Path(node.socket).with_name("apps.sock"), "POST", "/v1/read",
+        {"reads": [{"schema": BY_ID, "key": {"hash": "filed"}}]}, headers)
+    placed = json.loads(raw)["results"][0]["records"][0]["file"]
+    require(status == 200 and placed == gone and not (data / "files").exists(),
+            "an app read wrote a file or reported another local path: " + repr(placed))
+    data.rmdir()
+    data.parent.rmdir()
+    place.rmdir()
     write(node, delete(BY_ID, {"hash": "filed"}, second))
     folder.rmdir()
     print("App API files: a path on create, the same path on read, kept across a replace, "

@@ -38,6 +38,7 @@ macro_rules! heap_route {
 
 mod admin_routes;
 mod app_api;
+mod app_data;
 mod app_session;
 mod database_owned;
 mod database_routes;

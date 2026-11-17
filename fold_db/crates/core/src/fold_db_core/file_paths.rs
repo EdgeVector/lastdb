@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use lastdb_model::record_value::FileMarker;
+
 use super::FoldDB;
 use crate::error::FoldDbError;
 use crate::schema::types::KeyValue;
@@ -40,6 +42,43 @@ impl FoldDB {
                     marker,
                 )?;
                 Ok(found.map(|(path, intact)| LocalRecordFile { path, intact }))
+            })
+            .await
+    }
+
+    /// Bytes LastDB holds for a record's file. `None` when the record has no
+    /// file, names a local reference, or does not hold the bytes in its home.
+    pub async fn record_file_owned_bytes(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(async {
+                let (rk, record) = self.read_file_record(schema_name, key, None).await?;
+                let Some((marker, ver)) = record
+                    .as_ref()
+                    .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
+                else {
+                    return Ok(None);
+                };
+                let referenced = crate::storage::local_file_ref::referenced_path(
+                    &self.db_ops.native_runtime(),
+                    &record_file_path(&rk, ver)?,
+                    marker,
+                )?;
+                if referenced.is_some() {
+                    return Ok(None);
+                }
+                let bytes = self
+                    .db_ops
+                    .records()
+                    .format
+                    .open_owned_record_file(&rk, ver, marker)
+                    .await?;
+                Ok(bytes.map(|bytes| (marker.clone(), bytes)))
             })
             .await
     }

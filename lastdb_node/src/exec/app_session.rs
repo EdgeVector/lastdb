@@ -34,6 +34,9 @@ struct IssueBody {
     app: String,
     #[serde(default)]
     access: AccessBody,
+    /// Absolute path of `<apps root>/<app>/data`. Absent keeps today's path reply.
+    #[serde(default)]
+    data: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -66,6 +69,10 @@ pub(in crate::exec) fn issue_route(
         if !crate::profile::valid_label_64(&body.app) {
             return Err(HostError::new(400, "invalid app id"));
         }
+        let data_dir = match body.data.as_deref() {
+            None => None,
+            Some(data) => Some(super::app_data::accept(&host.home, &body.app, data)?),
+        };
         let AccessBody {
             read,
             write,
@@ -73,7 +80,7 @@ pub(in crate::exec) fn issue_route(
         } = body.access;
         let token = host
             .app_sessions
-            .issue(AppGrant::new(body.app, read, write, extensions))
+            .issue(AppGrant::new(body.app, read, write, extensions, data_dir))
             .ok_or_else(|| HostError::new(503, "app session limit reached"))?;
         Ok(json!({
             "session": token,

@@ -161,6 +161,20 @@ impl RecordFormat {
         Ok(cas.map(|_| None)?)
     }
 
+    /// Bytes this node sealed for the file. A local reference is not opened.
+    pub(crate) async fn open_owned_record_file(
+        &self,
+        key: &str,
+        version: &Position,
+        file_marker: &FileMarker,
+    ) -> Result<Option<Vec<u8>>, FoldDbError> {
+        let path = record_file_path(key, version)?;
+        let Some(row) = self.cas().await?.get(path.as_bytes()).await? else {
+            return Ok(None);
+        };
+        decrypt_file_row(&self.content_key, file_marker, &row).map(Some)
+    }
+
     pub(crate) async fn record_delete_audit(
         &self,
         entry: RecordDeleteLedgerEntry,
