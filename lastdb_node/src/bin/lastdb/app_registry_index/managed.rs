@@ -176,7 +176,8 @@ fn stage_version(
     }
     steps(&source, home, &entry.app_id, &plan.prepare)?;
     managed_manifest::validate_sources(&source, &plan)?;
-    if !inactive {
+    // A restricted app is probed after activation places its schemas.
+    if entry.access.is_none() && !inactive {
         steps(&source, home, &entry.app_id, &plan.probe)?;
     }
     let suffix = format!("/{}/api/{}.json", entry.channel, entry.api_version);
@@ -252,8 +253,14 @@ fn activate(root: &Path, version: &Path, home: &Path, new: &ManagedReceipt) -> R
     super::command_names::ensure_available(root, &new.app_id, &plan, restricted, &owned)?;
     let snap = managed_manifest::snapshot(&plan)?;
     managed_manifest::flip(&root.join("current"), version)?;
-    if let Err(error) =
-        apply_links(root, home, new, &plan, &owned).and_then(|()| verify(root, Some(home), new))
+    let declared = if restricted {
+        super::place_schemas::place(&version.join("source"), &new.app_id, home)
+    } else {
+        Ok(())
+    };
+    if let Err(error) = declared
+        .and_then(|()| apply_links(root, home, new, &plan, &owned))
+        .and_then(|()| verify(root, Some(home), new))
     {
         if let Some(ref target) = old {
             managed_manifest::flip(&root.join("current"), target)?;
