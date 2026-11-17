@@ -6,7 +6,7 @@ use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::KeyValue;
 use serde_json::{json, Value};
 
-use super::app_session::active_app;
+use super::calling_app::active_app;
 use super::reply::{content_free, json_ok, status_reason, HostError};
 use super::schema_routes::resolve_schema_name;
 use crate::host::owned::ResolvedStore;

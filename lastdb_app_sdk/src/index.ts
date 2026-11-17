@@ -9,6 +9,7 @@ export { connect, LastDbClient, ownerClient } from './client.js';
 export type { LastDbClientOptions, OwnerClientOptions } from './client.js';
 
 export { AppApiError } from './appApi.js';
+export type { AppRegistration } from './appApi.js';
 export type {
   AlternateValue,
   Alternates,

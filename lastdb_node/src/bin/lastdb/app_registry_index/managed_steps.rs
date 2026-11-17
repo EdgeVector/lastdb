@@ -1,6 +1,6 @@
 //! Install steps. An unrestricted app runs them as before.
 //!
-//! A restricted app does not receive the owner socket or an app session.
+//! A restricted app does not receive the owner socket or `LASTDB_APP`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

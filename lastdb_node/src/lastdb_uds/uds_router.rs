@@ -15,7 +15,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 pub const API_VERSION: u32 = 37;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
-/// that holds an app session.
+/// the node has registered by app id.
 pub const APP_SOCKET_FILE_NAME: &str = "apps.sock";
 pub const DATABASES_PATH: &str = "/api/databases";
 pub const DATABASE_SCOPE_PREFIX: &str = "/api/databases/";
@@ -158,7 +158,7 @@ pub enum DataRoute {
     V1Read,
     V1Write,
     V1Changes,
-    AppSession,
+    AppRegister,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +227,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/v1/read" => Some(("POST", V1Read)),
         "/v1/write" => Some(("POST", V1Write)),
         "/v1/x/changes" => Some(("POST", V1Changes)),
-        "/api/apps/session" => Some(("POST", AppSession)),
+        "/api/apps/session" => Some(("POST", AppRegister)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),
         _ if path
