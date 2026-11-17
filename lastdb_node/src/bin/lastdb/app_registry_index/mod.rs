@@ -352,7 +352,7 @@ pub(crate) fn authorized_transition(
     }
     for env in [Environment::Dev, Environment::Prod] {
         let src = match (env, e.app_id.as_str()) {
-            (Environment::Prod, "brain" | "lastsecrets" | "search") => {
+            (Environment::Prod, "brain" | "lastsecrets") => {
                 format!("https://github.com/EdgeVector/{}.git", e.app_id)
             }
             (Environment::Dev, "registry-daily-dev") => {

@@ -21,7 +21,7 @@ from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
 from stable_place import place_manifest_schemas
 
 TAP = "EdgeVector/homebrew-lastdb"
-APPS = ("brain", "lastsecrets", "search")
+APPS = ("brain", "lastsecrets")
 HOUR = 3600
 
 
@@ -228,22 +228,13 @@ def prove_apps(node, plan, output, declare=True):
             run(["put", "ci-release-qualification", "--type", "concept"], "put", value)
             if value not in run(["get", "ci-release-qualification", "--type", "concept"], "get"):
                 raise RuntimeError("Brain did not return the acknowledged record")
-        elif app == "lastsecrets":
+        else:
             run(["init"], "init")
             value = "generated-nonsecret-ci-value"
             run(["put", "ci-release-qualification", "--label", "CI qualification", "--provider", "ci",
                  "--purpose", "release", "--env", "dev", "--value-stdin"], "put", value)
             if run(["get", "ci-release-qualification"], "get", retain_output=False).strip() != value:
                 raise RuntimeError("LastSecrets did not return the acknowledged value")
-        else:
-            run(["init", "--last-db-home", str(node.home)], "init")
-            drained = json.loads(run(["drain", "--last-db-home", str(node.home)], "drain"))
-            hits = json.loads(run(["query", "CI stable qualification record", "--json", "--last-db-home", str(node.home)], "query"))
-            # The published Search drain indexes delivery batch files. LastDB
-            # no longer writes those files, so this proof does not require a hit.
-            if drained.get("ok") is not True or not isinstance(hits.get("hits"), list):
-                raise RuntimeError("Search drain or query did not return a result")
-            run(["status", "--last-db-home", str(node.home)], "status")
         if not declare:
             results[app] = {"sha": plan["apps"][app], "installed_from_registry": installed, "complete": True}
             continue

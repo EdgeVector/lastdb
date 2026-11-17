@@ -1,7 +1,7 @@
 name: app-install-smoke
 
-# Real installs from the authenticated API-version registry. Brain,
-# LastSecrets, and Search are required; LastSeek is optional.
+# Real installs from the authenticated API-version registry. Brain and
+# LastSecrets are required; LastSeek is optional.
 # Builds and operational checks run only on GitHub-hosted runners.
 
 on:
@@ -36,7 +36,6 @@ jobs:
           - brain
           - lastsecrets
           - lastseek
-          - search
     steps:
       - uses: actions/checkout@v7
 
@@ -157,7 +156,7 @@ jobs:
             CHANNEL=next
             if ! lastdb app list "$APP" --catalog-entry --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
               case "$APP" in
-                brain|lastsecrets|search)
+                brain|lastsecrets)
                   echo "Missing signed compatibility for required app $APP across this node's supported API range"
                   cat "$PROOF_DIR/${APP}-registry-info.err"
                   exit 1
@@ -352,17 +351,6 @@ jobs:
           # Check LastDB status after operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-lastsecrets.txt"
 
-      - name: Write a brain record for Search
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
-        run: |
-          set -euo pipefail
-          lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install
-          source_dir="$LASTDB_APPS_ROOT/brain/current/source"
-          bun "$source_dir/src/cli.ts" init
-          printf '%s\n' 'CI app delivery record' | bun "$source_dir/src/cli.ts" put ci-app-delivery --type concept
-          bun "$source_dir/src/cli.ts" get ci-app-delivery --type concept > "$PROOF_DIR/delivery-record.txt"
-          grep -q 'CI app delivery record' "$PROOF_DIR/delivery-record.txt"
-
       # === lastseek ===
       - name: Set up lastseek dependencies
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
@@ -386,35 +374,6 @@ jobs:
             built=/usr/local/bin/lastseek
           fi
           "$built" --version | tee "$PROOF_DIR/lastseek-version.txt"
-
-      # === Search ===
-      - name: Use the registry-installed Search command
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
-        run: command -v search
-
-      - name: Initialize Search against the LastDB home
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
-        run: |
-          set -euo pipefail
-          cd "$APP_SOURCE"
-          search init --last-db-home "$LASTDB_HOME" 2>&1 | tee "$PROOF_DIR/search-init.log"
-
-      - name: Run Search health checks
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
-        run: |
-          set -euo pipefail
-          cd "$APP_SOURCE"
-          # The published Search drain indexes delivery batch files. LastDB no
-          # longer writes those files, so a query hit is not a LastDB result.
-          # Drain must succeed, query must return a hits array, and the vector
-          # must be healthy.
-          search drain --last-db-home "$LASTDB_HOME" 2>&1 | tee "$PROOF_DIR/search-drain-test.txt"
-          jq -e '.ok == true and (.errors | length == 0)' "$PROOF_DIR/search-drain-test.txt"
-          search query 'CI app delivery record' --json --last-db-home "$LASTDB_HOME" \
-            > "$PROOF_DIR/search-query.json" 2> "$PROOF_DIR/search-query.err"
-          jq -e '.hits | type == "array"' "$PROOF_DIR/search-query.json"
-          search status --last-db-home "$LASTDB_HOME" > "$PROOF_DIR/search-status.txt"
-          jq -e '.vector.state == "healthy"' "$PROOF_DIR/search-status.txt"
 
       - name: Final health check
         if: env.SKIP_APP != 'true'
@@ -485,10 +444,6 @@ jobs:
               lastseek)
                 test -f lastseek-version.txt && PASSED=true
                 DETAILS="- lastseek build: $(test -f lastseek-build.log && echo OK || echo FAILED); version: $($PASSED && echo OK || echo FAILED)"
-                ;;
-              search)
-                test -f search-drain-test.txt && PASSED=true
-                DETAILS="- Search init: $(test -f search-init.log && echo OK || echo FAILED); drain: $($PASSED && echo OK || echo FAILED)"
                 ;;
             esac
             if [ "$PASSED" = "true" ]; then
