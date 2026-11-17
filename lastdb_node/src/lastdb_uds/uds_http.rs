@@ -179,7 +179,8 @@ fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<UdsReq
 fn discard_exact(r: &mut impl Read, mut left: usize) -> Result<(), HttpErr> {
     let mut buf = [0u8; 8192];
     while left > 0 {
-        let n = r.read(&mut buf[..left.min(buf.len())])?;
+        let nread = left.min(buf.len());
+        let n = r.read(&mut buf[..nread])?;
         if n == 0 {
             return Err(HttpErr::Bad);
         }

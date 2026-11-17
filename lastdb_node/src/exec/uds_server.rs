@@ -167,7 +167,7 @@ impl UdsServer {
                 let response = app_api::refuse(413, APP_BODY_TOO_LARGE);
                 return uds_http::finish_connection(&mut stream, &response);
             }
-            uds_http::Received::Ready(ready) => ready,
+            uds_http::Received::Ready(req, ctx) => (req, ctx),
         };
         if self.apps {
             let response = app_session::serve(&self.handle, &req, &ctx, &self.host);
