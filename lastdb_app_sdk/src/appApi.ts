@@ -153,20 +153,10 @@ function appApiFailure(status: number, body: unknown): AppApiError {
   return new AppApiError(status, code, message);
 }
 
-/**
- * The launcher gives a restricted app its session in this variable. The app
- * socket refuses a request that does not carry it.
- */
-const APP_SESSION_ENV = 'LASTDB_APP_SESSION';
-const APP_SESSION_HEADER = 'X-LastDB-App-Session';
-
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {
-  const session = process.env[APP_SESSION_ENV];
-  const res = await ctx.transport.send(
-    'POST',
-    path,
-    session ? { body, headers: { [APP_SESSION_HEADER]: session } } : { body },
-  );
+  const session = process.env.LASTDB_APP_SESSION; // set by the launcher for a restricted app
+  const opts = session ? { body, headers: { 'X-LastDB-App-Session': session } } : { body };
+  const res = await ctx.transport.send('POST', path, opts);
   if (res.status !== 200) throw appApiFailure(res.status, res.body);
   return res.body;
 }
