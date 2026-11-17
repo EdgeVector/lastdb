@@ -1,7 +1,12 @@
-//! Optional registry-backed examples. Scheduled writes and HTTP reads share a
-//! private, conditional S3 image. Vocabulary advice remains independent.
+//! Schemas publishers push for listed apps.
+//!
+//! `POST /v1/schemas` and `POST /v1/advice/schema` share one private,
+//! conditional S3 object. Vocabulary advice does not read that object.
+//! The retired feed object `advisory-catalog-v1/catalog.json` is not read,
+//! written, or converted.
 
-mod feed;
+mod listing;
+mod push;
 mod storage;
 
 use std::collections::BTreeMap;
@@ -9,8 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use app_identity_crypto::{verifying_key_from_base64, VerifyingKey};
-use lambda_http::request::RequestContext;
-use lambda_http::{Body, Error, Request, Response};
 use reqwest::Client;
 use schema_service_core::advice::{CatalogSchema, SchemaAdviceRequest, SchemaAdviceResponse};
 use schema_types::DeclarativeSchemaDefinition;
@@ -18,38 +21,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use crate::json_response;
 use storage::Store;
 
-pub(crate) const FEED_PATH: &str = "/v1/internal/catalog-feed";
-const SCHEDULE_API_ID: &str = "catalog-feed-schedule";
-const IMAGE_VERSION: u32 = 1;
+pub(crate) use push::{push as register_schemas, SCHEMAS_PATH};
+
+const IMAGE_VERSION: u32 = 2;
 const CACHE_REFRESH: Duration = Duration::from_secs(60);
-const FEED_TIMEOUT: Duration = Duration::from_secs(45);
-const STALE_AFTER_SECONDS: u64 = 15 * 60;
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Image {
     version: u32,
-    checked_at: u64,
-    complete: bool,
-    lists: BTreeMap<String, ListState>,
-    manifests: BTreeMap<String, ManifestState>,
+    apps: BTreeMap<String, AppRecord>,
 }
 
-impl Default for Image {
-    fn default() -> Self {
-        Self {
-            version: IMAGE_VERSION,
-            checked_at: 0,
-            complete: false,
-            lists: BTreeMap::new(),
-            manifests: BTreeMap::new(),
-        }
-    }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppRecord {
+    source: String,
+    sha: String,
+    api_version: u32,
+    registered_at: u64,
+    definitions: Vec<DeclarativeSchemaDefinition>,
 }
 
 impl Image {
+    fn empty() -> Self {
+        Self {
+            version: IMAGE_VERSION,
+            apps: BTreeMap::new(),
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         if self.version != IMAGE_VERSION {
             return Err("catalog storage uses an unsupported image version".into());
@@ -57,56 +60,28 @@ impl Image {
         Ok(())
     }
 
-    fn schemas(&self) -> impl Iterator<Item = CatalogSchema<'_>> {
-        self.lists.values().flat_map(move |list| {
-            list.entries.iter().flat_map(move |entry| {
-                let stored = self.manifests.get(&entry.key());
-                let definitions = match stored {
-                    Some(ManifestState::Accepted(definitions)) => definitions.as_slice(),
-                    _ => &[],
-                };
-                definitions.iter().map(move |definition| CatalogSchema {
+    fn schema_rows(&self) -> Vec<CatalogSchema<'_>> {
+        let mut rows = Vec::new();
+        for (key, record) in &self.apps {
+            let Some((app_id, channel)) = key.split_once('/') else {
+                continue;
+            };
+            if app_id.is_empty() || channel.is_empty() {
+                continue;
+            }
+            for definition in &record.definitions {
+                rows.push(CatalogSchema {
                     definition,
-                    app_id: &entry.app_id,
-                    source: &entry.source,
-                    sha: &entry.sha,
-                    channel: &list.channel,
-                    api_version: list.api_version,
-                })
-            })
-        })
+                    app_id,
+                    source: &record.source,
+                    sha: &record.sha,
+                    channel,
+                    api_version: record.api_version,
+                });
+            }
+        }
+        rows
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct ManifestRef {
-    app_id: String,
-    source: String,
-    sha: String,
-}
-
-impl ManifestRef {
-    fn key(&self) -> String {
-        format!("{}@{}:{}", self.app_id, self.sha, self.source)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct ListState {
-    etag: Option<String>,
-    channel: String,
-    api_version: u32,
-    seq: u64,
-    sha256: String,
-    entries: Vec<ManifestRef>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "state", content = "data", rename_all = "snake_case")]
-enum ManifestState {
-    Accepted(Vec<DeclarativeSchemaDefinition>),
-    Rejected,
-    Retry { after: u64 },
 }
 
 #[derive(Default)]
@@ -172,19 +147,11 @@ impl Catalog {
         reply: &mut SchemaAdviceResponse,
     ) -> Value {
         let (image, read_ok) = self.read_catalog().await;
-        let Some(image) = image else {
+        let Some(image) = image.filter(|_| read_ok) else {
             return unavailable();
         };
-        reply.add_catalog_examples(request, image.schemas());
-        let status = if read_ok
-            && image.complete
-            && now().saturating_sub(image.checked_at) <= STALE_AFTER_SECONDS
-        {
-            "current"
-        } else {
-            "stale"
-        };
-        json!({"status": status, "checked_at": image.checked_at})
+        reply.add_catalog_examples(request, image.schema_rows());
+        json!({ "status": "current" })
     }
 
     async fn read_catalog(&self) -> (Option<Arc<Image>>, bool) {
@@ -193,14 +160,19 @@ impl Catalog {
             .last_read
             .is_none_or(|last| last.elapsed() >= CACHE_REFRESH)
         {
-            cache.read_ok = false;
             match self.store.read(&self.client, Duration::from_secs(1)).await {
                 Ok(Some((image, _))) => {
                     cache.image = Some(Arc::new(image));
                     cache.read_ok = true;
                 }
-                Ok(None) => {}
-                Err(reason) => tracing::warn!(%reason, "schema_catalog_read_unavailable"),
+                Ok(None) => {
+                    cache.image = Some(Arc::new(Image::empty()));
+                    cache.read_ok = true;
+                }
+                Err(reason) => {
+                    tracing::warn!(%reason, "schema_catalog_read_unavailable");
+                    cache.read_ok = false;
+                }
             }
             cache.last_read = Some(Instant::now());
         }
@@ -209,45 +181,10 @@ impl Catalog {
 }
 
 pub(crate) fn unavailable() -> Value {
-    json!({"status": "unavailable"})
+    json!({ "status": "unavailable" })
 }
 
-pub(crate) async fn scheduled(
-    catalog: Option<&Catalog>,
-    event: &Request,
-) -> Result<Response<Body>, Error> {
-    let from_schedule = matches!(
-        event.extensions().get::<RequestContext>(),
-        Some(RequestContext::ApiGatewayV2(context))
-            if context.apiid.as_deref() == Some(SCHEDULE_API_ID)
-    );
-    if !from_schedule {
-        return json_response(404, &json!({"error": "Not found"}));
-    }
-    let Some(catalog) = catalog else {
-        tracing::error!("schema_catalog_feed_failure: catalog is not configured");
-        return json_response(503, &unavailable());
-    };
-    let refreshed = tokio::time::timeout(FEED_TIMEOUT, catalog.refresh())
-        .await
-        .unwrap_or_else(|_| Err("catalog refresh exceeded its time limit".into()));
-    match refreshed {
-        Ok(report) => {
-            if report.list_errors > 0 || report.manifests_deferred > 0 {
-                tracing::warn!(?report, "schema_catalog_feed_failure: incomplete refresh");
-            } else {
-                tracing::info!(?report, "schema_catalog_feed_success");
-            }
-            json_response(200, &json!(report))
-        }
-        Err(reason) => {
-            tracing::error!(%reason, "schema_catalog_feed_failure");
-            json_response(503, &unavailable())
-        }
-    }
-}
-
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
