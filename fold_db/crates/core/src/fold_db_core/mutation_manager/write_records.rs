@@ -132,7 +132,10 @@ impl MutationManager {
         Ok(())
     }
 
-    async fn load_schema_for_delta(&self, schema_name: &str) -> Result<Schema, SchemaError> {
+    pub(super) async fn load_schema_for_delta(
+        &self,
+        schema_name: &str,
+    ) -> Result<Schema, SchemaError> {
         let (mut schema, mut state) = self.schema_manager.get_schema_and_state(schema_name)?;
         if schema.is_none() && state != SchemaState::Blocked {
             schema = self.db_ops.schemas().get_schema(schema_name).await?;
@@ -187,7 +190,8 @@ impl MutationManager {
             keys.push(key.clone());
         }
         let stored = read_write_preimages(records, &addrs, &mutations).await?;
-        self.stage_local_replay_records(runtime, schema_name, &addrs, &mutations, &stored)
+        let keep = self
+            .stage_local_replay_records(runtime, schema_name, &addrs, &mutations, &stored)
             .await?;
         let (mut changes, mut changed) = (
             Vec::with_capacity(mutations.len()),
@@ -217,7 +221,7 @@ impl MutationManager {
             self.stage_shared_revisions(&schema.name, &changes, &changed)
                 .await?;
         }
-        self.stage_records_with_effects(&schema, &changed, changes)
+        self.stage_records_with_effects(&schema, &changed, changes, &keep)
             .await?;
         if schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops

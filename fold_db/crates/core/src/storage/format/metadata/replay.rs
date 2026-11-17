@@ -6,15 +6,12 @@ use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::kind_partition::exact_prefix_bounds;
-use lastdb_model::record_value::MAX_RECORD_BYTES;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 const MAX_DEFERRED_BYTES: usize = 450 * 1024;
-const MAX_BASELINE_BYTES: usize = MAX_RECORD_BYTES + 2048;
 const LEGACY_PENDING: &str = "legacy:";
-const BASELINE_MSG: &str = "invalid replay baseline length";
 const DEFERRED_MSG: &str = "invalid deferred replay envelope length";
 
 type Res<T = ()> = Result<T, SchemaError>;
@@ -42,7 +39,7 @@ pub(crate) struct SchemaReplayDrop<'a> {
 }
 
 impl ReplayTarget<'_> {
-    fn key(self, ctx: &str) -> String {
+    pub(super) fn key(self, ctx: &str) -> String {
         let (kind, addr) = match self {
             Self::Record(addr) => ("record", addr),
             Self::Schema(name) => ("schema", name),
@@ -52,7 +49,7 @@ impl ReplayTarget<'_> {
     }
 }
 
-fn record_key(addr: &str, ctx: &str) -> String {
+pub(crate) fn record_key(addr: &str, ctx: &str) -> String {
     ReplayTarget::Record(addr).key(ctx)
 }
 
@@ -65,11 +62,18 @@ impl Metadata {
     ) -> StorageResult<()> {
         let store = runtime.open_store(super::METADATA_NAMESPACE).await?;
         let metadata = Self::new(store, Arc::clone(runtime));
+        metadata
+            .release_bootstrap_replay_pins()
+            .await
+            .map_err(|error| StorageError::invalid(error.to_string()))?;
         for prefix in [
             "signed-replay-pending:",
             "signed-replay-pending-attachment:",
             "signed-replay-baseline:",
             "signed-replay-deferred:",
+            super::replay_attach::INLINE_PREFIX,
+            super::replay_attach::FILE_REF_PREFIX,
+            super::replay_attach::INDEX_PREFIX,
         ] {
             let (lower, upper) = exact_prefix_bounds(prefix);
             let mut start = lower.into_bytes();
@@ -237,56 +241,6 @@ impl Metadata {
             self.stage(rows).await.map_err(read_err)?;
         }
         Ok(())
-    }
-
-    pub(crate) async fn replay_baseline_sources(
-        &self,
-        addresses: &[&str],
-    ) -> Res<Vec<Option<ReplayStamp>>> {
-        self.require_replay_scope()?;
-        let mut stamps = Vec::with_capacity(addresses.len());
-        for chunk in addresses.chunks(5000) {
-            let keys: Vec<_> = chunk
-                .iter()
-                .flat_map(|addr| {
-                    [record_key(addr, "pending"), record_key(addr, "winner")]
-                        .map(String::into_bytes)
-                })
-                .collect();
-            let rows = self.store.get_many(keys).await.map_err(read_err)?;
-            if rows.len() != chunk.len() * 2 {
-                return Err(SchemaError::InvalidData(
-                    "incomplete replay baseline read".into(),
-                ));
-            }
-            for pair in rows.chunks_exact(2) {
-                let stamp = match (&pair[0], &pair[1]) {
-                    (None, Some(bytes)) => Some(serde_json::from_slice(bytes).map_err(read_err)?),
-                    _ => None,
-                };
-                stamps.push(stamp);
-            }
-        }
-        Ok(stamps)
-    }
-
-    pub(crate) async fn replay_baseline(&self, addr: &str) -> Res<Option<Vec<u8>>> {
-        self.require_replay_scope()?;
-        let bytes = self
-            .store
-            .get(record_key(addr, "baseline").as_bytes())
-            .await
-            .map_err(read_err)?;
-        check_len(bytes.as_deref(), MAX_BASELINE_BYTES, BASELINE_MSG).map(|()| bytes)
-    }
-
-    pub(crate) async fn stage_replay_baselines(&self, baselines: Vec<(&str, Vec<u8>)>) -> Res {
-        let mut rows = Vec::with_capacity(baselines.len());
-        for (addr, bytes) in baselines {
-            check_len(Some(&bytes), MAX_BASELINE_BYTES, BASELINE_MSG)?;
-            rows.push((record_key(addr, "baseline"), Some(bytes)));
-        }
-        self.stage(rows).await.map_err(read_err)
     }
 
     pub(crate) async fn pending_replay_attachment(&self, addr: &str) -> Res<bool> {

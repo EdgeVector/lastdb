@@ -2,6 +2,7 @@
 
 pub(crate) mod metadata;
 pub(crate) mod records;
+pub(crate) mod replay_pin;
 pub(crate) mod schemas;
 
 pub(crate) use current_keys::families::RECORD_FILE_PREFIX;
