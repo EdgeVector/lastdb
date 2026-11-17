@@ -57,7 +57,7 @@ impl Metadata {
         for chunk in addresses.chunks(1000) {
             let keys: Vec<Vec<u8>> = chunk
                 .iter()
-                .flat_map(|addr| capture_keys(addr).map(|key| key.into_bytes()))
+                .flat_map(|addr| capture_keys(addr).map(String::into_bytes))
                 .collect();
             let rows = self.store.get_many(keys).await.map_err(read_err)?;
             if rows.len() != chunk.len() * CAPTURE_FIELDS {
