@@ -96,11 +96,10 @@ pub(in crate::exec) fn serve(
     else {
         return app_api::refuse(403, "the app socket needs a valid app session");
     };
-    let route = match uds_router::route(req) {
-        ControlRoute::Data(
-            route @ (DataRoute::V1Read | DataRoute::V1Write | DataRoute::V1Changes),
-        ) => route,
-        _ => return app_api::refuse(404, "the app socket serves only the app API"),
+    let ControlRoute::Data(route @ (DataRoute::V1Read | DataRoute::V1Write | DataRoute::V1Changes)) =
+        uds_router::route(req)
+    else {
+        return app_api::refuse(404, "the app socket serves only the app API");
     };
     handle.block_on(ACTIVE_APP.scope(
         grant,
