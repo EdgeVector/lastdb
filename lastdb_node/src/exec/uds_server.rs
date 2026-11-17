@@ -1,4 +1,4 @@
-//! Owner-socket request framing, body-budget admission, and worker dispatch.
+//! Owner-socket and app-socket request framing, body-budget admission, and worker dispatch.
 
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicBool;
@@ -8,16 +8,27 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
 use super::{
-    app_session, block_on_data_route, block_on_route, database_routes, database_session, mutation,
+    app_api, app_session, block_on_data_route, block_on_route, database_routes, database_session,
+    mutation,
 };
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
 use crate::lastdb_uds::{ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool};
 
-const MAX_PARSE_BYTES: usize =
-    uds_http::MAX_BODY_LEN + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN;
-const PARSE_PERMITS: u32 = MAX_PARSE_BYTES as u32;
+/// The app socket does not share the owner's workers. An app that opens
+/// connections and sends nothing can fill only this many workers.
+const APP_SOCKET_WORKERS: usize = 4;
+/// Queued connections in front of [`APP_SOCKET_WORKERS`]. Fixed and small for
+/// the same reason: app load stays on the app socket.
+const APP_SOCKET_QUEUE: usize = 4;
+/// No file bytes cross the app API, so a larger body is refused.
+const APP_MAX_BODY_LEN: usize = 8 * 1024 * 1024;
+const APP_BODY_TOO_LARGE: &str = "request body is larger than 8 MiB";
+
+const fn parse_budget(max_body: usize) -> usize {
+    max_body + 4 * uds_http::MAX_HEADERS_TOTAL + 4 * uds_http::MAX_LINE_LEN
+}
 
 #[derive(Clone)]
 pub struct UdsServer {
@@ -26,6 +37,8 @@ pub struct UdsServer {
     pool: UdsWorkerPool,
     body_budget: Arc<Semaphore>,
     mutation_replies: Arc<Semaphore>,
+    parse_permits: u32,
+    read_policy: uds_http::ReadPolicy,
     /// True for the server of the app socket.
     apps: bool,
 }
@@ -33,28 +46,56 @@ pub struct UdsServer {
 impl UdsServer {
     #[must_use]
     pub fn new(host: Arc<Host>, handle: tokio::runtime::Handle, pool: UdsWorkerPool) -> Self {
+        Self::with_limits(host, handle, pool, uds_http::MAX_BODY_LEN, false)
+    }
+
+    /// The app-socket server. It shares the host and the runtime handle only.
+    /// Its workers and its body budget are its own, so load on `apps.sock`
+    /// can delay only other requests on `apps.sock`.
+    #[must_use]
+    pub fn for_apps(&self) -> Self {
+        let pool = UdsWorkerPool::fixed(APP_SOCKET_WORKERS, APP_SOCKET_QUEUE);
+        Self::with_limits(
+            Arc::clone(&self.host),
+            self.handle.clone(),
+            pool,
+            APP_MAX_BODY_LEN,
+            true,
+        )
+    }
+
+    #[must_use]
+    pub fn worker_pool(&self) -> UdsWorkerPool {
+        self.pool.clone()
+    }
+
+    fn with_limits(
+        host: Arc<Host>,
+        handle: tokio::runtime::Handle,
+        pool: UdsWorkerPool,
+        max_body: usize,
+        apps: bool,
+    ) -> Self {
         let snapshot = pool.snapshot();
+        let budget = parse_budget(max_body);
         let permits = snapshot
             .workers
-            .saturating_mul(MAX_PARSE_BYTES)
+            .saturating_mul(budget)
             .min(Semaphore::MAX_PERMITS);
+        let read_policy = if apps {
+            uds_http::ReadPolicy::app(max_body)
+        } else {
+            uds_http::ReadPolicy::owner(max_body)
+        };
         Self {
             host,
             handle,
             pool,
             body_budget: Arc::new(Semaphore::new(permits)),
             mutation_replies: Arc::new(Semaphore::new(snapshot.workers)),
-            apps: false,
-        }
-    }
-
-    /// The same server for the app socket: it shares the workers, admits only
-    /// a request with an app session, and serves only the app API.
-    #[must_use]
-    pub fn for_apps(&self) -> Self {
-        Self {
-            apps: true,
-            ..self.clone()
+            parse_permits: budget as u32,
+            read_policy,
+            apps,
         }
     }
 
@@ -88,14 +129,15 @@ impl UdsServer {
     }
 
     fn serve_conn(&self, stream: UnixStream, comp: ConnectionWork) -> std::io::Result<()> {
-        if let Ok(lease) = Arc::clone(&self.body_budget).try_acquire_many_owned(PARSE_PERMITS) {
+        if let Ok(lease) = Arc::clone(&self.body_budget).try_acquire_many_owned(self.parse_permits)
+        {
             return self.serve_reserved(stream, comp, lease);
         }
         let server = self.clone();
         self.handle.spawn(
             async move {
                 match Arc::clone(&server.body_budget)
-                    .acquire_many_owned(PARSE_PERMITS)
+                    .acquire_many_owned(server.parse_permits)
                     .await
                 {
                     Ok(lease) => comp.resume(stream, move |s, c| {
@@ -115,9 +157,17 @@ impl UdsServer {
         comp: ConnectionWork,
         mut lease: OwnedSemaphorePermit,
     ) -> std::io::Result<()> {
-        let Some((mut req, ctx)) = uds_http::receive_connection(&mut stream, &self.host.user_hash)?
-        else {
-            return Ok(());
+        let (mut req, ctx) = match uds_http::receive_connection(
+            &mut stream,
+            &self.host.user_hash,
+            &self.read_policy,
+        )? {
+            uds_http::Received::Finished => return Ok(()),
+            uds_http::Received::BodyTooLarge => {
+                let response = app_api::refuse(413, APP_BODY_TOO_LARGE);
+                return uds_http::finish_connection(&mut stream, &response);
+            }
+            uds_http::Received::Ready(ready) => ready,
         };
         if self.apps {
             let response = app_session::serve(&self.handle, &req, &ctx, &self.host);

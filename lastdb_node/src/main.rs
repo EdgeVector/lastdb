@@ -61,6 +61,7 @@ fn finish_shutdown(
     home: &Path,
     host: &Arc<Host>,
     pool: &UdsWorkerPool,
+    app_pool: &UdsWorkerPool,
     tasks: Vec<(&'static str, JoinHandle<()>)>,
     accept_err: Result<(), String>,
 ) -> Result<(), String> {
@@ -77,6 +78,10 @@ fn finish_shutdown(
         .close_and_drain(Duration::from_secs(180))
         .err()
         .map(|e| format!("request handlers did not drain: {e}"));
+    let app_pool_err = app_pool
+        .close_and_drain(Duration::from_secs(180))
+        .err()
+        .map(|e| format!("app socket handlers did not drain: {e}"));
     let bg_err = match rt
         .block_on(async { tokio::time::timeout(Duration::from_secs(180), drain_bg).await })
     {
@@ -96,6 +101,7 @@ fn finish_shutdown(
     let errs: Vec<String> = [
         accept_err.err(),
         pool_err,
+        app_pool_err,
         bg_err,
         recv_err,
         own_err,
@@ -172,7 +178,15 @@ fn serve_node(
     );
     let server = UdsServer::new(Arc::clone(&host), rt.handle().clone(), pool.clone());
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
-    let (app_server, app_stop) = (server.for_apps(), Arc::clone(&stop));
+    let app_server = server.for_apps();
+    let app_pool = app_server.worker_pool();
+    let app_snap = app_pool.snapshot();
+    tracing::info!(
+        workers = app_snap.workers,
+        queue_capacity = app_snap.queue_capacity,
+        "app socket worker pool enabled"
+    );
+    let app_stop = Arc::clone(&stop);
     let app_thread = std::thread::Builder::new()
         .name("lastdbd-app-socket".into())
         .spawn(move || {
@@ -185,7 +199,7 @@ fn serve_node(
     stop.store(true, Ordering::Release);
     let _ = app_thread.join();
     signal_task.abort();
-    finish_shutdown(rt, home, &host, &pool, tasks, accept_err)?;
+    finish_shutdown(rt, home, &host, &pool, &app_pool, tasks, accept_err)?;
     drop(server);
     drop(host);
     drop(socket);
