@@ -3,26 +3,17 @@
  * A non-200 reply throws {@link AppApiError}. A failed read in a list is a result.
  */
 
+import { appApiFailure } from './appApiError.js';
 import type { ClientContext } from './databases.js';
-import { LastDbError, UnexpectedResponseError } from './errors.js';
+import { UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
 import type { JsonValue, KeyValue, RowFields } from './types.js';
+
+export { AppApiError } from './appApiError.js';
 
 const READ_PATH = '/v1/read';
 const WRITE_PATH = '/v1/write';
 const CHANGES_PATH = '/v1/x/changes';
-
-/** A non-200 app API reply. `code` is the body's `error.code`. `message` is `Error.message`. */
-export class AppApiError extends LastDbError {
-  readonly status: number;
-  readonly code: string;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
 
 /** A range under one hash: the whole hash, a prefix, or `start` up to `end`. */
 export interface AppApiRange {
@@ -142,16 +133,6 @@ export interface AppApiChangesResult {
 
 function invalid(message: string, body: unknown): UnexpectedResponseError {
   return new UnexpectedResponseError(message, 200, body);
-}
-
-function appApiFailure(status: number, body: unknown): AppApiError {
-  const envelope = isObject(body) ? body['error'] : undefined;
-  const code = isObject(envelope) && typeof envelope['code'] === 'string' ? envelope['code'] : '';
-  const message =
-    isObject(envelope) && typeof envelope['message'] === 'string'
-      ? envelope['message']
-      : `app API request returned status ${status}`;
-  return new AppApiError(status, code, message);
 }
 
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {

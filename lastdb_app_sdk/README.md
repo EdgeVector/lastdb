@@ -330,7 +330,10 @@ the JSON body.
   `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
 
 A non-200 reply throws `AppApiError` with `status`, `code`, and `message`
-from `{ "error": { "code", "message" } }`.
+from `{ "error": { "code", "message" } }`. A refusal that names one mutation
+also sets `index`. A write whose condition failed also sets `reason`:
+`exists`, `absent`, or `revision`. Callers that read only `code` and
+`message` are unchanged.
 
 ```ts
 const [page] = await db.read([
@@ -371,8 +374,9 @@ console.log(feed.head, feed.gap, feed.changes);
   mismatch.
 - `ShareSubmissionUncertainError` — uncertain Share submission upload outcome.
 - `AppApiError` — non-200 reply from `read`, `write`, or `changes`, with
-  `.status`, `.code`, and `.message`. A per-item read error is a result, not
-  this class.
+  `.status`, `.code`, and `.message`. A refusal that names one mutation also
+  sets `.index`. A failed write condition also sets `.reason` (`exists`,
+  `absent`, or `revision`). A per-item read error is a result, not this class.
 - `TransportError` / `UnexpectedResponseError` — socket/timeout failure or
   unmodeled HTTP status.
 
