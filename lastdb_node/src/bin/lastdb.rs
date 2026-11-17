@@ -20,6 +20,8 @@ mod record_get_cmds;
 mod share_cmds;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
+#[path = "lastdb/v1_records.rs"]
+mod v1_records;
 
 pub(crate) use admin_cmds::DatabaseTarget;
 use admin_cmds::*;
