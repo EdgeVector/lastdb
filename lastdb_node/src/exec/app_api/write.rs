@@ -5,7 +5,7 @@
 //! is still at it. A mutation whose condition does not hold refuses the list.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use fold_db::access::AccessContext;
 use fold_db::record_replacement::RecordTarget;
@@ -184,18 +184,30 @@ async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, 
 
 /// Describe the linked file, set it on the mutation, and return what to
 /// remember after the commit. The file stays where it is.
+/// One answer for every file that cannot be linked, so a caller does not
+/// learn from the refusal whether a path exists.
+const UNUSABLE_FILE: &str =
+    "the file cannot be linked: it must be a regular file outside the LastDB home";
+
 async fn link_file(
     host: &Host,
     mutation: &mut Mutation,
     link: FileLink,
 ) -> Result<LinkedFile, HostError> {
+    // The whole LastDB home is refused, through any symlink: its key file and
+    // every database in it, not only the data folder of the selected one.
+    let real = std::fs::canonicalize(&link.path).map_err(|_| bad(UNUSABLE_FILE))?;
+    let home = std::fs::canonicalize(&host.home).unwrap_or_else(|_| host.home.clone());
+    if real.starts_with(&home) {
+        return Err(bad(UNUSABLE_FILE));
+    }
     let records = host.records();
     let write = records
         .db_ops()
         .records()
-        .reference_local_file(Path::new(&link.path), link.name, link.media_type)
+        .reference_local_file(&real, link.name, link.media_type)
         .await
-        .map_err(|error| bad(format!("file {}: {error}", link.path)))?;
+        .map_err(|_| bad(UNUSABLE_FILE))?;
     let FileWrite::LocalPath(reference) = &write else {
         return Err(HostError::internal(
             "a local file reference is a local path",

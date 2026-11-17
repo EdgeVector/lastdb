@@ -69,20 +69,34 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
         .and_then(Value::as_str)
         .ok_or("the node returned no app session")?;
     let app_socket = data.join(lastdb_node::lastdb_uds::APP_SOCKET_FILE_NAME);
-    let mut child = restricted(home, app, &launch, &app_socket);
+    // The one place a restricted app may write. It outlives an upgrade,
+    // because versions sit beside it and not inside it.
+    let app_data = crate::app_registry_index::managed::app_root(app)?.join("data");
+    let temp = app_data.join("tmp");
+    std::fs::create_dir_all(&temp)
+        .map_err(|error| format!("could not create {}: {error}", temp.display()))?;
+    let mut child = restricted(home, app, &launch, &app_socket, &app_data);
     child
         .env("LASTDB_SOCKET_PATH", &app_socket)
         .env("LASTDB_APP_SESSION", session)
+        .env("LASTDB_APP_DATA", &app_data)
+        .env("TMPDIR", &temp)
         .env_remove("FOLDDB_SOCKET_PATH");
     Ok(child)
 }
 
 #[cfg(target_os = "macos")]
-fn restricted(home: &Path, app: &str, launch: &Launch, app_socket: &Path) -> Command {
+fn restricted(
+    home: &Path,
+    app: &str,
+    launch: &Launch,
+    app_socket: &Path,
+    app_data: &Path,
+) -> Command {
     let mut child = Command::new("/usr/bin/sandbox-exec");
     child
         .arg("-p")
-        .arg(profile(home, app, app_socket))
+        .arg(profile(home, app, app_socket, app_data))
         .arg(&launch.program);
     child
 }
@@ -91,15 +105,23 @@ fn restricted(home: &Path, app: &str, launch: &Launch, app_socket: &Path) -> Com
 /// the app socket and a session, which holds an app that does not try to get
 /// around it.
 #[cfg(not(target_os = "macos"))]
-fn restricted(_home: &Path, _app: &str, launch: &Launch, _app_socket: &Path) -> Command {
+fn restricted(
+    _home: &Path,
+    _app: &str,
+    launch: &Launch,
+    _app_socket: &Path,
+    _app_data: &Path,
+) -> Command {
     Command::new(&launch.program)
 }
 
-/// The profile of one app. It starts from everything allowed and takes away
-/// the LastDB home, every other installed app, the owner socket, and the ways
-/// one process reads another.
+/// The profile of one app. It takes away the LastDB home, every other
+/// installed app, the owner socket, and the ways one process reads another.
+/// It also takes away every write: an app writes only inside its own data
+/// folder. Without that an app could replace a command or a config file of
+/// the owner and run outside the profile the next time that file is used.
 #[cfg(target_os = "macos")]
-fn profile(home: &Path, app: &str, app_socket: &Path) -> String {
+fn profile(home: &Path, app: &str, app_socket: &Path, app_data: &Path) -> String {
     let quoted = |path: &Path| {
         let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let text = real.to_string_lossy();
@@ -114,6 +136,11 @@ fn profile(home: &Path, app: &str, app_socket: &Path) -> String {
         format!("(deny file-read* file-write* (subpath {}))", quoted(home)),
         format!("(deny file-read* file-write* (subpath {}))", quoted(apps)),
         format!("(allow file-read* (subpath {}))", quoted(&own)),
+        "(deny file-write* (subpath \"/\"))".to_owned(),
+        format!("(allow file-write* (subpath {}))", quoted(app_data)),
+        "(allow file-write* (literal \"/dev/null\") (literal \"/dev/tty\") \
+         (literal \"/dev/dtracehelper\") (regex #\"^/dev/ttys[0-9]+$\"))"
+            .to_owned(),
         format!(
             "(deny network-outbound (remote unix-socket (subpath {})))",
             quoted(home)

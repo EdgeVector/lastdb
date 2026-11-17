@@ -194,6 +194,7 @@ def files(node):
             "a record without a file reported one")
     for item in [{**by_id("nofile", "b8", "v"), "file": {"path": str(folder / "absent.bin")}},
                  {**by_id("nofile", "b8", "v"), "file": {"path": str(node.home / "data" / "laststore-pack-node-v1")}},
+                 {**by_id("nofile", "b8", "v"), "file": {"path": str(node.home / "identity.key")}},
                  {**by_id("nofile", "b8", "v"), "file": {"path": str(original), "bytes_b64": "QQ=="}},
                  {**delete(BY_ID, {"hash": "filed"}, second), "file": link}]:
         status, reply = error_body(node, "/v1/write", {"mutations": [item]})
