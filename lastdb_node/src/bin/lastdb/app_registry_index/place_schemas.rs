@@ -9,6 +9,7 @@ use std::path::Path;
 
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
+use schema_types::expand_manifest_schema;
 use serde_json::Value;
 
 use super::str_err;
@@ -47,10 +48,13 @@ fn prepare_one(app_id: &str, entry: &Value) -> Result<PreparedSchema, String> {
         .unwrap_or("<unnamed>")
         .to_owned();
     let mut raw = entry.clone();
-    let Some(object) = raw.as_object_mut() else {
-        return Err(format!("schema '{label}' is not an object"));
+    let retention = {
+        let Some(object) = raw.as_object_mut() else {
+            return Err(format!("schema '{label}' is not an object"));
+        };
+        object.remove("retention")
     };
-    let retention = object.remove("retention");
+    expand_manifest_schema(&mut raw)?;
     let schema: DeclarativeSchemaDefinition = serde_json::from_value(raw)
         .map_err(|error| format!("schema '{label}' is not a schema declaration: {error}"))?;
     let schema = normalize_app_manifest_schema(app_id, schema)

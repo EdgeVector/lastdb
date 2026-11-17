@@ -6,7 +6,7 @@
 //! problems, missing types, and usual classifications.
 
 use crate::DataClassification;
-use schema_types::{DeclarativeSchemaDefinition, FieldValueType};
+use schema_types::{expand_manifest_schema, DeclarativeSchemaDefinition, FieldValueType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -228,6 +228,8 @@ fn members<'a>(
 }
 
 fn draft(schema: &Value) -> Result<Draft, String> {
+    let mut schema = schema.clone();
+    expand_manifest_schema(&mut schema)?;
     let object = schema
         .as_object()
         .ok_or("schema must be a JSON object, one entry of lastdb-app.json schemas")?;

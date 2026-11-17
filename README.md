@@ -156,6 +156,31 @@ Existing publishers can use their original signing key with `--key-file`.
 Pass `--key-file -` to read that key from standard input. CI can supply a
 developer API key using `EXEMEM_DEV_API_KEY`.
 
+Write each schema field once. In `schemas`, `fields` is an object from the
+field name to an object with a required `type` and optional `description`,
+`classifications`, `interest_category`, `version`, `declaration`, and `hash`.
+`schema_type` and `descriptive_name` can be left out. When `record_keys` is
+present, `schema_type` follows `record_keys.primary.kind`. A blank
+`descriptive_name` becomes the schema's local name. Names in the object are
+stored in sorted order. The older form, a `fields` array plus separate
+`field_*` maps, is still read. Do not mix the two in one entry.
+
+```json
+{
+  "name": "LastSecretIndex",
+  "purpose_statement": "Index of the secrets this app stores.",
+  "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
+  "fields": {
+    "secret_metadata_bucket_key": {
+      "type": "String",
+      "description": "Bucket that holds the secret metadata."
+    },
+    "secret_metadata_list_json": { "type": "String" },
+    "secret_metadata_updated_at": { "type": "DateTime" }
+  }
+}
+```
+
 ### Share a database
 
 Use [Social](https://github.com/EdgeVector/social) to share a named database with verified

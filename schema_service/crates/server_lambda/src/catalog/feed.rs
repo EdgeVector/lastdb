@@ -6,7 +6,7 @@ use app_identity_crypto::{
 };
 use futures::{stream, StreamExt};
 use http::{header, StatusCode};
-use schema_types::{DeclarativeSchemaDefinition, FieldValueType};
+use schema_types::{expand_manifest_schema, DeclarativeSchemaDefinition, FieldValueType};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -295,6 +295,7 @@ fn parse_manifest(
             if let Some(object) = value.as_object_mut() {
                 object.remove("retention");
             }
+            expand_manifest_schema(&mut value)?;
             let mut schema: DeclarativeSchemaDefinition = serde_json::from_value(value)
                 .map_err(|_| "manifest contains an invalid schema declaration")?;
             schema

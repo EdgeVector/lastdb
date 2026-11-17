@@ -34,8 +34,11 @@ no user-installable binary, Homebrew formula, or local HTTP dev server.
 An EventBridge invocation refreshes a private catalog object every five
 minutes. The reader verifies registry lists and publisher statements, fetches
 public GitHub manifests by exact commit, and uses LastDB's owned schema
-normalization. Active listings supply advice examples. The stored manifest
-definitions retain their commit identity when a listing disappears.
+normalization. A manifest may write each field once, as an object of field
+names; that form is expanded to the stored field list before normalization.
+The older field list is still read. Active listings supply advice examples.
+The stored manifest definitions retain their commit identity when a listing
+disappears.
 
 Advice reports the catalog as `current`, `stale`, or `unavailable`. Field
 advice uses the bundled vocabulary in all three states. A `similar_schema`
