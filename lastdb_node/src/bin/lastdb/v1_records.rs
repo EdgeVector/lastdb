@@ -1,6 +1,7 @@
 //! `lastdb` record reads and writes on `POST /v1/read` and `POST /v1/write`.
 //!
 //! A received database stays on the old routes: `/v1` does not serve one.
+//! An id that is not in the catalog stays there too.
 //! Byte upload, inline files, thumbnails, and removing a file while keeping
 //! the record stay there too. `/v1` carries no file bytes.
 
@@ -166,7 +167,7 @@ pub(super) fn record_write(
         );
     }
     if let Some(link) = file {
-        item.insert("file".into(), file_link(link));
+        item.insert("file".into(), file_link(&link));
     }
     Some(Value::Object(item))
 }
@@ -237,7 +238,7 @@ fn alternates_clear(mutation: &Value) -> bool {
     }
 }
 
-fn file_link(link: LinkedFile<'_>) -> Value {
+fn file_link(link: &LinkedFile<'_>) -> Value {
     let mut file = Map::new();
     file.insert("path".into(), json!(link.path));
     if let Some(name) = link.name {

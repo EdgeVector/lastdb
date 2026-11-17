@@ -16,8 +16,11 @@ use std::time::{Duration, Instant};
 pub(crate) struct DatabaseTarget {
     pub(crate) socket: PathBuf,
     pub(crate) selector: Option<String>,
-    /// A received database. `/v1` does not serve one, so record commands keep the old routes.
-    pub(crate) received: bool,
+    /// Record commands stay on the old routes. True for a received database,
+    /// which `/v1` does not serve, and for an id that is not in the catalog.
+    /// `/v1` answers that id with the same 404, which drops the command's
+    /// "database is not registered" text. The old scoped route still prints it.
+    pub(crate) old_routes: bool,
 }
 
 impl DatabaseTarget {
@@ -26,15 +29,15 @@ impl DatabaseTarget {
         let resolved = selector
             .map(|value| resolve_database(&socket, value))
             .transpose()?;
-        let (selector, received) = if let Some((id, received)) = resolved {
-            (Some(id), received)
+        let (selector, old_routes) = if let Some((id, old_routes)) = resolved {
+            (Some(id), old_routes)
         } else {
             (None, false)
         };
         Ok(Self {
             socket,
             selector,
-            received,
+            old_routes,
         })
     }
 
@@ -72,20 +75,20 @@ fn resolve_database(socket: &Path, selector: &str) -> Result<(String, bool), Str
         return resolved_row(selector, db);
     }
     if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
-        return Ok((selector.to_owned(), false));
+        return Ok((selector.to_owned(), true));
     }
     Err("database is not registered on this node".into())
 }
 
 fn resolved_row(selector: &str, db: &Value) -> Result<(String, bool), String> {
-    let received = db["kind"].as_str() == Some("received");
+    let old_routes = db["kind"].as_str() == Some("received");
     if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
-        return Ok((selector.to_owned(), received));
+        return Ok((selector.to_owned(), old_routes));
     }
     let id = db["id"].as_str().ok_or("missing database list")?;
     cloud_backup_protocol::Id::try_from(id.to_owned())
         .map_err(|_| "database is not registered on this node".to_string())?;
-    Ok((id.to_owned(), received))
+    Ok((id.to_owned(), old_routes))
 }
 
 pub(super) fn list_databases(data_dir: Option<PathBuf>, json_only: bool) -> Result<(), String> {

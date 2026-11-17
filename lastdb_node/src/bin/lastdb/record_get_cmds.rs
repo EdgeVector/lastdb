@@ -25,8 +25,8 @@ pub(super) fn list_record_keys(
     args: &RecordListArgs,
 ) -> Result<(), String> {
     // `--key-name` lists alternate addresses. `/v1` keys_only returns primary keys only.
-    // A received database is not served by `/v1`.
-    if target.received || args.key_name.is_some() {
+    // A received database, and an id missing from the catalog, stay on the old route.
+    if target.old_routes || args.key_name.is_some() {
         return list_record_keys_legacy(target, args);
     }
     require_reachable(&target.socket)?;
@@ -177,8 +177,8 @@ pub(super) fn get_record(
     }
     let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
     // Hydration checks the file digest. `/v1` returns no digest and no bytes.
-    // A received database is not served by `/v1`.
-    let mut val = if target.received || hydrate.is_some() || hydrate_inline.is_some() {
+    // A received database, and an id missing from the catalog, stay on the old route.
+    let mut val = if target.old_routes || hydrate.is_some() || hydrate_inline.is_some() {
         query_record(target, schema_name, hash, key_range, timeout)?
     } else {
         let item =

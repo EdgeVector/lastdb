@@ -170,9 +170,9 @@ fn submit_record(
     mutation_id: Option<Uuid>,
     timeout: Duration,
 ) -> Result<(), String> {
-    // A received database is not served by `/v1`. A purge, a file marker, metadata,
-    // or a condition `/v1` does not accept stays on `/api/mutation`.
-    let item = if target.received {
+    // A received database, and an id missing from the catalog, stay on `/api/mutation`.
+    // A purge, a file marker, metadata, or a condition `/v1` does not accept stays there too.
+    let item = if target.old_routes {
         None
     } else {
         v1_records::record_write(body, v1_records::database(target), None)
@@ -192,8 +192,8 @@ fn submit_file(
     timeout: Duration,
 ) -> Result<(), String> {
     let base = request_file.parent().unwrap_or(Path::new(""));
-    // Bytes, an inline file, a thumbnail, and a received database stay on put-blob.
-    let linked = !target.received && place == "blob" && file.local && file.thumbnail.is_none();
+    // Bytes, an inline file, a thumbnail, and a database on the old routes stay on put-blob.
+    let linked = !target.old_routes && place == "blob" && file.local && file.thumbnail.is_none();
     let receipt = if linked {
         write_local_reference(target, base, body, file, timeout)?
     } else {
