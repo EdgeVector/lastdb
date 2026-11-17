@@ -46,6 +46,10 @@ impl RunFile {
         self.retired.store(true, Ordering::Release);
     }
 
+    pub(super) fn is_retired(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+    }
+
     pub(super) fn hidden(&self) -> Option<u64> {
         self.hidden_plus_one.load(Ordering::Acquire).checked_sub(1)
     }
