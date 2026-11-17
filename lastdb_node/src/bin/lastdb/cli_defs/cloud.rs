@@ -68,21 +68,6 @@ pub(crate) struct RecoverCredentialsArgs {
 }
 
 #[derive(Args, Debug)]
-pub(crate) struct BackupIndexLogHistoryArgs {
-    /// `personal` or its exact database id in this home.
-    #[arg(long)]
-    pub(crate) database: String,
-    /// Read the cloud acceptance index without changing it.
-    #[arg(long, required_unless_present = "batches", conflicts_with = "batches")]
-    pub(crate) status: bool,
-    /// Index this many signed batches, without deleting any entries (1–256).
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
-    pub(crate) batches: Option<u16>,
-    #[arg(long)]
-    pub(crate) json: bool,
-}
-
-#[derive(Args, Debug)]
 pub(crate) struct BackupReclaimArgs {
     /// `personal` or its exact database id in this home.
     #[arg(long)]

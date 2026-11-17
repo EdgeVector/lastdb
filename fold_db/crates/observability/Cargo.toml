@@ -15,7 +15,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "fmt"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
-sentry = { workspace = true, optional = true, features = ["backtrace", "contexts", "release-health", "reqwest", "rustls"] }
+sentry = { workspace = true, optional = true, features = ["reqwest", "rustls"] }
 sentry-tracing = { version = "0.47", optional = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }

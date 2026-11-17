@@ -11,7 +11,6 @@ mod blob_retention;
 mod cloud;
 mod contributions;
 mod http;
-mod index_history;
 mod native;
 mod native_reset;
 mod owner_recovery;
@@ -28,20 +27,7 @@ mod wire;
 use crate::profile::private_fs as disk;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SyncRole {
-    Owner,
-    Reader,
-}
-
-impl SyncRole {
-    pub(super) fn can_write(self) -> bool {
-        matches!(self, Self::Owner)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct SyncState {
-    pub(super) role: SyncRole,
     pub(super) cursor: u64,
 }
 
@@ -55,7 +41,6 @@ pub(crate) use contributions::{
     schema_id, status as share_write_status, submit as submit_share_write, validate_write_scopes,
     ContributionError,
 };
-pub use index_history::{index_history, IndexHistoryReport};
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};
 pub(crate) use restore::SnapshotFiles;
@@ -243,8 +228,5 @@ mod paths {
     pub(crate) const LIST: &str = "/api/cloud/backups/v2/mutation-log/list";
     pub(super) const SETTLE_SUBMISSIONS: &str =
         "/api/cloud/backups/v2/mutation-log/settle-submissions";
-    pub(crate) use cloud_backup_protocol::v2::share_access::{
-        MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT,
-        MUTATION_LOG_DELIVERY_SNAPSHOT_PATH as DELIVERY_SNAPSHOT,
-    };
+    pub(crate) use cloud_backup_protocol::v2::share_access::MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT;
 }

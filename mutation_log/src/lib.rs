@@ -25,9 +25,8 @@ use database_policy::{admit_namespace, valid_label, NamespaceClass, SpecBinding}
 
 pub use append::AppendOutcome;
 pub use model::{
-    step, AppendBatch, Capability, Command, DatabaseKind, Entry, Grant, Head, Incorporation,
-    LogState, Outcome, Snapshot, SnapshotRef, Stamp, StepResult, StoredEntry, SubmissionRecord,
-    SubmissionStatus, Writer,
+    AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, LogState, Stamp,
+    StoredEntry, Writer,
 };
 pub use read::{ListPage, ScopedHead};
 
@@ -165,10 +164,6 @@ pub enum LogError {
         /// The sequence the batch offered.
         got: u64,
     },
-    /// This writer already has an append open.
-    AppendInFlight,
-    /// Append or finish ran without an open append for this writer.
-    AppendNotOpen,
     /// The principal may not perform this step.
     Unauthorized,
     /// A shareable database was asked to store an app-private namespace.
@@ -181,15 +176,6 @@ pub enum LogError {
     CursorExpired {
         /// Delivery sequence the latest snapshot covers, or zero when none exists.
         snapshot_through: u64,
-    },
-    /// Trim would drop entries, and no snapshot pointer covers that floor.
-    SnapshotRequired,
-    /// A pending submission aged out before the publisher copied it.
-    SubmissionExpired {
-        /// Writer (node key, device) of the submission.
-        writer: Writer,
-        /// Writer sequence of that submission.
-        writer_seq: u64,
     },
 }
 
@@ -221,8 +207,6 @@ impl fmt::Display for LogError {
             Self::Gap { expected, got } => {
                 write!(f, "writer sequence gap: expected {expected}, got {got}")
             }
-            Self::AppendInFlight => f.write_str("append already in flight for this writer"),
-            Self::AppendNotOpen => f.write_str("append is not open for this writer"),
             Self::Unauthorized => f.write_str("not authorized for this log step"),
             Self::AppPrivateNamespace => {
                 f.write_str("app-private namespace cannot enter a shareable database")
@@ -236,13 +220,6 @@ impl fmt::Display for LogError {
             Self::CursorExpired { snapshot_through } => {
                 write!(f, "cursor expired; snapshot covers {snapshot_through}")
             }
-            Self::SnapshotRequired => f.write_str("trim needs a snapshot that covers the floor"),
-            Self::SubmissionExpired { writer, writer_seq } => write!(
-                f,
-                "pending submission expired before it was copied ({}, {}, seq {writer_seq})",
-                writer.key.as_str(),
-                writer.device.as_str()
-            ),
         }
     }
 }

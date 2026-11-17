@@ -48,8 +48,6 @@ pub mod limits {
 
     /// Maximum canonical JSON bytes of a V2 control message.
     pub const CONTROL_JSON_MAX_BYTES: u64 = 256 * 1024;
-    /// Maximum JSON bytes of one signed mutation-log snapshot part response.
-    pub const MUTATION_LOG_SNAPSHOT_PART_MAX_BYTES: u64 = 1024 * 1024;
 
     /// Reject canonical JSON of `value` larger than `maximum`.
     pub(crate) fn encoded<T: Serialize>(value: &T, maximum: u64) -> Result<(), ProtocolError> {

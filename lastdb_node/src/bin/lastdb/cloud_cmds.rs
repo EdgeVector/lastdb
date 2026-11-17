@@ -2,7 +2,7 @@
 
 use super::*;
 use cloud_backup_protocol::Digest;
-use lastdb_node::log_sync::{index_history, reclaim_snapshot_log, IndexHistoryReport};
+use lastdb_node::log_sync::reclaim_snapshot_log;
 use serde_json::Value;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -53,9 +53,6 @@ pub(super) fn backup_command(
         BackupCommand::Reclaim(args) => {
             run_reclaim(&lastdb_node::host::resolve_home(data_dir)?, &args)
         }
-        BackupCommand::IndexLogHistory(args) => {
-            run_index_history(&lastdb_node::host::resolve_home(data_dir)?, &args)
-        }
         BackupCommand::Snapshot { database, wait } => {
             let db = database.or(db).unwrap_or_else(|| "personal".to_owned());
             queue_snapshot(data_dir, &db, wait)
@@ -100,54 +97,6 @@ fn queue_snapshot(data_dir: Option<PathBuf>, database: &str, wait: bool) -> Resu
     }
     println!("Queued signed snapshot for {id}");
     Ok(())
-}
-
-fn run_index_history(home: &Path, args: &BackupIndexLogHistoryArgs) -> Result<(), String> {
-    if args.status == args.batches.is_some() {
-        return Err("choose --status or --batches".into());
-    }
-    let report = block_on(
-        "backup index-log-history",
-        index_history(home, &args.database, args.batches, progress),
-    )?;
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|_| "cannot encode index status")?
-        );
-        return Ok(());
-    }
-    println!(
-        "Database {} ({})",
-        report.database_id.as_str(),
-        report.environment
-    );
-    println!("Cloud history indexing enabled: {}", report.index_enabled);
-    println!("Database history eligible: {}", report.eligible);
-    println!("First indexed delivery: {}", first(&report));
-    if args.batches.is_some() {
-        println!(
-            "Confirmed {} batches and {} indexed entries",
-            report.batches,
-            report.indexed_entries.get()
-        );
-    }
-    Ok(())
-}
-
-fn progress(report: &IndexHistoryReport) {
-    eprintln!(
-        "Confirmed {} batches and {} indexed entries. First indexed delivery is {}",
-        report.batches,
-        report.indexed_entries.get(),
-        first(report),
-    );
-}
-
-fn first(report: &IndexHistoryReport) -> String {
-    report
-        .first_indexed_delivery
-        .map_or_else(|| "none".into(), |value| value.get().to_string())
 }
 
 fn run_reclaim(home: &Path, args: &BackupReclaimArgs) -> Result<(), String> {
