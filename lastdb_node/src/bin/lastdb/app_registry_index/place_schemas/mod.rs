@@ -20,6 +20,8 @@ mod service;
 struct Pending {
     schema: DeclarativeSchemaDefinition,
     retention: Option<Value>,
+    /// Where the definition came from, for the line install prints.
+    from: &'static str,
 }
 
 pub(super) fn place(
@@ -94,6 +96,7 @@ fn resolve(
             return Ok(Pending {
                 schema,
                 retention: None,
+                from: "Schema Service",
             });
         }
         Err(reason) => {
@@ -109,6 +112,7 @@ fn resolve(
         Ok(item) => Ok(Pending {
             schema: item.schema,
             retention: item.retention,
+            from: "the app's manifest",
         }),
         Err(manifest) => Err(not_placed(name, signed_id, node, &service, &manifest)),
     }
@@ -173,6 +177,7 @@ fn node_definitions(socket: &Path) -> Result<BTreeMap<String, Option<String>>, S
 
 fn post_one(socket: &Path, item: Pending) -> Result<(), String> {
     let name = item.schema.name.clone();
+    let from = item.from;
     let namespace = name.split_once('/').map_or("", |(namespace, _)| namespace);
     let mut body = serde_json::json!({ "app_id": namespace, "schema": item.schema });
     if let Some(retention) = item.retention {
@@ -180,7 +185,11 @@ fn post_one(socket: &Path, item: Pending) -> Result<(), String> {
     }
     let raw = crate::uds_client::post_json_admin(socket, "/api/apps/declare-schema", &body)
         .map_err(|error| refused(&name, &error))?;
-    accept_declare(&name, &raw)
+    accept_declare(&name, &raw)?;
+    // One line per schema this install placed, on stderr so the JSON on
+    // stdout stays whole. It says which source supplied the definition.
+    eprintln!("placed schema {name} from {from}");
+    Ok(())
 }
 
 fn accept_declare(name: &str, raw: &str) -> Result<(), String> {
