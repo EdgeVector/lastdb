@@ -2338,7 +2338,6 @@ dependencies = [
  "app_identity_crypto",
  "aws-credential-types",
  "aws-sigv4",
- "futures",
  "http",
  "lambda_http",
  "observability",
@@ -2347,7 +2346,6 @@ dependencies = [
  "schema_types",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tokio",
  "tracing",
 ]

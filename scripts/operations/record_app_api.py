@@ -74,24 +74,35 @@ def error_body(node, path, body):
     return status, json.loads(raw)
 
 
-def conflict(node, *mutations):
+def conflict(node, *mutations, index=None, reason=None):
     status, reply = error_body(node, "/v1/write", {"mutations": list(mutations)})
-    require(status == 409 and reply["error"]["code"] == "conflict",
+    error = reply["error"]
+    require(status == 409 and error["code"] == "conflict",
             f"a write whose condition does not hold was not refused: {status} {reply!r}")
+    if index is None:
+        return
+    sentence = {
+        "exists": "a record already holds the key",
+        "absent": "no record holds the key",
+        "revision": "the record is at another revision",
+    }[reason]
+    require(error.get("index") == index and error.get("reason") == reason
+            and error.get("message") == f"mutation {index}: {sentence}",
+            f"a refused write named the wrong mutation: {reply!r}")
 
 
 def writes(node):
     first = write(node, by_id("one", "b1", "v1"))[0]
     require(stored(node, "one")["revision"] == first, "a read returned another revision than the write")
-    conflict(node, by_id("one", "b1", "again"))
+    conflict(node, by_id("one", "b1", "again"), index=0, reason="exists")
     require(value_of(node, "one") == "v1", "a create over a record changed it")
     second = write(node, replace("one", "b1", "v2", first))[0]
     require(second != first and value_of(node, "one") == "v2", "a replace at the read revision was not written")
-    conflict(node, replace("one", "b1", "stale", first))
+    conflict(node, replace("one", "b1", "stale", first), index=0, reason="revision")
     require(value_of(node, "one") == "v2", "a replace at a stale revision changed the record")
     require(write(node, replace("one", "b1", "v3", second), by_id("dup", "b1", "d")) and
             value_of(node, "one") == "v3" and value_of(node, "dup") == "d", "a list of two mutations was not written")
-    conflict(node, by_id("two", "b1", "v"), by_id("one", "b1", "again"))
+    conflict(node, by_id("two", "b1", "v"), by_id("one", "b1", "again"), index=1, reason="exists")
     require(value_of(node, "two") is None, "a refused list wrote one of its records")
     stray = create(BY_ID, {"hash": "three"}, {"nope": "x"}, {"by_bucket": {"hash": "b1", "range": "three"}})
     refused(lambda: write(node, by_id("two", "b1", "v"), stray), "HTTP 400")
@@ -105,35 +116,25 @@ def deletes(node):
     found = sorted(row["key"]["hash"] for row in read(node, lookup)[0]["records"])
     require(found == ["dup", "one"], "the alternate key read differs: " + repr(found))
     revision = stored(node, "one")["revision"]
-    conflict(node, delete(BY_ID, {"hash": "one"}, "0" * len(revision)))
+    conflict(node, delete(BY_ID, {"hash": "one"}, "0" * len(revision)), index=0, reason="revision")
     require(value_of(node, "one") == "v3", "a delete at another revision removed the record")
     write(node, delete(BY_ID, {"hash": "one"}, revision))
     require(stored(node, "one") is None, "a deleted record still reads")
     found = [row["key"]["hash"] for row in read(node, lookup)[0]["records"]]
     require(found == ["dup"], "a deleted alternate entry still resolves: " + repr(found))
-    conflict(node, delete(BY_ID, {"hash": "one"}, revision))
+    conflict(node, delete(BY_ID, {"hash": "one"}, revision), index=0, reason="absent")
     write(node, by_id("one", "b3", "back"))
     require(value_of(node, "one") == "back", "a create after a delete differs")
     same_delete_refusal(node)
-    print("App API deletes: delete at the read revision, one refusal for an absent key "
-          "and a wrong revision, and create after delete passed", flush=True)
+    print("App API deletes: delete at the read revision, an absent key and a wrong "
+          "revision each name why, and create after delete passed", flush=True)
 
 
 def same_delete_refusal(node):
-    """A delete of an absent key and a delete at a wrong revision are one answer."""
+    """A delete of an absent key and a delete at a wrong revision name why."""
     revision = stored(node, "dup")["revision"]
-
-    def body(mutation):
-        status, raw, _, _, _ = send_unix_request(
-            node.socket, "POST", "/v1/write", {"mutations": [mutation]},
-            {"Content-Type": "application/json"})
-        return status, raw
-
-    absent = body(delete(BY_ID, {"hash": "no-such-record"}, revision))
-    wrong = body(delete(BY_ID, {"hash": "dup"}, "0" * len(revision)))
-    require(absent[0] == 409 and absent == wrong and b'"conflict"' in absent[1],
-            "a delete of an absent key and a delete at a wrong revision differed: "
-            + repr(absent) + " " + repr(wrong))
+    conflict(node, delete(BY_ID, {"hash": "no-such-record"}, revision), index=0, reason="absent")
+    conflict(node, delete(BY_ID, {"hash": "dup"}, "0" * len(revision)), index=0, reason="revision")
 
 
 def ranges(node):

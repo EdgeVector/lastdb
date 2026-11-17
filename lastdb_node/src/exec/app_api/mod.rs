@@ -17,6 +17,7 @@ use crate::lastdb_uds::uds_router::valid_selector;
 mod changes;
 mod file_place;
 mod read;
+mod refusal;
 mod write;
 
 pub(in crate::exec) use changes::changes_route;
@@ -72,7 +73,22 @@ fn error_value(error: &HostError) -> Value {
     } else {
         error.message.as_str()
     };
-    json!({ "error": { "code": code(status), "message": message } })
+    let mut body = serde_json::Map::new();
+    body.insert("code".into(), json!(code(status)));
+    body.insert("message".into(), json!(message));
+    // A 500 hides the cause. index and reason belong to the refusal the caller can act on.
+    if status != 500 {
+        if let Some(index) = error.index {
+            body.insert("index".into(), json!(index));
+        }
+        if let Some(reason) = error.reason {
+            body.insert("reason".into(), json!(reason));
+        }
+    }
+    Value::Object(serde_json::Map::from_iter([(
+        String::from("error"),
+        Value::Object(body),
+    )]))
 }
 
 fn fail(error: &HostError) -> UdsResponse {
@@ -121,23 +137,6 @@ fn require_exact_name(host: &Host, name: &str) -> Result<(), HostError> {
         Ok(Some(found)) if found == name => Ok(()),
         Err(error) if error.status >= 500 => Err(error),
         _ => Err(HostError::new(404, format!("no schema is named {name}"))),
-    }
-}
-
-/// One sentence for every write whose condition does not hold. The engine's
-/// conflict body names the revision it found, which tells a caller whether
-/// the key holds a record.
-const WRITE_CONFLICT: &str = "the record is not at the revision this write names";
-
-fn same_conflict(error: HostError) -> HostError {
-    let revision_conflict = error.status == 409
-        && serde_json::from_str::<Value>(&error.message)
-            .ok()
-            .is_some_and(|body| body.get("error").and_then(Value::as_str) == Some("cas_conflict"));
-    if revision_conflict {
-        HostError::new(409, WRITE_CONFLICT)
-    } else {
-        error
     }
 }
 

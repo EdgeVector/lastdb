@@ -4,7 +4,7 @@ name = "app_identity_crypto"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-description = "Shared Ed25519, JCS (RFC 8785), and signed registry-list helpers for app_identity."
+description = "Shared Ed25519, JCS (RFC 8785), signed registry-list, and schema push statement helpers for app_identity."
 
 [dependencies]
 serde = { workspace = true }

@@ -63,6 +63,10 @@ pub(in crate::exec) struct HostError {
     pub(in crate::exec) status: u16,
     pub(in crate::exec) message: String,
     structured_body: Option<Value>,
+    /// Set when an app API refusal concerns one mutation in the list.
+    pub(in crate::exec) index: Option<usize>,
+    /// A fixed word for why a write condition did not hold.
+    pub(in crate::exec) reason: Option<&'static str>,
 }
 
 impl HostError {
@@ -71,6 +75,8 @@ impl HostError {
             status,
             message: message.into(),
             structured_body: None,
+            index: None,
+            reason: None,
         }
     }
 
@@ -83,11 +89,25 @@ impl HostError {
             status,
             message: message.into(),
             structured_body: Some(body),
+            index: None,
+            reason: None,
         }
     }
 
     pub(in crate::exec) fn internal(message: impl Into<String>) -> Self {
         Self::new(500, message)
+    }
+
+    /// The mutation this refusal concerns.
+    pub(in crate::exec) fn at(mut self, index: usize) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    /// Why a write condition did not hold: `exists`, `absent`, or `revision`.
+    pub(in crate::exec) fn with_reason(mut self, reason: &'static str) -> Self {
+        self.reason = Some(reason);
+        self
     }
 }
 

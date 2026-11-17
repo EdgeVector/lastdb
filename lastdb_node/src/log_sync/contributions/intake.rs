@@ -150,9 +150,10 @@ pub(in crate::log_sync) async fn apply(
     let Ok(submission) = serde_json::from_slice::<Submission>(&bytes) else {
         return Ok(Discarded);
     };
-    if submission.grant_revision != applied.revision.get() {
-        return Ok(Discarded);
-    }
+    // The member, role and scope above come from the configuration applied
+    // now, and the record checks below read the store as it is now. The
+    // revision the submitter saw is not compared: a change to another
+    // member's row must not discard this member's write.
     let Ok(body) = serde_json::to_vec(&submission.operation) else {
         return Ok(Discarded);
     };

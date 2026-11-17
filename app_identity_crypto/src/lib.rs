@@ -1,5 +1,5 @@
-//! Shared Ed25519, JCS (RFC 8785), and signed registry-list helpers for
-//! `lastdb_node` and Schema Service.
+//! Shared Ed25519, JCS (RFC 8785), signed registry-list helpers, and the
+//! schema push statement for `lastdb_node` and Schema Service.
 #![warn(missing_docs)]
 
 use std::collections::HashSet;
@@ -13,9 +13,11 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 mod access;
+mod schema_push;
 
 pub use access::{Access, KNOWN_EXTENSIONS};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
+pub use schema_push::{schema_push_statement, verify_schema_push};
 
 const PUBLIC_KEY_LEN: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
 const SIGNATURE_LEN: usize = ed25519_dalek::SIGNATURE_LENGTH;

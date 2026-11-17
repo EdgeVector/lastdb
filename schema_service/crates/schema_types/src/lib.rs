@@ -6,9 +6,11 @@ use serde_json::Value;
 use std::{collections::BTreeMap, fmt};
 
 mod declarative_schemas;
+mod manifest_schema;
 mod range_profile;
 
 pub use declarative_schemas::DeclarativeSchemaDefinition;
+pub use manifest_schema::expand_manifest_schema;
 pub use range_profile::{
     compute_field_hash, field_range_profile, key_comparison, PortableSchemaId,
 };

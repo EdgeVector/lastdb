@@ -1,7 +1,8 @@
 //! Advisory Schema Service Lambda handler.
 //!
-//! Serves `/v1/health` (`/health`), `/v1/fields/vocabulary`, and
-//! `POST /v1/advice/schema` from the curated vocabulary and public registry catalog.
+//! Serves `/v1/health` (`/health`), `/v1/fields/vocabulary`,
+//! `POST /v1/advice/schema`, and `POST /v1/schemas`. Advice reads the curated
+//! vocabulary and the schemas publishers push.
 
 #![allow(clippy::result_large_err)]
 
@@ -77,7 +78,8 @@ fn dispatch_stateless(method: &str, path: &str) -> Option<Result<Response<Body>,
                     "GET /health": "Health check (unversioned alias)",
                     "GET /v1/health": "Health check",
                     "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
-                    "POST /v1/advice/schema": "Advice for one draft schema declaration (read-only, never blocks)"
+                    "POST /v1/advice/schema": "Advice for one draft schema declaration (read-only, never blocks)",
+                    "POST /v1/schemas": "Register one listed app's schema definitions for one channel"
                 }
             }),
         )),
@@ -137,8 +139,8 @@ async fn function_handler(
         return resp;
     }
 
-    if method == "POST" && path == catalog::FEED_PATH {
-        return catalog::scheduled(catalog.as_deref(), &event).await;
+    if method == "POST" && path == catalog::SCHEMAS_PATH {
+        return catalog::register_schemas(catalog.as_deref(), &event).await;
     }
 
     dispatch_with_state(&state, catalog.as_deref(), &event).await

@@ -7,6 +7,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
 use lastdb_node::profile::endpoints::{registry_api_url_for, Environment};
+use schema_types::expand_manifest_schema;
 use serde_json::{json, Value};
 use std::process::Command;
 use std::time::Duration;
@@ -51,6 +52,7 @@ fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>,
             if let Some(obj) = entry.as_object_mut() {
                 obj.remove("retention");
             }
+            expand_manifest_schema(&mut entry)?;
             let raw: DeclarativeSchemaDefinition = serde_json::from_value(entry).map_err(|e| {
                 format!("manifest schema '{label}' is not a schema declaration: {e}")
             })?;

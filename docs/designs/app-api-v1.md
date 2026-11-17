@@ -29,13 +29,14 @@ POST /v1/read
 ] }
 ```
 
-- A read of records names a schema and exactly one of `key` or `range`. A scan of records does not exist.
+- A read of records names a schema and exactly one of `key` or `range`.
 - `key` is one record: `hash`, and `range` when the schema has one.
 - `range` is the records under one `hash`: all of them, those with a `prefix`,
   or those from `start` up to `end`.
 - `via` reads through a named alternate key. The reply holds the primary keys.
 - `limit` bounds a page. `next_cursor` is an opaque string; send it back as `cursor`.
-- `keys_only` returns keys without records.
+- `keys_only` returns keys without records. An app can list the keys of a schema
+  a page at a time. There is no filter on a field value.
 - A `keys_only` read with neither `key` nor `range` lists the primary keys of the
   schema's records (Tom, 2026-11-17). A page holds 100 keys unless `limit` says
   otherwise, and at most 1000. Follow `next_cursor` until it is null for all of
@@ -64,10 +65,9 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `create` writes only when no record holds the key. It carries the record and no revision.
 - `replace` writes only when the record is still at `revision`, the revision the caller read. It carries the complete record.
 - `delete` deletes only when the record is still at `revision`. It carries no record.
-- A mutation whose condition does not hold refuses the whole list with `409 conflict`. The caller reads again and decides.
-- Every such refusal has the same message. A `delete` of a key that holds no
-  record and a `delete` at the wrong revision are the same reply, so a refusal
-  does not say whether a key exists.
+- A mutation whose condition does not hold refuses the whole list with `409 conflict`. The reply names that mutation and why. The caller reads again and decides.
+- `index` is the zero-based position of the first mutation whose condition failed. `reason` is `exists` when a `create` finds a record at the key, `absent` when a `replace` or a `delete` finds no record, or `revision` when the record is at another revision.
+- `{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }`
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
 - The list is all or nothing. Every mutation in one list names the same database.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
@@ -143,6 +143,12 @@ A refusal is an HTTP status with one body shape:
 
 ```
 { "error": { "code": "invalid_request", "message": "…" } }
+```
+
+A refusal that concerns one mutation also sends `index`, the zero-based position in the list. A write whose condition failed also sends `reason` (`exists`, `absent`, or `revision`):
+
+```
+{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }
 ```
 
 | Status | Code |
