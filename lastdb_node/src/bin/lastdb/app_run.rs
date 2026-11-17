@@ -1,6 +1,7 @@
 //! The app launcher. An installed app that declares LastDB access starts
-//! here: with an app session, on the app socket, and on macOS inside a
-//! sandbox profile that denies it the LastDB home and the owner socket.
+//! here: with an app session, on the app socket. The node then serves it only
+//! the schemas it declared, which keeps the record of which app uses which
+//! schema true. Nothing confines the program on the machine.
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt as _;
@@ -10,7 +11,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::app_registry_index::launch::{self, Launch};
+use crate::app_registry_index::launch;
 
 const SESSION_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -69,13 +70,13 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
         .and_then(Value::as_str)
         .ok_or("the node returned no app session")?;
     let app_socket = data.join(lastdb_node::lastdb_uds::APP_SOCKET_FILE_NAME);
-    // The one place a restricted app may write. It outlives an upgrade,
-    // because versions sit beside it and not inside it.
+    // The app's own folder for its files. It outlives an upgrade, because
+    // versions sit beside it and not inside it.
     let app_data = crate::app_registry_index::managed::app_root(app)?.join("data");
     let temp = app_data.join("tmp");
     std::fs::create_dir_all(&temp)
         .map_err(|error| format!("could not create {}: {error}", temp.display()))?;
-    let mut child = restricted(home, app, &launch, &app_socket, &app_data);
+    let mut child = Command::new(&launch.program);
     child
         .env("LASTDB_SOCKET_PATH", &app_socket)
         .env("LASTDB_APP_SESSION", session)
@@ -83,64 +84,4 @@ fn prepare(home: &Path, app: &str, command: &str) -> Result<Command, String> {
         .env("TMPDIR", &temp)
         .env_remove("FOLDDB_SOCKET_PATH");
     Ok(child)
-}
-
-#[cfg(target_os = "macos")]
-fn restricted(
-    home: &Path,
-    app: &str,
-    launch: &Launch,
-    app_socket: &Path,
-    app_data: &Path,
-) -> Command {
-    // macOS refuses a second profile on a process that already runs in one
-    // (`sandbox_apply: Operation not permitted`), so an app started from a
-    // sandboxed caller, such as an agent's shell, could never start. The
-    // caller's profile is inherited and cannot be left, so the app still
-    // gets no more of the machine than its caller has; it gets the app
-    // socket and a session as always.
-    if caller_is_sandboxed() {
-        return Command::new(&launch.program);
-    }
-    let mut child = Command::new("/usr/bin/sandbox-exec");
-    child
-        .arg("-p")
-        // Launch leaves the install tree read-only. Only the data folder is writable.
-        .arg(crate::app_sandbox::profile(
-            home, app, app_socket, app_data, None,
-        ))
-        .arg(&launch.program);
-    child
-}
-
-/// Whether this process already runs inside a macOS sandbox profile.
-#[cfg(target_os = "macos")]
-fn caller_is_sandboxed() -> bool {
-    extern "C" {
-        // From libSystem. With no operation it answers whether the process
-        // is sandboxed at all.
-        fn sandbox_check(
-            pid: libc::pid_t,
-            operation: *const libc::c_char,
-            kind: libc::c_int,
-            ...
-        ) -> libc::c_int;
-    }
-    // SAFETY: a null operation is the documented "is it sandboxed" query; the
-    // call reads no memory of ours.
-    unsafe { sandbox_check(libc::getpid(), std::ptr::null(), 0) != 0 }
-}
-
-/// No sandbox tool is chosen for this platform yet. The app still gets only
-/// the app socket and a session, which holds an app that does not try to get
-/// around it.
-#[cfg(not(target_os = "macos"))]
-fn restricted(
-    _home: &Path,
-    _app: &str,
-    launch: &Launch,
-    _app_socket: &Path,
-    _app_data: &Path,
-) -> Command {
-    Command::new(&launch.program)
 }

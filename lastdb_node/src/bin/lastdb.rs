@@ -8,8 +8,6 @@ mod app_cmds;
 mod app_registry_index;
 #[path = "lastdb/app_run.rs"]
 mod app_run;
-#[path = "lastdb/app_sandbox.rs"]
-mod app_sandbox;
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;
 #[path = "lastdb/cloud_cmds.rs"]

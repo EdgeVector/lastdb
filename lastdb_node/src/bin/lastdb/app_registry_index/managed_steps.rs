@@ -1,7 +1,6 @@
 //! Install steps. An unrestricted app runs them as before.
 //!
 //! A restricted app does not receive the owner socket or an app session.
-//! On macOS its steps run inside the install sandbox profile.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -77,11 +76,7 @@ fn command(
     } else {
         None
     };
-    let mut cmd = if let Some(paths) = &paths {
-        sandboxed(&step.argv[0], source, home, app, paths)?
-    } else {
-        Command::new(&step.argv[0])
-    };
+    let mut cmd = Command::new(&step.argv[0]);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -129,40 +124,4 @@ fn app_paths(home: &Path, app: &str) -> Result<AppPaths, String> {
     std::fs::create_dir_all(&tmp)
         .map_err(|error| format!("could not create {}: {error}", tmp.display()))?;
     Ok(AppPaths { socket, data, tmp })
-}
-
-#[cfg(target_os = "macos")]
-fn sandboxed(
-    program: &str,
-    source: &Path,
-    home: &Path,
-    app: &str,
-    paths: &AppPaths,
-) -> Result<Command, String> {
-    let mut cmd = Command::new("/usr/bin/sandbox-exec");
-    cmd.arg("-p")
-        // Prepare installs dependencies into this version's source folder. The
-        // receipt and the current link beside it stay read-only.
-        .arg(crate::app_sandbox::profile(
-            home,
-            app,
-            &paths.socket,
-            &paths.data,
-            Some(source),
-        ))
-        .arg(program);
-    Ok(cmd)
-}
-
-/// No sandbox tool is chosen for this platform yet. The step still does not
-/// receive the owner socket.
-#[cfg(not(target_os = "macos"))]
-fn sandboxed(
-    program: &str,
-    _source: &Path,
-    _home: &Path,
-    _app: &str,
-    _paths: &AppPaths,
-) -> Result<Command, String> {
-    Ok(Command::new(program))
 }
