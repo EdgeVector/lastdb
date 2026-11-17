@@ -199,7 +199,6 @@ fn host_error(error: ConfigError) -> HostError {
             "share_revision_conflict",
             json!({ "revision": revision }),
         ),
-        ConfigError::Pending => (409, "share_update_pending", json!({})),
         ConfigError::PaymentRequired => (
             402,
             "payment_required",
