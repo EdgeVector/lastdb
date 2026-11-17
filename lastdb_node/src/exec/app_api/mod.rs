@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use super::app_session::active_app;
 use super::reply::{content_free, json_ok, status_reason, HostError};
+use super::schema_routes::resolve_schema_name;
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
@@ -105,6 +106,37 @@ fn require_read(schema: &str) -> Result<(), HostError> {
             format!("the app {} did not declare that it reads {schema}", app.app),
         )),
         _ => Ok(()),
+    }
+}
+
+/// On the app socket a schema name is the exact name of a schema on the node.
+/// Call it after `require_read` or `require_write`, and inside `in_database`
+/// when the item names a database. The owner socket keeps loose matching.
+fn require_exact_name(host: &Host, name: &str) -> Result<(), HostError> {
+    if active_app().is_none() {
+        return Ok(());
+    }
+    match resolve_schema_name(host, name) {
+        Ok(Some(found)) if found == name => Ok(()),
+        Err(error) if error.status >= 500 => Err(error),
+        _ => Err(HostError::new(404, format!("no schema is named {name}"))),
+    }
+}
+
+/// One sentence for every write whose condition does not hold. The engine's
+/// conflict body names the revision it found, which tells a caller whether
+/// the key holds a record.
+const WRITE_CONFLICT: &str = "the record is not at the revision this write names";
+
+fn same_conflict(error: HostError) -> HostError {
+    let revision_conflict = error.status == 409
+        && serde_json::from_str::<Value>(&error.message)
+            .ok()
+            .is_some_and(|body| body.get("error").and_then(Value::as_str) == Some("cas_conflict"));
+    if revision_conflict {
+        HostError::new(409, WRITE_CONFLICT)
+    } else {
+        error
     }
 }
 

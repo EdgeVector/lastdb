@@ -14,7 +14,10 @@ use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, Muta
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{bad, fail, in_database, key_filter, ok, require_write};
+use super::{
+    bad, fail, in_database, key_filter, ok, require_exact_name, require_write, same_conflict,
+    WRITE_CONFLICT,
+};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
@@ -84,7 +87,7 @@ pub(in crate::exec) async fn write_route(
 ) -> UdsResponse {
     match write(host, &req.body).await {
         Ok(body) => ok(&body),
-        Err(error) => fail(&error),
+        Err(error) => fail(&same_conflict(error)),
     }
 }
 
@@ -95,6 +98,9 @@ async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
     }
     let database = items.first().and_then(|item| item.database.clone());
     in_database(database.as_deref(), host, async {
+        for item in &items {
+            require_exact_name(host, &item.schema)?;
+        }
         let mut mutations = Vec::with_capacity(items.len());
         let mut linked = Vec::new();
         for mut item in items {
@@ -169,11 +175,9 @@ async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, 
         .as_array()
         .ok_or_else(|| HostError::internal("write read is incomplete"))?;
     match rows.as_slice() {
-        // No record holds the key, so no revision of it can match.
-        [] => Err(HostError::new(
-            409,
-            "the record does not exist, so the delete revision does not match",
-        )),
+        // The same sentence as a revision conflict. The two replies do not say
+        // which condition failed.
+        [] => Err(HostError::new(409, WRITE_CONFLICT)),
         [row] => serde_json::from_value(row["alternates"].clone())
             .map_err(|_| HostError::internal("stored alternates are invalid")),
         _ => Err(bad(
