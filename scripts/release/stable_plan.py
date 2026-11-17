@@ -18,6 +18,7 @@ from urllib.error import HTTPError
 
 from nightly_package import write_json
 from nightly_plan import RELEASE_GATE_WAIT_SECONDS, _capture, wait_gates
+from stable_place import place_manifest_schemas
 
 TAP = "EdgeVector/homebrew-lastdb"
 APPS = ("brain", "lastsecrets", "search")
@@ -200,7 +201,8 @@ def prove_apps(node, plan, output, declare=True):
                    "PATH": os.pathsep.join((str(node.binaries), str(node.root / "os-home/.local/bin"), os.environ["PATH"])),
                    "LASTDB_APPS_ROOT": str(node.root / "managed-apps"),
                    "LASTSECRETS_SOCKET_PATH": str(node.socket), "LASTDB_SOCKET_PATH": str(node.socket)}
-    for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"):
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+                 "ACTIONS_RUNTIME_TOKEN", "LASTDB_APP_SESSION"):
         environment.pop(name, None)
     results = {}
     for app in APPS:
@@ -209,7 +211,15 @@ def prove_apps(node, plan, output, declare=True):
         if manifest["app_id"] != app:
             raise ValueError("App source identity differs")
         link = next(item for item in manifest["install"]["links"] if item["command"] == app)
-        executable = Path(environment["HOME"]) / ".local/bin" / app if installed else source / link["source"]
+        # An access manifest no longer declares schemas in init. Place them on
+        # the owner socket and run the program itself. The installed command
+        # link would start the launcher, which sets the app socket and a session.
+        restricted = isinstance(manifest.get("access"), dict)
+        if restricted:
+            place_manifest_schemas(node, manifest)
+        executable = (
+            source / link["source"] if restricted or not installed
+            else Path(environment["HOME"]) / ".local/bin" / app)
         run = lambda args, name, body=None, retain_output=True: command(
             [str(executable), *args], environment, source, output, app + "-" + name, body, retain_output=retain_output)
         if app == "brain":
