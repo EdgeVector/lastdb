@@ -11,6 +11,7 @@ mod command_names;
 pub mod launch;
 pub mod managed;
 mod managed_manifest;
+mod managed_steps;
 mod place_schemas;
 
 pub(crate) use crate::uds_client::running_node;

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::managed_manifest::{self, steps, InstallPlan};
+use super::managed_manifest::{self, InstallPlan};
+use super::managed_steps::steps;
 use super::{str_err, ListEntry, Resolution, RECEIPT_FILE};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,11 +175,12 @@ fn stage_version(
             return Err(format!("install required app '{app}' first"));
         }
     }
-    steps(&source, home, &entry.app_id, &plan.prepare)?;
+    let restricted = entry.access.is_some();
+    steps(&source, home, &entry.app_id, &plan.prepare, restricted)?;
     managed_manifest::validate_sources(&source, &plan)?;
     // A restricted app is probed after activation places its schemas.
     if entry.access.is_none() && !inactive {
-        steps(&source, home, &entry.app_id, &plan.probe)?;
+        steps(&source, home, &entry.app_id, &plan.probe, restricted)?;
     }
     let suffix = format!("/{}/api/{}.json", entry.channel, entry.api_version);
     let new = ManagedReceipt {
@@ -212,7 +214,8 @@ pub fn verify(
     managed_manifest::verify(root, &plan, current.listing.access.is_some())?;
     managed_manifest::verify_git_source(&src, &current.sha)?;
     if let Some(home) = active_home.filter(|_| !current.inactive) {
-        steps(&src, home, &current.app_id, &plan.probe)?;
+        let restricted = current.listing.access.is_some();
+        steps(&src, home, &current.app_id, &plan.probe, restricted)?;
     }
     Ok(())
 }
@@ -240,6 +243,7 @@ fn apply_links(
             home,
             &r.app_id,
             &p.post_install,
+            r.listing.access.is_some(),
         )?;
     }
     Ok(())
@@ -310,9 +314,11 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
     {
         return Err("previous app does not match the running node interface".into());
     }
-    let plan = InstallPlan::load(&target.join("source"), &prior.app_id)?;
+    let source = target.join("source");
+    let plan = InstallPlan::load(&source, &prior.app_id)?;
+    let restricted = prior.listing.access.is_some();
     if !prior.inactive {
-        steps(&target.join("source"), home, &prior.app_id, &plan.probe)?;
+        steps(&source, home, &prior.app_id, &plan.probe, restricted)?;
     }
     activate(root, &target, home, &prior)?;
     Ok(prior)
