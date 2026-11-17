@@ -41,7 +41,8 @@ pub(super) fn verify(
     database_id: &str,
     entry: &MemberEntry,
 ) -> Result<(), String> {
-    if entry.stream.stream_id.as_str() != database_id
+    if entry.environment != session.environment
+        || entry.stream.stream_id.as_str() != database_id
         || entry.stream.scope != session.scope
         || entry.publisher_public_key != session.publisher
     {
@@ -83,12 +84,15 @@ pub(super) fn member_step(
     };
     match (current.map(|entry| entry.state), regrant) {
         (Some(ShareMemberState::Revoked), false) => Err("share.grant.regrant_required".into()),
-        (Some(ShareMemberState::Active) | None, true) => Err("share.grant.regrant".into()),
-        (Some(ShareMemberState::Active), false)
+        // An active entry with the asked role is the asked result, with or
+        // without `regrant`: a repeat of a restore whose answer was lost
+        // finds the restore stored.
+        (Some(ShareMemberState::Active), _)
             if current.is_some_and(|entry| entry.role == grant.role) =>
         {
             Ok(None)
         }
+        (Some(ShareMemberState::Active) | None, true) => Err("share.grant.regrant".into()),
         _ => Ok(Some(grant)),
     }
 }
@@ -107,6 +111,11 @@ pub(super) fn config_step(
             (ShareMemberState::Active, true) => Err("share.grant.regrant".into()),
         };
     };
+    // A stored entry equal to the asked one is the asked result, whatever
+    // `regrant` says: a repeat of a restore whose answer was lost finds it.
+    if Grant::of(current) == desired {
+        return Ok(None);
+    }
     match (current.state, desired.state) {
         (ShareMemberState::Active, ShareMemberState::Active) if !regrant => {}
         (_, ShareMemberState::Revoked) if !regrant && desired.role == current.role => {}
@@ -124,7 +133,7 @@ pub(super) fn config_step(
             return Err("share.grant.regrant".into())
         }
     }
-    Ok((Grant::of(current) != desired).then_some(desired))
+    Ok(Some(desired))
 }
 
 /// Sign the entry after `current` for `node`.
@@ -144,6 +153,7 @@ pub(super) fn sign(
     }
     let mut entry = MemberEntry {
         version: Version::V2,
+        environment: session.environment,
         stream: stream(session, database_id)?,
         node_public_key: node.clone(),
         role: grant.role,

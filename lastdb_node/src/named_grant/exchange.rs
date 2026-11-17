@@ -16,6 +16,8 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const UNCONFIRMED: &str = "member service did not answer";
+/// Entry bytes in one write. The request limit is 256 KiB.
+const SET_BYTES: usize = 200 * 1024;
 
 /// The stored entry of one member and the database's member write count.
 pub(super) async fn get(
@@ -78,18 +80,41 @@ pub(super) async fn set(
 ) -> Result<u64, String> {
     signed_entries.sort_by(|left, right| left.node_public_key.cmp(&right.node_public_key));
     let mut revision = 0;
-    for chunk in signed_entries.chunks(MEMBER_SET_MAX) {
-        let request = MemberSetRequest {
-            version: Version::V2,
-            stream: entries::stream(session, database_id)?,
-            entries: chunk.to_vec(),
-        };
-        request.validate().map_err(|error| error.field)?;
-        let body = serde_json::to_vec(&request).map_err(|_| "cannot encode member update")?;
-        let reply: MemberSetResponse = post(session, SHARE_MEMBER_SET_PATH, &body, None).await?;
-        revision = reply.revision.get();
+    let mut chunk: Vec<MemberEntry> = Vec::new();
+    let mut bytes = 0usize;
+    for entry in signed_entries {
+        let size = serde_json::to_vec(&entry)
+            .map_err(|_| "cannot encode member update")?
+            .len();
+        // A request has a count limit and a size limit. An entry with a long
+        // write scope is large, so both bound a chunk.
+        if !chunk.is_empty() && (chunk.len() == MEMBER_SET_MAX || bytes + size > SET_BYTES) {
+            revision = send(session, database_id, std::mem::take(&mut chunk)).await?;
+            bytes = 0;
+        }
+        bytes += size;
+        chunk.push(entry);
+    }
+    if !chunk.is_empty() {
+        revision = send(session, database_id, chunk).await?;
     }
     Ok(revision)
+}
+
+async fn send(
+    session: &PublisherSession,
+    database_id: &str,
+    entries: Vec<MemberEntry>,
+) -> Result<u64, String> {
+    let request = MemberSetRequest {
+        version: Version::V2,
+        stream: entries::stream(session, database_id)?,
+        entries,
+    };
+    request.validate().map_err(|error| error.field)?;
+    let body = serde_json::to_vec(&request).map_err(|_| "cannot encode member update")?;
+    let reply: MemberSetResponse = post(session, SHARE_MEMBER_SET_PATH, &body, None).await?;
+    Ok(reply.revision.get())
 }
 
 async fn signed<Request: serde::Serialize, Reply: DeserializeOwned>(
