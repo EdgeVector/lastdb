@@ -1,11 +1,31 @@
 /**
  * @lastdb/app-sdk — the runtime SDK for LastDB apps.
  *
- * Wraps a node's Unix-socket `/api/*` data plane.
+ * Wraps a node's Unix-socket data plane: the `/api/*` methods and the app API
+ * (`read`, `write`, `changes`).
  */
 
 export { connect, LastDbClient, ownerClient } from './client.js';
 export type { LastDbClientOptions, OwnerClientOptions } from './client.js';
+
+export { AppApiError } from './appApi.js';
+export type {
+  AppApiChange,
+  AppApiChangesOptions,
+  AppApiChangesResult,
+  AppApiCreate,
+  AppApiDelete,
+  AppApiFile,
+  AppApiFileLink,
+  AppApiMutation,
+  AppApiRange,
+  AppApiRead,
+  AppApiReadError,
+  AppApiReadResult,
+  AppApiRecord,
+  AppApiReplace,
+  AppApiWriteResult,
+} from './appApi.js';
 
 export { parseQueryResponse } from './responseParsers.js';
 
