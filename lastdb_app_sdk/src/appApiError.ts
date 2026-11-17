@@ -3,8 +3,14 @@
  * Callers that read only `code` and `message` stay valid.
  */
 
-import { LastDbError } from './errors.js';
+import { APP_API_ERROR_REASONS } from './appApi.generated.js';
+import type { ErrorReason } from './appApi.generated.js';
+import { LastDbError, UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
+
+function knownReason(value: string): value is ErrorReason {
+  return (APP_API_ERROR_REASONS as readonly string[]).includes(value);
+}
 
 export class AppApiError extends LastDbError {
   readonly status: number;
@@ -12,9 +18,9 @@ export class AppApiError extends LastDbError {
   /** Zero-based position when the refusal concerns one item in the list. */
   readonly index?: number;
   /** `exists`, `absent`, or `revision` when a write condition failed. */
-  readonly reason?: string;
+  readonly reason?: ErrorReason;
 
-  constructor(status: number, code: string, message: string, index?: number, reason?: string) {
+  constructor(status: number, code: string, message: string, index?: number, reason?: ErrorReason) {
     super(message);
     this.status = status;
     this.code = code;
@@ -34,5 +40,9 @@ export function appApiFailure(status: number, body: unknown): AppApiError {
       ? rawIndex
       : undefined;
   const message = text('message') ?? `app API request returned status ${status}`;
-  return new AppApiError(status, text('code') ?? '', message, index, text('reason'));
+  const reason = text('reason');
+  if (reason !== undefined && !knownReason(reason)) {
+    throw new UnexpectedResponseError('app API returned an unknown error reason', status, body);
+  }
+  return new AppApiError(status, text('code') ?? '', message, index, reason);
 }

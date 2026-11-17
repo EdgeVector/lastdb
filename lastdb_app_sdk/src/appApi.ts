@@ -1,13 +1,19 @@
 /**
  * App API: `POST /v1/read`, `POST /v1/write`, and `POST /v1/x/changes`.
  * A non-200 reply throws {@link AppApiError}. A failed read in a list is a result.
+ * Request and reply types live in `appApi.generated.ts`.
  */
 
 import { appApiFailure } from './appApiError.js';
+import {
+  APP_API_ERROR_CODES,
+  APP_API_ERROR_REASONS,
+} from './appApi.generated.js';
+import type * as Api from './appApi.generated.js';
 import type { ClientContext } from './databases.js';
 import { UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
-import type { JsonValue, KeyValue, RowFields } from './types.js';
+import type { JsonValue } from './types.js';
 
 export { AppApiError } from './appApiError.js';
 
@@ -20,125 +26,12 @@ const READ_PATH = '/v1/read';
 const WRITE_PATH = '/v1/write';
 const CHANGES_PATH = '/v1/x/changes';
 
-/** A range under one hash: the whole hash, a prefix, or `start` up to `end`. */
-export interface AppApiRange {
-  hash: string;
-  prefix?: string;
-  start?: string;
-  end?: string;
-}
-
-interface AppApiReadBase {
-  schema: string;
-  database?: string;
-  via?: string;
-  limit?: number;
-  cursor?: string;
-  keys_only?: boolean;
-  file?: boolean;
-}
-
-/** One item of POST /v1/read: schema plus key or range; keys_only with neither lists the schema's keys. */
-export type AppApiRead =
-  | (AppApiReadBase & { key: KeyValue; range?: never })
-  | (AppApiReadBase & { range: AppApiRange; key?: never })
-  | (AppApiReadBase & { keys_only: true; key?: never; range?: never; via?: never; file?: never });
-
-/** File facts on a read record. `local` is the path on this device, or null. `path` is set only when the read set `file: true`. */
-export interface AppApiFile {
-  name: string | null;
-  media_type: string | null;
-  size: number;
-  local: string | null;
-  path?: string | null;
-}
-
-export interface AppApiRecord {
-  key: KeyValue;
-  revision: string;
-  record: RowFields;
-  file: AppApiFile | null;
-}
-
-/** One read that failed. Returned in order. Not thrown. */
-export interface AppApiReadError {
-  error: { code: string; message: string };
-}
-
-/** One entry of the `results` array from `POST /v1/read`. */
-export type AppApiReadResult =
-  | { records: AppApiRecord[]; next_cursor: string | null }
-  | { keys: KeyValue[]; next_cursor: string | null }
-  | AppApiReadError;
-
-/** A path the caller can read. No file bytes go through the app API. */
-export interface AppApiFileLink {
-  path: string;
-  name?: string;
-  media_type?: string;
-}
-
-interface AppApiMutationBase {
-  schema: string;
-  database?: string;
-  key: KeyValue;
-}
-
-export type AppApiCreate = AppApiMutationBase & {
-  op: 'create';
-  record: RowFields;
-  alternates?: Record<string, KeyValue | null>;
-  file?: AppApiFileLink;
-};
-
-export type AppApiReplace = AppApiMutationBase & {
-  op: 'replace';
-  revision: string;
-  record: RowFields;
-  alternates?: Record<string, KeyValue | null>;
-  file?: AppApiFileLink;
-};
-
-export type AppApiDelete = AppApiMutationBase & {
-  op: 'delete';
-  revision: string;
-};
-
-/** One item of `POST /v1/write`. */
-export type AppApiMutation = AppApiCreate | AppApiReplace | AppApiDelete;
-
-/** Receipt from `POST /v1/write`, after the write is on disk. `revisions` follows request order. */
-export interface AppApiWriteResult {
-  written: number;
-  revisions: string[];
-}
-
-/** Body of `POST /v1/x/changes`. `after` defaults to the oldest kept entry. `limit` 0 reads `head` only. */
-export interface AppApiChangesOptions {
-  after?: number;
-  limit?: number;
-  schemas?: readonly string[];
-  database?: string;
-}
-
-export interface AppApiChange {
-  seq: number;
-  schema: string;
-  key: KeyValue;
-  deleted: boolean;
-}
-
-/** Page from `POST /v1/x/changes`. Save `through`. Rebuild when `id` changes or `gap` is true. */
-export interface AppApiChangesResult {
-  id: string;
-  head: number;
-  through: number;
-  gap: boolean;
-  changes: AppApiChange[];
-}
-
 function invalid(message: string, body: unknown): UnexpectedResponseError {
   return new UnexpectedResponseError(message, 200, body);
+}
+
+function listed(value: string, options: readonly string[]): boolean {
+  return options.includes(value);
 }
 
 async function postAppApi(ctx: ClientContext, path: string, body: unknown): Promise<unknown> {
@@ -149,19 +42,22 @@ async function postAppApi(ctx: ClientContext, path: string, body: unknown): Prom
   return res.body;
 }
 
-function keyBody(key: KeyValue): KeyValue {
-  return { hash: key.hash, range: key.range };
-}
-
-function rangeBody(range: AppApiRange): Record<string, unknown> {
-  const body: Record<string, unknown> = { hash: range.hash };
-  if (range.prefix !== undefined) body.prefix = range.prefix;
-  if (range.start !== undefined) body.start = range.start;
-  if (range.end !== undefined) body.end = range.end;
+function keyBody(key: Api.KeyInput): Record<string, string | null> {
+  const body: Record<string, string | null> = {};
+  if (key.hash !== undefined) body.hash = key.hash;
+  if (key.range !== undefined) body.range = key.range;
   return body;
 }
 
-function readItemBody(item: AppApiRead): Record<string, unknown> {
+function rangeBody(range: Api.Range): Record<string, string> {
+  const body: Record<string, string> = { hash: range.hash };
+  if (typeof range.prefix === 'string') body.prefix = range.prefix;
+  if (typeof range.start === 'string') body.start = range.start;
+  if (typeof range.end === 'string') body.end = range.end;
+  return body;
+}
+
+function readItemBody(item: Api.ReadItem): Record<string, unknown> {
   const body: Record<string, unknown> = { schema: item.schema };
   if (item.database !== undefined) body.database = item.database;
   if (item.via !== undefined) body.via = item.via;
@@ -174,24 +70,22 @@ function readItemBody(item: AppApiRead): Record<string, unknown> {
   return body;
 }
 
-function fileLinkBody(link: AppApiFileLink): Record<string, unknown> {
+function fileLinkBody(link: Api.FileLink): Record<string, unknown> {
   const body: Record<string, unknown> = { path: link.path };
   if (link.name !== undefined) body.name = link.name;
   if (link.media_type !== undefined) body.media_type = link.media_type;
   return body;
 }
 
-function alternatesBody(
-  alternates: Record<string, KeyValue | null>,
-): Record<string, KeyValue | null> {
-  const body: Record<string, KeyValue | null> = {};
-  for (const [name, key] of Object.entries(alternates)) {
-    body[name] = key === null ? null : keyBody(key);
+function alternatesBody(alternates: Api.Alternates): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(alternates)) {
+    body[name] = value === null ? null : keyBody(value);
   }
   return body;
 }
 
-function mutationBody(mutation: AppApiMutation): Record<string, unknown> {
+function mutationBody(mutation: Api.WriteItem): Record<string, unknown> {
   const body: Record<string, unknown> = {
     schema: mutation.schema,
     op: mutation.op,
@@ -200,6 +94,7 @@ function mutationBody(mutation: AppApiMutation): Record<string, unknown> {
   if (mutation.database !== undefined) body.database = mutation.database;
   if (mutation.op === 'delete') {
     body.revision = mutation.revision;
+    if (mutation.alternates !== undefined) body.alternates = mutation.alternates;
     return body;
   }
   body.record = mutation.record;
@@ -209,7 +104,7 @@ function mutationBody(mutation: AppApiMutation): Record<string, unknown> {
   return body;
 }
 
-function changesBody(options: AppApiChangesOptions): Record<string, unknown> {
+function changesBody(options: Api.ChangesRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (options.after !== undefined) body.after = options.after;
   if (options.limit !== undefined) body.limit = options.limit;
@@ -218,53 +113,68 @@ function changesBody(options: AppApiChangesOptions): Record<string, unknown> {
   return body;
 }
 
-function parseKey(value: JsonValue | undefined, body: unknown): KeyValue {
-  if (!isObject(value)) throw invalid('app API returned an invalid key', body);
+function parseKey(value: JsonValue | undefined, body: unknown): Api.Key {
+  if (!isObject(value) || !('hash' in value) || !('range' in value)) {
+    throw invalid('app API returned an invalid key', body);
+  }
   const hash = value['hash'];
   const range = value['range'];
   if (
-    (hash !== undefined && hash !== null && typeof hash !== 'string') ||
-    (range !== undefined && range !== null && typeof range !== 'string')
+    (hash !== null && typeof hash !== 'string') ||
+    (range !== null && typeof range !== 'string')
   ) {
     throw invalid('app API returned an invalid key', body);
   }
-  return {
-    hash: typeof hash === 'string' ? hash : null,
-    range: typeof range === 'string' ? range : null,
-  };
+  return { hash, range };
 }
+
 function parseCursor(value: JsonValue | undefined, body: unknown): string | null {
   if (value === null) return null;
   if (typeof value === 'string') return value;
   throw invalid('app API returned an invalid cursor', body);
 }
-function optionalText(value: JsonValue | undefined, body: unknown): string | null {
-  if (value === undefined || value === null) return null;
+
+function textOrNull(value: JsonValue | undefined, body: unknown): string | null {
+  if (value === null) return null;
   if (typeof value === 'string') return value;
   throw invalid('app API returned an invalid file', body);
 }
 
-function parseFile(value: JsonValue | undefined, body: unknown): AppApiFile | null {
+function parseFile(value: JsonValue | undefined, body: unknown): Api.FileInfo | null {
   if (value === undefined) throw invalid('app API returned a record with no file', body);
   if (value === null) return null;
-  if (!isObject(value) || typeof value['size'] !== 'number' || !Number.isFinite(value['size'])) {
+  if (
+    !isObject(value) ||
+    !('name' in value) ||
+    !('media_type' in value) ||
+    !('size' in value) ||
+    !('local' in value)
+  ) {
     throw invalid('app API returned an invalid file', body);
   }
-  const path = value['path'];
+  const size = value['size'];
   const local = value['local'];
-  if (path !== undefined && path !== null && typeof path !== 'string') throw invalid('app API returned an invalid file', body);
-  if (typeof local !== 'string' && local !== null) throw invalid('app API returned an invalid file', body);
-  const file: AppApiFile = {
-    name: optionalText(value['name'], body),
-    media_type: optionalText(value['media_type'], body),
-    size: value['size'],
+  if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
+    throw invalid('app API returned an invalid file', body);
+  }
+  if (local !== null && typeof local !== 'string') {
+    throw invalid('app API returned an invalid file', body);
+  }
+  const file: Api.FileInfo = {
+    name: textOrNull(value['name'], body),
+    media_type: textOrNull(value['media_type'], body),
+    size,
     local: typeof local === 'string' ? local : null,
   };
-  if (path !== undefined) file.path = typeof path === 'string' ? path : null;
+  if ('path' in value) {
+    const path = value['path'];
+    if (path !== null && typeof path !== 'string') throw invalid('app API returned an invalid file', body);
+    file.path = path === null ? null : path;
+  }
   return file;
 }
 
-function parseRecord(value: JsonValue, body: unknown): AppApiRecord {
+function parseRecord(value: JsonValue, body: unknown): Api.Record {
   if (!isObject(value) || typeof value['revision'] !== 'string' || value['revision'].length === 0) {
     throw invalid('app API returned an invalid record', body);
   }
@@ -277,14 +187,36 @@ function parseRecord(value: JsonValue, body: unknown): AppApiRecord {
   };
 }
 
-function parseReadResult(value: JsonValue, body: unknown): AppApiReadResult {
+function parseItemError(value: Record<string, JsonValue>, body: unknown): Api.Error {
+  const code = value['code'];
+  const message = value['message'];
+  if (typeof code !== 'string' || !listed(code, APP_API_ERROR_CODES) || typeof message !== 'string') {
+    throw invalid('app API returned an invalid read error', body);
+  }
+  const error: Api.Error = { code: code as Api.ErrorCode, message };
+  if ('index' in value) {
+    const index = value['index'];
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) {
+      throw invalid('app API returned an invalid read error', body);
+    }
+    error.index = index;
+  }
+  if ('reason' in value) {
+    const reason = value['reason'];
+    if (typeof reason !== 'string' || !listed(reason, APP_API_ERROR_REASONS)) {
+      throw invalid('app API returned an invalid read error', body);
+    }
+    error.reason = reason as Api.ErrorReason;
+  }
+  return error;
+}
+
+function parseReadResult(value: JsonValue, body: unknown): Api.ReadResult {
   if (!isObject(value)) throw invalid('app API returned an invalid read result', body);
   if ('error' in value) {
     const error = value['error'];
-    if (!isObject(error) || typeof error['code'] !== 'string' || typeof error['message'] !== 'string') {
-      throw invalid('app API returned an invalid read error', body);
-    }
-    return { error: { code: error['code'], message: error['message'] } };
+    if (!isObject(error)) throw invalid('app API returned an invalid read error', body);
+    return { error: parseItemError(error, body) };
   }
   if (!('next_cursor' in value)) throw invalid('app API returned a read result with no cursor', body);
   const nextCursor = parseCursor(value['next_cursor'], body);
@@ -299,14 +231,14 @@ function parseReadResult(value: JsonValue, body: unknown): AppApiReadResult {
   throw invalid('app API returned a read result with no records or keys', body);
 }
 
-function parseReadResults(body: unknown, expected: number): AppApiReadResult[] {
+function parseReadResults(body: unknown, expected: number): Api.ReadResult[] {
   if (!isObject(body) || !Array.isArray(body['results']) || body['results'].length !== expected) {
     throw invalid(`app read returned a malformed reply (expected ${expected} results)`, body);
   }
   return body['results'].map((item) => parseReadResult(item, body));
 }
 
-function parseWriteResult(body: unknown, expected: number): AppApiWriteResult {
+function parseWriteResult(body: unknown, expected: number): Api.WriteResult {
   if (!isObject(body) || !Array.isArray(body['revisions'])) {
     throw invalid('app API write returned an invalid receipt', body);
   }
@@ -330,7 +262,7 @@ function parseCount(value: JsonValue | undefined, label: string, body: unknown):
   return value;
 }
 
-function parseChange(value: JsonValue, body: unknown): AppApiChange {
+function parseChange(value: JsonValue, body: unknown): Api.ChangeEntry {
   if (!isObject(value) || typeof value['schema'] !== 'string' || typeof value['deleted'] !== 'boolean') {
     throw invalid('app API changes returned an invalid entry', body);
   }
@@ -342,7 +274,7 @@ function parseChange(value: JsonValue, body: unknown): AppApiChange {
   };
 }
 
-function parseChanges(body: unknown): AppApiChangesResult {
+function parseChanges(body: unknown): Api.ChangesReply {
   if (
     !isObject(body) ||
     typeof body['id'] !== 'string' ||
@@ -363,24 +295,24 @@ function parseChanges(body: unknown): AppApiChangesResult {
 
 export async function executeAppRead(
   ctx: ClientContext,
-  reads: readonly AppApiRead[],
-): Promise<AppApiReadResult[]> {
+  reads: readonly Api.ReadItem[],
+): Promise<Api.ReadResult[]> {
   const body = await postAppApi(ctx, READ_PATH, { reads: reads.map(readItemBody) });
   return parseReadResults(body, reads.length);
 }
 
 export async function executeAppWrite(
   ctx: ClientContext,
-  mutations: readonly AppApiMutation[],
-): Promise<AppApiWriteResult> {
+  mutations: readonly Api.WriteItem[],
+): Promise<Api.WriteResult> {
   const body = await postAppApi(ctx, WRITE_PATH, { mutations: mutations.map(mutationBody) });
   return parseWriteResult(body, mutations.length);
 }
 
 export async function executeAppChanges(
   ctx: ClientContext,
-  options: AppApiChangesOptions,
-): Promise<AppApiChangesResult> {
+  options: Api.ChangesRequest,
+): Promise<Api.ChangesReply> {
   const body = await postAppApi(ctx, CHANGES_PATH, changesBody(options));
   return parseChanges(body);
 }

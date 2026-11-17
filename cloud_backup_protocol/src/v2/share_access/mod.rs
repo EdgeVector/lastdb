@@ -19,9 +19,15 @@
 //! node can learn the revision without receiving the member list. A node-key
 //! revoke covers every device that signs with that key.
 
+mod entries;
 mod grant;
 mod members;
 
+pub use entries::{
+    MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
+    MemberSetRequest, MemberSetResponse, MEMBER_LIST_PAGE_MAX, MEMBER_SET_MAX,
+    SHARE_MEMBER_GET_PATH, SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH,
+};
 pub use grant::{
     authorize, authorize_access_read, authorize_native_create, authorize_request,
     member_list_read_view, member_list_revision, MemberListReadView, ShareAccess,
