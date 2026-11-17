@@ -189,15 +189,13 @@ pub(super) async fn write_record(
 }
 
 pub(super) struct RecordReplay<'a> {
-    pub(super) entry: &'a SnapshotEntry,
     pub(super) mutation_id: &'a str,
     pub(super) is_local: bool,
     pub(super) schema: String,
     pub(super) key: KeyValue,
     pub(super) stamp: ReplayStamp,
-    pub(super) explicit_attachment: bool,
     pub(super) incoming_ready: bool,
-    pub(super) prior: Option<(Vec<u8>, Mutation)>,
+    pub(super) prior: Option<(Vec<u8>, ReplayStamp, Mutation)>,
     pub(super) blocked: Option<ReplayBlockReason>,
 }
 
@@ -221,35 +219,26 @@ impl RecordReplay<'_> {
         let winner = manager.replay_record_winner(schema, key).await?;
         let settles_local = self.is_local && pending.as_deref() == Some(self.mutation_id);
         let loses = winner.as_ref().is_some_and(|winner| winner >= &self.stamp);
-        if self
-            .attachments_conflict(
-                manager,
-                mutation,
-                !self.is_local && pending.is_some(),
-                loses,
-            )
-            .await?
-        {
-            return Err(self.block(ReplayBlockReason::AttachmentConflict));
-        }
-
         if settles_local && loses {
             let winner = winner.as_ref().ok_or_else(needs_preparation)?;
             self.restore_winner(manager, winner, fetch).await?;
         } else if !loses {
-            if pending.is_some() && !settles_local {
-                let encoded = serde_json::to_vec(self.entry)
-                    .map_err(|_| SchemaError::InvalidData("owned entry encoding".into()))?;
-                manager
-                    .stage_deferred_replay_record(schema, key, Some(encoded))
-                    .await?;
-            } else if !settles_local {
-                // Old queue entries can have no marker. Apply the accepted value
-                // even for this writer, since a previously read peer may have changed it.
-                if !self.incoming_ready {
-                    *fetch = Some(RecordFetch::Incoming);
-                    return Err(needs_preparation());
+            // Decide the winner before fetching a file. A losing entry needs only
+            // its receipt; a winning attachment must be durable before that receipt.
+            if !self.incoming_ready {
+                *fetch = Some(RecordFetch::Incoming);
+                return Err(needs_preparation());
+            }
+            if pending.is_some() {
+                if !manager
+                    .apply_replay_candidate(mutation.clone(), &self.stamp, settles_local)
+                    .await?
+                {
+                    return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
                 }
+            } else {
+                // Old queue entries can have no marker. Apply the accepted value
+                // even for this writer, since a peer may already have changed it.
                 manager.apply_replay_record(mutation.clone()).await?;
             }
             manager
@@ -274,38 +263,31 @@ impl RecordReplay<'_> {
         fetch: &mut Option<RecordFetch>,
     ) -> Result<(), SchemaError> {
         let (schema, key) = (&self.schema, &self.key);
+        if manager.apply_replay_baseline(schema, key, winner).await? {
+            return Ok(());
+        }
+        // Upgrade an older client's deferred text entry on demand. New candidates
+        // already carry a complete native winner, including verified file bytes.
         if let Some(saved) = manager.deferred_replay_record(schema, key).await? {
             match self.prior.take() {
-                Some((loaded, mutation)) if loaded == saved => {
-                    manager.apply_replay_record(mutation).await?;
+                Some((loaded, stamp, mutation)) if loaded == saved && stamp == *winner => {
+                    if manager
+                        .apply_replay_candidate(mutation, winner, true)
+                        .await?
+                    {
+                        return Ok(());
+                    }
+                }
+                Some((loaded, _, _)) if loaded == saved => {
+                    return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
                 }
                 _ => {
-                    *fetch = Some(RecordFetch::Prior(saved));
+                    *fetch = Some(RecordFetch::Prior(saved, winner.clone()));
                     return Err(needs_preparation());
                 }
             }
-        } else if !manager.apply_replay_baseline(schema, key, winner).await? {
-            return Err(self.block(ReplayBlockReason::MissingEarlierRecord));
         }
-        Ok(())
-    }
-
-    async fn attachments_conflict(
-        &self,
-        manager: &MutationManager,
-        mutation: &Mutation,
-        overlaps_pending: bool,
-        loses: bool,
-    ) -> Result<bool, SchemaError> {
-        let erases = matches!(
-            mutation.mutation_type,
-            MutationType::Delete | MutationType::Purge
-        );
-        let (schema, key) = (&self.schema, &self.key);
-        Ok((overlaps_pending || loses)
-            && (self.explicit_attachment
-                || (erases && manager.replay_record_has_attachment(schema, key).await?)
-                || (overlaps_pending && manager.pending_replay_attachment(schema, key).await?)))
+        Err(self.block(ReplayBlockReason::MissingEarlierRecord))
     }
 
     fn block(&mut self, reason: ReplayBlockReason) -> SchemaError {
@@ -316,7 +298,7 @@ impl RecordReplay<'_> {
 
 pub(super) enum RecordFetch {
     Incoming,
-    Prior(Vec<u8>),
+    Prior(Vec<u8>, ReplayStamp),
 }
 
 fn needs_preparation() -> SchemaError {

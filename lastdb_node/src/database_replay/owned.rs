@@ -79,14 +79,11 @@ impl OwnerReplay<'_> {
     ) -> Result<(), RestoreError> {
         let manager = self.store.mutation_manager();
         let mut replay = RecordReplay {
-            entry,
             mutation_id,
             is_local,
             schema: change.mutation.schema_name.clone(),
             key: change.mutation.key_value.clone(),
             stamp: stamp(entry),
-            explicit_attachment: !matches!(change.file, RecordFile::Keep)
-                || change.inline.is_some(),
             incoming_ready: !matches!(change.file, RecordFile::Fetch(_)),
             prior: None,
             blocked: None,
@@ -111,12 +108,11 @@ impl OwnerReplay<'_> {
                     self.stage(entry, &mut change).await?;
                     replay.incoming_ready = true;
                 }
-                Some(RecordFetch::Prior(saved)) => {
+                Some(RecordFetch::Prior(saved, winner)) => {
                     let change = self
-                        .prepare_prior(&replay.schema, &replay.key, &saved, &replay.stamp)
-                        .await?
-                        .ok_or(RestoreError::Conflict(DETAIL))?;
-                    replay.prior = Some((saved, change.mutation));
+                        .prepare_prior(&replay.schema, &replay.key, &saved, &winner)
+                        .await?;
+                    replay.prior = Some((saved, winner, change.mutation));
                 }
                 None => {
                     return result.map(|_| ()).map_err(|error| {
@@ -138,12 +134,15 @@ impl OwnerReplay<'_> {
         schema: &str,
         key: &KeyValue,
         bytes: &[u8],
-        incoming: &ReplayStamp,
-    ) -> Result<Option<RecordChange>, RestoreError> {
+        winner: &ReplayStamp,
+    ) -> Result<RecordChange, RestoreError> {
         let saved: SnapshotEntry =
             serde_json::from_slice(bytes).map_err(|_| RestoreError::Durable(DETAIL))?;
-        if stamp(&saved) <= *incoming {
-            return Ok(None);
+        if stamp(&saved) != *winner {
+            return Err(RestoreError::ReplayBlocked {
+                reason: ReplayBlockReason::MissingEarlierRecord,
+                delivery_sequence: None,
+            });
         }
         let Prepared {
             change: Change::Record(mut change),
@@ -162,7 +161,7 @@ impl OwnerReplay<'_> {
             return Err(RestoreError::Conflict(DETAIL));
         }
         self.stage(&saved, &mut change).await?;
-        Ok(Some(*change))
+        Ok(*change)
     }
 
     async fn stage(

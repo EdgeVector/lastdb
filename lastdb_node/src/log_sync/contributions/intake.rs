@@ -1,4 +1,4 @@
-use cloud_backup_protocol::v2::share_access::{ShareMemberRole, ShareMemberState};
+use cloud_backup_protocol::v2::share_access::ShareMemberRole;
 use cloud_backup_protocol::Digest;
 use fold_db::canonical::CanonicalWriter;
 use fold_db::fold_db_core::FoldDB;
@@ -18,7 +18,7 @@ use super::{
 };
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
-use crate::named_grant::lock_applied;
+use crate::named_grant::lock_member;
 
 pub(super) async fn receiver_base(
     store: &FoldDB,
@@ -122,16 +122,17 @@ pub(in crate::log_sync) async fn apply(
     if committed {
         return Ok(Published);
     }
-    let (lock, applied) = lock_applied(&host.home, database)
+    let Ok(node) = Digest::try_from(writer.to_owned()) else {
+        return Ok(Discarded);
+    };
+    // One signed entry, read under the member lock. The size of the member
+    // set does not change what this check costs.
+    let (lock, stored) = lock_member(&host.home, database, &node)
         .await
         .map_err(|_| "member configuration is unavailable")?;
-    let Some(member) = applied.update.as_ref().and_then(|update| {
-        update.members.iter().find(|member| {
-            member.node_public_key.as_str() == writer
-                && member.state == ShareMemberState::Active
-                && member.role == ShareMemberRole::Submit
-        })
-    }) else {
+    let Some(member) =
+        stored.filter(|stored| stored.is_active() && stored.role == ShareMemberRole::Submit)
+    else {
         return Ok(Discarded);
     };
     let Some(scope) = &member.write_schemas else {
@@ -150,7 +151,7 @@ pub(in crate::log_sync) async fn apply(
     let Ok(submission) = serde_json::from_slice::<Submission>(&bytes) else {
         return Ok(Discarded);
     };
-    // The member, role and scope above come from the configuration applied
+    // The member, role and scope above come from the entry stored
     // now, and the record checks below read the store as it is now. The
     // revision the submitter saw is not compared: a change to another
     // member's row must not discard this member's write.

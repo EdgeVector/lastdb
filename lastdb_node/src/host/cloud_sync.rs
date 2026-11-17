@@ -52,7 +52,6 @@ pub(crate) struct BlockedDelivery {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ReplayBlockReason {
-    AttachmentConflict,
     SchemaConflict,
     MissingEarlierRecord,
 }
@@ -60,7 +59,6 @@ pub(crate) enum ReplayBlockReason {
 impl ReplayBlockReason {
     pub(crate) fn message(self) -> &'static str {
         match self {
-            Self::AttachmentConflict => "concurrent attachment changes require reconciliation",
             Self::SchemaConflict => "a local schema change or write awaits ordered replay",
             Self::MissingEarlierRecord => "replay lacks the earlier accepted record",
         }

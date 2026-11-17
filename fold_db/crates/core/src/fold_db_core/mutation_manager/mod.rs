@@ -4,7 +4,7 @@ mod replace;
 mod replay;
 mod write_records;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -242,6 +242,7 @@ impl MutationManager {
         schema: &Schema,
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
+        keep: &BTreeSet<String>,
     ) -> Result<(), SchemaError> {
         let outcomes: Vec<_> = changes
             .iter()
@@ -256,7 +257,7 @@ impl MutationManager {
         self.db_ops
             .records()
             .format
-            .stage_records(schema, changes)
+            .stage_records(schema, changes, keep)
             .await?;
         let live = changed
             .iter()

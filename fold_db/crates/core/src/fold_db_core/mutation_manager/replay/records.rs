@@ -4,78 +4,11 @@ use super::{has_attachment, MutationManager};
 use crate::schema::types::{cas::CasExpectation, KeyValue, Mutation, MutationType};
 use crate::schema::SchemaError;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget};
-use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_replacement::RecordTarget;
 use lastdb_model::record_value::StoredRecord;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReplayBaseline<T> {
-    stamp: ReplayStamp,
-    record: Option<T>,
-}
 
 impl MutationManager {
-    pub(super) async fn stage_replay_baselines(
-        &self,
-        addresses: &[RecordAddress],
-        preimages: &[Option<Arc<StoredRecord>>],
-    ) -> Result<(), SchemaError> {
-        let addresses: Vec<_> = addresses.iter().map(RecordAddress::as_str).collect();
-        let metadata = self.db_ops.metadata();
-        let previous = metadata.replay_baseline_sources(&addresses).await?;
-        let mut baselines = Vec::new();
-        for ((address, preimage), stamp) in addresses.into_iter().zip(preimages).zip(previous) {
-            if let Some(stamp) = stamp {
-                let record = preimage.as_deref().filter(|value| value.is_live());
-                let bytes = serde_json::to_vec(&ReplayBaseline { stamp, record })
-                    .map_err(invalid_baseline)?;
-                baselines.push((address, bytes));
-            }
-        }
-        metadata.stage_replay_baselines(baselines).await
-    }
-
-    /// Restore the durable preimage when the cloud kept the winner this local edit replaced.
-    pub async fn apply_replay_baseline(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-        winner: &ReplayStamp,
-    ) -> Result<bool, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        let metadata = self.db_ops.metadata();
-        let Some(bytes) = metadata.replay_baseline(&address).await? else {
-            return Ok(false);
-        };
-        let baseline: ReplayBaseline<StoredRecord> =
-            serde_json::from_slice(&bytes).map_err(invalid_baseline)?;
-        if baseline.stamp != *winner || metadata.pending_replay_attachment(&address).await? {
-            return Ok(false);
-        }
-        let before = self.replay_preimage(address).await?;
-        let before = before.as_deref().filter(|record| record.is_live());
-        let saved = baseline.record.as_ref();
-        if before.and_then(|record| record.file.as_ref())
-            != saved.and_then(|record| record.file.as_ref())
-            || before.and_then(|record| record.inline_file.as_ref())
-                != saved.and_then(|record| record.inline_file.as_ref())
-        {
-            return Ok(false);
-        }
-        if let Some(record) = saved {
-            if !self.replay_record_key_matches(schema, key, &record.key)? {
-                return Err(invalid_baseline("stored record key differs"));
-            }
-        }
-        self.apply_replay_record(as_mutation(schema, key.clone(), baseline.record))
-            .await?;
-        Ok(true)
-    }
-
     /// The latest local mutation to this record that has not been read back from the cloud.
     pub async fn pending_replay_record(
         &self,
@@ -123,6 +56,14 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         let address = self.replay_record_address(schema, key)?;
         let metadata = self.db_ops.metadata();
+        if metadata
+            .pending_replay(ReplayTarget::Record(&address))
+            .await?
+            .as_deref()
+            == Some(mutation_id)
+        {
+            self.release_replay_baseline(schema, &address).await?;
+        }
         metadata
             .clear_pending_replay(ReplayTarget::Record(&address), mutation_id)
             .await?;
@@ -205,7 +146,7 @@ impl MutationManager {
     }
 }
 
-fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
+pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
     let mut target = RecordTarget {
         schema: schema.to_owned(),
         key,
@@ -235,8 +176,4 @@ fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mut
         mutation.metadata = Some(meta.metadata.into_iter().collect());
     }
     mutation
-}
-
-fn invalid_baseline(error: impl std::fmt::Display) -> SchemaError {
-    SchemaError::InvalidData(format!("invalid replay baseline: {error}"))
 }
