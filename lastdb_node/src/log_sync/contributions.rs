@@ -12,7 +12,7 @@ use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, Namespace};
 use serde::{Deserialize, Serialize};
 
 use crate::accepted_writes;
-use crate::host::owned::{Entry as OwnedEntry, Resolved};
+use crate::host::owned::{Entry as OwnedEntry, ResolvedStore};
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::{ConfigError, ConfigUpdate};
@@ -21,8 +21,10 @@ use crate::share_invitation::inbox;
 
 use super::cloud::CloudLog;
 use super::{
-    http::{Endpoint, Proof},
-    paths, received, wire as log_wire,
+    http::{paths, Endpoint, Proof},
+    received,
+    session::retry,
+    wire as log_wire,
 };
 
 pub(super) use intake::apply;
@@ -122,7 +124,7 @@ pub(crate) fn validate_write_scopes(
     if update.has_legacy_writer() {
         return Err(invalid("every writer needs an explicit schema write scope"));
     }
-    let (Resolved::Owned, Some(store)) = host
+    let ResolvedStore::Owned(store) = host
         .owned
         .registered_store(&entry.id)
         .map_err(|_| ConfigError::Unconfirmed)?
@@ -279,9 +281,7 @@ fn seal_for_retry(
     let operation =
         cloud_backup_protocol::canonical_bytes(&submission.operation).map_err(|_| Invalid)?;
     let digest = cloud_backup_protocol::bytes_sha256(&operation);
-    let (at, saved) = match super::retry::load(&host.home, database, &name)
-        .map_err(|_| Unavailable)?
-    {
+    let (at, saved) = match retry::load(&host.home, database, &name).map_err(|_| Unavailable)? {
         Some((seal, bytes)) if seal.namespace == digest.as_str() => (seal.authored_at_ms, bytes),
         Some(_) => return Err(Invalid),
         None => {
@@ -296,13 +296,12 @@ fn seal_for_retry(
                 at,
             );
             let bytes = inbox::seal(key, &aad, &canonical).map_err(|_| Unavailable)?;
-            let seal = super::retry::Seal {
+            let seal = retry::Seal {
                 writer_seq: 1,
                 authored_at_ms: at,
                 namespace: digest.as_str().to_owned(),
             };
-            super::retry::store(&host.home, database, &name, &seal, &bytes)
-                .map_err(|_| Unavailable)?;
+            retry::store(&host.home, database, &name, &seal, &bytes).map_err(|_| Unavailable)?;
             (at, bytes)
         }
     };
@@ -317,12 +316,6 @@ fn seal_for_retry(
     })
 }
 
-pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, ContributionError> {
-    let id = schema
-        .identity_hash
-        .as_deref()
-        .ok_or(ContributionError::Invalid)?;
-    let portable = schema_types::PortableSchemaId::from_catalog(id, schema.to_wire())
-        .map_err(|_| ContributionError::Invalid)?;
-    Digest::try_from(portable.as_str().to_owned()).map_err(|_| ContributionError::Invalid)
+pub(super) fn schema_id(schema: &Schema) -> Result<Digest, ContributionError> {
+    super::schema_id(schema).map_err(|_| ContributionError::Invalid)
 }

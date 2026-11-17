@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 # Cryptography
 base64.workspace = true
-ed25519-dalek = { version = "2.0", features = ["rand_core", "serde"] }
+ed25519-dalek = { version = "2.0", features = ["rand_core"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = { workspace = true }
@@ -19,7 +19,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Storage
-laststore = { path = "../../../vendor/laststore" }
+laststore = { workspace = true }
 cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
 
 # Core utilities
@@ -29,7 +29,7 @@ tracing = { workspace = true }
 
 # Async runtime
 # `rt` is required by `tokio::task::spawn_blocking` (CPU-bound work off the reactor).
-tokio = { workspace = true, features = ["sync", "time", "fs", "io-util", "rt"] }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
 
 # Error handling
 thiserror = { workspace = true }

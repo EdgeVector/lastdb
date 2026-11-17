@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 /// Which database this read is publishing.
 #[derive(Clone, Copy)]
-pub enum Publication<'a> {
+pub(crate) enum Publication<'a> {
     /// Every sealed entry is publishable.
     Personal,
     /// Only entries the binding admits. The rest are withheld.
@@ -22,7 +22,7 @@ pub enum Publication<'a> {
 }
 
 /// One logical entry after eligibility.
-pub enum Item {
+pub(crate) enum Item {
     /// Canonical plaintext and any sealed file row.
     Publish {
         sequence: u64,
@@ -36,38 +36,34 @@ pub enum Item {
         file_reference: Option<String>,
     },
     /// The sequence is occupied. It carries no plaintext and no file.
-    Withheld { sequence: u64, mutation_id: String },
+    Withheld { sequence: u64 },
 }
 
 /// One exclusive page after eligibility.
-pub struct Page {
-    /// Last sequence in this page, or `after` when the page is empty.
-    pub through: u64,
+pub(crate) struct Page {
     /// Writes from before the stream still need a snapshot.
-    pub snapshot_required: bool,
-    /// Entries with sequence `after + 1` through `through`.
-    pub items: Vec<Item>,
+    pub(crate) snapshot_required: bool,
+    /// Ordered entries starting at `after + 1`.
+    pub(crate) items: Vec<Item>,
 }
 
 /// Cursor of one database stream.
-pub struct StreamStatus {
+pub(crate) struct StreamStatus {
     /// Last durable sequence. Zero means no entry.
-    pub head: u64,
+    pub(crate) head: u64,
     /// Highest acknowledged sequence.
-    pub acked: u64,
-    /// Native frontier when the stream started.
-    pub opened_frontier: u64,
+    pub(crate) acked: u64,
     /// Writes before the stream are not in this log.
-    pub snapshot_required: bool,
+    pub(crate) snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
-    pub gap: bool,
+    pub(crate) gap: bool,
     /// Last outstanding sequence found at open without a captured author clock.
-    pub legacy_through: u64,
+    pub(crate) legacy_through: u64,
 }
 
 /// The page cannot be published. Do not skip the entry and do not acknowledge it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Blocked {
+pub(crate) enum Blocked {
     /// An entry is missing or unreadable.
     Gap,
     /// Share policy cannot classify the entry.
@@ -87,7 +83,7 @@ pub enum Blocked {
 }
 
 /// Open envelopes and classify one page. A refusal returns no items.
-pub fn prefix(
+pub(crate) fn prefix(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
     publication: Publication<'_>,
@@ -100,19 +96,17 @@ pub fn prefix(
         items.push(classify(content_key, &publication, entry)?);
     }
     Ok(Page {
-        through: sealed.through,
         snapshot_required: sealed.snapshot_required,
         items,
     })
 }
 
 /// Cursor and coverage. This does not read entry bodies.
-pub fn status(runtime: &PackRuntime) -> StreamStatus {
+pub(crate) fn status(runtime: &PackRuntime) -> StreamStatus {
     let status = runtime.accepted_status();
     StreamStatus {
         head: status.head,
         acked: status.acked,
-        opened_frontier: status.opened_frontier,
         snapshot_required: status.snapshot_required,
         gap: status.gap,
         legacy_through: status.legacy_through,
@@ -140,7 +134,6 @@ fn classify(
     if !publish {
         return Ok(Item::Withheld {
             sequence: entry.sequence,
-            mutation_id: entry.mutation_id,
         });
     }
     Ok(Item::Publish {

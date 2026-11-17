@@ -159,7 +159,7 @@ databases sync and restore through the signed database-id log. Do not add a
 second backup path, a flag, or a migration.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
-`install` adds `libssl-dev` (the `openssl` crate), Ruby, and the pinned
+`install` adds Ruby and the pinned
 tree-sitter packages (`tree-sitter==0.23.2`, `tree-sitter-rust==0.23.2`), then builds `lastdb` / `lastdbd` and
 `lastdb_app_sdk`. `start` runs `lastdbd` in tmux session `lastdbd_dev` against
 `$HOME/.lastdb-dev` (leave `~/.lastdb` alone).

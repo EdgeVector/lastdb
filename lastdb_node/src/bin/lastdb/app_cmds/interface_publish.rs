@@ -268,7 +268,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }
-    let home_env = publish_credentials::home_cloud_environment(home)?;
+    let home_env = lastdb_node::cloud::saved_cloud_environment(home)?;
     let target_env =
         publish_credentials::resolve_target_environment(home, input, flag_env, home_env)?;
     let url = publish_credentials::resolve_registry_url(input, target_env)?;

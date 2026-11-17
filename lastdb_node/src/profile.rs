@@ -16,11 +16,11 @@ pub fn user_hash_from_pubkey(pubkey_b64: &str) -> Result<String, String> {
 /// Registry `spec` object stored on a publication marker that named one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PublicationSpec {
+pub(crate) struct PublicationSpec {
     /// Spec name. This is not a database name.
-    pub name: String,
+    pub(crate) name: String,
     /// Registry version. Catalog label `1.0` is `1`.
-    pub version: u32,
+    pub(crate) version: u32,
 }
 
 impl PublicationSpec {
@@ -38,12 +38,12 @@ fn valid_label(value: &str, max_len: usize) -> bool {
 }
 
 #[must_use]
-pub fn valid_label_64(value: &str) -> bool {
+pub(crate) fn valid_label_64(value: &str) -> bool {
     valid_label(value, 64)
 }
 
 #[must_use]
-pub fn valid_label_128(value: &str) -> bool {
+pub(crate) fn valid_label_128(value: &str) -> bool {
     valid_label(value, 128)
 }
 
@@ -94,11 +94,11 @@ pub mod private_fs {
         Ok(Some(bytes))
     }
 
-    pub fn read_limited(path: &Path, limit: usize) -> io::Result<Option<Vec<u8>>> {
+    pub(crate) fn read_limited(path: &Path, limit: usize) -> io::Result<Option<Vec<u8>>> {
         read_file_limited(path, limit, true)
     }
 
-    pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -127,7 +127,7 @@ pub mod private_fs {
         File::open(parent).and_then(|directory| directory.sync_all())
     }
 
-    pub fn remove_private(path: &Path) -> io::Result<()> {
+    pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                 fs::remove_file(path)?;
@@ -208,7 +208,7 @@ pub mod endpoints {
     }
 
     #[must_use]
-    pub fn environment_for_exemem_api_url(api_url: &str) -> Option<Environment> {
+    pub(crate) fn environment_for_exemem_api_url(api_url: &str) -> Option<Environment> {
         let url = api_url.trim().trim_end_matches('/');
         [Environment::Dev, Environment::Prod]
             .into_iter()
@@ -256,7 +256,7 @@ pub mod endpoints {
         }
 
         #[must_use]
-        pub fn from_env() -> Self {
+        pub(crate) fn from_env() -> Self {
             Self::explicit_from_env()
                 .or_else(|| HOME_ENV.get().copied())
                 .unwrap_or_else(Self::build_default)
@@ -299,14 +299,14 @@ pub mod endpoints {
         }
     }
 
-    pub fn schema_service_url() -> String {
+    pub(crate) fn schema_service_url() -> String {
         let env_url = std::env::var("FOLD_SCHEMA_SERVICE_URL")
             .ok()
             .filter(|u| !u.trim().is_empty());
         env_url.unwrap_or_else(|| schema_service_url_for(Environment::from_env()).to_string())
     }
 
-    pub const fn schema_service_url_for(env: Environment) -> &'static str {
+    pub(crate) const fn schema_service_url_for(env: Environment) -> &'static str {
         match env {
             Environment::Dev => gen::DEV_SCHEMA_SERVICE,
             Environment::Prod => gen::PROD_SCHEMA_SERVICE,
@@ -324,14 +324,15 @@ pub mod endpoints {
 pub mod paths {
     use std::path::{Path, PathBuf};
 
-    pub const LASTDB_DIR: &str = ".lastdb";
-    pub const LASTDB_HOME_ENV: &str = "LASTDB_HOME";
+    pub(crate) const LASTDB_DIR: &str = ".lastdb";
+    pub(crate) const LASTDB_HOME_ENV: &str = "LASTDB_HOME";
 
-    pub fn folddb_home() -> Result<PathBuf, String> {
+    pub(crate) fn folddb_home() -> Result<PathBuf, String> {
         if let Ok(home) = std::env::var(LASTDB_HOME_ENV) {
             return expand_tilde_path(&home);
         }
-        dirs::home_dir()
+        std::env::home_dir()
+            .filter(|p| !p.as_os_str().is_empty())
             .map(|h| h.join(LASTDB_DIR))
             .ok_or_else(|| "Cannot determine home directory".into())
     }

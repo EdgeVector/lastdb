@@ -20,20 +20,19 @@ pub struct VerifiedHomeCredentials {
     pub env: Environment,
     pub api_url: &'static str,
     pub api_key: Zeroizing<String>,
-    pub connection: Option<SavedConnection>,
+    pub(crate) connection: Option<SavedConnection>,
     pub expected_account_id: Option<String>,
 }
 
-pub struct ConnectedHomeContext {
-    pub env: Environment,
-    pub api_url: &'static str,
-    pub api_key: Zeroizing<String>,
-    pub keypair: Arc<Ed25519KeyPair>,
-    pub account_id: AccountId,
-    pub scope: CloudScope,
+pub(crate) struct ConnectedHomeContext {
+    pub(crate) env: Environment,
+    pub(crate) api_url: &'static str,
+    pub(crate) keypair: Arc<Ed25519KeyPair>,
+    pub(crate) account_id: AccountId,
+    pub(crate) scope: CloudScope,
 }
 
-pub fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
+fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
     load_home_keypair(home)?
         .map(|pair| user_hash_from_pubkey(&pair.public_key_base64()))
         .transpose()
@@ -69,7 +68,7 @@ pub fn load_verified_cloud_credentials(
     }))
 }
 
-pub async fn load_connected_home_context(
+pub(crate) async fn load_connected_home_context(
     home: &Path,
     keypair: Option<Arc<Ed25519KeyPair>>,
 ) -> Result<ConnectedHomeContext, String> {
@@ -109,7 +108,6 @@ pub async fn load_connected_home_context(
     Ok(ConnectedHomeContext {
         env: creds.env,
         api_url: creds.api_url,
-        api_key: creds.api_key,
         keypair,
         account_id,
         scope: context.scope,
@@ -135,11 +133,6 @@ fn load_home_keypair(home: &Path) -> Result<Option<Ed25519KeyPair>, String> {
                 .map_err(|_| "invalid home identity.key".into())
         })
         .transpose()
-}
-
-pub fn client_from_home(home: &Path) -> Result<SignedBlobClient, String> {
-    let pair = load_home_keypair(home)?.ok_or("cloud sync needs an initialized home identity")?;
-    client_from_home_with_keypair(home, Arc::new(pair))
 }
 
 pub fn client_from_home_with_keypair(

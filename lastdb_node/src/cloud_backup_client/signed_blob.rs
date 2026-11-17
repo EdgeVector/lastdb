@@ -30,12 +30,12 @@ pub fn canonical_backup_endpoint(auth: AuthClient) -> TransportResult<String> {
 
 /// Verified parameters of one signed `FileMarker` blob upload.
 #[derive(Clone, Copy)]
-pub struct BlobUploadTarget<'a> {
-    pub scope: &'a CloudScope,
-    pub path: &'a BlobPath,
-    pub bytes: DecimalU64,
-    pub sha256: &'a Digest,
-    pub member_revision: u64,
+pub(crate) struct BlobUploadTarget<'a> {
+    pub(crate) scope: &'a CloudScope,
+    pub(crate) path: &'a BlobPath,
+    pub(crate) bytes: DecimalU64,
+    pub(crate) sha256: &'a Digest,
+    pub(crate) member_revision: u64,
 }
 
 /// Dual `X-API-Key` + Ed25519 `LastDBNode` client for account context and cold-blob uploads.
@@ -80,7 +80,7 @@ struct CompleteReply {
 }
 
 impl SignedBlobClient {
-    pub fn from_auth_and_keypair(
+    pub(crate) fn from_auth_and_keypair(
         auth: AuthClient,
         keypair: Arc<Ed25519KeyPair>,
     ) -> TransportResult<Self> {
@@ -97,7 +97,7 @@ impl SignedBlobClient {
     }
 
     #[must_use]
-    pub fn canonical_endpoint(&self) -> String {
+    pub(crate) fn canonical_endpoint(&self) -> String {
         self.transport.api_endpoint("cloud/backups/v2/").to_string()
     }
 
@@ -126,7 +126,7 @@ impl SignedBlobClient {
         Ok(response)
     }
 
-    pub async fn upload_blob(
+    pub(crate) async fn upload_blob(
         &self,
         target: BlobUploadTarget<'_>,
         data: Vec<u8>,

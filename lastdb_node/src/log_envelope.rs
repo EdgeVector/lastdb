@@ -16,7 +16,7 @@ use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use zeroize::Zeroizing;
 
-use crate::host::{owned::Resolved, Host};
+use crate::host::{owned::ResolvedStore, Host};
 use crate::share_invitation::OpenedShareInvitation;
 
 /// Domain mixed into the associated data. It is not stored in the ciphertext.
@@ -30,34 +30,34 @@ const MUTATION_LOG_BLOB_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log
 /// node key. The append body does not carry it, and the receiver reads it
 /// from the stored entry.
 #[derive(Clone, Copy, Debug)]
-pub struct LogBinding<'a> {
-    pub database_id: &'a str,
-    pub writer_key: &'a str,
-    pub writer_device: &'a str,
-    pub writer_seq: u64,
-    pub authored_at_ms: u64,
-    pub namespace: &'a str,
-    pub incorporated_from: Option<IncorporatedRef<'a>>,
+pub(crate) struct LogBinding<'a> {
+    pub(crate) database_id: &'a str,
+    pub(crate) writer_key: &'a str,
+    pub(crate) writer_device: &'a str,
+    pub(crate) writer_seq: u64,
+    pub(crate) authored_at_ms: u64,
+    pub(crate) namespace: &'a str,
+    pub(crate) incorporated_from: Option<IncorporatedRef<'a>>,
 }
 
 /// The incorporated writer, when the entry republishes a contribution.
 #[derive(Clone, Copy, Debug)]
-pub struct IncorporatedRef<'a> {
-    pub writer_key: &'a str,
-    pub writer_device: &'a str,
-    pub writer_seq: u64,
+pub(crate) struct IncorporatedRef<'a> {
+    pub(crate) writer_key: &'a str,
+    pub(crate) writer_device: &'a str,
+    pub(crate) writer_seq: u64,
 }
 
 /// Content key for one database. The bytes are the AES key, not a signing seed.
 #[derive(Clone)]
-pub struct DatabaseContentKey {
+pub(crate) struct DatabaseContentKey {
     bytes: Zeroizing<[u8; 32]>,
     database_id: String,
 }
 
 /// Why a log payload was not sealed or opened.
 #[derive(Debug)]
-pub enum LogEnvelopeError {
+pub(crate) enum LogEnvelopeError {
     InvalidBinding,
     Key,
     NotInvitable,
@@ -101,21 +101,23 @@ impl DatabaseContentKey {
             .map_err(|_| LogEnvelopeError::Key)?;
         let seed = Zeroizing::new(host.keypair.secret_key_bytes());
         match selection {
-            (Resolved::Owner, None) => {
+            ResolvedStore::Owner => {
                 let key = Self::personal(&seed, database_id)?;
                 Ok(Some((Arc::clone(&host.db), key)))
             }
-            (Resolved::Owned, Some(store)) => {
+            ResolvedStore::Owned(store) => {
                 let key = Self::owned(&seed, database_id)?;
                 Ok(Some((store, key)))
             }
-            (Resolved::Absent, None) => Ok(None),
-            _ => Err(LogEnvelopeError::Key),
+            ResolvedStore::Absent => Ok(None),
         }
     }
 
     /// Legacy root store key. Existing backups use this derivation.
-    pub fn personal(node_seed: &[u8; 32], database_id: &str) -> Result<Self, LogEnvelopeError> {
+    pub(crate) fn personal(
+        node_seed: &[u8; 32],
+        database_id: &str,
+    ) -> Result<Self, LogEnvelopeError> {
         let database_id = canonical_id(database_id)?;
         let keys = E2eKeys::from_ed25519_seed(node_seed).map_err(|_| LogEnvelopeError::Key)?;
         let bytes = Zeroizing::new(keys.encryption_key());
@@ -126,7 +128,7 @@ impl DatabaseContentKey {
     }
 
     /// Owned sibling. Uses A's derivation and returns only the AES key.
-    pub fn owned(node_seed: &[u8; 32], database_id: &str) -> Result<Self, LogEnvelopeError> {
+    fn owned(node_seed: &[u8; 32], database_id: &str) -> Result<Self, LogEnvelopeError> {
         let database_id = canonical_id(database_id)?;
         let bytes = crate::host::owned::content_encryption_key(node_seed, &database_id)
             .map_err(|_| LogEnvelopeError::Key)?;
@@ -135,7 +137,9 @@ impl DatabaseContentKey {
     }
 
     /// Receiver key from an opened invitation. It cannot be sealed again.
-    pub fn from_invitation(opened: &OpenedShareInvitation) -> Result<Self, LogEnvelopeError> {
+    pub(crate) fn from_invitation(
+        opened: &OpenedShareInvitation,
+    ) -> Result<Self, LogEnvelopeError> {
         if is_zero(opened.publication_key.deref()) {
             return Err(LogEnvelopeError::Key);
         }
@@ -147,7 +151,7 @@ impl DatabaseContentKey {
 
     /// Database this key opens.
     #[must_use]
-    pub fn database_id(&self) -> &str {
+    pub(crate) fn database_id(&self) -> &str {
         &self.database_id
     }
 
@@ -159,7 +163,7 @@ impl DatabaseContentKey {
 }
 
 /// Seal the canonical record bytes. Empty input is refused.
-pub fn seal(
+pub(crate) fn seal(
     key: &DatabaseContentKey,
     binding: &LogBinding<'_>,
     plaintext: &[u8],
@@ -172,7 +176,7 @@ pub fn seal(
 }
 
 /// Open one envelope. Bytes that are not envelope version 1 are refused.
-pub fn open(
+pub(crate) fn open(
     key: &DatabaseContentKey,
     binding: &LogBinding<'_>,
     ciphertext: &[u8],

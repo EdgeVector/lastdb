@@ -64,7 +64,7 @@ impl PublisherSession {
         let origin = Url::parse(ctx.api_url)
             .map_err(|_| "saved credentials do not match the share publisher and environment")?;
         let seed = Zeroizing::new(ctx.keypair.secret_key_bytes());
-        let publisher = Digest::try_from(hex::encode(ctx.keypair.public_key_bytes()))
+        let publisher = Digest::try_from(fold_db::hex::hex_lower(ctx.keypair.public_key_bytes()))
             .map_err(|_| "invalid share publisher public key")?;
         Ok(Self {
             http: build_shared_http_client()

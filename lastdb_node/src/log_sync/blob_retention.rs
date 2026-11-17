@@ -17,7 +17,9 @@ use crate::database_replay::AcceptedBody;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey};
 
-use super::{apply, cloud::CloudLog, disk, retention::ProviderCleanup, snapshot::transport};
+use super::{
+    cloud::CloudLog, disk, retention::ProviderCleanup, snapshot::transport, stored_binding,
+};
 
 const MAX_BLOBS_PER_REQUEST: usize = 16;
 const MAX_SEGMENT_ENTRIES: usize = 512;
@@ -238,12 +240,7 @@ fn extract(log: &CloudLog, key: &DatabaseContentKey, s: &StoredEntry) -> Option<
     {
         return None;
     }
-    let plain = log_envelope::open(
-        key,
-        &apply::stored_binding(log.database_id(), s),
-        &e.payload,
-    )
-    .ok()?;
+    let plain = log_envelope::open(key, &stored_binding(log.database_id(), s), &e.payload).ok()?;
     let obj = serde_json::from_slice::<AcceptedBody>(&plain)
         .ok()?
         .file?

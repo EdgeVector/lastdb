@@ -22,7 +22,7 @@ use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 use super::cloud::CloudLog;
 use super::disk;
 use super::files;
-use super::retry::{self, Seal};
+use super::session::retry::{self, Seal};
 
 const PENDING_LIMIT: usize = 65_536;
 const PREPARE_FAILED: &str = "the next local write could not be prepared for upload";

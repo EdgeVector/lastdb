@@ -23,6 +23,17 @@ fn require_owner(ctx: &AccessContext, msg: &'static str) -> Result<(), HostError
         .ok_or_else(|| HostError::new(403, msg))
 }
 
+fn require_empty_json_body(body: &[u8], msg: &'static str) -> Result<(), HostError> {
+    if body.is_empty()
+        || serde_json::from_slice::<serde_json::Map<String, Value>>(body)
+            .is_ok_and(|f| f.is_empty())
+    {
+        Ok(())
+    } else {
+        Err(HostError::new(400, msg))
+    }
+}
+
 pub(super) async fn admin_shed(ctx: &AccessContext, host: &Host) -> UdsResponse {
     let rt = host.db.db_ops().native_runtime();
     let flush_err = rt.flush_native().await.err().map(|e| e.to_string());
@@ -79,15 +90,7 @@ pub(super) async fn db_cleanup(req: &UdsRequest, ctx: &AccessContext, host: &Hos
 pub(super) async fn db_flush(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let res = async {
         require_owner(ctx, "the local durability barrier is owner-only")?;
-        if !req.body.is_empty()
-            && !serde_json::from_slice::<serde_json::Map<String, Value>>(&req.body)
-                .is_ok_and(|f| f.is_empty())
-        {
-            return Err(HostError::new(
-                400,
-                "local flush body must be an empty object",
-            ));
-        }
+        require_empty_json_body(&req.body, "local flush body must be an empty object")?;
         let r = host
             .db
             .db_ops()
@@ -296,5 +299,75 @@ pub(super) async fn seed_system(req: &UdsRequest, ctx: &AccessContext, host: &Ho
         Ok(json!({ "system_seed_schema": name, "source": "system_seed" }))
     }
     .await;
+    render(res, ctx)
+}
+
+pub(super) async fn backup_snapshot(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        database: String,
+    }
+    let res = async {
+        require_owner(ctx, "backup snapshot is owner-only")?;
+        if req.method == "GET" {
+            let db = wire::query_value(&req.target, "database").unwrap_or_default();
+            let nonce = wire::query_value(&req.target, "nonce").unwrap_or_default();
+            if db.is_empty() || nonce.is_empty() {
+                return Err(HostError::new(
+                    400,
+                    "database and nonce query parameters are required",
+                ));
+            }
+            cloud_backup_protocol::Id::try_from(db.clone())
+                .map_err(|e| HostError::new(400, e.to_string()))?;
+            if let Some((through, entries)) =
+                crate::log_sync::snapshot_completed(&host.home, &db, &nonce)
+            {
+                return Ok(json!({
+                    "ready": true, "snapshot_through": through,
+                    "log_head": through, "log_entries": entries,
+                }));
+            }
+            return Ok(match crate::log_sync::snapshot_error(&host.home, &db) {
+                Some(error) => json!({ "ready": false, "error": error }),
+                None => json!({ "ready": false }),
+            });
+        }
+        let b: Body = serde_json::from_slice(&req.body)
+            .map_err(|e| HostError::new(400, format!("invalid /api/backup/snapshot body: {e}")))?;
+        let (id, nonce) =
+            crate::log_sync::request_snapshot(&host.home, &b.database).map_err(|e| {
+                let status = if e == "database is not owned by this node" {
+                    404
+                } else if e.starts_with("cannot ") {
+                    503
+                } else {
+                    400
+                };
+                HostError::new(status, e)
+            })?;
+        host.cloud_sync.wake();
+        Ok(json!({ "database_id": id, "nonce": nonce }))
+    }
+    .await;
+    render(res, ctx)
+}
+
+pub(super) fn cloud_wake(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let res = (|| {
+        require_owner(ctx, "cloud wake is owner-only")?;
+        require_empty_json_body(
+            &req.body,
+            "invalid /api/cloud/wake body: expected an empty JSON object",
+        )?;
+        crate::log_sync::ensure_wake(&host.home);
+        host.cloud_sync.wake();
+        Ok(json!({}))
+    })();
     render(res, ctx)
 }

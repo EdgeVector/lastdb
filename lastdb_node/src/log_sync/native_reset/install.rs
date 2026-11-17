@@ -335,7 +335,7 @@ fn identity_matches(home: &Path, origin: &Origin) -> Result<(), String> {
         .map_err(|error| io_error(&error))?
         .ok_or("missing original sync device")?;
     let owner = owned::registered_databases(home).into_iter().next();
-    if hex::encode(pair.public_key_bytes()) != origin.principal
+    if fold_db::hex::hex_lower(pair.public_key_bytes()) != origin.principal
         || std::str::from_utf8(&device).ok().map(str::trim) != Some(origin.device_id.as_str())
         || saved_environment(home, &origin.scope)? != origin.environment
         || !owner.is_some_and(|db| {

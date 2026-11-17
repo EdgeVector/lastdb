@@ -12,10 +12,9 @@ use mutation_log::{DatabaseId, DeviceId, ListPage, LogError};
 use crate::host::{BlockedDelivery, Host};
 
 use super::accepted;
-use super::apply::{self, PagePlan};
 use super::cloud::CloudLog;
 use super::turn::{self, Pause};
-use super::{contributions, http, session, wire, SyncOutcome, SyncState};
+use super::{apply_page, contributions, http, session, wire, PagePlan, SyncOutcome, SyncState};
 
 static SNAPSHOT_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -156,8 +155,7 @@ async fn apply_contiguous(host: &Host, ready: &Ready, after: u64, page: ListPage
 }
 
 async fn apply_and_checkpoint(host: &Host, ready: &Ready, outcome: &SyncOutcome) -> Pause {
-    let plan = match apply::apply_page(host, &ready.log, outcome, ready.publisher.as_deref()).await
-    {
+    let plan = match apply_page(host, &ready.log, outcome, ready.publisher.as_deref()).await {
         Ok(plan) => plan,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", error = %error.message, "pulled page was not applied");

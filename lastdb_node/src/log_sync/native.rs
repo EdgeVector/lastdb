@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::automatic_retention::Pacing;
 use super::cloud::CloudLog;
-use super::http::Proof;
-use super::paths;
+use super::http::{paths, Proof};
 use super::session;
 use super::turn::{self, Pause};
 
@@ -195,17 +194,9 @@ async fn create_view(log: &CloudLog, body: Vec<u8>, database_id: &str) -> Create
         if crate::cloud::is_payment_subscription_error(status, &bytes) {
             return CreateOutcome::PaymentRequired;
         }
-        let detail = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(&bytes)
-            .ok()
-            .map_or_else(
-                || format!("cloud database registration returned HTTP {status}"),
-                |err| {
-                    format!(
-                        "cloud database registration returned HTTP {status} {:?} ({})",
-                        err.code, err.field
-                    )
-                },
-            );
+        let prefix = format!("cloud database registration returned HTTP {status}");
+        let detail = crate::cloud::describe_protocol_error(&bytes)
+            .map_or_else(|| prefix.clone(), |err| format!("{prefix} {err}"));
         return CreateOutcome::Refused(detail);
     }
     if native_body(&bytes, database_id, log.environment()) == NativeView::Live {

@@ -14,7 +14,8 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use super::{
-    ensure_free, registry, snapshot, validate_create, Entry, Kind, OwnedError, Resolved, Tables,
+    ensure_free, registry, snapshot, validate_create, Entry, Kind, OwnedError, ResolvedStore,
+    Tables,
 };
 use crate::profile::PublicationSpec;
 
@@ -73,10 +74,7 @@ impl Tables {
         id: &cloud_backup_protocol::Id,
     ) -> Result<Entry, OwnedError> {
         validate_create(name, None)?;
-        if !matches!(
-            self.registered_store(id.as_str())?,
-            (Resolved::Absent, None)
-        ) {
+        if !matches!(self.registered_store(id.as_str())?, ResolvedStore::Absent) {
             return Err(OwnedError::AlreadyRegistered);
         }
         self.create_registered(

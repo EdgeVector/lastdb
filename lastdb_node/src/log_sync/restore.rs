@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::database_replay::{RestoreError, SnapshotFileRequest};
 
 use super::cloud::CloudLog;
-use super::paths;
+use super::http::paths;
 
 const OBJECT_RANGE: u64 = 180 * 1024;
 

@@ -1,16 +1,17 @@
 //! Account identity, saved cloud/developer credentials, and explicit backup enrollment.
 mod enrollment;
 
+pub(crate) use enrollment::load_connected_home_context;
 pub use enrollment::{
-    account_from_phrase, app_publisher_signing_key, client_from_home,
-    client_from_home_with_keypair, load_connected_home_context, load_home_account_id,
+    account_from_phrase, app_publisher_signing_key, client_from_home_with_keypair,
     load_verified_cloud_credentials, pin_schema_service_environment_from_home,
-    register_native_device, seed_from_phrase, ConnectedHomeContext, VerifiedHomeCredentials,
+    register_native_device, seed_from_phrase, VerifiedHomeCredentials,
 };
 
 use crate::offline_home::read_private_named;
+use crate::profile::endpoints::{environment_for_exemem_api_url, Environment};
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
-use cloud_backup_protocol::{AccountId, Id};
+use cloud_backup_protocol::{AccountId, Id, ProtocolError};
 use rustix::fs::{self as rfs, AtFlags, Mode, OFlags};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fs::File;
@@ -31,10 +32,24 @@ pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
 #[must_use]
 pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
     status == 403
-        && serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(body).is_ok_and(|err| {
+        && serde_json::from_slice::<ProtocolError>(body).is_ok_and(|err| {
             err.code == cloud_backup_protocol::ErrorCode::Unauthorized
                 && err.field == "payment.subscription"
         })
+}
+
+pub(crate) fn format_protocol_error(error: &ProtocolError) -> String {
+    if error.field.is_empty() {
+        format!("{:?}", error.code)
+    } else {
+        format!("{:?} ({})", error.code, error.field)
+    }
+}
+
+pub(crate) fn describe_protocol_error(body: &[u8]) -> Option<String> {
+    serde_json::from_slice::<ProtocolError>(body)
+        .ok()
+        .map(|err| format_protocol_error(&err))
 }
 
 pub(crate) fn first_backup_intent(home: &Path) -> bool {
@@ -82,6 +97,23 @@ impl SavedCredentials {
     pub fn to_json(&self) -> serde_json::Result<Zeroizing<Vec<u8>>> {
         serde_json::to_vec(self).map(Zeroizing::new)
     }
+
+    #[must_use]
+    pub(crate) fn environment(&self) -> Option<Environment> {
+        environment_for_exemem_api_url(&self.api_url).or_else(|| {
+            self.connection
+                .as_ref()
+                .and_then(|c| match c.environment.as_str() {
+                    "dev" => Some(Environment::Dev),
+                    "prod" => Some(Environment::Prod),
+                    _ => None,
+                })
+        })
+    }
+}
+
+pub fn saved_cloud_environment(home: &Path) -> Result<Option<Environment>, String> {
+    Ok(load_saved_credentials(home)?.and_then(|creds| creds.environment()))
 }
 
 fn write_key<S: Serializer>(key: &Zeroizing<String>, s: S) -> Result<S::Ok, S::Error> {

@@ -8,50 +8,50 @@ use serde::Serialize;
 use tokio::sync::{futures::Notified, Notify};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct CloudSyncStatus {
-    pub connected: bool,
-    pub environment: Option<String>,
-    pub captures_accepted: bool,
-    pub payment_hold: bool,
-    pub last_error: Option<String>,
+pub(crate) struct CloudSyncStatus {
+    pub(crate) connected: bool,
+    pub(crate) environment: Option<String>,
+    pub(crate) captures_accepted: bool,
+    pub(crate) payment_hold: bool,
+    pub(crate) last_error: Option<String>,
     /// Last observed synchronization progress by owned personal database ID.
-    pub databases: BTreeMap<String, DatabaseSyncStatus>,
+    pub(crate) databases: BTreeMap<String, DatabaseSyncStatus>,
 }
 
 /// Separate local upload and download progress for one owned database.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub struct DatabaseSyncStatus {
-    pub upload: UploadSyncStatus,
-    pub download: DownloadSyncStatus,
+pub(crate) struct DatabaseSyncStatus {
+    pub(crate) upload: UploadSyncStatus,
+    pub(crate) download: DownloadSyncStatus,
 }
 
 /// Positions in this device's durable upload queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub struct UploadSyncStatus {
-    pub spool_head: Option<u64>,
-    pub spool_confirmed_through: Option<u64>,
-    pub last_error: Option<String>,
+pub(crate) struct UploadSyncStatus {
+    pub(crate) spool_head: Option<u64>,
+    pub(crate) spool_confirmed_through: Option<u64>,
+    pub(crate) last_error: Option<String>,
 }
 
 /// Position in the database's cloud delivery sequence.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-pub struct DownloadSyncStatus {
-    pub applied_through: Option<u64>,
-    pub last_error: Option<String>,
-    pub blocked: Option<BlockedDelivery>,
+pub(crate) struct DownloadSyncStatus {
+    pub(crate) applied_through: Option<u64>,
+    pub(crate) last_error: Option<String>,
+    pub(crate) blocked: Option<BlockedDelivery>,
 }
 
 /// A specific delivery refusing replay while the local cursor stays behind it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub struct BlockedDelivery {
-    pub delivery_sequence: u64,
-    pub reason: ReplayBlockReason,
+pub(crate) struct BlockedDelivery {
+    pub(crate) delivery_sequence: u64,
+    pub(crate) reason: ReplayBlockReason,
 }
 
 /// The local rule preventing a delivered mutation from being acknowledged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ReplayBlockReason {
+pub(crate) enum ReplayBlockReason {
     AttachmentConflict,
     SchemaConflict,
     MissingEarlierRecord,
@@ -222,10 +222,7 @@ fn read_home_connection(home: &Path) -> (bool, Option<String>, Option<String>) {
                 .connection
                 .as_ref()
                 .map(|c| c.environment.clone())
-                .or_else(|| {
-                    crate::profile::endpoints::environment_for_exemem_api_url(&saved.api_url)
-                        .map(|e| e.as_str().to_owned())
-                });
+                .or_else(|| saved.environment().map(|e| e.as_str().to_owned()));
             (true, env, None)
         }
         Ok(None) => (false, None, None),

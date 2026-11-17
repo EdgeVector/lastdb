@@ -44,19 +44,15 @@ clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "process", "io-util", "sync", "time", "rt"] }
-tokio-util = { version = "0.7", features = ["io"] }
 futures = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 libc = "0.2"
-dirs = "6"
-signal-hook-registry = "1"
 # `connect` / cloud-sync deps (pinned like fold_db_node's — reqwest/chrono are
 # deliberately not workspace deps, feature sets diverge per member).
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json", "stream"] }
 chrono = "0.4"
 bip39 = "2"
-hex = "0.4.3"
 # Seal path (mirrors fold_db_node auth_envelope + connection crypto).
 aes-gcm = "0.10"
 hkdf = "0.12"

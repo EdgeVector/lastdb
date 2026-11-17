@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt;
-use tokio_util::io::ReaderStream;
 
 use super::{bootstrap as files, Manifest};
 use crate::cloud_backup_client::build_shared_http_client;
@@ -203,10 +202,9 @@ async fn upload(
     let file = cut
         .open_file(Path::new(entry.path.as_str()))
         .map_err(|error| error.to_string())?;
-    let body = reqwest::Body::wrap_stream(ReaderStream::new(tokio::fs::File::from_std(file)));
     let response = request(client.put(&grant.url), &grant.headers)
         .header(reqwest::header::CONTENT_LENGTH, entry.bytes.get())
-        .body(body)
+        .body(tokio::fs::File::from_std(file))
         .send()
         .await
         .map_err(|_| "snapshot upload did not complete")?;
@@ -365,11 +363,7 @@ fn protocol_failure(action: &str, status: u16, response: &[u8]) -> String {
     if crate::cloud::is_payment_subscription_error(status, response) {
         return crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned();
     }
-    let detail = serde_json::from_slice::<cloud_backup_protocol::ProtocolError>(response)
-        .ok()
-        .map_or_else(
-            || "unknown failure".to_owned(),
-            |error| format!("{:?} ({})", error.code, error.field),
-        );
+    let detail =
+        crate::cloud::describe_protocol_error(response).unwrap_or_else(|| "unknown failure".into());
     format!("{action} returned HTTP {status} {detail}")
 }

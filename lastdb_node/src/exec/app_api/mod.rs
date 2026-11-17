@@ -2,10 +2,12 @@
 
 use std::future::Future;
 
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::KeyValue;
 use serde_json::{json, Value};
 
-use super::reply::{content_free, json_ok, HostError};
-use crate::host::owned::Resolved;
+use super::reply::{content_free, json_ok, status_reason, HostError};
+use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
 use crate::lastdb_uds::uds_router::valid_selector;
@@ -20,6 +22,18 @@ pub(in crate::exec) use write::write_route;
 
 fn bad(message: impl Into<String>) -> HostError {
     HostError::new(400, message)
+}
+
+fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, HostError> {
+    let hash = key
+        .hash
+        .clone()
+        .filter(|hash| !hash.is_empty())
+        .ok_or_else(|| bad("key.hash is required"))?;
+    Ok(match key.range.clone() {
+        Some(range) => HashRangeFilter::HashRangeKey { hash, range },
+        None => HashRangeFilter::HashKey(hash),
+    })
 }
 
 /// The statuses the app API answers with. Every other status maps onto one of them.
@@ -48,19 +62,6 @@ const fn code(status: u16) -> &'static str {
     }
 }
 
-const fn reason(status: u16) -> &'static str {
-    match status {
-        400 => "Bad Request",
-        403 => "Forbidden",
-        404 => "Not Found",
-        409 => "Conflict",
-        413 => "Payload Too Large",
-        503 => "Service Unavailable",
-        507 => "Insufficient Storage",
-        _ => "Internal Server Error",
-    }
-}
-
 fn error_value(error: &HostError) -> Value {
     let status = normalize(error.status);
     let message = if status == 500 {
@@ -79,7 +80,7 @@ fn fail(error: &HostError) -> UdsResponse {
     serde_json::to_vec(&error_value(error)).map_or_else(
         |_| content_free(500, "Internal Server Error"),
         |body| {
-            UdsResponse::new(status, reason(status), body)
+            UdsResponse::new(status, status_reason(status), body)
                 .with_header("Content-Type", "application/json")
         },
     )
@@ -102,17 +103,12 @@ async fn in_database<T>(
     if !valid_selector(selector) {
         return Err(bad("invalid database identifier"));
     }
-    match host.owned.resolve(selector) {
-        Ok((Resolved::Owner, _)) => future.await,
-        Ok((Resolved::Owned, Some(store))) => host.with_records(store, future).await,
-        Ok((Resolved::Absent, None)) => Err(HostError::new(
+    match host.owned.resolve(selector)? {
+        ResolvedStore::Owner => future.await,
+        ResolvedStore::Owned(store) => host.with_records(store, future).await,
+        ResolvedStore::Absent => Err(HostError::new(
             404,
             "database is not on this node; /v1 does not serve a received database yet",
         )),
-        Ok(_) => Err(HostError::new(503, "database registry is unavailable")),
-        Err(error) => {
-            let (status, message) = error.status();
-            Err(HostError::new(status, message))
-        }
     }
 }

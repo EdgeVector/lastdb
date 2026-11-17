@@ -60,16 +60,12 @@ fn decode(req: &UdsRequest) -> Result<SessionRequest, HostError> {
 }
 
 fn allows_write_session(host: &Host, id: &Id) -> Result<bool, HostError> {
-    use crate::host::owned::Resolved;
+    use crate::host::owned::ResolvedStore;
 
-    let (resolved, _) = host.owned.resolve(id.as_str()).map_err(|error| {
-        let (status, reason) = error.status();
-        HostError::new(status, reason)
-    })?;
-    match resolved {
-        Resolved::Owned => Ok(true),
-        Resolved::Owner => Err(HostError::new(404, "a session requires a shared database")),
-        Resolved::Absent => match registered_share::resolve(&host.home, id.as_str()) {
+    match host.owned.resolve(id.as_str())? {
+        ResolvedStore::Owned(_) => Ok(true),
+        ResolvedStore::Owner => Err(HostError::new(404, "a session requires a shared database")),
+        ResolvedStore::Absent => match registered_share::resolve(&host.home, id.as_str()) {
             Ok(Some(share)) => Ok(share.whole_database()
                 && crate::log_sync::received::view(&host.home, id.as_str()).can_submit()),
             Ok(None) => Err(HostError::new(404, "the database is not registered")),

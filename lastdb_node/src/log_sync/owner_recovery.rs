@@ -8,14 +8,14 @@ use mutation_log::{ListPage, LogError};
 use zeroize::Zeroizing;
 
 use crate::database_replay;
-use crate::host::owned::Resolved;
+use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
 use super::cloud::{CloudLog, LogOpen};
-use super::http::{self, Endpoint, Proof};
+use super::http::{self, paths, Endpoint, Proof};
 use super::native::{native_body, NativeView};
-use super::{apply, paths, restore, session, wire};
+use super::{delivered_entry, restore, session, stored_binding, wire};
 
 /// Delivery cursor applied into the fresh home, and the local database name.
 pub struct RecoveredPrefix {
@@ -126,7 +126,7 @@ async fn place(
     through: u64,
 ) -> Result<String, String> {
     match host.owned.registered_store(database_id.as_str()) {
-        Ok((Resolved::Owner, _)) => return Ok("personal".to_owned()),
+        Ok(ResolvedStore::Owner) => return Ok("personal".to_owned()),
         Ok(_) => {}
         Err(error) => return Err(error.status().1.to_owned()),
     }
@@ -162,7 +162,7 @@ async fn owner_envelope(host: &Host, log: &CloudLog, through: u64) -> Result<boo
     owner_opens(
         host,
         log.database_id(),
-        &apply::stored_binding(log.database_id(), stored),
+        &stored_binding(log.database_id(), stored),
         &stored.entry.payload,
     )
 }
@@ -228,7 +228,7 @@ async fn apply_through(log: &CloudLog, mut cursor: u64, through: u64) -> Result<
                 return Err("signed recovery log has a delivery gap".into());
             }
             cursor = stored.delivery_seq;
-            delivered.push(apply::delivered_entry(stored));
+            delivered.push(delivered_entry(stored));
         }
         if delivered.is_empty() || cursor != expected {
             return Err("signed recovery log stopped before the selected head".into());
