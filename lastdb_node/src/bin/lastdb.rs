@@ -6,6 +6,7 @@ mod admin_cmds;
 mod app_cmds;
 #[path = "lastdb/app_registry_index/mod.rs"]
 mod app_registry_index;
+#[path = "lastdb/app_run.rs"]
 mod app_run;
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;
