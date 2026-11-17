@@ -42,11 +42,7 @@ interface AppApiReadBase {
   file?: boolean;
 }
 
-/**
- * One item of `POST /v1/read`. A read of records names `schema` and exactly one
- * of `key` or `range`. With `keys_only: true` and neither, it lists the primary
- * keys of the schema, a page at a time.
- */
+/** One item of POST /v1/read: schema plus key or range; keys_only with neither lists the schema's keys. */
 export type AppApiRead =
   | (AppApiReadBase & { key: KeyValue; range?: never })
   | (AppApiReadBase & { range: AppApiRange; key?: never })
