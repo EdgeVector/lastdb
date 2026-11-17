@@ -318,7 +318,9 @@ the JSON body.
   when the read sets `keys_only: true`, or `{ error: { code, message } }`. A
   per-item error is returned. It is not thrown. Each read names `schema` and
   exactly one of `key` or `range`, and may set `via`, `limit`, `cursor`,
-  `file: true`, and `keys_only: true`.
+  `file: true`, and `keys_only: true`. A read with `keys_only: true` and
+  neither `key` nor `range` lists the primary keys of the schema; follow
+  `next_cursor` for the next page.
 - `write(mutations)` posts `{ mutations }` to `POST /v1/write` and returns
   `{ written, revisions }` after the write is on disk. `create` carries
   `record` and optional `alternates` and `file`. `replace` adds `revision`.
