@@ -41,6 +41,12 @@ pub(crate) fn profile(
         format!("(deny file-read* file-write* (subpath {}))", quoted(home)),
         format!("(deny file-read* file-write* (subpath {}))", quoted(apps)),
         format!("(allow file-read* (subpath {}))", quoted(&own)),
+        // `mkdir -p` and path resolution stat every folder on the way to the
+        // app's own tree. Without this a step that creates a folder inside
+        // its data folder fails on the apps root itself. Only the metadata
+        // of that one folder is readable: its listing, which names the
+        // other installed apps, stays denied.
+        format!("(allow file-read-metadata (literal {}))", quoted(apps)),
         "(deny file-write* (subpath \"/\"))".to_owned(),
         format!("(allow file-write* (subpath {}))", quoted(app_data)),
         "(allow file-write* (literal \"/dev/null\") (literal \"/dev/tty\") \

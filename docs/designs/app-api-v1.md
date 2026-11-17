@@ -233,7 +233,9 @@ directly.
 - On macOS the program runs inside a sandbox profile. The profile denies the
   LastDB home, every other installed app's files, every socket in the home
   other than the app socket, reading other processes, and signalling them.
-  The app's own install tree stays readable.
+  The app's own install tree stays readable. The folder that holds all installed
+  apps can be stat'ed, so a path into the app's own tree resolves, but it cannot
+  be listed.
 - The profile denies every write. An app writes only inside its own data
   folder, `<apps root>/<app>/data`, which the launcher creates and names in
   `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app cannot write a config
