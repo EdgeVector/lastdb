@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use tracing::Instrument;
 
+use crate::host::cloud_sync::ProgressMark;
 use crate::host::owned::{registered_databases, RegisteredDatabase};
 use crate::host::Host;
 
@@ -18,6 +19,11 @@ use super::session;
 
 const SHUTDOWN_CHECK: Duration = Duration::from_millis(250);
 const FALLBACK_MARKER_CHECK: Duration = Duration::from_secs(30);
+/// Idle turns that still pause one second, so a database in use stays brisk.
+const BRISK_IDLE_TURNS: u32 = 5;
+/// The longest idle pause. Every node of every member polls, so an idle node
+/// must not ask the service once a second.
+const IDLE_PAUSE_MAX_SECS: u64 = 60;
 
 static UNARMED_REOPEN_WARNED: AtomicBool = AtomicBool::new(false);
 
@@ -44,6 +50,7 @@ pub fn spawn(
     tokio::spawn(
         async move {
             let mut cleanup = Pacing::default();
+            let mut quiet = Quiet::default();
             while !shutdown.load(Ordering::Acquire) {
                 let pause = one_turn(&host, &mut cleanup).await;
                 if matches!(pause, Pause::Reopen) {
@@ -51,11 +58,58 @@ pub fn spawn(
                     shutdown.store(true, Ordering::Release);
                     break;
                 }
-                sleep_interruptible(&host, &shutdown, pause).await;
+                let idle = quiet.observe(host.cloud_sync.progress_marks());
+                if sleep_interruptible(&host, &shutdown, pause, idle).await {
+                    quiet.woken();
+                }
             }
         }
         .in_current_span(),
     )
+}
+
+/// How many turns in a row moved nothing.
+///
+/// A turn that uploads or applies anything changes a sync position. While the
+/// positions stand still the idle pause grows from one second to a minute. A
+/// local write or a wake marker ends the pause at once and makes the next
+/// pauses short again.
+#[derive(Default)]
+struct Quiet {
+    marks: Option<Vec<ProgressMark>>,
+    turns: u32,
+}
+
+impl Quiet {
+    fn observe(&mut self, marks: Vec<ProgressMark>) -> Duration {
+        if self.marks.as_ref() == Some(&marks) {
+            self.turns = self.turns.saturating_add(1);
+        } else {
+            self.turns = 0;
+            self.marks = Some(marks);
+        }
+        idle_pause(self.turns)
+    }
+
+    fn woken(&mut self) {
+        self.turns = 0;
+    }
+}
+
+/// One second for the first few quiet turns, then doubling up to the maximum.
+/// The longer pauses vary by a fifth, so nodes that went quiet together do not
+/// all return in the same instant.
+fn idle_pause(quiet_turns: u32) -> Duration {
+    let doublings = quiet_turns.saturating_sub(BRISK_IDLE_TURNS).min(6);
+    let secs = (1_u64 << doublings).min(IDLE_PAUSE_MAX_SECS);
+    if secs == 1 {
+        return Duration::from_secs(1);
+    }
+    let spread = secs * 200;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::from(since.subsec_nanos()));
+    Duration::from_millis(secs * 1000 - spread / 2 + nanos % spread)
 }
 
 async fn one_turn(host: &Arc<Host>, cleanup: &mut Pacing) -> Pause {
@@ -251,10 +305,17 @@ pub(super) fn warn_once(flag: &AtomicBool, message: &str) {
     }
 }
 
-async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
+/// Sleep for the pause. Returns true when a local write, a wake marker, or a
+/// shutdown ended the sleep before its time.
+async fn sleep_interruptible(
+    host: &Host,
+    shutdown: &AtomicBool,
+    pause: Pause,
+    idle: Duration,
+) -> bool {
     let duration = match pause {
-        Pause::Reopen => return,
-        Pause::Idle => Duration::from_secs(1),
+        Pause::Reopen => return false,
+        Pause::Idle => idle,
         Pause::Retry => Duration::from_secs(5),
         Pause::Snapshot => Duration::from_secs(30),
         Pause::Backoff => Duration::from_secs(60),
@@ -263,23 +324,26 @@ async fn sleep_interruptible(host: &Host, shutdown: &AtomicBool, pause: Pause) {
     let deadline = Instant::now() + duration;
     let mut notified = std::pin::pin!(host.cloud_sync.notified());
     if notified.as_mut().enable() {
-        return;
+        return true;
     }
     if shutdown.load(Ordering::Acquire) || session::wake_requested(&host.home) {
-        return;
+        return true;
     }
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return;
+            return false;
         }
         tokio::select! {
             biased;
-            () = wait_for_shutdown(shutdown) => return,
-            () = &mut notified => return,
+            () = wait_for_shutdown(shutdown) => return true,
+            () = &mut notified => return true,
             () = tokio::time::sleep(remaining.min(FALLBACK_MARKER_CHECK)) => {
-                if Instant::now() >= deadline || session::any_wake_marker(&host.home) {
-                    return;
+                if session::any_wake_marker(&host.home) {
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    return false;
                 }
             }
         }

@@ -67,6 +67,9 @@ impl ReplayBlockReason {
     }
 }
 
+/// One database's sync positions: upload head, upload confirmed, download applied.
+pub(crate) type ProgressMark = (String, Option<u64>, Option<u64>, Option<u64>);
+
 pub(crate) struct CloudSyncTracker {
     state: Mutex<CloudSyncStatus>,
     wake_notify: Arc<Notify>,
@@ -94,6 +97,23 @@ impl CloudSyncTracker {
 
     pub(crate) fn notified(&self) -> Notified<'_> {
         self.wake_notify.notified()
+    }
+
+    /// The sync positions of every tracked database. Two equal values from
+    /// consecutive turns mean the later turn uploaded and applied nothing.
+    pub(crate) fn progress_marks(&self) -> Vec<ProgressMark> {
+        self.lock()
+            .databases
+            .iter()
+            .map(|(id, status)| {
+                (
+                    id.clone(),
+                    status.upload.spool_head,
+                    status.upload.spool_confirmed_through,
+                    status.download.applied_through,
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn refresh(&self, home: &Path, captures_accepted: bool) {
