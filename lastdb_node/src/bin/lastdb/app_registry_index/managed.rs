@@ -128,6 +128,16 @@ fn stage_version(
     if !resolution.trust.starts_with("pinned:") {
         return Err("managed activation requires the pinned registry key".into());
     }
+    if let Some(access) = &entry.access {
+        let unknown = access.unknown_features();
+        if !unknown.is_empty() {
+            return Err(format!(
+                "app '{}' asks for LastDB features this node does not have: {}",
+                entry.app_id,
+                unknown.join(", ")
+            ));
+        }
+    }
     fs::create_dir_all(stage).map_err(|e| {
         format!(
             "failed to create install directory {}: {e}",
@@ -137,7 +147,7 @@ fn stage_version(
     let source = stage.join("source");
     managed_manifest::clone_source(&source, entry)?;
     let plan = InstallPlan::load(&source, &entry.app_id)?;
-    let hash = plan.consent_hash()?;
+    let hash = plan.consent_hash(entry.access.as_ref())?;
     if prior.is_some_and(|r| {
         r.publisher != entry.publisher_key && !super::authorized_transition(r, resolution)
     }) {
@@ -145,8 +155,12 @@ fn stage_version(
     }
     if prior.is_none_or(|r| r.consent_hash != hash || r.inactive != inactive) && !accept_install {
         let pretty = serde_json::to_string_pretty(&plan).map_err(str_err)?;
+        let access = match &entry.access {
+            Some(a) => serde_json::to_string_pretty(a).map_err(str_err)?,
+            None => "none declared".to_string(),
+        };
         eprintln!(
-            "Install consent for {} (publisher {}): {pretty}",
+            "Install consent for {} (publisher {}): {pretty}\nLastDB access: {access}",
             entry.app_id, entry.publisher_key
         );
         return Err("review install instructions and repeat with --accept-install".into());
@@ -187,7 +201,7 @@ pub fn verify(
 ) -> Result<(), String> {
     let src = root.join("current/source");
     let plan = InstallPlan::load(&src, &current.app_id)?;
-    if plan.consent_hash()? != current.consent_hash {
+    if plan.consent_hash(current.listing.access.as_ref())? != current.consent_hash {
         return Err("install manifest changed since consent".into());
     }
     managed_manifest::verify(root, &plan)?;
