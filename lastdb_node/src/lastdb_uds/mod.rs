@@ -18,8 +18,8 @@ pub(crate) mod uds_router;
 
 use uds_router::{bind_socket_listener, record_fd_exhaustion};
 pub use uds_router::{
-    preflight_data_dir, socket_path, split_database_path, valid_selector, CLOUD_WAKE_PATH,
-    DATABASES_PATH, DATABASE_SCOPE_PREFIX, SOCKET_FILE_NAME,
+    preflight_data_dir, socket_path, split_database_path, valid_selector, APP_SOCKET_FILE_NAME,
+    CLOUD_WAKE_PATH, DATABASES_PATH, DATABASE_SCOPE_PREFIX, SOCKET_FILE_NAME,
 };
 
 pub const DEFAULT_CLI_UDS_TIMEOUT_SECS: u64 = 30;

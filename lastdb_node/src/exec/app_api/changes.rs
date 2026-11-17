@@ -6,7 +6,7 @@ use fold_db::db_operations::CHANGES_PAGE;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{bad, fail, in_database, ok};
+use super::{bad, declared_reads, fail, in_database, ok, require_extension, require_read};
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
 use crate::host::Host;
@@ -37,10 +37,28 @@ pub(in crate::exec) async fn changes_route(
 }
 
 async fn changes(host: &Host, body: &[u8]) -> Result<Value, HostError> {
-    let request: ChangesBody = serde_json::from_slice(body)
+    require_extension("changes")?;
+    let mut request: ChangesBody = serde_json::from_slice(body)
         .map_err(|error| bad(format!("invalid /v1/x/changes body: {error}")))?;
     if request.schemas.iter().any(String::is_empty) {
         return Err(bad("a schema name must not be empty"));
+    }
+    // An app sees only the schemas it declared it reads. Without a filter it
+    // gets all of those, and never the whole list.
+    if request.schemas.is_empty() {
+        if let Some(declared) = declared_reads() {
+            if declared.is_empty() {
+                return Err(HostError::new(
+                    403,
+                    "the app declared no schema that it reads",
+                ));
+            }
+            request.schemas = declared;
+        }
+    } else {
+        for schema in &request.schemas {
+            require_read(schema)?;
+        }
     }
     // Zero reads the head without entries.
     let limit = request.limit.map_or(CHANGES_PAGE, |n| n.min(CHANGES_PAGE));

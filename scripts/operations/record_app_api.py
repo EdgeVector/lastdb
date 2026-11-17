@@ -251,6 +251,58 @@ def extension_names(node):
     print("App API extensions: GET /api/version reports [changes]", flush=True)
 
 
+def app_socket(node):
+    """The app socket serves only the app API, to an app session, within what the app declared."""
+    sock = Path(node.socket).with_name("apps.sock")
+
+    def session(read, write, extensions):
+        access = {"read": read, "write": write, "extensions": extensions}
+        return node.call("/api/apps/session", {"app": "exercise", "access": access})[0]["session"]
+
+    def call(token, path, body=None):
+        headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["X-LastDB-App-Session"] = token
+        status, raw, _, _, _ = send_unix_request(sock, "GET" if body is None else "POST", path, body, headers)
+        return status, json.loads(raw)
+
+    def refused(token, path, body, status, code):
+        got, reply = call(token, path, body)
+        require(got == status and reply["error"]["code"] == code,
+                f"the app socket did not refuse {path} with {status} {code}: {got} {reply!r}")
+
+    plain = session([BY_ID], [BY_BUCKET], [])
+    reads = {"reads": [{"schema": BY_ID, "key": {"hash": "dup"}},
+                       {"schema": BY_BUCKET, "key": {"hash": "bk", "range": "a"}}]}
+    status, reply = call(plain, "/v1/read", reads)
+    require(status == 200 and len(reply["results"][0]["records"]) == 1
+            and reply["results"][1]["error"]["code"] == "permission_denied",
+            f"the app socket did not hold a read to the declared schemas: {status} {reply!r}")
+    status, reply = call(plain, "/v1/write", {"mutations": [
+        create(BY_BUCKET, {"hash": "sock", "range": "1"}, {"id": "1", "bucket": "sock", "value": "v"})]})
+    require(status == 200 and reply["written"] == 1, f"a declared write was refused: {status} {reply!r}")
+    refused(plain, "/v1/write", {"mutations": [by_id("sock", "b1", "v")]}, 403, "permission_denied")
+    require(value_of(node, "sock") is None, "an undeclared write wrote a record")
+    refused(plain, "/v1/x/changes", {"limit": 0}, 403, "permission_denied")
+    refused(plain, "/api/version", None, 404, "not_found")
+    refused(plain, "/api/query", {"schema_name": BY_ID, "filter": {"HashKey": "dup"}}, 404, "not_found")
+    refused(plain, "/api/apps/session", {"app": "exercise"}, 404, "not_found")
+    refused(None, "/v1/read", reads, 403, "permission_denied")
+    refused("0" * 64, "/v1/read", reads, 403, "permission_denied")
+
+    follower = session([BY_ID], [], ["changes"])
+    head = changed(node, limit=0)["head"]
+    write(node, create(BY_BUCKET, {"hash": "sock", "range": "2"}, {"id": "2", "bucket": "sock", "value": "v"}),
+          by_id("sock-follow", "b1", "v"))
+    status, page = call(follower, "/v1/x/changes", {"after": head})
+    got = [(entry["schema"], entry["key"]["hash"]) for entry in page.get("changes", [])]
+    require(status == 200 and got == [(BY_ID, "sock-follow")],
+            f"changes on the app socket was not limited to the declared schemas: {status} {page!r}")
+    refused(follower, "/v1/x/changes", {"after": head, "schemas": [BY_BUCKET]}, 403, "permission_denied")
+    print("App socket: only the app API, only with an app session, and only the declared "
+          "schemas and extensions", flush=True)
+
+
 def exercise(node):
     extension_names(node)
     system_seed(node, definition(BY_ID, "Hash", FIELDS, {"by_bucket": RANGED}))
@@ -261,6 +313,7 @@ def exercise(node):
     refusals(node)
     files(node)
     changes(node)
+    app_socket(node)
 
 
 def named_database(node, database):

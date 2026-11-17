@@ -6,6 +6,7 @@ use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::KeyValue;
 use serde_json::{json, Value};
 
+use super::app_session::active_app;
 use super::reply::{content_free, json_ok, status_reason, HostError};
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
@@ -88,6 +89,53 @@ fn fail(error: &HostError) -> UdsResponse {
 
 fn ok(body: &Value) -> UdsResponse {
     json_ok(body)
+}
+
+/// A refusal in the app API's one error shape, for the app socket itself.
+pub(in crate::exec) fn refuse(status: u16, message: &str) -> UdsResponse {
+    fail(&HostError::new(status, message))
+}
+
+/// On the app socket an app reads only the schemas it declared it reads.
+/// The owner socket carries no app and is not limited.
+fn require_read(schema: &str) -> Result<(), HostError> {
+    match active_app() {
+        Some(app) if !app.read.contains(schema) => Err(HostError::new(
+            403,
+            format!("the app {} did not declare that it reads {schema}", app.app),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// On the app socket an app writes only the schemas it declared it writes.
+fn require_write(schema: &str) -> Result<(), HostError> {
+    match active_app() {
+        Some(app) if !app.write.contains(schema) => Err(HostError::new(
+            403,
+            format!(
+                "the app {} did not declare that it writes {schema}",
+                app.app
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// On the app socket an app uses only the extensions it declared.
+fn require_extension(name: &str) -> Result<(), HostError> {
+    match active_app() {
+        Some(app) if !app.extensions.contains(name) => Err(HostError::new(
+            403,
+            format!("the app {} did not declare the extension {name}", app.app),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// The schemas the calling app declared it reads. `None` on the owner socket.
+fn declared_reads() -> Option<Vec<String>> {
+    active_app().map(|app| app.read.iter().cloned().collect())
 }
 
 /// Run `future` against the database an item names. Without an identifier the
