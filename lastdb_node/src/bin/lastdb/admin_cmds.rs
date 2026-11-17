@@ -16,13 +16,26 @@ use std::time::{Duration, Instant};
 pub(crate) struct DatabaseTarget {
     pub(crate) socket: PathBuf,
     pub(crate) selector: Option<String>,
+    /// A received database. `/v1` does not serve one, so record commands keep the old routes.
+    pub(crate) received: bool,
 }
 
 impl DatabaseTarget {
     pub(crate) fn open(data_dir: Option<PathBuf>, selector: Option<&str>) -> Result<Self, String> {
         let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-        let selector = selector.map(|v| resolve_database(&socket, v)).transpose()?;
-        Ok(Self { socket, selector })
+        let resolved = selector
+            .map(|value| resolve_database(&socket, value))
+            .transpose()?;
+        let (selector, received) = if let Some((id, received)) = resolved {
+            (Some(id), received)
+        } else {
+            (None, false)
+        };
+        Ok(Self {
+            socket,
+            selector,
+            received,
+        })
     }
 
     pub(crate) fn path<'p>(&self, path: &'p str) -> Cow<'p, str> {
@@ -41,24 +54,38 @@ fn fetch_databases(socket: &Path) -> Result<Value, String> {
     parse_json_response(&raw, "database list")
 }
 
-fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
+fn resolve_database(socket: &Path, selector: &str) -> Result<(String, bool), String> {
     if !valid_selector(selector) {
         return Err("invalid database ID or name".into());
     }
-    if selector == "personal" || cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
-        return Ok(selector.to_owned());
+    if selector == "personal" {
+        return Ok((selector.to_owned(), false));
     }
-    fetch_databases(socket)?["databases"]
+    let rows = fetch_databases(socket)?["databases"]
         .as_array()
-        .ok_or("missing database list")?
+        .cloned()
+        .ok_or("missing database list")?;
+    if let Some(db) = rows
         .iter()
-        .find_map(|db| {
-            (db["name"].as_str() == Some(selector)).then_some(())?;
-            let id = db["id"].as_str()?;
-            cloud_backup_protocol::Id::try_from(id.to_owned()).ok()?;
-            Some(id.to_owned())
-        })
-        .ok_or_else(|| "database is not registered on this node".into())
+        .find(|db| db["id"].as_str() == Some(selector) || db["name"].as_str() == Some(selector))
+    {
+        return resolved_row(selector, db);
+    }
+    if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+        return Ok((selector.to_owned(), false));
+    }
+    Err("database is not registered on this node".into())
+}
+
+fn resolved_row(selector: &str, db: &Value) -> Result<(String, bool), String> {
+    let received = db["kind"].as_str() == Some("received");
+    if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+        return Ok((selector.to_owned(), received));
+    }
+    let id = db["id"].as_str().ok_or("missing database list")?;
+    cloud_backup_protocol::Id::try_from(id.to_owned())
+        .map_err(|_| "database is not registered on this node".to_string())?;
+    Ok((id.to_owned(), received))
 }
 
 pub(super) fn list_databases(data_dir: Option<PathBuf>, json_only: bool) -> Result<(), String> {
