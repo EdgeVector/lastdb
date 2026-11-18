@@ -421,18 +421,20 @@ jobs:
           test -s "$root/apps/brain/last-checked"
           echo "The registry poll reported the missing Brain index, processed LastSecrets, and resumed Brain when its signed index returned." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Start Brain while the node is stopped
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+      - name: Start LastSecrets while the node is stopped
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
-          # The installed brain command is the launcher. With the node stopped
-          # it must still start Brain. Brain then reports that its socket is
-          # not reachable. A launcher refusal names registration or the owner
+          # Published LastSecrets declares LastDB access, so its command link
+          # is the launcher. Published Brain does not, and its command is the
+          # program. With the node stopped the launcher must still start
+          # LastSecrets. LastSecrets then reports that its socket is not
+          # reachable. A launcher refusal names registration or the owner
           # socket connect, and this step fails on that text.
-          target="$(readlink "$HOME/.local/bin/brain")"
+          target="$(readlink "$HOME/.local/bin/lastsecrets")"
           case "$target" in
             lastdb|*/lastdb) ;;
-            *) echo "brain does not point at the launcher: $target"; exit 1 ;;
+            *) echo "lastsecrets does not point at the launcher: $target"; exit 1 ;;
           esac
           kill "$LASTDBD_PID" 2>/dev/null || true
           for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -452,29 +454,27 @@ jobs:
 
           try:
               result = subprocess.run(
-                  ["brain", "list"],
+                  ["lastsecrets", "list"],
                   capture_output=True,
                   text=True,
                   timeout=60,
               )
           except subprocess.TimeoutExpired:
-              sys.stderr.write("brain list did not finish while the node was stopped\n")
+              sys.stderr.write("lastsecrets list did not finish while the node was stopped\n")
               sys.exit(1)
           text = (result.stdout or "") + (result.stderr or "")
-          path = os.environ["PROOF_DIR"] + "/brain-node-down.txt"
+          path = os.environ["PROOF_DIR"] + "/lastsecrets-node-down.txt"
           with open(path, "w", encoding="utf-8") as handle:
               handle.write(text)
           launcher = (
               "app registration",
               "the node returned no app id",
               "failed to connect to daemon socket",
-              "could not start brain",
+              "could not start lastsecrets",
           )
-          if result.returncode == 0 or not any(
-              phrase in text for phrase in ("not reachable", "node unreachable", "node not running")
-          ):
+          if result.returncode == 0 or "not reachable" not in text:
               sys.stderr.write(text)
-              sys.stderr.write("brain did not report that the node is unreachable\n")
+              sys.stderr.write("lastsecrets did not report that the node is unreachable\n")
               sys.exit(1)
           if any(phrase in text for phrase in launcher):
               sys.stderr.write(text)
